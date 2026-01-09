@@ -110,6 +110,9 @@ export class DiagramManager {
         path,
         lastModified: stats.mtimeMs,
       });
+    }).catch(error => {
+      console.error(`Failed to update index for ${id}:`, error);
+      // Optionally: this.index.delete(id);
     });
   }
 
