@@ -1,0 +1,15 @@
+graph TD
+    A[Start Server] --> B[Dashboard Loads]
+    B --> C{Diagram List?}
+    C -->|Yes| D[Show Thumbnails]
+    C -->|No| E[Empty State]
+    D --> F[Click Diagram]
+    F --> G[Editor Opens]
+    G --> H[Edit Content]
+    H --> I[Auto-save]
+    I --> J{Valid?}
+    J -->|Yes| K[WebSocket Broadcast]
+    J -->|No| L[Show Error]
+    K --> M[Other Browsers Update]
+    M --> N[Success]
+    L --> H
