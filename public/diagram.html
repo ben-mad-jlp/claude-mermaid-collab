@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Diagram Editor</title>
+  <link rel="stylesheet" href="/css/styles.css">
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+    }
+
+    .editor-container {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 12px 20px;
+      background: white;
+      border-bottom: 1px solid #ddd;
+      flex-shrink: 0;
+    }
+
+    .diagram-title {
+      font-size: 16px;
+      font-weight: 600;
+      flex: 1;
+    }
+
+    .toolbar-group {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    button {
+      padding: 8px 16px;
+      border: 1px solid #ddd;
+      background: white;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    button:hover {
+      background: #f5f5f5;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    select {
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+
+    .error-banner {
+      padding: 12px 20px;
+      background: #ffebee;
+      color: #c62828;
+      border-bottom: 1px solid #ef9a9a;
+      display: none;
+    }
+
+    .error-banner.visible {
+      display: block;
+    }
+
+    .split-pane {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .editor-pane {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid #ddd;
+    }
+
+    .editor-textarea {
+      flex: 1;
+      padding: 16px;
+      border: none;
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+      resize: none;
+      outline: none;
+    }
+
+    .preview-pane {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #fafafa;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .preview-container {
+      width: 100%;
+      height: 100%;
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/@panzoom/panzoom@4.5.1/dist/panzoom.min.js"></script>
+</head>
+<body>
+  <div class="editor-container">
+    <div class="toolbar">
+      <div class="diagram-title" id="title">Loading...</div>
+
+      <div class="toolbar-group">
+        <label>Theme:</label>
+        <select id="theme">
+          <option value="default">Default</option>
+          <option value="dark">Dark</option>
+          <option value="forest">Forest</option>
+          <option value="neutral">Neutral</option>
+        </select>
+      </div>
+
+      <div class="toolbar-group">
+        <button id="undo" disabled>Undo</button>
+        <button id="redo" disabled>Redo</button>
+      </div>
+
+      <div class="toolbar-group">
+        <button id="export-svg">Export SVG</button>
+        <button id="export-png">Export PNG</button>
+        <button id="copy-code">Copy Code</button>
+      </div>
+
+      <div class="connection-status disconnected" id="status">
+        <span class="status-dot"></span>
+        <span id="status-text">Disconnected</span>
+      </div>
+    </div>
+
+    <div class="error-banner" id="error"></div>
+
+    <div class="split-pane">
+      <div class="editor-pane">
+        <textarea class="editor-textarea" id="editor" placeholder="Enter mermaid diagram code..."></textarea>
+      </div>
+
+      <div class="preview-pane">
+        <div class="preview-container" id="preview"></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs"></script>
+  <script src="/js/api-client.js"></script>
+  <script src="/js/editor.js"></script>
+</body>
+</html>
