@@ -75,10 +75,33 @@ const server = Bun.serve({
       return handleAPI(req, diagramManager, validator, renderer);
     }
 
-    // Static files (will add in next task)
+    // Static files
     if (url.pathname === '/') {
-      return new Response('Dashboard coming soon', {
-        headers: { 'Content-Type': 'text/plain' },
+      const file = Bun.file('public/index.html');
+      return new Response(file);
+    }
+
+    if (url.pathname === '/diagram.html') {
+      const file = Bun.file('public/diagram.html');
+      return new Response(file);
+    }
+
+    if (url.pathname.startsWith('/css/') || url.pathname.startsWith('/js/')) {
+      const file = Bun.file(`public${url.pathname}`);
+      const exists = await file.exists();
+
+      if (!exists) {
+        return new Response('Not found', { status: 404 });
+      }
+
+      const contentType = url.pathname.endsWith('.css')
+        ? 'text/css'
+        : url.pathname.endsWith('.js')
+        ? 'application/javascript'
+        : 'text/plain';
+
+      return new Response(file, {
+        headers: { 'Content-Type': contentType },
       });
     }
 

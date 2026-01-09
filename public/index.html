@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mermaid Collaboration - Dashboard</title>
+  <link rel="stylesheet" href="/css/styles.css">
+  <style>
+    .diagram-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 20px;
+    }
+
+    .diagram-card {
+      background: white;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .diagram-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    }
+
+    .diagram-thumbnail {
+      width: 100%;
+      height: 180px;
+      background: #fafafa;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .diagram-thumbnail img {
+      max-width: 100%;
+      max-height: 100%;
+    }
+
+    .diagram-info {
+      padding: 16px;
+    }
+
+    .diagram-name {
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .diagram-meta {
+      font-size: 12px;
+      color: #666;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Mermaid Diagrams</h1>
+      <div class="connection-status disconnected" id="status">
+        <span class="status-dot"></span>
+        <span id="status-text">Disconnected</span>
+      </div>
+    </div>
+
+    <input
+      type="text"
+      class="search-box"
+      placeholder="Search diagrams..."
+      id="search"
+    >
+
+    <div class="diagram-grid" id="grid"></div>
+    <div class="empty-state" id="empty" style="display: none;">
+      No diagrams found. Create one using the MCP tools!
+    </div>
+  </div>
+
+  <script src="/js/api-client.js"></script>
+  <script src="/js/dashboard.js"></script>
+</body>
+</html>
