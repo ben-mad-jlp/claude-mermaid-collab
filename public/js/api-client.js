@@ -147,4 +147,4 @@ class APIClient {
   }
 }
 
-window.APIClient = APIClient;
+export default APIClient;

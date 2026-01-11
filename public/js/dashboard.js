@@ -1,3 +1,5 @@
+import APIClient from './api-client.js';
+
 const api = new APIClient();
 let diagrams = [];
 
