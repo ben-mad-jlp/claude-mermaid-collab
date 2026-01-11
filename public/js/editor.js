@@ -23,6 +23,10 @@ const redoBtn = document.getElementById('redo');
 const exportSvgBtn = document.getElementById('export-svg');
 const exportPngBtn = document.getElementById('export-png');
 const copyCodeBtn = document.getElementById('copy-code');
+const zoomInBtn = document.getElementById('zoom-in');
+const zoomOutBtn = document.getElementById('zoom-out');
+const zoomResetBtn = document.getElementById('zoom-reset');
+const zoomLevel = document.getElementById('zoom-level');
 const status = document.getElementById('status');
 const statusText = document.getElementById('status-text');
 
@@ -33,6 +37,7 @@ let saveTimeout = null;
 let undoStack = [];
 let redoStack = [];
 let panzoomInstance = null;
+let currentScale = 1;
 
 // Load diagram
 async function loadDiagram() {
@@ -72,6 +77,16 @@ async function renderPreview() {
 
       // Mouse wheel zoom (works without Ctrl key)
       preview.addEventListener('wheel', panzoomInstance.zoomWithWheel);
+
+      // Track zoom changes
+      svgElement.addEventListener('panzoomchange', (event) => {
+        currentScale = event.detail.scale;
+        updateZoomDisplay();
+      });
+
+      // Initialize zoom display
+      currentScale = 1;
+      updateZoomDisplay();
     }
 
     hideError();
@@ -198,6 +213,30 @@ function copyCode() {
   }, 2000);
 }
 
+// Zoom controls
+function updateZoomDisplay() {
+  const percent = Math.round(currentScale * 100);
+  zoomLevel.textContent = `${percent}%`;
+}
+
+function zoomIn() {
+  if (panzoomInstance) {
+    panzoomInstance.zoomIn();
+  }
+}
+
+function zoomOut() {
+  if (panzoomInstance) {
+    panzoomInstance.zoomOut();
+  }
+}
+
+function zoomReset() {
+  if (panzoomInstance) {
+    panzoomInstance.reset();
+  }
+}
+
 // Event listeners
 editor.addEventListener('input', (e) => {
   const newContent = e.target.value;
@@ -219,6 +258,9 @@ redoBtn.addEventListener('click', redo);
 exportSvgBtn.addEventListener('click', exportSVG);
 exportPngBtn.addEventListener('click', exportPNG);
 copyCodeBtn.addEventListener('click', copyCode);
+zoomInBtn.addEventListener('click', zoomIn);
+zoomOutBtn.addEventListener('click', zoomOut);
+zoomResetBtn.addEventListener('click', zoomReset);
 
 // WebSocket
 api.onStatusChange((newStatus) => {
