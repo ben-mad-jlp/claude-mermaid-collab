@@ -72,7 +72,7 @@ const server = Bun.serve({
 
     // API routes
     if (url.pathname.startsWith('/api/')) {
-      return handleAPI(req, diagramManager, validator, renderer);
+      return handleAPI(req, diagramManager, validator, renderer, wsHandler);
     }
 
     // Static files

@@ -55,22 +55,23 @@ async function renderPreview() {
     const { svg } = await mermaid.render('preview-diagram', currentContent);
     preview.innerHTML = svg;
 
-    // Initialize panzoom if not already
-    if (!panzoomInstance) {
-      const svgElement = preview.querySelector('svg');
-      if (svgElement) {
-        panzoomInstance = Panzoom(svgElement, {
-          maxScale: 5,
-          minScale: 0.1,
-        });
+    // Cleanup old panzoom instance
+    if (panzoomInstance) {
+      panzoomInstance.destroy();
+      panzoomInstance = null;
+    }
 
-        // Mouse wheel zoom
-        preview.addEventListener('wheel', (e) => {
-          if (!e.ctrlKey) return;
-          e.preventDefault();
-          panzoomInstance.zoomWithWheel(e);
-        });
-      }
+    // Initialize panzoom on the new SVG element
+    const svgElement = preview.querySelector('svg');
+    if (svgElement) {
+      panzoomInstance = Panzoom(svgElement, {
+        maxScale: 5,
+        minScale: 0.1,
+        canvas: true,
+      });
+
+      // Mouse wheel zoom (works without Ctrl key)
+      preview.addEventListener('wheel', panzoomInstance.zoomWithWheel);
     }
 
     hideError();

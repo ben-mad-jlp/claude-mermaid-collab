@@ -2,12 +2,14 @@ import type { Server } from 'bun';
 import { DiagramManager } from '../services/diagram-manager';
 import { Validator } from '../services/validator';
 import { Renderer, type Theme } from '../services/renderer';
+import { WebSocketHandler } from '../websocket/handler';
 
 export async function handleAPI(
   req: Request,
   diagramManager: DiagramManager,
   validator: Validator,
   renderer: Renderer,
+  wsHandler: WebSocketHandler,
 ): Promise<Response> {
   const url = new URL(req.url);
   const path = url.pathname;
@@ -50,6 +52,14 @@ export async function handleAPI(
 
     try {
       const id = await diagramManager.createDiagram(name, content);
+
+      // Broadcast creation immediately
+      wsHandler.broadcast({
+        type: 'diagram_created',
+        id,
+        name: name + '.mmd',
+      });
+
       return Response.json({ id, success: true });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
@@ -77,6 +87,18 @@ export async function handleAPI(
 
     try {
       await diagramManager.saveDiagram(id, content);
+
+      // Broadcast update immediately
+      const diagram = await diagramManager.getDiagram(id);
+      if (diagram) {
+        wsHandler.broadcastToDiagram(id, {
+          type: 'diagram_updated',
+          id,
+          content: diagram.content,
+          lastModified: diagram.lastModified,
+        });
+      }
+
       return Response.json({ success: true });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 404 });
@@ -89,6 +111,13 @@ export async function handleAPI(
 
     try {
       await diagramManager.deleteDiagram(id);
+
+      // Broadcast deletion immediately
+      wsHandler.broadcast({
+        type: 'diagram_deleted',
+        id,
+      });
+
       return Response.json({ success: true });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 404 });
