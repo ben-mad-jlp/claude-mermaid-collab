@@ -227,14 +227,19 @@ api.onStatusChange((newStatus) => {
 
 api.onWebSocketMessage((message) => {
   if (message.type === 'diagram_updated' && message.id === diagramId) {
-    // External update - reload if content different
+    // External update - auto-reload if content different
     if (message.content !== currentContent) {
-      if (confirm('This diagram was updated externally. Reload?')) {
-        currentContent = message.content;
-        editor.value = currentContent;
-        pushUndo(currentContent);
-        renderPreview();
-      }
+      currentContent = message.content;
+      editor.value = currentContent;
+      pushUndo(currentContent);
+      renderPreview();
+
+      // Show brief notification
+      const notification = document.createElement('div');
+      notification.textContent = '✓ Diagram updated';
+      notification.style.cssText = 'position: fixed; top: 60px; right: 20px; background: #4caf50; color: white; padding: 12px 20px; border-radius: 4px; z-index: 1000; animation: slideIn 0.3s ease;';
+      document.body.appendChild(notification);
+      setTimeout(() => notification.remove(), 2000);
     }
   }
 });
