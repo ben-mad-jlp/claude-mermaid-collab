@@ -277,9 +277,6 @@ function zoomFit() {
   const svgElement = preview.querySelector('svg');
   if (!svgElement) return;
 
-  // Reset and wait for next frame
-  panzoomInstance.reset();
-
   requestAnimationFrame(() => {
     // Get natural SVG size (viewBox or width/height attributes)
     const viewBox = svgElement.viewBox.baseVal;
@@ -294,9 +291,11 @@ function zoomFit() {
     const scaleY = (containerRect.height * 0.9) / svgHeight;
     const targetScale = Math.min(scaleX, scaleY);
 
-    // Zoom to the calculated scale (relative to current scale of 1.0)
-    if (targetScale < 1 && targetScale > 0) {
-      panzoomInstance.zoom(targetScale);
+    // Use panzoom's zoom method with absolute option
+    if (targetScale > 0) {
+      panzoomInstance.zoom(targetScale, { animate: false });
+      // Pan to center
+      panzoomInstance.pan(0, 0);
     }
   });
 }
@@ -306,9 +305,6 @@ function zoomFitWidth() {
 
   const svgElement = preview.querySelector('svg');
   if (!svgElement) return;
-
-  // Reset and wait for next frame
-  panzoomInstance.reset();
 
   requestAnimationFrame(() => {
     // Get natural SVG width
@@ -321,9 +317,11 @@ function zoomFitWidth() {
     // Calculate scale to fit width with padding
     const targetScale = (containerRect.width * 0.9) / svgWidth;
 
-    // Zoom to the calculated scale
-    if (targetScale < 1 && targetScale > 0) {
-      panzoomInstance.zoom(targetScale);
+    // Use panzoom's zoom method with absolute option
+    if (targetScale > 0) {
+      panzoomInstance.zoom(targetScale, { animate: false });
+      // Pan to center horizontally, keep vertical position
+      panzoomInstance.pan(0, panzoomInstance.getPan().y);
     }
   });
 }
@@ -333,9 +331,6 @@ function zoomFitHeight() {
 
   const svgElement = preview.querySelector('svg');
   if (!svgElement) return;
-
-  // Reset and wait for next frame
-  panzoomInstance.reset();
 
   requestAnimationFrame(() => {
     // Get natural SVG height
@@ -348,9 +343,11 @@ function zoomFitHeight() {
     // Calculate scale to fit height with padding
     const targetScale = (containerRect.height * 0.9) / svgHeight;
 
-    // Zoom to the calculated scale
-    if (targetScale < 1 && targetScale > 0) {
-      panzoomInstance.zoom(targetScale);
+    // Use panzoom's zoom method with absolute option
+    if (targetScale > 0) {
+      panzoomInstance.zoom(targetScale, { animate: false });
+      // Pan to center vertically, keep horizontal position
+      panzoomInstance.pan(panzoomInstance.getPan().x, 0);
     }
   });
 }
