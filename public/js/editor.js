@@ -31,6 +31,8 @@ const zoomInBtn = document.getElementById('zoom-in');
 const zoomOutBtn = document.getElementById('zoom-out');
 const zoomResetBtn = document.getElementById('zoom-reset');
 const zoomFitBtn = document.getElementById('zoom-fit');
+const zoomFitWidthBtn = document.getElementById('zoom-fit-width');
+const zoomFitHeightBtn = document.getElementById('zoom-fit-height');
 const zoomLevel = document.getElementById('zoom-level');
 const status = document.getElementById('status');
 const statusText = document.getElementById('status-text');
@@ -276,6 +278,48 @@ function zoomFit() {
   }
 }
 
+function zoomFitWidth() {
+  if (!panzoomInstance) return;
+
+  const svgElement = preview.querySelector('svg');
+  if (!svgElement) return;
+
+  // Reset first to get accurate measurements
+  panzoomInstance.reset();
+
+  // Calculate scale to fit width with 10% padding
+  const svgRect = svgElement.getBoundingClientRect();
+  const containerRect = preview.getBoundingClientRect();
+
+  const scaleX = (containerRect.width * 0.9) / svgRect.width;
+  const fitScale = Math.min(scaleX, 1); // Don't zoom beyond 100%
+
+  if (fitScale < 1) {
+    panzoomInstance.zoom(fitScale);
+  }
+}
+
+function zoomFitHeight() {
+  if (!panzoomInstance) return;
+
+  const svgElement = preview.querySelector('svg');
+  if (!svgElement) return;
+
+  // Reset first to get accurate measurements
+  panzoomInstance.reset();
+
+  // Calculate scale to fit height with 10% padding
+  const svgRect = svgElement.getBoundingClientRect();
+  const containerRect = preview.getBoundingClientRect();
+
+  const scaleY = (containerRect.height * 0.9) / svgRect.height;
+  const fitScale = Math.min(scaleY, 1); // Don't zoom beyond 100%
+
+  if (fitScale < 1) {
+    panzoomInstance.zoom(fitScale);
+  }
+}
+
 // Event listeners
 editor.addEventListener('input', (e) => {
   const newContent = e.target.value;
@@ -301,6 +345,8 @@ zoomInBtn.addEventListener('click', zoomIn);
 zoomOutBtn.addEventListener('click', zoomOut);
 zoomResetBtn.addEventListener('click', zoomReset);
 zoomFitBtn.addEventListener('click', zoomFit);
+zoomFitWidthBtn.addEventListener('click', zoomFitWidth);
+zoomFitHeightBtn.addEventListener('click', zoomFitHeight);
 
 // WebSocket
 api.onStatusChange((newStatus) => {
