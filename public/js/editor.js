@@ -46,6 +46,7 @@ let undoStack = [];
 let redoStack = [];
 let panzoomInstance = null;
 let currentScale = 1;
+let wheelHandler = null;
 
 // Load diagram
 async function loadDiagram() {
@@ -60,6 +61,18 @@ async function loadDiagram() {
 // Render preview
 async function renderPreview() {
   try {
+    // Cleanup old panzoom instance and wheel handler BEFORE replacing content
+    if (panzoomInstance) {
+      panzoomInstance.destroy();
+      panzoomInstance = null;
+    }
+
+    // Remove old wheel event listener
+    if (wheelHandler) {
+      preview.removeEventListener('wheel', wheelHandler);
+      wheelHandler = null;
+    }
+
     mermaid.initialize({
       theme: currentTheme,
       startOnLoad: false,
@@ -67,12 +80,6 @@ async function renderPreview() {
 
     const { svg } = await mermaid.render('preview-diagram', currentContent);
     preview.innerHTML = svg;
-
-    // Cleanup old panzoom instance
-    if (panzoomInstance) {
-      panzoomInstance.destroy();
-      panzoomInstance = null;
-    }
 
     // Initialize panzoom on the new SVG element
     const svgElement = preview.querySelector('svg');
@@ -84,7 +91,9 @@ async function renderPreview() {
       });
 
       // Mouse wheel zoom (works without Ctrl key)
-      preview.addEventListener('wheel', panzoomInstance.zoomWithWheel);
+      // Store the handler so we can remove it later
+      wheelHandler = panzoomInstance.zoomWithWheel;
+      preview.addEventListener('wheel', wheelHandler);
 
       // Track zoom changes
       svgElement.addEventListener('panzoomchange', (event) => {
