@@ -96,10 +96,32 @@
     }
 
     .editor-pane {
-      flex: 1;
+      flex: 0 0 50%;
       display: flex;
       flex-direction: column;
-      border-right: 1px solid #ddd;
+      overflow: hidden;
+    }
+
+    .resizer {
+      width: 8px;
+      background: #ddd;
+      cursor: col-resize;
+      flex-shrink: 0;
+      position: relative;
+    }
+
+    .resizer:hover {
+      background: #aaa;
+    }
+
+    .resizer::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 3px;
+      width: 2px;
+      height: 100%;
+      background: #999;
     }
 
     .editor-textarea {
@@ -172,6 +194,8 @@
       <div class="editor-pane">
         <textarea class="editor-textarea" id="editor" placeholder="Enter mermaid diagram code..."></textarea>
       </div>
+
+      <div class="resizer" id="resizer"></div>
 
       <div class="preview-pane">
         <div class="preview-container" id="preview"></div>

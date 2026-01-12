@@ -21,6 +21,9 @@ const title = document.getElementById('title');
 const editor = document.getElementById('editor');
 const preview = document.getElementById('preview');
 const errorBanner = document.getElementById('error');
+const resizer = document.getElementById('resizer');
+const editorPane = document.querySelector('.editor-pane');
+const splitPane = document.querySelector('.split-pane');
 const undoBtn = document.getElementById('undo');
 const redoBtn = document.getElementById('redo');
 const exportSvgBtn = document.getElementById('export-svg');
@@ -352,6 +355,47 @@ function zoomFitHeight() {
   });
 }
 
+// Resizable split pane
+let isResizing = false;
+
+function initResizer() {
+  // Load saved width from localStorage
+  const savedWidth = localStorage.getItem('editorPaneWidth');
+  if (savedWidth) {
+    editorPane.style.flexBasis = savedWidth;
+  }
+
+  resizer.addEventListener('mousedown', (e) => {
+    isResizing = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isResizing) return;
+
+    const splitPaneRect = splitPane.getBoundingClientRect();
+    const newWidth = e.clientX - splitPaneRect.left;
+    const percentage = (newWidth / splitPaneRect.width) * 100;
+
+    // Constrain between 20% and 80%
+    if (percentage >= 20 && percentage <= 80) {
+      editorPane.style.flexBasis = `${percentage}%`;
+    }
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (isResizing) {
+      isResizing = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+
+      // Save width to localStorage
+      localStorage.setItem('editorPaneWidth', editorPane.style.flexBasis);
+    }
+  });
+}
+
 // Toggle direction
 function toggleDirection() {
   // Regex to match graph/flowchart declarations with direction
@@ -452,5 +496,6 @@ status.addEventListener('click', () => {
 });
 
 // Initialize
+initResizer();
 api.connectWebSocket();
 loadDiagram();
