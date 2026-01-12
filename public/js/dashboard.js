@@ -7,6 +7,7 @@ let diagrams = [];
 const grid = document.getElementById('grid');
 const empty = document.getElementById('empty');
 const search = document.getElementById('search');
+const deleteAllBtn = document.getElementById('delete-all');
 const status = document.getElementById('status');
 const statusText = document.getElementById('status-text');
 
@@ -63,24 +64,35 @@ function renderGrid(filter = '') {
       e.stopPropagation(); // Prevent card click
 
       const id = btn.dataset.id;
-      const diagram = diagrams.find(d => d.id === id);
 
-      if (confirm(`Delete "${diagram.name}"?`)) {
-        try {
-          await api.deleteDiagram(id);
-          await loadDiagrams(); // Reload the list
-        } catch (error) {
-          alert('Failed to delete diagram: ' + error.message);
-        }
+      try {
+        await api.deleteDiagram(id);
+        await loadDiagrams(); // Reload the list
+      } catch (error) {
+        alert('Failed to delete diagram: ' + error.message);
       }
     });
   });
+}
+
+// Delete all diagrams
+async function deleteAllDiagrams() {
+  try {
+    // Delete all diagrams in parallel
+    await Promise.all(diagrams.map(d => api.deleteDiagram(d.id)));
+    await loadDiagrams(); // Reload the list
+  } catch (error) {
+    alert('Failed to delete diagrams: ' + error.message);
+  }
 }
 
 // Search
 search.addEventListener('input', (e) => {
   renderGrid(e.target.value);
 });
+
+// Delete all button
+deleteAllBtn.addEventListener('click', deleteAllDiagrams);
 
 // WebSocket
 api.onStatusChange((newStatus) => {
