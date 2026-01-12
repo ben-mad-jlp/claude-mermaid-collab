@@ -264,20 +264,28 @@ function zoomFit() {
   const svgElement = preview.querySelector('svg');
   if (!svgElement) return;
 
-  // Reset first to get accurate measurements
+  // Reset and wait for next frame
   panzoomInstance.reset();
 
-  // Recalculate fit scale
-  const svgRect = svgElement.getBoundingClientRect();
-  const containerRect = preview.getBoundingClientRect();
+  requestAnimationFrame(() => {
+    // Get natural SVG size (viewBox or width/height attributes)
+    const viewBox = svgElement.viewBox.baseVal;
+    const svgWidth = viewBox.width || svgElement.width.baseVal.value;
+    const svgHeight = viewBox.height || svgElement.height.baseVal.value;
 
-  const scaleX = (containerRect.width * 0.9) / svgRect.width;
-  const scaleY = (containerRect.height * 0.9) / svgRect.height;
-  const fitScale = Math.min(scaleX, scaleY, 1);
+    // Get container size
+    const containerRect = preview.getBoundingClientRect();
 
-  if (fitScale < 1) {
-    panzoomInstance.zoom(fitScale);
-  }
+    // Calculate scale to fit both dimensions with padding
+    const scaleX = (containerRect.width * 0.9) / svgWidth;
+    const scaleY = (containerRect.height * 0.9) / svgHeight;
+    const targetScale = Math.min(scaleX, scaleY);
+
+    // Zoom to the calculated scale (relative to current scale of 1.0)
+    if (targetScale < 1 && targetScale > 0) {
+      panzoomInstance.zoom(targetScale);
+    }
+  });
 }
 
 function zoomFitWidth() {
@@ -286,19 +294,25 @@ function zoomFitWidth() {
   const svgElement = preview.querySelector('svg');
   if (!svgElement) return;
 
-  // Reset first to get accurate measurements
+  // Reset and wait for next frame
   panzoomInstance.reset();
 
-  // Calculate scale to fit width with 10% padding
-  const svgRect = svgElement.getBoundingClientRect();
-  const containerRect = preview.getBoundingClientRect();
+  requestAnimationFrame(() => {
+    // Get natural SVG width
+    const viewBox = svgElement.viewBox.baseVal;
+    const svgWidth = viewBox.width || svgElement.width.baseVal.value;
 
-  const scaleX = (containerRect.width * 0.9) / svgRect.width;
-  const fitScale = Math.min(scaleX, 1); // Don't zoom beyond 100%
+    // Get container width
+    const containerRect = preview.getBoundingClientRect();
 
-  if (fitScale < 1) {
-    panzoomInstance.zoom(fitScale);
-  }
+    // Calculate scale to fit width with padding
+    const targetScale = (containerRect.width * 0.9) / svgWidth;
+
+    // Zoom to the calculated scale
+    if (targetScale < 1 && targetScale > 0) {
+      panzoomInstance.zoom(targetScale);
+    }
+  });
 }
 
 function zoomFitHeight() {
@@ -307,19 +321,25 @@ function zoomFitHeight() {
   const svgElement = preview.querySelector('svg');
   if (!svgElement) return;
 
-  // Reset first to get accurate measurements
+  // Reset and wait for next frame
   panzoomInstance.reset();
 
-  // Calculate scale to fit height with 10% padding
-  const svgRect = svgElement.getBoundingClientRect();
-  const containerRect = preview.getBoundingClientRect();
+  requestAnimationFrame(() => {
+    // Get natural SVG height
+    const viewBox = svgElement.viewBox.baseVal;
+    const svgHeight = viewBox.height || svgElement.height.baseVal.value;
 
-  const scaleY = (containerRect.height * 0.9) / svgRect.height;
-  const fitScale = Math.min(scaleY, 1); // Don't zoom beyond 100%
+    // Get container height
+    const containerRect = preview.getBoundingClientRect();
 
-  if (fitScale < 1) {
-    panzoomInstance.zoom(fitScale);
-  }
+    // Calculate scale to fit height with padding
+    const targetScale = (containerRect.height * 0.9) / svgHeight;
+
+    // Zoom to the calculated scale
+    if (targetScale < 1 && targetScale > 0) {
+      panzoomInstance.zoom(targetScale);
+    }
+  });
 }
 
 // Event listeners
