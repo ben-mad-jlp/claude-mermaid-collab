@@ -5,8 +5,8 @@ The mermaid-wireframe plugin enables creating UI wireframe mockups using text-ba
 ## Basic Structure
 
 ```
-wireframe [viewport]
-  [container]
+wireframe [viewport] [direction]
+  screen ["label"]
     [component] ["label"] [modifiers]
 ```
 
@@ -16,6 +16,37 @@ Specify the target device size:
 - `wireframe mobile` - 375×600px (smartphone, default if omitted)
 - `wireframe tablet` - 768×1024px (tablet)
 - `wireframe desktop` - 1200×800px (desktop/laptop)
+
+## Direction
+
+Control how multiple screens are arranged:
+- `LR` - Left to right (default, screens arranged horizontally)
+- `TD` - Top to down (screens stacked vertically)
+
+Example: `wireframe mobile TD` or `wireframe desktop LR`
+
+## Multi-Screen Layouts
+
+Use the `screen` keyword to define separate screens in one diagram:
+
+```
+wireframe mobile LR
+  screen "Login"
+    col
+      AppBar "Sign In"
+      Input "Email"
+      Button "Login" primary
+  screen "Dashboard"
+    col
+      AppBar "Home"
+      Title "Welcome"
+```
+
+- Each `screen` creates a separate viewport
+- Screens can have optional labels: `screen "Screen Name"`
+- Screens render with a dashed border and label
+- Screens are arranged based on the direction (LR or TD)
+- Screens act as vertical containers (like `col`) for their children
 
 ## Containers
 
@@ -97,7 +128,55 @@ Use pipe `|` to separate columns in headers and rows.
 
 ## Complete Examples
 
-### Mobile Login Form
+### Multi-Screen User Flow (Horizontal)
+```
+wireframe mobile LR
+  screen "Login"
+    col
+      AppBar "Sign In"
+      col padding=24
+        Title "Welcome"
+        Input "Email"
+        Input "Password"
+        Button "Sign In" primary
+  screen "Dashboard"
+    col
+      AppBar "Home"
+      col padding=24
+        Title "Dashboard"
+        Text "Welcome back!"
+        Button "View Profile"
+  screen "Profile"
+    col
+      AppBar "Profile"
+      col padding=24 align=center
+        Avatar
+        Title "John Doe"
+        Button "Edit Profile"
+```
+
+### Multi-Screen User Flow (Vertical)
+```
+wireframe mobile TD
+  screen "Step 1"
+    col
+      AppBar "Registration"
+      col padding=24
+        Title "Basic Info"
+        Input "Name"
+        Input "Email"
+        Button "Next" primary
+  screen "Step 2"
+    col
+      AppBar "Registration"
+      col padding=24
+        Title "Create Password"
+        Input "Password"
+        Input "Confirm Password"
+        Button "Complete" primary
+```
+
+### Mobile Login Form (Single Screen)
 ```
 wireframe mobile
   col
