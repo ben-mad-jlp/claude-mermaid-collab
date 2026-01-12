@@ -33,6 +33,7 @@ function renderGrid(filter = '') {
 
   grid.innerHTML = filtered.map(diagram => `
     <div class="diagram-card" data-id="${diagram.id}">
+      <button class="delete-btn" data-id="${diagram.id}" title="Delete diagram">×</button>
       <div class="diagram-thumbnail">
         <img src="${api.getThumbnailURL(diagram.id)}" alt="${diagram.name}">
       </div>
@@ -45,11 +46,33 @@ function renderGrid(filter = '') {
     </div>
   `).join('');
 
-  // Add click handlers
+  // Add click handlers for cards
   document.querySelectorAll('.diagram-card').forEach(card => {
-    card.addEventListener('click', () => {
+    card.addEventListener('click', (e) => {
+      // Don't navigate if clicking delete button
+      if (e.target.classList.contains('delete-btn')) return;
+
       const id = card.dataset.id;
       window.location.href = `/diagram.html?id=${id}`;
+    });
+  });
+
+  // Add click handlers for delete buttons
+  document.querySelectorAll('.delete-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation(); // Prevent card click
+
+      const id = btn.dataset.id;
+      const diagram = diagrams.find(d => d.id === id);
+
+      if (confirm(`Delete "${diagram.name}"?`)) {
+        try {
+          await api.deleteDiagram(id);
+          await loadDiagrams(); // Reload the list
+        } catch (error) {
+          alert('Failed to delete diagram: ' + error.message);
+        }
+      }
     });
   });
 }
