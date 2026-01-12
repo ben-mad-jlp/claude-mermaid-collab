@@ -398,7 +398,36 @@ function initResizer() {
 
 // Toggle direction
 function toggleDirection() {
-  // Regex to match graph/flowchart declarations with direction
+  // Try to match wireframe diagrams first: wireframe [viewport] [direction]
+  const wireframeRegex = /^wireframe\s+(mobile|tablet|desktop)?\s*(TD|LR)?/mi;
+  const wireframeMatch = currentContent.match(wireframeRegex);
+
+  if (wireframeMatch) {
+    const viewport = wireframeMatch[1] || '';
+    const currentDirection = wireframeMatch[2] || 'LR'; // Default is LR for wireframe
+
+    // Toggle between LR and TD
+    const newDirection = (currentDirection === 'LR') ? 'TD' : 'LR';
+
+    // Build replacement string
+    let replacement = 'wireframe';
+    if (viewport) {
+      replacement += ` ${viewport}`;
+    }
+    replacement += ` ${newDirection}`;
+
+    const newContent = currentContent.replace(wireframeRegex, replacement);
+
+    // Update editor and render
+    pushUndo(currentContent);
+    currentContent = newContent;
+    editor.value = currentContent;
+    renderPreview();
+    scheduleAutoSave();
+    return;
+  }
+
+  // Try to match graph/flowchart declarations with direction
   const directionRegex = /^(graph|flowchart)\s+(TD|TB|BT|RL|LR)/m;
   const match = currentContent.match(directionRegex);
 
