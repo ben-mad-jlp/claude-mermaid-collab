@@ -34,6 +34,7 @@ const zoomFitBtn = document.getElementById('zoom-fit');
 const zoomFitWidthBtn = document.getElementById('zoom-fit-width');
 const zoomFitHeightBtn = document.getElementById('zoom-fit-height');
 const zoomLevel = document.getElementById('zoom-level');
+const toggleDirectionBtn = document.getElementById('toggle-direction');
 const status = document.getElementById('status');
 const statusText = document.getElementById('status-text');
 
@@ -342,6 +343,41 @@ function zoomFitHeight() {
   });
 }
 
+// Toggle direction
+function toggleDirection() {
+  // Regex to match graph/flowchart declarations with direction
+  const directionRegex = /^(graph|flowchart)\s+(TD|TB|BT|RL|LR)/m;
+  const match = currentContent.match(directionRegex);
+
+  if (!match) {
+    // No direction found - possibly not a flowchart or already has no direction
+    showError('No direction found. This diagram may not support direction changes.');
+    setTimeout(hideError, 3000);
+    return;
+  }
+
+  const diagramType = match[1]; // 'graph' or 'flowchart'
+  const currentDirection = match[2]; // TD, TB, BT, RL, or LR
+
+  // Toggle between LR and TD
+  let newDirection;
+  if (currentDirection === 'LR' || currentDirection === 'RL') {
+    newDirection = 'TD';
+  } else {
+    newDirection = 'LR';
+  }
+
+  // Replace the direction
+  const newContent = currentContent.replace(directionRegex, `${diagramType} ${newDirection}`);
+
+  // Update editor and render
+  pushUndo(currentContent);
+  currentContent = newContent;
+  editor.value = currentContent;
+  renderPreview();
+  scheduleAutoSave();
+}
+
 // Event listeners
 editor.addEventListener('input', (e) => {
   const newContent = e.target.value;
@@ -368,6 +404,7 @@ zoomResetBtn.addEventListener('click', zoomReset);
 zoomFitBtn.addEventListener('click', zoomFit);
 zoomFitWidthBtn.addEventListener('click', zoomFitWidth);
 zoomFitHeightBtn.addEventListener('click', zoomFitHeight);
+toggleDirectionBtn.addEventListener('click', toggleDirection);
 
 // WebSocket
 api.onStatusChange((newStatus) => {
