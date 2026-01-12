@@ -1,5 +1,9 @@
 import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+import * as wireframe from './plugins/mermaid-wireframe.js';
 import APIClient from './api-client.js';
+
+// Register wireframe plugin
+await mermaid.registerExternalDiagrams([wireframe]);
 
 const api = new APIClient();
 
