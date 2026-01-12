@@ -12,7 +12,12 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+import { readFile } from 'fs/promises';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 
 // Configuration
 const API_PORT = parseInt(process.env.PORT || '3737', 10);
@@ -222,9 +227,49 @@ async function main() {
     {
       capabilities: {
         tools: {},
+        resources: {},
       },
     }
   );
+
+  // Get the docs directory path
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = dirname(__filename);
+  const docsDir = join(__dirname, '..', '..', 'docs');
+
+  // Register resources list handler
+  server.setRequestHandler(ListResourcesRequestSchema, async () => {
+    return {
+      resources: [
+        {
+          uri: 'wireframe://syntax-guide',
+          name: 'Wireframe Diagram Syntax Guide',
+          description: 'Complete syntax reference for creating wireframe diagrams with the mermaid-wireframe plugin',
+          mimeType: 'text/markdown',
+        },
+      ],
+    };
+  });
+
+  // Register resource read handler
+  server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+    const { uri } = request.params;
+
+    if (uri === 'wireframe://syntax-guide') {
+      const content = await readFile(join(docsDir, 'wireframe-syntax.md'), 'utf-8');
+      return {
+        contents: [
+          {
+            uri,
+            mimeType: 'text/markdown',
+            text: content,
+          },
+        ],
+      };
+    }
+
+    throw new Error(`Unknown resource: ${uri}`);
+  });
 
   // Register tool list handler
   server.setRequestHandler(ListToolsRequestSchema, async () => {
