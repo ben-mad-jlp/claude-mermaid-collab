@@ -410,6 +410,11 @@ toggleDirectionBtn.addEventListener('click', toggleDirection);
 api.onStatusChange((newStatus) => {
   status.className = `connection-status ${newStatus}`;
   statusText.textContent = newStatus.charAt(0).toUpperCase() + newStatus.slice(1);
+
+  // Re-subscribe when connection is established/re-established
+  if (newStatus === 'connected') {
+    api.subscribe(diagramId);
+  }
 });
 
 api.onWebSocketMessage((message) => {
@@ -439,5 +444,4 @@ status.addEventListener('click', () => {
 
 // Initialize
 api.connectWebSocket();
-api.subscribe(diagramId);
 loadDiagram();

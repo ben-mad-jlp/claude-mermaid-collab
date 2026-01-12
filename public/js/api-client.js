@@ -7,6 +7,7 @@ class APIClient {
     this.maxReconnectDelay = 30000;
     this.connectionStatus = 'disconnected';
     this.statusListeners = new Set();
+    this.pendingMessages = [];
   }
 
   // HTTP API methods
@@ -73,6 +74,12 @@ class APIClient {
     this.ws.onopen = () => {
       this.setStatus('connected');
       this.reconnectDelay = 1000;
+
+      // Send any pending messages
+      while (this.pendingMessages.length > 0) {
+        const message = this.pendingMessages.shift();
+        this.ws.send(JSON.stringify(message));
+      }
     };
 
     this.ws.onmessage = (event) => {
@@ -102,6 +109,9 @@ class APIClient {
   sendWebSocketMessage(message) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message));
+    } else {
+      // Queue message to be sent when connection opens
+      this.pendingMessages.push(message);
     }
   }
 
@@ -142,6 +152,7 @@ class APIClient {
 
   reconnect() {
     this.reconnectDelay = 1000;
+    // Keep pending messages when reconnecting
     this.disconnectWebSocket();
     this.connectWebSocket();
   }
