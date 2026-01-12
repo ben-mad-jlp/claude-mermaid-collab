@@ -1,3 +1,5 @@
+import * as wireframe from 'mermaid-wireframe';
+
 export interface ValidationResult {
   valid: boolean;
   error?: string;
@@ -5,6 +7,8 @@ export interface ValidationResult {
 }
 
 export class Validator {
+  private wireframeRegistered: boolean = false;
+
   async validate(content: string): Promise<ValidationResult> {
     if (!content.trim()) {
       return { valid: false, error: 'Diagram cannot be empty' };
@@ -13,6 +17,12 @@ export class Validator {
     try {
       // Import mermaid dynamically
       const mermaid = await import('mermaid');
+
+      // Register wireframe plugin once
+      if (!this.wireframeRegistered) {
+        await mermaid.default.registerExternalDiagrams([wireframe]);
+        this.wireframeRegistered = true;
+      }
 
       // Try to parse the diagram
       await mermaid.default.parse(content);
