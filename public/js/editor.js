@@ -20,7 +20,6 @@ if (!diagramId) {
 const title = document.getElementById('title');
 const editor = document.getElementById('editor');
 const preview = document.getElementById('preview');
-const themeSelect = document.getElementById('theme');
 const errorBanner = document.getElementById('error');
 const undoBtn = document.getElementById('undo');
 const redoBtn = document.getElementById('redo');
@@ -332,11 +331,6 @@ editor.addEventListener('input', (e) => {
     renderPreview();
     scheduleAutoSave();
   }
-});
-
-themeSelect.addEventListener('change', (e) => {
-  currentTheme = e.target.value;
-  renderPreview();
 });
 
 backButton.addEventListener('click', () => {
