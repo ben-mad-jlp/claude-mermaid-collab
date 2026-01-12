@@ -132,37 +132,28 @@
 <body>
   <div class="editor-container">
     <div class="toolbar">
+      <button id="back-button" style="margin-right: 16px;" title="Back to Dashboard">←</button>
       <div class="diagram-title" id="title">Loading...</div>
 
       <div class="toolbar-group">
-        <label>Theme:</label>
-        <select id="theme">
-          <option value="default">Default</option>
-          <option value="dark">Dark</option>
-          <option value="forest">Forest</option>
-          <option value="neutral">Neutral</option>
-        </select>
+        <button id="undo" disabled title="Undo">↶</button>
+        <button id="redo" disabled title="Redo">↷</button>
       </div>
 
       <div class="toolbar-group">
-        <button id="undo" disabled>Undo</button>
-        <button id="redo" disabled>Redo</button>
+        <button id="export-svg" title="Export SVG">SVG ⬇</button>
+        <button id="export-png" title="Export PNG">PNG ⬇</button>
+        <button id="copy-code" title="Copy Code">📋</button>
       </div>
 
       <div class="toolbar-group">
-        <button id="export-svg">Export SVG</button>
-        <button id="export-png">Export PNG</button>
-        <button id="copy-code">Copy Code</button>
-      </div>
-
-      <div class="toolbar-group">
-        <button id="zoom-out">-</button>
+        <button id="zoom-out" title="Zoom Out">−</button>
         <span id="zoom-level" style="min-width: 60px; text-align: center;">100%</span>
-        <button id="zoom-in">+</button>
-        <button id="zoom-reset">Reset</button>
-        <button id="zoom-fit">Fit</button>
-        <button id="zoom-fit-width">Fit Width</button>
-        <button id="zoom-fit-height">Fit Height</button>
+        <button id="zoom-in" title="Zoom In">+</button>
+        <button id="zoom-reset" title="Reset Zoom">↻</button>
+        <button id="zoom-fit" title="Fit to Page">⊡</button>
+        <button id="zoom-fit-width" title="Fit Width">⊟</button>
+        <button id="zoom-fit-height" title="Fit Height">⊞</button>
       </div>
 
       <div class="connection-status disconnected" id="status">

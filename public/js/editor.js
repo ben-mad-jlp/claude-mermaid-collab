@@ -27,6 +27,7 @@ const redoBtn = document.getElementById('redo');
 const exportSvgBtn = document.getElementById('export-svg');
 const exportPngBtn = document.getElementById('export-png');
 const copyCodeBtn = document.getElementById('copy-code');
+const backButton = document.getElementById('back-button');
 const zoomInBtn = document.getElementById('zoom-in');
 const zoomOutBtn = document.getElementById('zoom-out');
 const zoomResetBtn = document.getElementById('zoom-reset');
@@ -91,21 +92,23 @@ async function renderPreview() {
         updateZoomDisplay();
       });
 
-      // Calculate and apply fit-to-page zoom
-      const svgRect = svgElement.getBoundingClientRect();
-      const containerRect = preview.getBoundingClientRect();
+      // Calculate and apply fit-to-page zoom after SVG has rendered
+      requestAnimationFrame(() => {
+        const svgRect = svgElement.getBoundingClientRect();
+        const containerRect = preview.getBoundingClientRect();
 
-      // Calculate scale to fit with 10% padding
-      const scaleX = (containerRect.width * 0.9) / svgRect.width;
-      const scaleY = (containerRect.height * 0.9) / svgRect.height;
-      const fitScale = Math.min(scaleX, scaleY, 1); // Don't zoom in beyond 100%
+        // Calculate scale to fit with 10% padding
+        const scaleX = (containerRect.width * 0.9) / svgRect.width;
+        const scaleY = (containerRect.height * 0.9) / svgRect.height;
+        const fitScale = Math.min(scaleX, scaleY, 1); // Don't zoom in beyond 100%
 
-      if (fitScale < 1) {
-        panzoomInstance.zoom(fitScale);
-      }
+        if (fitScale < 1 && fitScale > 0) {
+          panzoomInstance.zoom(fitScale);
+        }
 
-      currentScale = fitScale;
-      updateZoomDisplay();
+        currentScale = fitScale;
+        updateZoomDisplay();
+      });
     }
 
     hideError();
@@ -334,6 +337,10 @@ editor.addEventListener('input', (e) => {
 themeSelect.addEventListener('change', (e) => {
   currentTheme = e.target.value;
   renderPreview();
+});
+
+backButton.addEventListener('click', () => {
+  window.location.href = '/';
 });
 
 undoBtn.addEventListener('click', undo);
