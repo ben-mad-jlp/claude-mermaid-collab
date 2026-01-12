@@ -99,19 +99,19 @@ var wireframeParser = {exports: {}};
 	  }
 	*/
 	var wireframeParser = (function(){
-	var o=function(k,v,o,l){for(o=o||{},l=k.length;l--;o[k[l]]=v);return o},$V0=[1,10],$V1=[2,3],$V2=[6,9],$V3=[1,42],$V4=[2,9],$V5=[1,45],$V6=[1,46],$V7=[1,47],$V8=[1,48],$V9=[1,49],$Va=[1,50],$Vb=[1,51],$Vc=[1,52],$Vd=[1,53],$Ve=[1,54],$Vf=[1,55],$Vg=[6,9,15,18,19,20,21,23,24,25,26,27,28],$Vh=[1,105],$Vi=[1,106],$Vj=[1,107],$Vk=[1,108];
+	var o=function(k,v,o,l){for(o=o||{},l=k.length;l--;o[k[l]]=v);return o},$V0=[7,14,15],$V1=[1,13],$V2=[2,3],$V3=[7,10],$V4=[1,46],$V5=[2,12],$V6=[1,49],$V7=[1,50],$V8=[1,51],$V9=[1,52],$Va=[1,53],$Vb=[1,54],$Vc=[1,55],$Vd=[1,56],$Ve=[1,57],$Vf=[1,58],$Vg=[1,59],$Vh=[7,10,18,21,22,23,24,26,27,28,29,30,31],$Vi=[1,110],$Vj=[1,111],$Vk=[1,112],$Vl=[1,113];
 	var parser = {trace: function trace () { },
 	yy: {},
-	symbols_: {"error":2,"diagram":3,"WIREFRAME":4,"viewport":5,"NEWLINE":6,"nodes":7,"trailingNewlines":8,"EOF":9,"MOBILE":10,"TABLET":11,"DESKTOP":12,"modifierList":13,"modifier":14,"FLEX":15,"EQUALS":16,"NUMBER":17,"WIDTH":18,"HEIGHT":19,"PADDING":20,"ALIGN":21,"alignValue":22,"CROSS":23,"PRIMARY":24,"SECONDARY":25,"DANGER":26,"SUCCESS":27,"DISABLED":28,"START":29,"CENTER":30,"END":31,"SPACE_BETWEEN":32,"node":33,"INDENT":34,"containerNode":35,"widgetNode":36,"gridChild":37,"COL":38,"ROW":39,"CARD":40,"GRID":41,"HEADER":42,"STRING":43,"TEXT":44,"TITLE":45,"BUTTON":46,"INPUT":47,"APPBAR":48,"CHECKBOX":49,"RADIO":50,"SWITCH":51,"DROPDOWN":52,"LIST":53,"NAVMENU":54,"BOTTOMNAV":55,"FAB":56,"ICON":57,"AVATAR":58,"IMAGE":59,"SPACER":60,"DIVIDER":61,"$accept":0,"$end":1},
-	terminals_: {2:"error",4:"WIREFRAME",6:"NEWLINE",9:"EOF",10:"MOBILE",11:"TABLET",12:"DESKTOP",15:"FLEX",16:"EQUALS",17:"NUMBER",18:"WIDTH",19:"HEIGHT",20:"PADDING",21:"ALIGN",23:"CROSS",24:"PRIMARY",25:"SECONDARY",26:"DANGER",27:"SUCCESS",28:"DISABLED",29:"START",30:"CENTER",31:"END",32:"SPACE_BETWEEN",34:"INDENT",38:"COL",39:"ROW",40:"CARD",41:"GRID",42:"HEADER",43:"STRING",44:"TEXT",45:"TITLE",46:"BUTTON",47:"INPUT",48:"APPBAR",49:"CHECKBOX",50:"RADIO",51:"SWITCH",52:"DROPDOWN",53:"LIST",54:"NAVMENU",55:"BOTTOMNAV",56:"FAB",57:"ICON",58:"AVATAR",59:"IMAGE",60:"SPACER",61:"DIVIDER"},
-	productions_: [0,[3,6],[8,2],[8,0],[5,1],[5,1],[5,1],[5,0],[13,2],[13,0],[14,3],[14,1],[14,3],[14,3],[14,3],[14,3],[14,3],[14,1],[14,1],[14,1],[14,1],[14,1],[22,1],[22,1],[22,1],[22,1],[7,3],[7,1],[33,2],[33,2],[33,2],[35,2],[35,2],[35,2],[35,2],[37,2],[37,2],[36,3],[36,3],[36,3],[36,3],[36,3],[36,3],[36,3],[36,3],[36,3],[36,3],[36,3],[36,3],[36,3],[36,3],[36,2],[36,2],[36,2],[36,2]],
+	symbols_: {"error":2,"diagram":3,"WIREFRAME":4,"viewport":5,"direction":6,"NEWLINE":7,"nodes":8,"trailingNewlines":9,"EOF":10,"MOBILE":11,"TABLET":12,"DESKTOP":13,"TD":14,"LR":15,"modifierList":16,"modifier":17,"FLEX":18,"EQUALS":19,"NUMBER":20,"WIDTH":21,"HEIGHT":22,"PADDING":23,"ALIGN":24,"alignValue":25,"CROSS":26,"PRIMARY":27,"SECONDARY":28,"DANGER":29,"SUCCESS":30,"DISABLED":31,"START":32,"CENTER":33,"END":34,"SPACE_BETWEEN":35,"node":36,"INDENT":37,"containerNode":38,"widgetNode":39,"gridChild":40,"COL":41,"ROW":42,"CARD":43,"GRID":44,"SCREEN":45,"STRING":46,"HEADER":47,"TEXT":48,"TITLE":49,"BUTTON":50,"INPUT":51,"APPBAR":52,"CHECKBOX":53,"RADIO":54,"SWITCH":55,"DROPDOWN":56,"LIST":57,"NAVMENU":58,"BOTTOMNAV":59,"FAB":60,"ICON":61,"AVATAR":62,"IMAGE":63,"SPACER":64,"DIVIDER":65,"$accept":0,"$end":1},
+	terminals_: {2:"error",4:"WIREFRAME",7:"NEWLINE",10:"EOF",11:"MOBILE",12:"TABLET",13:"DESKTOP",14:"TD",15:"LR",18:"FLEX",19:"EQUALS",20:"NUMBER",21:"WIDTH",22:"HEIGHT",23:"PADDING",24:"ALIGN",26:"CROSS",27:"PRIMARY",28:"SECONDARY",29:"DANGER",30:"SUCCESS",31:"DISABLED",32:"START",33:"CENTER",34:"END",35:"SPACE_BETWEEN",37:"INDENT",41:"COL",42:"ROW",43:"CARD",44:"GRID",45:"SCREEN",46:"STRING",47:"HEADER",48:"TEXT",49:"TITLE",50:"BUTTON",51:"INPUT",52:"APPBAR",53:"CHECKBOX",54:"RADIO",55:"SWITCH",56:"DROPDOWN",57:"LIST",58:"NAVMENU",59:"BOTTOMNAV",60:"FAB",61:"ICON",62:"AVATAR",63:"IMAGE",64:"SPACER",65:"DIVIDER"},
+	productions_: [0,[3,7],[9,2],[9,0],[5,1],[5,1],[5,1],[5,0],[6,1],[6,1],[6,0],[16,2],[16,0],[17,3],[17,1],[17,3],[17,3],[17,3],[17,3],[17,3],[17,1],[17,1],[17,1],[17,1],[17,1],[25,1],[25,1],[25,1],[25,1],[8,3],[8,1],[36,2],[36,2],[36,2],[38,2],[38,2],[38,2],[38,2],[38,2],[38,1],[40,2],[40,2],[39,3],[39,3],[39,3],[39,3],[39,3],[39,3],[39,3],[39,3],[39,3],[39,3],[39,3],[39,3],[39,3],[39,3],[39,2],[39,2],[39,2],[39,2]],
 	performAction: function anonymous(yytext, yyleng, yylineno, yy, yystate /* action[1] */, $$ /* vstack */, _$ /* lstack */) {
 	/* this == yyval */
 
 	var $0 = $$.length - 1;
 	switch (yystate) {
 	case 1:
-	 return { viewport: $$[$0-4], nodes: $$[$0-2] }; 
+	 return { viewport: $$[$0-5], direction: $$[$0-4], nodes: $$[$0-2] }; 
 	case 4:
 	 this.$ = 'mobile'; 
 	break;
@@ -125,144 +125,156 @@ var wireframeParser = {exports: {}};
 	 this.$ = 'default'; 
 	break;
 	case 8:
-	 this.$ = Object.assign({}, $$[$0-1], $$[$0]); 
+	 this.$ = 'TD'; 
 	break;
-	case 9:
-	 this.$ = {}; 
-	break;
-	case 10:
-	 this.$ = { flex: parseInt($$[$0]) }; 
+	case 9: case 10:
+	 this.$ = 'LR'; 
 	break;
 	case 11:
-	 this.$ = { flex: true }; 
+	 this.$ = Object.assign({}, $$[$0-1], $$[$0]); 
 	break;
 	case 12:
-	 this.$ = { width: parseInt($$[$0]) }; 
+	 this.$ = {}; 
 	break;
 	case 13:
-	 this.$ = { height: parseInt($$[$0]) }; 
+	 this.$ = { flex: parseInt($$[$0]) }; 
 	break;
 	case 14:
-	 this.$ = { padding: parseInt($$[$0]) }; 
+	 this.$ = { flex: true }; 
 	break;
 	case 15:
-	 this.$ = { align: $$[$0] }; 
+	 this.$ = { width: parseInt($$[$0]) }; 
 	break;
 	case 16:
-	 this.$ = { cross: $$[$0] }; 
+	 this.$ = { height: parseInt($$[$0]) }; 
 	break;
 	case 17:
-	 this.$ = { variant: 'primary' }; 
+	 this.$ = { padding: parseInt($$[$0]) }; 
 	break;
 	case 18:
-	 this.$ = { variant: 'secondary' }; 
+	 this.$ = { align: $$[$0] }; 
 	break;
 	case 19:
-	 this.$ = { variant: 'danger' }; 
+	 this.$ = { cross: $$[$0] }; 
 	break;
 	case 20:
-	 this.$ = { variant: 'success' }; 
+	 this.$ = { variant: 'primary' }; 
 	break;
 	case 21:
-	 this.$ = { disabled: true }; 
+	 this.$ = { variant: 'secondary' }; 
 	break;
 	case 22:
-	 this.$ = 'start'; 
+	 this.$ = { variant: 'danger' }; 
 	break;
 	case 23:
-	 this.$ = 'center'; 
+	 this.$ = { variant: 'success' }; 
 	break;
 	case 24:
-	 this.$ = 'end'; 
+	 this.$ = { disabled: true }; 
 	break;
 	case 25:
-	 this.$ = 'space-between'; 
+	 this.$ = 'start'; 
 	break;
 	case 26:
-	 this.$ = $$[$0-2].concat([$$[$0]]); 
+	 this.$ = 'center'; 
 	break;
 	case 27:
+	 this.$ = 'end'; 
+	break;
+	case 28:
+	 this.$ = 'space-between'; 
+	break;
+	case 29:
+	 this.$ = $$[$0-2].concat([$$[$0]]); 
+	break;
+	case 30:
 	 this.$ = [$$[$0]]; 
 	break;
-	case 28: case 29: case 30:
+	case 31: case 32: case 33:
 	 this.$ = Object.assign({}, $$[$0], { indent: $$[$0-1].length }); 
 	break;
-	case 31:
+	case 34:
 	 this.$ = { type: 'col', modifiers: $$[$0], children: [] }; 
 	break;
-	case 32:
+	case 35:
 	 this.$ = { type: 'row', modifiers: $$[$0], children: [] }; 
 	break;
-	case 33:
+	case 36:
 	 this.$ = { type: 'Card', modifiers: $$[$0], children: [] }; 
 	break;
-	case 34:
+	case 37:
 	 this.$ = { type: 'Grid', modifiers: $$[$0], children: [] }; 
 	break;
-	case 35:
-	 this.$ = { type: 'grid-header', label: $$[$0].slice(1, -1), modifiers: {}, children: [] }; 
-	break;
-	case 36:
-	 this.$ = { type: 'grid-row', label: $$[$0].slice(1, -1), modifiers: {}, children: [] }; 
-	break;
-	case 37:
-	 this.$ = { type: 'Text', label: $$[$0-1].slice(1, -1), modifiers: $$[$0], children: [] }; 
-	break;
 	case 38:
-	 this.$ = { type: 'Title', label: $$[$0-1].slice(1, -1), modifiers: $$[$0], children: [] }; 
+	 this.$ = { type: 'screen', label: $$[$0].slice(1, -1), modifiers: {}, children: [] }; 
 	break;
 	case 39:
-	 this.$ = { type: 'Button', label: $$[$0-1].slice(1, -1), modifiers: $$[$0], children: [] }; 
+	 this.$ = { type: 'screen', label: '', modifiers: {}, children: [] }; 
 	break;
 	case 40:
-	 this.$ = { type: 'Input', label: $$[$0-1].slice(1, -1), modifiers: $$[$0], children: [] }; 
+	 this.$ = { type: 'grid-header', label: $$[$0].slice(1, -1), modifiers: {}, children: [] }; 
 	break;
 	case 41:
-	 this.$ = { type: 'AppBar', label: $$[$0-1].slice(1, -1), modifiers: $$[$0], children: [] }; 
+	 this.$ = { type: 'grid-row', label: $$[$0].slice(1, -1), modifiers: {}, children: [] }; 
 	break;
 	case 42:
-	 this.$ = { type: 'Checkbox', label: $$[$0-1].slice(1, -1), modifiers: $$[$0], children: [] }; 
+	 this.$ = { type: 'Text', label: $$[$0-1].slice(1, -1), modifiers: $$[$0], children: [] }; 
 	break;
 	case 43:
-	 this.$ = { type: 'Radio', label: $$[$0-1].slice(1, -1), modifiers: $$[$0], children: [] }; 
+	 this.$ = { type: 'Title', label: $$[$0-1].slice(1, -1), modifiers: $$[$0], children: [] }; 
 	break;
 	case 44:
-	 this.$ = { type: 'Switch', label: $$[$0-1].slice(1, -1), modifiers: $$[$0], children: [] }; 
+	 this.$ = { type: 'Button', label: $$[$0-1].slice(1, -1), modifiers: $$[$0], children: [] }; 
 	break;
 	case 45:
-	 this.$ = { type: 'Dropdown', label: $$[$0-1].slice(1, -1), modifiers: $$[$0], children: [] }; 
+	 this.$ = { type: 'Input', label: $$[$0-1].slice(1, -1), modifiers: $$[$0], children: [] }; 
 	break;
 	case 46:
-	 this.$ = { type: 'List', label: $$[$0-1].slice(1, -1), modifiers: $$[$0], children: [] }; 
+	 this.$ = { type: 'AppBar', label: $$[$0-1].slice(1, -1), modifiers: $$[$0], children: [] }; 
 	break;
 	case 47:
-	 this.$ = { type: 'NavMenu', label: $$[$0-1].slice(1, -1), modifiers: $$[$0], children: [] }; 
+	 this.$ = { type: 'Checkbox', label: $$[$0-1].slice(1, -1), modifiers: $$[$0], children: [] }; 
 	break;
 	case 48:
-	 this.$ = { type: 'BottomNav', label: $$[$0-1].slice(1, -1), modifiers: $$[$0], children: [] }; 
+	 this.$ = { type: 'Radio', label: $$[$0-1].slice(1, -1), modifiers: $$[$0], children: [] }; 
 	break;
 	case 49:
-	 this.$ = { type: 'FAB', label: $$[$0-1].slice(1, -1), modifiers: $$[$0], children: [] }; 
+	 this.$ = { type: 'Switch', label: $$[$0-1].slice(1, -1), modifiers: $$[$0], children: [] }; 
 	break;
 	case 50:
-	 this.$ = { type: 'Icon', label: $$[$0-1].slice(1, -1), modifiers: $$[$0], children: [] }; 
+	 this.$ = { type: 'Dropdown', label: $$[$0-1].slice(1, -1), modifiers: $$[$0], children: [] }; 
 	break;
 	case 51:
-	 this.$ = { type: 'Avatar', label: '', modifiers: $$[$0], children: [] }; 
+	 this.$ = { type: 'List', label: $$[$0-1].slice(1, -1), modifiers: $$[$0], children: [] }; 
 	break;
 	case 52:
-	 this.$ = { type: 'Image', label: '', modifiers: $$[$0], children: [] }; 
+	 this.$ = { type: 'NavMenu', label: $$[$0-1].slice(1, -1), modifiers: $$[$0], children: [] }; 
 	break;
 	case 53:
-	 this.$ = { type: 'spacer', label: '', modifiers: $$[$0], children: [] }; 
+	 this.$ = { type: 'BottomNav', label: $$[$0-1].slice(1, -1), modifiers: $$[$0], children: [] }; 
 	break;
 	case 54:
+	 this.$ = { type: 'FAB', label: $$[$0-1].slice(1, -1), modifiers: $$[$0], children: [] }; 
+	break;
+	case 55:
+	 this.$ = { type: 'Icon', label: $$[$0-1].slice(1, -1), modifiers: $$[$0], children: [] }; 
+	break;
+	case 56:
+	 this.$ = { type: 'Avatar', label: '', modifiers: $$[$0], children: [] }; 
+	break;
+	case 57:
+	 this.$ = { type: 'Image', label: '', modifiers: $$[$0], children: [] }; 
+	break;
+	case 58:
+	 this.$ = { type: 'spacer', label: '', modifiers: $$[$0], children: [] }; 
+	break;
+	case 59:
 	 this.$ = { type: 'divider', label: '', modifiers: $$[$0], children: [] }; 
 	break;
 	}
 	},
-	table: [{3:1,4:[1,2]},{1:[3]},{5:3,6:[2,7],10:[1,4],11:[1,5],12:[1,6]},{6:[1,7]},{6:[2,4]},{6:[2,5]},{6:[2,6]},{7:8,33:9,34:$V0},{6:[1,12],8:11,9:$V1},o($V2,[2,27]),{35:13,36:14,37:15,38:[1,16],39:[1,17],40:[1,18],41:[1,19],42:[1,38],44:[1,20],45:[1,21],46:[1,22],47:[1,23],48:[1,24],49:[1,25],50:[1,26],51:[1,27],52:[1,28],53:[1,29],54:[1,30],55:[1,31],56:[1,32],57:[1,33],58:[1,34],59:[1,35],60:[1,36],61:[1,37]},{9:[1,39]},{6:$V3,8:41,9:$V1,33:40,34:$V0},o($V2,[2,28]),o($V2,[2,29]),o($V2,[2,30]),o($V2,$V4,{13:43,14:44,15:$V5,18:$V6,19:$V7,20:$V8,21:$V9,23:$Va,24:$Vb,25:$Vc,26:$Vd,27:$Ve,28:$Vf}),o($V2,$V4,{14:44,13:56,15:$V5,18:$V6,19:$V7,20:$V8,21:$V9,23:$Va,24:$Vb,25:$Vc,26:$Vd,27:$Ve,28:$Vf,43:[1,57]}),o($V2,$V4,{14:44,13:58,15:$V5,18:$V6,19:$V7,20:$V8,21:$V9,23:$Va,24:$Vb,25:$Vc,26:$Vd,27:$Ve,28:$Vf}),o($V2,$V4,{14:44,13:59,15:$V5,18:$V6,19:$V7,20:$V8,21:$V9,23:$Va,24:$Vb,25:$Vc,26:$Vd,27:$Ve,28:$Vf}),{43:[1,60]},{43:[1,61]},{43:[1,62]},{43:[1,63]},{43:[1,64]},{43:[1,65]},{43:[1,66]},{43:[1,67]},{43:[1,68]},{43:[1,69]},{43:[1,70]},{43:[1,71]},{43:[1,72]},{43:[1,73]},o($V2,$V4,{14:44,13:74,15:$V5,18:$V6,19:$V7,20:$V8,21:$V9,23:$Va,24:$Vb,25:$Vc,26:$Vd,27:$Ve,28:$Vf}),o($V2,$V4,{14:44,13:75,15:$V5,18:$V6,19:$V7,20:$V8,21:$V9,23:$Va,24:$Vb,25:$Vc,26:$Vd,27:$Ve,28:$Vf}),o($V2,$V4,{14:44,13:76,15:$V5,18:$V6,19:$V7,20:$V8,21:$V9,23:$Va,24:$Vb,25:$Vc,26:$Vd,27:$Ve,28:$Vf}),o($V2,$V4,{14:44,13:77,15:$V5,18:$V6,19:$V7,20:$V8,21:$V9,23:$Va,24:$Vb,25:$Vc,26:$Vd,27:$Ve,28:$Vf}),{43:[1,78]},{1:[2,1]},o($V2,[2,26]),{9:[2,2]},{6:$V3,8:41,9:$V1},o($V2,[2,31]),o($V2,$V4,{14:44,13:79,15:$V5,18:$V6,19:$V7,20:$V8,21:$V9,23:$Va,24:$Vb,25:$Vc,26:$Vd,27:$Ve,28:$Vf}),o($Vg,[2,11],{16:[1,80]}),{16:[1,81]},{16:[1,82]},{16:[1,83]},{16:[1,84]},{16:[1,85]},o($Vg,[2,17]),o($Vg,[2,18]),o($Vg,[2,19]),o($Vg,[2,20]),o($Vg,[2,21]),o($V2,[2,32]),o($V2,[2,36]),o($V2,[2,33]),o($V2,[2,34]),o($V2,$V4,{14:44,13:86,15:$V5,18:$V6,19:$V7,20:$V8,21:$V9,23:$Va,24:$Vb,25:$Vc,26:$Vd,27:$Ve,28:$Vf}),o($V2,$V4,{14:44,13:87,15:$V5,18:$V6,19:$V7,20:$V8,21:$V9,23:$Va,24:$Vb,25:$Vc,26:$Vd,27:$Ve,28:$Vf}),o($V2,$V4,{14:44,13:88,15:$V5,18:$V6,19:$V7,20:$V8,21:$V9,23:$Va,24:$Vb,25:$Vc,26:$Vd,27:$Ve,28:$Vf}),o($V2,$V4,{14:44,13:89,15:$V5,18:$V6,19:$V7,20:$V8,21:$V9,23:$Va,24:$Vb,25:$Vc,26:$Vd,27:$Ve,28:$Vf}),o($V2,$V4,{14:44,13:90,15:$V5,18:$V6,19:$V7,20:$V8,21:$V9,23:$Va,24:$Vb,25:$Vc,26:$Vd,27:$Ve,28:$Vf}),o($V2,$V4,{14:44,13:91,15:$V5,18:$V6,19:$V7,20:$V8,21:$V9,23:$Va,24:$Vb,25:$Vc,26:$Vd,27:$Ve,28:$Vf}),o($V2,$V4,{14:44,13:92,15:$V5,18:$V6,19:$V7,20:$V8,21:$V9,23:$Va,24:$Vb,25:$Vc,26:$Vd,27:$Ve,28:$Vf}),o($V2,$V4,{14:44,13:93,15:$V5,18:$V6,19:$V7,20:$V8,21:$V9,23:$Va,24:$Vb,25:$Vc,26:$Vd,27:$Ve,28:$Vf}),o($V2,$V4,{14:44,13:94,15:$V5,18:$V6,19:$V7,20:$V8,21:$V9,23:$Va,24:$Vb,25:$Vc,26:$Vd,27:$Ve,28:$Vf}),o($V2,$V4,{14:44,13:95,15:$V5,18:$V6,19:$V7,20:$V8,21:$V9,23:$Va,24:$Vb,25:$Vc,26:$Vd,27:$Ve,28:$Vf}),o($V2,$V4,{14:44,13:96,15:$V5,18:$V6,19:$V7,20:$V8,21:$V9,23:$Va,24:$Vb,25:$Vc,26:$Vd,27:$Ve,28:$Vf}),o($V2,$V4,{14:44,13:97,15:$V5,18:$V6,19:$V7,20:$V8,21:$V9,23:$Va,24:$Vb,25:$Vc,26:$Vd,27:$Ve,28:$Vf}),o($V2,$V4,{14:44,13:98,15:$V5,18:$V6,19:$V7,20:$V8,21:$V9,23:$Va,24:$Vb,25:$Vc,26:$Vd,27:$Ve,28:$Vf}),o($V2,$V4,{14:44,13:99,15:$V5,18:$V6,19:$V7,20:$V8,21:$V9,23:$Va,24:$Vb,25:$Vc,26:$Vd,27:$Ve,28:$Vf}),o($V2,[2,51]),o($V2,[2,52]),o($V2,[2,53]),o($V2,[2,54]),o($V2,[2,35]),o($V2,[2,8]),{17:[1,100]},{17:[1,101]},{17:[1,102]},{17:[1,103]},{22:104,29:$Vh,30:$Vi,31:$Vj,32:$Vk},{22:109,29:$Vh,30:$Vi,31:$Vj,32:$Vk},o($V2,[2,37]),o($V2,[2,38]),o($V2,[2,39]),o($V2,[2,40]),o($V2,[2,41]),o($V2,[2,42]),o($V2,[2,43]),o($V2,[2,44]),o($V2,[2,45]),o($V2,[2,46]),o($V2,[2,47]),o($V2,[2,48]),o($V2,[2,49]),o($V2,[2,50]),o($Vg,[2,10]),o($Vg,[2,12]),o($Vg,[2,13]),o($Vg,[2,14]),o($Vg,[2,15]),o($Vg,[2,22]),o($Vg,[2,23]),o($Vg,[2,24]),o($Vg,[2,25]),o($Vg,[2,16])],
-	defaultActions: {4:[2,4],5:[2,5],6:[2,6],39:[2,1],41:[2,2]},
+	table: [{3:1,4:[1,2]},{1:[3]},o($V0,[2,7],{5:3,11:[1,4],12:[1,5],13:[1,6]}),{6:7,7:[2,10],14:[1,8],15:[1,9]},o($V0,[2,4]),o($V0,[2,5]),o($V0,[2,6]),{7:[1,10]},{7:[2,8]},{7:[2,9]},{8:11,36:12,37:$V1},{7:[1,15],9:14,10:$V2},o($V3,[2,30]),{38:16,39:17,40:18,41:[1,19],42:[1,20],43:[1,21],44:[1,22],45:[1,23],47:[1,42],48:[1,24],49:[1,25],50:[1,26],51:[1,27],52:[1,28],53:[1,29],54:[1,30],55:[1,31],56:[1,32],57:[1,33],58:[1,34],59:[1,35],60:[1,36],61:[1,37],62:[1,38],63:[1,39],64:[1,40],65:[1,41]},{10:[1,43]},{7:$V4,9:45,10:$V2,36:44,37:$V1},o($V3,[2,31]),o($V3,[2,32]),o($V3,[2,33]),o($V3,$V5,{16:47,17:48,18:$V6,21:$V7,22:$V8,23:$V9,24:$Va,26:$Vb,27:$Vc,28:$Vd,29:$Ve,30:$Vf,31:$Vg}),o($V3,$V5,{17:48,16:60,18:$V6,21:$V7,22:$V8,23:$V9,24:$Va,26:$Vb,27:$Vc,28:$Vd,29:$Ve,30:$Vf,31:$Vg,46:[1,61]}),o($V3,$V5,{17:48,16:62,18:$V6,21:$V7,22:$V8,23:$V9,24:$Va,26:$Vb,27:$Vc,28:$Vd,29:$Ve,30:$Vf,31:$Vg}),o($V3,$V5,{17:48,16:63,18:$V6,21:$V7,22:$V8,23:$V9,24:$Va,26:$Vb,27:$Vc,28:$Vd,29:$Ve,30:$Vf,31:$Vg}),o($V3,[2,39],{46:[1,64]}),{46:[1,65]},{46:[1,66]},{46:[1,67]},{46:[1,68]},{46:[1,69]},{46:[1,70]},{46:[1,71]},{46:[1,72]},{46:[1,73]},{46:[1,74]},{46:[1,75]},{46:[1,76]},{46:[1,77]},{46:[1,78]},o($V3,$V5,{17:48,16:79,18:$V6,21:$V7,22:$V8,23:$V9,24:$Va,26:$Vb,27:$Vc,28:$Vd,29:$Ve,30:$Vf,31:$Vg}),o($V3,$V5,{17:48,16:80,18:$V6,21:$V7,22:$V8,23:$V9,24:$Va,26:$Vb,27:$Vc,28:$Vd,29:$Ve,30:$Vf,31:$Vg}),o($V3,$V5,{17:48,16:81,18:$V6,21:$V7,22:$V8,23:$V9,24:$Va,26:$Vb,27:$Vc,28:$Vd,29:$Ve,30:$Vf,31:$Vg}),o($V3,$V5,{17:48,16:82,18:$V6,21:$V7,22:$V8,23:$V9,24:$Va,26:$Vb,27:$Vc,28:$Vd,29:$Ve,30:$Vf,31:$Vg}),{46:[1,83]},{1:[2,1]},o($V3,[2,29]),{10:[2,2]},{7:$V4,9:45,10:$V2},o($V3,[2,34]),o($V3,$V5,{17:48,16:84,18:$V6,21:$V7,22:$V8,23:$V9,24:$Va,26:$Vb,27:$Vc,28:$Vd,29:$Ve,30:$Vf,31:$Vg}),o($Vh,[2,14],{19:[1,85]}),{19:[1,86]},{19:[1,87]},{19:[1,88]},{19:[1,89]},{19:[1,90]},o($Vh,[2,20]),o($Vh,[2,21]),o($Vh,[2,22]),o($Vh,[2,23]),o($Vh,[2,24]),o($V3,[2,35]),o($V3,[2,41]),o($V3,[2,36]),o($V3,[2,37]),o($V3,[2,38]),o($V3,$V5,{17:48,16:91,18:$V6,21:$V7,22:$V8,23:$V9,24:$Va,26:$Vb,27:$Vc,28:$Vd,29:$Ve,30:$Vf,31:$Vg}),o($V3,$V5,{17:48,16:92,18:$V6,21:$V7,22:$V8,23:$V9,24:$Va,26:$Vb,27:$Vc,28:$Vd,29:$Ve,30:$Vf,31:$Vg}),o($V3,$V5,{17:48,16:93,18:$V6,21:$V7,22:$V8,23:$V9,24:$Va,26:$Vb,27:$Vc,28:$Vd,29:$Ve,30:$Vf,31:$Vg}),o($V3,$V5,{17:48,16:94,18:$V6,21:$V7,22:$V8,23:$V9,24:$Va,26:$Vb,27:$Vc,28:$Vd,29:$Ve,30:$Vf,31:$Vg}),o($V3,$V5,{17:48,16:95,18:$V6,21:$V7,22:$V8,23:$V9,24:$Va,26:$Vb,27:$Vc,28:$Vd,29:$Ve,30:$Vf,31:$Vg}),o($V3,$V5,{17:48,16:96,18:$V6,21:$V7,22:$V8,23:$V9,24:$Va,26:$Vb,27:$Vc,28:$Vd,29:$Ve,30:$Vf,31:$Vg}),o($V3,$V5,{17:48,16:97,18:$V6,21:$V7,22:$V8,23:$V9,24:$Va,26:$Vb,27:$Vc,28:$Vd,29:$Ve,30:$Vf,31:$Vg}),o($V3,$V5,{17:48,16:98,18:$V6,21:$V7,22:$V8,23:$V9,24:$Va,26:$Vb,27:$Vc,28:$Vd,29:$Ve,30:$Vf,31:$Vg}),o($V3,$V5,{17:48,16:99,18:$V6,21:$V7,22:$V8,23:$V9,24:$Va,26:$Vb,27:$Vc,28:$Vd,29:$Ve,30:$Vf,31:$Vg}),o($V3,$V5,{17:48,16:100,18:$V6,21:$V7,22:$V8,23:$V9,24:$Va,26:$Vb,27:$Vc,28:$Vd,29:$Ve,30:$Vf,31:$Vg}),o($V3,$V5,{17:48,16:101,18:$V6,21:$V7,22:$V8,23:$V9,24:$Va,26:$Vb,27:$Vc,28:$Vd,29:$Ve,30:$Vf,31:$Vg}),o($V3,$V5,{17:48,16:102,18:$V6,21:$V7,22:$V8,23:$V9,24:$Va,26:$Vb,27:$Vc,28:$Vd,29:$Ve,30:$Vf,31:$Vg}),o($V3,$V5,{17:48,16:103,18:$V6,21:$V7,22:$V8,23:$V9,24:$Va,26:$Vb,27:$Vc,28:$Vd,29:$Ve,30:$Vf,31:$Vg}),o($V3,$V5,{17:48,16:104,18:$V6,21:$V7,22:$V8,23:$V9,24:$Va,26:$Vb,27:$Vc,28:$Vd,29:$Ve,30:$Vf,31:$Vg}),o($V3,[2,56]),o($V3,[2,57]),o($V3,[2,58]),o($V3,[2,59]),o($V3,[2,40]),o($V3,[2,11]),{20:[1,105]},{20:[1,106]},{20:[1,107]},{20:[1,108]},{25:109,32:$Vi,33:$Vj,34:$Vk,35:$Vl},{25:114,32:$Vi,33:$Vj,34:$Vk,35:$Vl},o($V3,[2,42]),o($V3,[2,43]),o($V3,[2,44]),o($V3,[2,45]),o($V3,[2,46]),o($V3,[2,47]),o($V3,[2,48]),o($V3,[2,49]),o($V3,[2,50]),o($V3,[2,51]),o($V3,[2,52]),o($V3,[2,53]),o($V3,[2,54]),o($V3,[2,55]),o($Vh,[2,13]),o($Vh,[2,15]),o($Vh,[2,16]),o($Vh,[2,17]),o($Vh,[2,18]),o($Vh,[2,25]),o($Vh,[2,26]),o($Vh,[2,27]),o($Vh,[2,28]),o($Vh,[2,19])],
+	defaultActions: {8:[2,8],9:[2,9],43:[2,1],45:[2,2]},
 	parseError: function parseError (str, hash) {
 	    if (hash.recoverable) {
 	        this.trace(str);
@@ -725,48 +737,48 @@ var wireframeParser = {exports: {}};
 	performAction: function anonymous(yy,yy_,$avoiding_name_collisions,YY_START) {
 	this.begin('line_start');
 	switch($avoiding_name_collisions) {
-	case 0: this.begin('line_start'); return 6; 
-	case 1: this.begin('INITIAL'); return 34; 
+	case 0: this.begin('line_start'); return 7; 
+	case 1: this.begin('INITIAL'); return 37; 
 	case 2: this.begin('INITIAL'); 
 	break;
 	case 3:/* ignore non-leading whitespace */
 	break;
 	case 4: this.begin('INITIAL'); return 4; 
-	case 5: this.begin('INITIAL'); return 10; 
-	case 6: this.begin('INITIAL'); return 11; 
-	case 7: this.begin('INITIAL'); return 12; 
-	case 8: this.begin('INITIAL'); return 38; 
-	case 9: this.begin('INITIAL'); return 39; 
-	case 10: this.begin('INITIAL'); return 44; 
-	case 11: this.begin('INITIAL'); return 45; 
-	case 12: this.begin('INITIAL'); return 46; 
-	case 13: this.begin('INITIAL'); return 47; 
+	case 5: this.begin('INITIAL'); return 11; 
+	case 6: this.begin('INITIAL'); return 12; 
+	case 7: this.begin('INITIAL'); return 13; 
+	case 8: this.begin('INITIAL'); return 14; 
+	case 9: this.begin('INITIAL'); return 15; 
+	case 10: this.begin('INITIAL'); return 45; 
+	case 11: this.begin('INITIAL'); return 41; 
+	case 12: this.begin('INITIAL'); return 42; 
+	case 13: this.begin('INITIAL'); return 48; 
 	case 14: this.begin('INITIAL'); return 49; 
 	case 15: this.begin('INITIAL'); return 50; 
 	case 16: this.begin('INITIAL'); return 51; 
-	case 17: this.begin('INITIAL'); return 52; 
-	case 18: this.begin('INITIAL'); return 53; 
-	case 19: this.begin('INITIAL'); return 54; 
-	case 20: this.begin('INITIAL'); return 55; 
-	case 21: this.begin('INITIAL'); return 48; 
-	case 22: this.begin('INITIAL'); return 56; 
-	case 23: this.begin('INITIAL'); return 58; 
-	case 24: this.begin('INITIAL'); return 57; 
-	case 25: this.begin('INITIAL'); return 59; 
-	case 26: this.begin('INITIAL'); return 60; 
+	case 17: this.begin('INITIAL'); return 53; 
+	case 18: this.begin('INITIAL'); return 54; 
+	case 19: this.begin('INITIAL'); return 55; 
+	case 20: this.begin('INITIAL'); return 56; 
+	case 21: this.begin('INITIAL'); return 57; 
+	case 22: this.begin('INITIAL'); return 58; 
+	case 23: this.begin('INITIAL'); return 59; 
+	case 24: this.begin('INITIAL'); return 52; 
+	case 25: this.begin('INITIAL'); return 60; 
+	case 26: this.begin('INITIAL'); return 62; 
 	case 27: this.begin('INITIAL'); return 61; 
-	case 28: this.begin('INITIAL'); return 40; 
-	case 29: this.begin('INITIAL'); return 41; 
-	case 30: this.begin('INITIAL'); return 42; 
+	case 28: this.begin('INITIAL'); return 63; 
+	case 29: this.begin('INITIAL'); return 64; 
+	case 30: this.begin('INITIAL'); return 65; 
 	case 31: this.begin('INITIAL'); return 43; 
-	case 32:return 15;
-	case 33:return 18;
-	case 34:return 19;
-	case 35:return 20;
+	case 32: this.begin('INITIAL'); return 44; 
+	case 33: this.begin('INITIAL'); return 47; 
+	case 34: this.begin('INITIAL'); return 46; 
+	case 35:return 18;
 	case 36:return 21;
-	case 37:return 23;
-	case 38:return 24;
-	case 39:return 25;
+	case 37:return 22;
+	case 38:return 23;
+	case 39:return 24;
 	case 40:return 26;
 	case 41:return 27;
 	case 42:return 28;
@@ -774,13 +786,16 @@ var wireframeParser = {exports: {}};
 	case 44:return 30;
 	case 45:return 31;
 	case 46:return 32;
-	case 47:return 17;
-	case 48:return 16;
-	case 49:return 9;
+	case 47:return 33;
+	case 48:return 34;
+	case 49:return 35;
+	case 50:return 20;
+	case 51:return 19;
+	case 52:return 10;
 	}
 	},
-	rules: [/^(?:\n)/,/^(?:[ \t]+)/,/^(?:(?=[^ \t\n]))/,/^(?:[ \t]+)/,/^(?:wireframe\b)/,/^(?:mobile\b)/,/^(?:tablet\b)/,/^(?:desktop\b)/,/^(?:col\b)/,/^(?:row\b)/,/^(?:Text\b)/,/^(?:Title\b)/,/^(?:Button\b)/,/^(?:Input\b)/,/^(?:Checkbox\b)/,/^(?:Radio\b)/,/^(?:Switch\b)/,/^(?:Dropdown\b)/,/^(?:List\b)/,/^(?:NavMenu\b)/,/^(?:BottomNav\b)/,/^(?:AppBar\b)/,/^(?:FAB\b)/,/^(?:Avatar\b)/,/^(?:Icon\b)/,/^(?:Image\b)/,/^(?:spacer\b)/,/^(?:divider\b)/,/^(?:Card\b)/,/^(?:Grid\b)/,/^(?:header\b)/,/^(?:"[^\"]*")/,/^(?:flex\b)/,/^(?:width\b)/,/^(?:height\b)/,/^(?:padding\b)/,/^(?:align\b)/,/^(?:cross\b)/,/^(?:primary\b)/,/^(?:secondary\b)/,/^(?:danger\b)/,/^(?:success\b)/,/^(?:disabled\b)/,/^(?:start\b)/,/^(?:center\b)/,/^(?:end\b)/,/^(?:space-between\b)/,/^(?:[0-9]+)/,/^(?:=)/,/^(?:$)/,/^(?:.)/],
-	conditions: {"line_start":{"rules":[0,1,2,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,49,50],"inclusive":false},"INITIAL":{"rules":[0,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50],"inclusive":true}}
+	rules: [/^(?:\n)/,/^(?:[ \t]+)/,/^(?:(?=[^ \t\n]))/,/^(?:[ \t]+)/,/^(?:wireframe\b)/,/^(?:mobile\b)/,/^(?:tablet\b)/,/^(?:desktop\b)/,/^(?:TD\b)/,/^(?:LR\b)/,/^(?:screen\b)/,/^(?:col\b)/,/^(?:row\b)/,/^(?:Text\b)/,/^(?:Title\b)/,/^(?:Button\b)/,/^(?:Input\b)/,/^(?:Checkbox\b)/,/^(?:Radio\b)/,/^(?:Switch\b)/,/^(?:Dropdown\b)/,/^(?:List\b)/,/^(?:NavMenu\b)/,/^(?:BottomNav\b)/,/^(?:AppBar\b)/,/^(?:FAB\b)/,/^(?:Avatar\b)/,/^(?:Icon\b)/,/^(?:Image\b)/,/^(?:spacer\b)/,/^(?:divider\b)/,/^(?:Card\b)/,/^(?:Grid\b)/,/^(?:header\b)/,/^(?:"[^\"]*")/,/^(?:flex\b)/,/^(?:width\b)/,/^(?:height\b)/,/^(?:padding\b)/,/^(?:align\b)/,/^(?:cross\b)/,/^(?:primary\b)/,/^(?:secondary\b)/,/^(?:danger\b)/,/^(?:success\b)/,/^(?:disabled\b)/,/^(?:start\b)/,/^(?:center\b)/,/^(?:end\b)/,/^(?:space-between\b)/,/^(?:[0-9]+)/,/^(?:=)/,/^(?:$)/,/^(?:.)/],
+	conditions: {"line_start":{"rules":[0,1,2,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,52,53],"inclusive":false},"INITIAL":{"rules":[0,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53],"inclusive":true}}
 	});
 	return lexer;
 	})();
@@ -821,6 +836,7 @@ var wireframeParserExports = wireframeParser.exports;
 let nodes = [];
 let tree = null;
 let viewport = 'default';
+let direction = 'LR';
 
 /**
  * Clear all stored data
@@ -829,27 +845,31 @@ const clear = () => {
   nodes = [];
   tree = null;
   viewport = 'default';
+  direction = 'LR';
 };
 
 /**
  * Add parsed nodes and build tree
  * @param {Object} parsedData - Result from parser
  * @param {string} parsedData.viewport - Viewport size
+ * @param {string} parsedData.direction - Layout direction (LR or TD)
  * @param {Array} parsedData.nodes - Flat list of nodes
  */
 const addNodes = (parsedData) => {
   // Deep clone to prevent external mutations
   nodes = JSON.parse(JSON.stringify(parsedData.nodes));
   viewport = parsedData.viewport;
+  direction = parsedData.direction || 'LR';
   tree = buildTree(nodes);
 };
 
 /**
  * Get stored data
- * @returns {Object} Object with viewport and tree
+ * @returns {Object} Object with viewport, direction, and tree
  */
 const getData = () => ({
   viewport,
+  direction,
   tree: JSON.parse(JSON.stringify(tree))
 });
 
@@ -910,23 +930,82 @@ const viewportWidths = {
  */
 const draw = (text, id, _version, diagObj) => {
   const db = diagObj.db;
-  const { viewport, tree } = db.getData();
+  const { viewport, direction, tree } = db.getData();
 
   const container = d3.select(`#${id}`);
   container.selectAll('*').remove();
 
-  const width = viewportWidths[viewport];
-  const height = 600;
+  // Get viewport dimensions
+  const viewportWidth = viewportWidths[viewport];
+  const viewportHeight = 600;
+  const screenGap = 32; // Gap between screens
+  const screenPadding = 16; // Padding for screen labels
+
+  // Count screen nodes
+  const screens = tree.filter(node => node.type === 'screen');
+  const hasScreens = screens.length > 0;
+  const screenCount = hasScreens ? screens.length : 1;
+
+  // Calculate canvas size based on direction
+  let canvasWidth, canvasHeight;
+  if (direction === 'TD') {
+    canvasWidth = viewportWidth + (screenPadding * 2);
+    canvasHeight = (viewportHeight + screenPadding * 2 + 32) * screenCount + screenGap * (screenCount - 1);
+  } else {
+    canvasWidth = (viewportWidth + screenPadding * 2) * screenCount + screenGap * (screenCount - 1);
+    canvasHeight = viewportHeight + screenPadding * 2 + 32;
+  }
 
   const svg = container.append('svg');
-  svg.attr('viewBox', `0 0 ${width} ${height}`);
+  svg.attr('viewBox', `0 0 ${canvasWidth} ${canvasHeight}`);
 
   const g = svg.append('g');
 
-  const rootBounds = { x: 0, y: 0, width, height };
+  if (hasScreens) {
+    // Render each screen with label and border
+    screens.forEach((screen, index) => {
+      let screenX, screenY;
+      if (direction === 'TD') {
+        screenX = screenPadding;
+        screenY = index * (viewportHeight + screenPadding * 2 + 32 + screenGap) + screenPadding + 32;
+      } else {
+        screenX = index * (viewportWidth + screenPadding * 2 + screenGap) + screenPadding;
+        screenY = screenPadding + 32;
+      }
 
-  if (tree.length > 0) {
-    renderNode(g, tree[0], rootBounds);
+      // Draw screen border
+      g.append('rect')
+        .attr('x', screenX - screenPadding)
+        .attr('y', screenY - screenPadding - 32)
+        .attr('width', viewportWidth + screenPadding * 2)
+        .attr('height', viewportHeight + screenPadding * 2 + 32)
+        .attr('fill', 'none')
+        .attr('stroke', '#999')
+        .attr('stroke-width', 2)
+        .attr('stroke-dasharray', '8 4')
+        .attr('rx', 8);
+
+      // Draw screen label if present
+      if (screen.label) {
+        g.append('text')
+          .attr('x', screenX - screenPadding + 8)
+          .attr('y', screenY - screenPadding - 8)
+          .attr('font-size', 14)
+          .attr('font-weight', 'bold')
+          .attr('fill', '#666')
+          .text(screen.label);
+      }
+
+      // Render screen content
+      const screenBounds = { x: screenX, y: screenY, width: viewportWidth, height: viewportHeight };
+      renderNode(g, screen, screenBounds);
+    });
+  } else {
+    // No screens defined, render all root nodes as single screen
+    const rootBounds = { x: 0, y: 0, width: viewportWidth, height: viewportHeight };
+    if (tree.length > 0) {
+      renderNode(g, tree[0], rootBounds);
+    }
   }
 };
 
@@ -978,6 +1057,10 @@ function drawWidget(svg, node, bounds) {
     case 'row':
     case 'col':
       drawContainer(svg, bounds);
+      break;
+    case 'screen':
+      // Screen border is drawn in main draw function
+      // Screen acts as a vertical container for its children
       break;
     case 'Text':
       drawText(svg, label, bounds, 'normal');
@@ -1668,7 +1751,37 @@ function renderChildren(svg, children, bounds, direction) {
  * @returns {number} Intrinsic size in pixels
  */
 function getIntrinsicSize(node, axis) {
-  const { type, label = '' } = node;
+  const { type, label = '', children = [], modifiers = {} } = node;
+
+  // If container has children, calculate their total size
+  if (children.length > 0 && (type === 'col' || type === 'row' || type === 'Card' || type === 'screen')) {
+    const isVerticalContainer = type === 'col' || type === 'Card' || type === 'screen';
+    const padding = modifiers.padding || 0;
+
+    // For vertical containers calculating height, or horizontal containers calculating width
+    if ((isVerticalContainer && axis === 'height') || (!isVerticalContainer && axis === 'width')) {
+      // Sum all children sizes
+      let totalSize = 0;
+      children.forEach(child => {
+        if (child.modifiers && child.modifiers[axis]) {
+          totalSize += child.modifiers[axis];
+        } else {
+          totalSize += getIntrinsicSize(child, axis);
+        }
+      });
+      return totalSize + (padding * 2);
+    } else {
+      // Cross axis - use the largest child size
+      let maxSize = 0;
+      children.forEach(child => {
+        const childSize = child.modifiers && child.modifiers[axis]
+          ? child.modifiers[axis]
+          : getIntrinsicSize(child, axis);
+        maxSize = Math.max(maxSize, childSize);
+      });
+      return maxSize + (padding * 2);
+    }
+  }
 
   if (axis === 'height') {
     // Height defaults
@@ -1677,12 +1790,16 @@ function getIntrinsicSize(node, axis) {
     if (type === 'Text') return 20;
     if (type === 'Title') return 32;
     if (type === 'divider') return 1;
+    if (type === 'List') return 40;
+    if (type === 'Checkbox' || type === 'Radio' || type === 'Switch') return 32;
+    if (type === 'Card') return 100; // fallback for Card without children
     return 40; // default
   } else {
     // Width defaults
     if (type === 'Text') return label.length * 8 + 16;
     if (type === 'Title') return label.length * 12 + 16;
     if (type === 'Button') return label.length * 8 + 32;
+    if (type === 'List') return label.length * 8 + 32;
     if (type === 'Avatar') return 40;
     if (type === 'Icon') return 24;
     if (type === 'FAB') return 56;
