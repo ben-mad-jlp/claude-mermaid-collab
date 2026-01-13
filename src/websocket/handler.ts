@@ -5,6 +5,9 @@ export type WSMessage =
   | { type: 'diagram_updated'; id: string; content: string; lastModified: number }
   | { type: 'diagram_created'; id: string; name: string }
   | { type: 'diagram_deleted'; id: string }
+  | { type: 'document_updated'; id: string; content: string; lastModified: number }
+  | { type: 'document_created'; id: string; name: string }
+  | { type: 'document_deleted'; id: string }
   | { type: 'subscribe'; id: string }
   | { type: 'unsubscribe'; id: string };
 
@@ -42,6 +45,15 @@ export class WebSocketHandler {
   }
 
   broadcastToDiagram(id: string, message: WSMessage): void {
+    const json = JSON.stringify(message);
+    for (const ws of this.connections) {
+      if (ws.data.subscriptions.has(id)) {
+        ws.send(json);
+      }
+    }
+  }
+
+  broadcastToDocument(id: string, message: WSMessage): void {
     const json = JSON.stringify(message);
     for (const ws of this.connections) {
       if (ws.data.subscriptions.has(id)) {
