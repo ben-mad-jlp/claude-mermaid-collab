@@ -25,6 +25,7 @@ function validatePort(): number {
  * @property {number} PORT - Server port number (1-65535). Default: 3737. Set via PORT env var.
  * @property {string} HOST - Server host address. Default: '0.0.0.0'. Set via HOST env var.
  * @property {string} DIAGRAMS_FOLDER - Directory path for storing diagram files. Default: './diagrams'. Set via DIAGRAMS_FOLDER env var.
+ * @property {string} DOCUMENTS_FOLDER - Directory path for storing document files. Default: './documents'. Set via DOCUMENTS_FOLDER env var.
  * @property {number} MAX_FILE_SIZE - Maximum allowed file size in bytes. Default: 1048576 (1MB).
  * @property {number} THUMBNAIL_CACHE_SIZE - Maximum number of thumbnails to cache. Default: 100.
  * @property {number} UNDO_HISTORY_SIZE - Maximum number of undo operations to retain. Default: 50.
@@ -34,6 +35,7 @@ export const config = Object.freeze({
   PORT: validatePort(),
   HOST: process.env.HOST || '0.0.0.0',
   DIAGRAMS_FOLDER: process.env.DIAGRAMS_FOLDER || './diagrams',
+  DOCUMENTS_FOLDER: process.env.DOCUMENTS_FOLDER || './documents',
   MAX_FILE_SIZE: 1048576, // 1MB
   THUMBNAIL_CACHE_SIZE: 100,
   UNDO_HISTORY_SIZE: 50,
