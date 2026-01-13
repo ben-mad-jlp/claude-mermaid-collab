@@ -22,8 +22,8 @@
       align-items: center;
       gap: 16px;
       padding: 12px 20px;
-      background: white;
-      border-bottom: 1px solid #ddd;
+      background: var(--toolbar-bg);
+      border-bottom: 1px solid var(--border-color);
       flex-shrink: 0;
     }
 
@@ -41,40 +41,43 @@
 
     button {
       padding: 8px 16px;
-      border: 1px solid #ddd;
-      background: white;
+      border: 1px solid var(--border-color);
+      background: var(--bg-secondary);
+      color: var(--text-primary);
       border-radius: 4px;
       cursor: pointer;
       font-size: 14px;
     }
 
     button:hover {
-      background: #f5f5f5;
+      background: var(--hover-bg);
     }
 
     button.approve {
-      border-color: #4caf50;
-      color: #4caf50;
+      border-color: var(--success-color);
+      color: var(--success-color);
     }
 
     button.approve:hover {
-      background: #e8f5e9;
+      background: var(--success-bg);
     }
 
     button.reject {
-      border-color: #f44336;
-      color: #f44336;
+      border-color: var(--error-color);
+      color: var(--error-color);
     }
 
     button.reject:hover {
-      background: #ffebee;
+      background: var(--error-bg);
     }
 
     select {
       padding: 8px 12px;
-      border: 1px solid #ddd;
+      border: 1px solid var(--border-color);
       border-radius: 4px;
       font-size: 14px;
+      background: var(--input-bg);
+      color: var(--text-primary);
     }
 
     .split-pane {
@@ -88,17 +91,18 @@
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      min-height: 0;
     }
 
     .resizer {
       width: 8px;
-      background: #ddd;
+      background: var(--border-color);
       cursor: col-resize;
       flex-shrink: 0;
     }
 
     .resizer:hover {
-      background: #aaa;
+      background: var(--text-muted);
     }
 
     .editor-textarea {
@@ -112,10 +116,25 @@
       line-height: 1.6;
     }
 
+    /* CodeMirror editor styling */
+    .code-editor {
+      flex: 1;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    .code-editor .cm-editor {
+      height: 100%;
+    }
+
+    .code-editor .cm-scroller {
+      overflow: auto;
+    }
+
     .preview-pane {
       flex: 1;
       overflow-y: auto;
-      background: #fafafa;
+      background: var(--bg-tertiary);
       padding: 20px;
     }
 
@@ -124,6 +143,7 @@
       margin: 0 auto;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       line-height: 1.6;
+      color: var(--text-primary);
     }
 
     .preview-content h1, .preview-content h2, .preview-content h3 {
@@ -136,18 +156,19 @@
     }
 
     .preview-content code {
-      background: #e8e8e8;
+      background: var(--border-color);
       padding: 2px 6px;
       border-radius: 3px;
       font-family: 'Courier New', monospace;
     }
 
     .preview-content pre {
-      background: #2d2d2d;
-      color: #f8f8f2;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
       padding: 16px;
       border-radius: 4px;
       overflow-x: auto;
+      border: 1px solid var(--border-color);
     }
 
     .preview-content pre code {
@@ -155,22 +176,39 @@
       padding: 0;
     }
 
+    /* List styling with proper indentation */
+    .preview-content ul,
+    .preview-content ol {
+      padding-left: 2em;
+      margin: 0.5em 0;
+    }
+
+    .preview-content li {
+      margin: 0.25em 0;
+    }
+
+    .preview-content li > ul,
+    .preview-content li > ol {
+      margin-top: 0.25em;
+      margin-bottom: 0.25em;
+    }
+
     .section-approved {
-      border-left: 4px solid #4caf50;
+      border-left: 4px solid var(--success-color);
       padding-left: 16px;
-      background: #f1f8e9;
+      background: var(--success-bg);
       margin: 8px 0;
     }
 
     .section-rejected {
-      border-left: 4px solid #f44336;
+      border-left: 4px solid var(--error-color);
       padding-left: 16px;
-      background: #ffebee;
+      background: var(--error-bg);
       margin: 8px 0;
     }
 
     .rejection-reason {
-      background: #f44336;
+      background: var(--error-color);
       color: white;
       padding: 6px 12px;
       margin: -8px -16px 8px -16px;
@@ -179,23 +217,37 @@
     }
 
     .comment-block {
-      background: #fff3e0;
-      border-left: 4px solid #ff9800;
+      background: var(--warning-bg);
+      border-left: 4px solid var(--warning-color);
       padding: 8px 16px;
       margin: 8px 0;
       font-style: italic;
     }
 
+    .comment-block pre {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      padding: 12px;
+      margin: 8px 0 0 0;
+      border-radius: 4px;
+      overflow-x: auto;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      font-style: normal;
+      white-space: pre;
+      line-height: 1.4;
+    }
+
     .comment-inline {
-      background: #fff9c4;
-      border: 1px solid #ffc107;
+      background: var(--warning-bg);
+      border: 1px solid var(--warning-color);
       border-radius: 3px;
       padding: 2px 4px;
       display: inline;
     }
 
     .comment-inline-text {
-      background: #ff9800;
+      background: var(--warning-color);
       color: white;
       font-size: 11px;
       padding: 2px 6px;
@@ -205,15 +257,15 @@
     }
 
     .reject-inline {
-      background: #ffebee;
-      border: 1px solid #f44336;
+      background: var(--error-bg);
+      border: 1px solid var(--error-color);
       border-radius: 3px;
       padding: 2px 4px;
       display: inline;
     }
 
     .reject-inline-reason {
-      background: #f44336;
+      background: var(--error-color);
       color: white;
       font-size: 11px;
       padding: 2px 6px;
@@ -223,8 +275,8 @@
     }
 
     .approve-inline {
-      background: #e8f5e9;
-      border: 1px solid #4caf50;
+      background: var(--success-bg);
+      border: 1px solid var(--success-color);
       border-radius: 3px;
       padding: 2px 4px;
       display: inline;
@@ -232,14 +284,16 @@
 
     .comment-tooltip {
       position: absolute;
-      background: #333;
-      color: white;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
       padding: 8px 12px;
       border-radius: 4px;
       font-size: 13px;
       max-width: 300px;
       z-index: 1000;
       display: none;
+      border: 1px solid var(--border-color);
+      box-shadow: 0 2px 8px var(--shadow-color);
     }
   </style>
 </head>
@@ -251,8 +305,13 @@
 
       <div class="toolbar-group">
         <button id="add-comment" title="Add Comment">💬 Comment</button>
-        <button id="approve-section" class="approve" title="Approve Section">✓ Approve</button>
-        <button id="reject-section" class="reject" title="Reject Section">✗ Reject</button>
+        <button id="approve-section" class="approve" title="Approve Selection/Section">✓ Approve</button>
+        <button id="reject-section" class="reject" title="Reject Selection/Section">✗ Reject</button>
+        <button id="clear-status" title="Remove Approval/Rejection">⊘ Clear</button>
+      </div>
+
+      <div class="toolbar-group">
+        <button id="refresh-preview" title="Refresh Preview (Ctrl+Enter)">⟳ Refresh</button>
       </div>
 
       <div class="toolbar-group">
@@ -263,6 +322,11 @@
         </select>
       </div>
 
+      <button class="theme-toggle" id="theme-toggle" title="Toggle Theme">
+        <span class="theme-toggle-icon">&#9681;</span>
+        <span>Theme</span>
+      </button>
+
       <div class="connection-status disconnected" id="status">
         <span class="status-dot"></span>
         <span id="status-text">Disconnected</span>
@@ -271,7 +335,7 @@
 
     <div class="split-pane">
       <div class="editor-pane">
-        <textarea class="editor-textarea" id="editor" placeholder="Enter markdown..."></textarea>
+        <div class="code-editor" id="editor"></div>
       </div>
 
       <div class="resizer" id="resizer"></div>
