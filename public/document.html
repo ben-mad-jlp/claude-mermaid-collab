@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document Editor</title>
+  <link rel="stylesheet" href="/css/styles.css">
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+    }
+
+    .editor-container {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 12px 20px;
+      background: white;
+      border-bottom: 1px solid #ddd;
+      flex-shrink: 0;
+    }
+
+    .document-title {
+      font-size: 16px;
+      font-weight: 600;
+      flex: 1;
+    }
+
+    .toolbar-group {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    button {
+      padding: 8px 16px;
+      border: 1px solid #ddd;
+      background: white;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    button:hover {
+      background: #f5f5f5;
+    }
+
+    button.approve {
+      border-color: #4caf50;
+      color: #4caf50;
+    }
+
+    button.approve:hover {
+      background: #e8f5e9;
+    }
+
+    button.reject {
+      border-color: #f44336;
+      color: #f44336;
+    }
+
+    button.reject:hover {
+      background: #ffebee;
+    }
+
+    select {
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+
+    .split-pane {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .editor-pane {
+      flex: 0 0 50%;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .resizer {
+      width: 8px;
+      background: #ddd;
+      cursor: col-resize;
+      flex-shrink: 0;
+    }
+
+    .resizer:hover {
+      background: #aaa;
+    }
+
+    .editor-textarea {
+      flex: 1;
+      padding: 16px;
+      border: none;
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+      resize: none;
+      outline: none;
+      line-height: 1.6;
+    }
+
+    .preview-pane {
+      flex: 1;
+      overflow-y: auto;
+      background: #fafafa;
+      padding: 20px;
+    }
+
+    .preview-content {
+      max-width: 800px;
+      margin: 0 auto;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      line-height: 1.6;
+    }
+
+    .preview-content h1, .preview-content h2, .preview-content h3 {
+      margin-top: 1.5em;
+      margin-bottom: 0.5em;
+    }
+
+    .preview-content p {
+      margin: 1em 0;
+    }
+
+    .preview-content code {
+      background: #e8e8e8;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: 'Courier New', monospace;
+    }
+
+    .preview-content pre {
+      background: #2d2d2d;
+      color: #f8f8f2;
+      padding: 16px;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+
+    .preview-content pre code {
+      background: none;
+      padding: 0;
+    }
+
+    .section-approved {
+      border-left: 4px solid #4caf50;
+      padding-left: 16px;
+      background: #f1f8e9;
+      margin: 8px 0;
+    }
+
+    .section-rejected {
+      border-left: 4px solid #f44336;
+      padding-left: 16px;
+      background: #ffebee;
+      margin: 8px 0;
+    }
+
+    .comment-block {
+      background: #fff3e0;
+      border-left: 4px solid #ff9800;
+      padding: 8px 16px;
+      margin: 8px 0;
+      font-style: italic;
+    }
+
+    .comment-inline {
+      background: #fff9c4;
+      border-bottom: 2px solid #ffc107;
+      cursor: help;
+    }
+
+    .comment-tooltip {
+      position: absolute;
+      background: #333;
+      color: white;
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 13px;
+      max-width: 300px;
+      z-index: 1000;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="editor-container">
+    <div class="toolbar">
+      <button id="back-button" title="Back to Dashboard">←</button>
+      <div class="document-title" id="title">Loading...</div>
+
+      <div class="toolbar-group">
+        <button id="add-comment" title="Add Comment">💬 Comment</button>
+        <button id="approve-section" class="approve" title="Approve Section">✓ Approve</button>
+        <button id="reject-section" class="reject" title="Reject Section">✗ Reject</button>
+      </div>
+
+      <div class="toolbar-group">
+        <select id="export-select">
+          <option value="">Export...</option>
+          <option value="clean">Export Clean</option>
+          <option value="raw">Export Raw</option>
+        </select>
+      </div>
+
+      <div class="connection-status disconnected" id="status">
+        <span class="status-dot"></span>
+        <span id="status-text">Disconnected</span>
+      </div>
+    </div>
+
+    <div class="split-pane">
+      <div class="editor-pane">
+        <textarea class="editor-textarea" id="editor" placeholder="Enter markdown..."></textarea>
+      </div>
+
+      <div class="resizer" id="resizer"></div>
+
+      <div class="preview-pane" id="preview-pane">
+        <div class="preview-content" id="preview"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="comment-tooltip" id="tooltip"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script type="module" src="/js/api-client.js"></script>
+  <script type="module" src="/js/document-editor.js"></script>
+</body>
+</html>
