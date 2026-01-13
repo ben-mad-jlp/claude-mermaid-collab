@@ -1,0 +1,51 @@
+graph TD
+    A["🏠 Cart Selection Screen<br/>User selects picking cart/station<br/>Scan or tap from list"] -->|Cart Selected| B["📋 Pick Workorder Screen<br/>Main picking workflow<br/>Claim & scan workorders"]
+    
+    B -->|Scan Source Container| C["📦 Container Info<br/>Display source container<br/>details & inventory"]
+    
+    C -->|Weight-based Pick| D["⚖️ Verify Piece Weight<br/>Scale reading<br/>Confirm pieces per unit"]
+    
+    C -->|Manual Pick| E["✏️ Enter Quantity<br/>Manual entry mode<br/>No scale verification"]
+    
+    D -->|Quantity Confirmed| F["🎯 Verify Difference<br/>Weight variance check<br/>Accept/Reject difference"]
+    
+    E -->|Quantity Entered| F
+    
+    F -->|Check Package Type| G["📦 Package Type Selection<br/>Choose: Box, Bag,<br/>Pallet, or Crate"]
+    
+    G -->|Type Selected| H["🛒 Working Inventory Panel<br/>Show picked items<br/>Track remainder needed"]
+    
+    H -->|More Items Needed| B
+    H -->|All Items Picked| I["✅ Post Confirmation<br/>Review pick summary<br/>Ready to post"]
+    
+    I -->|Confirm Post| J["✓ Post to Database<br/>Update shipment<br/>Mark items committed"]
+    
+    J -->|Has Gofor Remainder| K["🔄 Gofor Return<br/>Return unused items<br/>Mark for restock"]
+    
+    K -->|Return Complete| B
+    J -->|No Remainder| L["✅ Pick Complete<br/>Next workorder or<br/>finish session"]
+    
+    B -->|Error Cases| M["⚠️ Error Dialogs"]
+    M -->|Insufficient Inventory| N["❌ Insufficient Inventory Dialog<br/>Show available quantity"]
+    M -->|Sealed at Max| O["🔒 Sealed Over Max Dialog<br/>Container full warning"]
+    M -->|Empty Container| P["📭 Empty Container Dialog<br/>Skip or reassign"]
+    
+    N -->|Override| Q["🔐 Authorization Gate<br/>Badge scan required<br/>for quantity override"]
+    
+    Q -->|Authorized| F
+    
+    B -->|Settings| R["⚙️ Picking Station Settings<br/>Configure zone, scale,<br/>auto-drop preferences"]
+    
+    R -->|Back| B
+    
+    B -->|Logout| A
+    
+    style A fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    style B fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style I fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+    style J fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+    style L fill:#c8e6c9,stroke:#2e7d32,stroke-width:3px
+    style M fill:#ffebee,stroke:#d32f2f,stroke-width:2px
+    style N fill:#ffccbc,stroke:#d84315,stroke-width:2px
+    style Q fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style R fill:#e0f2f1,stroke:#00897b,stroke-width:2px

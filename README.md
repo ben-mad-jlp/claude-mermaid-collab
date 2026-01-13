@@ -5,13 +5,67 @@ A real-time Mermaid diagram collaboration server with integrated Model Context P
 ## Features
 
 - **Web Dashboard**: Browse diagrams with thumbnails, search, and filter
-- **Split-Pane Editor**: Live preview with syntax validation, undo/redo, theme switching
+- **Split-Pane Editor**: Live preview with syntax validation, undo/redo, draggable pane separator
 - **Real-Time Collaboration**: WebSocket-based live updates across all connected clients
 - **File-Based Storage**: Simple `.mmd` files for version control and external editing
 - **Syntax Validation**: Block invalid saves with line-specific error reporting
 - **MCP Integration**: Claude Code can create, read, update, and preview diagrams
 - **Export**: Download diagrams as SVG or PNG
+- **Pan & Zoom**: Interactive diagram preview with fit controls
+- **Direction Toggle**: Switch between horizontal (LR) and vertical (TD) layouts
+- **Wireframe Plugin**: Built-in support for UI wireframes and mockups
 - **LAN Accessible**: Share with team members on local network
+
+## Wireframe Plugin
+
+This project includes a custom Mermaid plugin for creating UI wireframes with text-based syntax. The plugin supports mobile, tablet, and desktop viewports with layouts in both horizontal (LR) and vertical (TD) directions.
+
+### Quick Example
+
+```
+wireframe mobile TD
+  screen "Login Screen"
+    col padding=16
+      Title "Welcome Back"
+      Input "Email"
+      Input "Password"
+      Button "Sign In" primary
+```
+
+### Features
+
+- **Multiple Viewports**: mobile (375px), tablet (768px), desktop (1200px)
+- **Layout Directions**: Horizontal (LR) or Vertical (TD)
+- **UI Components**: Buttons, inputs, text, titles, cards, grids, lists, navigation
+- **Flex Layouts**: Rows and columns with flexible sizing
+- **Modifiers**: Width, height, padding, alignment, variants (primary, danger, success)
+
+### Available Widgets
+
+- **Containers**: `screen`, `col`, `row`, `Card`
+- **Input Controls**: `Button`, `Input`, `Checkbox`, `Radio`, `Switch`, `Dropdown`
+- **Display**: `Text`, `Title`, `Icon`, `Image`, `Avatar`
+- **Navigation**: `AppBar`, `NavMenu`, `BottomNav`, `FAB`
+- **Structure**: `Grid`, `List`, `divider`, `spacer`
+
+### Plugin Development
+
+The wireframe plugin source is located in `plugins/wireframe/`:
+
+```bash
+# Build the plugin
+npm run build:wireframe
+
+# Watch for changes during development
+npm run build:wireframe:watch
+
+# Run plugin tests
+npm run test:wireframe
+```
+
+The built plugin is automatically copied to `public/js/plugins/mermaid-wireframe.js` and loaded by the editor.
+
+For detailed plugin documentation, see [plugins/wireframe/README.md](plugins/wireframe/README.md).
 
 ## Quick Start
 
@@ -189,6 +243,12 @@ DIAGRAMS_FOLDER=./diagrams   # Diagram storage path (default: ./diagrams)
 │   │   └── api.ts             # REST API endpoints
 │   └── mcp/
 │       └── server.ts          # MCP server
+├── plugins/
+│   └── wireframe/             # Wireframe plugin source
+│       ├── src/               # Plugin source code
+│       ├── tests/             # Plugin tests
+│       ├── package.json       # Plugin dependencies
+│       └── rollup.config.js   # Build configuration
 ├── public/
 │   ├── index.html             # Dashboard
 │   ├── diagram.html           # Editor
@@ -197,7 +257,9 @@ DIAGRAMS_FOLDER=./diagrams   # Diagram storage path (default: ./diagrams)
 │   └── js/
 │       ├── api-client.js      # HTTP & WebSocket client
 │       ├── dashboard.js       # Dashboard logic
-│       └── editor.js          # Editor logic
+│       ├── editor.js          # Editor logic
+│       └── plugins/
+│           └── mermaid-wireframe.js  # Built wireframe plugin
 └── diagrams/                  # Diagram storage (.mmd files)
 ```
 

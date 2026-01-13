@@ -1,0 +1,60 @@
+stateDiagram-v2
+    [*] --> StationLogin
+    
+    StationLogin: Station Login Screen\nScan/Select Station\n(packaging_station_login_screen.dart)
+    
+    StationLogin --> StationSelected: selectStation()
+    
+    StationSelected: Station Selected\nLoad Pending Workorders\n(PackagingScreen - Selection Mode)
+    
+    StationSelected --> WorkorderSelected: selectWorkorderWithServer()
+    
+    WorkorderSelected: Workorder Selected\nInitialize Working Container\n(PackagingScreen - Workflow Mode)
+    
+    WorkorderSelected --> Scanning: Workorder ready
+    
+    Scanning: Container Scanning Loop\nscanContainer() →\nloadSourceContainer()\nAccumulate pieces
+    
+    Scanning --> Scanning: Add more\ncontainers
+    
+    Scanning --> BoxCreating: createBox() triggered
+    
+    BoxCreating: Creating Box\nExtract pieces from\nworking container
+    
+    BoxCreating --> Scanning: Box created\nmore pieces\nremaining
+    
+    BoxCreating --> Complete: All pieces\npackaged
+    
+    Complete: Finish Packaging\nComplete Workorder\nAll boxes created
+    
+    Complete --> UnloadScanning: Enter unload mode
+    
+    UnloadScanning: Unload Screen - Scanning\nScan created containers\nto determine destinations\n(UnloadMainScreen)
+    
+    UnloadScanning --> UnloadLoading: scanContainer()
+    
+    UnloadLoading: Unload Screen - Loading\nFetching destination info\nfrom API
+    
+    UnloadLoading --> UnloadPrinting: New pallet needed
+    UnloadLoading --> UnloadSelecting: Existing destination
+    
+    UnloadPrinting: Unload Screen - Print Pallet\nPrint label, scan pallet\n(UnloadPrintPalletScreen)
+    
+    UnloadPrinting --> UnloadScanning: Pallet scanned,\ncontinue unloading
+    
+    UnloadSelecting: Unload Screen - Select Destination\nChoose pallet or location\n(UnloadSelectDestinationScreen)
+    
+    UnloadSelecting --> UnloadScanning: Destination selected,\ncontinue unloading
+    
+    UnloadError: Unload Screen - Error\nFailed to find destination\n(UnloadErrorScreen)
+    
+    UnloadLoading --> UnloadError: Destination lookup failed
+    UnloadPrinting --> UnloadError: Print/scan failed
+    UnloadSelecting --> UnloadError: Selection error
+    
+    UnloadError --> UnloadScanning: Retry
+    UnloadError --> Complete: Dismiss error,\nretry later
+    
+    UnloadScanning --> StationSelected: All containers unloaded\nReturn to workorder list
+    
+    StationSelected --> [*]: Logout

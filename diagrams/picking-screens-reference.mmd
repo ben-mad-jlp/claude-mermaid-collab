@@ -1,0 +1,68 @@
+graph TB
+    subgraph MainScreens ["Main Picking Screens"]
+        S1["<b>1. Cart Selection Screen</b><br/>Path: cart_selection_screen.dart<br/>━━━━━━━━━━━━━━━━━━━<br/>Purpose: Select picking cart/station<br/>Actions: Scan cart, view list,<br/>pull-to-refresh, settings, logout<br/>State: Initial entry point"]
+        
+        S2["<b>2. Pick Workorder Screen</b><br/>Path: pick_workorder_screen.dart<br/>━━━━━━━━━━━━━━━━━━━<br/>Purpose: Main picking workflow<br/>Actions: Claim workorder, scan<br/>containers, manage picks, post<br/>State: Active workorder session"]
+        
+        S3["<b>3. Pick Cart Settings</b><br/>Path: pick_cart_settings_screen.dart<br/>━━━━━━━━━━━━━━━━━━━<br/>Purpose: Configure picking station<br/>Actions: Zone selection, scale<br/>config, priority orders, sort options<br/>State: Settings/configuration"]
+    end
+    
+    subgraph KeyDialogs ["Key Dialogs & Overlays"]
+        D1["<b>Weight Verification Dialog</b><br/>📦 Verify Piece Weight<br/>━━━━━━━━━━━━━━━━━━━<br/>Input: Scale reading + piece count<br/>Output: Confirm or reject weight"]
+        
+        D2["<b>Package Type Selection</b><br/>📦 Package Type Dialog<br/>━━━━━━━━━━━━━━━━━━━<br/>Input: Choose container type<br/>Options: Box, Bag, Pallet, Crate"]
+        
+        D3["<b>Post Confirmation Dialog</b><br/>✅ Post Confirmation<br/>━━━━━━━━━━━━━━━━━━━<br/>Review: Pick summary<br/>Action: Confirm or cancel post"]
+        
+        D4["<b>Authorization Gate Dialog</b><br/>🔐 Authorization Check<br/>━━━━━━━━━━━━━━━━━━━<br/>Use: Override authority<br/>Input: Badge scan/approval"]
+        
+        D5["<b>Insufficient Inventory Dialog</b><br/>❌ Inventory Alert<br/>━━━━━━━━━━━━━━━━━━━<br/>Shows: Available quantity<br/>Options: Override or adjust qty"]
+        
+        D6["<b>Remainder Check Dialog</b><br/>📊 Verify Remainder<br/>━━━━━━━━━━━━━━━━━━━<br/>Input: Remaining quantity<br/>Confirm: Accept or adjust"]
+        
+        D7["<b>Gofor Return Dialog</b><br/>🔄 Gofor Container Return<br/>━━━━━━━━━━━━━━━━━━━<br/>Input: Return reason<br/>Action: Return for restock"]
+        
+        D8["<b>Empty Container Dialog</b><br/>📭 Empty Container<br/>━━━━━━━━━━━━━━━━━━━<br/>Alert: Container is empty<br/>Options: Skip or skip with note"]
+    end
+    
+    subgraph Panels ["Reusable Panels & Widgets"]
+        P1["<b>Workorder Header Panel</b><br/>Order info, SKU, quantity needed"]
+        
+        P2["<b>Working Inventory Panel</b><br/>Picked items, running total,<br/>remainder calculation"]
+        
+        P3["<b>Scale Display Widget</b><br/>Current weight reading<br/>from connected scale"]
+        
+        P4["<b>Workorder Card</b><br/>Compact workorder display<br/>with status indicators"]
+        
+        P5["<b>Return History Grid</b><br/>Grid of previous returns<br/>in current session"]
+        
+        P6["<b>Scan Label Widget</b><br/>Display recently scanned<br/>container/location"]
+    end
+    
+    subgraph ErrorStates ["Error & Empty States"]
+        E1["<b>Empty State View</b><br/>No active workorder<br/>Prompt to select cart"]
+        
+        E2["<b>Error View</b><br/>Display error message<br/>with retry option"]
+        
+        E3["<b>Instruction Bar</b><br/>Show current picking<br/>instruction/guidance"]
+    end
+    
+    MainScreens --> KeyDialogs
+    MainScreens --> Panels
+    MainScreens --> ErrorStates
+    KeyDialogs -.->|feedback| MainScreens
+    Panels -.->|display| MainScreens
+    ErrorStates -.->|alternate| MainScreens
+    
+    style S1 fill:#bbdefb,stroke:#1565c0,stroke-width:2px,color:#000
+    style S2 fill:#fff9c4,stroke:#f57f17,stroke-width:2px,color:#000
+    style S3 fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px,color:#000
+    
+    style D1 fill:#f8bbd0,stroke:#c2185b,stroke-width:2px,color:#000
+    style D2 fill:#f8bbd0,stroke:#c2185b,stroke-width:2px,color:#000
+    style D3 fill:#f8bbd0,stroke:#c2185b,stroke-width:2px,color:#000
+    style D4 fill:#e1bee7,stroke:#6a1b9a,stroke-width:2px,color:#000
+    style D5 fill:#ffccbc,stroke:#d84315,stroke-width:2px,color:#000
+    style D6 fill:#f8bbd0,stroke:#c2185b,stroke-width:2px,color:#000
+    style D7 fill:#b2dfdb,stroke:#00695c,stroke-width:2px,color:#000
+    style D8 fill:#ffccbc,stroke:#d84315,stroke-width:2px,color:#000

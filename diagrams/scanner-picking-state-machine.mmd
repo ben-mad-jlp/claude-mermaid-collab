@@ -1,0 +1,45 @@
+stateDiagram-v2
+    [*] --> idle
+    cancel
+    cancel --> idle
+    
+    idle --> cartSelection: cartScanned
+    idle --> startWorkorder: workorderSelected
+    
+    cartSelection --> selectWorkorder: cartScanned
+    
+    selectWorkorder --> startWorkorder: workorderSelected
+    
+    startWorkorder --> scanContainers
+    
+    scanContainers --> verifySealedContainer: containerScanned<br/>(sealed, manual)
+    scanContainers --> post: containerScanned<br/>(sealed, auto)
+    scanContainers --> manualPick: containerScanned<br/>(unsealed, manual)
+    scanContainers --> verifyPieceWeight: containerScanned<br/>(unsealed, scale)
+    scanContainers --> returnGoforContainer: exit<br/>(gofor container)
+    scanContainers --> selectWorkorder: exit<br/>(regular)
+    
+    verifySealedContainer --> post: sealedContainerPick
+    verifySealedContainer --> scanContainers: unsealContainer
+    
+    verifyPieceWeight --> manualPick: enterManualMode
+    verifyPieceWeight --> weighPick: weightVerified
+    
+    manualPick --> checkRemainder: quantityEntered
+    
+    weighPick --> checkRemainder: quantityEntered
+    
+    checkRemainder --> packageTypeCheck
+    
+    packageTypeCheck --> post: packageVerified
+    
+    post --> returnGoforContainer: posted<br/>(gofor with remainder)
+    post --> pickComplete: posted<br/>(regular or gofor complete)
+    
+    returnGoforContainer --> pickComplete: goforReturned
+    
+    pickComplete --> scanContainers: completed<br/>(more workorders)
+    pickComplete --> selectWorkorder: completed<br/>(done)
+    
+    classdef cancelState fill:#ff6b6b,stroke:#c92a2a,stroke-width:3px,color:#fff
+    class cancel cancelState

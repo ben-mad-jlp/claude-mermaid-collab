@@ -1,0 +1,95 @@
+wireframe mobile LR
+  screen "Station Login"
+    col
+      AppBar "Packaging Station"
+      col padding=16
+        Title "Select Station"
+        Text "Scan or choose a station"
+        Input "Scan barcode"
+        spacer
+        Text "Available Stations:"
+        Card
+          List "Station A"
+          List "Station B"
+          List "Station C"
+  screen "Workorder Selection"
+    col
+      AppBar "Packaging"
+      col padding=16
+        Text "Division: US"
+        Text "Station: Station A"
+        divider
+        Text "Pending Workorders:"
+        Card
+          List "WO-001 | SKU-123"
+          List "WO-002 | SKU-456"
+  screen "Packaging Workflow"
+    col
+      AppBar "Packaging"
+      col padding=8
+        Text "WO-001 | SKU-123"
+        Text "Qty Due: 100"
+      divider
+      col padding=16
+        Text "Scan source container:"
+        Input "Scan barcode"
+        Button "Load Container"
+        divider
+        Text "Station Container Total:"
+        Title "45 pieces"
+        divider
+        Text "Scale Display:"
+        Title "45 pieces"
+        Button "Create Box" secondary
+        divider
+        Text "Created Boxes:"
+        Card
+          List "BOX-001: 50 pc"
+        Button "Finish Packaging" primary
+  screen "Unload Scanning"
+    col
+      AppBar "Unload Station"
+      col padding=16
+        Title "Scan to unload"
+        Input "Scan barcode"
+        divider
+        Text "Containers:"
+        Card
+          List "BOX-001"
+          List "BOX-002"
+        spacer
+        Button "Close" secondary
+  screen "Unload Loading"
+    col
+      AppBar "Unload"
+      col padding=16
+        spacer
+        Title "Finding Destination..."
+        spacer
+  screen "Unload Print"
+    col
+      AppBar "Print Pallet"
+      col padding=16
+        Title "New Pallet"
+        Input "Scan pallet barcode"
+        spacer
+        Button "Cancel" secondary
+  screen "Unload Select"
+    col
+      AppBar "Select Destination"
+      col padding=16
+        Title "Choose location"
+        Card
+          List "Pallet A"
+          List "Pallet B"
+        spacer
+        Button "Select" primary
+  screen "Unload Error"
+    col
+      AppBar "Error"
+      col padding=16
+        spacer
+        Title "Not Found"
+        Text "Unable to find destination"
+        spacer
+        Button "Retry" secondary

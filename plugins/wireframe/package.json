@@ -1,0 +1,64 @@
+{
+  "name": "mermaid-wireframe",
+  "version": "0.1.0",
+  "description": "Mermaid.js plugin for creating UI wireframes with text-based syntax",
+  "type": "module",
+  "main": "./dist/mermaid-wireframe.cjs",
+  "module": "./dist/mermaid-wireframe.mjs",
+  "browser": "./dist/mermaid-wireframe.browser.js",
+  "exports": {
+    ".": {
+      "import": "./dist/mermaid-wireframe.mjs",
+      "require": "./dist/mermaid-wireframe.cjs",
+      "browser": "./dist/mermaid-wireframe.browser.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build:parser": "jison src/parser/wireframe.jison -o src/parser/wireframeParser.js",
+    "build": "npm run build:parser && rollup -c",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev": "rollup -c -w",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "keywords": [
+    "mermaid",
+    "mermaid-plugin",
+    "wireframe",
+    "mockup",
+    "prototype",
+    "diagram",
+    "ui",
+    "ux",
+    "design"
+  ],
+  "author": "ben-mad-jlp",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ben-mad-jlp/mermaid-wireframe.git"
+  },
+  "homepage": "https://github.com/ben-mad-jlp/mermaid-wireframe#readme",
+  "bugs": {
+    "url": "https://github.com/ben-mad-jlp/mermaid-wireframe/issues"
+  },
+  "peerDependencies": {
+    "mermaid": "^10.0.0"
+  },
+  "dependencies": {
+    "d3": "^7.8.5"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^25.0.7",
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "jison": "^0.4.18",
+    "jsdom": "^27.4.0",
+    "rollup": "^4.9.5",
+    "vitest": "^1.1.3"
+  }
+}

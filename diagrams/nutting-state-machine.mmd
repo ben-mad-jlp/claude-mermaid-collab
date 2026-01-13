@@ -1,0 +1,85 @@
+stateDiagram-v2
+    [*] --> Initial: App Start
+    
+    Initial --> StationSelected: selectStation()\n✓ station loaded
+    Initial --> Error: selectStation()\n✗ Load failed
+    
+    StationSelected --> WorkorderSelected: selectWorkorder()\n✓ containers loaded
+    StationSelected --> Error: selectWorkorder()\n✗ Load failed
+    StationSelected --> Error: selectLineItem()\n✗ Inventory incompatible
+    StationSelected --> ReturnProcessing: returnInventory()\n[isLoading]
+    
+    WorkorderSelected --> Scanning: selectLineItem()\n✓ Ready to scan
+    WorkorderSelected --> WorkorderSelected: selectWorkorder()\n✓ Switch workorder\n(if inventory compatible)
+    WorkorderSelected --> ReturnProcessing: returnInventory()\n[isLoading]
+    
+    Scanning --> Scanning: scanContainer()\n✓ Add to inventory
+    Scanning --> Scanning: scanContainer()\n✗ Failed (error shown)
+    Scanning --> ReturnProcessing: returnInventory()\n[isLoading]
+    
+    Scanning --> Combining: combineInventory()\nClicked (dialog filled)
+    Combining --> CombineProcessing: combineInventory()\nAPI call [isLoading]
+    
+    CombineProcessing --> WorkorderSelected: ✓ Success\nLoad next workorder
+    CombineProcessing --> Error: ✗ Failed
+    
+    ReturnProcessing --> StationSelected: ✓ From StationSelected\nRemove lot
+    ReturnProcessing --> WorkorderSelected: ✓ From WorkorderSelected\nRemove lot
+    ReturnProcessing --> Scanning: ✓ From Scanning\nRemove lot
+    ReturnProcessing --> Error: ✗ Failed
+    
+    Scanning --> LoggingOut: logoutFromStation()\nClicked + confirmed
+    WorkorderSelected --> LoggingOut: logoutFromStation()\nClicked + confirmed
+    StationSelected --> LoggingOut: logoutFromStation()\nClicked + confirmed
+    
+    LoggingOut --> LogoutProcessing: LogoutAsync()\nAPI call [isLoading]
+    
+    LogoutProcessing --> Initial: ✓ Success\nFull reset
+    LogoutProcessing --> Error: ✗ Failed
+    
+    Error --> Initial: clearError()\nDismiss dialog
+    Error --> StationSelected: clearError()\n(if station active)
+    Error --> WorkorderSelected: clearError()\n(if workorder active)
+    Error --> Scanning: clearError()\n(if scanning mode)
+    
+    note right of Initial
+        currentStation: null
+        currentWorkorder: null
+        stationInventory: {}
+        error: null
+        isLoading: false
+    end note
+    
+    note right of StationSelected
+        currentStation: ✓ loaded
+        stationInfo: ✓ loaded
+        currentWorkorder: null
+        (may have inventory from
+         previous workorder)
+    end note
+    
+    note right of WorkorderSelected
+        currentStation: ✓ selected
+        currentWorkorder: ✓ selected
+        availableContainers: ✓ loaded
+        (may have inventory)
+    end note
+    
+    note right of Scanning
+        currentWorkorder: ✓ selected
+        selectedLineItem: ✓ selected
+        stationInventory: {lots}
+        (actively accumulating)
+    end note
+    
+    note right of ReturnProcessing
+        API call [isLoading]
+        Returns to previous state
+        after removing lot
+    end note
+    
+    note right of Error
+        error: ✓ message set
+        isLoading: false
+        (awaiting user)
+    end note
