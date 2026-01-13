@@ -63,6 +63,47 @@ class APIClient {
     return `${this.baseURL}/api/render/${id}?theme=${theme}`;
   }
 
+  // Document API methods
+  async getDocuments() {
+    const response = await fetch(`${this.baseURL}/api/documents`);
+    return response.json();
+  }
+
+  async getDocument(id) {
+    const response = await fetch(`${this.baseURL}/api/document/${id}`);
+    return response.json();
+  }
+
+  async createDocument(name, content) {
+    const response = await fetch(`${this.baseURL}/api/document`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, content }),
+    });
+    return response.json();
+  }
+
+  async updateDocument(id, content) {
+    const response = await fetch(`${this.baseURL}/api/document/${id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    });
+    return response.json();
+  }
+
+  async deleteDocument(id) {
+    const response = await fetch(`${this.baseURL}/api/document/${id}`, {
+      method: 'DELETE',
+    });
+    return response.json();
+  }
+
+  async getCleanDocument(id) {
+    const response = await fetch(`${this.baseURL}/api/document/${id}/clean`);
+    return response.json();
+  }
+
   // WebSocket methods
   connectWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
