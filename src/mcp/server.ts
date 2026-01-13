@@ -213,6 +213,115 @@ async function previewDiagram(id: string): Promise<string> {
 }
 
 /**
+ * MCP Tool: list_documents
+ * Lists all available documents
+ */
+async function listDocuments(): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}/api/documents`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to list documents: ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  return JSON.stringify(data, null, 2);
+}
+
+/**
+ * MCP Tool: get_document
+ * Retrieves a specific document by ID
+ */
+async function getDocument(id: string): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}/api/document/${id}`);
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error(`Document not found: ${id}`);
+    }
+    throw new Error(`Failed to get document: ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  return JSON.stringify(data, null, 2);
+}
+
+/**
+ * MCP Tool: create_document
+ * Creates a new document with the given name and content
+ */
+async function createDocument(name: string, content: string): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}/api/document`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ name, content }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(`Failed to create document: ${error.error || response.statusText}`);
+  }
+
+  const data = await response.json();
+
+  const previewUrl = `${API_BASE_URL}/document.html?id=${data.id}`;
+  return JSON.stringify({
+    success: true,
+    id: data.id,
+    previewUrl,
+    message: `Document created successfully. View at: ${previewUrl}`,
+  }, null, 2);
+}
+
+/**
+ * MCP Tool: update_document
+ * Updates an existing document's content
+ */
+async function updateDocument(id: string, content: string): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}/api/document/${id}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ content }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(`Failed to update document: ${error.error || response.statusText}`);
+  }
+
+  return JSON.stringify({
+    success: true,
+    id,
+    message: `Document updated successfully`,
+  }, null, 2);
+}
+
+/**
+ * MCP Tool: preview_document
+ * Returns the preview URL for a document
+ */
+async function previewDocument(id: string): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}/api/document/${id}`);
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error(`Document not found: ${id}`);
+    }
+    throw new Error(`Failed to get document: ${response.statusText}`);
+  }
+
+  const previewUrl = `${API_BASE_URL}/document.html?id=${id}`;
+  return JSON.stringify({
+    id,
+    previewUrl,
+    message: `Open this URL in your browser to view the document: ${previewUrl}`,
+  }, null, 2);
+}
+
+/**
  * Main MCP server setup
  */
 async function main() {
@@ -361,6 +470,78 @@ async function main() {
             required: ['id'],
           },
         },
+        {
+          name: 'list_documents',
+          description: 'List all available documents in the system',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+          },
+        },
+        {
+          name: 'get_document',
+          description: 'Get a specific document by its ID, including content and metadata',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              id: {
+                type: 'string',
+                description: 'The document ID (without .md extension)',
+              },
+            },
+            required: ['id'],
+          },
+        },
+        {
+          name: 'create_document',
+          description: 'Create a new markdown document with the given name and content. Returns the document ID and preview URL.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              name: {
+                type: 'string',
+                description: 'The name for the document (without .md extension)',
+              },
+              content: {
+                type: 'string',
+                description: 'The markdown content',
+              },
+            },
+            required: ['name', 'content'],
+          },
+        },
+        {
+          name: 'update_document',
+          description: 'Update an existing document\'s content',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              id: {
+                type: 'string',
+                description: 'The document ID to update',
+              },
+              content: {
+                type: 'string',
+                description: 'The new markdown content',
+              },
+            },
+            required: ['id', 'content'],
+          },
+        },
+        {
+          name: 'preview_document',
+          description: 'Get the preview URL for viewing a document in the browser',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              id: {
+                type: 'string',
+                description: 'The document ID to preview',
+              },
+            },
+            required: ['id'],
+          },
+        },
       ],
     };
   });
@@ -448,6 +629,78 @@ async function main() {
             throw new Error('Missing or invalid required argument: id');
           }
           const result = await previewDiagram(args.id);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: result,
+              },
+            ],
+          };
+        }
+
+        case 'list_documents': {
+          const result = await listDocuments();
+          return {
+            content: [
+              {
+                type: 'text',
+                text: result,
+              },
+            ],
+          };
+        }
+
+        case 'get_document': {
+          if (!args || typeof args.id !== 'string') {
+            throw new Error('Missing or invalid required argument: id');
+          }
+          const result = await getDocument(args.id);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: result,
+              },
+            ],
+          };
+        }
+
+        case 'create_document': {
+          if (!args || typeof args.name !== 'string' || typeof args.content !== 'string') {
+            throw new Error('Missing or invalid required arguments: name, content');
+          }
+          const result = await createDocument(args.name, args.content);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: result,
+              },
+            ],
+          };
+        }
+
+        case 'update_document': {
+          if (!args || typeof args.id !== 'string' || typeof args.content !== 'string') {
+            throw new Error('Missing or invalid required arguments: id, content');
+          }
+          const result = await updateDocument(args.id, args.content);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: result,
+              },
+            ],
+          };
+        }
+
+        case 'preview_document': {
+          if (!args || typeof args.id !== 'string') {
+            throw new Error('Missing or invalid required argument: id');
+          }
+          const result = await previewDocument(args.id);
           return {
             content: [
               {
