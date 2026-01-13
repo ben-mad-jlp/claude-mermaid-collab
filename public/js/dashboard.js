@@ -2,29 +2,79 @@ import APIClient from './api-client.js';
 
 const api = new APIClient();
 let diagrams = [];
+let documents = [];
 
 // DOM elements
 const grid = document.getElementById('grid');
 const empty = document.getElementById('empty');
 const search = document.getElementById('search');
+const typeFilter = document.getElementById('type-filter');
 const deleteAllBtn = document.getElementById('delete-all');
 const status = document.getElementById('status');
 const statusText = document.getElementById('status-text');
 
-// Load diagrams
-async function loadDiagrams() {
-  const response = await api.getDiagrams();
-  diagrams = response.diagrams;
+// Load all items
+async function loadItems() {
+  const [diagramsResponse, documentsResponse] = await Promise.all([
+    api.getDiagrams(),
+    api.getDocuments(),
+  ]);
+
+  diagrams = diagramsResponse.diagrams || [];
+  documents = documentsResponse.documents || [];
   renderGrid();
 }
 
+// Get preview text for document (first ~100 chars or first heading)
+function getDocumentPreview(content) {
+  // Try to find first heading
+  const headingMatch = content.match(/^#{1,6}\s+(.+)$/m);
+  if (headingMatch) {
+    return headingMatch[1];
+  }
+
+  // Fall back to first 100 chars
+  const clean = content
+    .replace(/<!--[\s\S]*?-->/g, '') // Remove comments
+    .replace(/^#+\s*/gm, '')         // Remove heading markers
+    .trim();
+
+  return clean.substring(0, 100) + (clean.length > 100 ? '...' : '');
+}
+
 // Render grid
-function renderGrid(filter = '') {
-  const filtered = diagrams.filter(d =>
-    d.name.toLowerCase().includes(filter.toLowerCase())
+function renderGrid() {
+  const filter = search.value.toLowerCase();
+  const typeFilterValue = typeFilter.value;
+
+  // Combine and filter items
+  let items = [];
+
+  if (typeFilterValue === 'all' || typeFilterValue === 'diagram') {
+    items.push(...diagrams.map(d => ({
+      ...d,
+      type: 'diagram',
+      displayName: d.name.replace('.mmd', ''),
+    })));
+  }
+
+  if (typeFilterValue === 'all' || typeFilterValue === 'document') {
+    items.push(...documents.map(d => ({
+      ...d,
+      type: 'document',
+      displayName: d.name.replace('.md', ''),
+    })));
+  }
+
+  // Filter by search
+  items = items.filter(item =>
+    item.displayName.toLowerCase().includes(filter)
   );
 
-  if (filtered.length === 0) {
+  // Sort by lastModified (newest first)
+  items.sort((a, b) => b.lastModified - a.lastModified);
+
+  if (items.length === 0) {
     grid.innerHTML = '';
     empty.style.display = 'block';
     return;
@@ -32,67 +82,99 @@ function renderGrid(filter = '') {
 
   empty.style.display = 'none';
 
-  grid.innerHTML = filtered.map(diagram => `
-    <div class="diagram-card" data-id="${diagram.id}">
-      <button class="delete-btn" data-id="${diagram.id}" title="Delete diagram">×</button>
-      <div class="diagram-thumbnail">
-        <img src="${api.getThumbnailURL(diagram.id)}" alt="${diagram.name}">
-      </div>
-      <div class="diagram-info">
-        <div class="diagram-name">${diagram.name}</div>
-        <div class="diagram-meta">
-          Updated ${new Date(diagram.lastModified).toLocaleDateString()}
+  grid.innerHTML = items.map(item => {
+    if (item.type === 'diagram') {
+      return `
+        <div class="item-card" data-id="${item.id}" data-type="diagram">
+          <span class="type-badge diagram">Diagram</span>
+          <button class="delete-btn" data-id="${item.id}" data-type="diagram" title="Delete">×</button>
+          <div class="item-thumbnail">
+            <img src="${api.getThumbnailURL(item.id)}" alt="${item.displayName}">
+          </div>
+          <div class="item-info">
+            <div class="item-name">${item.displayName}</div>
+            <div class="item-meta">
+              Updated ${new Date(item.lastModified).toLocaleDateString()}
+            </div>
+          </div>
         </div>
-      </div>
-    </div>
-  `).join('');
+      `;
+    } else {
+      return `
+        <div class="item-card" data-id="${item.id}" data-type="document">
+          <span class="type-badge document">Document</span>
+          <button class="delete-btn" data-id="${item.id}" data-type="document" title="Delete">×</button>
+          <div class="item-thumbnail document-preview">
+            ${getDocumentPreview(item.content)}
+          </div>
+          <div class="item-info">
+            <div class="item-name">${item.displayName}</div>
+            <div class="item-meta">
+              Updated ${new Date(item.lastModified).toLocaleDateString()}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+  }).join('');
 
   // Add click handlers for cards
-  document.querySelectorAll('.diagram-card').forEach(card => {
+  document.querySelectorAll('.item-card').forEach(card => {
     card.addEventListener('click', (e) => {
-      // Don't navigate if clicking delete button
       if (e.target.classList.contains('delete-btn')) return;
 
       const id = card.dataset.id;
-      window.location.href = `/diagram.html?id=${id}`;
+      const type = card.dataset.type;
+
+      if (type === 'diagram') {
+        window.location.href = `/diagram.html?id=${id}`;
+      } else {
+        window.location.href = `/document.html?id=${id}`;
+      }
     });
   });
 
   // Add click handlers for delete buttons
   document.querySelectorAll('.delete-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
-      e.stopPropagation(); // Prevent card click
+      e.stopPropagation();
 
       const id = btn.dataset.id;
+      const type = btn.dataset.type;
 
       try {
-        await api.deleteDiagram(id);
-        await loadDiagrams(); // Reload the list
+        if (type === 'diagram') {
+          await api.deleteDiagram(id);
+        } else {
+          await api.deleteDocument(id);
+        }
+        await loadItems();
       } catch (error) {
-        alert('Failed to delete diagram: ' + error.message);
+        alert('Failed to delete: ' + error.message);
       }
     });
   });
 }
 
-// Delete all diagrams
-async function deleteAllDiagrams() {
+// Delete all items
+async function deleteAllItems() {
+  if (!confirm('Delete all diagrams and documents?')) return;
+
   try {
-    // Delete all diagrams in parallel
-    await Promise.all(diagrams.map(d => api.deleteDiagram(d.id)));
-    await loadDiagrams(); // Reload the list
+    await Promise.all([
+      ...diagrams.map(d => api.deleteDiagram(d.id)),
+      ...documents.map(d => api.deleteDocument(d.id)),
+    ]);
+    await loadItems();
   } catch (error) {
-    alert('Failed to delete diagrams: ' + error.message);
+    alert('Failed to delete: ' + error.message);
   }
 }
 
-// Search
-search.addEventListener('input', (e) => {
-  renderGrid(e.target.value);
-});
-
-// Delete all button
-deleteAllBtn.addEventListener('click', deleteAllDiagrams);
+// Event listeners
+search.addEventListener('input', renderGrid);
+typeFilter.addEventListener('change', renderGrid);
+deleteAllBtn.addEventListener('click', deleteAllItems);
 
 // WebSocket
 api.onStatusChange((newStatus) => {
@@ -101,8 +183,13 @@ api.onStatusChange((newStatus) => {
 });
 
 api.onWebSocketMessage((message) => {
-  if (message.type === 'diagram_created' || message.type === 'diagram_deleted') {
-    loadDiagrams();
+  if (
+    message.type === 'diagram_created' ||
+    message.type === 'diagram_deleted' ||
+    message.type === 'document_created' ||
+    message.type === 'document_deleted'
+  ) {
+    loadItems();
   }
 });
 
@@ -114,4 +201,4 @@ status.addEventListener('click', () => {
 
 // Initialize
 api.connectWebSocket();
-loadDiagrams();
+loadItems();

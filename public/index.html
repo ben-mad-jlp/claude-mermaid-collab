@@ -12,7 +12,7 @@
       gap: 20px;
     }
 
-    .diagram-card {
+    .item-card {
       background: white;
       border-radius: 8px;
       overflow: hidden;
@@ -22,7 +22,7 @@
       position: relative;
     }
 
-    .diagram-card:hover {
+    .item-card:hover {
       transform: translateY(-2px);
       box-shadow: 0 4px 8px rgba(0,0,0,0.15);
     }
@@ -48,7 +48,7 @@
       z-index: 10;
     }
 
-    .diagram-card:hover .delete-btn {
+    .item-card:hover .delete-btn {
       opacity: 1;
     }
 
@@ -56,7 +56,29 @@
       background: rgba(211, 47, 47, 1);
     }
 
-    .diagram-thumbnail {
+    .type-badge {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      z-index: 10;
+    }
+
+    .type-badge.diagram {
+      background: #e3f2fd;
+      color: #1976d2;
+    }
+
+    .type-badge.document {
+      background: #f3e5f5;
+      color: #7b1fa2;
+    }
+
+    .item-thumbnail {
       width: 100%;
       height: 180px;
       background: #fafafa;
@@ -66,21 +88,30 @@
       overflow: hidden;
     }
 
-    .diagram-thumbnail img {
+    .item-thumbnail img {
       max-width: 100%;
       max-height: 100%;
     }
 
-    .diagram-info {
+    .item-thumbnail.document-preview {
+      padding: 16px;
+      align-items: flex-start;
+      font-size: 13px;
+      color: #666;
+      line-height: 1.5;
+      text-align: left;
+    }
+
+    .item-info {
       padding: 16px;
     }
 
-    .diagram-name {
+    .item-name {
       font-weight: 600;
       margin-bottom: 8px;
     }
 
-    .diagram-meta {
+    .item-meta {
       font-size: 12px;
       color: #666;
     }
@@ -90,12 +121,26 @@
       padding: 60px 20px;
       color: #666;
     }
+
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .filter-group select {
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <h1>Mermaid Diagrams</h1>
+      <h1>Collaboration Dashboard</h1>
       <button id="delete-all" style="margin-left: auto; margin-right: 16px; padding: 8px 16px; border: 1px solid #f44336; background: #f44336; color: white; border-radius: 4px; cursor: pointer;">Delete All</button>
       <div class="connection-status disconnected" id="status">
         <span class="status-dot"></span>
@@ -103,16 +148,24 @@
       </div>
     </div>
 
-    <input
-      type="text"
-      class="search-box"
-      placeholder="Search diagrams..."
-      id="search"
-    >
+    <div class="filter-group">
+      <select id="type-filter">
+        <option value="all">All Items</option>
+        <option value="diagram">Diagrams Only</option>
+        <option value="document">Documents Only</option>
+      </select>
+      <input
+        type="text"
+        class="search-box"
+        placeholder="Search..."
+        id="search"
+        style="flex: 1;"
+      >
+    </div>
 
     <div class="diagram-grid" id="grid"></div>
     <div class="empty-state" id="empty" style="display: none;">
-      No diagrams found. Create one using the MCP tools!
+      No items found. Create diagrams or documents using the MCP tools!
     </div>
   </div>
 
