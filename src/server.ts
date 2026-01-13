@@ -1,6 +1,7 @@
 import { mkdir } from 'fs/promises';
 import { config } from './config';
 import { DiagramManager } from './services/diagram-manager';
+import { DocumentManager } from './services/document-manager';
 import { Validator } from './services/validator';
 import { Renderer } from './services/renderer';
 import { FileWatcher } from './services/file-watcher';
@@ -9,6 +10,7 @@ import { handleAPI } from './routes/api';
 
 // Initialize services
 const diagramManager = new DiagramManager();
+const documentManager = new DocumentManager();
 const validator = new Validator();
 const renderer = new Renderer();
 const fileWatcher = new FileWatcher();
@@ -16,37 +18,68 @@ const wsHandler = new WebSocketHandler();
 
 // Ensure diagrams folder exists
 await mkdir(config.DIAGRAMS_FOLDER, { recursive: true });
+await mkdir(config.DOCUMENTS_FOLDER, { recursive: true });
 
 // Initialize diagram manager
 await diagramManager.initialize();
+await documentManager.initialize();
 
 // Set up file watcher
 fileWatcher.onChange((event) => {
-  if (event.type === 'created') {
-    diagramManager.updateIndex(event.id, event.path);
-    wsHandler.broadcast({
-      type: 'diagram_created',
-      id: event.id,
-      name: event.id + '.mmd',
-    });
-  } else if (event.type === 'modified') {
-    diagramManager.updateIndex(event.id, event.path);
-    diagramManager.getDiagram(event.id).then((diagram) => {
-      if (diagram) {
-        wsHandler.broadcastToDiagram(event.id, {
-          type: 'diagram_updated',
-          id: event.id,
-          content: diagram.content,
-          lastModified: diagram.lastModified,
-        });
-      }
-    });
-  } else if (event.type === 'deleted') {
-    diagramManager.removeFromIndex(event.id);
-    wsHandler.broadcast({
-      type: 'diagram_deleted',
-      id: event.id,
-    });
+  if (event.resourceType === 'diagram') {
+    if (event.type === 'created') {
+      diagramManager.updateIndex(event.id, event.path);
+      wsHandler.broadcast({
+        type: 'diagram_created',
+        id: event.id,
+        name: event.id + '.mmd',
+      });
+    } else if (event.type === 'modified') {
+      diagramManager.updateIndex(event.id, event.path);
+      diagramManager.getDiagram(event.id).then((diagram) => {
+        if (diagram) {
+          wsHandler.broadcastToDiagram(event.id, {
+            type: 'diagram_updated',
+            id: event.id,
+            content: diagram.content,
+            lastModified: diagram.lastModified,
+          });
+        }
+      });
+    } else if (event.type === 'deleted') {
+      diagramManager.removeFromIndex(event.id);
+      wsHandler.broadcast({
+        type: 'diagram_deleted',
+        id: event.id,
+      });
+    }
+  } else if (event.resourceType === 'document') {
+    if (event.type === 'created') {
+      documentManager.updateIndex(event.id, event.path);
+      wsHandler.broadcast({
+        type: 'document_created',
+        id: event.id,
+        name: event.id + '.md',
+      });
+    } else if (event.type === 'modified') {
+      documentManager.updateIndex(event.id, event.path);
+      documentManager.getDocument(event.id).then((document) => {
+        if (document) {
+          wsHandler.broadcastToDocument(event.id, {
+            type: 'document_updated',
+            id: event.id,
+            content: document.content,
+            lastModified: document.lastModified,
+          });
+        }
+      });
+    } else if (event.type === 'deleted') {
+      documentManager.removeFromIndex(event.id);
+      wsHandler.broadcast({
+        type: 'document_deleted',
+        id: event.id,
+      });
+    }
   }
 });
 
@@ -72,7 +105,7 @@ const server = Bun.serve({
 
     // API routes
     if (url.pathname.startsWith('/api/')) {
-      return handleAPI(req, diagramManager, validator, renderer, wsHandler);
+      return handleAPI(req, diagramManager, documentManager, validator, renderer, wsHandler);
     }
 
     // Static files
@@ -83,6 +116,11 @@ const server = Bun.serve({
 
     if (url.pathname === '/diagram.html') {
       const file = Bun.file('public/diagram.html');
+      return new Response(file);
+    }
+
+    if (url.pathname === '/document.html') {
+      const file = Bun.file('public/document.html');
       return new Response(file);
     }
 
@@ -129,4 +167,5 @@ const server = Bun.serve({
 
 console.log(`🚀 Mermaid Collaboration Server running on http://${config.HOST}:${config.PORT}`);
 console.log(`📁 Diagrams folder: ${config.DIAGRAMS_FOLDER}`);
+console.log(`📄 Documents folder: ${config.DOCUMENTS_FOLDER}`);
 console.log(`🔌 WebSocket: ws://${config.HOST}:${config.PORT}/ws`);
