@@ -1,5 +1,6 @@
 import type { Server } from 'bun';
 import { DiagramManager } from '../services/diagram-manager';
+import { DocumentManager } from '../services/document-manager';
 import { Validator } from '../services/validator';
 import { Renderer, type Theme } from '../services/renderer';
 import { WebSocketHandler } from '../websocket/handler';
@@ -7,6 +8,7 @@ import { WebSocketHandler } from '../websocket/handler';
 export async function handleAPI(
   req: Request,
   diagramManager: DiagramManager,
+  documentManager: DocumentManager,
   validator: Validator,
   renderer: Renderer,
   wsHandler: WebSocketHandler,
@@ -168,6 +170,105 @@ export async function handleAPI(
     const { content } = await req.json();
     const result = await validator.validate(content);
     return Response.json(result);
+  }
+
+  // GET /api/documents
+  if (path === '/api/documents' && req.method === 'GET') {
+    const documents = await documentManager.listDocuments();
+    return Response.json({ documents });
+  }
+
+  // GET /api/document/:id
+  if (path.startsWith('/api/document/') && !path.includes('/clean') && req.method === 'GET') {
+    const id = path.split('/').pop()!;
+    const document = await documentManager.getDocument(id);
+
+    if (!document) {
+      return Response.json({ error: 'Document not found' }, { status: 404 });
+    }
+
+    return Response.json(document);
+  }
+
+  // GET /api/document/:id/clean
+  if (path.match(/^\/api\/document\/[^/]+\/clean$/) && req.method === 'GET') {
+    const id = path.split('/')[3];
+    const content = await documentManager.getCleanContent(id);
+
+    if (content === null) {
+      return Response.json({ error: 'Document not found' }, { status: 404 });
+    }
+
+    return Response.json({ content });
+  }
+
+  // POST /api/document (create new)
+  if (path === '/api/document' && req.method === 'POST') {
+    const { name, content } = await req.json();
+
+    if (!name || content === undefined) {
+      return Response.json({ error: 'Name and content required' }, { status: 400 });
+    }
+
+    try {
+      const id = await documentManager.createDocument(name, content);
+
+      wsHandler.broadcast({
+        type: 'document_created',
+        id,
+        name: name + '.md',
+      });
+
+      return Response.json({ id, success: true });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // POST /api/document/:id (update)
+  if (path.match(/^\/api\/document\/[^/]+$/) && req.method === 'POST') {
+    const id = path.split('/').pop()!;
+    const { content } = await req.json();
+
+    if (content === undefined) {
+      return Response.json({ error: 'Content required' }, { status: 400 });
+    }
+
+    try {
+      await documentManager.saveDocument(id, content);
+
+      const document = await documentManager.getDocument(id);
+      if (document) {
+        wsHandler.broadcastToDocument(id, {
+          type: 'document_updated',
+          id,
+          content: document.content,
+          lastModified: document.lastModified,
+        });
+      }
+
+      return Response.json({ success: true });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 404 });
+    }
+  }
+
+  // DELETE /api/document/:id
+  if (path.match(/^\/api\/document\/[^/]+$/) && req.method === 'DELETE') {
+    const id = path.split('/').pop()!;
+
+    try {
+      await documentManager.deleteDocument(id);
+
+      wsHandler.broadcast({
+        type: 'document_deleted',
+        id,
+      });
+
+      return Response.json({ success: true });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 404 });
+    }
   }
 
   return Response.json({ error: 'Not found' }, { status: 404 });
