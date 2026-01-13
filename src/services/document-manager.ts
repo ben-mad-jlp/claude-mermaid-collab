@@ -104,12 +104,17 @@ export class DocumentManager {
     const doc = await this.getDocument(id);
     if (!doc) return null;
 
-    // Strip all comment markers
+    // Strip all comment and status markers (including inline approvals/rejections)
     return doc.content
-      .replace(/<!--\s*status:\s*(approved|rejected)\s*-->\n?/g, '')
+      .replace(/<!--\s*status:\s*approved\s*-->\n?/g, '')
+      .replace(/<!--\s*status:\s*rejected(?::[^>]*)?\s*-->\n?/g, '')
       .replace(/<!--\s*comment:\s*[^>]*-->\n?/g, '')
       .replace(/<!--\s*comment-start:\s*[^>]*-->/g, '')
-      .replace(/<!--\s*comment-end\s*-->/g, '');
+      .replace(/<!--\s*comment-end\s*-->/g, '')
+      .replace(/<!--\s*reject-start:\s*[^>]*-->/g, '')
+      .replace(/<!--\s*reject-end\s*-->/g, '')
+      .replace(/<!--\s*approve-start\s*-->/g, '')
+      .replace(/<!--\s*approve-end\s*-->/g, '');
   }
 
   updateIndex(id: string, path: string): void {

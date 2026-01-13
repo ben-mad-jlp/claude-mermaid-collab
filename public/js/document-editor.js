@@ -68,6 +68,7 @@ function processStatusMarkers(content) {
   const lines = content.split('\n');
   const result = [];
   let currentStatus = null;
+  let currentReason = null;
   let sectionContent = [];
 
   for (let i = 0; i < lines.length; i++) {
@@ -78,20 +79,33 @@ function processStatusMarkers(content) {
       // Close previous section if open
       if (currentStatus && sectionContent.length > 0) {
         result.push(`<div class="section-${currentStatus}">`);
+        if (currentStatus === 'rejected' && currentReason) {
+          result.push(`<div class="rejection-reason">Rejected: ${currentReason}</div>`);
+        }
         result.push(...sectionContent);
         result.push('</div>');
         sectionContent = [];
       }
       currentStatus = null;
+      currentReason = null;
       result.push(line);
       continue;
     }
 
-    // Check for status marker
-    const statusMatch = line.match(/<!--\s*status:\s*(approved|rejected)\s*-->/);
-    if (statusMatch) {
-      currentStatus = statusMatch[1];
-      continue; // Don't include the marker in output
+    // Check for status marker - approved or rejected (with optional reason)
+    const approvedMatch = line.match(/<!--\s*status:\s*approved\s*-->/);
+    const rejectedMatch = line.match(/<!--\s*status:\s*rejected(?::\s*([^>]+))?\s*-->/);
+
+    if (approvedMatch) {
+      currentStatus = 'approved';
+      currentReason = null;
+      continue;
+    }
+
+    if (rejectedMatch) {
+      currentStatus = 'rejected';
+      currentReason = rejectedMatch[1] ? rejectedMatch[1].trim() : null;
+      continue;
     }
 
     // Add line to current section or result
@@ -105,6 +119,9 @@ function processStatusMarkers(content) {
   // Close final section if open
   if (currentStatus && sectionContent.length > 0) {
     result.push(`<div class="section-${currentStatus}">`);
+    if (currentStatus === 'rejected' && currentReason) {
+      result.push(`<div class="rejection-reason">Rejected: ${currentReason}</div>`);
+    }
     result.push(...sectionContent);
     result.push('</div>');
   }
@@ -123,7 +140,19 @@ function processCommentMarkers(content) {
   // Inline comments: <!-- comment-start: text -->...<!-- comment-end -->
   content = content.replace(
     /<!--\s*comment-start:\s*([^>]+)-->([\s\S]*?)<!--\s*comment-end\s*-->/g,
-    '<span class="comment-inline" data-comment="$1">$2</span>'
+    '<span class="comment-inline"><span class="comment-inline-text">Comment: $1</span>$2</span>'
+  );
+
+  // Inline rejections: <!-- reject-start: reason -->...<!-- reject-end -->
+  content = content.replace(
+    /<!--\s*reject-start:\s*([^>]+)-->([\s\S]*?)<!--\s*reject-end\s*-->/g,
+    '<span class="reject-inline"><span class="reject-inline-reason">Rejected: $1</span>$2</span>'
+  );
+
+  // Inline approvals: <!-- approve-start -->...<!-- approve-end -->
+  content = content.replace(
+    /<!--\s*approve-start\s*-->([\s\S]*?)<!--\s*approve-end\s*-->/g,
+    '<span class="approve-inline">$1</span>'
   );
 
   return content;
@@ -196,37 +225,86 @@ addCommentBtn.addEventListener('click', () => {
   const end = editor.selectionEnd;
 
   if (start !== end) {
-    // Wrap selection with inline comment
+    // Wrap selection with inline comment - insert stub for user to edit
     const before = editor.value.substring(0, start);
     const selected = editor.value.substring(start, end);
     const after = editor.value.substring(end);
 
-    const comment = prompt('Enter comment:');
-    if (comment) {
-      editor.value = before +
-        `<!-- comment-start: ${comment} -->` +
-        selected +
-        '<!-- comment-end -->' +
-        after;
-      renderPreview();
-      scheduleSave();
-    }
+    const stub = 'your comment here';
+    const commentStart = `<!-- comment-start: ${stub} -->`;
+    editor.value = before + commentStart + selected + '<!-- comment-end -->' + after;
+
+    // Position cursor inside the stub text for easy editing
+    const stubStart = before.length + '<!-- comment-start: '.length;
+    editor.selectionStart = stubStart;
+    editor.selectionEnd = stubStart + stub.length;
+    editor.focus();
+
+    renderPreview();
+    scheduleSave();
   } else {
-    // Insert standalone comment at cursor
-    const comment = prompt('Enter comment:');
-    if (comment) {
-      const before = editor.value.substring(0, start);
-      const after = editor.value.substring(start);
-      editor.value = before + `\n<!-- comment: ${comment} -->\n` + after;
-      renderPreview();
-      scheduleSave();
-    }
+    // Insert standalone comment at cursor - insert stub for user to edit
+    const before = editor.value.substring(0, start);
+    const after = editor.value.substring(start);
+
+    const stub = 'your comment here';
+    const comment = `\n<!-- comment: ${stub} -->\n`;
+    editor.value = before + comment + after;
+
+    // Position cursor inside the stub text for easy editing
+    const stubStart = before.length + '\n<!-- comment: '.length;
+    editor.selectionStart = stubStart;
+    editor.selectionEnd = stubStart + stub.length;
+    editor.focus();
+
+    renderPreview();
+    scheduleSave();
   }
 });
 
 // Approve section button handler
 approveSectionBtn.addEventListener('click', () => {
-  const cursorPos = editor.selectionStart;
+  const start = editor.selectionStart;
+  const end = editor.selectionEnd;
+
+  // Case 1: Text is selected - use inline approval
+  if (start !== end) {
+    const before = editor.value.substring(0, start);
+    const selected = editor.value.substring(start, end);
+    const after = editor.value.substring(end);
+
+    editor.value = before + '<!-- approve-start -->' + selected + '<!-- approve-end -->' + after;
+    editor.selectionStart = start;
+    editor.selectionEnd = start;
+    editor.focus();
+
+    renderPreview();
+    scheduleSave();
+    return;
+  }
+
+  // Case 2: Cursor is on a list item - wrap content after list marker
+  const { lineStart, lineEnd, lineContent } = getCurrentLineInfo(editor.value, start);
+  const listParts = parseListItem(lineContent);
+  if (listParts) {
+    const before = editor.value.substring(0, lineStart);
+    const after = editor.value.substring(lineEnd);
+
+    // Keep list marker outside, wrap only the content
+    const newLine = listParts.marker + '<!-- approve-start -->' + listParts.content + '<!-- approve-end -->';
+    editor.value = before + newLine + after;
+
+    editor.selectionStart = lineStart;
+    editor.selectionEnd = lineStart;
+    editor.focus();
+
+    renderPreview();
+    scheduleSave();
+    return;
+  }
+
+  // Case 3: Section approval (under a heading)
+  const cursorPos = start;
   const insertPos = findNearestHeading(editor.value, cursorPos);
 
   // Remove any existing status marker for this section first
@@ -242,9 +320,9 @@ approveSectionBtn.addEventListener('click', () => {
     linePos += lines[i].length + 1;
   }
 
-  // Check if next line is a status marker and remove it
+  // Check if next line is a status marker and remove it (handles rejected with reason too)
   if (targetLineIndex >= 0 && targetLineIndex < lines.length) {
-    if (lines[targetLineIndex].match(/<!--\s*status:\s*(approved|rejected)\s*-->/)) {
+    if (lines[targetLineIndex].match(/<!--\s*status:\s*(approved|rejected)/)) {
       lines.splice(targetLineIndex, 1);
       editor.value = lines.join('\n');
     }
@@ -254,9 +332,83 @@ approveSectionBtn.addEventListener('click', () => {
   insertAtPosition(insertPos, '<!-- status: approved -->\n');
 });
 
+// Helper: get the current line info at cursor position
+function getCurrentLineInfo(text, cursorPos) {
+  const beforeCursor = text.substring(0, cursorPos);
+  const lineStart = beforeCursor.lastIndexOf('\n') + 1;
+  const afterCursor = text.substring(cursorPos);
+  const lineEndOffset = afterCursor.indexOf('\n');
+  const lineEnd = lineEndOffset === -1 ? text.length : cursorPos + lineEndOffset;
+  const lineContent = text.substring(lineStart, lineEnd);
+  return { lineStart, lineEnd, lineContent };
+}
+
+// Helper: parse a list item into marker and content
+function parseListItem(line) {
+  // Match bullet lists: - , * , + (with optional leading whitespace)
+  const bulletMatch = line.match(/^(\s*[-*+]\s)(.*)$/);
+  if (bulletMatch) {
+    return { marker: bulletMatch[1], content: bulletMatch[2] };
+  }
+  // Match numbered lists: 1. , 2. , etc (with optional leading whitespace)
+  const numberMatch = line.match(/^(\s*\d+\.\s)(.*)$/);
+  if (numberMatch) {
+    return { marker: numberMatch[1], content: numberMatch[2] };
+  }
+  return null;
+}
+
 // Reject section button handler
 rejectSectionBtn.addEventListener('click', () => {
-  const cursorPos = editor.selectionStart;
+  const start = editor.selectionStart;
+  const end = editor.selectionEnd;
+  const stub = 'your reason here';
+
+  // Case 1: Text is selected - use inline rejection
+  if (start !== end) {
+    const before = editor.value.substring(0, start);
+    const selected = editor.value.substring(start, end);
+    const after = editor.value.substring(end);
+
+    const rejectStart = `<!-- reject-start: ${stub} -->`;
+    editor.value = before + rejectStart + selected + '<!-- reject-end -->' + after;
+
+    // Position cursor inside the stub text
+    const stubStart = before.length + '<!-- reject-start: '.length;
+    editor.selectionStart = stubStart;
+    editor.selectionEnd = stubStart + stub.length;
+    editor.focus();
+
+    renderPreview();
+    scheduleSave();
+    return;
+  }
+
+  // Case 2: Cursor is on a list item - wrap content after list marker
+  const { lineStart, lineEnd, lineContent } = getCurrentLineInfo(editor.value, start);
+  const listParts = parseListItem(lineContent);
+  if (listParts) {
+    const before = editor.value.substring(0, lineStart);
+    const after = editor.value.substring(lineEnd);
+
+    // Keep list marker outside, wrap only the content
+    const rejectStart = `<!-- reject-start: ${stub} -->`;
+    const newLine = listParts.marker + rejectStart + listParts.content + '<!-- reject-end -->';
+    editor.value = before + newLine + after;
+
+    // Position cursor inside the stub text
+    const stubStart = before.length + listParts.marker.length + '<!-- reject-start: '.length;
+    editor.selectionStart = stubStart;
+    editor.selectionEnd = stubStart + stub.length;
+    editor.focus();
+
+    renderPreview();
+    scheduleSave();
+    return;
+  }
+
+  // Case 3: Section rejection (under a heading)
+  const cursorPos = start;
   const insertPos = findNearestHeading(editor.value, cursorPos);
 
   // Remove any existing status marker for this section first
@@ -272,16 +424,29 @@ rejectSectionBtn.addEventListener('click', () => {
     linePos += lines[i].length + 1;
   }
 
-  // Check if next line is a status marker and remove it
+  // Check if next line is a status marker and remove it (handles rejected with reason too)
   if (targetLineIndex >= 0 && targetLineIndex < lines.length) {
-    if (lines[targetLineIndex].match(/<!--\s*status:\s*(approved|rejected)\s*-->/)) {
+    if (lines[targetLineIndex].match(/<!--\s*status:\s*(approved|rejected)/)) {
       lines.splice(targetLineIndex, 1);
       editor.value = lines.join('\n');
     }
   }
 
-  // Insert rejected status
-  insertAtPosition(insertPos, '<!-- status: rejected -->\n');
+  // Insert rejected status with stub reason
+  const before = editor.value.substring(0, insertPos);
+  const after = editor.value.substring(insertPos);
+  const marker = `<!-- status: rejected: ${stub} -->\n`;
+
+  editor.value = before + marker + after;
+
+  // Position cursor inside the stub text for easy editing
+  const stubStart = before.length + '<!-- status: rejected: '.length;
+  editor.selectionStart = stubStart;
+  editor.selectionEnd = stubStart + stub.length;
+  editor.focus();
+
+  renderPreview();
+  scheduleSave();
 });
 
 // Export handler
