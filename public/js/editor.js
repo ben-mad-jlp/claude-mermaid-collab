@@ -65,6 +65,36 @@ let wheelHandler = null;
 let editorView = null;
 let lastSavedContent = ''; // Track what we last saved to ignore our own WebSocket echoes
 
+// Edge editing state
+let currentEdgeInfo = null;  // { source, target, lineIndex, lineContent }
+let isSelectingDestination = false;
+
+// Node editing state
+let currentNodeInfo = null;  // { nodeId, lineIndex, lineContent }
+
+// Edge context menu elements
+const edgeContextMenu = document.getElementById('edge-context-menu');
+const edgeEditLabel = document.getElementById('edge-edit-label');
+const edgeChangeDest = document.getElementById('edge-change-dest');
+const edgeDelete = document.getElementById('edge-delete');
+const modeIndicator = document.getElementById('mode-indicator');
+const modeCancel = document.getElementById('mode-cancel');
+
+// Node context menu elements
+const nodeContextMenu = document.getElementById('node-context-menu');
+const nodeEditDesc = document.getElementById('node-edit-desc');
+const nodeAddTransition = document.getElementById('node-add-transition');
+const nodeAddTransitionNew = document.getElementById('node-add-transition-new');
+const nodeDelete = document.getElementById('node-delete');
+
+// Edge context menu - new state option
+const edgeChangeDestNew = document.getElementById('edge-change-dest-new');
+
+// Additional state for add transition mode
+let isAddingTransition = false;
+let pendingTransitionLabel = '';
+let pendingSourceNode = null;
+
 // Detect diagram type from content
 function detectDiagramType(content) {
   const trimmed = content.trim();
@@ -220,6 +250,9 @@ async function renderPreview(preserveZoom = true) {
         updateZoomDisplay();
       });
 
+      // Add click-to-source navigation
+      setupClickToSource(svgElement);
+
       // Only fit-to-page on first render or when not preserving zoom
       if (isFirstRender || !preserveZoom) {
         requestAnimationFrame(() => {
@@ -250,6 +283,902 @@ async function renderPreview(preserveZoom = true) {
     showError(error.message);
   }
 }
+
+// Setup click-to-source navigation on SVG elements
+function setupClickToSource(svgElement) {
+  // Find all clickable node elements
+  const nodeSelectors = [
+    '.node',           // Flowchart/graph nodes
+    '.cluster',        // Subgraphs
+    '.actor',          // Sequence diagram actors
+    '.messageText',    // Sequence diagram messages
+    '.activation',     // Sequence diagram activations
+    '.statediagram-state', // State diagram states
+    '.node-label',     // Node labels
+    '[id*="flowchart-"]',  // Flowchart elements by ID pattern
+    '[id*="state-"]',      // State elements
+  ];
+
+  // Find all clickable edge/arrow elements
+  const edgeSelectors = [
+    '.edgePath',       // Flowchart edges
+    '.edge',           // Generic edges
+    '.messageLine0',   // Sequence diagram messages
+    '.messageLine1',   // Sequence diagram messages
+    '.transition',     // State diagram transitions
+    '[id^="L-"]',      // Link elements by ID pattern (L-source-target)
+    '[id*="-to-"]',    // Alternative link pattern
+  ];
+
+  // Setup node click handlers
+  const nodes = svgElement.querySelectorAll(nodeSelectors.join(', '));
+  nodes.forEach(el => {
+    el.style.cursor = 'pointer';
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const nodeId = extractNodeId(el);
+      if (nodeId) {
+        // Check if we're in destination selection mode (for changing edge destination)
+        if (isSelectingDestination) {
+          handleDestinationSelection(nodeId);
+        }
+        // Check if we're adding a new transition
+        else if (isAddingTransition) {
+          handleAddTransitionDestination(nodeId);
+        }
+        else {
+          // Scroll to source
+          const lineInfo = scrollToNodeInSource(nodeId);
+
+          // Show context menu
+          if (lineInfo) {
+            currentNodeInfo = { nodeId, ...lineInfo };
+            showNodeContextMenu(e.clientX, e.clientY);
+          }
+        }
+      }
+    });
+  });
+
+  // Setup edge/arrow click handlers
+  const edges = svgElement.querySelectorAll(edgeSelectors.join(', '));
+  edges.forEach(el => {
+    el.style.cursor = 'pointer';
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const edgeInfo = extractEdgeInfo(el);
+      if (edgeInfo) {
+        // Scroll to source
+        const lineInfo = scrollToEdgeInSource(edgeInfo.source, edgeInfo.target);
+
+        // Show context menu
+        if (lineInfo) {
+          currentEdgeInfo = { ...edgeInfo, ...lineInfo };
+          showEdgeContextMenu(e.clientX, e.clientY);
+        }
+      }
+    });
+  });
+}
+
+// Extract node ID from an SVG element
+function extractNodeId(element) {
+  // Try getting ID from the element itself
+  let id = element.id || '';
+
+  // Common patterns in Mermaid SVG IDs:
+  // flowchart-NodeId-123, state-NodeId-456, etc.
+  let match = id.match(/(?:flowchart|state|statediagram)-([^-]+)/);
+  if (match) return match[1];
+
+  // Try data attributes
+  if (element.dataset && element.dataset.id) {
+    return element.dataset.id;
+  }
+
+  // Try to find ID in parent elements
+  let parent = element.closest('[id]');
+  if (parent && parent.id) {
+    match = parent.id.match(/(?:flowchart|state|statediagram)-([^-]+)/);
+    if (match) return match[1];
+
+    // Try generic pattern: word-NodeId-number
+    match = parent.id.match(/^[a-z]+-([A-Za-z_][A-Za-z0-9_]*)/);
+    if (match) return match[1];
+  }
+
+  // Try to get text content as a fallback (for labels)
+  const textEl = element.querySelector('text, .nodeLabel, .label');
+  if (textEl) {
+    const text = textEl.textContent.trim();
+    // If text looks like a simple identifier, use it
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(text)) {
+      return text;
+    }
+  }
+
+  // For sequence diagram actors
+  if (element.classList.contains('actor')) {
+    const text = element.querySelector('text');
+    if (text) return text.textContent.trim();
+  }
+
+  return null;
+}
+
+// Extract edge/arrow info (source and target nodes)
+function extractEdgeInfo(element) {
+  let id = element.id || '';
+
+  // Pattern: L-source-target-number (e.g., L-A-B-0)
+  let match = id.match(/^L-([^-]+)-([^-]+)/);
+  if (match) {
+    return { source: match[1], target: match[2] };
+  }
+
+  // Pattern: edge-source-target or similar
+  match = id.match(/edge[^-]*-([^-]+)-([^-]+)/i);
+  if (match) {
+    return { source: match[1], target: match[2] };
+  }
+
+  // Try parent element
+  let parent = element.closest('[id]');
+  if (parent && parent.id) {
+    match = parent.id.match(/^L-([^-]+)-([^-]+)/);
+    if (match) {
+      return { source: match[1], target: match[2] };
+    }
+  }
+
+  // For edgePath elements, try to find the marker-end reference
+  const path = element.querySelector('path') || element;
+  if (path.getAttribute) {
+    const markerEnd = path.getAttribute('marker-end');
+    if (markerEnd) {
+      // Extract from marker reference
+      match = markerEnd.match(/url\(#[^-]+-([^-]+)-([^-]+)/);
+      if (match) {
+        return { source: match[1], target: match[2] };
+      }
+    }
+  }
+
+  // Try looking at the class for clues
+  const classList = Array.from(element.classList || []);
+  for (const cls of classList) {
+    match = cls.match(/^LS-([^-]+)-([^-]+)/);
+    if (match) {
+      return { source: match[1], target: match[2] };
+    }
+  }
+
+  return null;
+}
+
+// Scroll to an edge/transition definition in the source code
+function scrollToEdgeInSource(source, target) {
+  const content = getEditorContent();
+  const lines = content.split('\n');
+
+  // Patterns to match edge/transition definitions:
+  // - source --> target, source --text--> target
+  // - source ==> target, source ==text==> target
+  // - source -.-> target, source -.text.-> target
+  // - source --- target
+  // - source ->> target (sequence diagram)
+  // - source : event (state diagram transition on same line)
+
+  const arrowPatterns = [
+    '-->',
+    '==>',
+    '-.->',
+    '-.->',
+    '---',
+    '->>',
+    '-->>',
+    '->',
+    '=>',
+  ];
+
+  let foundLine = -1;
+  let foundCol = 0;
+
+  // Build regex patterns for source -> target connections
+  const patterns = arrowPatterns.map(arrow => {
+    const escapedArrow = arrow.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&');
+    // Match: source (optional text in arrow) arrow target
+    return new RegExp(`${escapeRegex(source)}\\s*(?:--[^>]*|==[^>]*|-\\.[^>]*)?${escapedArrow}\\s*(?:\\|[^|]*\\|)?\\s*${escapeRegex(target)}`);
+  });
+
+  // Also check for state diagram transitions: source --> target : event
+  patterns.push(new RegExp(`${escapeRegex(source)}\\s*-->\\s*${escapeRegex(target)}\\s*:`));
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    for (const pattern of patterns) {
+      if (pattern.test(line)) {
+        foundLine = i;
+        // Find the arrow position for better highlighting
+        const idx = line.indexOf(source);
+        if (idx !== -1) foundCol = idx;
+        break;
+      }
+    }
+    if (foundLine !== -1) break;
+  }
+
+  // Fallback: search for both source and target on same line
+  if (foundLine === -1) {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.includes(source) && line.includes(target)) {
+        foundLine = i;
+        foundCol = line.indexOf(source);
+        break;
+      }
+    }
+  }
+
+  if (foundLine !== -1 && editorView) {
+    // Calculate position in document
+    let pos = 0;
+    for (let i = 0; i < foundLine; i++) {
+      pos += lines[i].length + 1;
+    }
+    pos += foundCol;
+
+    // Select the entire transition (from source to target)
+    const line = lines[foundLine];
+    const sourceIdx = line.indexOf(source);
+    const targetIdx = line.lastIndexOf(target);
+    const selectEnd = targetIdx !== -1 ? targetIdx + target.length : sourceIdx + source.length;
+
+    editorView.dispatch({
+      selection: { anchor: pos, head: pos + (selectEnd - sourceIdx) },
+      scrollIntoView: true,
+    });
+    editorView.focus();
+
+    highlightLine(foundLine);
+
+    // Return line info for context menu operations
+    return { lineIndex: foundLine, lineContent: line };
+  }
+
+  return null;
+}
+
+// Scroll to a node definition in the source code
+function scrollToNodeInSource(nodeId) {
+  const content = getEditorContent();
+  const lines = content.split('\n');
+
+  // Patterns to match node definitions:
+  // - NodeId[label] or NodeId(label) or NodeId{label} - flowchart nodes
+  // - NodeId --> or NodeId--- - flowchart connections (first occurrence)
+  // - participant NodeId or actor NodeId - sequence diagram
+  // - state NodeId or NodeId: description - state diagram
+  // - subgraph NodeId - subgraphs
+
+  const patterns = [
+    new RegExp(`^\\s*${escapeRegex(nodeId)}\\s*[\\[\\(\\{\\>]`),      // NodeId[ or NodeId( etc
+    new RegExp(`^\\s*${escapeRegex(nodeId)}\\s*--`),                   // NodeId-- (connection start)
+    new RegExp(`^\\s*${escapeRegex(nodeId)}\\s*==`),                   // NodeId== (thick connection)
+    new RegExp(`^\\s*${escapeRegex(nodeId)}\\s*-\\.`),                 // NodeId-. (dotted connection)
+    new RegExp(`^\\s*(participant|actor)\\s+${escapeRegex(nodeId)}`, 'i'),  // participant/actor
+    new RegExp(`^\\s*state\\s+${escapeRegex(nodeId)}`, 'i'),           // state NodeId
+    new RegExp(`^\\s*${escapeRegex(nodeId)}\\s*:`),                    // NodeId: (state description)
+    new RegExp(`^\\s*subgraph\\s+${escapeRegex(nodeId)}`, 'i'),        // subgraph NodeId
+    new RegExp(`-->\\s*${escapeRegex(nodeId)}\\s*[\\[\\(\\{]`),        // --> NodeId[ (target with label)
+    new RegExp(`\\s${escapeRegex(nodeId)}\\s*$`),                      // ends with NodeId
+  ];
+
+  let foundLine = -1;
+  let foundCol = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    for (const pattern of patterns) {
+      if (pattern.test(line)) {
+        foundLine = i;
+        // Find column position of the nodeId
+        const idx = line.indexOf(nodeId);
+        if (idx !== -1) foundCol = idx;
+        break;
+      }
+    }
+    if (foundLine !== -1) break;
+  }
+
+  // If not found with patterns, try simple search
+  if (foundLine === -1) {
+    for (let i = 0; i < lines.length; i++) {
+      const idx = lines[i].indexOf(nodeId);
+      if (idx !== -1) {
+        foundLine = i;
+        foundCol = idx;
+        break;
+      }
+    }
+  }
+
+  if (foundLine !== -1 && editorView) {
+    // Calculate position in document
+    let pos = 0;
+    for (let i = 0; i < foundLine; i++) {
+      pos += lines[i].length + 1; // +1 for newline
+    }
+    pos += foundCol;
+
+    // Scroll to line and select the nodeId
+    editorView.dispatch({
+      selection: { anchor: pos, head: pos + nodeId.length },
+      scrollIntoView: true,
+    });
+    editorView.focus();
+
+    // Brief highlight effect
+    highlightLine(foundLine);
+
+    // Return line info for context menu operations
+    return { lineIndex: foundLine, lineContent: lines[foundLine] };
+  }
+
+  return null;
+}
+
+// Escape special regex characters
+function escapeRegex(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Briefly highlight a line
+function highlightLine(lineNumber) {
+  const lineElement = editorContainer.querySelector(`.cm-line:nth-child(${lineNumber + 1})`);
+  if (lineElement) {
+    lineElement.style.transition = 'background-color 0.3s';
+    lineElement.style.backgroundColor = 'rgba(255, 255, 0, 0.3)';
+    setTimeout(() => {
+      lineElement.style.backgroundColor = '';
+    }, 1500);
+  }
+}
+
+// ============================================================================
+// Edge Context Menu
+// ============================================================================
+
+function showEdgeContextMenu(x, y) {
+  // Hide node menu if open
+  hideNodeContextMenu();
+
+  // Position menu, ensuring it stays within viewport
+  const menuWidth = 180;
+  const menuHeight = 130;
+  const maxX = window.innerWidth - menuWidth - 10;
+  const maxY = window.innerHeight - menuHeight - 10;
+
+  edgeContextMenu.style.left = Math.min(x, maxX) + 'px';
+  edgeContextMenu.style.top = Math.min(y, maxY) + 'px';
+  edgeContextMenu.classList.add('visible');
+}
+
+function hideEdgeContextMenu() {
+  edgeContextMenu.classList.remove('visible');
+  currentEdgeInfo = null;
+}
+
+// Handle click outside to close menu
+document.addEventListener('click', (e) => {
+  if (!edgeContextMenu.contains(e.target)) {
+    hideEdgeContextMenu();
+  }
+});
+
+// Edit Label handler
+edgeEditLabel.addEventListener('click', () => {
+  if (!currentEdgeInfo) return;
+
+  const { lineIndex, lineContent, source, target } = currentEdgeInfo;
+
+  // Extract current label if any (between |pipes| or --text-->)
+  let currentLabel = '';
+  const pipeLabelMatch = lineContent.match(/\|([^|]*)\|/);
+  const arrowLabelMatch = lineContent.match(/--([^->\s][^->]*)-->/);
+
+  if (pipeLabelMatch) {
+    currentLabel = pipeLabelMatch[1];
+  } else if (arrowLabelMatch) {
+    currentLabel = arrowLabelMatch[1];
+  }
+
+  const newLabel = prompt('Enter new label for this arrow:', currentLabel);
+  if (newLabel === null) {
+    hideEdgeContextMenu();
+    return;
+  }
+
+  // Update the line with new label
+  let newLine;
+  if (newLabel.trim() === '') {
+    // Remove label - convert to plain arrow
+    newLine = lineContent
+      .replace(/\|[^|]*\|/g, '')
+      .replace(/--[^->\s][^->]*-->/, '-->');
+  } else if (pipeLabelMatch) {
+    // Replace existing pipe label
+    newLine = lineContent.replace(/\|[^|]*\|/, `|${newLabel}|`);
+  } else if (arrowLabelMatch) {
+    // Replace existing arrow label
+    newLine = lineContent.replace(/--[^->\s][^->]*-->/, `--${newLabel}-->`);
+  } else {
+    // Add new label using pipe syntax
+    newLine = lineContent.replace(
+      new RegExp(`(${escapeRegex(source)}\\s*)(-->)(\\s*${escapeRegex(target)})`),
+      `$1$2|${newLabel}|$3`
+    );
+  }
+
+  applyLineEdit(lineIndex, newLine);
+  hideEdgeContextMenu();
+});
+
+// Change Destination handler
+edgeChangeDest.addEventListener('click', () => {
+  if (!currentEdgeInfo) return;
+
+  // Hide menu but preserve currentEdgeInfo for destination selection
+  edgeContextMenu.classList.remove('visible');
+
+  isSelectingDestination = true;
+  modeIndicator.classList.add('visible');
+
+  // Change cursor style on preview pane
+  preview.style.cursor = 'crosshair';
+});
+
+// Cancel destination selection mode
+modeCancel.addEventListener('click', () => {
+  exitDestinationMode();
+});
+
+// Also cancel on Escape key
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && (isSelectingDestination || isAddingTransition)) {
+    exitDestinationMode();
+  }
+});
+
+function exitDestinationMode() {
+  isSelectingDestination = false;
+  isAddingTransition = false;
+  pendingTransitionLabel = '';
+  pendingSourceNode = null;
+  modeIndicator.classList.remove('visible');
+  preview.style.cursor = '';
+  currentEdgeInfo = null;
+}
+
+// Handle node click when in destination selection mode
+function handleDestinationSelection(nodeId) {
+  if (!isSelectingDestination || !currentEdgeInfo) return false;
+
+  const { lineIndex, lineContent, source, target } = currentEdgeInfo;
+
+  // Replace old target with new target
+  // This handles various arrow patterns
+  const newLine = lineContent.replace(
+    new RegExp(`(${escapeRegex(source)}\\s*(?:--[^>]*)?(?:-->|==>|-\\.->|---|->>|-->>|->)\\s*(?:\\|[^|]*\\|)?\\s*)${escapeRegex(target)}`),
+    `$1${nodeId}`
+  );
+
+  if (newLine !== lineContent) {
+    applyLineEdit(lineIndex, newLine);
+  }
+
+  exitDestinationMode();
+  return true;
+}
+
+// Delete Arrow handler
+edgeDelete.addEventListener('click', () => {
+  if (!currentEdgeInfo) return;
+
+  const { lineIndex } = currentEdgeInfo;
+
+  if (confirm('Delete this arrow/transition?')) {
+    deleteLine(lineIndex);
+  }
+
+  hideEdgeContextMenu();
+});
+
+// Apply an edit to a specific line
+function applyLineEdit(lineIndex, newContent) {
+  const lines = currentContent.split('\n');
+  lines[lineIndex] = newContent;
+
+  pushUndo(currentContent);
+  currentContent = lines.join('\n');
+  setEditorContent(currentContent);
+  renderPreview();
+  scheduleAutoSave();
+}
+
+// Delete a line from the source
+function deleteLine(lineIndex) {
+  const lines = currentContent.split('\n');
+  lines.splice(lineIndex, 1);
+
+  pushUndo(currentContent);
+  currentContent = lines.join('\n');
+  setEditorContent(currentContent);
+  renderPreview();
+  scheduleAutoSave();
+}
+
+// ============================================================================
+// Node Context Menu
+// ============================================================================
+
+function showNodeContextMenu(x, y) {
+  // Hide edge menu if open
+  hideEdgeContextMenu();
+
+  // Position menu, ensuring it stays within viewport
+  const menuWidth = 180;
+  const menuHeight = 90;
+  const maxX = window.innerWidth - menuWidth - 10;
+  const maxY = window.innerHeight - menuHeight - 10;
+
+  nodeContextMenu.style.left = Math.min(x, maxX) + 'px';
+  nodeContextMenu.style.top = Math.min(y, maxY) + 'px';
+  nodeContextMenu.classList.add('visible');
+}
+
+function hideNodeContextMenu() {
+  nodeContextMenu.classList.remove('visible');
+  currentNodeInfo = null;
+}
+
+// Handle click outside to close node menu
+document.addEventListener('click', (e) => {
+  if (!nodeContextMenu.contains(e.target)) {
+    hideNodeContextMenu();
+  }
+});
+
+// Edit Description handler
+nodeEditDesc.addEventListener('click', () => {
+  if (!currentNodeInfo) return;
+
+  const { nodeId, lineIndex, lineContent } = currentNodeInfo;
+
+  // Extract current description from various formats:
+  // NodeId[description] or NodeId(description) or NodeId{description}
+  // state NodeId : description
+  // participant NodeId as Alias
+  let currentDesc = '';
+  let descMatch;
+
+  // Match bracket content: NodeId[desc], NodeId(desc), NodeId{desc}
+  descMatch = lineContent.match(new RegExp(`${escapeRegex(nodeId)}\\s*[\\[\\(\\{]([^\\]\\)\\}]*)[\\]\\)\\}]`));
+  if (descMatch) {
+    currentDesc = descMatch[1];
+  }
+
+  // Match state description: state NodeId : desc  or  NodeId : desc
+  if (!currentDesc) {
+    descMatch = lineContent.match(new RegExp(`(?:state\\s+)?${escapeRegex(nodeId)}\\s*:\\s*(.+)$`));
+    if (descMatch) {
+      currentDesc = descMatch[1].trim();
+    }
+  }
+
+  // Match participant alias: participant NodeId as Alias
+  if (!currentDesc) {
+    descMatch = lineContent.match(new RegExp(`(?:participant|actor)\\s+${escapeRegex(nodeId)}\\s+as\\s+(.+)$`, 'i'));
+    if (descMatch) {
+      currentDesc = descMatch[1].trim();
+    }
+  }
+
+  const newDesc = prompt('Enter new description:', currentDesc);
+  if (newDesc === null) {
+    hideNodeContextMenu();
+    return;
+  }
+
+  // Update the line with new description
+  let newLine = lineContent;
+
+  // Try to replace in brackets
+  const bracketMatch = lineContent.match(new RegExp(`(${escapeRegex(nodeId)}\\s*)([\\[\\(\\{])([^\\]\\)\\}]*)([\\]\\)\\}])`));
+  if (bracketMatch) {
+    newLine = lineContent.replace(
+      new RegExp(`(${escapeRegex(nodeId)}\\s*)([\\[\\(\\{])[^\\]\\)\\}]*([\\]\\)\\}])`),
+      `$1$2${newDesc}$3`
+    );
+  }
+  // Try to replace state description
+  else if (lineContent.match(new RegExp(`(?:state\\s+)?${escapeRegex(nodeId)}\\s*:`))) {
+    newLine = lineContent.replace(
+      new RegExp(`((?:state\\s+)?${escapeRegex(nodeId)}\\s*:\\s*).+$`),
+      `$1${newDesc}`
+    );
+  }
+  // Try to replace participant alias
+  else if (lineContent.match(new RegExp(`(?:participant|actor)\\s+${escapeRegex(nodeId)}\\s+as`, 'i'))) {
+    newLine = lineContent.replace(
+      new RegExp(`((?:participant|actor)\\s+${escapeRegex(nodeId)}\\s+as\\s+).+$`, 'i'),
+      `$1${newDesc}`
+    );
+  }
+  // If no format found, try to add brackets
+  else if (newDesc.trim()) {
+    newLine = lineContent.replace(
+      new RegExp(`(^\\s*)(${escapeRegex(nodeId)})(\\s*)`),
+      `$1$2[${newDesc}]$3`
+    );
+  }
+
+  if (newLine !== lineContent) {
+    applyLineEdit(lineIndex, newLine);
+  }
+
+  hideNodeContextMenu();
+});
+
+// Delete Node handler
+nodeDelete.addEventListener('click', () => {
+  if (!currentNodeInfo) return;
+
+  const { nodeId, lineIndex } = currentNodeInfo;
+
+  // Find all lines that reference this node
+  const lines = currentContent.split('\n');
+  const referencingLines = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    // Check if line contains this nodeId (as a word boundary)
+    if (new RegExp(`\\b${escapeRegex(nodeId)}\\b`).test(lines[i])) {
+      referencingLines.push(i);
+    }
+  }
+
+  let message = `Delete node "${nodeId}"?`;
+  if (referencingLines.length > 1) {
+    message += `\n\nThis will also delete ${referencingLines.length - 1} connected arrow(s).`;
+  }
+
+  if (confirm(message)) {
+    // Delete all lines referencing this node (in reverse order to preserve indices)
+    pushUndo(currentContent);
+
+    const newLines = lines.filter((_, i) => !referencingLines.includes(i));
+    currentContent = newLines.join('\n');
+    setEditorContent(currentContent);
+    renderPreview();
+    scheduleAutoSave();
+  }
+
+  hideNodeContextMenu();
+});
+
+// Add Transition to Existing State handler
+nodeAddTransition.addEventListener('click', () => {
+  if (!currentNodeInfo) return;
+
+  const label = prompt('Enter transition label (or leave empty for no label):');
+  if (label === null) {
+    hideNodeContextMenu();
+    return;
+  }
+
+  // Store state for when user clicks destination
+  pendingTransitionLabel = label;
+  pendingSourceNode = currentNodeInfo.nodeId;
+
+  // Hide menu but keep source node info
+  nodeContextMenu.classList.remove('visible');
+
+  // Enter "add transition" mode
+  isAddingTransition = true;
+  document.getElementById('mode-indicator-text').textContent = 'Click a destination state';
+  modeIndicator.classList.add('visible');
+  preview.style.cursor = 'crosshair';
+});
+
+// Handle clicking a destination when adding a transition
+function handleAddTransitionDestination(targetNodeId) {
+  if (!isAddingTransition || !pendingSourceNode) return;
+
+  // Create the transition line
+  const source = pendingSourceNode;
+  const target = targetNodeId;
+  const label = pendingTransitionLabel;
+
+  // Detect diagram type to use correct syntax
+  const isFlowchart = /^(graph|flowchart)\s/m.test(currentContent);
+
+  let newLine;
+  if (label.trim()) {
+    if (isFlowchart) {
+      // Flowchart syntax: A -->|label| B
+      newLine = `    ${source} -->|${label}| ${target}`;
+    } else {
+      // State diagram syntax: A --> B : label
+      newLine = `    ${source} --> ${target} : ${label}`;
+    }
+  } else {
+    newLine = `    ${source} --> ${target}`;
+  }
+
+  // Find where to insert (after source node definition or at end of relevant section)
+  const lines = currentContent.split('\n');
+  let insertIndex = lines.length;
+
+  // Try to find the source node line and insert after it
+  for (let i = 0; i < lines.length; i++) {
+    if (new RegExp(`^\\s*${escapeRegex(source)}\\b`).test(lines[i])) {
+      insertIndex = i + 1;
+      break;
+    }
+  }
+
+  lines.splice(insertIndex, 0, newLine);
+
+  pushUndo(currentContent);
+  currentContent = lines.join('\n');
+  setEditorContent(currentContent);
+  renderPreview();
+  scheduleAutoSave();
+
+  exitDestinationMode();
+}
+
+// Add Transition to New State handler
+nodeAddTransitionNew.addEventListener('click', () => {
+  if (!currentNodeInfo) return;
+
+  const label = prompt('Enter transition label (or leave empty for no label):');
+  if (label === null) {
+    hideNodeContextMenu();
+    return;
+  }
+
+  const newStateId = prompt('Enter new node/state ID (e.g., NewState):');
+  if (!newStateId || !newStateId.trim()) {
+    hideNodeContextMenu();
+    return;
+  }
+
+  const newStateDesc = prompt('Enter new node/state description (or leave empty):');
+  if (newStateDesc === null) {
+    hideNodeContextMenu();
+    return;
+  }
+
+  const source = currentNodeInfo.nodeId;
+  const target = newStateId.trim();
+
+  // Detect diagram type to use correct syntax
+  const isFlowchart = /^(graph|flowchart)\s/m.test(currentContent);
+
+  // Create the new state/node line and transition line
+  let newStateLine;
+  let transitionLine;
+
+  if (isFlowchart) {
+    // Flowchart syntax
+    if (newStateDesc.trim()) {
+      newStateLine = `    ${target}["${newStateDesc}"]`;
+    } else {
+      newStateLine = `    ${target}`;
+    }
+
+    if (label.trim()) {
+      transitionLine = `    ${source} -->|${label}| ${target}`;
+    } else {
+      transitionLine = `    ${source} --> ${target}`;
+    }
+  } else {
+    // State diagram syntax
+    if (newStateDesc.trim()) {
+      newStateLine = `    ${target} : ${newStateDesc}`;
+    } else {
+      newStateLine = `    ${target}`;
+    }
+
+    if (label.trim()) {
+      transitionLine = `    ${source} --> ${target} : ${label}`;
+    } else {
+      transitionLine = `    ${source} --> ${target}`;
+    }
+  }
+
+  // Find where to insert
+  const lines = currentContent.split('\n');
+  let insertIndex = lines.length;
+
+  for (let i = 0; i < lines.length; i++) {
+    if (new RegExp(`^\\s*${escapeRegex(source)}\\b`).test(lines[i])) {
+      insertIndex = i + 1;
+      break;
+    }
+  }
+
+  // Insert transition first, then new node (so node appears after in source)
+  lines.splice(insertIndex, 0, transitionLine, newStateLine);
+
+  pushUndo(currentContent);
+  currentContent = lines.join('\n');
+  setEditorContent(currentContent);
+  renderPreview();
+  scheduleAutoSave();
+
+  hideNodeContextMenu();
+});
+
+// Change Destination to New State handler (for edges)
+edgeChangeDestNew.addEventListener('click', () => {
+  if (!currentEdgeInfo) return;
+
+  const newStateId = prompt('Enter new state ID (e.g., NewState):');
+  if (!newStateId || !newStateId.trim()) {
+    hideEdgeContextMenu();
+    return;
+  }
+
+  const newStateDesc = prompt('Enter new state description (or leave empty):');
+  if (newStateDesc === null) {
+    hideEdgeContextMenu();
+    return;
+  }
+
+  const { lineIndex, lineContent, source, target } = currentEdgeInfo;
+  const newTarget = newStateId.trim();
+
+  // Detect diagram type to use correct syntax
+  const isFlowchart = /^(graph|flowchart)\s/m.test(currentContent);
+
+  // Create new state line with correct syntax for diagram type
+  let newStateLine;
+  if (newStateDesc.trim()) {
+    if (isFlowchart) {
+      // Flowchart syntax: NodeId["Description"]
+      newStateLine = `    ${newTarget}["${newStateDesc}"]`;
+    } else {
+      // State diagram syntax: NodeId : Description
+      newStateLine = `    ${newTarget} : ${newStateDesc}`;
+    }
+  } else {
+    newStateLine = `    ${newTarget}`;
+  }
+
+  // Update the transition to point to new state
+  const newTransitionLine = lineContent.replace(
+    new RegExp(`(${escapeRegex(source)}\\s*(?:--[^>]*)?(?:-->|==>|-\\.->|---|->>|-->>|->)\\s*(?:\\|[^|]*\\|)?\\s*)${escapeRegex(target)}`),
+    `$1${newTarget}`
+  );
+
+  const lines = currentContent.split('\n');
+
+  // Update the transition line
+  lines[lineIndex] = newTransitionLine;
+
+  // Insert new state definition after the transition
+  lines.splice(lineIndex + 1, 0, newStateLine);
+
+  pushUndo(currentContent);
+  currentContent = lines.join('\n');
+  setEditorContent(currentContent);
+  renderPreview();
+  scheduleAutoSave();
+
+  hideEdgeContextMenu();
+});
 
 // Save diagram
 async function saveDiagram() {

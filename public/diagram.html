@@ -282,6 +282,78 @@
       padding: 2px 6px;
       border-radius: 3px;
     }
+
+    /* Edge Context Menu */
+    .edge-context-menu {
+      position: fixed;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      box-shadow: 0 4px 12px var(--shadow-color);
+      z-index: 2000;
+      display: none;
+      min-width: 180px;
+      padding: 4px 0;
+    }
+
+    .edge-context-menu.visible {
+      display: block;
+    }
+
+    .edge-context-menu-item {
+      padding: 10px 16px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text-primary);
+      font-size: 14px;
+    }
+
+    .edge-context-menu-item:hover {
+      background: var(--hover-bg);
+    }
+
+    .edge-context-menu-item.danger {
+      color: var(--error-color);
+    }
+
+    .edge-context-menu-item.danger:hover {
+      background: var(--error-bg);
+    }
+
+    .edge-context-menu-divider {
+      height: 1px;
+      background: var(--border-color);
+      margin: 4px 0;
+    }
+
+    /* Mode indicator for changing destination */
+    .mode-indicator {
+      position: fixed;
+      top: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--warning-bg);
+      border: 1px solid var(--warning-color);
+      color: var(--text-primary);
+      padding: 10px 20px;
+      border-radius: 6px;
+      z-index: 2000;
+      display: none;
+      font-size: 14px;
+    }
+
+    .mode-indicator.visible {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .mode-indicator button {
+      padding: 4px 12px;
+      font-size: 12px;
+    }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/@panzoom/panzoom@4.5.1/dist/panzoom.min.js"></script>
 </head>
@@ -356,6 +428,47 @@
         <!-- Content populated by JS -->
       </div>
     </div>
+  </div>
+
+  <!-- Edge Context Menu -->
+  <div class="edge-context-menu" id="edge-context-menu">
+    <div class="edge-context-menu-item" id="edge-edit-label">
+      <span>✏️</span> Edit Label
+    </div>
+    <div class="edge-context-menu-item" id="edge-change-dest">
+      <span>🎯</span> Change Destination
+    </div>
+    <div class="edge-context-menu-item" id="edge-change-dest-new">
+      <span>➕</span> Change to New State
+    </div>
+    <div class="edge-context-menu-divider"></div>
+    <div class="edge-context-menu-item danger" id="edge-delete">
+      <span>🗑️</span> Delete Arrow
+    </div>
+  </div>
+
+  <!-- Node Context Menu -->
+  <div class="edge-context-menu" id="node-context-menu">
+    <div class="edge-context-menu-item" id="node-edit-desc">
+      <span>✏️</span> Edit Description
+    </div>
+    <div class="edge-context-menu-divider"></div>
+    <div class="edge-context-menu-item" id="node-add-transition">
+      <span>➡️</span> Add Transition
+    </div>
+    <div class="edge-context-menu-item" id="node-add-transition-new">
+      <span>➕</span> Add Transition to New State
+    </div>
+    <div class="edge-context-menu-divider"></div>
+    <div class="edge-context-menu-item danger" id="node-delete">
+      <span>🗑️</span> Delete Node
+    </div>
+  </div>
+
+  <!-- Mode indicator for selecting new destination -->
+  <div class="mode-indicator" id="mode-indicator">
+    <span id="mode-indicator-text">Click a node to set as new destination</span>
+    <button id="mode-cancel">Cancel</button>
   </div>
 
   <script type="module" src="/js/api-client.js"></script>
