@@ -5,11 +5,10 @@ graph TD
     Root --> StationLogin["🔐 Station Login<br/>Select Station"]
     StationLogin --> LoginSuccess{Station<br/>Loaded?}
 
+    LoginSuccess -->|Fail| Root
 
     LoginSuccess -->|Success| Refresh["🔄 Refresh Station Info<br/>Call getStationInfo()"]
-    Refresh -->|Success| CheckWOSelected
-
-
+    Refresh --> CheckWOSelected{Workorder<br/>Selected?}
 
     %% Workorder Selection Phase
     CheckWOSelected -->|No| SelectWO["📋 Select Workorder<br/>Sales/Stock Tabs<br/>Only Clickable: Compatible WOs"]
@@ -33,39 +32,21 @@ graph TD
 
     %% Load Inventory to Station Action
     Action -->|Load Inventory<br/>to Station| LoadInventory["📬 Load Inventory<br/>Enter/Scan Container ID"]
-    LoadInventory --> ValidateContainer{Container<br/>Valid?}
-    ValidateContainer -->|Yes| AddToInventory["➕ Add to Station<br/>Inventory"]
-    ValidateContainer -->|No| LoadInventory
-    AddToInventory -->|Success| Refresh
+    AddToInventory[Submit Load Inventory to API] --> LoadInventory
 
     %% Combine Inventory Action
     Action -->|Combine Inventory| CombineDialog["📝 Combine Dialog<br/>Select Containers<br/>Set Quality"]
-    CombineDialog -->|Combine| CombineSubmit{Valid<br/>Combination?}
-    CombineSubmit --> CombineResult{Submit<br/>Success?}
-    CombineResult -->|Fail| CombineFailError["❌ Show Error"]
-    CombineFailError --> Refresh
-    CombineResult -->|Success| Refresh
 
     %% Return Inventory Action (from Action Screen)
-    Action -->|Return Inventory| ReturnFromAction["📝 Return Screen<br/>Select Containers<br/>Enter Total Containers<br/>Enter Qty per Container"]
-    ReturnFromAction --> ReturnSubmitAction["📥 Submit Return<br/>to API"]
-    ReturnSubmitAction --> ReturnFromAction{Submit<br/>Success?}
-    ReturnResultAction -->|Fail| ReturnErrorAction["❌ Show Error"]
-    ReturnErrorAction --> ReturnFromAction
 
     %% Change Workorder Action
     Action -->|Change Workorder| CallUnreserve["📞 Call unreserveWorkorder()<br/>API Endpoint"]
-    CallUnreserve --> UnreserveResult{Unreserve<br/>Success?}
-    UnreserveResult -->|Fail| UnreserveError["❌ Show Error"]
-    UnreserveError --> ActionScreen
-    UnreserveResult -->|Success| Refresh
 
     %% Logout Action
     Action -->|Logout| LogoutConfirm["🚪 Confirm Logout?"]
     LogoutConfirm -->|Cancel| ActionScreen
     LogoutConfirm -->|Confirm| ExecuteLogout["🔓 Clear Session<br/>Reset State"]
-    ExecuteLogout --> LogoutSuccess["✓ Logged Out"]
-    LogoutSuccess --> Refresh
+    ExecuteLogout --> Root
 
     %% Styling
     style Root fill:#e1f5e1,stroke:#388e3c,stroke-width:3px
@@ -80,29 +61,21 @@ graph TD
     style Action fill:#fff3e0,stroke:#f57c00,stroke-width:2px
 
     style LoadInventory fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
-    style ValidateContainer fill:#fff3e0,stroke:#f57c00
     style AddToInventory fill:#f1f8e9,stroke:#558b2f
 
     style CombineDialog fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
-    style CombineSubmit fill:#f1f8e9,stroke:#558b2f
-    style CombineResult fill:#fff3e0,stroke:#f57c00
-    style CombineFailError fill:#ffebee,stroke:#c62828
 
     style ReturnFromWOList fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
     style ReturnSubmit fill:#f1f8e9,stroke:#558b2f
 
-    style ReturnFromAction fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
-    style ReturnSubmitAction fill:#f1f8e9,stroke:#558b2f
-    style ReturnResultAction fill:#fff3e0,stroke:#f57c00
-    style ReturnErrorAction fill:#ffebee,stroke:#c62828
 
     style CallUnreserve fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
-    style UnreserveResult fill:#fff3e0,stroke:#f57c00
-    style UnreserveError fill:#ffebee,stroke:#c62828
 
     style LogoutConfirm fill:#fff3e0,stroke:#f57c00,stroke-width:2px
     style ExecuteLogout fill:#f1f8e9,stroke:#558b2f
-    style LogoutSuccess fill:#27ae60,stroke:#229954,color:#fff
-
-    CallSelectWO -->|Success| Refresh
-    ReturnSubmit -->|Success| Refresh
+    LoadInventory --> AddToInventory
+    CombineDialog --> SubmitCombine
+    SubmitCombine["Submit Combine to API"]
+    SubmitCombine --> CombineDialog
+    ReturnSubmit --> Refresh
+    CallSelectWO --> Refresh

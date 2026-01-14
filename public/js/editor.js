@@ -812,6 +812,53 @@ async function validateMermaid(content) {
   }
 }
 
+// Reserved Mermaid keywords that can't be used as node IDs
+const MERMAID_RESERVED = new Set([
+  'graph', 'flowchart', 'subgraph', 'end', 'direction',
+  'click', 'style', 'classDef', 'class', 'linkStyle',
+  'stateDiagram', 'stateDiagram-v2', 'state',
+  'sequenceDiagram', 'participant', 'actor',
+  'note', 'loop', 'alt', 'else', 'opt', 'par', 'and',
+  'rect', 'activate', 'deactivate',
+  'TD', 'TB', 'BT', 'LR', 'RL',
+]);
+
+// Validate a state/node ID
+function validateStateId(id) {
+  if (!id || !id.trim()) {
+    return { valid: false, error: 'ID cannot be empty' };
+  }
+
+  const trimmed = id.trim();
+
+  // Check for valid identifier format (starts with letter/underscore, alphanumeric)
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(trimmed)) {
+    return { valid: false, error: 'ID must start with a letter and contain only letters, numbers, and underscores' };
+  }
+
+  // Check for reserved keywords
+  if (MERMAID_RESERVED.has(trimmed) || MERMAID_RESERVED.has(trimmed.toLowerCase())) {
+    return { valid: false, error: `"${trimmed}" is a reserved Mermaid keyword` };
+  }
+
+  return { valid: true, id: trimmed };
+}
+
+// Prompt for a valid state ID with validation
+function promptStateId(message) {
+  while (true) {
+    const input = prompt(message);
+    if (input === null) return null; // User cancelled
+
+    const validation = validateStateId(input);
+    if (validation.valid) {
+      return validation.id;
+    }
+
+    alert(`Invalid ID: ${validation.error}`);
+  }
+}
+
 // Apply an edit with validation
 async function applyEditWithValidation(newContent, description = 'edit') {
   const previousContent = currentContent;
@@ -1075,14 +1122,13 @@ nodeAddTransitionNew.addEventListener('click', async () => {
     return;
   }
 
-  const newStateId = prompt('Enter node/state ID (e.g., NewState):');
-  if (!newStateId || !newStateId.trim()) {
+  const target = promptStateId('Enter node/state ID (e.g., NewState):');
+  if (target === null) {
     hideNodeContextMenu();
     return;
   }
 
   const source = currentNodeInfo.nodeId;
-  const target = newStateId.trim();
 
   // Check if this state already exists in the diagram
   const stateExists = new RegExp(`\\b${escapeRegex(target)}\\b`).test(currentContent);
@@ -1162,14 +1208,13 @@ nodeAddTransitionNew.addEventListener('click', async () => {
 edgeChangeDestNew.addEventListener('click', async () => {
   if (!currentEdgeInfo) return;
 
-  const newStateId = prompt('Enter new state ID (e.g., NewState):');
-  if (!newStateId || !newStateId.trim()) {
+  const newTarget = promptStateId('Enter new state ID (e.g., NewState):');
+  if (newTarget === null) {
     hideEdgeContextMenu();
     return;
   }
 
   const { lineIndex, lineContent, source, target } = currentEdgeInfo;
-  const newTarget = newStateId.trim();
 
   // Check if this state already exists in the diagram
   const stateExists = new RegExp(`\\b${escapeRegex(newTarget)}\\b`).test(currentContent);
