@@ -1715,33 +1715,19 @@ function formatMermaidCode() {
 
     // Handle subgraphs (keep them as blocks)
     if (/^subgraph\b/i.test(trimmed)) {
-      // Check if this is a level subgraph we generated (skip these, we regenerate them)
-      const isLevelSubgraph = /^subgraph\s+_level\d+/i.test(trimmed);
       inSubgraph = true;
       subgraphDepth++;
-      if (isLevelSubgraph) {
-        // Track that we're skipping this subgraph
-        subgraphLines = null;
-      } else if (subgraphLines !== null) {
-        subgraphLines.push(line);
-      } else {
-        // Starting a new non-level subgraph
-        subgraphLines = [line];
-      }
+      subgraphLines.push(line);
       continue;
     }
 
     if (inSubgraph) {
-      if (subgraphLines !== null) {
-        subgraphLines.push(line);
-      }
+      subgraphLines.push(line);
       if (/^end\s*$/i.test(trimmed)) {
         subgraphDepth--;
         if (subgraphDepth === 0) {
           inSubgraph = false;
-          if (subgraphLines !== null && subgraphLines.length > 0) {
-            subgraphs.push(subgraphLines.join('\n'));
-          }
+          subgraphs.push(subgraphLines.join('\n'));
           subgraphLines = [];
         }
       }
@@ -1758,7 +1744,7 @@ function formatMermaidCode() {
     }
     else if (/^%%/.test(trimmed)) {
       // Skip section header comments we regenerate
-      if (/^%%\s*(Node Definitions|Connections|Styles|Level Alignment|Level Groupings|Subgraphs)/i.test(trimmed)) {
+      if (/^%%\s*(Node Definitions|Connections|Styles|Subgraphs)/i.test(trimmed)) {
         continue;
       }
       comments.push(trimmed);
@@ -1882,35 +1868,6 @@ function formatMermaidCode() {
   // Get node ID from a definition line
   const getNodeId = (line) => line.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)/)?.[1] || '';
 
-  // Get set of explicitly defined node IDs (from nodeDefinitions)
-  // Only these should be used for level links to avoid floating undefined nodes
-  const explicitlyDefinedNodes = new Set(nodeDefinitions.map(getNodeId).filter(Boolean));
-
-  // Group ALL nodes by level for subgraph grouping
-  const nodesByLevel = new Map(); // level -> [nodeIds]
-  for (const [node, level] of nodeLevels) {
-    if (!nodesByLevel.has(level)) nodesByLevel.set(level, []);
-    nodesByLevel.get(level).push(node);
-  }
-
-  // Generate invisible subgraphs for each level (helps layout)
-  const levelSubgraphs = [];
-  const sortedLevels = [...nodesByLevel.keys()].sort((a, b) => a - b);
-  for (const level of sortedLevels) {
-    const nodes = nodesByLevel.get(level);
-    if (nodes.length > 0) {
-      // Sort nodes alphabetically for consistent output
-      nodes.sort();
-      // Create invisible subgraph with direction LR to spread nodes horizontally
-      const subgraphLines = [
-        `    subgraph _level${level}[ ]`,
-        `        direction LR`,
-        ...nodes.map(n => `        ${n}`),
-        `    end`
-      ];
-      levelSubgraphs.push(subgraphLines.join('\n'));
-    }
-  }
 
   // Sort node definitions by level, then alphabetically
   nodeDefinitions.sort((a, b) => {
@@ -1968,12 +1925,6 @@ function formatMermaidCode() {
   if (connections.length > 0) {
     sections.push('    %% Connections');
     sections.push(connections.join('\n'));
-  }
-
-  // Level grouping subgraphs (invisible subgraphs to group same-level nodes)
-  if (levelSubgraphs.length > 0) {
-    sections.push('    %% Level Groupings');
-    sections.push(levelSubgraphs.join('\n\n'));
   }
 
   // Existing subgraphs from original content
