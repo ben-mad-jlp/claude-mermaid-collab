@@ -386,7 +386,7 @@ async function main() {
       tools: [
         {
           name: 'list_diagrams',
-          description: 'List all available Mermaid diagrams in the system',
+          description: 'List all Mermaid diagrams. Returns diagram IDs, names, and metadata. Use this first to discover what diagrams exist before reading or updating them.',
           inputSchema: {
             type: 'object',
             properties: {},
@@ -394,7 +394,7 @@ async function main() {
         },
         {
           name: 'get_diagram',
-          description: 'Get a specific diagram by its ID, including content and metadata',
+          description: 'Read a diagram\'s full Mermaid source code by ID. Use list_diagrams first to find available diagram IDs. Returns the content you can modify and pass to update_diagram.',
           inputSchema: {
             type: 'object',
             properties: {
@@ -543,7 +543,7 @@ screen "Detail"
         },
         {
           name: 'update_diagram',
-          description: 'Update an existing diagram\'s content',
+          description: 'Update an existing diagram\'s Mermaid source code. Use get_diagram first to read current content if you need to make partial changes. The content replaces the entire diagram.',
           inputSchema: {
             type: 'object',
             properties: {
@@ -553,7 +553,7 @@ screen "Detail"
               },
               content: {
                 type: 'string',
-                description: 'The new Mermaid diagram content',
+                description: 'The new Mermaid diagram content (replaces entire diagram)',
               },
             },
             required: ['id', 'content'],
@@ -561,7 +561,7 @@ screen "Detail"
         },
         {
           name: 'validate_diagram',
-          description: 'Validate Mermaid diagram syntax without saving',
+          description: 'Check if Mermaid syntax is valid without saving. Use this before create_diagram or update_diagram to catch syntax errors early. Returns success or detailed error message.',
           inputSchema: {
             type: 'object',
             properties: {
@@ -575,7 +575,7 @@ screen "Detail"
         },
         {
           name: 'preview_diagram',
-          description: 'Get the preview URL for viewing a diagram in the browser',
+          description: 'Get the browser URL to view a rendered diagram. Share this URL to let others see the diagram. The preview updates in real-time when the diagram is modified.',
           inputSchema: {
             type: 'object',
             properties: {
