@@ -1,7 +1,44 @@
 import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
 import * as wireframe from './plugins/mermaid-wireframe.js';
 import APIClient from './api-client.js';
-import { EditorView, basicSetup } from 'https://esm.sh/codemirror@6.0.1';
+import { EditorView } from 'https://esm.sh/@codemirror/view@6';
+import { EditorState } from 'https://esm.sh/@codemirror/state@6';
+import { history, historyKeymap } from 'https://esm.sh/@codemirror/commands@6';
+import { lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightActiveLine } from 'https://esm.sh/@codemirror/view@6';
+import { foldGutter, indentOnInput, syntaxHighlighting, defaultHighlightStyle, bracketMatching, foldKeymap } from 'https://esm.sh/@codemirror/language@6';
+import { defaultKeymap, indentWithTab } from 'https://esm.sh/@codemirror/commands@6';
+import { searchKeymap, highlightSelectionMatches } from 'https://esm.sh/@codemirror/search@6';
+import { autocompletion, completionKeymap } from 'https://esm.sh/@codemirror/autocomplete@6';
+import { keymap } from 'https://esm.sh/@codemirror/view@6';
+
+// Custom editor setup without closeBrackets (which causes aggressive backspace deletion)
+const customSetup = [
+  lineNumbers(),
+  highlightActiveLineGutter(),
+  highlightSpecialChars(),
+  history(),
+  foldGutter(),
+  drawSelection(),
+  dropCursor(),
+  EditorState.allowMultipleSelections.of(true),
+  indentOnInput(),
+  syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+  bracketMatching(),
+  // closeBrackets() - intentionally omitted
+  autocompletion(),
+  rectangularSelection(),
+  crosshairCursor(),
+  highlightActiveLine(),
+  highlightSelectionMatches(),
+  keymap.of([
+    ...defaultKeymap,
+    ...searchKeymap,
+    ...historyKeymap,
+    ...foldKeymap,
+    ...completionKeymap,
+    indentWithTab
+  ])
+];
 import { mermaidLanguage } from './cm-lang-mermaid.js';
 import { wireframeLanguage } from './cm-lang-wireframe.js';
 import { initTheme, toggleTheme, getTheme, onThemeChange, getEditorTheme } from './theme.js';
@@ -113,7 +150,7 @@ function initCodeEditor(initialContent = '') {
   editorView = new EditorView({
     doc: initialContent,
     extensions: [
-      basicSetup,
+      ...customSetup,
       languageExtension,
       ...getEditorTheme(),
       EditorView.updateListener.of((update) => {
@@ -148,7 +185,7 @@ function recreateEditorWithTheme() {
   editorView = new EditorView({
     doc: content,
     extensions: [
-      basicSetup,
+      ...customSetup,
       languageExtension,
       ...getEditorTheme(),
       EditorView.updateListener.of((update) => {
