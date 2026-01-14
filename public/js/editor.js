@@ -1701,6 +1701,10 @@ function formatMermaidCode() {
     if (/^(graph|flowchart|stateDiagram)/i.test(trimmed)) {
       declaration.push(trimmed);
     }
+    else if (/~~~/.test(trimmed)) {
+      // Skip invisible links - we regenerate them
+      continue;
+    }
     else if (/^%%/.test(trimmed)) {
       comments.push(trimmed);
     }
@@ -1767,42 +1771,106 @@ function formatMermaidCode() {
     }
   }
 
+  // Build adjacency list for BFS
+  const adjacency = new Map(); // source -> [targets]
+  for (const conn of connections) {
+    const trimmed = conn.trim();
+    const arrowMatch = trimmed.match(/(-->|==>|-\.->|---|->>|-->>|->)/);
+    if (arrowMatch) {
+      const parts = trimmed.split(arrowMatch[1]);
+      if (parts.length >= 2) {
+        const sourceMatch = parts[0].match(/([A-Za-z_][A-Za-z0-9_]*)/);
+        const targetMatch = parts[1].match(/([A-Za-z_][A-Za-z0-9_]*)/);
+        if (sourceMatch && targetMatch) {
+          const source = sourceMatch[1];
+          const target = targetMatch[1];
+          if (!adjacency.has(source)) adjacency.set(source, []);
+          adjacency.get(source).push(target);
+        }
+      }
+    }
+  }
+
+  // BFS to assign levels (distance from root)
+  const nodeLevels = new Map(); // nodeId -> level
+  const root = rootNodes[0] || [...sourceNodes][0]; // Use first root, or any source if no root
+
+  if (root) {
+    const queue = [[root, 0]];
+    nodeLevels.set(root, 0);
+
+    while (queue.length > 0) {
+      const [node, level] = queue.shift();
+      const targets = adjacency.get(node) || [];
+      for (const target of targets) {
+        if (!nodeLevels.has(target)) {
+          nodeLevels.set(target, level + 1);
+          queue.push([target, level + 1]);
+        }
+      }
+    }
+  }
+
+  // Assign a high level to any nodes not reached by BFS (disconnected)
+  const maxLevel = Math.max(...nodeLevels.values(), 0);
+  const allNodes = new Set([...sourceNodes, ...targetNodes]);
+  for (const node of allNodes) {
+    if (!nodeLevels.has(node)) {
+      nodeLevels.set(node, maxLevel + 1);
+    }
+  }
+
+  // Group nodes by level for invisible links
+  const nodesByLevel = new Map(); // level -> [nodeIds]
+  for (const [node, level] of nodeLevels) {
+    if (!nodesByLevel.has(level)) nodesByLevel.set(level, []);
+    nodesByLevel.get(level).push(node);
+  }
+
+  // Generate invisible links for same-level nodes (helps alignment)
+  const levelLinks = [];
+  for (const [level, nodes] of nodesByLevel) {
+    if (nodes.length >= 2) {
+      // Sort nodes alphabetically for consistent output
+      nodes.sort();
+      // Create invisible link chain: A ~~~ B ~~~ C
+      levelLinks.push(`    ${nodes.join(' ~~~ ')}`);
+    }
+  }
+
   // Get node ID from a definition line
   const getNodeId = (line) => line.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)/)?.[1] || '';
 
-  // Sort node definitions: root nodes first, then alphabetically
+  // Sort node definitions by level, then alphabetically
   nodeDefinitions.sort((a, b) => {
     const idA = getNodeId(a);
     const idB = getNodeId(b);
-    const aIsRoot = rootNodes.includes(idA);
-    const bIsRoot = rootNodes.includes(idB);
+    const levelA = nodeLevels.get(idA) ?? 999;
+    const levelB = nodeLevels.get(idB) ?? 999;
 
-    if (aIsRoot && !bIsRoot) return -1;
-    if (!aIsRoot && bIsRoot) return 1;
+    if (levelA !== levelB) return levelA - levelB;
     return idA.localeCompare(idB);
   });
 
-  // Sort connections: by source node, with root-sourced connections first
+  // Sort connections by source level, then alphabetically
   connections.sort((a, b) => {
     const idA = getNodeId(a);
     const idB = getNodeId(b);
-    const aIsRoot = rootNodes.includes(idA);
-    const bIsRoot = rootNodes.includes(idB);
+    const levelA = nodeLevels.get(idA) ?? 999;
+    const levelB = nodeLevels.get(idB) ?? 999;
 
-    if (aIsRoot && !bIsRoot) return -1;
-    if (!aIsRoot && bIsRoot) return 1;
+    if (levelA !== levelB) return levelA - levelB;
     return idA.localeCompare(idB);
   });
 
-  // Sort styles by node ID (root first, then alphabetically)
+  // Sort styles by node level, then alphabetically
   styles.sort((a, b) => {
     const idA = a.trim().match(/^(?:style|class)\s+([A-Za-z_][A-Za-z0-9_]*)/)?.[1] || '';
     const idB = b.trim().match(/^(?:style|class)\s+([A-Za-z_][A-Za-z0-9_]*)/)?.[1] || '';
-    const aIsRoot = rootNodes.includes(idA);
-    const bIsRoot = rootNodes.includes(idB);
+    const levelA = nodeLevels.get(idA) ?? 999;
+    const levelB = nodeLevels.get(idB) ?? 999;
 
-    if (aIsRoot && !bIsRoot) return -1;
-    if (!aIsRoot && bIsRoot) return 1;
+    if (levelA !== levelB) return levelA - levelB;
     return idA.localeCompare(idB);
   });
 
@@ -1829,6 +1897,12 @@ function formatMermaidCode() {
   if (connections.length > 0) {
     sections.push('    %% Connections');
     sections.push(connections.join('\n'));
+  }
+
+  // Level alignment links (invisible links to align same-level nodes)
+  if (levelLinks.length > 0) {
+    sections.push('    %% Level Alignment (invisible links)');
+    sections.push(levelLinks.join('\n'));
   }
 
   // Subgraphs
