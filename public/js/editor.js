@@ -1714,24 +1714,60 @@ function formatMermaidCode() {
     }
   }
 
-  // Sort node definitions alphabetically by node ID
+  // Find root node (has outgoing edges but no incoming edges)
+  const sourceNodes = new Set();
+  const targetNodes = new Set();
+
+  for (const conn of connections) {
+    const trimmed = conn.trim();
+    // Extract source and target from connection
+    // Pattern: Source -->|label| Target or Source --> Target
+    const connMatch = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*(?:--[^>]*)?(?:-->|==>|-\.->|---|->>|-->>|->)\s*(?:\|[^|]*\|)?\s*([A-Za-z_][A-Za-z0-9_]*)/);
+    if (connMatch) {
+      sourceNodes.add(connMatch[1]);
+      targetNodes.add(connMatch[2]);
+    }
+  }
+
+  // Root nodes are sources that are never targets
+  const rootNodes = [...sourceNodes].filter(n => !targetNodes.has(n));
+
+  // Get node ID from a definition line
+  const getNodeId = (line) => line.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)/)?.[1] || '';
+
+  // Sort node definitions: root nodes first, then alphabetically
   nodeDefinitions.sort((a, b) => {
-    const idA = a.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)/)?.[1] || '';
-    const idB = b.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)/)?.[1] || '';
+    const idA = getNodeId(a);
+    const idB = getNodeId(b);
+    const aIsRoot = rootNodes.includes(idA);
+    const bIsRoot = rootNodes.includes(idB);
+
+    if (aIsRoot && !bIsRoot) return -1;
+    if (!aIsRoot && bIsRoot) return 1;
     return idA.localeCompare(idB);
   });
 
-  // Sort connections by source node
+  // Sort connections: by source node, with root-sourced connections first
   connections.sort((a, b) => {
-    const idA = a.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)/)?.[1] || '';
-    const idB = b.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)/)?.[1] || '';
+    const idA = getNodeId(a);
+    const idB = getNodeId(b);
+    const aIsRoot = rootNodes.includes(idA);
+    const bIsRoot = rootNodes.includes(idB);
+
+    if (aIsRoot && !bIsRoot) return -1;
+    if (!aIsRoot && bIsRoot) return 1;
     return idA.localeCompare(idB);
   });
 
-  // Sort styles by node ID
+  // Sort styles by node ID (root first, then alphabetically)
   styles.sort((a, b) => {
     const idA = a.trim().match(/^(?:style|class)\s+([A-Za-z_][A-Za-z0-9_]*)/)?.[1] || '';
     const idB = b.trim().match(/^(?:style|class)\s+([A-Za-z_][A-Za-z0-9_]*)/)?.[1] || '';
+    const aIsRoot = rootNodes.includes(idA);
+    const bIsRoot = rootNodes.includes(idB);
+
+    if (aIsRoot && !bIsRoot) return -1;
+    if (!aIsRoot && bIsRoot) return 1;
     return idA.localeCompare(idB);
   });
 

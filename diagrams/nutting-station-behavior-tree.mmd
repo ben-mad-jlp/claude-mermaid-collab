@@ -1,82 +1,69 @@
 graph TD
-    Root["🌳 Nutting Station Behavior Tree"]
 
     %% Station Login Phase
-    Root --> StationLogin["🔐 Station Login<br/>Select Station"]
-
-
-    Refresh --> CheckWOSelected{Workorder<br/>Selected?}
-
     %% Workorder Selection Phase
-    CheckWOSelected -->|No| SelectWO["📋 Select Workorder<br/>Sales/Stock Tabs<br/>Only Clickable: Compatible WOs"]
-    CheckWOSelected -->|Yes| CheckWOExists{Selected WO<br/>Still Exists?}
+    %% Main Action Screen with Operation Branches
+    %% Load Inventory to Station Action
+    %% Combine Inventory Action
+    %% Return Inventory Action (from Action Screen)
+    %% Change Workorder Action
+    %% Logout Action
+    %% Styling
 
-    CheckWOExists -->|No| SelectWO
-
-    SelectWO --> WOAction{User<br/>Action?}
-
-    WOAction -->|Select Workorder| CallSelectWO["📞 Call selectWorkorder()<br/>API Endpoint"]
-
-
-    WOAction -->|Return Station<br/>Inventory| ReturnFromWOList["📝 Return Screen<br/>Select Containers<br/>Enter Total Containers<br/>Enter Qty per Container"]
-    ReturnFromWOList --> ReturnSubmit["📥 Submit Return<br/>to API"]
+    %% Node Definitions
 
     ActionScreen["🎯 Action Screen<br/>Hub for All Operations"]
-    CheckWOExists -->|Yes| ActionScreen
+    Root["🌳 Nutting Station Behavior Tree"]
+    SubmitCombine["Submit Combine to API"]
 
-    %% Main Action Screen with Operation Branches
-    ActionScreen --> Action{Select<br/>Action}
+    %% Connections
 
-    %% Load Inventory to Station Action
     Action -->|Load Inventory<br/>to Station| LoadInventory["📬 Load Inventory<br/>Enter/Scan Container ID"]
-    AddToInventory[Submit Load Inventory to API] --> LoadInventory
-
-    %% Combine Inventory Action
     Action -->|Combine Inventory| CombineDialog["📝 Combine Dialog<br/>Select Containers<br/>Set Quality"]
-
-    %% Return Inventory Action (from Action Screen)
-
-    %% Change Workorder Action
     Action -->|Change Workorder| CallUnreserve["📞 Call unreserveWorkorder()<br/>API Endpoint"]
-
-    %% Logout Action
     Action -->|Logout| LogoutConfirm["🚪 Confirm Logout?"]
-    LogoutConfirm -->|Cancel| ActionScreen
-    LogoutConfirm -->|Confirm| ExecuteLogout["🔓 Clear Session<br/>Reset State"]
-    ExecuteLogout[Submit logout to the API] --> StationLogin
-
-    %% Styling
-    style Root fill:#e1f5e1,stroke:#388e3c,stroke-width:3px
-    style StationLogin fill:#e3f2fd,stroke:#1976d2,stroke-width:3px
-    style Refresh fill:#f3e5f5,stroke:#7b1fa2,stroke-width:3px
-    style CheckWOSelected fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-    style CheckWOExists fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-    style SelectWO fill:#f3e5f5,stroke:#7b1fa2,stroke-width:3px
-    style WOAction fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-    style CallSelectWO fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
-    style ActionScreen fill:#e1f5e1,stroke:#388e3c,stroke-width:3px
-    style Action fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-
-    style LoadInventory fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
-    style AddToInventory fill:#f1f8e9,stroke:#558b2f
-
-    style CombineDialog fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
-
-    style ReturnFromWOList fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
-    style ReturnSubmit fill:#f1f8e9,stroke:#558b2f
-
-
-    style CallUnreserve fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
-
-    style LogoutConfirm fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-    style ExecuteLogout fill:#f1f8e9,stroke:#558b2f
-    LoadInventory --> AddToInventory
-    LoadInventory -->|Return| ActionScreen
+    ActionScreen --> Action{Select<br/>Action}
+    AddToInventory[Submit Load Inventory to API] --> LoadInventory
+    CallSelectWO --> Refresh
+    CallUnreserve --> Refresh
+    CheckWOExists -->|No| SelectWO
+    CheckWOExists -->|Yes| ActionScreen
+    CheckWOSelected -->|No| SelectWO["📋 Select Workorder<br/>Sales/Stock Tabs<br/>Only Clickable: Compatible WOs"]
+    CheckWOSelected -->|Yes| CheckWOExists{Selected WO<br/>Still Exists?}
     CombineDialog --> SubmitCombine
     CombineDialog -->|Return| ActionScreen
-    SubmitCombine["Submit Combine to API"]
-    SubmitCombine --> CombineDialog
+    ExecuteLogout[Submit logout to the API] --> StationLogin
+    LoadInventory --> AddToInventory
+    LoadInventory -->|Return| ActionScreen
+    LogoutConfirm -->|Cancel| ActionScreen
+    LogoutConfirm -->|Confirm| ExecuteLogout["🔓 Clear Session<br/>Reset State"]
+    Refresh --> CheckWOSelected{Workorder<br/>Selected?}
+    ReturnFromWOList --> ReturnSubmit["📥 Submit Return<br/>to API"]
     ReturnSubmit --> Refresh
-    CallSelectWO --> Refresh
+    Root --> StationLogin["🔐 Station Login<br/>Select Station"]
+    SelectWO --> WOAction{User<br/>Action?}
     StationLogin --> Refresh["Get Station Info"]
-    CallUnreserve --> Refresh
+    SubmitCombine --> CombineDialog
+    WOAction -->|Select Workorder| CallSelectWO["📞 Call selectWorkorder()<br/>API Endpoint"]
+    WOAction -->|Return Station<br/>Inventory| ReturnFromWOList["📝 Return Screen<br/>Select Containers<br/>Enter Total Containers<br/>Enter Qty per Container"]
+
+    %% Styles
+
+    style Action fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style ActionScreen fill:#e1f5e1,stroke:#388e3c,stroke-width:3px
+    style AddToInventory fill:#f1f8e9,stroke:#558b2f
+    style CallSelectWO fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style CallUnreserve fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style CheckWOExists fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style CheckWOSelected fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style CombineDialog fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style ExecuteLogout fill:#f1f8e9,stroke:#558b2f
+    style LoadInventory fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style LogoutConfirm fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style Refresh fill:#f3e5f5,stroke:#7b1fa2,stroke-width:3px
+    style ReturnFromWOList fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style ReturnSubmit fill:#f1f8e9,stroke:#558b2f
+    style Root fill:#e1f5e1,stroke:#388e3c,stroke-width:3px
+    style SelectWO fill:#f3e5f5,stroke:#7b1fa2,stroke-width:3px
+    style StationLogin fill:#e3f2fd,stroke:#1976d2,stroke-width:3px
+    style WOAction fill:#fff3e0,stroke:#f57c00,stroke-width:2px
