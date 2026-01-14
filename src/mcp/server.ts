@@ -410,19 +410,21 @@ async function main() {
           name: 'create_diagram',
           description: `Create a new Mermaid diagram with the given name and content. Returns the diagram ID and preview URL.
 
-FORMATTING STANDARDS:
+=== FLOWCHART/STATE DIAGRAM STANDARDS ===
+
+FORMATTING:
 1. All node definitions at the top with their labels and shapes
-2. Connections use only node IDs (no inline labels) - labels go in node definitions
+2. Connections use only node IDs (no inline labels)
 3. Styles at the bottom, one per node based on its type
 4. Use %% comments to separate sections
 
-NODE TYPES (for flowcharts/state diagrams):
+NODE TYPES:
 - Terminal (Start/End): NodeId(["label"]) - green: fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
 - State: NodeId(("label")) - blue: fill:#bbdefb,stroke:#1976d2,stroke-width:2px
 - Decision: NodeId{"label"} - yellow: fill:#fff9c4,stroke:#f9a825,stroke-width:2px
 - Action: NodeId["label"] - orange: fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
 
-EXAMPLE:
+FLOWCHART EXAMPLE:
 graph TD
     %% Node Definitions
     Start(["Start Application"])
@@ -440,7 +442,90 @@ graph TD
     style Start fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
     style CheckAuth fill:#fff9c4,stroke:#f9a825,stroke-width:2px
     style Login fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
-    style Dashboard fill:#bbdefb,stroke:#1976d2,stroke-width:2px`,
+    style Dashboard fill:#bbdefb,stroke:#1976d2,stroke-width:2px
+
+=== WIREFRAME DIAGRAM SYNTAX ===
+
+Use wireframes to create UI mockups. Start with "wireframe" followed by optional viewport and direction.
+
+DECLARATION: wireframe [viewport] [direction]
+- viewport: mobile (375px), tablet (768px), desktop (1200px), or omit for default (800px)
+- direction: TD (top-down screens) or LR (left-right screens, default)
+
+CONTAINERS (use indentation for nesting):
+- screen "Label" - Screen container with dashed border and label
+- col - Vertical layout (children stack vertically)
+- row - Horizontal layout (children side by side)
+- Card - Card with rounded border
+- Grid - Table with header/rows
+
+WIDGETS (labels in quotes):
+- Text "content" - Normal text
+- Title "heading" - Large heading text
+- Button "label" - Button (add: primary, secondary, danger, success, disabled)
+- Input "placeholder" - Text input field
+- Checkbox "label" - Checkbox with label
+- Radio "label" - Radio button with label
+- Switch "label" - Toggle switch
+- Dropdown "label" - Dropdown select
+- List "Item1|Item2|Item3" - List (pipe-separated)
+- NavMenu "Home|About|Contact" - Horizontal nav
+- BottomNav "Tab1|Tab2|Tab3" - Bottom navigation
+- AppBar "Title" - App header bar
+- FAB "+" - Floating action button (circle)
+- Icon "name" - Icon placeholder
+- Avatar - User avatar circle
+- Image - Image placeholder (X box)
+- spacer - Flexible empty space
+- divider - Horizontal line
+
+MODIFIERS (after widget name):
+- flex or flex=2 - Flexible sizing (fills space)
+- width=100 - Fixed width in pixels
+- height=50 - Fixed height in pixels
+- padding=16 - Internal padding
+- primary/secondary/danger/success/disabled - Button variants
+
+WIREFRAME EXAMPLE (Login Screen):
+wireframe mobile TD
+screen "Login Screen"
+    col padding=16
+        spacer height=40
+        Title "Welcome Back"
+        spacer height=24
+        Input "Email address"
+        spacer height=12
+        Input "Password"
+        spacer height=24
+        Button "Sign In" primary flex
+        spacer height=16
+        Text "Forgot password?"
+        spacer
+
+WIREFRAME EXAMPLE (Dashboard with multiple screens):
+wireframe tablet LR
+screen "Home"
+    col
+        AppBar "Dashboard"
+        row flex padding=16
+            Card flex
+                col padding=12
+                    Title "Stats"
+                    Text "Active users: 1,234"
+            Card flex
+                col padding=12
+                    Title "Revenue"
+                    Text "$12,345"
+        BottomNav "Home|Search|Profile"
+screen "Detail"
+    col
+        AppBar "Item Detail"
+        col flex padding=16
+            Image height=200
+            Title "Product Name"
+            Text "Description goes here"
+            spacer
+            Button "Add to Cart" primary`,
           inputSchema: {
             type: 'object',
             properties: {
