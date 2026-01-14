@@ -410,27 +410,37 @@ async function main() {
           name: 'create_diagram',
           description: `Create a new Mermaid diagram with the given name and content. Returns the diagram ID and preview URL.
 
-Node Type Conventions for flowcharts/state diagrams:
-- Terminal (Start/End): NodeId(["label"]) - Use green style: fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
-- State: NodeId(("label")) - Use blue style: fill:#bbdefb,stroke:#1976d2,stroke-width:2px
-- Decision: NodeId{"label"} - Use yellow style: fill:#fff9c4,stroke:#f9a825,stroke-width:2px
-- Action: NodeId["label"] - Use orange style: fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
+FORMATTING STANDARDS:
+1. All node definitions at the top with their labels and shapes
+2. Connections use only node IDs (no inline labels) - labels go in node definitions
+3. Styles at the bottom, one per node based on its type
+4. Use %% comments to separate sections
 
-Example structure:
+NODE TYPES (for flowcharts/state diagrams):
+- Terminal (Start/End): NodeId(["label"]) - green: fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+- State: NodeId(("label")) - blue: fill:#bbdefb,stroke:#1976d2,stroke-width:2px
+- Decision: NodeId{"label"} - yellow: fill:#fff9c4,stroke:#f9a825,stroke-width:2px
+- Action: NodeId["label"] - orange: fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
+
+EXAMPLE:
 graph TD
-    Start(["Start"])
-    CheckCondition{"Is Valid?"}
-    ProcessData["Process Data"]
-    SaveState(("Saved"))
+    %% Node Definitions
+    Start(["Start Application"])
+    CheckAuth{"User Authenticated?"}
+    Login["Show Login Form"]
+    Dashboard(("Dashboard"))
 
-    Start --> CheckCondition
-    CheckCondition -->|Yes| ProcessData
-    ProcessData --> SaveState
+    %% Connections
+    Start --> CheckAuth
+    CheckAuth -->|Yes| Dashboard
+    CheckAuth -->|No| Login
+    Login --> CheckAuth
 
+    %% Styles
     style Start fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
-    style CheckCondition fill:#fff9c4,stroke:#f9a825,stroke-width:2px
-    style ProcessData fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
-    style SaveState fill:#bbdefb,stroke:#1976d2,stroke-width:2px`,
+    style CheckAuth fill:#fff9c4,stroke:#f9a825,stroke-width:2px
+    style Login fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
+    style Dashboard fill:#bbdefb,stroke:#1976d2,stroke-width:2px`,
           inputSchema: {
             type: 'object',
             properties: {
