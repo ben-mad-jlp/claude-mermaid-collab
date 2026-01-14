@@ -81,6 +81,7 @@ const zoomLevel = document.getElementById('zoom-level');
 const toggleDirectionBtn = document.getElementById('toggle-direction');
 const refreshPreviewBtn = document.getElementById('refresh-preview');
 const formatCodeBtn = document.getElementById('format-code');
+const createNodeBtn = document.getElementById('create-node');
 const syntaxHelpBtn = document.getElementById('syntax-help');
 const syntaxModal = document.getElementById('syntax-modal');
 const syntaxModalTitle = document.getElementById('syntax-modal-title');
@@ -2456,6 +2457,84 @@ zoomFitHeightBtn.addEventListener('click', zoomFitHeight);
 toggleDirectionBtn.addEventListener('click', toggleDirection);
 refreshPreviewBtn.addEventListener('click', () => renderPreview());
 formatCodeBtn.addEventListener('click', formatMermaidCode);
+
+// Create New Node button handler
+createNodeBtn.addEventListener('click', async () => {
+  // Prompt for node ID
+  const nodeId = promptStateId('Enter new node ID (e.g., MyNode):');
+  if (nodeId === null) return;
+
+  // Check if node already exists
+  const nodeExists = new RegExp(`\\b${escapeRegex(nodeId)}\\b`).test(currentContent);
+  if (nodeExists) {
+    showError(`Node "${nodeId}" already exists in the diagram`);
+    setTimeout(hideError, 3000);
+    return;
+  }
+
+  // Detect diagram type
+  const isFlowchart = /^(graph|flowchart)\s/m.test(currentContent);
+
+  let newNodeLine;
+  let nodeType = null;
+
+  if (isFlowchart) {
+    // Ask for node type
+    nodeType = promptNodeType();
+    if (nodeType === null) return;
+
+    // Ask for description
+    const nodeDesc = prompt('Enter node description (or leave empty):');
+    if (nodeDesc === null) return;
+
+    newNodeLine = createNodeDefinition(nodeId, nodeDesc || nodeId, nodeType);
+  } else {
+    // State diagram syntax
+    const nodeDesc = prompt('Enter state description (or leave empty):');
+    if (nodeDesc === null) return;
+
+    if (nodeDesc.trim()) {
+      newNodeLine = `    ${nodeId} : ${nodeDesc}`;
+    } else {
+      newNodeLine = `    ${nodeId}`;
+    }
+  }
+
+  // Find where to insert the node definition
+  const lines = currentContent.split('\n');
+  let insertIndex = 1;
+
+  // Look for %% Node Definitions section
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s*%%\s*Node Definitions/i.test(lines[i])) {
+      // Insert after this comment, find the end of node definitions
+      insertIndex = i + 1;
+      while (insertIndex < lines.length) {
+        const line = lines[insertIndex].trim();
+        // Stop at next section comment or connection
+        if (/^%%/.test(line) || /-->|==>|-\.->/.test(line)) {
+          break;
+        }
+        insertIndex++;
+      }
+      break;
+    }
+    // Or after diagram declaration if no section found
+    if (/^(graph|flowchart|stateDiagram)/i.test(lines[i].trim())) {
+      insertIndex = i + 1;
+    }
+  }
+
+  lines.splice(insertIndex, 0, newNodeLine);
+  let newContent = lines.join('\n');
+
+  // Add style for the new node
+  if (nodeType) {
+    newContent = addStyleForNode(newContent, nodeId, nodeType);
+  }
+
+  await applyEditWithValidation(newContent, 'create node');
+});
 
 // Keyboard shortcut: Ctrl+Enter to refresh preview
 document.addEventListener('keydown', (e) => {
