@@ -1,0 +1,21 @@
+wireframe tablet TD
+  screen "Main Packaging Workflow - SCALE MODE"
+    AppBar "Packaging - Station A1 (SCALE MODE)"
+    col padding=20
+      Title "Workorder: WO-001"
+      Text "SKU: SK-1234 | Widget Assembly"
+      Text "Due: 50 pieces | Pieces per Box: 25"
+      Title "Step 1: Load Source Containers"
+      Input "Scan Container ID"
+      Text "Loaded: C-100 (25 pcs), C-101 (25 pcs)"
+      Text "Total: 50 pcs"
+      Button "Sources Loaded" primary
+      spacer
+      Title "Step 2: Create Packaged Box"
+      Text "Scale Reading: 5.2 kg"
+      Text "Required: 25 pieces"
+      Text "❌ Scale mismatch - Cannot create"
+      Button "Create Box (disabled)" disabled
+      spacer
+      Title "Progress"
+      Text "Boxes Created: 0 / Remaining: 50 pcs"

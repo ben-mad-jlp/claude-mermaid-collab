@@ -1,0 +1,96 @@
+graph TD
+    Root["🌳 Packaging Station Behavior Tree"]
+    
+    Root --> StationLogin["🔐 Station Login<br/>Select Station"]
+    StationLogin --> LoginSuccess{Station<br/>Loaded?}
+    
+    LoginSuccess -->|Fail| LoginError["❌ Show Error"]
+    LoginError --> Root
+    
+    LoginSuccess -->|Success| Refresh["🔄 Refresh Station Info<br/>Call Station Endpoint"]
+    Refresh --> RefreshSuccess{Data<br/>Loaded?}
+    
+    RefreshSuccess -->|Fail| RefreshError["❌ Show Error<br/>Allow Retry"]
+    RefreshError --> Refresh
+    
+    RefreshSuccess -->|Success| CheckWOSelected{Workorder<br/>Selected?}
+    
+    CheckWOSelected -->|No| SelectWO["📋 Select Workorder"]
+    CheckWOSelected -->|Yes| CheckWOExists{Selected WO<br/>Still Exists<br/>in Data?}
+    
+    CheckWOExists -->|No| SelectWO
+    SelectWO --> WOSuccess{Workorder<br/>Selected?}
+    WOSuccess -->|None| SelectWO
+    WOSuccess -->|Selected| ActionScreen
+    
+    CheckWOExists -->|Yes| ActionScreen["🎯 Action Screen"]
+    
+    ActionScreen --> Action{User<br/>Action?}
+    
+    Action -->|Unload Unpackaged<br/>Inventory| UnloadUnpackaged["📦 Unload Unpackaged<br/>Scan Destination Location<br/>Show: Total Containers & Quantity"]
+    UnloadUnpackaged --> UnpackagedResult{Transfer<br/>Success?}
+    UnpackagedResult -->|Fail| UnpackagedError["❌ Show Error"]
+    UnpackagedError --> ActionScreen
+    UnpackagedResult -->|Success| ActionScreen
+    
+    Action -->|Unload Packaged<br/>Inventory| UnloadPackaged["📦 Unload Packaged<br/>Inventory Screen"]
+    
+    UnloadPackaged --> UnloadAction{Unload<br/>Action?}
+    
+    UnloadAction -->|Move to Location| MoveToLoc["Scan/Enter<br/>Destination Location"]
+    UnloadAction -->|Move to New Pallet| MoveNewPal["Create New Pallet<br/>at Table"]
+    UnloadAction -->|Move to Existing Pallet| MoveExistPal["Select Existing<br/>Pallet at Table"]
+    UnloadAction -->|Move Pallet to Location| MovePalletLoc["Scan/Enter<br/>Destination Location"]
+    UnloadAction -->|Print Pallet Label| PrintLabel["Print Label<br/>via Printer Service"]
+    UnloadAction -->|Back| ActionScreen
+    
+    MoveToLoc --> TransferResult{Transfer<br/>Success?}
+    MoveNewPal --> TransferResult
+    MoveExistPal --> TransferResult
+    MovePalletLoc --> TransferResult
+    PrintLabel --> UnloadAction
+    
+    TransferResult -->|Fail| TransferError["❌ Show Error"]
+    TransferError --> UnloadAction
+    TransferResult -->|Success| UnloadAction
+    
+    Action -->|Scan Inventory<br/>to Package| ScanResult{Source<br/>Loaded?}
+    ScanResult -->|Fail| ScanError["❌ Show Error"]
+    ScanError --> ActionScreen
+    ScanResult -->|Success| ActionScreen
+    
+    Action -->|Select/Choose<br/>New Workorder| SelectWO
+    
+    Action -->|Package Inventory| PostResult{Package<br/>Posted?}
+    PostResult -->|Fail| PostError["❌ Show Error<br/>Allow Retry"]
+    PostError --> ActionScreen
+    PostResult -->|Success| Refresh
+    
+    Action -->|Logout| StationLogin
+    
+    style Root fill:#e1f5e1,stroke:#388e3c,stroke-width:3px
+    style StationLogin fill:#e3f2fd,stroke:#1976d2,stroke-width:3px
+    style Refresh fill:#f3e5f5,stroke:#7b1fa2,stroke-width:3px
+    style CheckWOSelected fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style CheckWOExists fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style SelectWO fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style ActionScreen fill:#e1f5e1,stroke:#388e3c,stroke-width:3px
+    style Action fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style UnloadUnpackaged fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style UnloadPackaged fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style UnloadAction fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style MoveToLoc fill:#f1f8e9,stroke:#558b2f
+    style MoveNewPal fill:#f1f8e9,stroke:#558b2f
+    style MoveExistPal fill:#f1f8e9,stroke:#558b2f
+    style MovePalletLoc fill:#f1f8e9,stroke:#558b2f
+    style PrintLabel fill:#f1f8e9,stroke:#558b2f
+    style ScanResult fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style PostResult fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style TransferResult fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style UnpackagedResult fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style PostError fill:#ffebee,stroke:#c62828
+    style RefreshError fill:#ffebee,stroke:#c62828
+    style LoginError fill:#ffebee,stroke:#c62828
+    style ScanError fill:#ffebee,stroke:#c62828
+    style TransferError fill:#ffebee,stroke:#c62828
+    style UnpackagedError fill:#ffebee,stroke:#c62828

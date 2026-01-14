@@ -1,0 +1,46 @@
+wireframe mobile LR
+  screen "1. Station Login"
+    AppBar "Packaging"
+    col padding=12
+      Title "Select Station"
+      Input "Scan"
+      List "A1|A2|B1"
+      Button "Select" primary
+  screen "2. Select WO"
+    AppBar "Packaging"
+    col padding=12
+      Title "Workorders"
+      List "WO-001|WO-002|WO-003"
+      Button "Logout" danger
+  screen "3. Action"
+    AppBar "WO-001"
+    col padding=12
+      Text "Station Inventory: 5VK AAA 10 pieces"
+      Input "Load Container"
+      Button "Scan" primary
+      Button "Return Inventory" secondary
+      spacer
+      Text "Tab menu with scale or manual entry"
+      Button "Package" primary
+      Button "Unload Station" secondary
+  screen "4. Unload Unpacked"
+    AppBar "Unload"
+    col padding=12
+      Text "Station Inventory: 5VK AAA 10 pieces"
+      Input "Total Containers"
+      Input "Quantity per Container"
+      Button "Return Inventory" primary
+  screen "5. Unload Packaged"
+    AppBar "Unload"
+    col padding=12
+      Text "Containers"
+      List "PKG-001 | PKG-002 | PKG-010"
+      Button "Move to Location" primary
+      Button "Move to New Pallet" primary
+      Button "Move to Existing Pallet" primary
+      spacer
+      Text "Pallets"
+      List "PLT-001 | PLT-002"
+      Button "Move Pallet to Location" secondary
+      Button "Print Pallet Label" secondary
+      Button "Back" secondary

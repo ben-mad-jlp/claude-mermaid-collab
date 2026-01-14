@@ -1,0 +1,18 @@
+wireframe tablet TD
+  screen "Unload Completed Containers"
+    AppBar "Unload Containers"
+    col padding=20
+      Title "Transfer to Destination"
+      Text "Containers to Unload: 4"
+      Text "PKG-001, PKG-002, PKG-003, PKG-004"
+      Title "Destination Location"
+      Input "Scan Location Barcode"
+      Text "Destination: AISLE-B-5"
+      Title "Create Pallet"
+      Input "Pallet ID: PAL-1001 (auto)"
+      Button "Create Pallet" primary
+      spacer
+      Title "Ready to Transfer"
+      Text "Status: Containers ready"
+      Button "Transfer & Print Labels" primary
+      Button "Cancel" secondary

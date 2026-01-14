@@ -1,0 +1,20 @@
+wireframe tablet TD
+  screen "Station Login Screen"
+    AppBar "Packaging Station"
+    col padding=20
+      Title "Select Packaging Station"
+      spacer
+      col padding=16
+        Text "Scan station barcode or select from list:"
+        Input "Scan Station Barcode" width=100%
+      spacer
+      Text "─────────  OR  ─────────"
+      spacer
+      col padding=16
+        Title "Available Stations"
+        List "Station A1 (Division: MI)|Station A2 (Division: MI)|Station B1 (Division: US)|Station B2 (Division: US)"
+      spacer
+      row align=center
+        Button "Select" primary
+        spacer
+        Button "Change Division" secondary

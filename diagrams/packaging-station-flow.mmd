@@ -1,0 +1,76 @@
+graph TD
+    Start([Packaging Station]) --> Login[Station Login Screen]
+    Login --> SelectStation{Scan or Select<br/>Station}
+    SelectStation -->|Manual Selection| LoadStations[Load Available Stations<br/>for Division]
+    SelectStation -->|Scan Barcode| LoadStations
+    LoadStations --> CheckScale{Station Config:<br/>Using Scale?}
+    
+    CheckScale -->|Yes - Scale| ScalePath["⚖️ SCALE MODE PATH"]
+    CheckScale -->|No - Manual| ManualPath["✏️ MANUAL COUNT MODE PATH"]
+    
+    SaveSession[Save Session to<br/>SharedPreferences]
+    ScalePath --> SaveSession
+    ManualPath --> SaveSession
+    
+    SaveSession --> WorkorderList[Display Pending<br/>Workorders]
+    WorkorderList --> SelectWO{Select<br/>Workorder}
+    SelectWO -->|No Workorders| WorkorderList
+    SelectWO -->|Select Workorder| InitContainer[Initialize Station<br/>Working Container]
+    
+    InitContainer --> MainWorkflow[Main Packaging Workflow]
+    
+    MainWorkflow --> LoadSource[Load Source Containers]
+    LoadSource --> ScanContainer[Scan/Enter Container ID]
+    ScanContainer --> ValidateContainer{Container<br/>Valid?}
+    ValidateContainer -->|No| ErrorLoad[Show Error]
+    ErrorLoad --> ScanContainer
+    ValidateContainer -->|Yes| TransferPieces[Load Source Container<br/>into Working Container]
+    TransferPieces --> MoreContainers{Load More<br/>Containers?}
+    MoreContainers -->|Yes| ScanContainer
+    MoreContainers -->|No| CheckMode{Scale or<br/>Manual Mode?}
+    
+    CheckMode -->|SCALE MODE| ScaleCreateBox[Display Scale Reading]
+    CheckMode -->|MANUAL MODE| ManualCreateBox[Enter Number of Boxes]
+    
+    ScaleCreateBox --> ScaleValidate{Scale Matches<br/>piecesPerBox?}
+    ScaleValidate -->|No| ScaleError[Show Error:<br/>Weight mismatch]
+    ScaleError --> ScaleCreateBox
+    ScaleValidate -->|Yes| CreateSingleBox[Create 1 Box]
+    CreateSingleBox --> ScaleSuccess[Box Created]
+    ScaleSuccess --> UpdateProgress[Update Progress]
+    
+    ManualCreateBox --> ManualInput[Enter Number:<br/>e.g., 3 boxes]
+    ManualInput --> ManualValidate{Loaded Pieces >=<br/>boxes × piecesPerBox?}
+    ManualValidate -->|No| ManualError[Show Error:<br/>Not enough pieces]
+    ManualError --> ManualInput
+    ManualValidate -->|Yes| CreateMultipleBoxes[Create All Boxes<br/>at Once]
+    CreateMultipleBoxes --> ManualSuccess[Boxes Created]
+    ManualSuccess --> UpdateProgress
+    
+    UpdateProgress --> DisplayCreated[Display Created Containers<br/>Track Remaining Pieces]
+    DisplayCreated --> CheckComplete{Workorder<br/>Complete?}
+    CheckComplete -->|No| MoreBoxes{Create Another<br/>Box/Batch?}
+    MoreBoxes -->|Yes - Scale| ScaleCreateBox
+    MoreBoxes -->|Yes - Manual| ManualCreateBox
+    MoreBoxes -->|No| DisplayCreated
+    CheckComplete -->|Yes| UnloadStart[Mark Workorder Complete]
+    
+    UnloadStart --> UnloadWidget[Unload Completed Containers<br/>to Destination Pallet]
+    UnloadWidget --> ScanDestination[Scan Destination Location]
+    ScanDestination --> CreatePallet[Create/Select Pallet]
+    CreatePallet --> TransferToPallet[Transfer Containers to Pallet]
+    TransferToPallet --> PrintLabel[Print Labels<br/>via Printer Service]
+    PrintLabel --> UnloadComplete{Unload<br/>Complete?}
+    UnloadComplete -->|No| ScanDestination
+    UnloadComplete -->|Yes| End([Return to Workorder List])
+    
+    End --> MoreWO{More<br/>Workorders?}
+    MoreWO -->|Yes| WorkorderList
+    MoreWO -->|No| Logout[Logout from Station]
+    Logout --> LoginEnd([End Session])
+    
+    style Start fill:#e1f5e1
+    style LoginEnd fill:#ffe1e1
+    style ScalePath fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    style ManualPath fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style CheckMode fill:#fff3e0,stroke:#f57c00,stroke-width:2px

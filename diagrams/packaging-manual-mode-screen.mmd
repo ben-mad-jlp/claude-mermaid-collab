@@ -1,0 +1,22 @@
+wireframe tablet TD
+  screen "Main Packaging Workflow - MANUAL MODE"
+    AppBar "Packaging - Station A1 (MANUAL MODE)"
+    col padding=20
+      Title "Workorder: WO-001"
+      Text "SKU: SK-1234 | Widget Assembly"
+      Text "Due: 50 pieces | Pieces per Box: 25"
+      Title "Step 1: Load Source Containers"
+      Input "Scan Container ID"
+      Text "Loaded: C-100 (25 pcs), C-101 (25 pcs)"
+      Text "Total: 50 pcs"
+      Button "Sources Loaded" primary
+      spacer
+      Title "Step 2: Create Packaged Boxes"
+      Text "How many boxes do you have?"
+      Input "Number of Boxes: 2"
+      Text "Will create: 2 boxes × 25 pieces = 50 total"
+      Text "✓ Validation: 50 pieces available"
+      Button "Create 2 Boxes" primary
+      spacer
+      Title "Progress"
+      Text "Boxes Created: 0 / Remaining: 50 pcs"

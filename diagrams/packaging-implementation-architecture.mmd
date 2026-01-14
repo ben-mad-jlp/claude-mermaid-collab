@@ -1,0 +1,58 @@
+graph TB
+    subgraph UI["UI Layer - 5 Screens"]
+        LS["📱 Login Screen<br/>Station Selection"]
+        WS["📋 Workorder Screen<br/>WO List"]
+        AS["🎯 Action Screen<br/>Main Hub"]
+        UU["📦 Unload Unpacked<br/>Location Return"]
+        UP["📦 Unload Packaged<br/>Container/Pallet Mgmt"]
+    end
+
+    subgraph State["State Management Layer (Riverpod)"]
+        PS["PackagingStateNotifier<br/>Session Management<br/>division, station, employee"]
+        PSP["PackagingStationProvider<br/>Workorder/Container State<br/>workorders, working container, config"]
+        PU["PackagingUnloadStateNotifier<br/>Unload Progress<br/>selected containers/pallets"]
+    end
+
+    subgraph Services["Service Layer"]
+        PackSvc["PackagingService<br/>API Client Wrapper<br/>getStationInfo()<br/>selectWorkorder()<br/>loadContainer()<br/>postPackage()"]
+        ContSvc["QBContainerService<br/>Container Operations<br/>nestMultipleAsync()<br/>nestMultipleOnNewPalletAsync()<br/>nestMultipleOnExistingPalletAsync()"]
+    end
+
+    subgraph API["Backend API Layer"]
+        PackCtrl["PackagingController<br/>GET /api/stations/packaging<br/>GET /api/stations/packaging/{div}/{name}/info<br/>POST /api/stations/packaging/{div}/{name}/select-workorder<br/>POST /api/stations/packaging/{div}/{name}/load<br/>POST /api/stations/packaging/{div}/{name}/package<br/>POST /api/stations/packaging/{div}/{name}/logout"]
+        PrintCtrl["PrinterController<br/>GET /api/BarcodePrint/LabelPrinters/{size}<br/>GET /api/BarcodePrint/PaperPrinters<br/>GET /api/container/{name}/label-info<br/>POST /api/Print/History<br/>GET /api/Print/History"]
+    end
+
+    subgraph DB["Backend Data Layer"]
+        QbsDb["QBS Database<br/>Containers<br/>Workorders<br/>Pallets<br/>PrintLogs"]
+    end
+
+    %% UI to State connections
+    LS --> PS
+    WS --> PSP
+    AS --> PSP
+    UU --> PU
+    UP --> PU
+
+    %% State to Services
+    PS --> PackSvc
+    PSP --> PackSvc
+    PU --> ContSvc
+
+    %% Services to API
+    PackSvc --> PackCtrl
+    ContSvc --> PackCtrl
+    
+    %% Future: Print integration
+    PackSvc -.->|future| PrintCtrl
+
+    %% API to Database
+    PackCtrl --> QbsDb
+    PrintCtrl --> QbsDb
+
+    %% Styling
+    style UI fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    style State fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style Services fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+    style API fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style DB fill:#f5f5f5,stroke:#616161,stroke-width:2px

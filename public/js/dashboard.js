@@ -1,4 +1,5 @@
 import APIClient from './api-client.js';
+import { initTheme, toggleTheme } from './theme.js';
 
 const api = new APIClient();
 let diagrams = [];
@@ -10,6 +11,7 @@ const empty = document.getElementById('empty');
 const search = document.getElementById('search');
 const typeFilter = document.getElementById('type-filter');
 const deleteAllBtn = document.getElementById('delete-all');
+const themeToggleBtn = document.getElementById('theme-toggle');
 const status = document.getElementById('status');
 const statusText = document.getElementById('status-text');
 
@@ -176,6 +178,11 @@ search.addEventListener('input', renderGrid);
 typeFilter.addEventListener('change', renderGrid);
 deleteAllBtn.addEventListener('click', deleteAllItems);
 
+// Theme toggle
+if (themeToggleBtn) {
+  themeToggleBtn.addEventListener('click', toggleTheme);
+}
+
 // WebSocket
 api.onStatusChange((newStatus) => {
   status.className = `connection-status ${newStatus}`;
@@ -200,5 +207,6 @@ status.addEventListener('click', () => {
 });
 
 // Initialize
+initTheme();
 api.connectWebSocket();
 loadItems();

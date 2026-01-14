@@ -1,0 +1,124 @@
+graph TD
+    Root["🌳 Nutting Station Behavior Tree"]
+
+    %% Station Login Phase
+    Root --> StationLogin["🔐 Station Login<br/>Select Station"]
+    StationLogin --> LoginSuccess{Station<br/>Loaded?}
+
+
+    LoginSuccess -->|Success| Refresh["🔄 Refresh Station Info<br/>Call getStationInfo()"]
+    Refresh --> RefreshSuccess{Data<br/>Loaded?}
+
+    RefreshSuccess -->|Fail| RefreshError["❌ Show Error<br/>Allow Retry"]
+    RefreshError --> Refresh
+
+    RefreshSuccess -->|Success| CheckWOSelected{Workorder<br/>Selected?}
+
+    %% Workorder Selection Phase
+    CheckWOSelected -->|No| SelectWO["📋 Select Workorder<br/>Sales/Stock Tabs<br/>Only Clickable: Compatible WOs"]
+    CheckWOSelected -->|Yes| CheckWOExists{Selected WO<br/>Still Exists?}
+
+    CheckWOExists -->|No| SelectWO
+
+    SelectWO --> WOAction{User<br/>Action?}
+
+    WOAction -->|Select Workorder| CallSelectWO["📞 Call selectWorkorder()<br/>API Endpoint"]
+
+
+    WOAction -->|Return Station<br/>Inventory| ReturnFromWOList["📝 Return Screen<br/>Select Containers<br/>Enter Total Containers<br/>Enter Qty per Container"]
+    ReturnFromWOList --> ReturnSubmit["📥 Submit Return<br/>to API"]
+    ReturnSubmit --> ReturnResult{Submit<br/>Success?}
+    ReturnResult -->|Fail| ReturnError["❌ Show Error"]
+    ReturnResult -->|Success| Refresh
+
+    ActionScreen["🎯 Action Screen<br/>Hub for All Operations"]
+    CheckWOExists -->|Yes| ActionScreen
+
+    %% Main Action Screen with Operation Branches
+    ActionScreen --> Action{Select<br/>Action}
+
+    %% Load Inventory to Station Action
+    Action -->|Load Inventory<br/>to Station| LoadInventory["📬 Load Inventory<br/>Enter/Scan Container ID"]
+    LoadInventory --> ValidateContainer{Container<br/>Valid?}
+    ValidateContainer -->|No| LoadError["❌ Show Error"]
+    LoadError --> ActionScreen
+    ValidateContainer -->|Yes| AddToInventory["➕ Add to Station<br/>Inventory"]
+    AddToInventory -->|Success| Refresh
+
+    %% Combine Inventory Action
+    Action -->|Combine Inventory| CombineDialog["📝 Combine Dialog<br/>Select Containers<br/>Set Quality"]
+    CombineDialog --> CombineValidate{Valid<br/>Combination?}
+    CombineValidate -->|No| CombineError["❌ Show Error"]
+    CombineError --> CombineDialog
+    CombineValidate -->|Yes| CombineSubmit["📤 Submit Combined<br/>Inventory to API"]
+    CombineSubmit --> CombineResult{Submit<br/>Success?}
+    CombineResult -->|Fail| CombineFailError["❌ Show Error"]
+    CombineFailError --> Refresh
+    CombineResult -->|Success| Refresh
+
+    %% Return Inventory Action (from Action Screen)
+    Action -->|Return Inventory| ReturnFromAction["📝 Return Screen<br/>Select Containers<br/>Enter Total Containers<br/>Enter Qty per Container"]
+    ReturnFromAction --> ReturnSubmitAction["📥 Submit Return<br/>to API"]
+    ReturnSubmitAction --> ReturnResultAction{Submit<br/>Success?}
+    ReturnResultAction -->|Fail| ReturnErrorAction["❌ Show Error"]
+    ReturnErrorAction --> ReturnFromAction
+    ReturnResultAction -->|Success| Refresh
+
+    %% Change Workorder Action
+    Action -->|Change Workorder| CallUnreserve["📞 Call unreserveWorkorder()<br/>API Endpoint"]
+    CallUnreserve --> UnreserveResult{Unreserve<br/>Success?}
+    UnreserveResult -->|Fail| UnreserveError["❌ Show Error"]
+    UnreserveError --> ActionScreen
+    UnreserveResult -->|Success| Refresh
+
+    %% Logout Action
+    Action -->|Logout| LogoutConfirm["🚪 Confirm Logout?"]
+    LogoutConfirm -->|Cancel| ActionScreen
+    LogoutConfirm -->|Confirm| ExecuteLogout["🔓 Clear Session<br/>Reset State"]
+    ExecuteLogout --> LogoutSuccess["✓ Logged Out"]
+    LogoutSuccess --> Refresh
+
+    %% Styling
+    style Root fill:#e1f5e1,stroke:#388e3c,stroke-width:3px
+    style StationLogin fill:#e3f2fd,stroke:#1976d2,stroke-width:3px
+    style Refresh fill:#f3e5f5,stroke:#7b1fa2,stroke-width:3px
+    style CheckWOSelected fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style CheckWOExists fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style SelectWO fill:#f3e5f5,stroke:#7b1fa2,stroke-width:3px
+    style WOAction fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style CallSelectWO fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style ActionScreen fill:#e1f5e1,stroke:#388e3c,stroke-width:3px
+    style Action fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+
+    style LoadInventory fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style ValidateContainer fill:#fff3e0,stroke:#f57c00
+    style AddToInventory fill:#f1f8e9,stroke:#558b2f
+    style LoadError fill:#ffebee,stroke:#c62828
+
+    style CombineDialog fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style CombineValidate fill:#fff3e0,stroke:#f57c00
+    style CombineSubmit fill:#f1f8e9,stroke:#558b2f
+    style CombineResult fill:#fff3e0,stroke:#f57c00
+    style CombineError fill:#ffebee,stroke:#c62828
+    style CombineFailError fill:#ffebee,stroke:#c62828
+
+    style ReturnFromWOList fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style ReturnSubmit fill:#f1f8e9,stroke:#558b2f
+    style ReturnResult fill:#fff3e0,stroke:#f57c00
+    style ReturnError fill:#ffebee,stroke:#c62828
+
+    style ReturnFromAction fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style ReturnSubmitAction fill:#f1f8e9,stroke:#558b2f
+    style ReturnResultAction fill:#fff3e0,stroke:#f57c00
+    style ReturnErrorAction fill:#ffebee,stroke:#c62828
+
+    style CallUnreserve fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style UnreserveResult fill:#fff3e0,stroke:#f57c00
+    style UnreserveError fill:#ffebee,stroke:#c62828
+
+    style LogoutConfirm fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style ExecuteLogout fill:#f1f8e9,stroke:#558b2f
+    style LogoutSuccess fill:#27ae60,stroke:#229954,color:#fff
+
+    style RefreshError fill:#ffebee,stroke:#c62828
+    CallSelectWO -->|Success| Refresh

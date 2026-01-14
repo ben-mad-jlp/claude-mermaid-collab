@@ -1,0 +1,55 @@
+graph TD
+    Start([App Start]) --> LoginScreen["📱 Packaging Station Login Screen<br/>- Scan or select station<br/>- Load available stations<br/>- Show division selection"]
+    
+    LoginScreen -->|Station Selected| CheckSession{Saved<br/>Session?}
+    CheckSession -->|Auto-login| CheckStationMode{Station Mode?}
+    CheckSession -->|New Session| SaveSession["Save to SharedPreferences"]
+    
+    SaveSession --> CheckStationMode{Station Mode?}
+    
+    CheckStationMode -->|Scale Mode| ScaleMode["⚖️ SCALE MODE"]
+    CheckStationMode -->|Manual Mode| ManualMode["✏️ MANUAL MODE"]
+    
+    ScaleMode --> PkgScreen["📱 Packaging Screen"]
+    ManualMode --> PkgScreen
+    
+    PkgScreen --> WorkorderSection["📋 Workorder Section<br/>- List pending workorders<br/>- Select workorder<br/>- Initialize working container"]
+    
+    WorkorderSection --> SourceSection["📋 Source Container Section<br/>- Scan/enter container IDs<br/>- Display scanned containers list<br/>- Load into working container"]
+    
+    SourceSection --> CheckMode{Scale or<br/>Manual?}
+    
+    CheckMode -->|Scale Mode| BoxSectionScale["📦 Box Creation - SCALE<br/>- Display scale reading<br/>- Wait for weight match<br/>- Validate vs piecesPerBox<br/>- Create 1 box"]
+    
+    CheckMode -->|Manual Mode| BoxSectionManual["📦 Box Creation - MANUAL<br/>- Enter number of boxes<br/>- Validate piece count<br/>- Create multiple boxes<br/>at once"]
+    
+    BoxSectionScale --> ProgressSection["📊 Progress Section<br/>- Display created containers<br/>- Show remaining pieces<br/>- Check workorder completion"]
+    
+    BoxSectionManual --> ProgressSection
+    
+    ProgressSection -->|Another Box/Batch| CreateMore{Scale or<br/>Manual?}
+    CreateMore -->|Scale| BoxSectionScale
+    CreateMore -->|Manual| BoxSectionManual
+    
+    ProgressSection -->|Workorder Done| UnloadDecision{Unload Now?}
+    ProgressSection -->|More Workorders| WorkorderSection
+    
+    UnloadDecision -->|Yes| UnloadScreen["📱 Unload Widget<br/>- Scan destination location<br/>- Create/select pallet<br/>- Transfer containers<br/>- Print labels"]
+    
+    UnloadScreen -->|Unload Done| BackToPkg["Return to Packaging Screen"]
+    BackToPkg --> MoreWO{Continue<br/>Working?}
+    
+    MoreWO -->|Yes| WorkorderSection
+    MoreWO -->|No| Logout["Logout from Station"]
+    
+    UnloadDecision -->|No - Later| MoreWO
+    
+    Logout --> LoginScreen
+    
+    style LoginScreen fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    style PkgScreen fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style UnloadScreen fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style ScaleMode fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    style ManualMode fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style BoxSectionScale fill:#bbdefb,stroke:#1976d2
+    style BoxSectionManual fill:#e1bee7,stroke:#7b1fa2

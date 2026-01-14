@@ -671,7 +671,8 @@ function hideEdgeContextMenu() {
 
 // Handle click outside to close menu
 document.addEventListener('click', (e) => {
-  if (!edgeContextMenu.contains(e.target)) {
+  // Don't hide/clear edge info if we're in destination selection mode
+  if (!edgeContextMenu.contains(e.target) && !isSelectingDestination) {
     hideEdgeContextMenu();
   }
 });
@@ -844,7 +845,8 @@ function hideNodeContextMenu() {
 
 // Handle click outside to close node menu
 document.addEventListener('click', (e) => {
-  if (!nodeContextMenu.contains(e.target)) {
+  // Don't hide/clear node info if we're in add transition mode
+  if (!nodeContextMenu.contains(e.target) && !isAddingTransition) {
     hideNodeContextMenu();
   }
 });
@@ -1048,14 +1050,8 @@ nodeAddTransitionNew.addEventListener('click', () => {
     return;
   }
 
-  const newStateId = prompt('Enter new node/state ID (e.g., NewState):');
+  const newStateId = prompt('Enter node/state ID (e.g., NewState):');
   if (!newStateId || !newStateId.trim()) {
-    hideNodeContextMenu();
-    return;
-  }
-
-  const newStateDesc = prompt('Enter new node/state description (or leave empty):');
-  if (newStateDesc === null) {
     hideNodeContextMenu();
     return;
   }
@@ -1063,34 +1059,51 @@ nodeAddTransitionNew.addEventListener('click', () => {
   const source = currentNodeInfo.nodeId;
   const target = newStateId.trim();
 
-  // Detect diagram type to use correct syntax
-  const isFlowchart = /^(graph|flowchart)\s/m.test(currentContent);
+  // Check if this state already exists in the diagram
+  const stateExists = new RegExp(`\\b${escapeRegex(target)}\\b`).test(currentContent);
 
-  // Create the new state/node line and transition line
-  let newStateLine;
-  let transitionLine;
+  let newStateLine = null;
 
-  if (isFlowchart) {
-    // Flowchart syntax
-    if (newStateDesc.trim()) {
-      newStateLine = `    ${target}["${newStateDesc}"]`;
-    } else {
-      newStateLine = `    ${target}`;
+  // Only ask for description and create state definition if it's a NEW state
+  if (!stateExists) {
+    const newStateDesc = prompt('Enter new node/state description (or leave empty):');
+    if (newStateDesc === null) {
+      hideNodeContextMenu();
+      return;
     }
 
+    // Detect diagram type to use correct syntax
+    const isFlowchart = /^(graph|flowchart)\s/m.test(currentContent);
+
+    if (isFlowchart) {
+      // Flowchart syntax
+      if (newStateDesc.trim()) {
+        newStateLine = `    ${target}["${newStateDesc}"]`;
+      } else {
+        newStateLine = `    ${target}`;
+      }
+    } else {
+      // State diagram syntax
+      if (newStateDesc.trim()) {
+        newStateLine = `    ${target} : ${newStateDesc}`;
+      } else {
+        newStateLine = `    ${target}`;
+      }
+    }
+  }
+
+  // Detect diagram type for transition syntax
+  const isFlowchart = /^(graph|flowchart)\s/m.test(currentContent);
+
+  // Create transition line
+  let transitionLine;
+  if (isFlowchart) {
     if (label.trim()) {
       transitionLine = `    ${source} -->|${label}| ${target}`;
     } else {
       transitionLine = `    ${source} --> ${target}`;
     }
   } else {
-    // State diagram syntax
-    if (newStateDesc.trim()) {
-      newStateLine = `    ${target} : ${newStateDesc}`;
-    } else {
-      newStateLine = `    ${target}`;
-    }
-
     if (label.trim()) {
       transitionLine = `    ${source} --> ${target} : ${label}`;
     } else {
@@ -1109,8 +1122,12 @@ nodeAddTransitionNew.addEventListener('click', () => {
     }
   }
 
-  // Insert transition first, then new node (so node appears after in source)
-  lines.splice(insertIndex, 0, transitionLine, newStateLine);
+  // Insert transition, and new node definition only if state is new
+  if (newStateLine) {
+    lines.splice(insertIndex, 0, transitionLine, newStateLine);
+  } else {
+    lines.splice(insertIndex, 0, transitionLine);
+  }
 
   pushUndo(currentContent);
   currentContent = lines.join('\n');
@@ -1131,30 +1148,37 @@ edgeChangeDestNew.addEventListener('click', () => {
     return;
   }
 
-  const newStateDesc = prompt('Enter new state description (or leave empty):');
-  if (newStateDesc === null) {
-    hideEdgeContextMenu();
-    return;
-  }
-
   const { lineIndex, lineContent, source, target } = currentEdgeInfo;
   const newTarget = newStateId.trim();
 
-  // Detect diagram type to use correct syntax
-  const isFlowchart = /^(graph|flowchart)\s/m.test(currentContent);
+  // Check if this state already exists in the diagram
+  const stateExists = new RegExp(`\\b${escapeRegex(newTarget)}\\b`).test(currentContent);
 
-  // Create new state line with correct syntax for diagram type
-  let newStateLine;
-  if (newStateDesc.trim()) {
-    if (isFlowchart) {
-      // Flowchart syntax: NodeId["Description"]
-      newStateLine = `    ${newTarget}["${newStateDesc}"]`;
-    } else {
-      // State diagram syntax: NodeId : Description
-      newStateLine = `    ${newTarget} : ${newStateDesc}`;
+  let newStateLine = null;
+
+  // Only ask for description and create state definition if it's a NEW state
+  if (!stateExists) {
+    const newStateDesc = prompt('Enter new state description (or leave empty):');
+    if (newStateDesc === null) {
+      hideEdgeContextMenu();
+      return;
     }
-  } else {
-    newStateLine = `    ${newTarget}`;
+
+    // Detect diagram type to use correct syntax
+    const isFlowchart = /^(graph|flowchart)\s/m.test(currentContent);
+
+    // Create new state line with correct syntax for diagram type
+    if (newStateDesc.trim()) {
+      if (isFlowchart) {
+        // Flowchart syntax: NodeId["Description"]
+        newStateLine = `    ${newTarget}["${newStateDesc}"]`;
+      } else {
+        // State diagram syntax: NodeId : Description
+        newStateLine = `    ${newTarget} : ${newStateDesc}`;
+      }
+    } else {
+      newStateLine = `    ${newTarget}`;
+    }
   }
 
   // Update the transition to point to new state
@@ -1168,8 +1192,10 @@ edgeChangeDestNew.addEventListener('click', () => {
   // Update the transition line
   lines[lineIndex] = newTransitionLine;
 
-  // Insert new state definition after the transition
-  lines.splice(lineIndex + 1, 0, newStateLine);
+  // Only insert new state definition if state doesn't already exist
+  if (newStateLine) {
+    lines.splice(lineIndex + 1, 0, newStateLine);
+  }
 
   pushUndo(currentContent);
   currentContent = lines.join('\n');
