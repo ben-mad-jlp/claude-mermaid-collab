@@ -43,6 +43,7 @@ const zoomFitHeightBtn = document.getElementById('zoom-fit-height');
 const zoomLevel = document.getElementById('zoom-level');
 const toggleDirectionBtn = document.getElementById('toggle-direction');
 const refreshPreviewBtn = document.getElementById('refresh-preview');
+const formatCodeBtn = document.getElementById('format-code');
 const syntaxHelpBtn = document.getElementById('syntax-help');
 const syntaxModal = document.getElementById('syntax-modal');
 const syntaxModalTitle = document.getElementById('syntax-modal-title');
@@ -1629,6 +1630,163 @@ function toggleDirection() {
   scheduleAutoSave();
 }
 
+// Format/organize Mermaid code
+function formatMermaidCode() {
+  const lines = currentContent.split('\n');
+
+  // Detect diagram type
+  const firstLine = lines.find(l => l.trim().length > 0) || '';
+  const isFlowchart = /^(graph|flowchart)\s/i.test(firstLine);
+  const isStateDiagram = /^stateDiagram/i.test(firstLine);
+  const isSequence = /^sequenceDiagram/i.test(firstLine);
+
+  if (!isFlowchart && !isStateDiagram) {
+    showError('Format is only supported for flowcharts and state diagrams');
+    setTimeout(hideError, 3000);
+    return;
+  }
+
+  // Categorize lines
+  const declaration = [];      // graph TD, stateDiagram-v2, etc.
+  const comments = [];         // %% comments at the top
+  const nodeDefinitions = [];  // A["Label"], state definitions
+  const connections = [];      // A --> B, transitions
+  const subgraphs = [];        // subgraph blocks (kept together)
+  const styles = [];           // style, classDef, class
+  const other = [];            // anything else
+
+  let inSubgraph = false;
+  let subgraphLines = [];
+  let subgraphDepth = 0;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    // Skip empty lines (we'll add our own spacing)
+    if (!trimmed) continue;
+
+    // Handle subgraphs (keep them as blocks)
+    if (/^subgraph\b/i.test(trimmed)) {
+      inSubgraph = true;
+      subgraphDepth++;
+      subgraphLines.push(line);
+      continue;
+    }
+
+    if (inSubgraph) {
+      subgraphLines.push(line);
+      if (/^end\s*$/i.test(trimmed)) {
+        subgraphDepth--;
+        if (subgraphDepth === 0) {
+          inSubgraph = false;
+          subgraphs.push(subgraphLines.join('\n'));
+          subgraphLines = [];
+        }
+      }
+      continue;
+    }
+
+    // Categorize the line
+    if (/^(graph|flowchart|stateDiagram)/i.test(trimmed)) {
+      declaration.push(trimmed);
+    }
+    else if (/^%%/.test(trimmed)) {
+      comments.push(trimmed);
+    }
+    else if (/^(style|classDef|class)\s/i.test(trimmed)) {
+      styles.push('    ' + trimmed.replace(/^\s+/, ''));
+    }
+    else if (/^(click)\s/i.test(trimmed)) {
+      other.push('    ' + trimmed.replace(/^\s+/, ''));
+    }
+    // Connection patterns: -->, ==>, -.->  etc.
+    else if (/-->|==>|--[->]|-\.->|--x|--o|<-->|<-.->|\s:\s/.test(trimmed)) {
+      connections.push('    ' + trimmed.replace(/^\s+/, ''));
+    }
+    // Node definitions: A["label"], A(label), A{label}, state definitions
+    else if (/^[A-Za-z_][A-Za-z0-9_]*\s*[\[\(\{]/.test(trimmed) ||
+             /^[A-Za-z_][A-Za-z0-9_]*\s*$/.test(trimmed) ||
+             /^state\s+/i.test(trimmed)) {
+      nodeDefinitions.push('    ' + trimmed.replace(/^\s+/, ''));
+    }
+    else {
+      other.push('    ' + trimmed.replace(/^\s+/, ''));
+    }
+  }
+
+  // Sort node definitions alphabetically by node ID
+  nodeDefinitions.sort((a, b) => {
+    const idA = a.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)/)?.[1] || '';
+    const idB = b.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)/)?.[1] || '';
+    return idA.localeCompare(idB);
+  });
+
+  // Sort connections by source node
+  connections.sort((a, b) => {
+    const idA = a.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)/)?.[1] || '';
+    const idB = b.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)/)?.[1] || '';
+    return idA.localeCompare(idB);
+  });
+
+  // Sort styles by node ID
+  styles.sort((a, b) => {
+    const idA = a.trim().match(/^(?:style|class)\s+([A-Za-z_][A-Za-z0-9_]*)/)?.[1] || '';
+    const idB = b.trim().match(/^(?:style|class)\s+([A-Za-z_][A-Za-z0-9_]*)/)?.[1] || '';
+    return idA.localeCompare(idB);
+  });
+
+  // Build formatted output
+  const sections = [];
+
+  // Declaration
+  if (declaration.length > 0) {
+    sections.push(declaration.join('\n'));
+  }
+
+  // Comments (at top, after declaration)
+  if (comments.length > 0) {
+    sections.push(comments.map(c => '    ' + c).join('\n'));
+  }
+
+  // Node definitions
+  if (nodeDefinitions.length > 0) {
+    sections.push('    %% Node Definitions');
+    sections.push(nodeDefinitions.join('\n'));
+  }
+
+  // Connections
+  if (connections.length > 0) {
+    sections.push('    %% Connections');
+    sections.push(connections.join('\n'));
+  }
+
+  // Subgraphs
+  if (subgraphs.length > 0) {
+    sections.push('    %% Subgraphs');
+    sections.push(subgraphs.join('\n\n'));
+  }
+
+  // Other
+  if (other.length > 0) {
+    sections.push(other.join('\n'));
+  }
+
+  // Styles (at the end)
+  if (styles.length > 0) {
+    sections.push('    %% Styles');
+    sections.push(styles.join('\n'));
+  }
+
+  const formatted = sections.join('\n\n');
+
+  // Apply the formatted content
+  pushUndo(currentContent);
+  currentContent = formatted;
+  setEditorContent(currentContent);
+  renderPreview();
+  scheduleAutoSave();
+}
+
 // Event listeners
 backButton.addEventListener('click', () => {
   window.location.href = '/';
@@ -1647,6 +1805,7 @@ zoomFitWidthBtn.addEventListener('click', zoomFitWidth);
 zoomFitHeightBtn.addEventListener('click', zoomFitHeight);
 toggleDirectionBtn.addEventListener('click', toggleDirection);
 refreshPreviewBtn.addEventListener('click', () => renderPreview());
+formatCodeBtn.addEventListener('click', formatMermaidCode);
 
 // Keyboard shortcut: Ctrl+Enter to refresh preview
 document.addEventListener('keydown', (e) => {
