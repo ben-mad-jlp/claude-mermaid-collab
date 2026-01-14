@@ -43,7 +43,7 @@ graph TD
     Action -->|Logout| LogoutConfirm["🚪 Confirm Logout?"]
     LogoutConfirm -->|Cancel| ActionScreen
     LogoutConfirm -->|Confirm| ExecuteLogout["🔓 Clear Session<br/>Reset State"]
-    ExecuteLogout[Submit logout to the API] --> Root
+    ExecuteLogout[Submit logout to the API] --> StationLogin
 
     %% Styling
     style Root fill:#e1f5e1,stroke:#388e3c,stroke-width:3px
@@ -71,7 +71,9 @@ graph TD
     style LogoutConfirm fill:#fff3e0,stroke:#f57c00,stroke-width:2px
     style ExecuteLogout fill:#f1f8e9,stroke:#558b2f
     LoadInventory --> AddToInventory
+    LoadInventory -->|Return| ActionScreen
     CombineDialog --> SubmitCombine
+    CombineDialog -->|Return| ActionScreen
     SubmitCombine["Submit Combine to API"]
     SubmitCombine --> CombineDialog
     ReturnSubmit --> Refresh

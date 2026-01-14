@@ -1528,6 +1528,7 @@ function initResizer() {
     isResizing = true;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
+    e.preventDefault(); // Prevent text selection while resizing
   });
 
   document.addEventListener('mousemove', (e) => {
@@ -1551,6 +1552,15 @@ function initResizer() {
 
       // Save width to localStorage
       localStorage.setItem('editorPaneWidth', editorPane.style.flexBasis);
+    }
+  });
+
+  // Also cleanup on blur/mouseleave in case mouseup is missed
+  window.addEventListener('blur', () => {
+    if (isResizing) {
+      isResizing = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
     }
   });
 }
