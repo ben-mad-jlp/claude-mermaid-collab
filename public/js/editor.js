@@ -1024,21 +1024,35 @@ nodeDelete.addEventListener('click', async () => {
   // Find all lines that reference this node
   const lines = currentContent.split('\n');
   const referencingLines = [];
+  const styleLines = [];
 
   for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     // Check if line contains this nodeId (as a word boundary)
-    if (new RegExp(`\\b${escapeRegex(nodeId)}\\b`).test(lines[i])) {
+    if (new RegExp(`\\b${escapeRegex(nodeId)}\\b`).test(line)) {
       referencingLines.push(i);
+    }
+    // Also check for style/class declarations for this node
+    if (new RegExp(`^\\s*(style|class)\\s+${escapeRegex(nodeId)}\\b`).test(line)) {
+      if (!referencingLines.includes(i)) {
+        styleLines.push(i);
+      }
     }
   }
 
+  const allLinesToDelete = [...referencingLines, ...styleLines];
+  const arrowCount = referencingLines.length - 1;
+  const styleCount = styleLines.length;
+
   let message = `Delete node "${nodeId}"?`;
-  if (referencingLines.length > 1) {
-    message += `\n\nThis will also delete ${referencingLines.length - 1} connected arrow(s).`;
+  if (arrowCount > 0 || styleCount > 0) {
+    message += '\n\nThis will also delete:';
+    if (arrowCount > 0) message += `\n- ${arrowCount} connected arrow(s)`;
+    if (styleCount > 0) message += `\n- ${styleCount} style declaration(s)`;
   }
 
   if (confirm(message)) {
-    const newLines = lines.filter((_, i) => !referencingLines.includes(i));
+    const newLines = lines.filter((_, i) => !allLinesToDelete.includes(i));
     await applyEditWithValidation(newLines.join('\n'), 'delete node');
   }
 

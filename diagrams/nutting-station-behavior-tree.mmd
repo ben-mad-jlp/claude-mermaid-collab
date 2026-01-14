@@ -3,11 +3,8 @@ graph TD
 
     %% Station Login Phase
     Root --> StationLogin["🔐 Station Login<br/>Select Station"]
-    StationLogin --> LoginSuccess{Station<br/>Loaded?}
 
-    LoginSuccess -->|Fail| Root
 
-    LoginSuccess -->|Success| Refresh["🔄 Refresh Station Info<br/>Call getStationInfo()"]
     Refresh --> CheckWOSelected{Workorder<br/>Selected?}
 
     %% Workorder Selection Phase
@@ -46,7 +43,7 @@ graph TD
     Action -->|Logout| LogoutConfirm["🚪 Confirm Logout?"]
     LogoutConfirm -->|Cancel| ActionScreen
     LogoutConfirm -->|Confirm| ExecuteLogout["🔓 Clear Session<br/>Reset State"]
-    ExecuteLogout --> Root
+    ExecuteLogout[Submit logout to the API] --> Root
 
     %% Styling
     style Root fill:#e1f5e1,stroke:#388e3c,stroke-width:3px
@@ -79,3 +76,5 @@ graph TD
     SubmitCombine --> CombineDialog
     ReturnSubmit --> Refresh
     CallSelectWO --> Refresh
+    StationLogin --> Refresh["Get Station Info"]
+    CallUnreserve --> Refresh
