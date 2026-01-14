@@ -131,6 +131,16 @@
       overflow: auto;
     }
 
+    /* Flash highlight animation for click-to-source */
+    @keyframes flash-highlight {
+      0%, 80% { background-color: var(--warning-color); }
+      100% { background-color: transparent; }
+    }
+
+    .code-editor .flash-highlight {
+      animation: flash-highlight 3s ease-out;
+    }
+
     .preview-pane {
       flex: 1;
       overflow-y: auto;
@@ -144,6 +154,38 @@
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       line-height: 1.6;
       color: var(--text-primary);
+    }
+
+    /* Click-to-source: indicate clickable elements */
+    .preview-content p,
+    .preview-content h1,
+    .preview-content h2,
+    .preview-content h3,
+    .preview-content h4,
+    .preview-content h5,
+    .preview-content h6,
+    .preview-content li,
+    .preview-content blockquote,
+    .preview-content pre,
+    .preview-content td,
+    .preview-content th {
+      cursor: pointer;
+    }
+
+    .preview-content p:hover,
+    .preview-content h1:hover,
+    .preview-content h2:hover,
+    .preview-content h3:hover,
+    .preview-content h4:hover,
+    .preview-content h5:hover,
+    .preview-content h6:hover,
+    .preview-content li:hover,
+    .preview-content blockquote:hover,
+    .preview-content pre:hover,
+    .preview-content td:hover,
+    .preview-content th:hover {
+      background: var(--hover-bg);
+      border-radius: 4px;
     }
 
     .preview-content h1, .preview-content h2, .preview-content h3 {
@@ -302,6 +344,11 @@
     <div class="toolbar">
       <button id="back-button" title="Back to Dashboard">←</button>
       <div class="document-title" id="title">Loading...</div>
+
+      <div class="toolbar-group">
+        <button id="undo" disabled title="Undo">↶</button>
+        <button id="redo" disabled title="Redo">↷</button>
+      </div>
 
       <div class="toolbar-group">
         <button id="add-comment" title="Add Comment">💬 Comment</button>

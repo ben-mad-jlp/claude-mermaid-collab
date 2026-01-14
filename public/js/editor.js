@@ -41,7 +41,7 @@ const customSetup = [
 ];
 import { mermaidLanguage } from './cm-lang-mermaid.js';
 import { wireframeLanguage } from './cm-lang-wireframe.js';
-import { initTheme, toggleTheme, getTheme, onThemeChange, getEditorTheme } from './theme.js';
+import { initTheme, toggleTheme, getTheme, onThemeChange, getEditorTheme } from './theme.js?v=4';
 
 // Register wireframe plugin
 await mermaid.registerExternalDiagrams([wireframe]);
@@ -93,7 +93,11 @@ const themeToggleBtn = document.getElementById('theme-toggle');
 
 // State
 let currentContent = '';
-let currentTheme = 'default';
+
+// Get Mermaid theme based on app theme
+function getMermaidTheme() {
+  return getTheme() === 'dark' ? 'dark' : 'default';
+}
 let saveTimeout = null;
 let refreshTimeout = null;
 let undoStack = [];
@@ -403,7 +407,7 @@ async function renderPreview(preserveZoom = true) {
     }
 
     mermaid.initialize({
-      theme: currentTheme,
+      theme: getMermaidTheme(),
       startOnLoad: false,
     });
 
@@ -1794,6 +1798,7 @@ function undo() {
   setEditorContent(currentContent);
   renderPreview();
   updateUndoRedoButtons();
+  scheduleAutoSave();
 }
 
 function redo() {
@@ -1805,6 +1810,7 @@ function redo() {
   setEditorContent(currentContent);
   renderPreview();
   updateUndoRedoButtons();
+  scheduleAutoSave();
 }
 
 function updateUndoRedoButtons() {
@@ -2591,6 +2597,8 @@ if (themeToggleBtn) {
   themeToggleBtn.addEventListener('click', () => {
     toggleTheme();
     recreateEditorWithTheme();
+    // Re-render preview with new Mermaid theme
+    renderPreview();
   });
 }
 
@@ -2786,6 +2794,8 @@ document.addEventListener('keydown', (e) => {
 // Subscribe to theme changes from other sources
 onThemeChange(() => {
   recreateEditorWithTheme();
+  // Re-render preview with new Mermaid theme
+  renderPreview();
 });
 
 // Initialize

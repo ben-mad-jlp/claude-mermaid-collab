@@ -1,5 +1,5 @@
 import APIClient from './api-client.js';
-import { initTheme, toggleTheme } from './theme.js';
+import { initTheme, toggleTheme } from './theme.js?v=4';
 
 const api = new APIClient();
 let diagrams = [];

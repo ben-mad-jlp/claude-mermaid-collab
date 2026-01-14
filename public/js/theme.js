@@ -10,9 +10,9 @@
  * - https://github.com/ericwbailey/a11y-syntax-highlighting
  * - https://github.com/atom/one-dark-syntax
  */
-import { EditorView } from 'https://esm.sh/codemirror@6.0.1';
-import { HighlightStyle, syntaxHighlighting } from 'https://esm.sh/@codemirror/language@6.10.0';
-import { tags } from 'https://esm.sh/@lezer/highlight@1.2.0';
+import { EditorView } from 'https://esm.sh/@codemirror/view@6';
+import { HighlightStyle, syntaxHighlighting } from 'https://esm.sh/@codemirror/language@6';
+import { tags } from 'https://esm.sh/@lezer/highlight@1';
 
 // =============================================================================
 // DARK THEME - Based on One Dark with a11y accessibility improvements
@@ -31,7 +31,7 @@ const darkTheme = EditorView.theme({
     borderLeftColor: "#528BFF"
   },
   "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection": {
-    backgroundColor: "#3E4451"
+    backgroundColor: "#0066CC"
   },
   ".cm-panels": {
     backgroundColor: "#21252B",
@@ -54,7 +54,7 @@ const darkTheme = EditorView.theme({
     backgroundColor: "#2C313A"
   },
   ".cm-selectionMatch": {
-    backgroundColor: "#3E445180"
+    backgroundColor: "#0066CC80"
   },
   "&.cm-focused .cm-matchingBracket, &.cm-focused .cm-nonmatchingBracket": {
     backgroundColor: "#515A6B",
@@ -86,114 +86,114 @@ const darkTheme = EditorView.theme({
   }
 }, { dark: true });
 
-// Dark theme syntax highlighting - One Dark colors
-// All colors meet WCAG AA contrast ratio on #282C34 background
+// Dark theme syntax highlighting - Neon colors for high visibility
+// Vibrant colors optimized for dark backgrounds
 const darkHighlightStyle = HighlightStyle.define([
-  // Keywords: purple/magenta - control flow, declarations
-  { tag: tags.keyword, color: "#C678DD", fontWeight: "bold" },
+  // Keywords: neon magenta - control flow, declarations
+  { tag: tags.keyword, color: "#FF00FF", fontWeight: "bold" },
 
-  // Atoms: cyan - constants, booleans, direction keywords
-  { tag: tags.atom, color: "#56B6C2" },
+  // Atoms: neon cyan - constants, booleans, direction keywords
+  { tag: tags.atom, color: "#00FFFF" },
 
-  // Numbers: orange
-  { tag: tags.number, color: "#D19A66" },
+  // Numbers: neon orange
+  { tag: tags.number, color: "#FF8C00" },
 
-  // Definitions: blue - function/class definitions
-  { tag: tags.definition(tags.name), color: "#61AFEF" },
+  // Definitions: neon blue - function/class definitions
+  { tag: tags.definition(tags.name), color: "#00BFFF" },
 
-  // Variables: red/coral
-  { tag: tags.variableName, color: "#E06C75" },
+  // Variables: neon coral/pink
+  { tag: tags.variableName, color: "#FF6B9D" },
 
-  // Punctuation: light gray
-  { tag: tags.punctuation, color: "#ABB2BF" },
+  // Punctuation: bright silver
+  { tag: tags.punctuation, color: "#C0C0C0" },
 
-  // Property names: blue
-  { tag: tags.propertyName, color: "#61AFEF" },
+  // Property names: neon blue
+  { tag: tags.propertyName, color: "#00BFFF" },
 
-  // Operators: cyan - arrows, relationships
-  { tag: tags.operator, color: "#56B6C2" },
+  // Operators: neon cyan - arrows, relationships
+  { tag: tags.operator, color: "#00FFFF" },
 
-  // Comments: gray italic
-  { tag: tags.comment, color: "#5C6370", fontStyle: "italic" },
+  // Comments: muted but visible
+  { tag: tags.comment, color: "#7A8B99", fontStyle: "italic" },
 
-  // Strings: green - labels, text content
-  { tag: tags.string, color: "#98C379" },
+  // Strings: neon green - labels, text content
+  { tag: tags.string, color: "#00FF7F" },
 
-  // Meta: gray
-  { tag: tags.meta, color: "#5C6370" },
+  // Meta: visible gray
+  { tag: tags.meta, color: "#8899AA" },
 
-  // Labels: yellow
-  { tag: tags.labelName, color: "#E5C07B" },
+  // Labels: neon yellow
+  { tag: tags.labelName, color: "#FFD700" },
 
-  // Functions: blue
-  { tag: tags.function(tags.variableName), color: "#61AFEF" },
+  // Functions: neon blue
+  { tag: tags.function(tags.variableName), color: "#00BFFF" },
 
-  // Type names: yellow - component types
-  { tag: tags.typeName, color: "#E5C07B" },
+  // Type names: neon gold - component types
+  { tag: tags.typeName, color: "#FFD700" },
 
-  // Brackets: light gray
-  { tag: tags.bracket, color: "#ABB2BF" },
+  // Brackets: bright silver
+  { tag: tags.bracket, color: "#C0C0C0" },
 
-  // Tag names: red
-  { tag: tags.tagName, color: "#E06C75" },
+  // Tag names: neon pink
+  { tag: tags.tagName, color: "#FF6B9D" },
 
-  // Attribute names: orange
-  { tag: tags.attributeName, color: "#D19A66" },
+  // Attribute names: neon orange
+  { tag: tags.attributeName, color: "#FF8C00" },
 
-  // Links: blue
-  { tag: tags.link, color: "#61AFEF" },
+  // Links: neon blue
+  { tag: tags.link, color: "#00BFFF" },
 
-  // Builtins: orange - spacer, divider
-  { tag: tags.standard(tags.name), color: "#D19A66" },
+  // Builtins: neon orange - spacer, divider
+  { tag: tags.standard(tags.name), color: "#FF8C00" },
 
-  // Special: cyan
-  { tag: tags.special(tags.string), color: "#56B6C2" },
+  // Special: neon cyan
+  { tag: tags.special(tags.string), color: "#00FFFF" },
 
-  // Namespace: yellow
-  { tag: tags.namespace, color: "#E5C07B" },
+  // Namespace: neon gold
+  { tag: tags.namespace, color: "#FFD700" },
 
-  // Class names: yellow
-  { tag: tags.className, color: "#E5C07B" },
+  // Class names: neon gold
+  { tag: tags.className, color: "#FFD700" },
 
-  // Macros/Preprocessor: purple
-  { tag: tags.macroName, color: "#C678DD" },
+  // Macros/Preprocessor: neon magenta
+  { tag: tags.macroName, color: "#FF00FF" },
 
-  // Invalid: red with underline
-  { tag: tags.invalid, color: "#E06C75", textDecoration: "underline wavy" },
+  // Invalid: bright red with underline
+  { tag: tags.invalid, color: "#FF4757", textDecoration: "underline wavy" },
 
   // === Markdown-specific tags ===
-  // Headings: red/coral with bold
-  { tag: tags.heading, color: "#E06C75", fontWeight: "bold" },
-  { tag: tags.heading1, color: "#E06C75", fontWeight: "bold", fontSize: "1.3em" },
-  { tag: tags.heading2, color: "#E06C75", fontWeight: "bold", fontSize: "1.2em" },
-  { tag: tags.heading3, color: "#E06C75", fontWeight: "bold", fontSize: "1.1em" },
+  // Headings: neon pink with bold
+  { tag: tags.heading, color: "#FF6B9D", fontWeight: "bold" },
+  { tag: tags.heading1, color: "#FF6B9D", fontWeight: "bold", fontSize: "1.3em" },
+  { tag: tags.heading2, color: "#FF6B9D", fontWeight: "bold", fontSize: "1.2em" },
+  { tag: tags.heading3, color: "#FF6B9D", fontWeight: "bold", fontSize: "1.1em" },
 
-  // Emphasis: italic
-  { tag: tags.emphasis, fontStyle: "italic", color: "#E5C07B" },
+  // Emphasis: italic neon gold
+  { tag: tags.emphasis, fontStyle: "italic", color: "#FFD700" },
 
-  // Strong: bold
-  { tag: tags.strong, fontWeight: "bold", color: "#D19A66" },
+  // Strong: bold neon orange
+  { tag: tags.strong, fontWeight: "bold", color: "#FF8C00" },
 
   // Strikethrough
-  { tag: tags.strikethrough, textDecoration: "line-through", color: "#5C6370" },
+  { tag: tags.strikethrough, textDecoration: "line-through", color: "#7A8B99" },
 
-  // Quote/blockquote: gray italic
-  { tag: tags.quote, color: "#5C6370", fontStyle: "italic" },
+  // Quote/blockquote: visible gray italic
+  { tag: tags.quote, color: "#8899AA", fontStyle: "italic" },
 
-  // Lists: cyan
-  { tag: tags.list, color: "#56B6C2" },
+  // Lists: neon cyan
+  { tag: tags.list, color: "#00FFFF" },
 
-  // Inline code: green with background hint
-  { tag: tags.monospace, color: "#98C379" },
+  // Inline code: neon green
+  { tag: tags.monospace, color: "#00FF7F" },
 
-  // URLs: blue underline
-  { tag: tags.url, color: "#61AFEF", textDecoration: "underline" },
+  // URLs: neon blue underline
+  { tag: tags.url, color: "#00BFFF", textDecoration: "underline" },
 
-  // Content separator (hr): gray
-  { tag: tags.contentSeparator, color: "#5C6370" },
+  // Content separator (hr): visible gray
+  { tag: tags.contentSeparator, color: "#8899AA" },
 
   // Processing instructions (like HTML in markdown)
-  { tag: tags.processingInstruction, color: "#5C6370" },
+  { tag: tags.processingInstruction, color: "#8899AA" },
 ]);
 
 // =============================================================================

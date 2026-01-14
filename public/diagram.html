@@ -354,6 +354,59 @@
       padding: 4px 12px;
       font-size: 12px;
     }
+
+    /* Dark mode Mermaid SVG overrides */
+    [data-theme="dark"] .preview-pane svg {
+      background: var(--bg-tertiary);
+    }
+
+    /* Ensure edge paths (arrows) are visible in dark mode */
+    [data-theme="dark"] .preview-pane .edgePath path.path {
+      stroke: #aaa !important;
+      stroke-width: 1.5px !important;
+    }
+
+    /* Ensure arrowheads are visible */
+    [data-theme="dark"] .preview-pane marker path {
+      fill: #aaa !important;
+      stroke: #aaa !important;
+    }
+
+    /* Edge labels visibility */
+    [data-theme="dark"] .preview-pane .edgeLabel {
+      background-color: var(--bg-tertiary) !important;
+    }
+
+    [data-theme="dark"] .preview-pane .edgeLabel span {
+      color: var(--text-primary) !important;
+    }
+
+    /* Cluster/subgraph labels */
+    [data-theme="dark"] .preview-pane .cluster text {
+      fill: var(--text-primary) !important;
+    }
+
+    /* Links/edge text */
+    [data-theme="dark"] .preview-pane .flowchart-link {
+      stroke: #888 !important;
+    }
+
+    /* Force dark text on light-colored nodes in dark mode */
+    [data-theme="dark"] .preview-pane .node .label {
+      color: #333 !important;
+    }
+
+    [data-theme="dark"] .preview-pane .node .nodeLabel {
+      color: #333 !important;
+    }
+
+    [data-theme="dark"] .preview-pane .node text {
+      fill: #333 !important;
+    }
+
+    [data-theme="dark"] .preview-pane .node foreignObject div {
+      color: #333 !important;
+    }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/@panzoom/panzoom@4.5.1/dist/panzoom.min.js"></script>
 </head>

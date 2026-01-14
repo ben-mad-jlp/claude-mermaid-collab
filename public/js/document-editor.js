@@ -1,7 +1,42 @@
 import APIClient from './api-client.js';
-import { EditorView, basicSetup } from 'https://esm.sh/codemirror@6.0.1';
+import { EditorView } from 'https://esm.sh/@codemirror/view@6';
+import { EditorState } from 'https://esm.sh/@codemirror/state@6';
 import { markdown } from 'https://esm.sh/@codemirror/lang-markdown@6.3.1';
-import { initTheme, toggleTheme, getTheme, onThemeChange, getEditorTheme } from './theme.js?v=2';
+import { history, historyKeymap, undo, redo } from 'https://esm.sh/@codemirror/commands@6';
+import { lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightActiveLine } from 'https://esm.sh/@codemirror/view@6';
+import { foldGutter, indentOnInput, bracketMatching, foldKeymap } from 'https://esm.sh/@codemirror/language@6';
+import { defaultKeymap, indentWithTab } from 'https://esm.sh/@codemirror/commands@6';
+import { searchKeymap, highlightSelectionMatches } from 'https://esm.sh/@codemirror/search@6';
+import { autocompletion, completionKeymap } from 'https://esm.sh/@codemirror/autocomplete@6';
+import { keymap } from 'https://esm.sh/@codemirror/view@6';
+import { initTheme, toggleTheme, getTheme, onThemeChange, getEditorTheme } from './theme.js?v=4';
+
+// Custom editor setup without default syntax highlighting (we use our own theme)
+const customSetup = [
+  lineNumbers(),
+  highlightActiveLineGutter(),
+  highlightSpecialChars(),
+  history(),
+  foldGutter(),
+  drawSelection(),
+  dropCursor(),
+  EditorState.allowMultipleSelections.of(true),
+  indentOnInput(),
+  bracketMatching(),
+  autocompletion(),
+  rectangularSelection(),
+  crosshairCursor(),
+  highlightActiveLine(),
+  highlightSelectionMatches(),
+  keymap.of([
+    ...defaultKeymap,
+    ...searchKeymap,
+    ...historyKeymap,
+    ...foldKeymap,
+    ...completionKeymap,
+    indentWithTab
+  ])
+];
 
 const api = new APIClient();
 
@@ -11,6 +46,8 @@ const preview = document.getElementById('preview');
 const previewPane = document.getElementById('preview-pane');
 const title = document.getElementById('title');
 const backButton = document.getElementById('back-button');
+const undoBtn = document.getElementById('undo');
+const redoBtn = document.getElementById('redo');
 const addCommentBtn = document.getElementById('add-comment');
 const approveSectionBtn = document.getElementById('approve-section');
 const rejectSectionBtn = document.getElementById('reject-section');
@@ -32,6 +69,114 @@ let isSyncing = false;
 let editorView = null;
 let lastSavedContent = ''; // Track what we last saved to ignore our own WebSocket echoes
 
+// Find line number in source for given text
+function findLineForText(text) {
+  if (!editorView || !text) return -1;
+
+  const content = getEditorContent();
+  const lines = content.split('\n');
+
+  // Clean the text for matching (remove markdown formatting artifacts)
+  const cleanText = text.trim()
+    .replace(/\s+/g, ' ')
+    .substring(0, 100); // Use first 100 chars for matching
+
+  if (!cleanText) return -1;
+
+  // Search for the text in each line
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // Check if line contains the search text (case-insensitive, partial match)
+    if (line.toLowerCase().includes(cleanText.toLowerCase().substring(0, 30))) {
+      return i;
+    }
+  }
+
+  // Fallback: search in content as a whole
+  const pos = content.toLowerCase().indexOf(cleanText.toLowerCase().substring(0, 30));
+  if (pos !== -1) {
+    // Count newlines before this position
+    const beforePos = content.substring(0, pos);
+    return (beforePos.match(/\n/g) || []).length;
+  }
+
+  return -1;
+}
+
+// Jump to line in editor with highlight flash
+function jumpToLine(lineNumber) {
+  if (!editorView || lineNumber < 0) return;
+
+  const doc = editorView.state.doc;
+  if (lineNumber >= doc.lines) return;
+
+  const line = doc.line(lineNumber + 1); // CodeMirror lines are 1-indexed
+
+  // Set cursor to start of line and scroll into view
+  editorView.dispatch({
+    selection: { anchor: line.from },
+    scrollIntoView: true
+  });
+
+  editorView.focus();
+
+  // Flash highlight the active line
+  requestAnimationFrame(() => {
+    const activeLine = editorView.dom.querySelector('.cm-activeLine');
+    if (activeLine) {
+      activeLine.classList.add('flash-highlight');
+      setTimeout(() => {
+        activeLine.classList.remove('flash-highlight');
+      }, 3000);
+    }
+  });
+}
+
+// Get direct text content of an element (excluding nested block elements)
+function getDirectTextContent(element) {
+  let text = '';
+  for (const node of element.childNodes) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      text += node.textContent;
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      // Include inline elements but skip block elements like nested lists
+      const tag = node.tagName;
+      if (!['UL', 'OL', 'LI', 'BLOCKQUOTE', 'PRE', 'TABLE'].includes(tag)) {
+        text += node.textContent;
+      }
+    }
+  }
+  return text.trim();
+}
+
+// Set up click-to-source on preview elements
+function setupClickToSource() {
+  preview.addEventListener('click', (e) => {
+    // Find the closest block-level element
+    const blockElements = ['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'BLOCKQUOTE', 'PRE', 'TD', 'TH'];
+    let target = e.target;
+
+    // Walk up to find a block element
+    while (target && target !== preview) {
+      if (blockElements.includes(target.tagName)) {
+        break;
+      }
+      target = target.parentElement;
+    }
+
+    if (!target || target === preview) return;
+
+    // Get direct text content (excluding nested lists/blocks)
+    const text = getDirectTextContent(target);
+
+    // Find and jump to the line
+    const lineNumber = findLineForText(text);
+    if (lineNumber >= 0) {
+      jumpToLine(lineNumber);
+    }
+  });
+}
+
 // Get document ID from URL
 const params = new URLSearchParams(window.location.search);
 documentId = params.get('id');
@@ -45,7 +190,7 @@ function initCodeEditor(initialContent = '') {
   editorView = new EditorView({
     doc: initialContent,
     extensions: [
-      basicSetup,
+      ...customSetup,
       markdown(),
       ...getEditorTheme(),
       EditorView.updateListener.of((update) => {
@@ -73,7 +218,7 @@ function recreateEditorWithTheme() {
   editorView = new EditorView({
     doc: content,
     extensions: [
-      basicSetup,
+      ...customSetup,
       markdown(),
       ...getEditorTheme(),
       EditorView.updateListener.of((update) => {
@@ -746,6 +891,37 @@ backButton.addEventListener('click', () => {
   window.location.href = '/';
 });
 
+// Undo/Redo buttons
+undoBtn.addEventListener('click', () => {
+  if (editorView) {
+    undo(editorView);
+    renderPreview();
+    scheduleSave();
+  }
+});
+
+redoBtn.addEventListener('click', () => {
+  if (editorView) {
+    redo(editorView);
+    renderPreview();
+    scheduleSave();
+  }
+});
+
+// Update undo/redo button states based on editor history
+function updateUndoRedoButtons() {
+  if (!editorView) {
+    undoBtn.disabled = true;
+    redoBtn.disabled = true;
+    return;
+  }
+  // Check if there's history to undo/redo
+  const state = editorView.state;
+  // CodeMirror doesn't expose history depth directly, so we enable based on doc changes
+  undoBtn.disabled = false; // Will be disabled by command if nothing to undo
+  redoBtn.disabled = false; // Will be disabled by command if nothing to redo
+}
+
 // Refresh preview button
 refreshPreviewBtn.addEventListener('click', () => renderPreview());
 
@@ -875,4 +1051,6 @@ api.connectWebSocket();
 api.subscribe(documentId);
 loadDocument().then(() => {
   setupSyncScroll();
+  setupClickToSource();
+  updateUndoRedoButtons();
 });
