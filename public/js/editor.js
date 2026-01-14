@@ -1706,6 +1706,10 @@ function formatMermaidCode() {
       continue;
     }
     else if (/^%%/.test(trimmed)) {
+      // Skip section header comments we regenerate
+      if (/^%%\s*(Node Definitions|Connections|Styles|Level Alignment|Subgraphs)/i.test(trimmed)) {
+        continue;
+      }
       comments.push(trimmed);
     }
     else if (/^(style|classDef|class)\s/i.test(trimmed)) {
@@ -1743,9 +1747,11 @@ function formatMermaidCode() {
     if (arrowMatch) {
       const parts = trimmed.split(arrowMatch[1]);
       if (parts.length >= 2) {
-        // Extract first identifier from each side (ignores inline definitions like [label])
+        // Extract first identifier from source side (ignores inline definitions like [label])
         const sourceMatch = parts[0].match(/([A-Za-z_][A-Za-z0-9_]*)/);
-        const targetMatch = parts[1].match(/([A-Za-z_][A-Za-z0-9_]*)/);
+        // Skip edge labels like |text| before extracting target
+        const rightSide = parts[1].replace(/^\s*\|[^|]*\|\s*/, '');
+        const targetMatch = rightSide.match(/([A-Za-z_][A-Za-z0-9_]*)/);
         if (sourceMatch && targetMatch) {
           sourceNodes.add(sourceMatch[1]);
           targetNodes.add(targetMatch[1]);
@@ -1780,7 +1786,9 @@ function formatMermaidCode() {
       const parts = trimmed.split(arrowMatch[1]);
       if (parts.length >= 2) {
         const sourceMatch = parts[0].match(/([A-Za-z_][A-Za-z0-9_]*)/);
-        const targetMatch = parts[1].match(/([A-Za-z_][A-Za-z0-9_]*)/);
+        // Skip edge labels like |text| before extracting target
+        const rightSide = parts[1].replace(/^\s*\|[^|]*\|\s*/, '');
+        const targetMatch = rightSide.match(/([A-Za-z_][A-Za-z0-9_]*)/);
         if (sourceMatch && targetMatch) {
           const source = sourceMatch[1];
           const target = targetMatch[1];
@@ -1820,11 +1828,21 @@ function formatMermaidCode() {
     }
   }
 
-  // Group nodes by level for invisible links
+  // Get node ID from a definition line
+  const getNodeId = (line) => line.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)/)?.[1] || '';
+
+  // Get set of explicitly defined node IDs (from nodeDefinitions)
+  // Only these should be used for level links to avoid floating undefined nodes
+  const explicitlyDefinedNodes = new Set(nodeDefinitions.map(getNodeId).filter(Boolean));
+
+  // Group nodes by level for invisible links (only include explicitly defined nodes)
   const nodesByLevel = new Map(); // level -> [nodeIds]
   for (const [node, level] of nodeLevels) {
-    if (!nodesByLevel.has(level)) nodesByLevel.set(level, []);
-    nodesByLevel.get(level).push(node);
+    // Only include nodes that are explicitly defined (not inline-defined in connections)
+    if (explicitlyDefinedNodes.has(node)) {
+      if (!nodesByLevel.has(level)) nodesByLevel.set(level, []);
+      nodesByLevel.get(level).push(node);
+    }
   }
 
   // Generate invisible links for same-level nodes (helps alignment)
@@ -1837,9 +1855,6 @@ function formatMermaidCode() {
       levelLinks.push(`    ${nodes.join(' ~~~ ')}`);
     }
   }
-
-  // Get node ID from a definition line
-  const getNodeId = (line) => line.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)/)?.[1] || '';
 
   // Sort node definitions by level, then alphabetically
   nodeDefinitions.sort((a, b) => {
