@@ -589,7 +589,7 @@ screen "Detail"
         },
         {
           name: 'list_documents',
-          description: 'List all available documents in the system',
+          description: 'List all markdown documents. Returns document IDs, names, and metadata. Use this to see what documents exist before reading or updating them.',
           inputSchema: {
             type: 'object',
             properties: {},
@@ -597,7 +597,7 @@ screen "Detail"
         },
         {
           name: 'get_document',
-          description: 'Get a specific document by its ID, including content and metadata',
+          description: 'Read a document\'s full content by ID. Use list_documents first to find available document IDs.',
           inputSchema: {
             type: 'object',
             properties: {
@@ -611,7 +611,34 @@ screen "Detail"
         },
         {
           name: 'create_document',
-          description: 'Create a new markdown document with the given name and content. Returns the document ID and preview URL.',
+          description: `Create a new markdown document. Returns the document ID and preview URL.
+
+Documents support full GitHub-flavored markdown including:
+- Headings (# ## ###)
+- Lists (- or 1.)
+- Code blocks (\`\`\`language)
+- Tables
+- Links and images
+- Bold, italic, strikethrough
+
+Use documents to write specifications, design docs, meeting notes, or any text content that should be viewable in the browser alongside diagrams.
+
+Example document:
+# Project Design
+
+## Overview
+This document describes the system architecture.
+
+## Components
+- **Frontend**: React application
+- **Backend**: Node.js API
+- **Database**: PostgreSQL
+
+## API Endpoints
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /users | List users |
+| POST | /users | Create user |`,
           inputSchema: {
             type: 'object',
             properties: {
@@ -629,7 +656,7 @@ screen "Detail"
         },
         {
           name: 'update_document',
-          description: 'Update an existing document\'s content',
+          description: 'Update an existing document\'s content. Use get_document first to read current content if you need to make partial changes.',
           inputSchema: {
             type: 'object',
             properties: {
@@ -639,7 +666,7 @@ screen "Detail"
               },
               content: {
                 type: 'string',
-                description: 'The new markdown content',
+                description: 'The new markdown content (replaces entire document)',
               },
             },
             required: ['id', 'content'],
@@ -647,7 +674,7 @@ screen "Detail"
         },
         {
           name: 'preview_document',
-          description: 'Get the preview URL for viewing a document in the browser',
+          description: 'Get the browser URL to view a rendered document. Share this URL to let others see the document.',
           inputSchema: {
             type: 'object',
             properties: {
