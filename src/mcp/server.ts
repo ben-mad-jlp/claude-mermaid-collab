@@ -408,7 +408,29 @@ async function main() {
         },
         {
           name: 'create_diagram',
-          description: 'Create a new Mermaid diagram with the given name and content. Returns the diagram ID and preview URL.',
+          description: `Create a new Mermaid diagram with the given name and content. Returns the diagram ID and preview URL.
+
+Node Type Conventions for flowcharts/state diagrams:
+- Terminal (Start/End): NodeId(["label"]) - Use green style: fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+- State: NodeId(("label")) - Use blue style: fill:#bbdefb,stroke:#1976d2,stroke-width:2px
+- Decision: NodeId{"label"} - Use yellow style: fill:#fff9c4,stroke:#f9a825,stroke-width:2px
+- Action: NodeId["label"] - Use orange style: fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
+
+Example structure:
+graph TD
+    Start(["Start"])
+    CheckCondition{"Is Valid?"}
+    ProcessData["Process Data"]
+    SaveState(("Saved"))
+
+    Start --> CheckCondition
+    CheckCondition -->|Yes| ProcessData
+    ProcessData --> SaveState
+
+    style Start fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style CheckCondition fill:#fff9c4,stroke:#f9a825,stroke-width:2px
+    style ProcessData fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
+    style SaveState fill:#bbdefb,stroke:#1976d2,stroke-width:2px`,
           inputSchema: {
             type: 'object',
             properties: {

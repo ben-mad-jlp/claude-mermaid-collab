@@ -106,6 +106,7 @@ let lastSavedContent = ''; // Track what we last saved to ignore our own WebSock
 // Edge editing state
 let currentEdgeInfo = null;  // { source, target, lineIndex, lineContent }
 let isSelectingDestination = false;
+let isSelectingOrigin = false;
 
 // Node editing state
 let currentNodeInfo = null;  // { nodeId, lineIndex, lineContent }
@@ -126,7 +127,9 @@ const nodeAddTransition = document.getElementById('node-add-transition');
 const nodeAddTransitionNew = document.getElementById('node-add-transition-new');
 const nodeDelete = document.getElementById('node-delete');
 
-// Edge context menu - new state option
+// Edge context menu - origin and destination options
+const edgeChangeOrigin = document.getElementById('edge-change-origin');
+const edgeChangeOriginNew = document.getElementById('edge-change-origin-new');
 const edgeChangeDestNew = document.getElementById('edge-change-dest-new');
 
 // Additional state for add transition mode
@@ -157,7 +160,7 @@ const NODE_TYPES = {
   action: {
     name: 'Action',
     shape: (id, label) => `${id}["${label}"]`,
-    style: 'fill:#e1bee7,stroke:#7b1fa2,stroke-width:2px',
+    style: 'fill:#ffe0b2,stroke:#f57c00,stroke-width:2px',
     pattern: /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*\[.*?\]\s*$/
   }
 };
@@ -235,15 +238,35 @@ function addStyleForNode(content, nodeId, nodeType) {
   }
 }
 
-// Extract label from a node definition
-function extractNodeLabel(nodeDefinition) {
-  // Match various patterns: ["label"], (["label"]), (("label")), {"label"}
+// Extract label from a node definition for a specific nodeId
+function extractNodeLabel(nodeDefinition, nodeId) {
+  if (!nodeId) {
+    // Fallback to old behavior if no nodeId provided - match any pattern
+    const patterns = [
+      /\(\["([^"]+)"\]\)/,  // Terminal: (["label"])
+      /\(\("([^"]+)"\)\)/,  // State: (("label"))
+      /\{"([^"]+)"\}/,      // Decision: {"label"}
+      /\["([^"]+)"\]/,      // Action: ["label"]
+      /\[([^\]]+)\]/,       // Action without quotes: [label]
+    ];
+
+    for (const pattern of patterns) {
+      const match = nodeDefinition.match(pattern);
+      if (match) return match[1];
+    }
+    return null;
+  }
+
+  // Build patterns that specifically look for nodeId followed by bracket patterns
+  const escapedId = escapeRegex(nodeId);
   const patterns = [
-    /\(\["([^"]+)"\]\)/,  // Terminal: (["label"])
-    /\(\("([^"]+)"\)\)/,  // State: (("label"))
-    /\{"([^"]+)"\}/,      // Decision: {"label"}
-    /\["([^"]+)"\]/,      // Action: ["label"]
-    /\[([^\]]+)\]/,       // Action without quotes: [label]
+    new RegExp(`${escapedId}\\s*\\(\\["([^"]+)"\\]\\)`),  // Terminal: NodeId(["label"])
+    new RegExp(`${escapedId}\\s*\\(\\("([^"]+)"\\)\\)`),  // State: NodeId(("label"))
+    new RegExp(`${escapedId}\\s*\\{"([^"]+)"\\}`),        // Decision: NodeId{"label"}
+    new RegExp(`${escapedId}\\s*\\["([^"]+)"\\]`),        // Action with quotes: NodeId["label"]
+    new RegExp(`${escapedId}\\s*\\[([^\\]]+)\\]`),        // Action without quotes: NodeId[label]
+    new RegExp(`${escapedId}\\s*\\(\\(([^)]+)\\)\\)`),    // State without quotes: NodeId((label))
+    new RegExp(`${escapedId}\\s*\\(\\[([^\\]]+)\\]\\)`),  // Terminal without quotes: NodeId([label])
   ];
 
   for (const pattern of patterns) {
@@ -480,6 +503,10 @@ function setupClickToSource(svgElement) {
         // Check if we're in destination selection mode (for changing edge destination)
         if (isSelectingDestination) {
           handleDestinationSelection(nodeId);
+        }
+        // Check if we're in origin selection mode (for changing edge origin)
+        else if (isSelectingOrigin) {
+          handleOriginSelection(nodeId);
         }
         // Check if we're adding a new transition
         else if (isAddingTransition) {
@@ -836,8 +863,8 @@ function hideEdgeContextMenu() {
 
 // Handle click outside to close menu
 document.addEventListener('click', (e) => {
-  // Don't hide/clear edge info if we're in destination selection mode
-  if (!edgeContextMenu.contains(e.target) && !isSelectingDestination) {
+  // Don't hide/clear edge info if we're in destination or origin selection mode
+  if (!edgeContextMenu.contains(e.target) && !isSelectingDestination && !isSelectingOrigin) {
     hideEdgeContextMenu();
   }
 });
@@ -890,6 +917,21 @@ edgeEditLabel.addEventListener('click', () => {
   hideEdgeContextMenu();
 });
 
+// Change Origin handler
+edgeChangeOrigin.addEventListener('click', () => {
+  if (!currentEdgeInfo) return;
+
+  // Hide menu but preserve currentEdgeInfo for origin selection
+  edgeContextMenu.classList.remove('visible');
+
+  isSelectingOrigin = true;
+  document.getElementById('mode-indicator-text').textContent = 'Click a node to set as new origin';
+  modeIndicator.classList.add('visible');
+
+  // Change cursor style on preview pane
+  preview.style.cursor = 'crosshair';
+});
+
 // Change Destination handler
 edgeChangeDest.addEventListener('click', () => {
   if (!currentEdgeInfo) return;
@@ -898,6 +940,7 @@ edgeChangeDest.addEventListener('click', () => {
   edgeContextMenu.classList.remove('visible');
 
   isSelectingDestination = true;
+  document.getElementById('mode-indicator-text').textContent = 'Click a node to set as new destination';
   modeIndicator.classList.add('visible');
 
   // Change cursor style on preview pane
@@ -911,13 +954,14 @@ modeCancel.addEventListener('click', () => {
 
 // Also cancel on Escape key
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && (isSelectingDestination || isAddingTransition)) {
+  if (e.key === 'Escape' && (isSelectingDestination || isSelectingOrigin || isAddingTransition)) {
     exitDestinationMode();
   }
 });
 
 function exitDestinationMode() {
   isSelectingDestination = false;
+  isSelectingOrigin = false;
   isAddingTransition = false;
   pendingTransitionLabel = '';
   pendingSourceNode = null;
@@ -939,6 +983,30 @@ async function handleDestinationSelection(nodeId) {
     const lastIndex = lineContent.lastIndexOf(target);
     if (lastIndex !== -1) {
       newLine = lineContent.substring(0, lastIndex) + nodeId + lineContent.substring(lastIndex + target.length);
+    }
+  }
+
+  if (newLine !== lineContent) {
+    await applyLineEdit(lineIndex, newLine);
+  }
+
+  exitDestinationMode();
+  return true;
+}
+
+// Handle node click when in origin selection mode
+async function handleOriginSelection(nodeId) {
+  if (!isSelectingOrigin || !currentEdgeInfo) return false;
+
+  const { lineIndex, lineContent, source, target } = currentEdgeInfo;
+
+  // Replace old source with new source using first occurrence
+  let newLine = lineContent;
+  const sourceRegex = new RegExp(`\\b${escapeRegex(source)}\\b`);
+  if (sourceRegex.test(lineContent)) {
+    const firstIndex = lineContent.indexOf(source);
+    if (firstIndex !== -1) {
+      newLine = lineContent.substring(0, firstIndex) + nodeId + lineContent.substring(firstIndex + source.length);
     }
   }
 
@@ -1186,8 +1254,25 @@ nodeChangeType.addEventListener('click', async () => {
   // Detect current type
   const currentType = detectNodeType(lineContent);
 
-  // Extract current label
-  let currentLabel = extractNodeLabel(lineContent) || nodeId;
+  // Extract current label - first try the current line, then search all lines
+  let currentLabel = extractNodeLabel(lineContent, nodeId);
+
+  if (!currentLabel) {
+    // Search all lines for a definition of this node with a label
+    const lines = currentContent.split('\n');
+    for (const line of lines) {
+      const label = extractNodeLabel(line, nodeId);
+      if (label) {
+        currentLabel = label;
+        break;
+      }
+    }
+  }
+
+  // If still no label found, use the nodeId as fallback
+  if (!currentLabel) {
+    currentLabel = nodeId;
+  }
 
   // Prompt for new type
   const newType = promptNodeType();
@@ -1196,20 +1281,52 @@ nodeChangeType.addEventListener('click', async () => {
     return;
   }
 
-  // If same type, no change needed
-  if (newType === currentType) {
-    hideNodeContextMenu();
-    return;
-  }
-
   // Create new node definition with the new type
   const newNodeDef = createNodeDefinition(nodeId, currentLabel, newType);
 
-  // Find all lines that define this node (could be inline in connections too)
   const lines = currentContent.split('\n');
 
-  // Update the definition line
-  lines[lineIndex] = newNodeDef;
+  // Check if the current line is a connection line (contains arrows)
+  const isConnectionLine = /-->|==>|-\.->|---|->>|-->>|->/.test(lineContent);
+
+  if (isConnectionLine) {
+    // Don't replace connection lines - find or create a standalone definition
+    // First, look for an existing standalone definition line
+    let standaloneDefIndex = -1;
+    const standalonePattern = new RegExp(`^\\s*${escapeRegex(nodeId)}\\s*[\\[\\(\\{]`);
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      // Must match the pattern AND not be a connection line
+      if (standalonePattern.test(line) && !/-->|==>|-\.->|---|->>|-->>|->/.test(line)) {
+        standaloneDefIndex = i;
+        break;
+      }
+    }
+
+    if (standaloneDefIndex !== -1) {
+      // Update existing standalone definition
+      lines[standaloneDefIndex] = newNodeDef;
+    } else {
+      // No standalone definition exists - add one after the diagram declaration
+      // Find the first line after "graph/flowchart/stateDiagram"
+      let insertIndex = 1;
+      for (let i = 0; i < lines.length; i++) {
+        if (/^(graph|flowchart|stateDiagram)/i.test(lines[i].trim())) {
+          insertIndex = i + 1;
+          break;
+        }
+      }
+      // Skip any comments right after declaration
+      while (insertIndex < lines.length && /^\s*%%/.test(lines[insertIndex])) {
+        insertIndex++;
+      }
+      lines.splice(insertIndex, 0, newNodeDef);
+    }
+  } else {
+    // It's a standalone definition line - update it directly
+    lines[lineIndex] = newNodeDef;
+  }
 
   let newContent = lines.join('\n');
 
@@ -1438,6 +1555,94 @@ nodeAddTransitionNew.addEventListener('click', async () => {
 
   await applyEditWithValidation(newContent, 'add transition');
   hideNodeContextMenu();
+});
+
+// Change Origin to New State handler (for edges)
+edgeChangeOriginNew.addEventListener('click', async () => {
+  if (!currentEdgeInfo) return;
+
+  const newSource = promptStateId('Enter new state ID (e.g., NewState):');
+  if (newSource === null) {
+    hideEdgeContextMenu();
+    return;
+  }
+
+  const { lineIndex, lineContent, source, target } = currentEdgeInfo;
+
+  // Check if this state already exists in the diagram
+  const stateExists = new RegExp(`\\b${escapeRegex(newSource)}\\b`).test(currentContent);
+
+  let newStateLine = null;
+  let nodeType = null;
+
+  // Only ask for description and type if it's a NEW state
+  if (!stateExists) {
+    // Detect diagram type to use correct syntax
+    const isFlowchart = /^(graph|flowchart)\s/m.test(currentContent);
+
+    if (isFlowchart) {
+      // Ask for node type first
+      nodeType = promptNodeType();
+      if (nodeType === null) {
+        hideEdgeContextMenu();
+        return;
+      }
+
+      const newStateDesc = prompt('Enter new node description (or leave empty):');
+      if (newStateDesc === null) {
+        hideEdgeContextMenu();
+        return;
+      }
+
+      // Create node definition with type
+      newStateLine = createNodeDefinition(newSource, newStateDesc, nodeType);
+    } else {
+      // State diagram syntax (no type shapes)
+      const newStateDesc = prompt('Enter new state description (or leave empty):');
+      if (newStateDesc === null) {
+        hideEdgeContextMenu();
+        return;
+      }
+
+      if (newStateDesc.trim()) {
+        newStateLine = `    ${newSource} : ${newStateDesc}`;
+      } else {
+        newStateLine = `    ${newSource}`;
+      }
+    }
+  }
+
+  // Update the transition to use new source
+  let newTransitionLine = lineContent;
+
+  // Try to replace source with newSource (first occurrence)
+  const sourceRegex = new RegExp(`\\b${escapeRegex(source)}\\b`);
+  if (sourceRegex.test(lineContent)) {
+    const firstIndex = lineContent.indexOf(source);
+    if (firstIndex !== -1) {
+      newTransitionLine = lineContent.substring(0, firstIndex) + newSource + lineContent.substring(firstIndex + source.length);
+    }
+  }
+
+  let lines = currentContent.split('\n');
+
+  // Update the transition line
+  lines[lineIndex] = newTransitionLine;
+
+  // Insert new state definition before the transition if state is new
+  if (newStateLine) {
+    lines.splice(lineIndex, 0, newStateLine);
+  }
+
+  let newContent = lines.join('\n');
+
+  // Add style for new node if we created one with a type
+  if (nodeType && newStateLine) {
+    newContent = addStyleForNode(newContent, newSource, nodeType);
+  }
+
+  await applyEditWithValidation(newContent, 'change origin');
+  hideEdgeContextMenu();
 });
 
 // Change Destination to New State handler (for edges)
@@ -1895,11 +2100,57 @@ function formatMermaidCode() {
     return;
   }
 
+  // Collect all node definitions (nodeId -> {label, type, fullDef})
+  // First definition wins for label
+  const nodeInfo = new Map();
+
+  // Helper to extract node info from a string containing a node definition
+  function extractNodeInfo(str) {
+    // Patterns: NodeId(["label"]), NodeId(("label")), NodeId{"label"}, NodeId["label"], NodeId[label]
+    const patterns = [
+      { regex: /([A-Za-z_][A-Za-z0-9_]*)\s*\(\["([^"]+)"\]\)/, type: 'terminal' },
+      { regex: /([A-Za-z_][A-Za-z0-9_]*)\s*\(\[([^\]]+)\]\)/, type: 'terminal' },
+      { regex: /([A-Za-z_][A-Za-z0-9_]*)\s*\(\("([^"]+)"\)\)/, type: 'state' },
+      { regex: /([A-Za-z_][A-Za-z0-9_]*)\s*\(\(([^)]+)\)\)/, type: 'state' },
+      { regex: /([A-Za-z_][A-Za-z0-9_]*)\s*\{"([^"]+)"\}/, type: 'decision' },
+      { regex: /([A-Za-z_][A-Za-z0-9_]*)\s*\{([^}]+)\}/, type: 'decision' },
+      { regex: /([A-Za-z_][A-Za-z0-9_]*)\s*\["([^"]+)"\]/, type: 'action' },
+      { regex: /([A-Za-z_][A-Za-z0-9_]*)\s*\[([^\]]+)\]/, type: 'action' },
+    ];
+
+    const results = [];
+    for (const { regex, type } of patterns) {
+      let match;
+      const globalRegex = new RegExp(regex.source, 'g');
+      while ((match = globalRegex.exec(str)) !== null) {
+        results.push({ nodeId: match[1], label: match[2], type });
+      }
+    }
+    return results;
+  }
+
+  // Helper to strip inline node definitions from a connection, keeping just node IDs
+  function stripInlineDefinitions(connLine) {
+    // Replace NodeId[...], NodeId(...), NodeId{...} with just NodeId
+    // But preserve edge labels like |text|
+    let result = connLine;
+
+    // Strip terminal: NodeId(["..."]) or NodeId([...])
+    result = result.replace(/([A-Za-z_][A-Za-z0-9_]*)\s*\(\[(?:"[^"]*"|[^\]]*)\]\)/g, '$1');
+    // Strip state: NodeId(("...")) or NodeId((...))
+    result = result.replace(/([A-Za-z_][A-Za-z0-9_]*)\s*\(\((?:"[^"]*"|[^)]*)\)\)/g, '$1');
+    // Strip decision: NodeId{"..."} or NodeId{...}
+    result = result.replace(/([A-Za-z_][A-Za-z0-9_]*)\s*\{(?:"[^"]*"|[^}]*)\}/g, '$1');
+    // Strip action: NodeId["..."] or NodeId[...]
+    result = result.replace(/([A-Za-z_][A-Za-z0-9_]*)\s*\[(?:"[^"]*"|[^\]]*)\]/g, '$1');
+
+    return result;
+  }
+
   // Categorize lines
   const declaration = [];      // graph TD, stateDiagram-v2, etc.
   const comments = [];         // %% comments at the top
-  const nodeDefinitions = [];  // A["Label"], state definitions
-  const connections = [];      // A --> B, transitions
+  const connections = [];      // A --> B, transitions (will be cleaned)
   const subgraphs = [];        // subgraph blocks (kept together)
   const styles = [];           // style, classDef, class
   const other = [];            // anything else
@@ -1935,6 +2186,15 @@ function formatMermaidCode() {
       continue;
     }
 
+    // Extract any node definitions from this line (standalone or inline)
+    const nodesInLine = extractNodeInfo(trimmed);
+    for (const { nodeId, label, type } of nodesInLine) {
+      // First definition wins
+      if (!nodeInfo.has(nodeId)) {
+        nodeInfo.set(nodeId, { label, type });
+      }
+    }
+
     // Categorize the line
     if (/^(graph|flowchart|stateDiagram)/i.test(trimmed)) {
       declaration.push(trimmed);
@@ -1958,42 +2218,59 @@ function formatMermaidCode() {
     }
     // Connection patterns: -->, ==>, -.->  etc.
     else if (/-->|==>|--[->]|-\.->|--x|--o|<-->|<-.->|\s:\s/.test(trimmed)) {
-      connections.push('    ' + trimmed.replace(/^\s+/, ''));
+      // Strip inline definitions, keep just node IDs
+      const cleanedConn = stripInlineDefinitions(trimmed);
+      connections.push('    ' + cleanedConn.replace(/^\s+/, ''));
     }
-    // Node definitions: A["label"], A(label), A{label}, state definitions
+    // Standalone node definitions - skip them, we'll regenerate from nodeInfo
     else if (/^[A-Za-z_][A-Za-z0-9_]*\s*[\[\(\{]/.test(trimmed) ||
-             /^[A-Za-z_][A-Za-z0-9_]*\s*$/.test(trimmed) ||
              /^state\s+/i.test(trimmed)) {
-      nodeDefinitions.push('    ' + trimmed.replace(/^\s+/, ''));
+      // Already extracted above, skip
+      continue;
+    }
+    // Plain node ID without definition - record it exists
+    else if (/^[A-Za-z_][A-Za-z0-9_]*\s*$/.test(trimmed)) {
+      const nodeId = trimmed.trim();
+      if (!nodeInfo.has(nodeId)) {
+        nodeInfo.set(nodeId, { label: nodeId, type: 'action' });
+      }
     }
     else {
       other.push('    ' + trimmed.replace(/^\s+/, ''));
     }
   }
 
-  // Find root node (has outgoing edges but no incoming edges)
+  // Find root node and build adjacency for BFS
   const sourceNodes = new Set();
   const targetNodes = new Set();
-  const outgoingCount = new Map(); // Count outgoing edges per node
+  const outgoingCount = new Map();
+  const adjacency = new Map();
 
   for (const conn of connections) {
     const trimmed = conn.trim();
-    // Extract source and target from connection
-    // Handle inline definitions like: AddToInventory[Submit Load] --> RefreshStationInfoLoad
-    // Split by arrow pattern, then extract first identifier from each side
     const arrowMatch = trimmed.match(/(-->|==>|-\.->|---|->>|-->>|->)/);
     if (arrowMatch) {
       const parts = trimmed.split(arrowMatch[1]);
       if (parts.length >= 2) {
-        // Extract first identifier from source side (ignores inline definitions like [label])
         const sourceMatch = parts[0].match(/([A-Za-z_][A-Za-z0-9_]*)/);
-        // Skip edge labels like |text| before extracting target
         const rightSide = parts[1].replace(/^\s*\|[^|]*\|\s*/, '');
         const targetMatch = rightSide.match(/([A-Za-z_][A-Za-z0-9_]*)/);
         if (sourceMatch && targetMatch) {
-          sourceNodes.add(sourceMatch[1]);
-          targetNodes.add(targetMatch[1]);
-          outgoingCount.set(sourceMatch[1], (outgoingCount.get(sourceMatch[1]) || 0) + 1);
+          const source = sourceMatch[1];
+          const target = targetMatch[1];
+          sourceNodes.add(source);
+          targetNodes.add(target);
+          outgoingCount.set(source, (outgoingCount.get(source) || 0) + 1);
+          if (!adjacency.has(source)) adjacency.set(source, []);
+          adjacency.get(source).push(target);
+
+          // Ensure nodes in connections have entries in nodeInfo
+          if (!nodeInfo.has(source)) {
+            nodeInfo.set(source, { label: source, type: 'action' });
+          }
+          if (!nodeInfo.has(target)) {
+            nodeInfo.set(target, { label: target, type: 'action' });
+          }
         }
       }
     }
@@ -2004,42 +2281,18 @@ function formatMermaidCode() {
 
   // Prioritize: 1) node named "Root", 2) node with most outgoing edges
   if (rootNodes.length > 1) {
-    // Check if any is literally named "Root"
     const namedRoot = rootNodes.find(n => n.toLowerCase() === 'root');
     if (namedRoot) {
       rootNodes = [namedRoot];
     } else {
-      // Sort by outgoing edge count (most connections first)
       rootNodes.sort((a, b) => (outgoingCount.get(b) || 0) - (outgoingCount.get(a) || 0));
-      rootNodes = [rootNodes[0]]; // Keep only the one with most outgoing
-    }
-  }
-
-  // Build adjacency list for BFS
-  const adjacency = new Map(); // source -> [targets]
-  for (const conn of connections) {
-    const trimmed = conn.trim();
-    const arrowMatch = trimmed.match(/(-->|==>|-\.->|---|->>|-->>|->)/);
-    if (arrowMatch) {
-      const parts = trimmed.split(arrowMatch[1]);
-      if (parts.length >= 2) {
-        const sourceMatch = parts[0].match(/([A-Za-z_][A-Za-z0-9_]*)/);
-        // Skip edge labels like |text| before extracting target
-        const rightSide = parts[1].replace(/^\s*\|[^|]*\|\s*/, '');
-        const targetMatch = rightSide.match(/([A-Za-z_][A-Za-z0-9_]*)/);
-        if (sourceMatch && targetMatch) {
-          const source = sourceMatch[1];
-          const target = targetMatch[1];
-          if (!adjacency.has(source)) adjacency.set(source, []);
-          adjacency.get(source).push(target);
-        }
-      }
+      rootNodes = [rootNodes[0]];
     }
   }
 
   // BFS to assign levels (distance from root)
-  const nodeLevels = new Map(); // nodeId -> level
-  const root = rootNodes[0] || [...sourceNodes][0]; // Use first root, or any source if no root
+  const nodeLevels = new Map();
+  const root = rootNodes[0] || [...sourceNodes][0];
 
   if (root) {
     const queue = [[root, 0]];
@@ -2057,18 +2310,23 @@ function formatMermaidCode() {
     }
   }
 
-  // Assign a high level to any nodes not reached by BFS (disconnected)
+  // Assign high level to disconnected nodes
   const maxLevel = Math.max(...nodeLevels.values(), 0);
-  const allNodes = new Set([...sourceNodes, ...targetNodes]);
-  for (const node of allNodes) {
-    if (!nodeLevels.has(node)) {
-      nodeLevels.set(node, maxLevel + 1);
+  for (const nodeId of nodeInfo.keys()) {
+    if (!nodeLevels.has(nodeId)) {
+      nodeLevels.set(nodeId, maxLevel + 1);
     }
+  }
+
+  // Generate node definitions from nodeInfo
+  const nodeDefinitions = [];
+  for (const [nodeId, info] of nodeInfo.entries()) {
+    const def = createNodeDefinition(nodeId, info.label, info.type);
+    nodeDefinitions.push(def);
   }
 
   // Get node ID from a definition line
   const getNodeId = (line) => line.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)/)?.[1] || '';
-
 
   // Sort node definitions by level, then alphabetically
   nodeDefinitions.sort((a, b) => {
@@ -2102,6 +2360,30 @@ function formatMermaidCode() {
     if (levelA !== levelB) return levelA - levelB;
     return idA.localeCompare(idB);
   });
+
+  // Generate styles for all nodes based on their types
+  const generatedStyles = [];
+  for (const [nodeId, info] of nodeInfo.entries()) {
+    const typeConfig = NODE_TYPES[info.type];
+    if (typeConfig) {
+      generatedStyles.push(`    style ${nodeId} ${typeConfig.style}`);
+    }
+  }
+
+  // Sort generated styles by level
+  generatedStyles.sort((a, b) => {
+    const idA = a.trim().match(/^style\s+([A-Za-z_][A-Za-z0-9_]*)/)?.[1] || '';
+    const idB = b.trim().match(/^style\s+([A-Za-z_][A-Za-z0-9_]*)/)?.[1] || '';
+    const levelA = nodeLevels.get(idA) ?? 999;
+    const levelB = nodeLevels.get(idB) ?? 999;
+
+    if (levelA !== levelB) return levelA - levelB;
+    return idA.localeCompare(idB);
+  });
+
+  // Merge styles: use generated styles, but keep any custom styles (classDef, class)
+  const customStyles = styles.filter(s => !/^\s*style\s+/i.test(s));
+  const allStyles = [...generatedStyles, ...customStyles];
 
   // Build formatted output
   const sections = [];
@@ -2139,10 +2421,10 @@ function formatMermaidCode() {
     sections.push(other.join('\n'));
   }
 
-  // Styles (at the end)
-  if (styles.length > 0) {
+  // Styles (at the end) - use generated styles based on node types
+  if (allStyles.length > 0) {
     sections.push('    %% Styles');
-    sections.push(styles.join('\n'));
+    sections.push(allStyles.join('\n'));
   }
 
   const formatted = sections.join('\n\n');
