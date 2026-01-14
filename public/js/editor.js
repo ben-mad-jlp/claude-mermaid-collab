@@ -121,6 +121,7 @@ const modeCancel = document.getElementById('mode-cancel');
 // Node context menu elements
 const nodeContextMenu = document.getElementById('node-context-menu');
 const nodeEditDesc = document.getElementById('node-edit-desc');
+const nodeChangeType = document.getElementById('node-change-type');
 const nodeAddTransition = document.getElementById('node-add-transition');
 const nodeAddTransitionNew = document.getElementById('node-add-transition-new');
 const nodeDelete = document.getElementById('node-delete');
@@ -132,6 +133,126 @@ const edgeChangeDestNew = document.getElementById('edge-change-dest-new');
 let isAddingTransition = false;
 let pendingTransitionLabel = '';
 let pendingSourceNode = null;
+
+// Node type configurations
+const NODE_TYPES = {
+  terminal: {
+    name: 'Terminal (Start/End)',
+    shape: (id, label) => `${id}(["${label}"])`,
+    style: 'fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px',
+    pattern: /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(\[.*?\]\)\s*$/
+  },
+  state: {
+    name: 'State',
+    shape: (id, label) => `${id}(("${label}"))`,
+    style: 'fill:#bbdefb,stroke:#1976d2,stroke-width:2px',
+    pattern: /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(\(.*?\)\)\s*$/
+  },
+  decision: {
+    name: 'Decision',
+    shape: (id, label) => `${id}{"${label}"}`,
+    style: 'fill:#fff9c4,stroke:#f9a825,stroke-width:2px',
+    pattern: /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*\{.*?\}\s*$/
+  },
+  action: {
+    name: 'Action',
+    shape: (id, label) => `${id}["${label}"]`,
+    style: 'fill:#e1bee7,stroke:#7b1fa2,stroke-width:2px',
+    pattern: /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*\[.*?\]\s*$/
+  }
+};
+
+// Detect node type from its definition
+function detectNodeType(nodeDefinition) {
+  // Check inline definitions in connections too
+  const trimmed = nodeDefinition.trim();
+
+  // Terminal: ([...])
+  if (/\(\[.*?\]\)/.test(trimmed)) return 'terminal';
+  // State: ((...))
+  if (/\(\(.*?\)\)/.test(trimmed)) return 'state';
+  // Decision: {...}
+  if (/\{.*?\}/.test(trimmed) && !/^\s*style\s/i.test(trimmed)) return 'decision';
+  // Action: [...] (default rectangle)
+  if (/\[.*?\]/.test(trimmed)) return 'action';
+
+  return 'action'; // Default
+}
+
+// Prompt user to select a node type
+function promptNodeType() {
+  const options = Object.entries(NODE_TYPES)
+    .map(([key, config], i) => `${i + 1}. ${config.name}`)
+    .join('\n');
+
+  const choice = prompt(`Select node type:\n${options}\n\nEnter number (1-4):`);
+  if (!choice) return null;
+
+  const index = parseInt(choice) - 1;
+  const keys = Object.keys(NODE_TYPES);
+  if (index >= 0 && index < keys.length) {
+    return keys[index];
+  }
+  return null;
+}
+
+// Create node definition line based on type
+function createNodeDefinition(nodeId, description, nodeType) {
+  const typeConfig = NODE_TYPES[nodeType] || NODE_TYPES.action;
+  const label = description.trim() || nodeId;
+  return `    ${typeConfig.shape(nodeId, label)}`;
+}
+
+// Add or update style for a node
+function addStyleForNode(content, nodeId, nodeType) {
+  const typeConfig = NODE_TYPES[nodeType] || NODE_TYPES.action;
+  const styleLine = `    style ${nodeId} ${typeConfig.style}`;
+
+  // Check if style already exists for this node
+  const existingStyleRegex = new RegExp(`^\\s*style\\s+${escapeRegex(nodeId)}\\s+`, 'm');
+
+  if (existingStyleRegex.test(content)) {
+    // Update existing style
+    return content.replace(existingStyleRegex, `    style ${nodeId} `).replace(
+      new RegExp(`(style\\s+${escapeRegex(nodeId)}\\s+).*$`, 'm'),
+      `$1${typeConfig.style}`
+    );
+  } else {
+    // Add new style at the end (before closing or at very end)
+    const lines = content.split('\n');
+
+    // Find if there's a styles section or add before end
+    let insertIndex = lines.length;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (/^\s*style\s+/i.test(lines[i])) {
+        insertIndex = i + 1;
+        break;
+      }
+    }
+
+    lines.splice(insertIndex, 0, styleLine);
+    return lines.join('\n');
+  }
+}
+
+// Extract label from a node definition
+function extractNodeLabel(nodeDefinition) {
+  // Match various patterns: ["label"], (["label"]), (("label")), {"label"}
+  const patterns = [
+    /\(\["([^"]+)"\]\)/,  // Terminal: (["label"])
+    /\(\("([^"]+)"\)\)/,  // State: (("label"))
+    /\{"([^"]+)"\}/,      // Decision: {"label"}
+    /\["([^"]+)"\]/,      // Action: ["label"]
+    /\[([^\]]+)\]/,       // Action without quotes: [label]
+  ];
+
+  for (const pattern of patterns) {
+    const match = nodeDefinition.match(pattern);
+    if (match) return match[1];
+  }
+
+  return null;
+}
 
 // Detect diagram type from content
 function detectDiagramType(content) {
@@ -1056,6 +1177,49 @@ nodeEditDesc.addEventListener('click', () => {
   hideNodeContextMenu();
 });
 
+// Change Type handler
+nodeChangeType.addEventListener('click', async () => {
+  if (!currentNodeInfo) return;
+
+  const { nodeId, lineIndex, lineContent } = currentNodeInfo;
+
+  // Detect current type
+  const currentType = detectNodeType(lineContent);
+
+  // Extract current label
+  let currentLabel = extractNodeLabel(lineContent) || nodeId;
+
+  // Prompt for new type
+  const newType = promptNodeType();
+  if (newType === null) {
+    hideNodeContextMenu();
+    return;
+  }
+
+  // If same type, no change needed
+  if (newType === currentType) {
+    hideNodeContextMenu();
+    return;
+  }
+
+  // Create new node definition with the new type
+  const newNodeDef = createNodeDefinition(nodeId, currentLabel, newType);
+
+  // Find all lines that define this node (could be inline in connections too)
+  const lines = currentContent.split('\n');
+
+  // Update the definition line
+  lines[lineIndex] = newNodeDef;
+
+  let newContent = lines.join('\n');
+
+  // Update the style for this node
+  newContent = addStyleForNode(newContent, nodeId, newType);
+
+  await applyEditWithValidation(newContent, 'change type');
+  hideNodeContextMenu();
+});
+
 // Delete Node handler
 nodeDelete.addEventListener('click', async () => {
   if (!currentNodeInfo) return;
@@ -1189,27 +1353,37 @@ nodeAddTransitionNew.addEventListener('click', async () => {
   const stateExists = new RegExp(`\\b${escapeRegex(target)}\\b`).test(currentContent);
 
   let newStateLine = null;
+  let nodeType = null;
 
-  // Only ask for description and create state definition if it's a NEW state
+  // Only ask for description and type if it's a NEW state
   if (!stateExists) {
-    const newStateDesc = prompt('Enter new node/state description (or leave empty):');
-    if (newStateDesc === null) {
-      hideNodeContextMenu();
-      return;
-    }
-
     // Detect diagram type to use correct syntax
     const isFlowchart = /^(graph|flowchart)\s/m.test(currentContent);
 
     if (isFlowchart) {
-      // Flowchart syntax
-      if (newStateDesc.trim()) {
-        newStateLine = `    ${target}["${newStateDesc}"]`;
-      } else {
-        newStateLine = `    ${target}`;
+      // Ask for node type first
+      nodeType = promptNodeType();
+      if (nodeType === null) {
+        hideNodeContextMenu();
+        return;
       }
+
+      const newStateDesc = prompt('Enter new node description (or leave empty):');
+      if (newStateDesc === null) {
+        hideNodeContextMenu();
+        return;
+      }
+
+      // Create node definition with type
+      newStateLine = createNodeDefinition(target, newStateDesc, nodeType);
     } else {
-      // State diagram syntax
+      // State diagram syntax (no type shapes)
+      const newStateDesc = prompt('Enter new state description (or leave empty):');
+      if (newStateDesc === null) {
+        hideNodeContextMenu();
+        return;
+      }
+
       if (newStateDesc.trim()) {
         newStateLine = `    ${target} : ${newStateDesc}`;
       } else {
@@ -1238,7 +1412,7 @@ nodeAddTransitionNew.addEventListener('click', async () => {
   }
 
   // Find where to insert
-  const lines = currentContent.split('\n');
+  let lines = currentContent.split('\n');
   let insertIndex = lines.length;
 
   for (let i = 0; i < lines.length; i++) {
@@ -1255,7 +1429,14 @@ nodeAddTransitionNew.addEventListener('click', async () => {
     lines.splice(insertIndex, 0, transitionLine);
   }
 
-  await applyEditWithValidation(lines.join('\n'), 'add transition');
+  let newContent = lines.join('\n');
+
+  // Add style for new node if we created one with a type
+  if (nodeType && newStateLine) {
+    newContent = addStyleForNode(newContent, target, nodeType);
+  }
+
+  await applyEditWithValidation(newContent, 'add transition');
   hideNodeContextMenu();
 });
 
@@ -1275,29 +1456,42 @@ edgeChangeDestNew.addEventListener('click', async () => {
   const stateExists = new RegExp(`\\b${escapeRegex(newTarget)}\\b`).test(currentContent);
 
   let newStateLine = null;
+  let nodeType = null;
 
-  // Only ask for description and create state definition if it's a NEW state
+  // Only ask for description and type if it's a NEW state
   if (!stateExists) {
-    const newStateDesc = prompt('Enter new state description (or leave empty):');
-    if (newStateDesc === null) {
-      hideEdgeContextMenu();
-      return;
-    }
-
     // Detect diagram type to use correct syntax
     const isFlowchart = /^(graph|flowchart)\s/m.test(currentContent);
 
-    // Create new state line with correct syntax for diagram type
-    if (newStateDesc.trim()) {
-      if (isFlowchart) {
-        // Flowchart syntax: NodeId["Description"]
-        newStateLine = `    ${newTarget}["${newStateDesc}"]`;
-      } else {
-        // State diagram syntax: NodeId : Description
-        newStateLine = `    ${newTarget} : ${newStateDesc}`;
+    if (isFlowchart) {
+      // Ask for node type first
+      nodeType = promptNodeType();
+      if (nodeType === null) {
+        hideEdgeContextMenu();
+        return;
       }
+
+      const newStateDesc = prompt('Enter new node description (or leave empty):');
+      if (newStateDesc === null) {
+        hideEdgeContextMenu();
+        return;
+      }
+
+      // Create node definition with type
+      newStateLine = createNodeDefinition(newTarget, newStateDesc, nodeType);
     } else {
-      newStateLine = `    ${newTarget}`;
+      // State diagram syntax (no type shapes)
+      const newStateDesc = prompt('Enter new state description (or leave empty):');
+      if (newStateDesc === null) {
+        hideEdgeContextMenu();
+        return;
+      }
+
+      if (newStateDesc.trim()) {
+        newStateLine = `    ${newTarget} : ${newStateDesc}`;
+      } else {
+        newStateLine = `    ${newTarget}`;
+      }
     }
   }
 
@@ -1315,7 +1509,7 @@ edgeChangeDestNew.addEventListener('click', async () => {
     }
   }
 
-  const lines = currentContent.split('\n');
+  let lines = currentContent.split('\n');
 
   // Update the transition line
   lines[lineIndex] = newTransitionLine;
@@ -1325,7 +1519,14 @@ edgeChangeDestNew.addEventListener('click', async () => {
     lines.splice(lineIndex + 1, 0, newStateLine);
   }
 
-  await applyEditWithValidation(lines.join('\n'), 'change destination');
+  let newContent = lines.join('\n');
+
+  // Add style for new node if we created one with a type
+  if (nodeType && newStateLine) {
+    newContent = addStyleForNode(newContent, newTarget, nodeType);
+  }
+
+  await applyEditWithValidation(newContent, 'change destination');
   hideEdgeContextMenu();
 });
 
