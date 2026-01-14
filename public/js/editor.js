@@ -653,15 +653,21 @@ function showEdgeContextMenu(x, y) {
   // Hide node menu if open
   hideNodeContextMenu();
 
+  // Make visible to measure actual size
+  edgeContextMenu.style.left = '-9999px';
+  edgeContextMenu.style.top = '-9999px';
+  edgeContextMenu.classList.add('visible');
+
+  // Measure actual dimensions
+  const menuWidth = edgeContextMenu.offsetWidth;
+  const menuHeight = edgeContextMenu.offsetHeight;
+
   // Position menu, ensuring it stays within viewport
-  const menuWidth = 180;
-  const menuHeight = 130;
   const maxX = window.innerWidth - menuWidth - 10;
   const maxY = window.innerHeight - menuHeight - 10;
 
-  edgeContextMenu.style.left = Math.min(x, maxX) + 'px';
-  edgeContextMenu.style.top = Math.min(y, maxY) + 'px';
-  edgeContextMenu.classList.add('visible');
+  edgeContextMenu.style.left = Math.max(10, Math.min(x, maxX)) + 'px';
+  edgeContextMenu.style.top = Math.max(10, Math.min(y, maxY)) + 'px';
 }
 
 function hideEdgeContextMenu() {
@@ -762,7 +768,7 @@ function exitDestinationMode() {
 }
 
 // Handle node click when in destination selection mode
-function handleDestinationSelection(nodeId) {
+async function handleDestinationSelection(nodeId) {
   if (!isSelectingDestination || !currentEdgeInfo) return false;
 
   const { lineIndex, lineContent, source, target } = currentEdgeInfo;
@@ -775,7 +781,7 @@ function handleDestinationSelection(nodeId) {
   );
 
   if (newLine !== lineContent) {
-    applyLineEdit(lineIndex, newLine);
+    await applyLineEdit(lineIndex, newLine);
   }
 
   exitDestinationMode();
@@ -783,40 +789,64 @@ function handleDestinationSelection(nodeId) {
 }
 
 // Delete Arrow handler
-edgeDelete.addEventListener('click', () => {
+edgeDelete.addEventListener('click', async () => {
   if (!currentEdgeInfo) return;
 
   const { lineIndex } = currentEdgeInfo;
 
   if (confirm('Delete this arrow/transition?')) {
-    deleteLine(lineIndex);
+    await deleteLine(lineIndex);
   }
 
   hideEdgeContextMenu();
 });
 
+// Validate mermaid content before applying
+async function validateMermaid(content) {
+  try {
+    // Use mermaid's parse function to validate without rendering
+    await mermaid.parse(content);
+    return { valid: true };
+  } catch (error) {
+    return { valid: false, error: error.message };
+  }
+}
+
+// Apply an edit with validation
+async function applyEditWithValidation(newContent, description = 'edit') {
+  const previousContent = currentContent;
+
+  // Validate the new content first
+  const validation = await validateMermaid(newContent);
+
+  if (!validation.valid) {
+    showError(`Invalid ${description}: ${validation.error}`);
+    return false;
+  }
+
+  pushUndo(previousContent);
+  currentContent = newContent;
+  setEditorContent(currentContent);
+  renderPreview();
+  scheduleAutoSave();
+  hideError();
+  return true;
+}
+
 // Apply an edit to a specific line
-function applyLineEdit(lineIndex, newContent) {
+async function applyLineEdit(lineIndex, newContent) {
   const lines = currentContent.split('\n');
   lines[lineIndex] = newContent;
 
-  pushUndo(currentContent);
-  currentContent = lines.join('\n');
-  setEditorContent(currentContent);
-  renderPreview();
-  scheduleAutoSave();
+  await applyEditWithValidation(lines.join('\n'), 'line edit');
 }
 
 // Delete a line from the source
-function deleteLine(lineIndex) {
+async function deleteLine(lineIndex) {
   const lines = currentContent.split('\n');
   lines.splice(lineIndex, 1);
 
-  pushUndo(currentContent);
-  currentContent = lines.join('\n');
-  setEditorContent(currentContent);
-  renderPreview();
-  scheduleAutoSave();
+  await applyEditWithValidation(lines.join('\n'), 'delete');
 }
 
 // ============================================================================
@@ -827,15 +857,21 @@ function showNodeContextMenu(x, y) {
   // Hide edge menu if open
   hideEdgeContextMenu();
 
+  // Make visible to measure actual size
+  nodeContextMenu.style.left = '-9999px';
+  nodeContextMenu.style.top = '-9999px';
+  nodeContextMenu.classList.add('visible');
+
+  // Measure actual dimensions
+  const menuWidth = nodeContextMenu.offsetWidth;
+  const menuHeight = nodeContextMenu.offsetHeight;
+
   // Position menu, ensuring it stays within viewport
-  const menuWidth = 180;
-  const menuHeight = 90;
   const maxX = window.innerWidth - menuWidth - 10;
   const maxY = window.innerHeight - menuHeight - 10;
 
-  nodeContextMenu.style.left = Math.min(x, maxX) + 'px';
-  nodeContextMenu.style.top = Math.min(y, maxY) + 'px';
-  nodeContextMenu.classList.add('visible');
+  nodeContextMenu.style.left = Math.max(10, Math.min(x, maxX)) + 'px';
+  nodeContextMenu.style.top = Math.max(10, Math.min(y, maxY)) + 'px';
 }
 
 function hideNodeContextMenu() {
@@ -933,7 +969,7 @@ nodeEditDesc.addEventListener('click', () => {
 });
 
 // Delete Node handler
-nodeDelete.addEventListener('click', () => {
+nodeDelete.addEventListener('click', async () => {
   if (!currentNodeInfo) return;
 
   const { nodeId, lineIndex } = currentNodeInfo;
@@ -955,14 +991,8 @@ nodeDelete.addEventListener('click', () => {
   }
 
   if (confirm(message)) {
-    // Delete all lines referencing this node (in reverse order to preserve indices)
-    pushUndo(currentContent);
-
     const newLines = lines.filter((_, i) => !referencingLines.includes(i));
-    currentContent = newLines.join('\n');
-    setEditorContent(currentContent);
-    renderPreview();
-    scheduleAutoSave();
+    await applyEditWithValidation(newLines.join('\n'), 'delete node');
   }
 
   hideNodeContextMenu();
@@ -993,7 +1023,7 @@ nodeAddTransition.addEventListener('click', () => {
 });
 
 // Handle clicking a destination when adding a transition
-function handleAddTransitionDestination(targetNodeId) {
+async function handleAddTransitionDestination(targetNodeId) {
   if (!isAddingTransition || !pendingSourceNode) return;
 
   // Create the transition line
@@ -1031,17 +1061,12 @@ function handleAddTransitionDestination(targetNodeId) {
 
   lines.splice(insertIndex, 0, newLine);
 
-  pushUndo(currentContent);
-  currentContent = lines.join('\n');
-  setEditorContent(currentContent);
-  renderPreview();
-  scheduleAutoSave();
-
+  const success = await applyEditWithValidation(lines.join('\n'), 'add transition');
   exitDestinationMode();
 }
 
 // Add Transition to New State handler
-nodeAddTransitionNew.addEventListener('click', () => {
+nodeAddTransitionNew.addEventListener('click', async () => {
   if (!currentNodeInfo) return;
 
   const label = prompt('Enter transition label (or leave empty for no label):');
@@ -1129,17 +1154,12 @@ nodeAddTransitionNew.addEventListener('click', () => {
     lines.splice(insertIndex, 0, transitionLine);
   }
 
-  pushUndo(currentContent);
-  currentContent = lines.join('\n');
-  setEditorContent(currentContent);
-  renderPreview();
-  scheduleAutoSave();
-
+  await applyEditWithValidation(lines.join('\n'), 'add transition');
   hideNodeContextMenu();
 });
 
 // Change Destination to New State handler (for edges)
-edgeChangeDestNew.addEventListener('click', () => {
+edgeChangeDestNew.addEventListener('click', async () => {
   if (!currentEdgeInfo) return;
 
   const newStateId = prompt('Enter new state ID (e.g., NewState):');
@@ -1197,12 +1217,7 @@ edgeChangeDestNew.addEventListener('click', () => {
     lines.splice(lineIndex + 1, 0, newStateLine);
   }
 
-  pushUndo(currentContent);
-  currentContent = lines.join('\n');
-  setEditorContent(currentContent);
-  renderPreview();
-  scheduleAutoSave();
-
+  await applyEditWithValidation(lines.join('\n'), 'change destination');
   hideEdgeContextMenu();
 });
 

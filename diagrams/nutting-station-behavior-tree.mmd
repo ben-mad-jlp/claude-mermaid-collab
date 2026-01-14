@@ -7,12 +7,9 @@ graph TD
 
 
     LoginSuccess -->|Success| Refresh["🔄 Refresh Station Info<br/>Call getStationInfo()"]
-    Refresh --> RefreshSuccess{Data<br/>Loaded?}
+    Refresh -->|Success| CheckWOSelected
 
-    RefreshSuccess -->|Fail| RefreshError["❌ Show Error<br/>Allow Retry"]
-    RefreshError --> Refresh
 
-    RefreshSuccess -->|Success| CheckWOSelected{Workorder<br/>Selected?}
 
     %% Workorder Selection Phase
     CheckWOSelected -->|No| SelectWO["📋 Select Workorder<br/>Sales/Stock Tabs<br/>Only Clickable: Compatible WOs"]
@@ -27,9 +24,6 @@ graph TD
 
     WOAction -->|Return Station<br/>Inventory| ReturnFromWOList["📝 Return Screen<br/>Select Containers<br/>Enter Total Containers<br/>Enter Qty per Container"]
     ReturnFromWOList --> ReturnSubmit["📥 Submit Return<br/>to API"]
-    ReturnSubmit --> ReturnResult{Submit<br/>Success?}
-    ReturnResult -->|Fail| ReturnError["❌ Show Error"]
-    ReturnResult -->|Success| Refresh
 
     ActionScreen["🎯 Action Screen<br/>Hub for All Operations"]
     CheckWOExists -->|Yes| ActionScreen
@@ -40,17 +34,13 @@ graph TD
     %% Load Inventory to Station Action
     Action -->|Load Inventory<br/>to Station| LoadInventory["📬 Load Inventory<br/>Enter/Scan Container ID"]
     LoadInventory --> ValidateContainer{Container<br/>Valid?}
-    ValidateContainer -->|No| LoadError["❌ Show Error"]
-    LoadError --> ActionScreen
     ValidateContainer -->|Yes| AddToInventory["➕ Add to Station<br/>Inventory"]
+    ValidateContainer -->|No| LoadInventory
     AddToInventory -->|Success| Refresh
 
     %% Combine Inventory Action
     Action -->|Combine Inventory| CombineDialog["📝 Combine Dialog<br/>Select Containers<br/>Set Quality"]
-    CombineDialog --> CombineValidate{Valid<br/>Combination?}
-    CombineValidate -->|No| CombineError["❌ Show Error"]
-    CombineError --> CombineDialog
-    CombineValidate -->|Yes| CombineSubmit["📤 Submit Combined<br/>Inventory to API"]
+    CombineDialog -->|Combine| CombineSubmit{Valid<br/>Combination?}
     CombineSubmit --> CombineResult{Submit<br/>Success?}
     CombineResult -->|Fail| CombineFailError["❌ Show Error"]
     CombineFailError --> Refresh
@@ -59,10 +49,9 @@ graph TD
     %% Return Inventory Action (from Action Screen)
     Action -->|Return Inventory| ReturnFromAction["📝 Return Screen<br/>Select Containers<br/>Enter Total Containers<br/>Enter Qty per Container"]
     ReturnFromAction --> ReturnSubmitAction["📥 Submit Return<br/>to API"]
-    ReturnSubmitAction --> ReturnResultAction{Submit<br/>Success?}
+    ReturnSubmitAction --> ReturnFromAction{Submit<br/>Success?}
     ReturnResultAction -->|Fail| ReturnErrorAction["❌ Show Error"]
     ReturnErrorAction --> ReturnFromAction
-    ReturnResultAction -->|Success| Refresh
 
     %% Change Workorder Action
     Action -->|Change Workorder| CallUnreserve["📞 Call unreserveWorkorder()<br/>API Endpoint"]
@@ -93,19 +82,14 @@ graph TD
     style LoadInventory fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
     style ValidateContainer fill:#fff3e0,stroke:#f57c00
     style AddToInventory fill:#f1f8e9,stroke:#558b2f
-    style LoadError fill:#ffebee,stroke:#c62828
 
     style CombineDialog fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
-    style CombineValidate fill:#fff3e0,stroke:#f57c00
     style CombineSubmit fill:#f1f8e9,stroke:#558b2f
     style CombineResult fill:#fff3e0,stroke:#f57c00
-    style CombineError fill:#ffebee,stroke:#c62828
     style CombineFailError fill:#ffebee,stroke:#c62828
 
     style ReturnFromWOList fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
     style ReturnSubmit fill:#f1f8e9,stroke:#558b2f
-    style ReturnResult fill:#fff3e0,stroke:#f57c00
-    style ReturnError fill:#ffebee,stroke:#c62828
 
     style ReturnFromAction fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
     style ReturnSubmitAction fill:#f1f8e9,stroke:#558b2f
@@ -120,5 +104,5 @@ graph TD
     style ExecuteLogout fill:#f1f8e9,stroke:#558b2f
     style LogoutSuccess fill:#27ae60,stroke:#229954,color:#fff
 
-    style RefreshError fill:#ffebee,stroke:#c62828
     CallSelectWO -->|Success| Refresh
+    ReturnSubmit -->|Success| Refresh
