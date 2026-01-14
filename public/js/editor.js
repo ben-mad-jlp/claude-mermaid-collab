@@ -774,12 +774,15 @@ async function handleDestinationSelection(nodeId) {
 
   const { lineIndex, lineContent, source, target } = currentEdgeInfo;
 
-  // Replace old target with new target
-  // This handles various arrow patterns
-  const newLine = lineContent.replace(
-    new RegExp(`(${escapeRegex(source)}\\s*(?:--[^>]*)?(?:-->|==>|-\\.->|---|->>|-->>|->)\\s*(?:\\|[^|]*\\|)?\\s*)${escapeRegex(target)}`),
-    `$1${nodeId}`
-  );
+  // Replace old target with new target using last occurrence
+  let newLine = lineContent;
+  const targetRegex = new RegExp(`\\b${escapeRegex(target)}\\b`);
+  if (targetRegex.test(lineContent)) {
+    const lastIndex = lineContent.lastIndexOf(target);
+    if (lastIndex !== -1) {
+      newLine = lineContent.substring(0, lastIndex) + nodeId + lineContent.substring(lastIndex + target.length);
+    }
+  }
 
   if (newLine !== lineContent) {
     await applyLineEdit(lineIndex, newLine);
@@ -1262,10 +1265,18 @@ edgeChangeDestNew.addEventListener('click', async () => {
   }
 
   // Update the transition to point to new state
-  const newTransitionLine = lineContent.replace(
-    new RegExp(`(${escapeRegex(source)}\\s*(?:--[^>]*)?(?:-->|==>|-\\.->|---|->>|-->>|->)\\s*(?:\\|[^|]*\\|)?\\s*)${escapeRegex(target)}`),
-    `$1${newTarget}`
-  );
+  // Use word boundary replacement to handle various formats
+  let newTransitionLine = lineContent;
+
+  // Try to replace target with newTarget (with word boundary)
+  const targetRegex = new RegExp(`\\b${escapeRegex(target)}\\b`);
+  if (targetRegex.test(lineContent)) {
+    // Find the last occurrence of target (it's the destination)
+    const lastIndex = lineContent.lastIndexOf(target);
+    if (lastIndex !== -1) {
+      newTransitionLine = lineContent.substring(0, lastIndex) + newTarget + lineContent.substring(lastIndex + target.length);
+    }
+  }
 
   const lines = currentContent.split('\n');
 
@@ -1717,20 +1728,44 @@ function formatMermaidCode() {
   // Find root node (has outgoing edges but no incoming edges)
   const sourceNodes = new Set();
   const targetNodes = new Set();
+  const outgoingCount = new Map(); // Count outgoing edges per node
 
   for (const conn of connections) {
     const trimmed = conn.trim();
     // Extract source and target from connection
-    // Pattern: Source -->|label| Target or Source --> Target
-    const connMatch = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*(?:--[^>]*)?(?:-->|==>|-\.->|---|->>|-->>|->)\s*(?:\|[^|]*\|)?\s*([A-Za-z_][A-Za-z0-9_]*)/);
-    if (connMatch) {
-      sourceNodes.add(connMatch[1]);
-      targetNodes.add(connMatch[2]);
+    // Handle inline definitions like: AddToInventory[Submit Load] --> RefreshStationInfoLoad
+    // Split by arrow pattern, then extract first identifier from each side
+    const arrowMatch = trimmed.match(/(-->|==>|-\.->|---|->>|-->>|->)/);
+    if (arrowMatch) {
+      const parts = trimmed.split(arrowMatch[1]);
+      if (parts.length >= 2) {
+        // Extract first identifier from each side (ignores inline definitions like [label])
+        const sourceMatch = parts[0].match(/([A-Za-z_][A-Za-z0-9_]*)/);
+        const targetMatch = parts[1].match(/([A-Za-z_][A-Za-z0-9_]*)/);
+        if (sourceMatch && targetMatch) {
+          sourceNodes.add(sourceMatch[1]);
+          targetNodes.add(targetMatch[1]);
+          outgoingCount.set(sourceMatch[1], (outgoingCount.get(sourceMatch[1]) || 0) + 1);
+        }
+      }
     }
   }
 
   // Root nodes are sources that are never targets
-  const rootNodes = [...sourceNodes].filter(n => !targetNodes.has(n));
+  let rootNodes = [...sourceNodes].filter(n => !targetNodes.has(n));
+
+  // Prioritize: 1) node named "Root", 2) node with most outgoing edges
+  if (rootNodes.length > 1) {
+    // Check if any is literally named "Root"
+    const namedRoot = rootNodes.find(n => n.toLowerCase() === 'root');
+    if (namedRoot) {
+      rootNodes = [namedRoot];
+    } else {
+      // Sort by outgoing edge count (most connections first)
+      rootNodes.sort((a, b) => (outgoingCount.get(b) || 0) - (outgoingCount.get(a) || 0));
+      rootNodes = [rootNodes[0]]; // Keep only the one with most outgoing
+    }
+  }
 
   // Get node ID from a definition line
   const getNodeId = (line) => line.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)/)?.[1] || '';
