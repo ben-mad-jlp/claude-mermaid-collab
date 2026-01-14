@@ -1678,19 +1678,33 @@ function formatMermaidCode() {
 
     // Handle subgraphs (keep them as blocks)
     if (/^subgraph\b/i.test(trimmed)) {
+      // Check if this is a level subgraph we generated (skip these, we regenerate them)
+      const isLevelSubgraph = /^subgraph\s+_level\d+/i.test(trimmed);
       inSubgraph = true;
       subgraphDepth++;
-      subgraphLines.push(line);
+      if (isLevelSubgraph) {
+        // Track that we're skipping this subgraph
+        subgraphLines = null;
+      } else if (subgraphLines !== null) {
+        subgraphLines.push(line);
+      } else {
+        // Starting a new non-level subgraph
+        subgraphLines = [line];
+      }
       continue;
     }
 
     if (inSubgraph) {
-      subgraphLines.push(line);
+      if (subgraphLines !== null) {
+        subgraphLines.push(line);
+      }
       if (/^end\s*$/i.test(trimmed)) {
         subgraphDepth--;
         if (subgraphDepth === 0) {
           inSubgraph = false;
-          subgraphs.push(subgraphLines.join('\n'));
+          if (subgraphLines !== null && subgraphLines.length > 0) {
+            subgraphs.push(subgraphLines.join('\n'));
+          }
           subgraphLines = [];
         }
       }
@@ -1707,7 +1721,7 @@ function formatMermaidCode() {
     }
     else if (/^%%/.test(trimmed)) {
       // Skip section header comments we regenerate
-      if (/^%%\s*(Node Definitions|Connections|Styles|Level Alignment|Subgraphs)/i.test(trimmed)) {
+      if (/^%%\s*(Node Definitions|Connections|Styles|Level Alignment|Level Groupings|Subgraphs)/i.test(trimmed)) {
         continue;
       }
       comments.push(trimmed);
@@ -1835,24 +1849,29 @@ function formatMermaidCode() {
   // Only these should be used for level links to avoid floating undefined nodes
   const explicitlyDefinedNodes = new Set(nodeDefinitions.map(getNodeId).filter(Boolean));
 
-  // Group nodes by level for invisible links (only include explicitly defined nodes)
+  // Group ALL nodes by level for subgraph grouping
   const nodesByLevel = new Map(); // level -> [nodeIds]
   for (const [node, level] of nodeLevels) {
-    // Only include nodes that are explicitly defined (not inline-defined in connections)
-    if (explicitlyDefinedNodes.has(node)) {
-      if (!nodesByLevel.has(level)) nodesByLevel.set(level, []);
-      nodesByLevel.get(level).push(node);
-    }
+    if (!nodesByLevel.has(level)) nodesByLevel.set(level, []);
+    nodesByLevel.get(level).push(node);
   }
 
-  // Generate invisible links for same-level nodes (helps alignment)
-  const levelLinks = [];
-  for (const [level, nodes] of nodesByLevel) {
-    if (nodes.length >= 2) {
+  // Generate invisible subgraphs for each level (helps layout)
+  const levelSubgraphs = [];
+  const sortedLevels = [...nodesByLevel.keys()].sort((a, b) => a - b);
+  for (const level of sortedLevels) {
+    const nodes = nodesByLevel.get(level);
+    if (nodes.length > 0) {
       // Sort nodes alphabetically for consistent output
       nodes.sort();
-      // Create invisible link chain: A ~~~ B ~~~ C
-      levelLinks.push(`    ${nodes.join(' ~~~ ')}`);
+      // Create invisible subgraph with direction LR to spread nodes horizontally
+      const subgraphLines = [
+        `    subgraph _level${level}[ ]`,
+        `        direction LR`,
+        ...nodes.map(n => `        ${n}`),
+        `    end`
+      ];
+      levelSubgraphs.push(subgraphLines.join('\n'));
     }
   }
 
@@ -1914,13 +1933,13 @@ function formatMermaidCode() {
     sections.push(connections.join('\n'));
   }
 
-  // Level alignment links (invisible links to align same-level nodes)
-  if (levelLinks.length > 0) {
-    sections.push('    %% Level Alignment (invisible links)');
-    sections.push(levelLinks.join('\n'));
+  // Level grouping subgraphs (invisible subgraphs to group same-level nodes)
+  if (levelSubgraphs.length > 0) {
+    sections.push('    %% Level Groupings');
+    sections.push(levelSubgraphs.join('\n\n'));
   }
 
-  // Subgraphs
+  // Existing subgraphs from original content
   if (subgraphs.length > 0) {
     sections.push('    %% Subgraphs');
     sections.push(subgraphs.join('\n\n'));
