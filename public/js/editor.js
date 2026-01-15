@@ -1659,7 +1659,7 @@ function handleSmachAddTransitionToNewState() {
   if (!stateType) return;
 
   // Create new state and add transition
-  createSmachState(stateId, newStateName, stateType);
+  createSmachState(newStateName, stateType);
   addSmachTransition(stateId, outcome, newStateName);
 }
 
@@ -1737,7 +1737,7 @@ function handleChangeTransitionTargetNew(stateId, outcome, target) {
     if (!stateType) return;
 
     // Create new state and update transition
-    createSmachState(stateId, newStateName, stateType);
+    createSmachState(newStateName, stateType);
 
     const content = getEditorContent();
     const transitionRegex = new RegExp('^(\\s*)' + escapeRegex(outcome) + '(\\s*:\\s*)' + escapeRegex(target) + '(\\s*)$', 'gm');
@@ -1905,7 +1905,7 @@ function createSmachState(stateName, stateType) {
       ' '.repeat(lastStateIndent) + stateName + ':',
       ' '.repeat(lastStateIndent + 2) + 'type: ' + stateType,
       ' '.repeat(lastStateIndent + 2) + 'transitions:',
-      ' '.repeat(lastStateIndent + 4) + 'succeeded: ' + stateName,
+      ' '.repeat(lastStateIndent + 4) + 'succeeded: succeeded',
     ];
 
     lines.splice(insertLine, 0, '', ...newState);
