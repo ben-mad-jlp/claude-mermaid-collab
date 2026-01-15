@@ -1638,6 +1638,39 @@ function handleSmachAddTransition() {
   addSmachTransition(stateId, outcome, target);
 }
 
+// Available SMACH state types for selection
+const SMACH_STATE_TYPES = [
+  'CallbackState',
+  'SimpleActionState',
+  'ServoActionState',
+  'ConditionState',
+  'DelayState',
+  'MonitorState',
+  'SimpleServiceState',
+  'StateMachine',
+  'Concurrence',
+];
+
+function promptForStateType() {
+  const typeList = SMACH_STATE_TYPES.map((t, i) => (i + 1) + '. ' + t).join('\n');
+  const choice = prompt('Select state type:\n\n' + typeList + '\n\nEnter number (1-' + SMACH_STATE_TYPES.length + '):', '1');
+
+  if (!choice) return null;
+
+  const index = parseInt(choice, 10) - 1;
+  if (index >= 0 && index < SMACH_STATE_TYPES.length) {
+    return SMACH_STATE_TYPES[index];
+  }
+
+  // If they typed a valid type name directly, accept it
+  if (SMACH_STATE_TYPES.includes(choice)) {
+    return choice;
+  }
+
+  alert('Invalid selection. Please enter a number 1-' + SMACH_STATE_TYPES.length);
+  return null;
+}
+
 function handleSmachAddTransitionToNewState() {
   if (!currentSmachState) return;
 
@@ -1655,7 +1688,7 @@ function handleSmachAddTransitionToNewState() {
     return;
   }
 
-  const stateType = prompt('Enter state type:', 'CallbackState');
+  const stateType = promptForStateType();
   if (!stateType) return;
 
   // Create new state and add transition
@@ -1733,7 +1766,7 @@ function handleChangeTransitionTargetNew(stateId, outcome, target) {
       return;
     }
 
-    const stateType = prompt('Enter state type:', 'CallbackState');
+    const stateType = promptForStateType();
     if (!stateType) return;
 
     // Create new state and update transition
