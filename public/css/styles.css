@@ -150,3 +150,88 @@ body {
 .theme-toggle-icon {
   font-size: 16px;
 }
+
+/* SMACH Properties Popup */
+.smach-overlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 999;
+}
+
+.smach-overlay.visible {
+  display: block;
+}
+
+.smach-properties-popup {
+  display: none;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent-color);
+  border-radius: 8px;
+  padding: 20px;
+  min-width: 400px;
+  max-width: 600px;
+  max-height: 80vh;
+  overflow: auto;
+  z-index: 1000;
+  box-shadow: 0 10px 40px var(--shadow-color);
+}
+
+.smach-properties-popup.visible {
+  display: block;
+}
+
+.smach-popup-close {
+  position: absolute;
+  top: 10px;
+  right: 15px;
+  font-size: 24px;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.smach-popup-close:hover {
+  color: var(--text-primary);
+}
+
+.smach-popup-title {
+  margin: 0 0 15px 0;
+  color: var(--accent-color);
+  font-size: 18px;
+}
+
+.smach-popup-content {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.smach-popup-content td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-color);
+  vertical-align: top;
+}
+
+.smach-popup-content td:first-child {
+  color: var(--accent-color);
+  font-weight: bold;
+  width: 140px;
+  white-space: nowrap;
+}
+
+.smach-popup-content pre {
+  margin: 0;
+  padding: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  font-size: 12px;
+  overflow-x: auto;
+  max-width: 350px;
+}

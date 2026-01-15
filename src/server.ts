@@ -124,6 +124,11 @@ const server = Bun.serve({
       return new Response(file);
     }
 
+    if (url.pathname === '/smach-test.html') {
+      const file = Bun.file('public/smach-test.html');
+      return new Response(file);
+    }
+
     if (url.pathname.startsWith('/css/') || url.pathname.startsWith('/js/')) {
       const file = Bun.file(`public${url.pathname}`);
       const exists = await file.exists();
@@ -139,7 +144,10 @@ const server = Bun.serve({
         : 'text/plain';
 
       return new Response(file, {
-        headers: { 'Content-Type': contentType },
+        headers: {
+          'Content-Type': contentType,
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+        },
       });
     }
 

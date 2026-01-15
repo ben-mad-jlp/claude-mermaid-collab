@@ -322,6 +322,22 @@ async function previewDocument(id: string): Promise<string> {
 }
 
 /**
+ * MCP Tool: transpile_diagram
+ * Returns the transpiled Mermaid output for a SMACH diagram
+ */
+async function transpileDiagram(id: string): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}/api/transpile/${id}`);
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(`Failed to transpile diagram: ${error.error || response.statusText}`);
+  }
+
+  const data = await response.json();
+  return data.mermaid;
+}
+
+/**
  * Main MCP server setup
  */
 async function main() {
@@ -686,6 +702,20 @@ This document describes the system architecture.
             required: ['id'],
           },
         },
+        {
+          name: 'transpile_diagram',
+          description: 'Get the transpiled Mermaid flowchart output for a SMACH state machine diagram. Use this to debug SMACH diagrams by seeing what Mermaid code is being generated.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              id: {
+                type: 'string',
+                description: 'The SMACH diagram ID to transpile',
+              },
+            },
+            required: ['id'],
+          },
+        },
       ],
     };
   });
@@ -845,6 +875,21 @@ This document describes the system architecture.
             throw new Error('Missing or invalid required argument: id');
           }
           const result = await previewDocument(args.id);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: result,
+              },
+            ],
+          };
+        }
+
+        case 'transpile_diagram': {
+          if (!args || typeof args.id !== 'string') {
+            throw new Error('Missing or invalid required argument: id');
+          }
+          const result = await transpileDiagram(args.id);
           return {
             content: [
               {

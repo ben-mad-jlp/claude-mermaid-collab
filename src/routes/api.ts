@@ -4,6 +4,7 @@ import { DocumentManager } from '../services/document-manager';
 import { Validator } from '../services/validator';
 import { Renderer, type Theme } from '../services/renderer';
 import { WebSocketHandler } from '../websocket/handler';
+import { transpile, isSmachYaml } from '../services/smach-transpiler';
 
 export async function handleAPI(
   req: Request,
@@ -170,6 +171,27 @@ export async function handleAPI(
     const { content } = await req.json();
     const result = await validator.validate(content);
     return Response.json(result);
+  }
+
+  // GET /api/transpile/:id - Get transpiled Mermaid output for SMACH diagrams
+  if (path.startsWith('/api/transpile/') && req.method === 'GET') {
+    const id = path.split('/').pop()!;
+    const diagram = await diagramManager.getDiagram(id);
+
+    if (!diagram) {
+      return Response.json({ error: 'Diagram not found' }, { status: 404 });
+    }
+
+    if (!isSmachYaml(diagram.content)) {
+      return Response.json({ error: 'Not a SMACH diagram' }, { status: 400 });
+    }
+
+    try {
+      const result = transpile(diagram.content);
+      return Response.json({ mermaid: result.mermaid });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
   }
 
   // GET /api/documents

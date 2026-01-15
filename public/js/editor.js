@@ -1,5 +1,6 @@
 import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
 import * as wireframe from './plugins/mermaid-wireframe.js';
+import { transpile, isSmachYaml, getAllProperties } from './smach-transpiler.js';
 import APIClient from './api-client.js';
 import { EditorView } from 'https://esm.sh/@codemirror/view@6';
 import { EditorState } from 'https://esm.sh/@codemirror/state@6';
@@ -93,6 +94,8 @@ const themeToggleBtn = document.getElementById('theme-toggle');
 
 // State
 let currentContent = '';
+let isSmachMode = false;
+let smachProperties = {};
 
 // Get Mermaid theme based on app theme
 function getMermaidTheme() {
@@ -136,6 +139,11 @@ const nodeDelete = document.getElementById('node-delete');
 const edgeChangeOrigin = document.getElementById('edge-change-origin');
 const edgeChangeOriginNew = document.getElementById('edge-change-origin-new');
 const edgeChangeDestNew = document.getElementById('edge-change-dest-new');
+
+// SMACH state for properties pane (context menus removed - functionality moved to properties pane)
+let currentSmachState = null;  // { stateId, lineIndex }
+let currentSmachTransition = null;  // { stateId, outcome, target, lineIndex }
+let isSelectingSmachTarget = false;
 
 // Additional state for add transition mode
 let isAddingTransition = false;
@@ -411,7 +419,27 @@ async function renderPreview(preserveZoom = true) {
       startOnLoad: false,
     });
 
-    const { svg } = await mermaid.render('preview-diagram', currentContent);
+    // Check if content is SMACH YAML and transpile if needed
+    let contentToRender = currentContent;
+    isSmachMode = isSmachYaml(currentContent);
+
+    if (isSmachMode) {
+      try {
+        const result = transpile(currentContent);
+        contentToRender = result.mermaid;
+        smachProperties = result.properties;
+        showPropertiesPane();
+        clearPropertiesPane();
+      } catch (transpileError) {
+        showError('SMACH YAML Error: ' + transpileError.message);
+        return;
+      }
+    } else {
+      smachProperties = {};
+      hidePropertiesPane();
+    }
+
+    const { svg } = await mermaid.render('preview-diagram', contentToRender);
     preview.innerHTML = svg;
 
     // Initialize panzoom on the new SVG element
@@ -518,13 +546,29 @@ function setupClickToSource(svgElement) {
           handleAddTransitionDestination(nodeId);
         }
         else {
-          // Scroll to source
-          const lineInfo = scrollToNodeInSource(nodeId);
+          // Check if we're in SMACH mode
+          if (isSmachMode) {
+            // In SMACH mode, only show properties if state is in smachProperties
+            if (smachProperties[nodeId]) {
+              updatePropertiesPane(smachProperties[nodeId]);
+              // Scroll to source in YAML - use the actual state name from properties
+              const stateName = smachProperties[nodeId].name || nodeId;
+              const lineInfo = scrollToSmachStateInSource(stateName);
+              if (lineInfo) {
+                currentSmachState = { stateId: nodeId, ...lineInfo };
+                // Show actions in the properties pane (no popup menu)
+                showPropertiesActions();
+              }
+            }
+            // In SMACH mode, never show the old context menu - even for unknown nodes
+          } else {
+            // Non-SMACH mode: show context menu
+            const lineInfo = scrollToNodeInSource(nodeId);
 
-          // Show context menu
-          if (lineInfo) {
-            currentNodeInfo = { nodeId, ...lineInfo };
-            showNodeContextMenu(e.clientX, e.clientY);
+            if (lineInfo) {
+              currentNodeInfo = { nodeId, ...lineInfo };
+              showNodeContextMenu(e.clientX, e.clientY);
+            }
           }
         }
       }
@@ -539,13 +583,20 @@ function setupClickToSource(svgElement) {
       e.stopPropagation();
       const edgeInfo = extractEdgeInfo(el);
       if (edgeInfo) {
-        // Scroll to source
-        const lineInfo = scrollToEdgeInSource(edgeInfo.source, edgeInfo.target);
+        // Check if we're in SMACH mode
+        if (isSmachMode) {
+          // In SMACH, edges represent transitions - just scroll to source
+          // Editing is done from the properties pane
+          scrollToSmachTransitionInSource(edgeInfo.source, edgeInfo.target, edgeInfo.label);
+        } else {
+          // Scroll to source
+          const lineInfo = scrollToEdgeInSource(edgeInfo.source, edgeInfo.target);
 
-        // Show context menu
-        if (lineInfo) {
-          currentEdgeInfo = { ...edgeInfo, ...lineInfo };
-          showEdgeContextMenu(e.clientX, e.clientY);
+          // Show context menu
+          if (lineInfo) {
+            currentEdgeInfo = { ...edgeInfo, ...lineInfo };
+            showEdgeContextMenu(e.clientX, e.clientY);
+          }
         }
       }
     });
@@ -559,7 +610,8 @@ function extractNodeId(element) {
 
   // Common patterns in Mermaid SVG IDs:
   // flowchart-NodeId-123, state-NodeId-456, etc.
-  let match = id.match(/(?:flowchart|state|statediagram)-([^-]+)/);
+  // For nested nodes with underscores: flowchart-container_child-123
+  let match = id.match(/(?:flowchart|state|statediagram)-([A-Za-z_][A-Za-z0-9_]*)/);
   if (match) return match[1];
 
   // Try data attributes
@@ -567,15 +619,59 @@ function extractNodeId(element) {
     return element.dataset.id;
   }
 
-  // Try to find ID in parent elements
-  let parent = element.closest('[id]');
-  if (parent && parent.id) {
-    match = parent.id.match(/(?:flowchart|state|statediagram)-([^-]+)/);
+  // Try to find the closest node element with an ID
+  // Look for .node class first (Mermaid wraps nodes in .node elements)
+  let nodeEl = element.closest('.node');
+  if (nodeEl && nodeEl.id) {
+    match = nodeEl.id.match(/(?:flowchart|state|statediagram)-([A-Za-z_][A-Za-z0-9_]*)/);
     if (match) return match[1];
+  }
 
-    // Try generic pattern: word-NodeId-number
-    match = parent.id.match(/^[a-z]+-([A-Za-z_][A-Za-z0-9_]*)/);
-    if (match) return match[1];
+  // Check if this is a cluster/container element (clicked on container background/title)
+  // Only if we didn't find a .node (so we're not clicking on a child state inside the container)
+  if (!nodeEl) {
+    let clusterEl = element.closest('.cluster');
+    if (clusterEl) {
+      // Try to extract container ID from cluster
+      if (clusterEl.id) {
+        // Try standard flowchart pattern
+        match = clusterEl.id.match(/(?:flowchart|state|statediagram)-([A-Za-z_][A-Za-z0-9_]*)/);
+        if (match) return match[1];
+
+        // Try just the ID if it looks like a valid identifier (subgraph names)
+        match = clusterEl.id.match(/^([A-Za-z_][A-Za-z0-9_]*)$/);
+        if (match) return match[1];
+      }
+
+      // Try to get ID from the cluster's title/label text
+      const titleEl = clusterEl.querySelector('.cluster-label, .nodeLabel, text');
+      if (titleEl) {
+        const titleText = titleEl.textContent.trim();
+        // Sanitize to match how transpiler creates node IDs
+        const sanitized = titleText.replace(/[^a-zA-Z0-9_]/g, '_');
+        if (sanitized) return sanitized;
+      }
+    }
+  }
+
+  // Try to find ID in parent elements (but skip subgraph/cluster elements when we have a node)
+  let parent = element.closest('[id]');
+  while (parent) {
+    // Skip cluster/subgraph elements if we're looking for a node inside them
+    if (parent.classList && (parent.classList.contains('cluster') || parent.classList.contains('subgraph'))) {
+      parent = parent.parentElement ? parent.parentElement.closest('[id]') : null;
+      continue;
+    }
+
+    if (parent.id) {
+      match = parent.id.match(/(?:flowchart|state|statediagram)-([A-Za-z_][A-Za-z0-9_]*)/);
+      if (match) return match[1];
+
+      // Try generic pattern: word-NodeId-number (captures underscored IDs)
+      match = parent.id.match(/^[a-z]+-([A-Za-z_][A-Za-z0-9_]*)-?\d*$/);
+      if (match) return match[1];
+    }
+    parent = parent.parentElement ? parent.parentElement.closest('[id]') : null;
   }
 
   // Try to get text content as a fallback (for labels)
@@ -1129,6 +1225,744 @@ async function deleteLine(lineIndex) {
   lines.splice(lineIndex, 1);
 
   await applyEditWithValidation(lines.join('\n'), 'delete');
+}
+
+// ============================================================================
+// SMACH Properties Pane
+// ============================================================================
+
+const propertiesPane = document.getElementById('properties-pane');
+const propertiesStateName = document.getElementById('properties-state-name');
+const propertiesStateType = document.getElementById('properties-state-type');
+const propertiesContent = document.getElementById('properties-content');
+const propertiesDivider = document.getElementById('properties-divider');
+
+function showPropertiesPane() {
+  if (propertiesPane) {
+    propertiesPane.classList.add('visible');
+  }
+  if (propertiesDivider) {
+    propertiesDivider.classList.add('visible');
+  }
+}
+
+function hidePropertiesPane() {
+  if (propertiesPane) {
+    propertiesPane.classList.remove('visible');
+  }
+  if (propertiesDivider) {
+    propertiesDivider.classList.remove('visible');
+  }
+}
+
+// Properties pane resize handling
+if (propertiesDivider && propertiesPane) {
+  let isDragging = false;
+  let startX = 0;
+  let startWidth = 0;
+
+  propertiesDivider.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    startX = e.clientX;
+    startWidth = propertiesPane.offsetWidth;
+    propertiesDivider.classList.add('dragging');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    const diff = startX - e.clientX;
+    const newWidth = Math.min(500, Math.max(200, startWidth + diff));
+    propertiesPane.style.width = newWidth + 'px';
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (isDragging) {
+      isDragging = false;
+      propertiesDivider.classList.remove('dragging');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+  });
+}
+
+function updatePropertiesPane(props) {
+  if (!propertiesPane) return;
+
+  propertiesStateName.textContent = props.name;
+  propertiesStateType.textContent = props.type;
+
+  let html = '';
+
+  // Transitions section
+  if (props.transitions && Object.keys(props.transitions).length > 0) {
+    html += '<div class="property-section">';
+    html += '<div class="property-section-header">Transitions</div>';
+    html += '<div class="property-row"><div class="property-value"><ul class="transition-list">';
+    for (const [outcome, target] of Object.entries(props.transitions)) {
+      html += '<li class="transition-item">';
+      html += '<span class="transition-info">';
+      html += '<span class="transition-outcome">' + outcome + '</span>';
+      html += '<span class="transition-arrow">&rarr;</span>';
+      html += '<span class="transition-target">' + target + '</span>';
+      html += '</span>';
+      html += '<span class="transition-actions">';
+      html += '<button class="transition-action-btn" data-action="edit-outcome" data-outcome="' + outcome + '" data-target="' + target + '" title="Edit outcome name">E</button>';
+      html += '<button class="transition-action-btn" data-action="change-target" data-outcome="' + outcome + '" data-target="' + target + '" title="Change target">&rarr;</button>';
+      html += '<button class="transition-action-btn" data-action="change-target-new" data-outcome="' + outcome + '" data-target="' + target + '" title="Change to new state">+</button>';
+      html += '<button class="transition-action-btn danger" data-action="delete-transition" data-outcome="' + outcome + '" data-target="' + target + '" title="Delete">&times;</button>';
+      html += '</span>';
+      html += '</li>';
+    }
+    html += '</ul></div></div></div>';
+  }
+
+  // Container info (child states)
+  if (props.states && Object.keys(props.states).length > 0) {
+    html += '<div class="property-section">';
+    html += '<div class="property-section-header">Child States</div>';
+    html += '<div class="property-row"><div class="property-value"><ul class="transition-list">';
+    for (const stateName of Object.keys(props.states)) {
+      html += '<li class="transition-item">' + stateName + '</li>';
+    }
+    html += '</ul></div></div></div>';
+  }
+
+  // Other properties section
+  const skipKeys = ['name', 'type', 'transitions', 'states'];
+  const otherProps = Object.entries(props).filter(([key]) => !skipKeys.includes(key));
+
+  if (otherProps.length > 0) {
+    html += '<div class="property-section">';
+    html += '<div class="property-section-header">Properties</div>';
+
+    for (const [key, value] of otherProps) {
+      html += '<div class="property-row">';
+      html += '<div class="property-label">' + key + '</div>';
+      html += '<div class="property-value">';
+      if (typeof value === 'object' && value !== null) {
+        html += '<pre>' + JSON.stringify(value, null, 2) + '</pre>';
+      } else {
+        html += String(value);
+      }
+      html += '</div></div>';
+    }
+
+    html += '</div>';
+  }
+
+  if (html === '') {
+    html = '<div class="properties-empty">No additional properties</div>';
+  }
+
+  propertiesContent.innerHTML = html;
+
+  // Add event delegation for transition action buttons
+  propertiesContent.querySelectorAll('.transition-action-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const action = btn.dataset.action;
+      const outcome = btn.dataset.outcome;
+      const target = btn.dataset.target;
+
+      if (!currentSmachState) return;
+      const { stateId } = currentSmachState;
+
+      if (action === 'edit-outcome') {
+        handleEditTransitionOutcome(stateId, outcome, target);
+      } else if (action === 'change-target') {
+        handleChangeTransitionTarget(stateId, outcome, target);
+      } else if (action === 'change-target-new') {
+        handleChangeTransitionTargetNew(stateId, outcome, target);
+      } else if (action === 'delete-transition') {
+        handleDeleteTransition(stateId, outcome, target);
+      }
+    });
+  });
+}
+
+function clearPropertiesPane() {
+  if (!propertiesPane) return;
+  propertiesStateName.textContent = 'Select a State';
+  propertiesStateType.textContent = '';
+  propertiesContent.innerHTML = '<div class="properties-empty">Click on a state in the diagram to view its properties</div>';
+  hidePropertiesActions();
+}
+
+// Properties pane actions section
+const propertiesActions = document.getElementById('properties-actions');
+const actionEditName = document.getElementById('action-edit-name');
+const actionAddTransition = document.getElementById('action-add-transition');
+const actionAddTransitionNew = document.getElementById('action-add-transition-new');
+const actionDeleteState = document.getElementById('action-delete-state');
+
+function showPropertiesActions() {
+  if (propertiesActions) {
+    propertiesActions.style.display = 'flex';
+  }
+}
+
+function hidePropertiesActions() {
+  if (propertiesActions) {
+    propertiesActions.style.display = 'none';
+  }
+  currentSmachState = null;
+}
+
+// Wire up action buttons
+if (actionEditName) {
+  actionEditName.addEventListener('click', () => {
+    if (!currentSmachState) return;
+    handleEditStateName();
+  });
+}
+
+if (actionAddTransition) {
+  actionAddTransition.addEventListener('click', () => {
+    if (!currentSmachState) return;
+    handleSmachAddTransition();
+  });
+}
+
+if (actionAddTransitionNew) {
+  actionAddTransitionNew.addEventListener('click', () => {
+    if (!currentSmachState) return;
+    handleSmachAddTransitionToNewState();
+  });
+}
+
+if (actionDeleteState) {
+  actionDeleteState.addEventListener('click', () => {
+    if (!currentSmachState) return;
+    handleSmachDeleteState();
+  });
+}
+
+// ============================================================================
+// SMACH Scroll to Source
+// ============================================================================
+
+// Scroll to a state definition in SMACH YAML
+function scrollToSmachStateInSource(stateId) {
+  const content = getEditorContent();
+  const lines = content.split('\n');
+
+  // Pattern to match state definition: "  StateName:" at proper indentation
+  const pattern = new RegExp('^(\\s*)' + escapeRegex(stateId) + '\\s*:');
+
+  let foundLine = -1;
+  let foundCol = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const match = lines[i].match(pattern);
+    if (match) {
+      foundLine = i;
+      foundCol = match[1].length; // Position after indentation
+      break;
+    }
+  }
+
+  if (foundLine !== -1 && editorView) {
+    let pos = 0;
+    for (let i = 0; i < foundLine; i++) {
+      pos += lines[i].length + 1;
+    }
+    pos += foundCol;
+
+    editorView.dispatch({
+      selection: { anchor: pos, head: pos + stateId.length },
+      scrollIntoView: true,
+    });
+    editorView.focus();
+    highlightLine(foundLine);
+
+    return { lineIndex: foundLine, lineContent: lines[foundLine] };
+  }
+
+  return null;
+}
+
+// Scroll to a transition in SMACH YAML
+function scrollToSmachTransitionInSource(sourceState, targetState, label) {
+  const content = getEditorContent();
+  const lines = content.split('\n');
+
+  // We need to find the transition within the source state's transitions block
+  // First find the source state, then find the transition line
+  let inSourceState = false;
+  let inTransitions = false;
+  let sourceIndent = -1;
+  let transitionsIndent = -1;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trimStart();
+    const indent = line.length - trimmed.length;
+
+    // Check if we're entering the source state
+    if (trimmed.startsWith(sourceState + ':')) {
+      inSourceState = true;
+      sourceIndent = indent;
+      continue;
+    }
+
+    // Check if we've left the source state
+    if (inSourceState && indent <= sourceIndent && trimmed.length > 0) {
+      inSourceState = false;
+      inTransitions = false;
+    }
+
+    // Check if we're entering transitions block
+    if (inSourceState && trimmed === 'transitions:') {
+      inTransitions = true;
+      transitionsIndent = indent;
+      continue;
+    }
+
+    // Check if we've left transitions block
+    if (inTransitions && indent <= transitionsIndent && trimmed.length > 0 && !trimmed.startsWith('transitions:')) {
+      inTransitions = false;
+    }
+
+    // Look for the transition line - either by outcome (label) or target
+    if (inTransitions) {
+      // Match: "outcome: TargetState" or just look for target
+      const transMatch = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*):\s*(.+)$/);
+      if (transMatch) {
+        const outcome = transMatch[1];
+        const target = transMatch[2].trim();
+
+        // Match by label (outcome) if provided, otherwise by target
+        if ((label && outcome === label) || (!label && target === targetState)) {
+          const foundCol = line.indexOf(outcome);
+
+          if (editorView) {
+            let pos = 0;
+            for (let j = 0; j < i; j++) {
+              pos += lines[j].length + 1;
+            }
+            pos += foundCol >= 0 ? foundCol : indent;
+
+            editorView.dispatch({
+              selection: { anchor: pos, head: pos + outcome.length },
+              scrollIntoView: true,
+            });
+            editorView.focus();
+            highlightLine(i);
+          }
+
+          return {
+            stateId: sourceState,
+            outcome: outcome,
+            target: target,
+            lineIndex: i,
+            lineContent: line
+          };
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+// ============================================================================
+// SMACH Menu Utilities (context menus removed - functionality in properties pane)
+// ============================================================================
+
+function hideAllSmachMenus() {
+  hideNodeContextMenu();
+  hideEdgeContextMenu();
+}
+
+// ============================================================================
+// SMACH Action Handlers (for properties pane)
+// ============================================================================
+
+function handleEditStateName() {
+  if (!currentSmachState) return;
+
+  const { stateId, lineIndex, lineContent } = currentSmachState;
+  const props = smachProperties[stateId];
+  const currentName = props ? props.name : stateId;
+
+  const newName = prompt('Enter new state name:', currentName);
+  if (!newName || newName === currentName) return;
+
+  // Validate state name (alphanumeric + underscore, no spaces)
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(newName)) {
+    alert('Invalid state name. Use only letters, numbers, and underscores. Must start with a letter or underscore.');
+    return;
+  }
+
+  const content = getEditorContent();
+  // Replace the state name in the definition and all references
+  let newContent = content;
+
+  // Replace the state definition line
+  const stateDefRegex = new RegExp('^(\\s*)' + currentName + '(\\s*:)', 'gm');
+  newContent = newContent.replace(stateDefRegex, '$1' + newName + '$2');
+
+  // Replace references in initial_state
+  const initialStateRegex = new RegExp('(initial_state\\s*:\\s*)' + currentName + '(\\s*$)', 'gm');
+  newContent = newContent.replace(initialStateRegex, '$1' + newName + '$2');
+
+  // Replace references in transitions
+  const transitionRegex = new RegExp('(:\\s*)' + currentName + '(\\s*$)', 'gm');
+  newContent = newContent.replace(transitionRegex, '$1' + newName + '$2');
+
+  setEditorContent(newContent);
+}
+
+function handleSmachAddTransition() {
+  if (!currentSmachState) return;
+
+  const { stateId } = currentSmachState;
+
+  // Get list of existing states
+  const stateNames = Object.keys(smachProperties).filter(s => s !== stateId);
+
+  if (stateNames.length === 0) {
+    alert('No other states to transition to');
+    return;
+  }
+
+  const outcome = prompt('Enter outcome name (e.g., succeeded, failed):');
+  if (!outcome) return;
+
+  const target = prompt('Enter target state:\n\nAvailable: ' + stateNames.join(', '));
+  if (!target) return;
+
+  addSmachTransition(stateId, outcome, target);
+}
+
+function handleSmachAddTransitionToNewState() {
+  if (!currentSmachState) return;
+
+  const { stateId } = currentSmachState;
+
+  const outcome = prompt('Enter outcome name (e.g., succeeded, failed):');
+  if (!outcome) return;
+
+  const newStateName = prompt('Enter new state name:');
+  if (!newStateName) return;
+
+  // Validate state name
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(newStateName)) {
+    alert('Invalid state name. Use only letters, numbers, and underscores.');
+    return;
+  }
+
+  const stateType = prompt('Enter state type:', 'CallbackState');
+  if (!stateType) return;
+
+  // Create new state and add transition
+  createSmachState(stateId, newStateName, stateType);
+  addSmachTransition(stateId, outcome, newStateName);
+}
+
+function handleSmachDeleteState() {
+  if (!currentSmachState) return;
+
+  const { stateId } = currentSmachState;
+  const props = smachProperties[stateId];
+  const stateName = props ? props.name : stateId;
+
+  if (!confirm('Delete state "' + stateName + '"?\n\nThis will also remove any transitions to this state.')) {
+    return;
+  }
+
+  deleteSmachState(stateId);
+  hidePropertiesActions();
+  clearPropertiesPane();
+}
+
+// Transition action handlers (for properties pane buttons)
+function handleEditTransitionOutcome(stateId, outcome, target) {
+  const newOutcome = prompt('Enter new outcome name:', outcome);
+  if (!newOutcome || newOutcome === outcome) return;
+
+  // Get full content and update both the transition and the outcomes list
+  const content = getEditorContent();
+  let newContent = content;
+
+  // Update the transition line (outcome: target)
+  const transitionRegex = new RegExp('^(\\s*)' + escapeRegex(outcome) + '(\\s*:\\s*)' + escapeRegex(target) + '(\\s*)$', 'gm');
+  newContent = newContent.replace(transitionRegex, '$1' + newOutcome + '$2' + target + '$3');
+
+  // Update the outcomes list
+  const outcomesArrayRegex = new RegExp('(outcomes\\s*:\\s*\\[)([^\\]]*)(\\])', 'g');
+  newContent = newContent.replace(outcomesArrayRegex, (match, prefix, items, suffix) => {
+    const outcomeList = items.split(',').map(s => s.trim());
+    const updatedList = outcomeList.map(o => o === outcome ? newOutcome : o);
+    return prefix + updatedList.join(', ') + suffix;
+  });
+
+  setEditorContent(newContent);
+}
+
+function handleChangeTransitionTarget(stateId, outcome, target) {
+  const stateNames = Object.keys(smachProperties);
+  const props = smachProperties[stateId];
+  const parentOutcomes = props && props.outcomes ? props.outcomes : ['succeeded', 'aborted'];
+
+  const newTarget = prompt('Enter new target:\n\nStates: ' + stateNames.join(', ') + '\nOutcomes: ' + parentOutcomes.join(', '), target);
+
+  if (!newTarget || newTarget === target) return;
+
+  const content = getEditorContent();
+  // Update the transition line
+  const transitionRegex = new RegExp('^(\\s*)' + escapeRegex(outcome) + '(\\s*:\\s*)' + escapeRegex(target) + '(\\s*)$', 'gm');
+  const newContent = content.replace(transitionRegex, '$1' + outcome + '$2' + newTarget + '$3');
+  setEditorContent(newContent);
+}
+
+function handleChangeTransitionTargetNew(stateId, outcome, target) {
+  const choice = prompt('Create new:\n\n1. State\n2. Outcome\n\nEnter 1 or 2:', '1');
+
+  if (choice === '1') {
+    // Create new state
+    const newStateName = prompt('Enter new state name:');
+    if (!newStateName) return;
+
+    // Validate state name
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(newStateName)) {
+      alert('Invalid state name. Use only letters, numbers, and underscores.');
+      return;
+    }
+
+    const stateType = prompt('Enter state type:', 'CallbackState');
+    if (!stateType) return;
+
+    // Create new state and update transition
+    createSmachState(stateId, newStateName, stateType);
+
+    const content = getEditorContent();
+    const transitionRegex = new RegExp('^(\\s*)' + escapeRegex(outcome) + '(\\s*:\\s*)' + escapeRegex(target) + '(\\s*)$', 'gm');
+    const newContent = content.replace(transitionRegex, '$1' + outcome + '$2' + newStateName + '$3');
+    setEditorContent(newContent);
+
+  } else if (choice === '2') {
+    // Create new outcome
+    const newOutcome = prompt('Enter new outcome name (will be added to parent container):');
+    if (!newOutcome) return;
+
+    // Update transition target to the new outcome
+    const content = getEditorContent();
+    let newContent = content;
+
+    // Update the transition line
+    const transitionRegex = new RegExp('^(\\s*)' + escapeRegex(outcome) + '(\\s*:\\s*)' + escapeRegex(target) + '(\\s*)$', 'gm');
+    newContent = newContent.replace(transitionRegex, '$1' + outcome + '$2' + newOutcome + '$3');
+
+    // Add the new outcome to the parent's outcomes list if not already there
+    // Find the state's parent container and add to its outcomes
+    const outcomesArrayRegex = new RegExp('(outcomes\\s*:\\s*\\[)([^\\]]*)(\\])', 'g');
+    let added = false;
+    newContent = newContent.replace(outcomesArrayRegex, (match, prefix, items, suffix) => {
+      const outcomeList = items.split(',').map(s => s.trim());
+      if (!outcomeList.includes(newOutcome) && !added) {
+        outcomeList.push(newOutcome);
+        added = true;
+      }
+      return prefix + outcomeList.join(', ') + suffix;
+    });
+
+    setEditorContent(newContent);
+  }
+}
+
+function handleDeleteTransition(stateId, outcome, target) {
+  if (!confirm('Delete transition "' + outcome + ' → ' + target + '"?')) return;
+
+  const content = getEditorContent();
+  const lines = content.split('\n');
+
+  // Find and remove the transition line
+  const transitionRegex = new RegExp('^\\s*' + escapeRegex(outcome) + '\\s*:\\s*' + escapeRegex(target) + '\\s*$');
+  const newLines = lines.filter(line => !transitionRegex.test(line));
+
+  setEditorContent(newLines.join('\n'));
+}
+
+// Legacy SMACH menu handlers removed - functionality moved to properties pane
+
+// ============================================================================
+// SMACH Edit Helpers
+// ============================================================================
+
+function addSmachTransition(stateId, outcome, target) {
+  const content = getEditorContent();
+  const lines = content.split('\n');
+
+  let inState = false;
+  let inTransitions = false;
+  let stateIndent = -1;
+  let transitionsIndent = -1;
+  let lastTransitionLine = -1;
+  let transitionsBlockExists = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trimStart();
+    const indent = line.length - trimmed.length;
+
+    if (trimmed.startsWith(stateId + ':')) {
+      inState = true;
+      stateIndent = indent;
+      continue;
+    }
+
+    if (inState && indent <= stateIndent && trimmed.length > 0) {
+      // We've left the state block
+      if (!transitionsBlockExists) {
+        // Insert transitions block at the end of the state
+        const transLine = ' '.repeat(stateIndent + 2) + 'transitions:';
+        const newTransLine = ' '.repeat(stateIndent + 4) + outcome + ': ' + target;
+        lines.splice(i, 0, transLine, newTransLine);
+      }
+      break;
+    }
+
+    if (inState && trimmed === 'transitions:') {
+      inTransitions = true;
+      transitionsIndent = indent;
+      transitionsBlockExists = true;
+      lastTransitionLine = i;
+      continue;
+    }
+
+    if (inTransitions) {
+      if (indent > transitionsIndent || trimmed.length === 0) {
+        lastTransitionLine = i;
+      } else {
+        // End of transitions block - insert here
+        const newLine = ' '.repeat(transitionsIndent + 2) + outcome + ': ' + target;
+        lines.splice(lastTransitionLine + 1, 0, newLine);
+        break;
+      }
+    }
+  }
+
+  // If we reached end while still in transitions
+  if (inTransitions && lastTransitionLine !== -1) {
+    const newLine = ' '.repeat(transitionsIndent + 2) + outcome + ': ' + target;
+    lines.splice(lastTransitionLine + 1, 0, newLine);
+  }
+
+  applyEditWithValidation(lines.join('\n'), 'add transition');
+}
+
+function createSmachState(stateName, stateType) {
+  const content = getEditorContent();
+  const lines = content.split('\n');
+
+  // Find the states: block and add a new state at the end
+  let statesIndent = -1;
+  let lastStateLine = -1;
+  let lastStateIndent = -1;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trimStart();
+    const indent = line.length - trimmed.length;
+
+    if (trimmed === 'states:') {
+      statesIndent = indent;
+      continue;
+    }
+
+    if (statesIndent !== -1 && indent === statesIndent + 2 && trimmed.match(/^[A-Za-z_][A-Za-z0-9_]*:/)) {
+      lastStateLine = i;
+      lastStateIndent = indent;
+    }
+  }
+
+  if (lastStateLine !== -1) {
+    // Find the end of the last state
+    let insertLine = lastStateLine + 1;
+    for (let i = lastStateLine + 1; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.trimStart();
+      const indent = line.length - trimmed.length;
+
+      if (trimmed.length === 0) {
+        insertLine = i + 1;
+        continue;
+      }
+
+      if (indent <= lastStateIndent) {
+        insertLine = i;
+        break;
+      }
+      insertLine = i + 1;
+    }
+
+    // Insert new state
+    const newState = [
+      ' '.repeat(lastStateIndent) + stateName + ':',
+      ' '.repeat(lastStateIndent + 2) + 'type: ' + stateType,
+      ' '.repeat(lastStateIndent + 2) + 'transitions:',
+      ' '.repeat(lastStateIndent + 4) + 'succeeded: ' + stateName,
+    ];
+
+    lines.splice(insertLine, 0, '', ...newState);
+  }
+
+  applyEditWithValidation(lines.join('\n'), 'create state');
+}
+
+function deleteSmachState(stateId) {
+  const content = getEditorContent();
+  const lines = content.split('\n');
+
+  let stateStart = -1;
+  let stateEnd = -1;
+  let stateIndent = -1;
+
+  // Find the state block
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trimStart();
+    const indent = line.length - trimmed.length;
+
+    if (trimmed.startsWith(stateId + ':') && stateStart === -1) {
+      stateStart = i;
+      stateIndent = indent;
+      continue;
+    }
+
+    if (stateStart !== -1 && stateIndent !== -1) {
+      if (indent <= stateIndent && trimmed.length > 0) {
+        stateEnd = i;
+        break;
+      }
+    }
+  }
+
+  if (stateStart !== -1) {
+    if (stateEnd === -1) stateEnd = lines.length;
+
+    // Remove blank line before if exists
+    if (stateStart > 0 && lines[stateStart - 1].trim() === '') {
+      stateStart--;
+    }
+
+    lines.splice(stateStart, stateEnd - stateStart);
+
+    // Also remove any transitions pointing to this state
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i];
+      if (line.match(new RegExp(':\\s*' + escapeRegex(stateId) + '\\s*$'))) {
+        lines.splice(i, 1);
+      }
+    }
+  }
+
+  applyEditWithValidation(lines.join('\n'), 'delete state');
+  clearPropertiesPane();
 }
 
 // ============================================================================

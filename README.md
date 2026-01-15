@@ -5,7 +5,7 @@ A real-time Mermaid diagram collaboration server with integrated Model Context P
 ## Features
 
 - **Web Dashboard**: Browse diagrams with thumbnails, search, and filter
-- **Split-Pane Editor**: Live preview with syntax validation, undo/redo, draggable pane separator
+- **Split-Pane Editor**: Live preview with syntax validation, undo/redo, draggable pane separators
 - **Real-Time Collaboration**: WebSocket-based live updates across all connected clients
 - **File-Based Storage**: Simple `.mmd` files for version control and external editing
 - **Syntax Validation**: Block invalid saves with line-specific error reporting
@@ -14,6 +14,9 @@ A real-time Mermaid diagram collaboration server with integrated Model Context P
 - **Pan & Zoom**: Interactive diagram preview with fit controls
 - **Direction Toggle**: Switch between horizontal (LR) and vertical (TD) layouts
 - **Wireframe Plugin**: Built-in support for UI wireframes and mockups
+- **SMACH Transpiler**: Convert ROS SMACH state machine YAML to interactive flowcharts
+- **Interactive Editing**: Click nodes, edges, and containers to edit via properties pane
+- **Document Collaboration**: Create and edit markdown documents alongside diagrams
 - **LAN Accessible**: Share with team members on local network
 
 ## Wireframe Plugin
@@ -67,6 +70,76 @@ The built plugin is automatically copied to `public/js/plugins/mermaid-wireframe
 
 For detailed plugin documentation, see [plugins/wireframe/README.md](plugins/wireframe/README.md).
 
+## SMACH State Machine Transpiler
+
+The editor automatically detects ROS SMACH state machine YAML files and transpiles them to interactive Mermaid flowcharts. This allows visualization and editing of complex robotics state machines.
+
+### Quick Example
+
+```yaml
+smach_diagram:
+  MyStateMachine:
+    type: StateMachine
+    outcomes: [succeeded, aborted]
+    initial_state: Initialize
+    states:
+      Initialize:
+        type: CallbackState
+        transitions:
+          succeeded: ProcessData
+          failed: aborted
+      ProcessData:
+        type: SimpleActionState
+        transitions:
+          succeeded: succeeded
+          aborted: aborted
+```
+
+### Supported State Types
+
+| State Type | Shape | Description |
+|------------|-------|-------------|
+| StateMachine, Concurrence | Subgraph | Container states with child states |
+| SimpleActionState, ServoActionState | Stadium | Action states (ROS actions) |
+| MonitorState, SimpleServiceState | Hexagon | Monitor/service states |
+| CallbackState, DelayState | Rounded | Utility states |
+| ConditionState | Diamond | Decision/condition states |
+| ExecuteSupplementalState, JoinState | Parallelogram | Background execution |
+| FactoryState, BehaviorTreeState | Trapezoid | Advanced states |
+
+### Interactive Editing
+
+When viewing a SMACH diagram, click on any state or container to:
+- View state properties in the right pane
+- Edit state name
+- Add/modify transitions
+- Delete states
+
+Transitions can be edited inline with buttons for:
+- **E** - Edit outcome name
+- **→** - Change target to existing state
+- **+** - Change target to new state
+- **×** - Delete transition
+
+## Document Collaboration
+
+In addition to diagrams, the server supports markdown documents for design specs, notes, and documentation.
+
+### MCP Tools for Documents
+
+- `list_documents()` - List all documents with metadata
+- `get_document(id)` - Read document content
+- `create_document(name, content)` - Create new document
+- `update_document(id, content)` - Update existing document
+- `preview_document(id)` - Get browser URL for document
+
+### Document Storage
+
+Documents are stored as `.md` files in the `documents/` folder and support:
+- Real-time collaboration via WebSocket
+- Markdown preview with syntax highlighting
+- Version control friendly plain text format
+
 ## Quick Start
 
 ### Installation
@@ -101,24 +174,40 @@ See [docs/MCP_SETUP.md](docs/MCP_SETUP.md) for Claude Code configuration.
 - Click to open in editor
 - Connection status indicator (top-right)
 
-**Editor** (`http://localhost:3737/diagram.html?id=<diagram-id>`)
-- Split-pane: code on left, preview on right
+**Diagram Editor** (`http://localhost:3737/diagram.html?id=<diagram-id>`)
+- Three-pane layout: code editor, diagram preview, properties pane
+- Draggable dividers to resize panes
 - Auto-save with 500ms debounce
 - Undo/Redo (Ctrl+Z / Ctrl+Shift+Z)
+- Click nodes/edges/containers to view and edit properties
 - Theme switcher (default, dark, forest, neutral)
 - Export SVG/PNG
 - Pan and zoom preview
+- SMACH YAML auto-detection and transpilation
+
+**Document Editor** (`http://localhost:3737/document.html?id=<document-id>`)
+- Split-pane: markdown editor and live preview
+- Real-time collaboration via WebSocket
+- Auto-save with debounce
 
 ### MCP Tools (via Claude Code)
 
-Claude Code can manage diagrams through six MCP tools:
+Claude Code can manage diagrams and documents through MCP tools:
 
+**Diagram Tools:**
 - `list_diagrams()` - List all diagrams with metadata
 - `get_diagram(id)` - Read diagram content
 - `create_diagram(name, content)` - Create new diagram (validates first)
 - `update_diagram(id, content)` - Update existing diagram (validates first)
 - `validate_diagram(content)` - Check Mermaid syntax without saving
 - `preview_diagram(id)` - Get browser URL for diagram
+
+**Document Tools:**
+- `list_documents()` - List all documents with metadata
+- `get_document(id)` - Read document content
+- `create_document(name, content)` - Create new document
+- `update_document(id, content)` - Update existing document
+- `preview_document(id)` - Get browser URL for document
 
 See [docs/MCP_SETUP.md](docs/MCP_SETUP.md) for detailed MCP usage.
 
@@ -217,10 +306,12 @@ DIAGRAMS_FOLDER=./diagrams   # Diagram storage path (default: ./diagrams)
 
 ### Services
 
-- **DiagramManager**: CRUD operations with in-memory indexing
+- **DiagramManager**: Diagram CRUD operations with in-memory indexing
+- **DocumentManager**: Document CRUD operations for markdown files
+- **SmachTranspiler**: Converts SMACH YAML to Mermaid flowcharts
 - **Validator**: Mermaid syntax validation via `mermaid.parse()`
 - **Renderer**: Server-side SVG generation with jsdom
-- **FileWatcher**: Monitors `.mmd` files with chokidar
+- **FileWatcher**: Monitors `.mmd` and `.md` files with chokidar
 - **WebSocketHandler**: Real-time update broadcasting
 
 ### File Structure
@@ -233,9 +324,11 @@ DIAGRAMS_FOLDER=./diagrams   # Diagram storage path (default: ./diagrams)
 │   ├── server.ts              # Main web server
 │   ├── services/
 │   │   ├── diagram-manager.ts # CRUD operations
+│   │   ├── document-manager.ts # Document CRUD operations
 │   │   ├── validator.ts       # Syntax validation
 │   │   ├── renderer.ts        # SVG rendering
 │   │   ├── file-watcher.ts    # File monitoring
+│   │   ├── smach-transpiler.ts # SMACH YAML to Mermaid transpiler
 │   │   └── dom-setup.ts       # jsdom polyfill
 │   ├── websocket/
 │   │   └── handler.ts         # WebSocket management
@@ -251,16 +344,19 @@ DIAGRAMS_FOLDER=./diagrams   # Diagram storage path (default: ./diagrams)
 │       └── rollup.config.js   # Build configuration
 ├── public/
 │   ├── index.html             # Dashboard
-│   ├── diagram.html           # Editor
+│   ├── diagram.html           # Diagram editor
+│   ├── document.html          # Document editor
 │   ├── css/
 │   │   └── styles.css         # Global styles
 │   └── js/
 │       ├── api-client.js      # HTTP & WebSocket client
 │       ├── dashboard.js       # Dashboard logic
-│       ├── editor.js          # Editor logic
+│       ├── editor.js          # Diagram editor logic
+│       ├── smach-transpiler.js # Client-side SMACH transpiler
 │       └── plugins/
 │           └── mermaid-wireframe.js  # Built wireframe plugin
-└── diagrams/                  # Diagram storage (.mmd files)
+├── diagrams/                  # Diagram storage (.mmd files)
+└── documents/                 # Document storage (.md files)
 ```
 
 ## Development

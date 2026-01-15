@@ -168,6 +168,236 @@
       height: 100%;
     }
 
+    /* SMACH Properties Pane */
+    .properties-pane {
+      width: 280px;
+      min-width: 200px;
+      max-width: 500px;
+      display: none;
+      flex-direction: column;
+      background: var(--bg-secondary);
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    .properties-pane.visible {
+      display: flex;
+    }
+
+
+    .properties-header {
+      padding: 16px;
+      border-bottom: 1px solid var(--border-color);
+      background: var(--toolbar-bg);
+    }
+
+    .properties-header h3 {
+      margin: 0 0 4px 0;
+      font-size: 14px;
+      color: var(--text-primary);
+      word-break: break-word;
+    }
+
+    .properties-header .state-type {
+      font-size: 12px;
+      color: var(--accent-color);
+      font-weight: 600;
+    }
+
+    .properties-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0;
+    }
+
+    .properties-empty {
+      padding: 20px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+
+    .property-section {
+      border-bottom: 1px solid var(--border-light);
+    }
+
+    .property-section-header {
+      padding: 10px 16px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      background: var(--bg-tertiary);
+      letter-spacing: 0.5px;
+    }
+
+    .property-row {
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border-light);
+    }
+
+    .property-row:last-child {
+      border-bottom: none;
+    }
+
+    .property-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .property-value {
+      font-size: 13px;
+      color: var(--text-primary);
+      word-break: break-word;
+    }
+
+    .property-value pre {
+      margin: 4px 0 0 0;
+      padding: 8px;
+      background: var(--bg-tertiary);
+      border-radius: 4px;
+      font-size: 11px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .property-value .transition-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .property-value .transition-item {
+      padding: 6px 8px;
+      margin: 4px 0;
+      background: var(--bg-tertiary);
+      border-radius: 4px;
+      font-size: 12px;
+    }
+
+    .property-value .transition-outcome {
+      color: var(--accent-color);
+      font-weight: 600;
+    }
+
+    .property-value .transition-arrow {
+      color: var(--text-muted);
+      margin: 0 6px;
+    }
+
+    .property-value .transition-target {
+      color: var(--text-primary);
+    }
+
+    .property-value .transition-item {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .property-value .transition-info {
+      display: flex;
+      align-items: center;
+    }
+
+    .property-value .transition-actions {
+      display: flex;
+      gap: 4px;
+    }
+
+    .property-value .transition-action-btn {
+      padding: 3px 8px;
+      font-size: 11px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: 3px;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .property-value .transition-action-btn:hover {
+      background: var(--accent-color);
+      border-color: var(--accent-color);
+      color: white;
+    }
+
+    .property-value .transition-action-btn.danger:hover {
+      background: #e74c3c;
+      border-color: #e74c3c;
+    }
+
+    /* Resizable divider */
+    .properties-divider {
+      width: 4px;
+      background: var(--border-color);
+      cursor: col-resize;
+      flex-shrink: 0;
+      transition: background 0.15s ease;
+      display: none;
+    }
+
+    .properties-divider.visible {
+      display: block;
+    }
+
+    .properties-divider:hover,
+    .properties-divider.dragging {
+      background: var(--accent-color);
+    }
+
+    /* Properties Pane Actions */
+    .properties-actions {
+      border-top: 1px solid var(--border-color);
+      padding: 12px;
+      background: var(--toolbar-bg);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .properties-actions-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+
+    .properties-action-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      color: var(--text-primary);
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .properties-action-btn:hover {
+      background: var(--accent-color);
+      border-color: var(--accent-color);
+      color: white;
+    }
+
+    .properties-action-btn.danger:hover {
+      background: #e74c3c;
+      border-color: #e74c3c;
+    }
+
+    .properties-action-btn span {
+      font-size: 14px;
+    }
+
     /* Syntax Help Modal */
     .syntax-modal {
       display: none;
@@ -469,6 +699,35 @@
       <div class="preview-pane">
         <div class="preview-container" id="preview"></div>
       </div>
+
+      <div class="properties-divider" id="properties-divider"></div>
+
+      <div class="properties-pane" id="properties-pane">
+        <div class="properties-header">
+          <h3 id="properties-state-name">Select a State</h3>
+          <div class="state-type" id="properties-state-type"></div>
+        </div>
+        <div class="properties-content" id="properties-content">
+          <div class="properties-empty">
+            Click on a state in the diagram to view its properties
+          </div>
+        </div>
+        <div class="properties-actions" id="properties-actions" style="display: none;">
+          <div class="properties-actions-title">Actions</div>
+          <button class="properties-action-btn" id="action-edit-name">
+            <span>&#9998;</span> Edit State Name
+          </button>
+          <button class="properties-action-btn" id="action-add-transition">
+            <span>&#10140;</span> Add Transition
+          </button>
+          <button class="properties-action-btn" id="action-add-transition-new">
+            <span>&#10133;</span> Add Transition to New State
+          </button>
+          <button class="properties-action-btn danger" id="action-delete-state">
+            <span>&#128465;</span> Delete State
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -535,6 +794,8 @@
     <span id="mode-indicator-text">Click a node to set as new destination</span>
     <button id="mode-cancel">Cancel</button>
   </div>
+
+  <!-- SMACH menus removed - functionality moved to properties pane -->
 
   <script type="module" src="/js/api-client.js"></script>
   <script type="module" src="/js/editor.js"></script>
