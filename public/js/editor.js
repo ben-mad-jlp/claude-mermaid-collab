@@ -1,6 +1,7 @@
 import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
 import * as wireframe from './plugins/mermaid-wireframe.js';
 import { transpile, isSmachYaml, getAllProperties } from './smach-transpiler.js';
+import jsYaml from 'https://esm.sh/js-yaml@4';
 import APIClient from './api-client.js';
 import { EditorView } from 'https://esm.sh/@codemirror/view@6';
 import { EditorState } from 'https://esm.sh/@codemirror/state@6';
@@ -430,6 +431,8 @@ async function renderPreview(preserveZoom = true) {
         smachProperties = result.properties;
         showPropertiesPane();
         clearPropertiesPane();
+        // Hide Add Node button in SMACH mode (not applicable)
+        if (createNodeBtn) createNodeBtn.style.display = 'none';
       } catch (transpileError) {
         showError('SMACH YAML Error: ' + transpileError.message);
         return;
@@ -437,6 +440,8 @@ async function renderPreview(preserveZoom = true) {
     } else {
       smachProperties = {};
       hidePropertiesPane();
+      // Show Add Node button in non-SMACH mode
+      if (createNodeBtn) createNodeBtn.style.display = '';
     }
 
     const { svg } = await mermaid.render('preview-diagram', contentToRender);
@@ -3035,6 +3040,39 @@ function toggleDirection() {
   scheduleAutoSave();
 }
 
+// Format SMACH YAML with proper indentation
+function formatSmachYaml() {
+  try {
+    // Parse the YAML
+    const parsed = jsYaml.load(currentContent);
+
+    if (!parsed || !parsed.smach_diagram) {
+      showError('Invalid SMACH YAML: missing smach_diagram root');
+      setTimeout(hideError, 3000);
+      return;
+    }
+
+    // Re-serialize with proper indentation (2 spaces)
+    const formatted = jsYaml.dump(parsed, {
+      indent: 2,
+      lineWidth: -1,  // Don't wrap lines
+      noRefs: true,   // Don't use YAML references
+      sortKeys: false, // Preserve key order
+      quotingType: '"',
+      forceQuotes: false,
+    });
+
+    // Apply the formatted content
+    pushUndo(currentContent);
+    currentContent = formatted;
+    setEditorContent(currentContent);
+    renderPreview();
+  } catch (error) {
+    showError('YAML format error: ' + error.message);
+    setTimeout(hideError, 3000);
+  }
+}
+
 // Format/organize Mermaid code
 function formatMermaidCode() {
   const lines = currentContent.split('\n');
@@ -3406,7 +3444,13 @@ zoomFitWidthBtn.addEventListener('click', zoomFitWidth);
 zoomFitHeightBtn.addEventListener('click', zoomFitHeight);
 toggleDirectionBtn.addEventListener('click', toggleDirection);
 refreshPreviewBtn.addEventListener('click', () => renderPreview());
-formatCodeBtn.addEventListener('click', formatMermaidCode);
+formatCodeBtn.addEventListener('click', () => {
+  if (isSmachMode) {
+    formatSmachYaml();
+  } else {
+    formatMermaidCode();
+  }
+});
 
 // Create New Node button handler
 createNodeBtn.addEventListener('click', async () => {
