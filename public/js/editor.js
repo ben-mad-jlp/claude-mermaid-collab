@@ -1698,8 +1698,9 @@ function handleSmachAddTransitionToNewState() {
   if (!stateType) return;
 
   // Create new state and add transition in one operation
+  // Pass stateId so new state is created as sibling of source state
   let content = getEditorContent();
-  content = createSmachStateInContent(content, newStateName, stateType);
+  content = createSmachStateInContent(content, newStateName, stateType, stateId);
   content = addSmachTransitionInContent(content, stateId, outcome, newStateName);
   applyEditWithValidation(content, 'add transition to new state');
 }
@@ -1777,13 +1778,12 @@ function handleChangeTransitionTargetNew(stateId, outcome, target) {
     const stateType = promptForStateType();
     if (!stateType) return;
 
-    // Create new state and update transition
-    createSmachState(newStateName, stateType);
-
-    const content = getEditorContent();
+    // Create new state and update transition in one operation
+    let content = getEditorContent();
+    content = createSmachStateInContent(content, newStateName, stateType, stateId);
     const transitionRegex = new RegExp('^(\\s*)' + escapeRegex(outcome) + '(\\s*:\\s*)' + escapeRegex(target) + '(\\s*)$', 'gm');
-    const newContent = content.replace(transitionRegex, '$1' + outcome + '$2' + newStateName + '$3');
-    setEditorContent(newContent);
+    content = content.replace(transitionRegex, '$1' + outcome + '$2' + newStateName + '$3');
+    applyEditWithValidation(content, 'change target to new state');
 
   } else if (choice === '2') {
     // Create new outcome
@@ -1903,59 +1903,90 @@ function addSmachTransition(stateId, outcome, target) {
 }
 
 // Helper: create state in content and return modified content
-function createSmachStateInContent(content, stateName, stateType) {
+// If siblingStateId is provided, creates new state as sibling of that state
+function createSmachStateInContent(content, stateName, stateType, siblingStateId) {
   const lines = content.split('\n');
 
-  // Find the states: block and add a new state at the end
-  let statesIndent = -1;
-  let lastStateLine = -1;
-  let lastStateIndent = -1;
+  let targetIndent = -1;
+  let insertAfterLine = -1;
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trimStart();
-    const indent = line.length - trimmed.length;
+  if (siblingStateId) {
+    // Find the sibling state and use its indentation
+    let inSiblingState = false;
+    let siblingIndent = -1;
 
-    if (trimmed === 'states:') {
-      statesIndent = indent;
-      continue;
-    }
-
-    if (statesIndent !== -1 && indent === statesIndent + 2 && trimmed.match(/^[A-Za-z_][A-Za-z0-9_]*:/)) {
-      lastStateLine = i;
-      lastStateIndent = indent;
-    }
-  }
-
-  if (lastStateLine !== -1) {
-    // Find the end of the last state
-    let insertLine = lastStateLine + 1;
-    for (let i = lastStateLine + 1; i < lines.length; i++) {
+    for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const trimmed = line.trimStart();
       const indent = line.length - trimmed.length;
 
-      if (trimmed.length === 0) {
-        insertLine = i + 1;
+      if (trimmed.startsWith(siblingStateId + ':')) {
+        inSiblingState = true;
+        siblingIndent = indent;
+        targetIndent = indent;
         continue;
       }
 
-      if (indent <= lastStateIndent) {
-        insertLine = i;
-        break;
+      if (inSiblingState) {
+        if (indent <= siblingIndent && trimmed.length > 0) {
+          // Found end of sibling state - insert before this line
+          insertAfterLine = i - 1;
+          break;
+        }
+        insertAfterLine = i;
       }
-      insertLine = i + 1;
+    }
+  } else {
+    // No sibling specified - find the first states: block and add at end
+    let statesIndent = -1;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.trimStart();
+      const indent = line.length - trimmed.length;
+
+      if (trimmed === 'states:') {
+        statesIndent = indent;
+        targetIndent = statesIndent + 2;
+        continue;
+      }
+
+      if (statesIndent !== -1 && indent === statesIndent + 2 && trimmed.match(/^[A-Za-z_][A-Za-z0-9_]*:/)) {
+        insertAfterLine = i;
+      }
     }
 
-    // Insert new state
+    // Find end of the last state at this level
+    if (insertAfterLine !== -1) {
+      for (let i = insertAfterLine + 1; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trimStart();
+        const indent = line.length - trimmed.length;
+
+        if (trimmed.length === 0) {
+          insertAfterLine = i;
+          continue;
+        }
+
+        if (indent <= targetIndent) {
+          break;
+        }
+        insertAfterLine = i;
+      }
+    }
+  }
+
+  if (targetIndent !== -1 && insertAfterLine !== -1) {
+    // Insert new state after the found position
     const newState = [
-      ' '.repeat(lastStateIndent) + stateName + ':',
-      ' '.repeat(lastStateIndent + 2) + 'type: ' + stateType,
-      ' '.repeat(lastStateIndent + 2) + 'transitions:',
-      ' '.repeat(lastStateIndent + 4) + 'succeeded: succeeded',
+      '',
+      ' '.repeat(targetIndent) + stateName + ':',
+      ' '.repeat(targetIndent + 2) + 'type: ' + stateType,
+      ' '.repeat(targetIndent + 2) + 'transitions:',
+      ' '.repeat(targetIndent + 4) + 'succeeded: succeeded',
     ];
 
-    lines.splice(insertLine, 0, '', ...newState);
+    lines.splice(insertAfterLine + 1, 0, ...newState);
   }
 
   return lines.join('\n');
