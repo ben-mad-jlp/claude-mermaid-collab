@@ -1697,9 +1697,11 @@ function handleSmachAddTransitionToNewState() {
   const stateType = promptForStateType();
   if (!stateType) return;
 
-  // Create new state and add transition
-  createSmachState(newStateName, stateType);
-  addSmachTransition(stateId, outcome, newStateName);
+  // Create new state and add transition in one operation
+  let content = getEditorContent();
+  content = createSmachStateInContent(content, newStateName, stateType);
+  content = addSmachTransitionInContent(content, stateId, outcome, newStateName);
+  applyEditWithValidation(content, 'add transition to new state');
 }
 
 function handleSmachDeleteState() {
@@ -1832,8 +1834,8 @@ function handleDeleteTransition(stateId, outcome, target) {
 // SMACH Edit Helpers
 // ============================================================================
 
-function addSmachTransition(stateId, outcome, target) {
-  const content = getEditorContent();
+// Helper: add transition to content and return modified content
+function addSmachTransitionInContent(content, stateId, outcome, target) {
   const lines = content.split('\n');
 
   let inState = false;
@@ -1891,11 +1893,17 @@ function addSmachTransition(stateId, outcome, target) {
     lines.splice(lastTransitionLine + 1, 0, newLine);
   }
 
-  applyEditWithValidation(lines.join('\n'), 'add transition');
+  return lines.join('\n');
 }
 
-function createSmachState(stateName, stateType) {
+function addSmachTransition(stateId, outcome, target) {
   const content = getEditorContent();
+  const newContent = addSmachTransitionInContent(content, stateId, outcome, target);
+  applyEditWithValidation(newContent, 'add transition');
+}
+
+// Helper: create state in content and return modified content
+function createSmachStateInContent(content, stateName, stateType) {
   const lines = content.split('\n');
 
   // Find the states: block and add a new state at the end
@@ -1950,7 +1958,13 @@ function createSmachState(stateName, stateType) {
     lines.splice(insertLine, 0, '', ...newState);
   }
 
-  applyEditWithValidation(lines.join('\n'), 'create state');
+  return lines.join('\n');
+}
+
+function createSmachState(stateName, stateType) {
+  const content = getEditorContent();
+  const newContent = createSmachStateInContent(content, stateName, stateType);
+  applyEditWithValidation(newContent, 'create state');
 }
 
 function deleteSmachState(stateId) {
