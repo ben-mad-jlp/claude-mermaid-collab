@@ -545,6 +545,10 @@ function setupClickToSource(svgElement) {
         else if (isAddingTransition) {
           handleAddTransitionDestination(nodeId);
         }
+        // Check if we're selecting a SMACH transition target
+        else if (isSelectingSmachTarget) {
+          handleSmachTargetSelection(nodeId);
+        }
         else {
           // Check if we're in SMACH mode
           if (isSmachMode) {
@@ -1055,7 +1059,7 @@ modeCancel.addEventListener('click', () => {
 
 // Also cancel on Escape key
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && (isSelectingDestination || isSelectingOrigin || isAddingTransition)) {
+  if (e.key === 'Escape' && (isSelectingDestination || isSelectingOrigin || isAddingTransition || isSelectingSmachTarget)) {
     exitDestinationMode();
   }
 });
@@ -1064,6 +1068,8 @@ function exitDestinationMode() {
   isSelectingDestination = false;
   isSelectingOrigin = false;
   isAddingTransition = false;
+  isSelectingSmachTarget = false;
+  currentSmachTransition = null;
   pendingTransitionLabel = '';
   pendingSourceNode = null;
   modeIndicator.classList.remove('visible');
@@ -1746,19 +1752,39 @@ function handleEditTransitionOutcome(stateId, outcome, target) {
 }
 
 function handleChangeTransitionTarget(stateId, outcome, target) {
-  const stateNames = Object.keys(smachProperties);
-  const props = smachProperties[stateId];
-  const parentOutcomes = props && props.outcomes ? props.outcomes : ['succeeded', 'aborted'];
+  // Enter selection mode - user will click on a state or outcome node
+  currentSmachTransition = { stateId, outcome, target };
+  isSelectingSmachTarget = true;
 
-  const newTarget = prompt('Enter new target:\n\nStates: ' + stateNames.join(', ') + '\nOutcomes: ' + parentOutcomes.join(', '), target);
+  document.getElementById('mode-indicator-text').textContent = 'Click a state or outcome to set as new target';
+  modeIndicator.classList.add('visible');
+}
 
-  if (!newTarget || newTarget === target) return;
+// Handle node click when in SMACH target selection mode
+function handleSmachTargetSelection(nodeId) {
+  if (!isSelectingSmachTarget || !currentSmachTransition) return false;
+
+  const { stateId, outcome, target } = currentSmachTransition;
+
+  // Check if clicked node is valid (exists in smachProperties or is an outcome)
+  // Outcome nodes have IDs like "_OUT_succeeded" or "container_OUT_succeeded"
+  const isOutcome = nodeId.includes('_OUT_');
+  const outcomeName = isOutcome ? nodeId.split('_OUT_')[1] : null;
+  const newTarget = outcomeName || nodeId;
+
+  if (newTarget === target) {
+    exitDestinationMode();
+    return true;
+  }
 
   const content = getEditorContent();
   // Update the transition line
   const transitionRegex = new RegExp('^(\\s*)' + escapeRegex(outcome) + '(\\s*:\\s*)' + escapeRegex(target) + '(\\s*)$', 'gm');
   const newContent = content.replace(transitionRegex, '$1' + outcome + '$2' + newTarget + '$3');
   setEditorContent(newContent);
+
+  exitDestinationMode();
+  return true;
 }
 
 function handleChangeTransitionTargetNew(stateId, outcome, target) {
