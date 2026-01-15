@@ -1135,6 +1135,12 @@ edgeDelete.addEventListener('click', async () => {
 // Validate mermaid content before applying
 async function validateMermaid(content) {
   try {
+    // Check for SMACH YAML first - skip Mermaid validation
+    // The transpiler will handle SMACH validation when rendering
+    if (isSmachYaml(content)) {
+      return { valid: true };
+    }
+
     // Use mermaid's parse function to validate without rendering
     await mermaid.parse(content);
     return { valid: true };
