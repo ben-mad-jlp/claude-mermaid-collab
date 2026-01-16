@@ -1,7 +1,12 @@
 import APIClient from './api-client.js';
 import { initTheme, toggleTheme } from './theme.js?v=4';
+import { transpile, isSmachYaml } from './smach-transpiler.js';
+import * as wireframe from './plugins/mermaid-wireframe.js';
 
 const api = new APIClient();
+
+// Thumbnail cache key prefix
+const THUMBNAIL_CACHE_PREFIX = 'mermaid-thumb-';
 let diagrams = [];
 let documents = [];
 let metadata = { folders: [], items: {} };
@@ -82,9 +87,137 @@ function getItemMeta(id) {
   return metadata.items[id] || { folder: null, locked: false };
 }
 
-// Check if content is SMACH YAML
-function isSmachYaml(content) {
+// Check if content is SMACH YAML (local version for type detection)
+function isSmachContent(content) {
   return /^\s*smach_diagram\s*:/m.test(content);
+}
+
+// Initialize mermaid for thumbnails
+let mermaidInitialized = false;
+let mermaidInitPromise = null;
+async function initMermaid() {
+  if (mermaidInitialized) return;
+  if (mermaidInitPromise) return mermaidInitPromise;
+
+  mermaidInitPromise = (async () => {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: 'default',
+      securityLevel: 'loose',
+    });
+    // Register wireframe plugin for wireframe diagrams
+    await mermaid.registerExternalDiagrams([wireframe]);
+    mermaidInitialized = true;
+  })();
+
+  return mermaidInitPromise;
+}
+
+// Simple hash function for cache keys
+function hashContent(content) {
+  let hash = 0;
+  for (let i = 0; i < content.length; i++) {
+    const char = content.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return hash.toString(36);
+}
+
+// Get cached thumbnail
+function getCachedThumbnail(diagramId, content) {
+  const key = THUMBNAIL_CACHE_PREFIX + diagramId + '-' + hashContent(content);
+  try {
+    return localStorage.getItem(key);
+  } catch (e) {
+    return null;
+  }
+}
+
+// Cache thumbnail
+function cacheThumbnail(diagramId, content, svg) {
+  const key = THUMBNAIL_CACHE_PREFIX + diagramId + '-' + hashContent(content);
+  try {
+    localStorage.setItem(key, svg);
+  } catch (e) {
+    // localStorage might be full, try to clean old entries
+    cleanThumbnailCache();
+    try {
+      localStorage.setItem(key, svg);
+    } catch (e2) {
+      // Still failed, ignore
+    }
+  }
+}
+
+// Clean old thumbnail cache entries
+function cleanThumbnailCache() {
+  const keysToRemove = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith(THUMBNAIL_CACHE_PREFIX)) {
+      keysToRemove.push(key);
+    }
+  }
+  // Remove half the cached thumbnails (oldest first would be better but we don't track order)
+  const removeCount = Math.ceil(keysToRemove.length / 2);
+  for (let i = 0; i < removeCount; i++) {
+    localStorage.removeItem(keysToRemove[i]);
+  }
+}
+
+// Render thumbnails client-side using Mermaid
+async function renderThumbnails(items) {
+  await initMermaid();
+
+  // Build a map of diagram content
+  const diagramContent = {};
+  for (const item of items) {
+    if (item.type === 'diagram' || item.type === 'smach') {
+      diagramContent[item.id] = item.content;
+    }
+  }
+
+  // Render each thumbnail
+  const thumbnailElements = document.querySelectorAll('.mermaid-thumbnail');
+  for (const el of thumbnailElements) {
+    const diagramId = el.dataset.diagramId;
+    let content = diagramContent[diagramId];
+
+    if (!content) continue;
+
+    // Transpile SMACH if needed (for both cache key and rendering)
+    let renderContent = content;
+    if (isSmachYaml(content)) {
+      try {
+        const result = transpile(content);
+        renderContent = result.mermaid;
+      } catch (e) {
+        el.innerHTML = '<div style="color: var(--text-secondary); font-size: 12px; padding: 8px;">SMACH error</div>';
+        continue;
+      }
+    }
+
+    // Check cache first
+    const cached = getCachedThumbnail(diagramId, content);
+    if (cached) {
+      el.innerHTML = cached;
+      continue;
+    }
+
+    try {
+      // Render with unique ID
+      const uniqueId = `thumb-${diagramId}-${Date.now()}`;
+      const { svg } = await mermaid.render(uniqueId, renderContent);
+      el.innerHTML = svg;
+      // Cache the result
+      cacheThumbnail(diagramId, content, svg);
+    } catch (error) {
+      // Show error placeholder
+      el.innerHTML = '<div style="color: var(--text-secondary); font-size: 12px; padding: 8px;">Preview unavailable</div>';
+      console.error(`Failed to render thumbnail for ${diagramId}:`, error);
+    }
+  }
 }
 
 // Get preview text for document (first ~100 chars or first heading)
@@ -116,7 +249,7 @@ function renderGrid() {
   // Process diagrams - detect SMACH type
   const processedDiagrams = diagrams.map(d => ({
     ...d,
-    type: isSmachYaml(d.content) ? 'smach' : 'diagram',
+    type: isSmachContent(d.content) ? 'smach' : 'diagram',
     displayName: d.name.replace('.mmd', ''),
   }));
 
@@ -231,11 +364,11 @@ function renderGrid() {
       const badgeClass = item.type === 'smach' ? 'smach' : 'diagram';
       const badgeText = item.type === 'smach' ? 'SMACH' : 'Diagram';
       return `
-        <div class="item-card ${lockedClass}" data-id="${item.id}" data-type="diagram">
+        <div class="item-card ${lockedClass}" data-id="${item.id}" data-type="diagram" data-content-type="${item.type}">
           <span class="type-badge ${badgeClass}">${badgeText}</span>
           <button class="delete-btn" data-id="${item.id}" data-type="diagram" title="${deleteTitle}">×</button>
           <div class="item-thumbnail">
-            <img src="${api.getThumbnailURL(item.id)}" alt="${item.displayName}">
+            <div class="mermaid-thumbnail" data-diagram-id="${item.id}"></div>
           </div>
           <div class="item-info">
             <div class="item-name">${item.displayName}</div>
@@ -271,6 +404,9 @@ function renderGrid() {
   }).join('');
 
   grid.innerHTML = folderCardsHtml + itemCardsHtml;
+
+  // Render thumbnails client-side
+  renderThumbnails(items);
 
   // Add click handlers for folder cards
   document.querySelectorAll('.folder-card').forEach(card => {

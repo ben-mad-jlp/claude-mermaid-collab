@@ -4,6 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Mermaid Collaboration - Dashboard</title>
+  <script type="importmap">
+  {
+    "imports": {
+      "d3": "https://cdn.jsdelivr.net/npm/d3@7/+esm"
+    }
+  }
+  </script>
   <link rel="stylesheet" href="/css/styles.css">
   <style>
     .diagram-grid {
@@ -201,6 +208,20 @@
     }
 
     .item-thumbnail img {
+      max-width: 100%;
+      max-height: 100%;
+    }
+
+    .item-thumbnail .mermaid-thumbnail {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .item-thumbnail .mermaid-thumbnail svg {
       max-width: 100%;
       max-height: 100%;
     }
@@ -466,6 +487,7 @@
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
   <script type="module" src="/js/api-client.js"></script>
   <script type="module" src="/js/dashboard.js"></script>
 </body>
