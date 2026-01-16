@@ -56,6 +56,113 @@
       background: rgba(211, 47, 47, 1);
     }
 
+    .delete-btn.disabled {
+      background: rgba(158, 158, 158, 0.6);
+      cursor: not-allowed;
+    }
+
+    .card-bottom-btn {
+      position: absolute;
+      bottom: 8px;
+      width: 28px;
+      height: 28px;
+      border: 1px solid var(--border-color);
+      background: var(--card-bg);
+      color: var(--text-secondary);
+      border-radius: 4px;
+      font-size: 16px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transition: opacity 0.2s, background 0.2s;
+      z-index: 10;
+    }
+
+    .item-card:hover .card-bottom-btn {
+      opacity: 1;
+    }
+
+    .card-bottom-btn:hover {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+    }
+
+    .lock-btn {
+      right: 8px;
+    }
+
+    .move-btn {
+      left: 8px;
+    }
+
+    .item-card.locked .lock-btn {
+      opacity: 1;
+      color: var(--text-primary);
+    }
+
+    .item-card.locked .delete-btn {
+      background: rgba(158, 158, 158, 0.6);
+      cursor: not-allowed;
+    }
+
+    .move-dropdown {
+      position: absolute;
+      bottom: 40px;
+      left: 8px;
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      box-shadow: 0 4px 12px var(--shadow-color);
+      min-width: 140px;
+      z-index: 100;
+      display: none;
+    }
+
+    .move-dropdown.open {
+      display: block;
+    }
+
+    .move-dropdown button {
+      display: block;
+      width: 100%;
+      padding: 8px 12px;
+      border: none;
+      background: none;
+      color: var(--text-primary);
+      text-align: left;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    .move-dropdown button:hover {
+      background: var(--bg-tertiary);
+    }
+
+    .move-dropdown hr {
+      margin: 4px 0;
+      border: none;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .type-badge.folder {
+      background: #5d4037;
+      color: white;
+    }
+
+    .folder-thumbnail {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 64px;
+      color: var(--text-secondary);
+    }
+
+    .folder-card.parent-folder .folder-thumbnail {
+      font-size: 48px;
+    }
+
     .type-badge {
       position: absolute;
       top: 8px;
@@ -78,6 +185,11 @@
       color: white;
     }
 
+    .type-badge.smach {
+      background: #00897b;
+      color: white;
+    }
+
     .item-thumbnail {
       width: 100%;
       height: 180px;
@@ -94,7 +206,7 @@
     }
 
     .item-thumbnail.document-preview {
-      padding: 16px;
+      padding: 36px 16px 16px 16px;
       align-items: flex-start;
       font-size: 13px;
       color: var(--text-secondary);
@@ -131,19 +243,177 @@
       background: var(--input-bg);
       color: var(--text-primary);
     }
+
+    .icon-btn {
+      width: 36px;
+      height: 36px;
+      border: 1px solid var(--border-color);
+      background: var(--input-bg);
+      color: var(--text-primary);
+      border-radius: 4px;
+      font-size: 20px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .icon-btn:hover {
+      background: var(--bg-tertiary);
+    }
+
+    .dropdown-container {
+      position: relative;
+      display: inline-block;
+    }
+
+    .dropdown-menu {
+      position: absolute;
+      top: 100%;
+      right: 0;
+      margin-top: 4px;
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      box-shadow: 0 4px 12px var(--shadow-color);
+      min-width: 160px;
+      z-index: 100;
+      display: none;
+    }
+
+    .dropdown-menu.open {
+      display: block;
+    }
+
+    .dropdown-menu button {
+      display: block;
+      width: 100%;
+      padding: 10px 16px;
+      border: none;
+      background: none;
+      color: var(--text-primary);
+      text-align: left;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .dropdown-menu button:hover {
+      background: var(--bg-tertiary);
+    }
+
+    .dropdown-menu hr {
+      margin: 4px 0;
+      border: none;
+      border-top: 1px solid var(--border-color);
+    }
+
+    /* Modal styles */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+    }
+
+    .modal-overlay.hidden {
+      display: none;
+    }
+
+    .modal {
+      background: var(--card-bg);
+      border-radius: 8px;
+      padding: 24px;
+      min-width: 400px;
+      max-width: 600px;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+
+    .modal h2 {
+      margin: 0 0 16px 0;
+      color: var(--text-primary);
+    }
+
+    .modal input[type="text"],
+    .modal textarea {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      background: var(--input-bg);
+      color: var(--text-primary);
+      font-size: 14px;
+      margin-bottom: 12px;
+      box-sizing: border-box;
+    }
+
+    .modal textarea {
+      min-height: 200px;
+      font-family: monospace;
+      resize: vertical;
+    }
+
+    .modal-buttons {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .modal-buttons button {
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .modal-buttons .cancel-btn {
+      background: none;
+      border: 1px solid var(--border-color);
+      color: var(--text-primary);
+    }
+
+    .modal-buttons .submit-btn {
+      background: var(--accent-color);
+      border: 1px solid var(--accent-color);
+      color: white;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
       <h1>Collaboration Dashboard</h1>
-      <select id="type-filter" style="margin-left: auto;">
+      <select id="folder-filter" style="margin-left: auto;">
         <option value="all">All Items</option>
+        <option value="root">Root</option>
+      </select>
+      <select id="type-filter">
+        <option value="all">All Types</option>
         <option value="diagram">Diagrams Only</option>
+        <option value="smach">SMACH Only</option>
         <option value="document">Documents Only</option>
       </select>
       <input type="text" class="search-box" placeholder="Search..." id="search">
+      <div class="dropdown-container">
+        <button id="add-btn" class="icon-btn" title="Add new">+</button>
+        <div class="dropdown-menu" id="add-menu">
+          <button id="new-folder-btn">New Folder</button>
+          <hr>
+          <button id="import-file-btn">Import File</button>
+          <button id="import-text-btn">Import Text</button>
+          <hr>
+          <button id="manage-folders-btn">Manage Folders...</button>
+        </div>
+      </div>
       <button id="delete-all" style="padding: 8px 16px; border: 1px solid var(--error-color); background: var(--error-color); color: white; border-radius: 4px; cursor: pointer;">Delete All</button>
+      <input type="file" id="file-input" accept=".mmd,.md,.txt,.yaml,.yml" style="display: none;">
       <button class="theme-toggle" id="theme-toggle" title="Toggle Theme">
         <span class="theme-toggle-icon">&#9681;</span>
         <span>Theme</span>
@@ -156,7 +426,43 @@
 
     <div class="diagram-grid" id="grid"></div>
     <div class="empty-state" id="empty" style="display: none;">
-      No items found. Create diagrams or documents using the MCP tools!
+      <p>No items in this folder.</p>
+    </div>
+  </div>
+
+  <!-- Import Text Modal -->
+  <div class="modal-overlay hidden" id="import-text-modal">
+    <div class="modal">
+      <h2>Import from Text</h2>
+      <input type="text" id="import-name" placeholder="Name (without extension)">
+      <textarea id="import-content" placeholder="Paste diagram or document content here..."></textarea>
+      <div class="modal-buttons">
+        <button class="cancel-btn" id="import-cancel">Cancel</button>
+        <button class="submit-btn" id="import-submit">Import</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- New Folder Modal -->
+  <div class="modal-overlay hidden" id="new-folder-modal">
+    <div class="modal">
+      <h2>New Folder</h2>
+      <input type="text" id="folder-name" placeholder="Folder name">
+      <div class="modal-buttons">
+        <button class="cancel-btn" id="folder-cancel">Cancel</button>
+        <button class="submit-btn" id="folder-submit">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Manage Folders Modal -->
+  <div class="modal-overlay hidden" id="manage-folders-modal">
+    <div class="modal">
+      <h2>Manage Folders</h2>
+      <div id="folders-list" style="margin-bottom: 16px;"></div>
+      <div class="modal-buttons">
+        <button class="cancel-btn" id="manage-close">Close</button>
+      </div>
     </div>
   </div>
 

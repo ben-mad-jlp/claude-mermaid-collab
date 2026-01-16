@@ -1,6 +1,7 @@
 import type { Server } from 'bun';
 import { DiagramManager } from '../services/diagram-manager';
 import { DocumentManager } from '../services/document-manager';
+import { MetadataManager } from '../services/metadata-manager';
 import { Validator } from '../services/validator';
 import { Renderer, type Theme } from '../services/renderer';
 import { WebSocketHandler } from '../websocket/handler';
@@ -10,6 +11,7 @@ export async function handleAPI(
   req: Request,
   diagramManager: DiagramManager,
   documentManager: DocumentManager,
+  metadataManager: MetadataManager,
   validator: Validator,
   renderer: Renderer,
   wsHandler: WebSocketHandler,
@@ -37,7 +39,7 @@ export async function handleAPI(
 
   // POST /api/diagram (create new)
   if (path === '/api/diagram' && req.method === 'POST') {
-    const { name, content } = await req.json();
+    const { name, content } = await req.json() as { name?: string; content?: string };
 
     if (!name || !content) {
       return Response.json({ error: 'Name and content required' }, { status: 400 });
@@ -72,7 +74,7 @@ export async function handleAPI(
   // POST /api/diagram/:id (update)
   if (path.startsWith('/api/diagram/') && req.method === 'POST') {
     const id = path.split('/').pop()!;
-    const { content } = await req.json();
+    const { content } = await req.json() as { content?: string };
 
     if (!content) {
       return Response.json({ error: 'Content required' }, { status: 400 });
@@ -168,8 +170,8 @@ export async function handleAPI(
 
   // POST /api/validate
   if (path === '/api/validate' && req.method === 'POST') {
-    const { content } = await req.json();
-    const result = await validator.validate(content);
+    const { content } = await req.json() as { content?: string };
+    const result = await validator.validate(content || '');
     return Response.json(result);
   }
 
@@ -226,7 +228,7 @@ export async function handleAPI(
 
   // POST /api/document (create new)
   if (path === '/api/document' && req.method === 'POST') {
-    const { name, content } = await req.json();
+    const { name, content } = await req.json() as { name?: string; content?: string };
 
     if (!name || content === undefined) {
       return Response.json({ error: 'Name and content required' }, { status: 400 });
@@ -250,7 +252,7 @@ export async function handleAPI(
   // POST /api/document/:id (update)
   if (path.match(/^\/api\/document\/[^/]+$/) && req.method === 'POST') {
     const id = path.split('/').pop()!;
-    const { content } = await req.json();
+    const { content } = await req.json() as { content?: string };
 
     if (content === undefined) {
       return Response.json({ error: 'Content required' }, { status: 400 });
@@ -290,6 +292,66 @@ export async function handleAPI(
       return Response.json({ success: true });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 404 });
+    }
+  }
+
+  // GET /api/metadata
+  if (path === '/api/metadata' && req.method === 'GET') {
+    return Response.json(metadataManager.getMetadata());
+  }
+
+  // POST /api/metadata/item/:id - update item folder/locked status
+  if (path.match(/^\/api\/metadata\/item\/[^/]+$/) && req.method === 'POST') {
+    const id = path.split('/').pop()!;
+    const updates = await req.json() as { folder?: string | null; locked?: boolean };
+
+    try {
+      await metadataManager.updateItem(id, updates);
+
+      wsHandler.broadcast({
+        type: 'metadata_updated',
+        itemId: id,
+        updates,
+      });
+
+      return Response.json({ success: true });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // POST /api/metadata/folders - create/rename/delete folders
+  if (path === '/api/metadata/folders' && req.method === 'POST') {
+    const { action, name, newName } = await req.json() as { action: string; name?: string; newName?: string };
+
+    try {
+      if (action === 'create') {
+        if (!name) {
+          return Response.json({ error: 'Folder name required' }, { status: 400 });
+        }
+        await metadataManager.createFolder(name);
+      } else if (action === 'rename') {
+        if (!name || !newName) {
+          return Response.json({ error: 'Old and new folder names required' }, { status: 400 });
+        }
+        await metadataManager.renameFolder(name, newName);
+      } else if (action === 'delete') {
+        if (!name) {
+          return Response.json({ error: 'Folder name required' }, { status: 400 });
+        }
+        await metadataManager.deleteFolder(name, true);
+      } else {
+        return Response.json({ error: 'Invalid action' }, { status: 400 });
+      }
+
+      wsHandler.broadcast({
+        type: 'metadata_updated',
+        foldersChanged: true,
+      });
+
+      return Response.json({ success: true, folders: metadataManager.getFolders() });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
     }
   }
 

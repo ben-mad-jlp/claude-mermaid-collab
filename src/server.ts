@@ -2,6 +2,7 @@ import { mkdir } from 'fs/promises';
 import { config } from './config';
 import { DiagramManager } from './services/diagram-manager';
 import { DocumentManager } from './services/document-manager';
+import { MetadataManager } from './services/metadata-manager';
 import { Validator } from './services/validator';
 import { Renderer } from './services/renderer';
 import { FileWatcher } from './services/file-watcher';
@@ -11,6 +12,7 @@ import { handleAPI } from './routes/api';
 // Initialize services
 const diagramManager = new DiagramManager();
 const documentManager = new DocumentManager();
+const metadataManager = new MetadataManager();
 const validator = new Validator();
 const renderer = new Renderer();
 const fileWatcher = new FileWatcher();
@@ -20,9 +22,10 @@ const wsHandler = new WebSocketHandler();
 await mkdir(config.DIAGRAMS_FOLDER, { recursive: true });
 await mkdir(config.DOCUMENTS_FOLDER, { recursive: true });
 
-// Initialize diagram manager
+// Initialize managers
 await diagramManager.initialize();
 await documentManager.initialize();
+await metadataManager.initialize();
 
 // Set up file watcher
 fileWatcher.onChange((event) => {
@@ -105,7 +108,7 @@ const server = Bun.serve({
 
     // API routes
     if (url.pathname.startsWith('/api/')) {
-      return handleAPI(req, diagramManager, documentManager, validator, renderer, wsHandler);
+      return handleAPI(req, diagramManager, documentManager, metadataManager, validator, renderer, wsHandler);
     }
 
     // Static files

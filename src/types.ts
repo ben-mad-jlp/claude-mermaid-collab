@@ -23,3 +23,13 @@ export interface DocumentMeta {
   path: string;
   lastModified: number;
 }
+
+export interface ItemMetadata {
+  folder: string | null;
+  locked: boolean;
+}
+
+export interface Metadata {
+  folders: string[];
+  items: Record<string, ItemMetadata>;
+}

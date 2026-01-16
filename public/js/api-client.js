@@ -104,6 +104,48 @@ class APIClient {
     return response.json();
   }
 
+  // Metadata API methods
+  async getMetadata() {
+    const response = await fetch(`${this.baseURL}/api/metadata`);
+    return response.json();
+  }
+
+  async updateItemMetadata(id, updates) {
+    const response = await fetch(`${this.baseURL}/api/metadata/item/${id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    return response.json();
+  }
+
+  async createFolder(name) {
+    const response = await fetch(`${this.baseURL}/api/metadata/folders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'create', name }),
+    });
+    return response.json();
+  }
+
+  async renameFolder(name, newName) {
+    const response = await fetch(`${this.baseURL}/api/metadata/folders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'rename', name, newName }),
+    });
+    return response.json();
+  }
+
+  async deleteFolder(name) {
+    const response = await fetch(`${this.baseURL}/api/metadata/folders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete', name }),
+    });
+    return response.json();
+  }
+
   // WebSocket methods
   connectWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';

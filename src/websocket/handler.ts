@@ -8,6 +8,7 @@ export type WSMessage =
   | { type: 'document_updated'; id: string; content: string; lastModified: number }
   | { type: 'document_created'; id: string; name: string }
   | { type: 'document_deleted'; id: string }
+  | { type: 'metadata_updated'; itemId?: string; updates?: Record<string, unknown>; foldersChanged?: boolean }
   | { type: 'subscribe'; id: string }
   | { type: 'unsubscribe'; id: string };
 
