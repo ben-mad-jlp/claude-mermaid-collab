@@ -4,7 +4,10 @@ A real-time Mermaid diagram collaboration server with integrated Model Context P
 
 ## Features
 
-- **Web Dashboard**: Browse diagrams with thumbnails, search, and filter
+- **Web Dashboard**: Browse diagrams with thumbnails, search, and filter by type or folder
+- **Folder Organization**: Organize diagrams and documents into folders with visual folder cards
+- **Item Locking**: Lock items to prevent accidental deletion
+- **Import Support**: Import diagrams from files (.mmd, .md, .txt, .yaml) or paste text directly
 - **Split-Pane Editor**: Live preview with syntax validation, undo/redo, draggable pane separators
 - **Real-Time Collaboration**: WebSocket-based live updates across all connected clients
 - **File-Based Storage**: Simple `.mmd` files for version control and external editing
@@ -140,6 +143,30 @@ Documents are stored as `.md` files in the `documents/` folder and support:
 - Markdown preview with syntax highlighting
 - Version control friendly plain text format
 
+## Folder Organization
+
+The dashboard supports organizing diagrams and documents into folders for better project management.
+
+### Features
+
+- **Folder Cards**: Folders appear at the top of the dashboard grid, showing item count and last updated date
+- **Navigation**: Click a folder to view its contents; use the parent card to navigate back to root
+- **Move Items**: Use the arrow button on any item card to move it to a different folder or create a new one
+- **Locking**: Click the lock icon on any item to prevent accidental deletion
+- **Delete All**: Respects folder scope (only deletes items in current view) and skips locked items
+
+### Import
+
+Use the **+** button in the header to:
+- **New Folder**: Create a new folder
+- **Import File**: Upload `.mmd`, `.md`, `.txt`, or `.yaml` files (auto-detects type)
+- **Import Text**: Paste content directly and auto-detect whether it's a diagram or document
+- **Manage Folders**: Rename or delete existing folders
+
+### Metadata Storage
+
+Folder assignments and lock states are stored in `metadata.json` at the project root. The actual files remain flat in `diagrams/` and `documents/` folders for easy version control.
+
 ## Quick Start
 
 ### Installation
@@ -169,9 +196,12 @@ See [docs/MCP_SETUP.md](docs/MCP_SETUP.md) for Claude Code configuration.
 ### Web Interface
 
 **Dashboard** (`http://localhost:3737/`)
-- View all diagrams as thumbnails
+- View all diagrams and documents as thumbnail cards
+- Filter by folder or type (Diagrams, SMACH, Documents)
 - Search by name
-- Click to open in editor
+- Folder cards at top for navigation
+- Lock/move items via card buttons
+- Import from file or text via + menu
 - Connection status indicator (top-right)
 
 **Diagram Editor** (`http://localhost:3737/diagram.html?id=<diagram-id>`)
@@ -308,6 +338,7 @@ DIAGRAMS_FOLDER=./diagrams   # Diagram storage path (default: ./diagrams)
 
 - **DiagramManager**: Diagram CRUD operations with in-memory indexing
 - **DocumentManager**: Document CRUD operations for markdown files
+- **MetadataManager**: Folder and lock state management
 - **SmachTranspiler**: Converts SMACH YAML to Mermaid flowcharts
 - **Validator**: Mermaid syntax validation via `mermaid.parse()`
 - **Renderer**: Server-side SVG generation with jsdom
@@ -323,13 +354,14 @@ DIAGRAMS_FOLDER=./diagrams   # Diagram storage path (default: ./diagrams)
 │   ├── types.ts               # TypeScript interfaces
 │   ├── server.ts              # Main web server
 │   ├── services/
-│   │   ├── diagram-manager.ts # CRUD operations
+│   │   ├── diagram-manager.ts  # Diagram CRUD operations
 │   │   ├── document-manager.ts # Document CRUD operations
-│   │   ├── validator.ts       # Syntax validation
-│   │   ├── renderer.ts        # SVG rendering
-│   │   ├── file-watcher.ts    # File monitoring
+│   │   ├── metadata-manager.ts # Folder and lock state management
+│   │   ├── validator.ts        # Syntax validation
+│   │   ├── renderer.ts         # SVG rendering
+│   │   ├── file-watcher.ts     # File monitoring
 │   │   ├── smach-transpiler.ts # SMACH YAML to Mermaid transpiler
-│   │   └── dom-setup.ts       # jsdom polyfill
+│   │   └── dom-setup.ts        # jsdom polyfill
 │   ├── websocket/
 │   │   └── handler.ts         # WebSocket management
 │   ├── routes/
