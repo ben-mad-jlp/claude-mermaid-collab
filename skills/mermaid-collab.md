@@ -328,13 +328,17 @@ Implement JWT-based authentication with refresh tokens and optional 2FA.
 ### Dashboard Features
 
 The unified dashboard shows both diagrams and documents:
-- **Type badges**: Blue "Diagram" and purple "Document" badges
-- **Type filter**: Filter by "All Items", "Diagrams Only", or "Documents Only"
+- **Type badges**: Blue "Diagram", teal "SMACH", and purple "Document" badges
+- **Type filter**: Filter by "All Items", "Diagrams Only", "SMACH Only", or "Documents Only"
+- **Folder filter**: Filter by folder or view all items
 - **Search**: Search across both diagrams and documents
 - **Preview**: Documents show first heading or first 100 characters
-- **Thumbnails**: Diagrams show rendered preview, documents show text excerpt
+- **Thumbnails**: Client-side rendered previews with localStorage caching (instant on repeat visits)
+- **Folder cards**: Visual folder navigation with item counts
+- **Move items**: Arrow button to move items between folders
+- **Locking**: Lock icon to prevent accidental deletion
 - **Sort by date**: Newest items first
-- **Delete all**: Remove all diagrams and documents at once
+- **Delete all**: Respects folder scope and skips locked items
 
 ## Best Practices
 

@@ -4,7 +4,7 @@ A real-time Mermaid diagram collaboration server with integrated Model Context P
 
 ## Features
 
-- **Web Dashboard**: Browse diagrams with thumbnails, search, and filter by type or folder
+- **Web Dashboard**: Browse diagrams with cached thumbnails, search, and filter by type or folder
 - **Folder Organization**: Organize diagrams and documents into folders with visual folder cards
 - **Item Locking**: Lock items to prevent accidental deletion
 - **Import Support**: Import diagrams from files (.mmd, .md, .txt, .yaml) or paste text directly
@@ -166,6 +166,13 @@ Use the **+** button in the header to:
 ### Metadata Storage
 
 Folder assignments and lock states are stored in `metadata.json` at the project root. The actual files remain flat in `diagrams/` and `documents/` folders for easy version control.
+
+### Thumbnail Caching
+
+The dashboard renders diagram thumbnails client-side using Mermaid.js, with localStorage caching for performance:
+- Thumbnails are cached based on content hash, so they update when diagrams change
+- All diagram types are supported: flowcharts, sequence diagrams, wireframes, SMACH state machines
+- Cached thumbnails load instantly on repeat visits
 
 ## Quick Start
 
