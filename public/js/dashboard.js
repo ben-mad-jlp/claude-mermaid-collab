@@ -7,6 +7,9 @@ const api = new APIClient();
 
 // Thumbnail cache key prefix
 const THUMBNAIL_CACHE_PREFIX = 'mermaid-thumb-';
+const SESSION_STORAGE_KEY = 'mermaid-collab-session';
+
+let sessions = [];
 let diagrams = [];
 let documents = [];
 let metadata = { folders: [], items: {} };
@@ -17,6 +20,7 @@ const empty = document.getElementById('empty');
 const search = document.getElementById('search');
 const typeFilter = document.getElementById('type-filter');
 const folderFilter = document.getElementById('folder-filter');
+const sessionSelector = document.getElementById('session-selector');
 const deleteAllBtn = document.getElementById('delete-all');
 const themeToggleBtn = document.getElementById('theme-toggle');
 const status = document.getElementById('status');
@@ -47,9 +51,132 @@ const manageFoldersModal = document.getElementById('manage-folders-modal');
 const foldersList = document.getElementById('folders-list');
 const manageClose = document.getElementById('manage-close');
 
+// Get stored session from localStorage
+function getStoredSession() {
+  try {
+    const stored = localStorage.getItem(SESSION_STORAGE_KEY);
+    if (stored) {
+      return JSON.parse(stored);
+    }
+  } catch (e) {
+    console.error('Failed to parse stored session:', e);
+  }
+  return null;
+}
+
+// Store session to localStorage
+function storeSession(project, session) {
+  try {
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ project, session }));
+  } catch (e) {
+    console.error('Failed to store session:', e);
+  }
+}
+
+// Clear stored session
+function clearStoredSession() {
+  localStorage.removeItem(SESSION_STORAGE_KEY);
+}
+
+// Load sessions from server
+async function loadSessions() {
+  try {
+    const response = await api.getSessions();
+    sessions = response.sessions || [];
+    renderSessionDropdown();
+
+    // Try to restore stored session
+    const stored = getStoredSession();
+    if (stored) {
+      const found = sessions.find(s => s.project === stored.project && s.session === stored.session);
+      if (found) {
+        sessionSelector.value = `${stored.project}|${stored.session}`;
+        api.setSession(stored.project, stored.session);
+        await loadItems();
+        return;
+      } else {
+        // Stored session no longer exists
+        clearStoredSession();
+      }
+    }
+
+    // No session selected - show empty state
+    renderNoSessionState();
+  } catch (error) {
+    console.error('Failed to load sessions:', error);
+    renderNoSessionState();
+  }
+}
+
+// Render session dropdown options
+function renderSessionDropdown() {
+  sessionSelector.innerHTML = '<option value="">Select a session...</option>';
+
+  // Group sessions by project
+  const byProject = {};
+  for (const s of sessions) {
+    const projectName = s.project.split('/').pop() || s.project;
+    if (!byProject[projectName]) {
+      byProject[projectName] = [];
+    }
+    byProject[projectName].push(s);
+  }
+
+  // Render grouped options
+  for (const [projectName, projectSessions] of Object.entries(byProject)) {
+    if (projectSessions.length === 1) {
+      const s = projectSessions[0];
+      const label = `${projectName} / ${s.session}`;
+      sessionSelector.innerHTML += `<option value="${s.project}|${s.session}">${label}</option>`;
+    } else {
+      const optgroup = document.createElement('optgroup');
+      optgroup.label = projectName;
+      for (const s of projectSessions) {
+        const option = document.createElement('option');
+        option.value = `${s.project}|${s.session}`;
+        option.textContent = s.session;
+        optgroup.appendChild(option);
+      }
+      sessionSelector.appendChild(optgroup);
+    }
+  }
+}
+
+// Show no session selected state
+function renderNoSessionState() {
+  grid.innerHTML = '';
+  empty.style.display = 'block';
+  empty.innerHTML = sessions.length === 0
+    ? '<p>No sessions available. Start a collab session in Claude to see content here.</p>'
+    : '<p>Select a session from the dropdown above to view its content.</p>';
+}
+
+// Handle session selection change
+sessionSelector.addEventListener('change', async () => {
+  const value = sessionSelector.value;
+  if (!value) {
+    api.clearSession();
+    clearStoredSession();
+    diagrams = [];
+    documents = [];
+    metadata = { folders: [], items: {} };
+    renderNoSessionState();
+    return;
+  }
+
+  const [project, session] = value.split('|');
+  api.setSession(project, session);
+  storeSession(project, session);
+  await loadItems();
+});
 
 // Load all items
 async function loadItems() {
+  if (!api.hasSession()) {
+    renderNoSessionState();
+    return;
+  }
+
   try {
     const [diagramsResponse, documentsResponse, metadataResponse] = await Promise.all([
       api.getDiagrams(),
@@ -65,6 +192,9 @@ async function loadItems() {
     renderGrid();
   } catch (error) {
     console.error('Failed to load items:', error);
+    if (error.message && error.message.includes('project and session')) {
+      renderNoSessionState();
+    }
   }
 }
 
@@ -239,6 +369,11 @@ function getDocumentPreview(content) {
 
 // Render grid
 function renderGrid() {
+  if (!api.hasSession()) {
+    renderNoSessionState();
+    return;
+  }
+
   const filter = search.value.toLowerCase();
   const typeFilterValue = typeFilter.value;
   const folderFilterValue = folderFilter.value;
@@ -337,10 +472,14 @@ function renderGrid() {
   if (items.length === 0 && !folderCardsHtml) {
     grid.innerHTML = '';
     empty.style.display = 'block';
+    empty.innerHTML = '<p>No items in this folder.</p>';
     return;
   }
 
   empty.style.display = 'none';
+
+  // Build session query for links
+  const sessionQuery = api.getSessionQuery();
 
   const itemCardsHtml = items.map(item => {
     const itemMeta = getItemMeta(item.id);
@@ -430,9 +569,9 @@ function renderGrid() {
       const type = card.dataset.type;
 
       if (type === 'diagram') {
-        window.location.href = `/diagram.html?id=${id}`;
+        window.location.href = `/diagram.html?id=${id}${sessionQuery.replace('?', '&')}`;
       } else {
-        window.location.href = `/document.html?id=${id}`;
+        window.location.href = `/document.html?id=${id}${sessionQuery.replace('?', '&')}`;
       }
     });
   });
@@ -564,6 +703,11 @@ function getItemsInCurrentView() {
 
 // Delete all items (respects folder and locks)
 async function deleteAllItems() {
+  if (!api.hasSession()) {
+    alert('Please select a session first.');
+    return;
+  }
+
   const folderFilterValue = folderFilter.value;
   const items = getItemsInCurrentView();
 
@@ -609,6 +753,10 @@ if (themeToggleBtn) {
 // Add menu dropdown
 addBtn.addEventListener('click', (e) => {
   e.stopPropagation();
+  if (!api.hasSession()) {
+    alert('Please select a session first.');
+    return;
+  }
   addMenu.classList.toggle('open');
 });
 
@@ -825,6 +973,13 @@ api.onStatusChange((newStatus) => {
 });
 
 api.onWebSocketMessage((message) => {
+  // Only process messages for the current session
+  if (message.project && message.session) {
+    if (message.project !== api.project || message.session !== api.session) {
+      return; // Ignore messages from other sessions
+    }
+  }
+
   if (
     message.type === 'diagram_created' ||
     message.type === 'diagram_deleted' ||
@@ -845,4 +1000,4 @@ status.addEventListener('click', () => {
 // Initialize
 initTheme();
 api.connectWebSocket();
-loadItems();
+loadSessions();

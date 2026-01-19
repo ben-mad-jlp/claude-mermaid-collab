@@ -1,137 +1,23 @@
-import { mkdir } from 'fs/promises';
 import { join } from 'path';
-import { config, setStorageDir } from './config';
+import { config } from './config';
 import { DiagramManager } from './services/diagram-manager';
 import { DocumentManager } from './services/document-manager';
 import { MetadataManager } from './services/metadata-manager';
 import { Validator } from './services/validator';
 import { Renderer } from './services/renderer';
-import { FileWatcher } from './services/file-watcher';
 import { WebSocketHandler } from './websocket/handler';
-import { handleAPI, setStorageSwitcher } from './routes/api';
+import { handleAPI } from './routes/api';
 
-// Initialize services
-const diagramManager = new DiagramManager();
-const documentManager = new DocumentManager();
-const metadataManager = new MetadataManager();
+// Initialize shared services (stateless, no storage)
 const validator = new Validator();
 const renderer = new Renderer();
-const fileWatcher = new FileWatcher();
 const wsHandler = new WebSocketHandler();
 
-// Ensure diagrams folder exists
-await mkdir(config.DIAGRAMS_FOLDER, { recursive: true });
-await mkdir(config.DOCUMENTS_FOLDER, { recursive: true });
-
-// Initialize managers
-await diagramManager.initialize();
-await documentManager.initialize();
-await metadataManager.initialize();
-
-// Set up file watcher
-fileWatcher.onChange((event) => {
-  if (event.resourceType === 'diagram') {
-    if (event.type === 'created') {
-      diagramManager.updateIndex(event.id, event.path);
-      wsHandler.broadcast({
-        type: 'diagram_created',
-        id: event.id,
-        name: event.id + '.mmd',
-      });
-    } else if (event.type === 'modified') {
-      diagramManager.updateIndex(event.id, event.path);
-      diagramManager.getDiagram(event.id).then((diagram) => {
-        if (diagram) {
-          wsHandler.broadcastToDiagram(event.id, {
-            type: 'diagram_updated',
-            id: event.id,
-            content: diagram.content,
-            lastModified: diagram.lastModified,
-          });
-        }
-      });
-    } else if (event.type === 'deleted') {
-      diagramManager.removeFromIndex(event.id);
-      wsHandler.broadcast({
-        type: 'diagram_deleted',
-        id: event.id,
-      });
-    }
-  } else if (event.resourceType === 'document') {
-    if (event.type === 'created') {
-      documentManager.updateIndex(event.id, event.path);
-      wsHandler.broadcast({
-        type: 'document_created',
-        id: event.id,
-        name: event.id + '.md',
-      });
-    } else if (event.type === 'modified') {
-      documentManager.updateIndex(event.id, event.path);
-      documentManager.getDocument(event.id).then((document) => {
-        if (document) {
-          wsHandler.broadcastToDocument(event.id, {
-            type: 'document_updated',
-            id: event.id,
-            content: document.content,
-            lastModified: document.lastModified,
-          });
-        }
-      });
-    } else if (event.type === 'deleted') {
-      documentManager.removeFromIndex(event.id);
-      wsHandler.broadcast({
-        type: 'document_deleted',
-        id: event.id,
-      });
-    }
-  }
-});
-
-fileWatcher.start();
-
-/**
- * Switch the storage directory at runtime.
- * Reinitializes all managers and restarts file watching.
- * @param newDir - The new storage directory (absolute path)
- */
-async function switchStorage(newDir: string): Promise<void> {
-  console.log(`📂 Switching storage to: ${newDir}`);
-
-  // Stop file watcher
-  fileWatcher.stop();
-
-  // Update config
-  setStorageDir(newDir);
-
-  // Ensure new directories exist
-  await mkdir(config.DIAGRAMS_FOLDER, { recursive: true });
-  await mkdir(config.DOCUMENTS_FOLDER, { recursive: true });
-
-  // Reset and reinitialize managers
-  diagramManager.reset();
-  documentManager.reset();
-  metadataManager.reset();
-
-  await diagramManager.initialize();
-  await documentManager.initialize();
-  await metadataManager.initialize();
-
-  // Restart file watcher
-  fileWatcher.restart();
-
-  // Notify all connected clients
-  wsHandler.broadcast({
-    type: 'storage_changed',
-    storageDir: newDir,
-  });
-
-  console.log(`✅ Storage switched to: ${newDir}`);
-  console.log(`📁 Diagrams folder: ${config.DIAGRAMS_FOLDER}`);
-  console.log(`📄 Documents folder: ${config.DOCUMENTS_FOLDER}`);
-}
-
-// Register storage switcher with API
-setStorageSwitcher(switchStorage);
+// Placeholder managers - these are created per-session in api.ts
+// but we need them for the handleAPI signature (they're unused there now)
+const diagramManager = new DiagramManager('/tmp');
+const documentManager = new DocumentManager('/tmp');
+const metadataManager = new MetadataManager('/tmp');
 
 // Create HTTP server
 const server = Bun.serve({
@@ -223,7 +109,4 @@ const server = Bun.serve({
 
 console.log(`🚀 Mermaid Collaboration Server running on http://${config.HOST}:${config.PORT}`);
 console.log(`🌐 Public directory: ${config.PUBLIC_DIR}`);
-console.log(`📂 Storage directory: ${config.STORAGE_DIR}`);
-console.log(`📁 Diagrams folder: ${config.DIAGRAMS_FOLDER}`);
-console.log(`📄 Documents folder: ${config.DOCUMENTS_FOLDER}`);
 console.log(`🔌 WebSocket: ws://${config.HOST}:${config.PORT}/ws`);

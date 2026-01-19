@@ -3,8 +3,8 @@
  * MCP Server for Mermaid Diagram Management
  *
  * Provides MCP tools for interacting with the Mermaid collaboration server.
- * Auto-starts the web server if not running and provides 6 core tools for
- * diagram management, validation, and preview.
+ * All diagram/document operations require project and session parameters
+ * to support multi-session workflows.
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -24,116 +24,96 @@ const API_PORT = parseInt(process.env.PORT || '3737', 10);
 const API_HOST = process.env.HOST || 'localhost';
 const API_BASE_URL = `http://${API_HOST}:${API_PORT}`;
 
+// Word lists for session name generation
+const ADJECTIVES = [
+  'bright', 'calm', 'swift', 'bold', 'warm', 'cool', 'soft', 'clear',
+  'fresh', 'pure', 'wise', 'keen', 'fair', 'true', 'kind', 'brave',
+  'deep', 'wide', 'tall', 'light', 'dark', 'loud', 'quiet', 'quick',
+  'slow', 'sharp', 'smooth', 'rough', 'wild', 'free', 'open', 'still'
+];
+
+const NOUNS = [
+  'river', 'mountain', 'forest', 'meadow', 'ocean', 'valley', 'canyon', 'lake',
+  'stream', 'hill', 'cliff', 'beach', 'island', 'bridge', 'tower', 'garden',
+  'field', 'grove', 'pond', 'spring', 'peak', 'ridge', 'shore', 'delta',
+  'harbor', 'bay', 'cape', 'reef', 'dune', 'oasis', 'mesa', 'fjord'
+];
+
 /**
- * Check if the web server is running by attempting an HTTP request
+ * Generate a memorable session name (adjective-adjective-noun)
+ */
+function generateSessionName(): string {
+  const adj1 = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
+  const adj2 = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
+  const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
+  return `${adj1}-${adj2}-${noun}`;
+}
+
+/**
+ * Build URL with project and session query params
+ */
+function buildUrl(path: string, project: string, session: string, extraParams?: Record<string, string>): string {
+  const url = new URL(path, API_BASE_URL);
+  url.searchParams.set('project', project);
+  url.searchParams.set('session', session);
+  if (extraParams) {
+    for (const [key, value] of Object.entries(extraParams)) {
+      url.searchParams.set(key, value);
+    }
+  }
+  return url.toString();
+}
+
+/**
+ * Check if the web server is running
  */
 async function isServerRunning(): Promise<boolean> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/diagrams`, {
+    const response = await fetch(`${API_BASE_URL}/api/sessions`, {
       method: 'GET',
       signal: AbortSignal.timeout(2000),
     });
-    return response.ok || response.status === 404; // Either works or exists but route not found
+    return response.ok || response.status === 404;
   } catch {
     return false;
   }
 }
 
-/**
- * Start the web server using Bun.spawn
- */
-async function startWebServer(): Promise<void> {
-  const serverPath = new URL('../server.ts', import.meta.url).pathname;
+// ============= Diagram Tools =============
 
-  console.error(`Starting web server: ${serverPath}`);
-
-  const proc = Bun.spawn(['bun', 'run', serverPath], {
-    stdout: 'inherit',
-    stderr: 'inherit',
-    stdin: 'ignore',
-  });
-
-  // Wait a bit for server to start
-  await new Promise((resolve) => setTimeout(resolve, 2000));
-
-  // Verify it started
-  let attempts = 0;
-  while (attempts < 10) {
-    if (await isServerRunning()) {
-      console.error(`Web server started successfully on ${API_BASE_URL}`);
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    attempts++;
-  }
-
-  throw new Error('Failed to start web server after 10 attempts');
-}
-
-/**
- * Ensure the web server is running before processing requests
- */
-async function ensureServerRunning(): Promise<void> {
-  if (!(await isServerRunning())) {
-    await startWebServer();
-  }
-}
-
-/**
- * MCP Tool: list_diagrams
- * Lists all available diagrams
- */
-async function listDiagrams(): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/api/diagrams`);
-
+async function listDiagrams(project: string, session: string): Promise<string> {
+  const response = await fetch(buildUrl('/api/diagrams', project, session));
   if (!response.ok) {
     throw new Error(`Failed to list diagrams: ${response.statusText}`);
   }
-
   const data = await response.json();
   return JSON.stringify(data, null, 2);
 }
 
-/**
- * MCP Tool: get_diagram
- * Retrieves a specific diagram by ID
- */
-async function getDiagram(id: string): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/api/diagram/${id}`);
-
+async function getDiagram(project: string, session: string, id: string): Promise<string> {
+  const response = await fetch(buildUrl(`/api/diagram/${id}`, project, session));
   if (!response.ok) {
     if (response.status === 404) {
       throw new Error(`Diagram not found: ${id}`);
     }
     throw new Error(`Failed to get diagram: ${response.statusText}`);
   }
-
   const data = await response.json();
   return JSON.stringify(data, null, 2);
 }
 
-/**
- * MCP Tool: create_diagram
- * Creates a new diagram with the given name and content
- */
-async function createDiagram(name: string, content: string): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/api/diagram`, {
+async function createDiagram(project: string, session: string, name: string, content: string): Promise<string> {
+  const response = await fetch(buildUrl('/api/diagram', project, session), {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, content }),
   });
-
   if (!response.ok) {
     const error = await response.json();
     throw new Error(`Failed to create diagram: ${error.error || response.statusText}`);
   }
-
   const data = await response.json();
-
-  // Return the ID and URL for preview
-  const previewUrl = `${API_BASE_URL}/diagram.html?id=${data.id}`;
+  const previewUrl = `${API_BASE_URL}/diagram.html?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}&id=${data.id}`;
   return JSON.stringify({
     success: true,
     id: data.id,
@@ -142,69 +122,41 @@ async function createDiagram(name: string, content: string): Promise<string> {
   }, null, 2);
 }
 
-/**
- * MCP Tool: update_diagram
- * Updates an existing diagram's content
- */
-async function updateDiagram(id: string, content: string): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/api/diagram/${id}`, {
+async function updateDiagram(project: string, session: string, id: string, content: string): Promise<string> {
+  const response = await fetch(buildUrl(`/api/diagram/${id}`, project, session), {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content }),
   });
-
   if (!response.ok) {
     const error = await response.json();
     throw new Error(`Failed to update diagram: ${error.error || response.statusText}`);
   }
-
-  const data = await response.json();
-  return JSON.stringify({
-    success: true,
-    id,
-    message: `Diagram updated successfully`,
-  }, null, 2);
+  return JSON.stringify({ success: true, id, message: 'Diagram updated successfully' }, null, 2);
 }
 
-/**
- * MCP Tool: validate_diagram
- * Validates Mermaid diagram syntax
- */
 async function validateDiagram(content: string): Promise<string> {
   const response = await fetch(`${API_BASE_URL}/api/validate`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content }),
   });
-
   if (!response.ok) {
     throw new Error(`Failed to validate diagram: ${response.statusText}`);
   }
-
   const data = await response.json();
   return JSON.stringify(data, null, 2);
 }
 
-/**
- * MCP Tool: preview_diagram
- * Returns the preview URL for a diagram
- */
-async function previewDiagram(id: string): Promise<string> {
-  // First verify the diagram exists
-  const response = await fetch(`${API_BASE_URL}/api/diagram/${id}`);
-
+async function previewDiagram(project: string, session: string, id: string): Promise<string> {
+  const response = await fetch(buildUrl(`/api/diagram/${id}`, project, session));
   if (!response.ok) {
     if (response.status === 404) {
       throw new Error(`Diagram not found: ${id}`);
     }
     throw new Error(`Failed to get diagram: ${response.statusText}`);
   }
-
-  const previewUrl = `${API_BASE_URL}/diagram.html?id=${id}`;
+  const previewUrl = `${API_BASE_URL}/diagram.html?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}&id=${id}`;
   return JSON.stringify({
     id,
     previewUrl,
@@ -212,60 +164,51 @@ async function previewDiagram(id: string): Promise<string> {
   }, null, 2);
 }
 
-/**
- * MCP Tool: list_documents
- * Lists all available documents
- */
-async function listDocuments(): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/api/documents`);
+async function transpileDiagram(project: string, session: string, id: string): Promise<string> {
+  const response = await fetch(buildUrl(`/api/transpile/${id}`, project, session));
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(`Failed to transpile diagram: ${error.error || response.statusText}`);
+  }
+  const data = await response.json();
+  return data.mermaid;
+}
 
+// ============= Document Tools =============
+
+async function listDocuments(project: string, session: string): Promise<string> {
+  const response = await fetch(buildUrl('/api/documents', project, session));
   if (!response.ok) {
     throw new Error(`Failed to list documents: ${response.statusText}`);
   }
-
   const data = await response.json();
   return JSON.stringify(data, null, 2);
 }
 
-/**
- * MCP Tool: get_document
- * Retrieves a specific document by ID
- */
-async function getDocument(id: string): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/api/document/${id}`);
-
+async function getDocument(project: string, session: string, id: string): Promise<string> {
+  const response = await fetch(buildUrl(`/api/document/${id}`, project, session));
   if (!response.ok) {
     if (response.status === 404) {
       throw new Error(`Document not found: ${id}`);
     }
     throw new Error(`Failed to get document: ${response.statusText}`);
   }
-
   const data = await response.json();
   return JSON.stringify(data, null, 2);
 }
 
-/**
- * MCP Tool: create_document
- * Creates a new document with the given name and content
- */
-async function createDocument(name: string, content: string): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/api/document`, {
+async function createDocument(project: string, session: string, name: string, content: string): Promise<string> {
+  const response = await fetch(buildUrl('/api/document', project, session), {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, content }),
   });
-
   if (!response.ok) {
     const error = await response.json();
     throw new Error(`Failed to create document: ${error.error || response.statusText}`);
   }
-
   const data = await response.json();
-
-  const previewUrl = `${API_BASE_URL}/document.html?id=${data.id}`;
+  const previewUrl = `${API_BASE_URL}/document.html?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}&id=${data.id}`;
   return JSON.stringify({
     success: true,
     id: data.id,
@@ -274,46 +217,28 @@ async function createDocument(name: string, content: string): Promise<string> {
   }, null, 2);
 }
 
-/**
- * MCP Tool: update_document
- * Updates an existing document's content
- */
-async function updateDocument(id: string, content: string): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/api/document/${id}`, {
+async function updateDocument(project: string, session: string, id: string, content: string): Promise<string> {
+  const response = await fetch(buildUrl(`/api/document/${id}`, project, session), {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content }),
   });
-
   if (!response.ok) {
     const error = await response.json();
     throw new Error(`Failed to update document: ${error.error || response.statusText}`);
   }
-
-  return JSON.stringify({
-    success: true,
-    id,
-    message: `Document updated successfully`,
-  }, null, 2);
+  return JSON.stringify({ success: true, id, message: 'Document updated successfully' }, null, 2);
 }
 
-/**
- * MCP Tool: preview_document
- * Returns the preview URL for a document
- */
-async function previewDocument(id: string): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/api/document/${id}`);
-
+async function previewDocument(project: string, session: string, id: string): Promise<string> {
+  const response = await fetch(buildUrl(`/api/document/${id}`, project, session));
   if (!response.ok) {
     if (response.status === 404) {
       throw new Error(`Document not found: ${id}`);
     }
     throw new Error(`Failed to get document: ${response.statusText}`);
   }
-
-  const previewUrl = `${API_BASE_URL}/document.html?id=${id}`;
+  const previewUrl = `${API_BASE_URL}/document.html?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}&id=${id}`;
   return JSON.stringify({
     id,
     previewUrl,
@@ -321,951 +246,328 @@ async function previewDocument(id: string): Promise<string> {
   }, null, 2);
 }
 
-/**
- * MCP Tool: transpile_diagram
- * Returns the transpiled Mermaid output for a SMACH diagram
- */
-async function transpileDiagram(id: string): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/api/transpile/${id}`);
+// ============= Session Tools =============
 
+async function listSessions(): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}/api/sessions`);
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(`Failed to transpile diagram: ${error.error || response.statusText}`);
+    throw new Error(`Failed to list sessions: ${response.statusText}`);
   }
-
-  const data = await response.json();
-  return data.mermaid;
-}
-
-/**
- * MCP Tool: configure_storage
- * Switches the storage directory for diagrams and documents
- */
-async function configureStorage(storageDir: string): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/api/config/storage`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ storageDir }),
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(`Failed to configure storage: ${error.error || response.statusText}`);
-  }
-
   const data = await response.json();
   return JSON.stringify(data, null, 2);
 }
 
-/**
- * MCP Tool: get_storage_config
- * Returns the current storage directory configuration
- */
-async function getStorageConfig(): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/api/config/storage`);
+// ============= Main Server Setup =============
 
-  if (!response.ok) {
-    throw new Error(`Failed to get storage config: ${response.statusText}`);
-  }
-
-  const data = await response.json();
-  return JSON.stringify(data, null, 2);
-}
-
-/**
- * MCP Tool: list_collab_sessions
- * Lists all collab sessions in the .collab directory
- */
-async function listCollabSessions(): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/api/collab/sessions`);
-
-  if (!response.ok) {
-    throw new Error(`Failed to list collab sessions: ${response.statusText}`);
-  }
-
-  const data = await response.json();
-  return JSON.stringify(data, null, 2);
-}
-
-/**
- * MCP Tool: create_collab_session
- * Creates a new collab session with folder structure
- */
-async function createCollabSession(template: string, name?: string): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/api/collab/sessions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ template, name }),
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(`Failed to create collab session: ${error.error || response.statusText}`);
-  }
-
-  const data = await response.json();
-  return JSON.stringify(data, null, 2);
-}
-
-/**
- * MCP Tool: get_collab_session_state
- * Gets the state of a collab session
- */
-async function getCollabSessionState(sessionName: string): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/api/collab/sessions/${encodeURIComponent(sessionName)}/state`);
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(`Failed to get session state: ${error.error || response.statusText}`);
-  }
-
-  const data = await response.json();
-  return JSON.stringify(data, null, 2);
-}
-
-/**
- * MCP Tool: update_collab_session_state
- * Updates the state of a collab session
- */
-async function updateCollabSessionState(
-  sessionName: string,
-  updates: { phase?: string; pendingVerificationIssues?: any[] }
-): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/api/collab/sessions/${encodeURIComponent(sessionName)}/state`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(updates),
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(`Failed to update session state: ${error.error || response.statusText}`);
-  }
-
-  const data = await response.json();
-  return JSON.stringify(data, null, 2);
-}
-
-/**
- * Main MCP server setup
- */
 async function main() {
-  // Ensure server is running before setting up MCP
-  await ensureServerRunning();
+  // Check if server is running (but don't auto-start)
+  if (!(await isServerRunning())) {
+    console.error(`Warning: Web server not running at ${API_BASE_URL}`);
+    console.error('Start with: mermaid-collab start');
+  }
 
   const server = new Server(
-    {
-      name: 'mermaid-diagram-server',
-      version: '1.0.0',
-    },
-    {
-      capabilities: {
-        tools: {},
-        resources: {},
-      },
-    }
+    { name: 'mermaid-diagram-server', version: '2.0.0' },
+    { capabilities: { tools: {}, resources: {} } }
   );
 
-  // Get the docs directory path
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = dirname(__filename);
   const docsDir = join(__dirname, '..', '..', 'docs');
 
-  // Register resources list handler
-  server.setRequestHandler(ListResourcesRequestSchema, async () => {
-    return {
-      resources: [
-        {
-          uri: 'wireframe://syntax-guide',
-          name: 'Wireframe Diagram Syntax Guide',
-          description: 'Complete syntax reference for creating wireframe diagrams with the mermaid-wireframe plugin',
-          mimeType: 'text/markdown',
-        },
-      ],
-    };
-  });
+  // Resources
+  server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+    resources: [{
+      uri: 'wireframe://syntax-guide',
+      name: 'Wireframe Diagram Syntax Guide',
+      description: 'Complete syntax reference for creating wireframe diagrams',
+      mimeType: 'text/markdown',
+    }],
+  }));
 
-  // Register resource read handler
   server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     const { uri } = request.params;
-
     if (uri === 'wireframe://syntax-guide') {
       const content = await readFile(join(docsDir, 'wireframe-syntax.md'), 'utf-8');
-      return {
-        contents: [
-          {
-            uri,
-            mimeType: 'text/markdown',
-            text: content,
-          },
-        ],
-      };
+      return { contents: [{ uri, mimeType: 'text/markdown', text: content }] };
     }
-
     throw new Error(`Unknown resource: ${uri}`);
   });
 
-  // Register tool list handler
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    return {
-      tools: [
-        {
-          name: 'list_diagrams',
-          description: 'List all Mermaid diagrams. Returns diagram IDs, names, and metadata. Use this first to discover what diagrams exist before reading or updating them.',
-          inputSchema: {
-            type: 'object',
-            properties: {},
-          },
+  // Session params description (shared across tools)
+  const sessionParamsDesc = {
+    project: {
+      type: 'string',
+      description: 'Absolute path to the project root directory',
+    },
+    session: {
+      type: 'string',
+      description: 'Session name (e.g., "bright-calm-river")',
+    },
+  };
+
+  // Tools list
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: [
+      {
+        name: 'generate_session_name',
+        description: 'Generate a memorable session name (adjective-adjective-noun format). Use this when creating a new collab session.',
+        inputSchema: { type: 'object', properties: {} },
+      },
+      {
+        name: 'list_sessions',
+        description: 'List all registered collab sessions across all projects.',
+        inputSchema: { type: 'object', properties: {} },
+      },
+      {
+        name: 'list_diagrams',
+        description: 'List all Mermaid diagrams in a session.',
+        inputSchema: {
+          type: 'object',
+          properties: sessionParamsDesc,
+          required: ['project', 'session'],
         },
-        {
-          name: 'get_diagram',
-          description: 'Read a diagram\'s full Mermaid source code by ID. Use list_diagrams first to find available diagram IDs. Returns the content you can modify and pass to update_diagram.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              id: {
-                type: 'string',
-                description: 'The diagram ID (without .mmd extension)',
-              },
-            },
-            required: ['id'],
+      },
+      {
+        name: 'get_diagram',
+        description: 'Read a diagram\'s Mermaid source code by ID.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            ...sessionParamsDesc,
+            id: { type: 'string', description: 'The diagram ID' },
           },
+          required: ['project', 'session', 'id'],
         },
-        {
-          name: 'create_diagram',
-          description: `Create a new Mermaid diagram with the given name and content. Returns the diagram ID and preview URL.
-
-=== FLOWCHART/STATE DIAGRAM STANDARDS ===
-
-FORMATTING:
-1. All node definitions at the top with their labels and shapes
-2. Connections use only node IDs (no inline labels)
-3. Styles at the bottom, one per node based on its type
-4. Use %% comments to separate sections
-
-NODE TYPES:
-- Terminal (Start/End): NodeId(["label"]) - green: fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
-- State: NodeId(("label")) - blue: fill:#bbdefb,stroke:#1976d2,stroke-width:2px
-- Decision: NodeId{"label"} - yellow: fill:#fff9c4,stroke:#f9a825,stroke-width:2px
-- Action: NodeId["label"] - orange: fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
-
-FLOWCHART EXAMPLE:
-graph TD
-    %% Node Definitions
-    Start(["Start Application"])
-    CheckAuth{"User Authenticated?"}
-    Login["Show Login Form"]
-    Dashboard(("Dashboard"))
-
-    %% Connections
-    Start --> CheckAuth
-    CheckAuth -->|Yes| Dashboard
-    CheckAuth -->|No| Login
-    Login --> CheckAuth
-
-    %% Styles
-    style Start fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
-    style CheckAuth fill:#fff9c4,stroke:#f9a825,stroke-width:2px
-    style Login fill:#ffe0b2,stroke:#f57c00,stroke-width:2px
-    style Dashboard fill:#bbdefb,stroke:#1976d2,stroke-width:2px
-
-=== WIREFRAME DIAGRAM SYNTAX ===
-
-Use wireframes to create UI mockups. Start with "wireframe" followed by optional viewport and direction.
-
-DECLARATION: wireframe [viewport] [direction]
-- viewport: mobile (375px), tablet (768px), desktop (1200px), or omit for default (800px)
-- direction: TD (top-down screens) or LR (left-right screens, default)
-
-CONTAINERS (use indentation for nesting):
-- screen "Label" - Screen container with dashed border and label
-- col - Vertical layout (children stack vertically)
-- row - Horizontal layout (children side by side)
-- Card - Card with rounded border
-- Grid - Table with header/rows
-
-WIDGETS (labels in quotes):
-- Text "content" - Normal text
-- Title "heading" - Large heading text
-- Button "label" - Button (add: primary, secondary, danger, success, disabled)
-- Input "placeholder" - Text input field
-- Checkbox "label" - Checkbox with label
-- Radio "label" - Radio button with label
-- Switch "label" - Toggle switch
-- Dropdown "label" - Dropdown select
-- List "Item1|Item2|Item3" - List (pipe-separated)
-- NavMenu "Home|About|Contact" - Horizontal nav
-- BottomNav "Tab1|Tab2|Tab3" - Bottom navigation
-- AppBar "Title" - App header bar
-- FAB "+" - Floating action button (circle)
-- Icon "name" - Icon placeholder
-- Avatar - User avatar circle
-- Image - Image placeholder (X box)
-- spacer - Flexible empty space
-- divider - Horizontal line
-
-MODIFIERS (after widget name):
-- flex or flex=2 - Flexible sizing (fills space)
-- width=100 - Fixed width in pixels
-- height=50 - Fixed height in pixels
-- padding=16 - Internal padding
-- primary/secondary/danger/success/disabled - Button variants
-
-WIREFRAME EXAMPLE (Login Screen):
-wireframe mobile TD
-screen "Login Screen"
-    col padding=16
-        spacer height=40
-        Title "Welcome Back"
-        spacer height=24
-        Input "Email address"
-        spacer height=12
-        Input "Password"
-        spacer height=24
-        Button "Sign In" primary flex
-        spacer height=16
-        Text "Forgot password?"
-        spacer
-
-WIREFRAME EXAMPLE (Dashboard with multiple screens):
-wireframe tablet LR
-screen "Home"
-    col
-        AppBar "Dashboard"
-        row flex padding=16
-            Card flex
-                col padding=12
-                    Title "Stats"
-                    Text "Active users: 1,234"
-            Card flex
-                col padding=12
-                    Title "Revenue"
-                    Text "$12,345"
-        BottomNav "Home|Search|Profile"
-screen "Detail"
-    col
-        AppBar "Item Detail"
-        col flex padding=16
-            Image height=200
-            Title "Product Name"
-            Text "Description goes here"
-            spacer
-            Button "Add to Cart" primary`,
-          inputSchema: {
-            type: 'object',
-            properties: {
-              name: {
-                type: 'string',
-                description: 'The name for the diagram (without .mmd extension)',
-              },
-              content: {
-                type: 'string',
-                description: 'The Mermaid diagram syntax content',
-              },
-            },
-            required: ['name', 'content'],
+      },
+      {
+        name: 'create_diagram',
+        description: 'Create a new Mermaid diagram. Returns the diagram ID and preview URL.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            ...sessionParamsDesc,
+            name: { type: 'string', description: 'Diagram name (without .mmd extension)' },
+            content: { type: 'string', description: 'Mermaid diagram syntax' },
           },
+          required: ['project', 'session', 'name', 'content'],
         },
-        {
-          name: 'update_diagram',
-          description: 'Update an existing diagram\'s Mermaid source code. Use get_diagram first to read current content if you need to make partial changes. The content replaces the entire diagram.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              id: {
-                type: 'string',
-                description: 'The diagram ID to update',
-              },
-              content: {
-                type: 'string',
-                description: 'The new Mermaid diagram content (replaces entire diagram)',
-              },
-            },
-            required: ['id', 'content'],
+      },
+      {
+        name: 'update_diagram',
+        description: 'Update an existing diagram\'s content.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            ...sessionParamsDesc,
+            id: { type: 'string', description: 'The diagram ID' },
+            content: { type: 'string', description: 'New Mermaid content' },
           },
+          required: ['project', 'session', 'id', 'content'],
         },
-        {
-          name: 'validate_diagram',
-          description: 'Check if Mermaid syntax is valid without saving. Use this before create_diagram or update_diagram to catch syntax errors early. Returns success or detailed error message.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              content: {
-                type: 'string',
-                description: 'The Mermaid diagram syntax to validate',
-              },
-            },
-            required: ['content'],
+      },
+      {
+        name: 'validate_diagram',
+        description: 'Check if Mermaid syntax is valid without saving.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            content: { type: 'string', description: 'Mermaid syntax to validate' },
           },
+          required: ['content'],
         },
-        {
-          name: 'preview_diagram',
-          description: 'Get the browser URL to view a rendered diagram. Share this URL to let others see the diagram. The preview updates in real-time when the diagram is modified.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              id: {
-                type: 'string',
-                description: 'The diagram ID to preview',
-              },
-            },
-            required: ['id'],
+      },
+      {
+        name: 'preview_diagram',
+        description: 'Get the browser URL to view a diagram.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            ...sessionParamsDesc,
+            id: { type: 'string', description: 'The diagram ID' },
           },
+          required: ['project', 'session', 'id'],
         },
-        {
-          name: 'list_documents',
-          description: 'List all markdown documents. Returns document IDs, names, and metadata. Use this to see what documents exist before reading or updating them.',
-          inputSchema: {
-            type: 'object',
-            properties: {},
+      },
+      {
+        name: 'transpile_diagram',
+        description: 'Get transpiled Mermaid output for a SMACH diagram.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            ...sessionParamsDesc,
+            id: { type: 'string', description: 'The SMACH diagram ID' },
           },
+          required: ['project', 'session', 'id'],
         },
-        {
-          name: 'get_document',
-          description: 'Read a document\'s full content by ID. Use list_documents first to find available document IDs.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              id: {
-                type: 'string',
-                description: 'The document ID (without .md extension)',
-              },
-            },
-            required: ['id'],
+      },
+      {
+        name: 'list_documents',
+        description: 'List all markdown documents in a session.',
+        inputSchema: {
+          type: 'object',
+          properties: sessionParamsDesc,
+          required: ['project', 'session'],
+        },
+      },
+      {
+        name: 'get_document',
+        description: 'Read a document\'s content by ID.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            ...sessionParamsDesc,
+            id: { type: 'string', description: 'The document ID' },
           },
+          required: ['project', 'session', 'id'],
         },
-        {
-          name: 'create_document',
-          description: `Create a new markdown document. Returns the document ID and preview URL.
-
-Documents support full GitHub-flavored markdown including:
-- Headings (# ## ###)
-- Lists (- or 1.)
-- Code blocks (\`\`\`language)
-- Tables
-- Links and images
-- Bold, italic, strikethrough
-
-=== REVIEW WORKFLOW MARKERS ===
-
-Use HTML comment markers to indicate review status. These render with colored highlights in the preview.
-
-SECTION-LEVEL MARKERS (after headings, affect all content until next heading):
-- \`<!-- status: proposed: label -->\` - Cyan highlight, marks section as proposed
-- \`<!-- status: approved -->\` - Green highlight, marks section as approved
-- \`<!-- status: rejected: reason -->\` - Red highlight, marks section as rejected
-- \`<!-- comment: your comment text -->\` - Yellow highlight, adds a comment block
-
-INLINE MARKERS (wrap specific text):
-- \`<!-- propose-start: label -->text<!-- propose-end -->\` - Cyan inline highlight
-- \`<!-- approve-start -->text<!-- approve-end -->\` - Green inline highlight
-- \`<!-- reject-start: reason -->text<!-- reject-end -->\` - Red inline highlight
-- \`<!-- comment-start: text -->content<!-- comment-end -->\` - Yellow inline highlight
-
-EXAMPLE WITH REVIEW MARKERS:
-## Feature Proposal
-<!-- status: proposed: needs team review -->
-
-This section describes the new login system.
-
-We should use <!-- propose-start: needs discussion -->OAuth 2.0<!-- propose-end --> for authentication.
-
-- <!-- approve-start -->Email/password login<!-- approve-end -->
-- <!-- reject-start: too complex for MVP -->Biometric auth<!-- reject-end -->
-
-<!-- comment: Remember to check security requirements -->
-
-=== END REVIEW MARKERS ===
-
-=== EDITOR FEATURES ===
-
-The document editor provides:
-- **Split-pane view**: Markdown source on left, rendered preview on right
-- **Live preview**: See formatted output as you type
-- **Auto-save**: Saves automatically after typing stops
-- **Real-time collaboration**: Multiple users see updates instantly via WebSocket
-- **Minimap**: Colored bar on right showing all highlights (green=approved, cyan=proposed, red=rejected, yellow=comments)
-- **Click-to-source**: Click any element in preview to jump to its source line
-- **Export Clean**: Download markdown with all review markers stripped
-- **Export Raw**: Download markdown with all markers preserved
-
-Use documents to write specifications, design docs, meeting notes, or any text content that should be viewable in the browser alongside diagrams.
-
-Example document:
-# Project Design
-
-## Overview
-This document describes the system architecture.
-
-## Components
-- **Frontend**: React application
-- **Backend**: Node.js API
-- **Database**: PostgreSQL
-
-## API Endpoints
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | /users | List users |
-| POST | /users | Create user |`,
-          inputSchema: {
-            type: 'object',
-            properties: {
-              name: {
-                type: 'string',
-                description: 'The name for the document (without .md extension)',
-              },
-              content: {
-                type: 'string',
-                description: 'The markdown content',
-              },
-            },
-            required: ['name', 'content'],
+      },
+      {
+        name: 'create_document',
+        description: 'Create a new markdown document. Returns the document ID and preview URL.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            ...sessionParamsDesc,
+            name: { type: 'string', description: 'Document name (without .md extension)' },
+            content: { type: 'string', description: 'Markdown content' },
           },
+          required: ['project', 'session', 'name', 'content'],
         },
-        {
-          name: 'update_document',
-          description: 'Update an existing document\'s content. Use get_document first to read current content if you need to make partial changes.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              id: {
-                type: 'string',
-                description: 'The document ID to update',
-              },
-              content: {
-                type: 'string',
-                description: 'The new markdown content (replaces entire document)',
-              },
-            },
-            required: ['id', 'content'],
+      },
+      {
+        name: 'update_document',
+        description: 'Update an existing document\'s content.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            ...sessionParamsDesc,
+            id: { type: 'string', description: 'The document ID' },
+            content: { type: 'string', description: 'New markdown content' },
           },
+          required: ['project', 'session', 'id', 'content'],
         },
-        {
-          name: 'preview_document',
-          description: 'Get the browser URL to view a rendered document. Share this URL to let others see the document.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              id: {
-                type: 'string',
-                description: 'The document ID to preview',
-              },
-            },
-            required: ['id'],
+      },
+      {
+        name: 'preview_document',
+        description: 'Get the browser URL to view a document.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            ...sessionParamsDesc,
+            id: { type: 'string', description: 'The document ID' },
           },
+          required: ['project', 'session', 'id'],
         },
-        {
-          name: 'transpile_diagram',
-          description: 'Get the transpiled Mermaid flowchart output for a SMACH state machine diagram. Use this to debug SMACH diagrams by seeing what Mermaid code is being generated.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              id: {
-                type: 'string',
-                description: 'The SMACH diagram ID to transpile',
-              },
-            },
-            required: ['id'],
-          },
-        },
-        {
-          name: 'configure_storage',
-          description: 'Switch the storage directory for diagrams and documents. Use this to point the server at a different folder (e.g., a collab session folder). All existing diagrams and documents from the new location will be loaded.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              storageDir: {
-                type: 'string',
-                description: 'The absolute path to the new storage directory',
-              },
-            },
-            required: ['storageDir'],
-          },
-        },
-        {
-          name: 'get_storage_config',
-          description: 'Get the current storage directory configuration. Returns the storage directory, diagrams folder, and documents folder paths.',
-          inputSchema: {
-            type: 'object',
-            properties: {},
-          },
-        },
-        {
-          name: 'list_collab_sessions',
-          description: 'List all collab sessions in the .collab/ directory. Returns session names, templates, phases, last activity timestamps, and pending issue counts. Use this to discover existing sessions before resuming or creating new ones.',
-          inputSchema: {
-            type: 'object',
-            properties: {},
-          },
-        },
-        {
-          name: 'create_collab_session',
-          description: 'Create a new collab session. Creates .collab/ folder if needed, generates a memorable name (adjective-adjective-noun), and sets up the folder structure with diagrams/, documents/, metadata.json, and collab-state.json. Returns the session name and path.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              template: {
-                type: 'string',
-                enum: ['feature', 'bugfix', 'refactor', 'spike'],
-                description: 'The type of work: feature (new functionality), bugfix (fix an issue), refactor (restructure code), spike (exploratory/research)',
-              },
-              name: {
-                type: 'string',
-                description: 'Optional custom session name. If not provided, a memorable name will be auto-generated.',
-              },
-            },
-            required: ['template'],
-          },
-        },
-        {
-          name: 'get_collab_session_state',
-          description: 'Get the current state of a collab session including phase, template, last activity, and any pending verification issues.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              sessionName: {
-                type: 'string',
-                description: 'The session name (e.g., "bright-calm-river")',
-              },
-            },
-            required: ['sessionName'],
-          },
-        },
-        {
-          name: 'update_collab_session_state',
-          description: 'Update the state of a collab session. Use this to change the phase or add/clear verification issues.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              sessionName: {
-                type: 'string',
-                description: 'The session name to update',
-              },
-              phase: {
-                type: 'string',
-                enum: ['brainstorming', 'rough-draft/interface', 'rough-draft/pseudocode', 'rough-draft/skeleton', 'implementation'],
-                description: 'The new phase to set',
-              },
-              pendingVerificationIssues: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  properties: {
-                    type: { type: 'string', description: 'Issue type (e.g., "drift")' },
-                    description: { type: 'string', description: 'Description of the issue' },
-                    file: { type: 'string', description: 'Optional file path related to the issue' },
-                    detectedAt: { type: 'string', description: 'ISO timestamp when detected' },
-                  },
-                  required: ['type', 'description', 'detectedAt'],
-                },
-                description: 'List of pending verification issues to set (replaces existing)',
-              },
-            },
-            required: ['sessionName'],
-          },
-        },
-      ],
-    };
-  });
+      },
+    ],
+  }));
 
-  // Register tool call handler
+  // Tool call handler
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     try {
       const { name, arguments: args } = request.params;
 
-      switch (name) {
-        case 'list_diagrams': {
-          const result = await listDiagrams();
-          return {
-            content: [
-              {
-                type: 'text',
-                text: result,
-              },
-            ],
-          };
-        }
+      const result = await (async () => {
+        switch (name) {
+          case 'generate_session_name':
+            return JSON.stringify({ name: generateSessionName() }, null, 2);
 
-        case 'get_diagram': {
-          if (!args || typeof args.id !== 'string') {
-            throw new Error('Missing or invalid required argument: id');
+          case 'list_sessions':
+            return await listSessions();
+
+          case 'list_diagrams': {
+            const { project, session } = args as { project: string; session: string };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            return await listDiagrams(project, session);
           }
-          const result = await getDiagram(args.id);
-          return {
-            content: [
-              {
-                type: 'text',
-                text: result,
-              },
-            ],
-          };
-        }
 
-        case 'create_diagram': {
-          if (!args || typeof args.name !== 'string' || typeof args.content !== 'string') {
-            throw new Error('Missing or invalid required arguments: name, content');
+          case 'get_diagram': {
+            const { project, session, id } = args as { project: string; session: string; id: string };
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            return await getDiagram(project, session, id);
           }
-          const result = await createDiagram(args.name, args.content);
-          return {
-            content: [
-              {
-                type: 'text',
-                text: result,
-              },
-            ],
-          };
-        }
 
-        case 'update_diagram': {
-          if (!args || typeof args.id !== 'string' || typeof args.content !== 'string') {
-            throw new Error('Missing or invalid required arguments: id, content');
+          case 'create_diagram': {
+            const { project, session, name: dName, content } = args as { project: string; session: string; name: string; content: string };
+            if (!project || !session || !dName || !content) throw new Error('Missing required: project, session, name, content');
+            return await createDiagram(project, session, dName, content);
           }
-          const result = await updateDiagram(args.id, args.content);
-          return {
-            content: [
-              {
-                type: 'text',
-                text: result,
-              },
-            ],
-          };
-        }
 
-        case 'validate_diagram': {
-          if (!args || typeof args.content !== 'string') {
-            throw new Error('Missing or invalid required argument: content');
+          case 'update_diagram': {
+            const { project, session, id, content } = args as { project: string; session: string; id: string; content: string };
+            if (!project || !session || !id || !content) throw new Error('Missing required: project, session, id, content');
+            return await updateDiagram(project, session, id, content);
           }
-          const result = await validateDiagram(args.content);
-          return {
-            content: [
-              {
-                type: 'text',
-                text: result,
-              },
-            ],
-          };
-        }
 
-        case 'preview_diagram': {
-          if (!args || typeof args.id !== 'string') {
-            throw new Error('Missing or invalid required argument: id');
+          case 'validate_diagram': {
+            const { content } = args as { content: string };
+            if (!content) throw new Error('Missing required: content');
+            return await validateDiagram(content);
           }
-          const result = await previewDiagram(args.id);
-          return {
-            content: [
-              {
-                type: 'text',
-                text: result,
-              },
-            ],
-          };
-        }
 
-        case 'list_documents': {
-          const result = await listDocuments();
-          return {
-            content: [
-              {
-                type: 'text',
-                text: result,
-              },
-            ],
-          };
-        }
-
-        case 'get_document': {
-          if (!args || typeof args.id !== 'string') {
-            throw new Error('Missing or invalid required argument: id');
+          case 'preview_diagram': {
+            const { project, session, id } = args as { project: string; session: string; id: string };
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            return await previewDiagram(project, session, id);
           }
-          const result = await getDocument(args.id);
-          return {
-            content: [
-              {
-                type: 'text',
-                text: result,
-              },
-            ],
-          };
-        }
 
-        case 'create_document': {
-          if (!args || typeof args.name !== 'string' || typeof args.content !== 'string') {
-            throw new Error('Missing or invalid required arguments: name, content');
+          case 'transpile_diagram': {
+            const { project, session, id } = args as { project: string; session: string; id: string };
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            return await transpileDiagram(project, session, id);
           }
-          const result = await createDocument(args.name, args.content);
-          return {
-            content: [
-              {
-                type: 'text',
-                text: result,
-              },
-            ],
-          };
-        }
 
-        case 'update_document': {
-          if (!args || typeof args.id !== 'string' || typeof args.content !== 'string') {
-            throw new Error('Missing or invalid required arguments: id, content');
+          case 'list_documents': {
+            const { project, session } = args as { project: string; session: string };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            return await listDocuments(project, session);
           }
-          const result = await updateDocument(args.id, args.content);
-          return {
-            content: [
-              {
-                type: 'text',
-                text: result,
-              },
-            ],
-          };
-        }
 
-        case 'preview_document': {
-          if (!args || typeof args.id !== 'string') {
-            throw new Error('Missing or invalid required argument: id');
+          case 'get_document': {
+            const { project, session, id } = args as { project: string; session: string; id: string };
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            return await getDocument(project, session, id);
           }
-          const result = await previewDocument(args.id);
-          return {
-            content: [
-              {
-                type: 'text',
-                text: result,
-              },
-            ],
-          };
-        }
 
-        case 'transpile_diagram': {
-          if (!args || typeof args.id !== 'string') {
-            throw new Error('Missing or invalid required argument: id');
+          case 'create_document': {
+            const { project, session, name: dName, content } = args as { project: string; session: string; name: string; content: string };
+            if (!project || !session || !dName || !content) throw new Error('Missing required: project, session, name, content');
+            return await createDocument(project, session, dName, content);
           }
-          const result = await transpileDiagram(args.id);
-          return {
-            content: [
-              {
-                type: 'text',
-                text: result,
-              },
-            ],
-          };
-        }
 
-        case 'configure_storage': {
-          if (!args || typeof args.storageDir !== 'string') {
-            throw new Error('Missing or invalid required argument: storageDir');
+          case 'update_document': {
+            const { project, session, id, content } = args as { project: string; session: string; id: string; content: string };
+            if (!project || !session || !id || !content) throw new Error('Missing required: project, session, id, content');
+            return await updateDocument(project, session, id, content);
           }
-          const result = await configureStorage(args.storageDir);
-          return {
-            content: [
-              {
-                type: 'text',
-                text: result,
-              },
-            ],
-          };
-        }
 
-        case 'get_storage_config': {
-          const result = await getStorageConfig();
-          return {
-            content: [
-              {
-                type: 'text',
-                text: result,
-              },
-            ],
-          };
-        }
-
-        case 'list_collab_sessions': {
-          const result = await listCollabSessions();
-          return {
-            content: [
-              {
-                type: 'text',
-                text: result,
-              },
-            ],
-          };
-        }
-
-        case 'create_collab_session': {
-          if (!args || typeof args.template !== 'string') {
-            throw new Error('Missing or invalid required argument: template');
+          case 'preview_document': {
+            const { project, session, id } = args as { project: string; session: string; id: string };
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            return await previewDocument(project, session, id);
           }
-          const result = await createCollabSession(args.template, args.name as string | undefined);
-          return {
-            content: [
-              {
-                type: 'text',
-                text: result,
-              },
-            ],
-          };
-        }
 
-        case 'get_collab_session_state': {
-          if (!args || typeof args.sessionName !== 'string') {
-            throw new Error('Missing or invalid required argument: sessionName');
-          }
-          const result = await getCollabSessionState(args.sessionName);
-          return {
-            content: [
-              {
-                type: 'text',
-                text: result,
-              },
-            ],
-          };
+          default:
+            throw new Error(`Unknown tool: ${name}`);
         }
+      })();
 
-        case 'update_collab_session_state': {
-          if (!args || typeof args.sessionName !== 'string') {
-            throw new Error('Missing or invalid required argument: sessionName');
-          }
-          const updates: { phase?: string; pendingVerificationIssues?: any[] } = {};
-          if (args.phase) updates.phase = args.phase as string;
-          if (args.pendingVerificationIssues) updates.pendingVerificationIssues = args.pendingVerificationIssues as any[];
-          const result = await updateCollabSessionState(args.sessionName, updates);
-          return {
-            content: [
-              {
-                type: 'text',
-                text: result,
-              },
-            ],
-          };
-        }
-
-        default:
-          throw new Error(`Unknown tool: ${name}`);
-      }
+      return { content: [{ type: 'text', text: result }] };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({ error: errorMessage }, null, 2),
-          },
-        ],
+        content: [{ type: 'text', text: JSON.stringify({ error: errorMessage }, null, 2) }],
         isError: true,
       };
     }
   });
 
-  // Start the stdio transport
   const transport = new StdioServerTransport();
   await server.connect(transport);
-
-  console.error('MCP Mermaid Diagram Server running on stdio');
+  console.error('MCP Mermaid Diagram Server v2.0 running on stdio');
 }
 
-// Start the server
 main().catch((error) => {
   console.error('Fatal error:', error);
   process.exit(1);

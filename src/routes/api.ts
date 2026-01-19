@@ -1,4 +1,3 @@
-import type { Server } from 'bun';
 import { DiagramManager } from '../services/diagram-manager';
 import { DocumentManager } from '../services/document-manager';
 import { MetadataManager } from '../services/metadata-manager';
@@ -6,29 +5,43 @@ import { Validator } from '../services/validator';
 import { Renderer, type Theme } from '../services/renderer';
 import { WebSocketHandler } from '../websocket/handler';
 import { transpile, isSmachYaml } from '../services/smach-transpiler';
-import { config } from '../config';
-import {
-  listCollabSessions,
-  createCollabSession,
-  getCollabSessionState,
-  updateCollabSessionState,
-  getCollabSessionPath,
-  type CollabTemplate,
-  type CollabPhase,
-} from '../services/collab-manager';
+import { sessionRegistry, type Session } from '../services/session-registry';
+import { join } from 'path';
 
-// Storage switch function - set by server.ts
-let _switchStorage: ((dir: string) => Promise<void>) | null = null;
+/**
+ * Extract project and session from query params.
+ * Returns null if either is missing.
+ */
+function getSessionParams(url: URL): { project: string; session: string } | null {
+  const project = url.searchParams.get('project');
+  const session = url.searchParams.get('session');
 
-export function setStorageSwitcher(fn: (dir: string) => Promise<void>): void {
-  _switchStorage = fn;
+  if (!project || !session) {
+    return null;
+  }
+
+  return { project, session };
+}
+
+/**
+ * Create managers for a specific project+session.
+ */
+function createManagers(project: string, session: string) {
+  const diagramsDir = sessionRegistry.resolvePath(project, session, 'diagrams');
+  const documentsDir = sessionRegistry.resolvePath(project, session, 'documents');
+
+  return {
+    diagramManager: new DiagramManager(diagramsDir),
+    documentManager: new DocumentManager(documentsDir),
+    metadataManager: new MetadataManager(join(project, '.collab', session)),
+  };
 }
 
 export async function handleAPI(
   req: Request,
-  diagramManager: DiagramManager,
-  documentManager: DocumentManager,
-  metadataManager: MetadataManager,
+  _diagramManager: DiagramManager,  // Unused - we create per-session managers
+  _documentManager: DocumentManager, // Unused - we create per-session managers
+  _metadataManager: MetadataManager, // Unused - we create per-session managers
   validator: Validator,
   renderer: Renderer,
   wsHandler: WebSocketHandler,
@@ -36,15 +49,77 @@ export async function handleAPI(
   const url = new URL(req.url);
   const path = url.pathname;
 
-  // GET /api/diagrams
+  // ============================================
+  // Session Registry Routes (no project/session required)
+  // ============================================
+
+  // GET /api/sessions - List all registered sessions
+  if (path === '/api/sessions' && req.method === 'GET') {
+    try {
+      const sessions = await sessionRegistry.list();
+      return Response.json({ sessions });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // POST /api/sessions - Register a session (called by MCP tools)
+  if (path === '/api/sessions' && req.method === 'POST') {
+    try {
+      const { project, session } = await req.json() as { project?: string; session?: string };
+
+      if (!project || !session) {
+        return Response.json({ error: 'project and session required' }, { status: 400 });
+      }
+
+      await sessionRegistry.register(project, session);
+      return Response.json({ success: true, project, session });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // DELETE /api/sessions - Unregister a session
+  if (path === '/api/sessions' && req.method === 'DELETE') {
+    try {
+      const { project, session } = await req.json() as { project?: string; session?: string };
+
+      if (!project || !session) {
+        return Response.json({ error: 'project and session required' }, { status: 400 });
+      }
+
+      const removed = await sessionRegistry.unregister(project, session);
+      return Response.json({ success: removed });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // ============================================
+  // Session-scoped routes (require project + session params)
+  // ============================================
+
+  // GET /api/diagrams?project=...&session=...
   if (path === '/api/diagrams' && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const { diagramManager } = createManagers(params.project, params.session);
     const diagrams = await diagramManager.listDiagrams();
     return Response.json({ diagrams });
   }
 
-  // GET /api/diagram/:id
+  // GET /api/diagram/:id?project=...&session=...
   if (path.startsWith('/api/diagram/') && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
     const id = path.split('/').pop()!;
+    const { diagramManager } = createManagers(params.project, params.session);
     const diagram = await diagramManager.getDiagram(id);
 
     if (!diagram) {
@@ -54,8 +129,13 @@ export async function handleAPI(
     return Response.json(diagram);
   }
 
-  // POST /api/diagram (create new)
+  // POST /api/diagram?project=...&session=... (create new)
   if (path === '/api/diagram' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
     const { name, content } = await req.json() as { name?: string; content?: string };
 
     if (!name || !content) {
@@ -73,6 +153,10 @@ export async function handleAPI(
     }
 
     try {
+      // Register session if not already registered
+      await sessionRegistry.register(params.project, params.session);
+
+      const { diagramManager } = createManagers(params.project, params.session);
       const id = await diagramManager.createDiagram(name, content);
 
       // Broadcast creation immediately
@@ -80,6 +164,8 @@ export async function handleAPI(
         type: 'diagram_created',
         id,
         name: name + '.mmd',
+        project: params.project,
+        session: params.session,
       });
 
       return Response.json({ id, success: true });
@@ -88,8 +174,13 @@ export async function handleAPI(
     }
   }
 
-  // POST /api/diagram/:id (update)
+  // POST /api/diagram/:id?project=...&session=... (update)
   if (path.startsWith('/api/diagram/') && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
     const id = path.split('/').pop()!;
     const { content } = await req.json() as { content?: string };
 
@@ -108,6 +199,7 @@ export async function handleAPI(
     }
 
     try {
+      const { diagramManager } = createManagers(params.project, params.session);
       await diagramManager.saveDiagram(id, content);
 
       // Broadcast update immediately
@@ -118,6 +210,8 @@ export async function handleAPI(
           id,
           content: diagram.content,
           lastModified: diagram.lastModified,
+          project: params.project,
+          session: params.session,
         });
       }
 
@@ -127,17 +221,25 @@ export async function handleAPI(
     }
   }
 
-  // DELETE /api/diagram/:id
+  // DELETE /api/diagram/:id?project=...&session=...
   if (path.startsWith('/api/diagram/') && req.method === 'DELETE') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
     const id = path.split('/').pop()!;
 
     try {
+      const { diagramManager } = createManagers(params.project, params.session);
       await diagramManager.deleteDiagram(id);
 
       // Broadcast deletion immediately
       wsHandler.broadcast({
         type: 'diagram_deleted',
         id,
+        project: params.project,
+        session: params.session,
       });
 
       return Response.json({ success: true });
@@ -146,11 +248,17 @@ export async function handleAPI(
     }
   }
 
-  // GET /api/render/:id
+  // GET /api/render/:id?project=...&session=...
   if (path.startsWith('/api/render/') && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
     const id = path.split('/').pop()!;
     const theme = (url.searchParams.get('theme') || 'default') as Theme;
 
+    const { diagramManager } = createManagers(params.project, params.session);
     const diagram = await diagramManager.getDiagram(id);
     if (!diagram) {
       return Response.json({ error: 'Diagram not found' }, { status: 404 });
@@ -166,10 +274,16 @@ export async function handleAPI(
     }
   }
 
-  // GET /api/thumbnail/:id
+  // GET /api/thumbnail/:id?project=...&session=...
   if (path.startsWith('/api/thumbnail/') && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
     const id = path.split('/').pop()!;
 
+    const { diagramManager } = createManagers(params.project, params.session);
     const diagram = await diagramManager.getDiagram(id);
     if (!diagram) {
       return Response.json({ error: 'Diagram not found' }, { status: 404 });
@@ -185,16 +299,22 @@ export async function handleAPI(
     }
   }
 
-  // POST /api/validate
+  // POST /api/validate (no session required - validates syntax only)
   if (path === '/api/validate' && req.method === 'POST') {
     const { content } = await req.json() as { content?: string };
     const result = await validator.validate(content || '');
     return Response.json(result);
   }
 
-  // GET /api/transpile/:id - Get transpiled Mermaid output for SMACH diagrams
+  // GET /api/transpile/:id?project=...&session=... - Get transpiled Mermaid output for SMACH diagrams
   if (path.startsWith('/api/transpile/') && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
     const id = path.split('/').pop()!;
+    const { diagramManager } = createManagers(params.project, params.session);
     const diagram = await diagramManager.getDiagram(id);
 
     if (!diagram) {
@@ -213,15 +333,27 @@ export async function handleAPI(
     }
   }
 
-  // GET /api/documents
+  // GET /api/documents?project=...&session=...
   if (path === '/api/documents' && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const { documentManager } = createManagers(params.project, params.session);
     const documents = await documentManager.listDocuments();
     return Response.json({ documents });
   }
 
-  // GET /api/document/:id
+  // GET /api/document/:id?project=...&session=...
   if (path.startsWith('/api/document/') && !path.includes('/clean') && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
     const id = path.split('/').pop()!;
+    const { documentManager } = createManagers(params.project, params.session);
     const document = await documentManager.getDocument(id);
 
     if (!document) {
@@ -231,9 +363,15 @@ export async function handleAPI(
     return Response.json(document);
   }
 
-  // GET /api/document/:id/clean
+  // GET /api/document/:id/clean?project=...&session=...
   if (path.match(/^\/api\/document\/[^/]+\/clean$/) && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
     const id = path.split('/')[3];
+    const { documentManager } = createManagers(params.project, params.session);
     const content = await documentManager.getCleanContent(id);
 
     if (content === null) {
@@ -243,8 +381,13 @@ export async function handleAPI(
     return Response.json({ content });
   }
 
-  // POST /api/document (create new)
+  // POST /api/document?project=...&session=... (create new)
   if (path === '/api/document' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
     const { name, content } = await req.json() as { name?: string; content?: string };
 
     if (!name || content === undefined) {
@@ -252,12 +395,18 @@ export async function handleAPI(
     }
 
     try {
+      // Register session if not already registered
+      await sessionRegistry.register(params.project, params.session);
+
+      const { documentManager } = createManagers(params.project, params.session);
       const id = await documentManager.createDocument(name, content);
 
       wsHandler.broadcast({
         type: 'document_created',
         id,
         name: name + '.md',
+        project: params.project,
+        session: params.session,
       });
 
       return Response.json({ id, success: true });
@@ -266,8 +415,13 @@ export async function handleAPI(
     }
   }
 
-  // POST /api/document/:id (update)
+  // POST /api/document/:id?project=...&session=... (update)
   if (path.match(/^\/api\/document\/[^/]+$/) && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
     const id = path.split('/').pop()!;
     const { content } = await req.json() as { content?: string };
 
@@ -276,6 +430,7 @@ export async function handleAPI(
     }
 
     try {
+      const { documentManager } = createManagers(params.project, params.session);
       await documentManager.saveDocument(id, content);
 
       const document = await documentManager.getDocument(id);
@@ -285,6 +440,8 @@ export async function handleAPI(
           id,
           content: document.content,
           lastModified: document.lastModified,
+          project: params.project,
+          session: params.session,
         });
       }
 
@@ -294,16 +451,24 @@ export async function handleAPI(
     }
   }
 
-  // DELETE /api/document/:id
+  // DELETE /api/document/:id?project=...&session=...
   if (path.match(/^\/api\/document\/[^/]+$/) && req.method === 'DELETE') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
     const id = path.split('/').pop()!;
 
     try {
+      const { documentManager } = createManagers(params.project, params.session);
       await documentManager.deleteDocument(id);
 
       wsHandler.broadcast({
         type: 'document_deleted',
         id,
+        project: params.project,
+        session: params.session,
       });
 
       return Response.json({ success: true });
@@ -312,23 +477,37 @@ export async function handleAPI(
     }
   }
 
-  // GET /api/metadata
+  // GET /api/metadata?project=...&session=...
   if (path === '/api/metadata' && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const { metadataManager } = createManagers(params.project, params.session);
     return Response.json(metadataManager.getMetadata());
   }
 
-  // POST /api/metadata/item/:id - update item folder/locked status
+  // POST /api/metadata/item/:id?project=...&session=... - update item folder/locked status
   if (path.match(/^\/api\/metadata\/item\/[^/]+$/) && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
     const id = path.split('/').pop()!;
     const updates = await req.json() as { folder?: string | null; locked?: boolean };
 
     try {
+      const { metadataManager } = createManagers(params.project, params.session);
       await metadataManager.updateItem(id, updates);
 
       wsHandler.broadcast({
         type: 'metadata_updated',
         itemId: id,
         updates,
+        project: params.project,
+        session: params.session,
       });
 
       return Response.json({ success: true });
@@ -337,11 +516,18 @@ export async function handleAPI(
     }
   }
 
-  // POST /api/metadata/folders - create/rename/delete folders
+  // POST /api/metadata/folders?project=...&session=... - create/rename/delete folders
   if (path === '/api/metadata/folders' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
     const { action, name, newName } = await req.json() as { action: string; name?: string; newName?: string };
 
     try {
+      const { metadataManager } = createManagers(params.project, params.session);
+
       if (action === 'create') {
         if (!name) {
           return Response.json({ error: 'Folder name required' }, { status: 400 });
@@ -364,161 +550,13 @@ export async function handleAPI(
       wsHandler.broadcast({
         type: 'metadata_updated',
         foldersChanged: true,
+        project: params.project,
+        session: params.session,
       });
 
       return Response.json({ success: true, folders: metadataManager.getFolders() });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
-    }
-  }
-
-  // GET /api/config/storage - Get current storage directory
-  if (path === '/api/config/storage' && req.method === 'GET') {
-    return Response.json({
-      storageDir: config.STORAGE_DIR,
-      diagramsFolder: config.DIAGRAMS_FOLDER,
-      documentsFolder: config.DOCUMENTS_FOLDER,
-    });
-  }
-
-  // POST /api/config/storage - Switch storage directory
-  if (path === '/api/config/storage' && req.method === 'POST') {
-    if (!_switchStorage) {
-      return Response.json({ error: 'Storage switching not available' }, { status: 500 });
-    }
-
-    const { storageDir } = await req.json() as { storageDir?: string };
-
-    if (!storageDir) {
-      return Response.json({ error: 'storageDir required' }, { status: 400 });
-    }
-
-    try {
-      await _switchStorage(storageDir);
-      return Response.json({
-        success: true,
-        storageDir: config.STORAGE_DIR,
-        diagramsFolder: config.DIAGRAMS_FOLDER,
-        documentsFolder: config.DOCUMENTS_FOLDER,
-      });
-    } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
-    }
-  }
-
-  // ============================================
-  // Collab Session Management Routes
-  // ============================================
-
-  // GET /api/collab/sessions - List all collab sessions
-  if (path === '/api/collab/sessions' && req.method === 'GET') {
-    try {
-      // Use current working directory as base
-      const baseDir = process.cwd();
-      const sessions = await listCollabSessions(baseDir);
-      return Response.json({ sessions, baseDir });
-    } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
-    }
-  }
-
-  // POST /api/collab/sessions - Create a new collab session
-  if (path === '/api/collab/sessions' && req.method === 'POST') {
-    try {
-      const { template, name } = await req.json() as { template?: CollabTemplate; name?: string };
-
-      if (!template) {
-        return Response.json({ error: 'template required (feature, bugfix, refactor, spike)' }, { status: 400 });
-      }
-
-      const validTemplates = ['feature', 'bugfix', 'refactor', 'spike'];
-      if (!validTemplates.includes(template)) {
-        return Response.json({ error: `Invalid template. Must be one of: ${validTemplates.join(', ')}` }, { status: 400 });
-      }
-
-      const baseDir = process.cwd();
-      const session = await createCollabSession(baseDir, template, name);
-
-      return Response.json({
-        success: true,
-        name: session.name,
-        path: session.path,
-        template,
-        phase: 'brainstorming',
-      });
-    } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
-    }
-  }
-
-  // GET /api/collab/sessions/:name/state - Get session state
-  if (path.match(/^\/api\/collab\/sessions\/[^/]+\/state$/) && req.method === 'GET') {
-    try {
-      const parts = path.split('/');
-      const sessionName = parts[4];
-      const baseDir = process.cwd();
-
-      const state = await getCollabSessionState(baseDir, sessionName);
-      const sessionPath = getCollabSessionPath(baseDir, sessionName);
-
-      return Response.json({
-        name: sessionName,
-        path: sessionPath,
-        ...state,
-      });
-    } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 404 });
-    }
-  }
-
-  // POST /api/collab/sessions/:name/state - Update session state
-  if (path.match(/^\/api\/collab\/sessions\/[^/]+\/state$/) && req.method === 'POST') {
-    try {
-      const parts = path.split('/');
-      const sessionName = parts[4];
-      const baseDir = process.cwd();
-
-      const updates = await req.json() as {
-        phase?: CollabPhase;
-        pendingVerificationIssues?: Array<{
-          type: string;
-          description: string;
-          file?: string;
-          detectedAt: string;
-        }>;
-      };
-
-      const newState = await updateCollabSessionState(baseDir, sessionName, updates);
-      const sessionPath = getCollabSessionPath(baseDir, sessionName);
-
-      return Response.json({
-        success: true,
-        name: sessionName,
-        path: sessionPath,
-        ...newState,
-      });
-    } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 404 });
-    }
-  }
-
-  // GET /api/collab/sessions/:name/path - Get the absolute path to a session
-  if (path.match(/^\/api\/collab\/sessions\/[^/]+\/path$/) && req.method === 'GET') {
-    try {
-      const parts = path.split('/');
-      const sessionName = parts[4];
-      const baseDir = process.cwd();
-
-      // Verify session exists by getting its state
-      await getCollabSessionState(baseDir, sessionName);
-      const sessionPath = getCollabSessionPath(baseDir, sessionName);
-
-      return Response.json({
-        name: sessionName,
-        path: sessionPath,
-      });
-    } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 404 });
     }
   }
 
