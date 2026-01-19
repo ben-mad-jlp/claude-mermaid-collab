@@ -1,17 +1,16 @@
 import { readFile, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import type { Metadata, ItemMetadata } from '../types';
-
-const METADATA_FILE = './metadata.json';
+import { config } from '../config';
 
 export class MetadataManager {
   private metadata: Metadata = { folders: [], items: {} };
   private dirty = false;
 
   async initialize(): Promise<void> {
-    if (existsSync(METADATA_FILE)) {
+    if (existsSync(config.METADATA_FILE)) {
       try {
-        const content = await readFile(METADATA_FILE, 'utf-8');
+        const content = await readFile(config.METADATA_FILE, 'utf-8');
         this.metadata = JSON.parse(content);
       } catch (error) {
         console.error('Failed to load metadata, using defaults:', error);
@@ -21,7 +20,7 @@ export class MetadataManager {
   }
 
   private async save(): Promise<void> {
-    await writeFile(METADATA_FILE, JSON.stringify(this.metadata, null, 2), 'utf-8');
+    await writeFile(config.METADATA_FILE, JSON.stringify(this.metadata, null, 2), 'utf-8');
     this.dirty = false;
   }
 

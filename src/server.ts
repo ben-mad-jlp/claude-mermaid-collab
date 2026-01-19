@@ -177,6 +177,7 @@ const server = Bun.serve({
 });
 
 console.log(`🚀 Mermaid Collaboration Server running on http://${config.HOST}:${config.PORT}`);
+console.log(`📂 Storage directory: ${config.STORAGE_DIR}`);
 console.log(`📁 Diagrams folder: ${config.DIAGRAMS_FOLDER}`);
 console.log(`📄 Documents folder: ${config.DOCUMENTS_FOLDER}`);
 console.log(`🔌 WebSocket: ws://${config.HOST}:${config.PORT}/ws`);
