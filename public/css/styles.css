@@ -17,6 +17,8 @@
   --warning-color: #f57c00;
   --error-bg: #ffebee;
   --error-color: #c62828;
+  --info-bg: #e0f7fa;
+  --info-color: #00838f;
   --toolbar-bg: #ffffff;
   --card-bg: #ffffff;
   --input-bg: #ffffff;
@@ -40,6 +42,8 @@
   --warning-color: #FFD700;
   --error-bg: #3d1b1b;
   --error-color: #FF4757;
+  --info-bg: #1b3d3d;
+  --info-color: #00CED1;
   --toolbar-bg: #333333;
   --card-bg: #2d2d2d;
   --input-bg: #3c3c3c;

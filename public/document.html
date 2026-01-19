@@ -71,6 +71,15 @@
       background: var(--error-bg);
     }
 
+    button.propose {
+      border-color: var(--info-color);
+      color: var(--info-color);
+    }
+
+    button.propose:hover {
+      background: var(--info-bg);
+    }
+
     select {
       padding: 8px 12px;
       border: 1px solid var(--border-color);
@@ -249,6 +258,22 @@
       margin: 8px 0;
     }
 
+    .section-proposed {
+      border-left: 4px solid var(--info-color);
+      padding-left: 16px;
+      background: var(--info-bg);
+      margin: 8px 0;
+    }
+
+    .proposed-label {
+      background: var(--info-color);
+      color: white;
+      padding: 6px 12px;
+      margin: -8px -16px 8px -16px;
+      font-weight: 500;
+      font-size: 14px;
+    }
+
     .rejection-reason {
       background: var(--error-color);
       color: white;
@@ -324,6 +349,24 @@
       display: inline;
     }
 
+    .propose-inline {
+      background: var(--info-bg);
+      border: 1px solid var(--info-color);
+      border-radius: 3px;
+      padding: 2px 4px;
+      display: inline;
+    }
+
+    .propose-inline-label {
+      background: var(--info-color);
+      color: white;
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 2px;
+      margin-right: 4px;
+      font-weight: 500;
+    }
+
     .comment-tooltip {
       position: absolute;
       background: var(--bg-secondary);
@@ -352,9 +395,10 @@
 
       <div class="toolbar-group">
         <button id="add-comment" title="Add Comment">💬 Comment</button>
+        <button id="propose-section" class="propose" title="Mark as Proposed">◇ Propose</button>
         <button id="approve-section" class="approve" title="Approve Selection/Section">✓ Approve</button>
         <button id="reject-section" class="reject" title="Reject Selection/Section">✗ Reject</button>
-        <button id="clear-status" title="Remove Approval/Rejection">⊘ Clear</button>
+        <button id="clear-status" title="Remove Approval/Rejection/Proposed">⊘ Clear</button>
       </div>
 
       <div class="toolbar-group">

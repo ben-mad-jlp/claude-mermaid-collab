@@ -49,6 +49,7 @@ const backButton = document.getElementById('back-button');
 const undoBtn = document.getElementById('undo');
 const redoBtn = document.getElementById('redo');
 const addCommentBtn = document.getElementById('add-comment');
+const proposeSectionBtn = document.getElementById('propose-section');
 const approveSectionBtn = document.getElementById('approve-section');
 const rejectSectionBtn = document.getElementById('reject-section');
 const clearStatusBtn = document.getElementById('clear-status');
@@ -310,7 +311,7 @@ function renderPreview() {
   setupTooltips();
 }
 
-// Process <!-- status: approved/rejected --> markers in rendered HTML
+// Process <!-- status: approved/rejected/proposed --> markers in rendered HTML
 function processStatusMarkersInHtml(html) {
   // Process section-level status markers
   // These appear after headings and affect all content until the next heading
@@ -318,6 +319,7 @@ function processStatusMarkersInHtml(html) {
   // Find all status markers and wrap content until next heading
   const approvedRegex = /<!--\s*status:\s*approved\s*-->/g;
   const rejectedRegex = /<!--\s*status:\s*rejected(?::\s*([\s\S]*?))?\s*-->/g;
+  const proposedRegex = /<!--\s*status:\s*proposed(?::\s*([\s\S]*?))?\s*-->/g;
 
   // Replace approved markers - wrap following content until next heading or end
   html = html.replace(approvedRegex, '<div class="section-status section-approved">');
@@ -328,6 +330,14 @@ function processStatusMarkersInHtml(html) {
       return `<div class="section-status section-rejected"><div class="rejection-reason">Rejected: ${reason.trim()}</div>`;
     }
     return '<div class="section-status section-rejected">';
+  });
+
+  // Replace proposed markers with optional label
+  html = html.replace(proposedRegex, (match, label) => {
+    if (label && label.trim()) {
+      return `<div class="section-status section-proposed"><div class="proposed-label">Proposed: ${label.trim()}</div>`;
+    }
+    return '<div class="section-status section-proposed"><div class="proposed-label">Proposed</div>';
   });
 
   // Close any open section-status divs before headings
@@ -404,6 +414,17 @@ function processCommentMarkers(content) {
   content = content.replace(
     /<!--\s*approve-start\s*-->([\s\S]*?)<!--\s*approve-end\s*-->/g,
     '<span class="approve-inline">$1</span>'
+  );
+
+  // Inline proposals: <!-- propose-start -->...<!-- propose-end --> or <!-- propose-start: label -->...<!-- propose-end -->
+  content = content.replace(
+    /<!--\s*propose-start(?::\s*([\s\S]*?))?\s*-->([\s\S]*?)<!--\s*propose-end\s*-->/g,
+    (match, label, text) => {
+      if (label && label.trim()) {
+        return `<span class="propose-inline"><span class="propose-inline-label">Proposed: ${label.trim()}</span>${text}</span>`;
+      }
+      return `<span class="propose-inline"><span class="propose-inline-label">Proposed</span>${text}</span>`;
+    }
   );
 
   return content;
@@ -521,6 +542,150 @@ addCommentBtn.addEventListener('click', () => {
   }
 });
 
+// Propose section button handler
+proposeSectionBtn.addEventListener('click', () => {
+  const sel = getSelection();
+  const stub = 'label here';
+  let content = getEditorContent();
+
+  // Case 1: Text is selected - use inline propose
+  if (sel.from !== sel.to) {
+    const before = content.substring(0, sel.from);
+    const selected = content.substring(sel.from, sel.to);
+    const after = content.substring(sel.to);
+
+    // Check if selection is already proposed - do nothing
+    if (selected.match(/<!-- propose-start/) || before.match(/<!-- propose-start[^>]*-->$/)) {
+      return;
+    }
+
+    // Check if selection contains approval markers - switch to proposed
+    if (selected.includes('<!-- approve-start -->')) {
+      const cleaned = selected
+        .replace(/<!-- approve-start -->/g, `<!-- propose-start: ${stub} -->`)
+        .replace(/<!-- approve-end -->/g, '<!-- propose-end -->');
+      setEditorContent(before + cleaned + after);
+      const stubStart = before.length + '<!-- propose-start: '.length;
+      setSelection(stubStart, stubStart + stub.length);
+      renderPreview();
+      scheduleSave();
+      return;
+    }
+
+    // Check if selection contains rejection markers - switch to proposed
+    if (selected.match(/<!-- reject-start:[\s\S]*?-->/)) {
+      const cleaned = selected
+        .replace(/<!-- reject-start:[\s\S]*?-->/g, `<!-- propose-start: ${stub} -->`)
+        .replace(/<!-- reject-end -->/g, '<!-- propose-end -->');
+      setEditorContent(before + cleaned + after);
+      const stubStart = before.length + '<!-- propose-start: '.length;
+      setSelection(stubStart, stubStart + stub.length);
+      renderPreview();
+      scheduleSave();
+      return;
+    }
+
+    // Check if cursor is inside approval markers on current line
+    const { lineStart, lineEnd, lineContent } = getCurrentLineInfo(content, sel.from);
+    if (lineContent.includes('<!-- approve-start -->')) {
+      const newLine = lineContent
+        .replace(/<!-- approve-start -->/g, `<!-- propose-start: ${stub} -->`)
+        .replace(/<!-- approve-end -->/g, '<!-- propose-end -->');
+      setEditorContent(content.substring(0, lineStart) + newLine + content.substring(lineEnd));
+      const stubStart = lineStart + newLine.indexOf(stub);
+      setSelection(stubStart, stubStart + stub.length);
+      renderPreview();
+      scheduleSave();
+      return;
+    }
+
+    // Check if cursor is inside rejection markers on current line
+    if (lineContent.match(/<!-- reject-start:/)) {
+      const newLine = lineContent
+        .replace(/<!-- reject-start:[\s\S]*?-->/g, `<!-- propose-start: ${stub} -->`)
+        .replace(/<!-- reject-end -->/g, '<!-- propose-end -->');
+      setEditorContent(content.substring(0, lineStart) + newLine + content.substring(lineEnd));
+      const stubStart = lineStart + newLine.indexOf(stub);
+      setSelection(stubStart, stubStart + stub.length);
+      renderPreview();
+      scheduleSave();
+      return;
+    }
+
+    const proposeStart = `<!-- propose-start: ${stub} -->`;
+    setEditorContent(before + proposeStart + selected + '<!-- propose-end -->' + after);
+
+    // Position cursor inside the stub text
+    const stubStart = before.length + '<!-- propose-start: '.length;
+    setSelection(stubStart, stubStart + stub.length);
+
+    renderPreview();
+    scheduleSave();
+    return;
+  }
+
+  // Case 2: Cursor is on a list item - wrap content after list marker
+  const { lineStart, lineEnd, lineContent } = getCurrentLineInfo(content, sel.from);
+  const listParts = parseListItem(lineContent);
+  if (listParts) {
+    const before = content.substring(0, lineStart);
+    const after = content.substring(lineEnd);
+
+    // Keep list marker outside, wrap only the content
+    const proposeStart = `<!-- propose-start: ${stub} -->`;
+    const newLine = listParts.marker + proposeStart + listParts.content + '<!-- propose-end -->';
+    setEditorContent(before + newLine + after);
+
+    // Position cursor inside the stub text
+    const stubStart = before.length + listParts.marker.length + '<!-- propose-start: '.length;
+    setSelection(stubStart, stubStart + stub.length);
+
+    renderPreview();
+    scheduleSave();
+    return;
+  }
+
+  // Case 3: Section propose (under a heading)
+  const cursorPos = sel.from;
+  const insertPos = findNearestHeading(content, cursorPos);
+
+  // Remove any existing status marker for this section first
+  const lines = content.split('\n');
+  let linePos = 0;
+  let targetLineIndex = -1;
+
+  for (let i = 0; i < lines.length; i++) {
+    if (linePos >= insertPos) {
+      targetLineIndex = i;
+      break;
+    }
+    linePos += lines[i].length + 1;
+  }
+
+  // Check if next line is a status marker and remove it
+  if (targetLineIndex >= 0 && targetLineIndex < lines.length) {
+    if (lines[targetLineIndex].match(/<!--\s*status:\s*(approved|rejected|proposed)/)) {
+      lines.splice(targetLineIndex, 1);
+      setEditorContent(lines.join('\n'));
+      content = getEditorContent(); // refresh content after modification
+    }
+  }
+
+  // Insert proposed status with stub label
+  const before = content.substring(0, insertPos);
+  const after = content.substring(insertPos);
+  const marker = `<!-- status: proposed: ${stub} -->\n`;
+
+  setEditorContent(before + marker + after);
+
+  // Position cursor inside the stub text for easy editing
+  const stubStart = before.length + '<!-- status: proposed: '.length;
+  setSelection(stubStart, stubStart + stub.length);
+
+  renderPreview();
+  scheduleSave();
+});
+
 // Approve section button handler
 approveSectionBtn.addEventListener('click', () => {
   const sel = getSelection();
@@ -549,12 +714,36 @@ approveSectionBtn.addEventListener('click', () => {
       return;
     }
 
+    // Check if selection contains proposed markers - switch to approval
+    if (selected.match(/<!-- propose-start[\s\S]*?-->/)) {
+      const cleaned = selected
+        .replace(/<!-- propose-start[\s\S]*?-->/g, '<!-- approve-start -->')
+        .replace(/<!-- propose-end -->/g, '<!-- approve-end -->');
+      setEditorContent(before + cleaned + after);
+      setCursor(sel.from);
+      renderPreview();
+      scheduleSave();
+      return;
+    }
+
     // Check if cursor is inside rejection markers on current line
     const { lineStart, lineEnd, lineContent } = getCurrentLineInfo(content, sel.from);
     if (lineContent.match(/<!-- reject-start:/)) {
       const newLine = lineContent
         .replace(/<!-- reject-start:[\s\S]*?-->/g, '<!-- approve-start -->')
         .replace(/<!-- reject-end -->/g, '<!-- approve-end -->');
+      setEditorContent(content.substring(0, lineStart) + newLine + content.substring(lineEnd));
+      setCursor(sel.from);
+      renderPreview();
+      scheduleSave();
+      return;
+    }
+
+    // Check if cursor is inside proposed markers on current line
+    if (lineContent.match(/<!-- propose-start/)) {
+      const newLine = lineContent
+        .replace(/<!-- propose-start[\s\S]*?-->/g, '<!-- approve-start -->')
+        .replace(/<!-- propose-end -->/g, '<!-- approve-end -->');
       setEditorContent(content.substring(0, lineStart) + newLine + content.substring(lineEnd));
       setCursor(sel.from);
       renderPreview();
@@ -604,9 +793,9 @@ approveSectionBtn.addEventListener('click', () => {
     linePos += lines[i].length + 1;
   }
 
-  // Check if next line is a status marker and remove it (handles rejected with reason too)
+  // Check if next line is a status marker and remove it (handles rejected/proposed with reason too)
   if (targetLineIndex >= 0 && targetLineIndex < lines.length) {
-    if (lines[targetLineIndex].match(/<!--\s*status:\s*(approved|rejected)/)) {
+    if (lines[targetLineIndex].match(/<!--\s*status:\s*(approved|rejected|proposed)/)) {
       lines.splice(targetLineIndex, 1);
       setEditorContent(lines.join('\n'));
     }
@@ -673,12 +862,39 @@ rejectSectionBtn.addEventListener('click', () => {
       return;
     }
 
+    // Check if selection contains proposed markers - switch to rejection
+    if (selected.match(/<!-- propose-start[\s\S]*?-->/)) {
+      const cleaned = selected
+        .replace(/<!-- propose-start[\s\S]*?-->/g, `<!-- reject-start: ${stub} -->`)
+        .replace(/<!-- propose-end -->/g, '<!-- reject-end -->');
+      setEditorContent(before + cleaned + after);
+      // Position cursor at the stub
+      const stubStart = before.length + '<!-- reject-start: '.length;
+      setSelection(stubStart, stubStart + stub.length);
+      renderPreview();
+      scheduleSave();
+      return;
+    }
+
     // Check if cursor is inside approval markers on current line
     const { lineStart, lineEnd, lineContent } = getCurrentLineInfo(content, sel.from);
     if (lineContent.includes('<!-- approve-start -->')) {
       const newLine = lineContent
         .replace(/<!-- approve-start -->/g, `<!-- reject-start: ${stub} -->`)
         .replace(/<!-- approve-end -->/g, '<!-- reject-end -->');
+      setEditorContent(content.substring(0, lineStart) + newLine + content.substring(lineEnd));
+      const stubStart = lineStart + newLine.indexOf(stub);
+      setSelection(stubStart, stubStart + stub.length);
+      renderPreview();
+      scheduleSave();
+      return;
+    }
+
+    // Check if cursor is inside proposed markers on current line
+    if (lineContent.match(/<!-- propose-start/)) {
+      const newLine = lineContent
+        .replace(/<!-- propose-start[\s\S]*?-->/g, `<!-- reject-start: ${stub} -->`)
+        .replace(/<!-- propose-end -->/g, '<!-- reject-end -->');
       setEditorContent(content.substring(0, lineStart) + newLine + content.substring(lineEnd));
       const stubStart = lineStart + newLine.indexOf(stub);
       setSelection(stubStart, stubStart + stub.length);
@@ -737,9 +953,9 @@ rejectSectionBtn.addEventListener('click', () => {
     linePos += lines[i].length + 1;
   }
 
-  // Check if next line is a status marker and remove it (handles rejected with reason too)
+  // Check if next line is a status marker and remove it (handles rejected/proposed with reason too)
   if (targetLineIndex >= 0 && targetLineIndex < lines.length) {
-    if (lines[targetLineIndex].match(/<!--\s*status:\s*(approved|rejected)/)) {
+    if (lines[targetLineIndex].match(/<!--\s*status:\s*(approved|rejected|proposed)/)) {
       lines.splice(targetLineIndex, 1);
       setEditorContent(lines.join('\n'));
       content = getEditorContent(); // refresh content after modification
@@ -761,7 +977,7 @@ rejectSectionBtn.addEventListener('click', () => {
   scheduleSave();
 });
 
-// Clear status button handler - removes approval/rejection markers
+// Clear status button handler - removes approval/rejection/proposed markers
 clearStatusBtn.addEventListener('click', () => {
   const sel = getSelection();
   let content = getEditorContent();
@@ -775,18 +991,17 @@ clearStatusBtn.addEventListener('click', () => {
     // Check for and remove inline markers within or around selection
     let newContent = content;
 
-    // Try to find and remove approve markers around selection
-    const approvePattern = /<!-- approve-start -->([\s\S]*?)<!-- approve-end -->/g;
-    const rejectPattern = /<!-- reject-start:[\s\S]*?-->([\s\S]*?)<!-- reject-end -->/g;
-
-    // Check if selection is inside approve markers
+    // Check if selection is inside approve/reject/propose markers
     const approveMatch = content.match(new RegExp(`<!-- approve-start -->[\\s\\S]*?${escapeRegex(selected)}[\\s\\S]*?<!-- approve-end -->`));
     const rejectMatch = content.match(new RegExp(`<!-- reject-start:[\\s\\S]*?-->[\\s\\S]*?${escapeRegex(selected)}[\\s\\S]*?<!-- reject-end -->`));
+    const proposeMatch = content.match(new RegExp(`<!-- propose-start[\\s\\S]*?-->[\\s\\S]*?${escapeRegex(selected)}[\\s\\S]*?<!-- propose-end -->`));
 
     if (approveMatch) {
       newContent = content.replace(/<!-- approve-start -->([\s\S]*?)<!-- approve-end -->/, '$1');
     } else if (rejectMatch) {
       newContent = content.replace(/<!-- reject-start:[\s\S]*?-->([\s\S]*?)<!-- reject-end -->/, '$1');
+    } else if (proposeMatch) {
+      newContent = content.replace(/<!-- propose-start[\s\S]*?-->([\s\S]*?)<!-- propose-end -->/, '$1');
     }
 
     if (newContent !== content) {
@@ -825,6 +1040,18 @@ clearStatusBtn.addEventListener('click', () => {
     return;
   }
 
+  if (lineContent.match(/<!-- propose-start/)) {
+    const newLine = lineContent
+      .replace(/<!-- propose-start[\s\S]*?-->/g, '')
+      .replace(/<!-- propose-end -->/g, '');
+    const before = content.substring(0, lineStart);
+    const after = content.substring(lineEnd);
+    setEditorContent(before + newLine + after);
+    renderPreview();
+    scheduleSave();
+    return;
+  }
+
   // Case 3: Section status - find and remove status marker for current section
   const cursorPos = sel.from;
   const insertPos = findNearestHeading(content, cursorPos);
@@ -843,7 +1070,7 @@ clearStatusBtn.addEventListener('click', () => {
 
   // Check if next line is a status marker and remove it
   if (targetLineIndex >= 0 && targetLineIndex < lines.length) {
-    if (lines[targetLineIndex].match(/<!--\s*status:\s*(approved|rejected)/)) {
+    if (lines[targetLineIndex].match(/<!--\s*status:\s*(approved|rejected|proposed)/)) {
       lines.splice(targetLineIndex, 1);
       setEditorContent(lines.join('\n'));
       renderPreview();
