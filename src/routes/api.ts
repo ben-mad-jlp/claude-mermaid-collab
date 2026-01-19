@@ -7,6 +7,15 @@ import { Renderer, type Theme } from '../services/renderer';
 import { WebSocketHandler } from '../websocket/handler';
 import { transpile, isSmachYaml } from '../services/smach-transpiler';
 import { config } from '../config';
+import {
+  listCollabSessions,
+  createCollabSession,
+  getCollabSessionState,
+  updateCollabSessionState,
+  getCollabSessionPath,
+  type CollabTemplate,
+  type CollabPhase,
+} from '../services/collab-manager';
 
 // Storage switch function - set by server.ts
 let _switchStorage: ((dir: string) => Promise<void>) | null = null;
@@ -394,6 +403,122 @@ export async function handleAPI(
       });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // ============================================
+  // Collab Session Management Routes
+  // ============================================
+
+  // GET /api/collab/sessions - List all collab sessions
+  if (path === '/api/collab/sessions' && req.method === 'GET') {
+    try {
+      // Use current working directory as base
+      const baseDir = process.cwd();
+      const sessions = await listCollabSessions(baseDir);
+      return Response.json({ sessions, baseDir });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // POST /api/collab/sessions - Create a new collab session
+  if (path === '/api/collab/sessions' && req.method === 'POST') {
+    try {
+      const { template, name } = await req.json() as { template?: CollabTemplate; name?: string };
+
+      if (!template) {
+        return Response.json({ error: 'template required (feature, bugfix, refactor, spike)' }, { status: 400 });
+      }
+
+      const validTemplates = ['feature', 'bugfix', 'refactor', 'spike'];
+      if (!validTemplates.includes(template)) {
+        return Response.json({ error: `Invalid template. Must be one of: ${validTemplates.join(', ')}` }, { status: 400 });
+      }
+
+      const baseDir = process.cwd();
+      const session = await createCollabSession(baseDir, template, name);
+
+      return Response.json({
+        success: true,
+        name: session.name,
+        path: session.path,
+        template,
+        phase: 'brainstorming',
+      });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // GET /api/collab/sessions/:name/state - Get session state
+  if (path.match(/^\/api\/collab\/sessions\/[^/]+\/state$/) && req.method === 'GET') {
+    try {
+      const parts = path.split('/');
+      const sessionName = parts[4];
+      const baseDir = process.cwd();
+
+      const state = await getCollabSessionState(baseDir, sessionName);
+      const sessionPath = getCollabSessionPath(baseDir, sessionName);
+
+      return Response.json({
+        name: sessionName,
+        path: sessionPath,
+        ...state,
+      });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 404 });
+    }
+  }
+
+  // POST /api/collab/sessions/:name/state - Update session state
+  if (path.match(/^\/api\/collab\/sessions\/[^/]+\/state$/) && req.method === 'POST') {
+    try {
+      const parts = path.split('/');
+      const sessionName = parts[4];
+      const baseDir = process.cwd();
+
+      const updates = await req.json() as {
+        phase?: CollabPhase;
+        pendingVerificationIssues?: Array<{
+          type: string;
+          description: string;
+          file?: string;
+          detectedAt: string;
+        }>;
+      };
+
+      const newState = await updateCollabSessionState(baseDir, sessionName, updates);
+      const sessionPath = getCollabSessionPath(baseDir, sessionName);
+
+      return Response.json({
+        success: true,
+        name: sessionName,
+        path: sessionPath,
+        ...newState,
+      });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 404 });
+    }
+  }
+
+  // GET /api/collab/sessions/:name/path - Get the absolute path to a session
+  if (path.match(/^\/api\/collab\/sessions\/[^/]+\/path$/) && req.method === 'GET') {
+    try {
+      const parts = path.split('/');
+      const sessionName = parts[4];
+      const baseDir = process.cwd();
+
+      // Verify session exists by getting its state
+      await getCollabSessionState(baseDir, sessionName);
+      const sessionPath = getCollabSessionPath(baseDir, sessionName);
+
+      return Response.json({
+        name: sessionName,
+        path: sessionPath,
+      });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 404 });
     }
   }
 

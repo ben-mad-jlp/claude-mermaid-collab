@@ -375,6 +375,84 @@ async function getStorageConfig(): Promise<string> {
 }
 
 /**
+ * MCP Tool: list_collab_sessions
+ * Lists all collab sessions in the .collab directory
+ */
+async function listCollabSessions(): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}/api/collab/sessions`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to list collab sessions: ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  return JSON.stringify(data, null, 2);
+}
+
+/**
+ * MCP Tool: create_collab_session
+ * Creates a new collab session with folder structure
+ */
+async function createCollabSession(template: string, name?: string): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}/api/collab/sessions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ template, name }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(`Failed to create collab session: ${error.error || response.statusText}`);
+  }
+
+  const data = await response.json();
+  return JSON.stringify(data, null, 2);
+}
+
+/**
+ * MCP Tool: get_collab_session_state
+ * Gets the state of a collab session
+ */
+async function getCollabSessionState(sessionName: string): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}/api/collab/sessions/${encodeURIComponent(sessionName)}/state`);
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(`Failed to get session state: ${error.error || response.statusText}`);
+  }
+
+  const data = await response.json();
+  return JSON.stringify(data, null, 2);
+}
+
+/**
+ * MCP Tool: update_collab_session_state
+ * Updates the state of a collab session
+ */
+async function updateCollabSessionState(
+  sessionName: string,
+  updates: { phase?: string; pendingVerificationIssues?: any[] }
+): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}/api/collab/sessions/${encodeURIComponent(sessionName)}/state`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(updates),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(`Failed to update session state: ${error.error || response.statusText}`);
+  }
+
+  const data = await response.json();
+  return JSON.stringify(data, null, 2);
+}
+
+/**
  * Main MCP server setup
  */
 async function main() {
@@ -775,6 +853,80 @@ This document describes the system architecture.
             properties: {},
           },
         },
+        {
+          name: 'list_collab_sessions',
+          description: 'List all collab sessions in the .collab/ directory. Returns session names, templates, phases, last activity timestamps, and pending issue counts. Use this to discover existing sessions before resuming or creating new ones.',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+          },
+        },
+        {
+          name: 'create_collab_session',
+          description: 'Create a new collab session. Creates .collab/ folder if needed, generates a memorable name (adjective-adjective-noun), and sets up the folder structure with diagrams/, documents/, metadata.json, and collab-state.json. Returns the session name and path.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              template: {
+                type: 'string',
+                enum: ['feature', 'bugfix', 'refactor', 'spike'],
+                description: 'The type of work: feature (new functionality), bugfix (fix an issue), refactor (restructure code), spike (exploratory/research)',
+              },
+              name: {
+                type: 'string',
+                description: 'Optional custom session name. If not provided, a memorable name will be auto-generated.',
+              },
+            },
+            required: ['template'],
+          },
+        },
+        {
+          name: 'get_collab_session_state',
+          description: 'Get the current state of a collab session including phase, template, last activity, and any pending verification issues.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              sessionName: {
+                type: 'string',
+                description: 'The session name (e.g., "bright-calm-river")',
+              },
+            },
+            required: ['sessionName'],
+          },
+        },
+        {
+          name: 'update_collab_session_state',
+          description: 'Update the state of a collab session. Use this to change the phase or add/clear verification issues.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              sessionName: {
+                type: 'string',
+                description: 'The session name to update',
+              },
+              phase: {
+                type: 'string',
+                enum: ['brainstorming', 'rough-draft/interface', 'rough-draft/pseudocode', 'rough-draft/skeleton', 'implementation'],
+                description: 'The new phase to set',
+              },
+              pendingVerificationIssues: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    type: { type: 'string', description: 'Issue type (e.g., "drift")' },
+                    description: { type: 'string', description: 'Description of the issue' },
+                    file: { type: 'string', description: 'Optional file path related to the issue' },
+                    detectedAt: { type: 'string', description: 'ISO timestamp when detected' },
+                  },
+                  required: ['type', 'description', 'detectedAt'],
+                },
+                description: 'List of pending verification issues to set (replaces existing)',
+              },
+            },
+            required: ['sessionName'],
+          },
+        },
       ],
     };
   });
@@ -976,6 +1128,66 @@ This document describes the system architecture.
 
         case 'get_storage_config': {
           const result = await getStorageConfig();
+          return {
+            content: [
+              {
+                type: 'text',
+                text: result,
+              },
+            ],
+          };
+        }
+
+        case 'list_collab_sessions': {
+          const result = await listCollabSessions();
+          return {
+            content: [
+              {
+                type: 'text',
+                text: result,
+              },
+            ],
+          };
+        }
+
+        case 'create_collab_session': {
+          if (!args || typeof args.template !== 'string') {
+            throw new Error('Missing or invalid required argument: template');
+          }
+          const result = await createCollabSession(args.template, args.name as string | undefined);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: result,
+              },
+            ],
+          };
+        }
+
+        case 'get_collab_session_state': {
+          if (!args || typeof args.sessionName !== 'string') {
+            throw new Error('Missing or invalid required argument: sessionName');
+          }
+          const result = await getCollabSessionState(args.sessionName);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: result,
+              },
+            ],
+          };
+        }
+
+        case 'update_collab_session_state': {
+          if (!args || typeof args.sessionName !== 'string') {
+            throw new Error('Missing or invalid required argument: sessionName');
+          }
+          const updates: { phase?: string; pendingVerificationIssues?: any[] } = {};
+          if (args.phase) updates.phase = args.phase as string;
+          if (args.pendingVerificationIssues) updates.pendingVerificationIssues = args.pendingVerificationIssues as any[];
+          const result = await updateCollabSessionState(args.sessionName, updates);
           return {
             content: [
               {
