@@ -1,4 +1,5 @@
 import { mkdir } from 'fs/promises';
+import { join } from 'path';
 import { config, setStorageDir } from './config';
 import { DiagramManager } from './services/diagram-manager';
 import { DocumentManager } from './services/document-manager';
@@ -155,29 +156,29 @@ const server = Bun.serve({
       return handleAPI(req, diagramManager, documentManager, metadataManager, validator, renderer, wsHandler);
     }
 
-    // Static files
+    // Static files (served from the server's public/ directory, not cwd)
     if (url.pathname === '/') {
-      const file = Bun.file('public/index.html');
+      const file = Bun.file(join(config.PUBLIC_DIR, 'index.html'));
       return new Response(file);
     }
 
     if (url.pathname === '/diagram.html') {
-      const file = Bun.file('public/diagram.html');
+      const file = Bun.file(join(config.PUBLIC_DIR, 'diagram.html'));
       return new Response(file);
     }
 
     if (url.pathname === '/document.html') {
-      const file = Bun.file('public/document.html');
+      const file = Bun.file(join(config.PUBLIC_DIR, 'document.html'));
       return new Response(file);
     }
 
     if (url.pathname === '/smach-test.html') {
-      const file = Bun.file('public/smach-test.html');
+      const file = Bun.file(join(config.PUBLIC_DIR, 'smach-test.html'));
       return new Response(file);
     }
 
     if (url.pathname.startsWith('/css/') || url.pathname.startsWith('/js/')) {
-      const file = Bun.file(`public${url.pathname}`);
+      const file = Bun.file(join(config.PUBLIC_DIR, url.pathname));
       const exists = await file.exists();
 
       if (!exists) {
@@ -221,6 +222,7 @@ const server = Bun.serve({
 });
 
 console.log(`🚀 Mermaid Collaboration Server running on http://${config.HOST}:${config.PORT}`);
+console.log(`🌐 Public directory: ${config.PUBLIC_DIR}`);
 console.log(`📂 Storage directory: ${config.STORAGE_DIR}`);
 console.log(`📁 Diagrams folder: ${config.DIAGRAMS_FOLDER}`);
 console.log(`📄 Documents folder: ${config.DOCUMENTS_FOLDER}`);

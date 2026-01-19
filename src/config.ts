@@ -1,4 +1,8 @@
-import { join } from 'path';
+import { join, dirname } from 'path';
+
+// Get the directory where this module lives (src/)
+// Go up one level to reach the project root where public/ is located
+const PROJECT_ROOT = dirname(import.meta.dir);
 
 /**
  * Validates and parses the PORT environment variable.
@@ -40,6 +44,7 @@ let _storageDir = process.env.STORAGE_DIR || '.';
 export const config = {
   PORT: validatePort(),
   HOST: process.env.HOST || '0.0.0.0',
+  PUBLIC_DIR: join(PROJECT_ROOT, 'public'),
   get STORAGE_DIR() { return _storageDir; },
   get DIAGRAMS_FOLDER() { return join(_storageDir, 'diagrams'); },
   get DOCUMENTS_FOLDER() { return join(_storageDir, 'documents'); },
