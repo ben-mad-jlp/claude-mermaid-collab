@@ -60,6 +60,9 @@ const statusText = document.getElementById('status-text');
 const resizer = document.getElementById('resizer');
 const tooltip = document.getElementById('tooltip');
 const themeToggleBtn = document.getElementById('theme-toggle');
+const minimapContent = document.getElementById('minimap-content');
+const minimapViewport = document.getElementById('minimap-viewport');
+const minimapTrack = document.getElementById('minimap-track');
 
 // State
 let documentId = null;
@@ -309,6 +312,78 @@ function renderPreview() {
 
   // Add tooltip handlers for inline comments
   setupTooltips();
+
+  // Update minimap after content is rendered
+  requestAnimationFrame(() => updateMinimap());
+}
+
+// Update the minimap with markers for highlighted content
+function updateMinimap() {
+  if (!minimapContent || !preview) return;
+
+  // Clear existing markers
+  minimapContent.innerHTML = '';
+
+  const previewHeight = preview.scrollHeight;
+  const minimapHeight = minimapContent.parentElement.clientHeight;
+
+  if (previewHeight === 0) return;
+
+  // Find all highlighted elements
+  const selectors = [
+    { selector: '.section-proposed, .propose-inline', type: 'proposed' },
+    { selector: '.section-approved, .approve-inline', type: 'approved' },
+    { selector: '.section-rejected, .reject-inline', type: 'rejected' },
+    { selector: '.comment-block, .comment-inline', type: 'comment' },
+  ];
+
+  selectors.forEach(({ selector, type }) => {
+    const elements = preview.querySelectorAll(selector);
+    elements.forEach(el => {
+      const rect = el.getBoundingClientRect();
+      const previewRect = preview.getBoundingClientRect();
+
+      // Calculate position relative to preview content
+      const offsetTop = el.offsetTop;
+      const height = el.offsetHeight;
+
+      // Scale to minimap
+      const top = (offsetTop / previewHeight) * minimapHeight;
+      const markerHeight = Math.max(3, (height / previewHeight) * minimapHeight);
+
+      const marker = document.createElement('div');
+      marker.className = `minimap-marker ${type}`;
+      marker.style.top = `${top}px`;
+      marker.style.height = `${markerHeight}px`;
+      marker.dataset.scrollTarget = offsetTop;
+      marker.title = type.charAt(0).toUpperCase() + type.slice(1);
+
+      minimapContent.appendChild(marker);
+    });
+  });
+
+  // Update viewport indicator
+  updateMinimapViewport();
+}
+
+// Update the viewport indicator position
+function updateMinimapViewport() {
+  if (!minimapViewport || !previewPane) return;
+
+  const previewHeight = preview.scrollHeight;
+  const viewportHeight = previewPane.clientHeight;
+  const minimapHeight = minimapViewport.parentElement.clientHeight;
+  const scrollTop = previewPane.scrollTop;
+
+  if (previewHeight === 0) return;
+
+  // Calculate viewport indicator size and position
+  const viewportRatio = viewportHeight / previewHeight;
+  const indicatorHeight = Math.max(20, viewportRatio * minimapHeight);
+  const indicatorTop = (scrollTop / previewHeight) * minimapHeight;
+
+  minimapViewport.style.height = `${indicatorHeight}px`;
+  minimapViewport.style.top = `${indicatorTop}px`;
 }
 
 // Process <!-- status: approved/rejected/proposed --> markers in rendered HTML
@@ -1187,7 +1262,46 @@ function setupSyncScroll() {
     const percentage = previewPane.scrollTop / (previewPane.scrollHeight - previewPane.clientHeight);
     cmScroller.scrollTop = percentage * (cmScroller.scrollHeight - cmScroller.clientHeight);
 
+    // Update minimap viewport indicator
+    updateMinimapViewport();
+
     setTimeout(() => { previewScrolling = false; }, 50);
+  });
+}
+
+// Setup minimap click handlers
+function setupMinimap() {
+  if (!minimapTrack || !minimapContent) return;
+
+  // Click on track to jump to position
+  minimapTrack.addEventListener('click', (e) => {
+    const rect = minimapTrack.getBoundingClientRect();
+    const clickY = e.clientY - rect.top;
+    const percentage = clickY / rect.height;
+    const scrollTarget = percentage * preview.scrollHeight;
+
+    previewPane.scrollTo({
+      top: scrollTarget - previewPane.clientHeight / 2,
+      behavior: 'smooth'
+    });
+  });
+
+  // Click on markers to jump to that element
+  minimapContent.addEventListener('click', (e) => {
+    if (e.target.classList.contains('minimap-marker')) {
+      const scrollTarget = parseFloat(e.target.dataset.scrollTarget);
+      previewPane.scrollTo({
+        top: scrollTarget - 50,
+        behavior: 'smooth'
+      });
+    }
+  });
+
+  // Update minimap on window resize
+  window.addEventListener('resize', () => {
+    requestAnimationFrame(() => {
+      updateMinimap();
+    });
   });
 }
 
@@ -1279,5 +1393,6 @@ api.subscribe(documentId);
 loadDocument().then(() => {
   setupSyncScroll();
   setupClickToSource();
+  setupMinimap();
   updateUndoRedoButtons();
 });

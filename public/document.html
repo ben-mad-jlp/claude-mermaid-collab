@@ -380,6 +380,77 @@
       border: 1px solid var(--border-color);
       box-shadow: 0 2px 8px var(--shadow-color);
     }
+
+    /* Minimap - document overview bar */
+    .preview-pane {
+      position: relative;
+    }
+
+    .minimap {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 12px;
+      height: 100%;
+      background: var(--bg-secondary);
+      border-left: 1px solid var(--border-color);
+      z-index: 10;
+    }
+
+    .minimap-content {
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+
+    .minimap-marker {
+      position: absolute;
+      right: 0;
+      width: 100%;
+      min-height: 3px;
+      cursor: pointer;
+      opacity: 0.8;
+      transition: opacity 0.15s;
+    }
+
+    .minimap-marker:hover {
+      opacity: 1;
+    }
+
+    .minimap-marker.proposed {
+      background: var(--info-color);
+    }
+
+    .minimap-marker.approved {
+      background: var(--success-color);
+    }
+
+    .minimap-marker.rejected {
+      background: var(--error-color);
+    }
+
+    .minimap-marker.comment {
+      background: var(--warning-color);
+    }
+
+    .minimap-viewport {
+      position: absolute;
+      right: 0;
+      width: 100%;
+      background: var(--text-primary);
+      opacity: 0.15;
+      pointer-events: none;
+      border-radius: 2px;
+    }
+
+    .minimap-track {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 100%;
+      height: 100%;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -433,6 +504,11 @@
 
       <div class="preview-pane" id="preview-pane">
         <div class="preview-content" id="preview"></div>
+        <div class="minimap" id="minimap">
+          <div class="minimap-track" id="minimap-track"></div>
+          <div class="minimap-content" id="minimap-content"></div>
+          <div class="minimap-viewport" id="minimap-viewport"></div>
+        </div>
       </div>
     </div>
   </div>
