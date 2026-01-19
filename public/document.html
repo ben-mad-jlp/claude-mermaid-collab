@@ -152,9 +152,16 @@
 
     .preview-pane {
       flex: 1;
-      overflow-y: auto;
+      position: relative;
+      display: flex;
       background: var(--bg-tertiary);
+    }
+
+    .preview-scroll {
+      flex: 1;
+      overflow-y: auto;
       padding: 20px;
+      padding-right: 44px; /* Extra space for minimap (24px) + scrollbar */
     }
 
     .preview-content {
@@ -389,8 +396,8 @@
     .minimap {
       position: absolute;
       top: 0;
-      right: 0;
-      width: 12px;
+      right: 16px; /* Leave space for scrollbar */
+      width: 24px;
       height: 100%;
       background: var(--bg-secondary);
       border-left: 1px solid var(--border-color);
@@ -503,7 +510,9 @@
       <div class="resizer" id="resizer"></div>
 
       <div class="preview-pane" id="preview-pane">
-        <div class="preview-content" id="preview"></div>
+        <div class="preview-scroll" id="preview-scroll">
+          <div class="preview-content" id="preview"></div>
+        </div>
         <div class="minimap" id="minimap">
           <div class="minimap-track" id="minimap-track"></div>
           <div class="minimap-content" id="minimap-content"></div>

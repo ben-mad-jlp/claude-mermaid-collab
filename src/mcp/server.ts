@@ -752,6 +752,49 @@ Documents support full GitHub-flavored markdown including:
 - Links and images
 - Bold, italic, strikethrough
 
+=== REVIEW WORKFLOW MARKERS ===
+
+Use HTML comment markers to indicate review status. These render with colored highlights in the preview.
+
+SECTION-LEVEL MARKERS (after headings, affect all content until next heading):
+- \`<!-- status: proposed: label -->\` - Cyan highlight, marks section as proposed
+- \`<!-- status: approved -->\` - Green highlight, marks section as approved
+- \`<!-- status: rejected: reason -->\` - Red highlight, marks section as rejected
+- \`<!-- comment: your comment text -->\` - Yellow highlight, adds a comment block
+
+INLINE MARKERS (wrap specific text):
+- \`<!-- propose-start: label -->text<!-- propose-end -->\` - Cyan inline highlight
+- \`<!-- approve-start -->text<!-- approve-end -->\` - Green inline highlight
+- \`<!-- reject-start: reason -->text<!-- reject-end -->\` - Red inline highlight
+- \`<!-- comment-start: text -->content<!-- comment-end -->\` - Yellow inline highlight
+
+EXAMPLE WITH REVIEW MARKERS:
+## Feature Proposal
+<!-- status: proposed: needs team review -->
+
+This section describes the new login system.
+
+We should use <!-- propose-start: needs discussion -->OAuth 2.0<!-- propose-end --> for authentication.
+
+- <!-- approve-start -->Email/password login<!-- approve-end -->
+- <!-- reject-start: too complex for MVP -->Biometric auth<!-- reject-end -->
+
+<!-- comment: Remember to check security requirements -->
+
+=== END REVIEW MARKERS ===
+
+=== EDITOR FEATURES ===
+
+The document editor provides:
+- **Split-pane view**: Markdown source on left, rendered preview on right
+- **Live preview**: See formatted output as you type
+- **Auto-save**: Saves automatically after typing stops
+- **Real-time collaboration**: Multiple users see updates instantly via WebSocket
+- **Minimap**: Colored bar on right showing all highlights (green=approved, cyan=proposed, red=rejected, yellow=comments)
+- **Click-to-source**: Click any element in preview to jump to its source line
+- **Export Clean**: Download markdown with all review markers stripped
+- **Export Raw**: Download markdown with all markers preserved
+
 Use documents to write specifications, design docs, meeting notes, or any text content that should be viewable in the browser alongside diagrams.
 
 Example document:

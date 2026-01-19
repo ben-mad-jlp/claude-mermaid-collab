@@ -44,6 +44,7 @@ const api = new APIClient();
 const editorContainer = document.getElementById('editor');
 const preview = document.getElementById('preview');
 const previewPane = document.getElementById('preview-pane');
+const previewScroll = document.getElementById('preview-scroll');
 const title = document.getElementById('title');
 const backButton = document.getElementById('back-button');
 const undoBtn = document.getElementById('undo');
@@ -319,15 +320,15 @@ function renderPreview() {
 
 // Update the minimap with markers for highlighted content
 function updateMinimap() {
-  if (!minimapContent || !preview) return;
+  if (!minimapContent || !preview || !previewScroll) return;
 
   // Clear existing markers
   minimapContent.innerHTML = '';
 
-  const previewHeight = preview.scrollHeight;
+  const scrollHeight = previewScroll.scrollHeight;
   const minimapHeight = minimapContent.parentElement.clientHeight;
 
-  if (previewHeight === 0) return;
+  if (scrollHeight === 0) return;
 
   // Find all highlighted elements
   const selectors = [
@@ -337,19 +338,22 @@ function updateMinimap() {
     { selector: '.comment-block, .comment-inline', type: 'comment' },
   ];
 
+  // Get scroll container's position for calculating offsets
+  const scrollRect = previewScroll.getBoundingClientRect();
+  const currentScrollTop = previewScroll.scrollTop;
+
   selectors.forEach(({ selector, type }) => {
     const elements = preview.querySelectorAll(selector);
     elements.forEach(el => {
       const rect = el.getBoundingClientRect();
-      const previewRect = preview.getBoundingClientRect();
 
-      // Calculate position relative to preview content
-      const offsetTop = el.offsetTop;
-      const height = el.offsetHeight;
+      // Calculate position relative to scroll container (accounting for current scroll)
+      const offsetTop = rect.top - scrollRect.top + currentScrollTop;
+      const height = rect.height;
 
       // Scale to minimap
-      const top = (offsetTop / previewHeight) * minimapHeight;
-      const markerHeight = Math.max(3, (height / previewHeight) * minimapHeight);
+      const top = (offsetTop / scrollHeight) * minimapHeight;
+      const markerHeight = Math.max(3, (height / scrollHeight) * minimapHeight);
 
       const marker = document.createElement('div');
       marker.className = `minimap-marker ${type}`;
@@ -368,19 +372,19 @@ function updateMinimap() {
 
 // Update the viewport indicator position
 function updateMinimapViewport() {
-  if (!minimapViewport || !previewPane) return;
+  if (!minimapViewport || !previewScroll) return;
 
-  const previewHeight = preview.scrollHeight;
-  const viewportHeight = previewPane.clientHeight;
+  const scrollHeight = previewScroll.scrollHeight;
+  const viewportHeight = previewScroll.clientHeight;
   const minimapHeight = minimapViewport.parentElement.clientHeight;
-  const scrollTop = previewPane.scrollTop;
+  const scrollTop = previewScroll.scrollTop;
 
-  if (previewHeight === 0) return;
+  if (scrollHeight === 0) return;
 
   // Calculate viewport indicator size and position
-  const viewportRatio = viewportHeight / previewHeight;
+  const viewportRatio = viewportHeight / scrollHeight;
   const indicatorHeight = Math.max(20, viewportRatio * minimapHeight);
-  const indicatorTop = (scrollTop / previewHeight) * minimapHeight;
+  const indicatorTop = (scrollTop / scrollHeight) * minimapHeight;
 
   minimapViewport.style.height = `${indicatorHeight}px`;
   minimapViewport.style.top = `${indicatorTop}px`;
@@ -1250,16 +1254,16 @@ function setupSyncScroll() {
     editorScrolling = true;
 
     const percentage = cmScroller.scrollTop / (cmScroller.scrollHeight - cmScroller.clientHeight);
-    previewPane.scrollTop = percentage * (previewPane.scrollHeight - previewPane.clientHeight);
+    previewScroll.scrollTop = percentage * (previewScroll.scrollHeight - previewScroll.clientHeight);
 
     setTimeout(() => { editorScrolling = false; }, 50);
   });
 
-  previewPane.addEventListener('scroll', () => {
+  previewScroll.addEventListener('scroll', () => {
     if (editorScrolling) return;
     previewScrolling = true;
 
-    const percentage = previewPane.scrollTop / (previewPane.scrollHeight - previewPane.clientHeight);
+    const percentage = previewScroll.scrollTop / (previewScroll.scrollHeight - previewScroll.clientHeight);
     cmScroller.scrollTop = percentage * (cmScroller.scrollHeight - cmScroller.clientHeight);
 
     // Update minimap viewport indicator
@@ -1278,10 +1282,10 @@ function setupMinimap() {
     const rect = minimapTrack.getBoundingClientRect();
     const clickY = e.clientY - rect.top;
     const percentage = clickY / rect.height;
-    const scrollTarget = percentage * preview.scrollHeight;
+    const scrollTarget = percentage * previewScroll.scrollHeight;
 
-    previewPane.scrollTo({
-      top: scrollTarget - previewPane.clientHeight / 2,
+    previewScroll.scrollTo({
+      top: scrollTarget - previewScroll.clientHeight / 2,
       behavior: 'smooth'
     });
   });
@@ -1290,7 +1294,7 @@ function setupMinimap() {
   minimapContent.addEventListener('click', (e) => {
     if (e.target.classList.contains('minimap-marker')) {
       const scrollTarget = parseFloat(e.target.dataset.scrollTarget);
-      previewPane.scrollTo({
+      previewScroll.scrollTo({
         top: scrollTarget - 50,
         behavior: 'smooth'
       });
