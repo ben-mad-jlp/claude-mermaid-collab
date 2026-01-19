@@ -1,4 +1,5 @@
 import { join } from 'path';
+import { homedir } from 'os';
 import { config } from './config';
 import { DiagramManager } from './services/diagram-manager';
 import { DocumentManager } from './services/document-manager';
@@ -7,6 +8,15 @@ import { Validator } from './services/validator';
 import { Renderer } from './services/renderer';
 import { WebSocketHandler } from './websocket/handler';
 import { handleAPI } from './routes/api';
+import { sessionRegistry } from './services/session-registry';
+
+// Scratch session - a default workspace for casual use
+const SCRATCH_PROJECT = join(homedir(), '.mermaid-collab');
+const SCRATCH_SESSION = 'scratch';
+
+// Register scratch session on startup
+await sessionRegistry.register(SCRATCH_PROJECT, SCRATCH_SESSION);
+console.log(`📋 Scratch session: ${SCRATCH_PROJECT}/.collab/${SCRATCH_SESSION}/`);
 
 // Initialize shared services (stateless, no storage)
 const validator = new Validator();
