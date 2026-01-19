@@ -243,6 +243,47 @@ The document editor (`/document.html?id=<id>`) provides:
 - **Real-time collaboration**: See updates from other users instantly
 - **Resizable panes**: Drag the separator to adjust layout
 - **Clean content API**: Get sanitized HTML for safe rendering
+- **Review workflow**: Comment, propose, approve, and reject content
+
+### Review Workflow
+
+The document editor includes a review workflow for collaborative editing with visual status indicators:
+
+**Toolbar Buttons:**
+- **💬 Comment** - Add comments to selections or at cursor
+- **◇ Propose** (cyan) - Mark content as proposed/suggested
+- **✓ Approve** (green) - Mark content as approved
+- **✗ Reject** (red) - Mark content as rejected with reason
+- **⊘ Clear** - Remove any status markers
+
+**Status Types:**
+
+| Status | Color | Section Marker | Inline Marker |
+|--------|-------|----------------|---------------|
+| Proposed | Cyan | `<!-- status: proposed: label -->` | `<!-- propose-start: label -->...<!-- propose-end -->` |
+| Approved | Green | `<!-- status: approved -->` | `<!-- approve-start -->...<!-- approve-end -->` |
+| Rejected | Red | `<!-- status: rejected: reason -->` | `<!-- reject-start: reason -->...<!-- reject-end -->` |
+| Comment | Yellow | `<!-- comment: text -->` | `<!-- comment-start: text -->...<!-- comment-end -->` |
+
+**How It Works:**
+- **Select text** then click a button → wraps selection with inline markers
+- **Cursor on list item** then click → wraps the list item content
+- **Cursor under heading** then click → adds section-level status after heading
+- **Toggle between states** → clicking Approve on proposed content switches it to approved
+- Markers are HTML comments, so they're invisible in standard markdown renderers
+
+**Example Usage:**
+```markdown
+## Feature Proposal
+<!-- status: proposed: new authentication flow -->
+
+This section describes the new login system.
+
+We should use <!-- propose-start: needs discussion -->OAuth 2.0<!-- propose-end --> for authentication.
+
+- <!-- approve-start -->Email/password login<!-- approve-end -->
+- <!-- reject-start: too complex for MVP -->Biometric auth<!-- reject-end -->
+```
 
 ### Markdown Features Supported
 
