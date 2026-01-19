@@ -338,6 +338,43 @@ async function transpileDiagram(id: string): Promise<string> {
 }
 
 /**
+ * MCP Tool: configure_storage
+ * Switches the storage directory for diagrams and documents
+ */
+async function configureStorage(storageDir: string): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}/api/config/storage`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ storageDir }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(`Failed to configure storage: ${error.error || response.statusText}`);
+  }
+
+  const data = await response.json();
+  return JSON.stringify(data, null, 2);
+}
+
+/**
+ * MCP Tool: get_storage_config
+ * Returns the current storage directory configuration
+ */
+async function getStorageConfig(): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}/api/config/storage`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to get storage config: ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  return JSON.stringify(data, null, 2);
+}
+
+/**
  * Main MCP server setup
  */
 async function main() {
@@ -716,6 +753,28 @@ This document describes the system architecture.
             required: ['id'],
           },
         },
+        {
+          name: 'configure_storage',
+          description: 'Switch the storage directory for diagrams and documents. Use this to point the server at a different folder (e.g., a collab session folder). All existing diagrams and documents from the new location will be loaded.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              storageDir: {
+                type: 'string',
+                description: 'The absolute path to the new storage directory',
+              },
+            },
+            required: ['storageDir'],
+          },
+        },
+        {
+          name: 'get_storage_config',
+          description: 'Get the current storage directory configuration. Returns the storage directory, diagrams folder, and documents folder paths.',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+          },
+        },
       ],
     };
   });
@@ -890,6 +949,33 @@ This document describes the system architecture.
             throw new Error('Missing or invalid required argument: id');
           }
           const result = await transpileDiagram(args.id);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: result,
+              },
+            ],
+          };
+        }
+
+        case 'configure_storage': {
+          if (!args || typeof args.storageDir !== 'string') {
+            throw new Error('Missing or invalid required argument: storageDir');
+          }
+          const result = await configureStorage(args.storageDir);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: result,
+              },
+            ],
+          };
+        }
+
+        case 'get_storage_config': {
+          const result = await getStorageConfig();
           return {
             content: [
               {

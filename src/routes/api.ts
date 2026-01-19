@@ -6,6 +6,14 @@ import { Validator } from '../services/validator';
 import { Renderer, type Theme } from '../services/renderer';
 import { WebSocketHandler } from '../websocket/handler';
 import { transpile, isSmachYaml } from '../services/smach-transpiler';
+import { config } from '../config';
+
+// Storage switch function - set by server.ts
+let _switchStorage: ((dir: string) => Promise<void>) | null = null;
+
+export function setStorageSwitcher(fn: (dir: string) => Promise<void>): void {
+  _switchStorage = fn;
+}
 
 export async function handleAPI(
   req: Request,
@@ -352,6 +360,40 @@ export async function handleAPI(
       return Response.json({ success: true, folders: metadataManager.getFolders() });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // GET /api/config/storage - Get current storage directory
+  if (path === '/api/config/storage' && req.method === 'GET') {
+    return Response.json({
+      storageDir: config.STORAGE_DIR,
+      diagramsFolder: config.DIAGRAMS_FOLDER,
+      documentsFolder: config.DOCUMENTS_FOLDER,
+    });
+  }
+
+  // POST /api/config/storage - Switch storage directory
+  if (path === '/api/config/storage' && req.method === 'POST') {
+    if (!_switchStorage) {
+      return Response.json({ error: 'Storage switching not available' }, { status: 500 });
+    }
+
+    const { storageDir } = await req.json() as { storageDir?: string };
+
+    if (!storageDir) {
+      return Response.json({ error: 'storageDir required' }, { status: 400 });
+    }
+
+    try {
+      await _switchStorage(storageDir);
+      return Response.json({
+        success: true,
+        storageDir: config.STORAGE_DIR,
+        diagramsFolder: config.DIAGRAMS_FOLDER,
+        documentsFolder: config.DOCUMENTS_FOLDER,
+      });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
     }
   }
 

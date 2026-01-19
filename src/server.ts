@@ -1,5 +1,5 @@
 import { mkdir } from 'fs/promises';
-import { config } from './config';
+import { config, setStorageDir } from './config';
 import { DiagramManager } from './services/diagram-manager';
 import { DocumentManager } from './services/document-manager';
 import { MetadataManager } from './services/metadata-manager';
@@ -7,7 +7,7 @@ import { Validator } from './services/validator';
 import { Renderer } from './services/renderer';
 import { FileWatcher } from './services/file-watcher';
 import { WebSocketHandler } from './websocket/handler';
-import { handleAPI } from './routes/api';
+import { handleAPI, setStorageSwitcher } from './routes/api';
 
 // Initialize services
 const diagramManager = new DiagramManager();
@@ -87,6 +87,50 @@ fileWatcher.onChange((event) => {
 });
 
 fileWatcher.start();
+
+/**
+ * Switch the storage directory at runtime.
+ * Reinitializes all managers and restarts file watching.
+ * @param newDir - The new storage directory (absolute path)
+ */
+async function switchStorage(newDir: string): Promise<void> {
+  console.log(`📂 Switching storage to: ${newDir}`);
+
+  // Stop file watcher
+  fileWatcher.stop();
+
+  // Update config
+  setStorageDir(newDir);
+
+  // Ensure new directories exist
+  await mkdir(config.DIAGRAMS_FOLDER, { recursive: true });
+  await mkdir(config.DOCUMENTS_FOLDER, { recursive: true });
+
+  // Reset and reinitialize managers
+  diagramManager.reset();
+  documentManager.reset();
+  metadataManager.reset();
+
+  await diagramManager.initialize();
+  await documentManager.initialize();
+  await metadataManager.initialize();
+
+  // Restart file watcher
+  fileWatcher.restart();
+
+  // Notify all connected clients
+  wsHandler.broadcast({
+    type: 'storage_changed',
+    storageDir: newDir,
+  });
+
+  console.log(`✅ Storage switched to: ${newDir}`);
+  console.log(`📁 Diagrams folder: ${config.DIAGRAMS_FOLDER}`);
+  console.log(`📄 Documents folder: ${config.DOCUMENTS_FOLDER}`);
+}
+
+// Register storage switcher with API
+setStorageSwitcher(switchStorage);
 
 // Create HTTP server
 const server = Bun.serve({

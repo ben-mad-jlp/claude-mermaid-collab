@@ -72,6 +72,16 @@ export class FileWatcher {
   stop(): void {
     this.watcher?.close();
     this.documentWatcher?.close();
+    this.watcher = undefined;
+    this.documentWatcher = undefined;
+  }
+
+  /**
+   * Restart the file watcher. Use after changing storage directory.
+   */
+  restart(): void {
+    this.stop();
+    this.start();
   }
 
   onChange(listener: (event: FileChangeEvent) => void): void {

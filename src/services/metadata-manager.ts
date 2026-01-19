@@ -143,4 +143,12 @@ export class MetadataManager {
       await this.save();
     }
   }
+
+  /**
+   * Clear the metadata. Call initialize() after to reload from new storage location.
+   */
+  reset(): void {
+    this.metadata = { folders: [], items: {} };
+    this.dirty = false;
+  }
 }

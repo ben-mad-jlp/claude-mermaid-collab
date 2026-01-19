@@ -119,4 +119,11 @@ export class DiagramManager {
   removeFromIndex(id: string): void {
     this.index.delete(id);
   }
+
+  /**
+   * Clear the index. Call initialize() after to rebuild with new storage location.
+   */
+  reset(): void {
+    this.index.clear();
+  }
 }
