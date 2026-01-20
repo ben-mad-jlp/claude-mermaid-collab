@@ -73,45 +73,28 @@ Args: {}
 
 Returns: `{ name: "bright-calm-river" }`
 
-### 3.3 Create Folder Structure
+### 3.3 Create Initial Files
 
-```bash
-mkdir -p .collab/<name>/diagrams
-mkdir -p .collab/<name>/documents
-```
+1. Create design.md via MCP (this auto-creates folder structure):
 
-### 3.4 Write Initial Files
+   Tool: mcp__mermaid__create_document
+   Args: {
+     "project": "<absolute-path-to-cwd>",
+     "session": "<session-name>",
+     "name": "design",
+     "content": "# Session: <session-name>\n\n## Session Context\n**Out of Scope:** (session-wide boundaries)\n**Shared Decisions:** (cross-cutting choices)\n\n---\n\n## Work Items\n\n*To be filled by gather-session-goals*\n\n---\n\n## Diagrams\n(auto-synced)"
+   }
 
-Write `.collab/<name>/collab-state.json`:
-```json
-{
-  "phase": "brainstorming",
-  "lastActivity": "<ISO-timestamp>",
-  "currentItem": null
-}
-```
+2. Write collab-state.json (folder now exists from step 1):
 
-Write `.collab/<name>/documents/design.md`:
-```markdown
-# Session: <name>
+   Write .collab/<name>/collab-state.json:
+   {
+     "phase": "brainstorming",
+     "lastActivity": "<ISO-timestamp>",
+     "currentItem": null
+   }
 
-## Session Context
-**Out of Scope:** (session-wide boundaries)
-**Shared Decisions:** (cross-cutting choices)
-
----
-
-## Work Items
-
-*To be filled by gather-session-goals*
-
----
-
-## Diagrams
-(auto-synced)
-```
-
-### 3.5 Set Environment Variable
+### 3.4 Set Environment Variable
 
 Set the session path environment variable for hooks:
 
@@ -119,7 +102,7 @@ Set the session path environment variable for hooks:
 export COLLAB_SESSION_PATH="$(pwd)/.collab/<name>"
 ```
 
-### 3.6 Invoke gather-session-goals
+### 3.5 Invoke gather-session-goals
 
 ```
 Invoke skill: gather-session-goals

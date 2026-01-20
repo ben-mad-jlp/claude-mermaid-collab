@@ -228,19 +228,39 @@ ready_tasks = tasks where:
    - Execute one at a time in topological order
    - Update diagram before/after each task
 
-**Task agent prompt template:**
-```
-Use superpowers:subagent-driven-development skill.
+**Task agent prompt template (Collab Workflow):**
 
+```
+You are implementing a task from the collab workflow.
+
+## Design Document Location
+Collab Session: .collab/<session-name>
+Design Doc Path: .collab/<session-name>/documents/design.md
+
+## REQUIRED: Read Design Doc First
+Before implementing, read the design doc and find:
+- Interface Definition section → function signatures, types
+- Pseudocode section → step-by-step logic for your task
+
+The design doc is the SOURCE OF TRUTH. Follow it exactly.
+
+## Task Details
 Task ID: <task-id>
 Files: <task-files>
 Description: <task-description>
 
-Pseudocode from design doc:
-<relevant-pseudocode>
+## Your Task's Design Spec
+Interface:
+<paste-relevant-interface-section>
 
-Implement this task following the subagent-driven-development workflow:
-implement → spec review → quality review
+Pseudocode:
+<paste-relevant-pseudocode-section>
+
+## Instructions
+1. Read the design doc sections above
+2. Implement EXACTLY as specified - no interpretation
+3. Write tests
+4. Report what you implemented
 ```
 
 **Task Completion Handling:**
@@ -291,6 +311,115 @@ for each task T where T.depends-on includes completed_task:
   if all(T.depends-on) are completed:
     move T from pending to ready
 ```
+
+### Step 2.6: Drift Detection
+
+After implementer reports completion, check for drift:
+
+**Step 1: Read design doc and implementation**
+
+1. Read design doc:
+   Tool: mcp__mermaid__get_document
+   Args: { "project": "<cwd>", "session": "<session>", "id": "design" }
+
+2. Read implemented files (from task's file list)
+
+**Step 2: Compare implementation to design**
+
+FOR each function/type in the task's Interface section:
+  Compare:
+    - Function name matches?
+    - Parameter names and types match?
+    - Return type matches?
+    - Logic follows Pseudocode steps?
+
+  IF mismatch found:
+    ADD to drift_list: {
+      type: "signature" | "logic" | "scope" | "missing",
+      design_says: <from design doc>,
+      implementation_has: <from code>,
+      file: <file path>,
+      line: <line number if applicable>
+    }
+
+**Step 3: If drift detected, analyze and present**
+
+IF drift_list is not empty:
+  FOR each drift in drift_list:
+
+    Analyze:
+      severity = assess_severity(drift)  // contract vs detail
+      intent = assess_intent(drift)      // improvement vs misunderstanding
+      precedent = assess_precedent(drift) // will this encourage more drift?
+      reversibility = assess_reversibility(drift)
+
+    Generate pros:
+      - [benefit of keeping this change]
+      - [another benefit if applicable]
+
+    Generate cons:
+      - [drawback of keeping this change]
+      - [another drawback if applicable]
+
+    Determine recommendation:
+      IF drift.type == "signature": recommend = "REJECT"
+      ELSE IF drift.type == "logic" AND same_result: recommend = "ACCEPT"
+      ELSE IF drift.type == "scope": recommend = "REJECT"
+      ELSE IF drift.type == "missing": recommend = "REJECT"
+
+    Present to user:
+      ```
+      DRIFT DETECTED in task [task-id]:
+
+      ## What Changed
+      | Type | Design Says | Implementation Has |
+      |------|-------------|-------------------|
+      | {drift.type} | {drift.design_says} | {drift.implementation_has} |
+
+      ## Analysis
+
+      **Pros of keeping this change:**
+      - {pro1}
+      - {pro2}
+
+      **Cons of keeping this change:**
+      - {con1}
+      - {con2}
+
+      **Suggested choice:** {recommend}
+      **Reasoning:** {explanation based on severity, intent, precedent, reversibility}
+
+      ## Your Decision
+      1. Reject - revert and re-implement per design
+      2. Accept - update design doc to include this change
+      3. Discuss - need more context before deciding
+      ```
+
+**Step 4: Handle user decision**
+
+IF user chooses "Reject":
+  - Do NOT mark task as complete
+  - Tell implementer to re-implement per design
+  - Return to Step 2 (re-execute task)
+
+IF user chooses "Accept":
+  - Read current design doc
+  - Update relevant section to match implementation
+  - Write updated design doc via MCP
+  - Log decision in Decision Log section
+  - Mark task as complete
+  - Proceed to next task
+
+IF user chooses "Discuss":
+  - Pause execution
+  - Gather more context from user
+  - Re-present options after discussion
+
+**Step 5: No drift case**
+
+IF drift_list is empty:
+  - Mark task as complete
+  - Proceed to next task
 
 ### Proposing Design Doc Changes
 

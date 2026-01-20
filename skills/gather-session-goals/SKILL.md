@@ -83,31 +83,35 @@ Does this list look correct? (yes / add more / remove / edit)
 
 ### Step 5: Write to Design Doc
 
-Read the current design doc at `.collab/<session>/documents/design.md`.
+1. Read current design doc:
+   Tool: mcp__mermaid__get_document
+   Args: { "project": "<cwd>", "session": "<session>", "id": "design" }
 
-Write the Work Items section:
+2. Parse existing content and locate "## Work Items" section
 
-```markdown
-## Work Items
+3. Build new Work Items content:
+   FOR each work_item in confirmed_list:
+     ADD markdown block:
+       ### Item {N}: {title}
+       **Type:** {type}
+       **Status:** pending
+       **Problem/Goal:**
 
-### Item 1: <title>
-**Type:** <feature|bugfix|refactor|spike>
-**Status:** pending
-**Problem/Goal:**
+       **Approach:**
 
-**Approach:**
+       **Root Cause:** (only if type is bugfix)
 
-**Root Cause:** (only if type is bugfix)
+       **Success Criteria:**
 
-**Success Criteria:**
+       **Decisions:**
 
-**Decisions:**
+       ---
 
----
+4. Replace "## Work Items" section with new content
 
-### Item 2: <title>
-...
-```
+5. Write updated design doc:
+   Tool: mcp__mermaid__update_document
+   Args: { "project": "<cwd>", "session": "<session>", "id": "design", "content": "<updated-full-content>" }
 
 After writing, display:
 

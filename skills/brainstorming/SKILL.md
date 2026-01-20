@@ -180,38 +180,21 @@ The collab skill manages the work item loop and will mark the item as documented
 
 ## Live Design Doc
 
-When brainstorming within a collab session, maintain a persistent design document that survives context compaction.
+When brainstorming within a collab session, update the design document using MCP tools.
 
-**Create immediately when brainstorming starts:**
+**To update the design doc:**
 
-```bash
-# Create design doc with initial structure
-cat > .collab/<name>/documents/design.md << 'EOF'
-# <Topic> Design
+1. Read current content:
+   Tool: mcp__mermaid__get_document
+   Args: { "project": "<cwd>", "session": "<name>", "id": "design" }
 
-## Problem / Goal
+2. Modify content as needed (add sections, update decisions, etc.)
 
-*To be filled during brainstorming*
+3. Write updated content:
+   Tool: mcp__mermaid__update_document
+   Args: { "project": "<cwd>", "session": "<name>", "id": "design", "content": "<full-updated-content>" }
 
-## Key Decisions
-
-*Decisions will be documented as they are made*
-
-## Success Criteria
-
-*To be defined*
-
-## Out of Scope
-
-*To be defined*
-
----
-
-## Design Details
-
-*Sections added as exploration progresses*
-EOF
-```
+**Important:** Always read before updating to preserve existing content.
 
 **Update continuously as topics emerge:**
 - After each significant decision, update the design doc immediately
@@ -386,8 +369,8 @@ ls .collab/<name>/diagrams/
 - Update collab-state.json phase to `rough-draft/interface`
 
 **Standalone (not in collab workflow):**
-- Write the validated design to `docs/plans/YYYY-MM-DD-<topic>-design.md`
-- Commit the design document to git
+- Design remains in the collab session at `.collab/<name>/documents/design.md`
+- Use `/collab-cleanup` to archive when session ends
 
 **Implementation (if continuing without collab):**
 - Ask: "Ready to set up for implementation?"

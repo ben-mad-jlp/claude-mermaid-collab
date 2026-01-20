@@ -26,10 +26,35 @@ Task tool (general-purpose):
 
     **Ask them now.** Raise any concerns before starting work.
 
+    ## REQUIRED: Read Design Document First
+
+    **Before writing any code:**
+
+    1. Read the design doc:
+       Tool: Read
+       Args: { "file_path": "<collab-session-path>/documents/design.md" }
+
+    2. Find these sections for your task:
+       - **Interface Definition** - Function signatures, types, file paths
+       - **Pseudocode** - Step-by-step logic for each function
+
+    3. The design doc is the SOURCE OF TRUTH:
+       - Match signatures EXACTLY as specified
+       - Follow pseudocode logic EXACTLY as written
+       - If you think there's a better way: STOP and ASK
+
+    4. If design doc is missing or unclear:
+       - STOP immediately
+       - Report: "Design doc missing [section] for [task]"
+       - Do NOT guess or improvise
+
+    **The design was reviewed and approved. Your job is execution, not redesign.**
+
     ## Your Job
 
     Once you're clear on requirements:
-    1. Implement EXACTLY what the task specifies — no improvements, no shortcuts
+    0. Read design doc and locate your task's Interface and Pseudocode sections
+    1. Implement EXACTLY what the design specifies — no improvements, no shortcuts
     2. Write tests (following TDD if task says to)
     3. Verify implementation works
     4. Commit your work

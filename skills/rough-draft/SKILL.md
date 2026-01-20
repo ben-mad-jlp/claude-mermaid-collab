@@ -247,20 +247,22 @@ Generate actual stub files and the task dependency graph.
 
 ### Process
 
-**Step 1: Generate stub files**
+**Step 1: Document stub files (DO NOT CREATE)**
 
 For each file in the Interface:
-1. Create the file with proper directory structure
-2. Add all type definitions
-3. Add all function signatures with TODO bodies
-4. Include imports based on dependencies
+1. Document the file path
+2. Document the full stub content in a code block
+3. Mark as "will create" (not "created")
+
+**IMPORTANT:** Do NOT use the Write tool. Do NOT create files in the source tree.
+Files are documented here and created during implementation phase by executing-plans.
+
+Example documentation format:
+
+### Planned File: src/auth/service.ts
 
 ```typescript
-// src/auth/service.ts
-
 import { User, AuthResult } from './types';
-import { db } from '../database';
-import { redis } from '../cache';
 
 export class AuthService {
   async authenticate(email: string, password: string): Promise<AuthResult> {
@@ -269,25 +271,12 @@ export class AuthService {
     // - Look up user by email
     // - Verify password hash
     // - Generate JWT token
-    // - Store in Redis
-    throw new Error('Not implemented');
-  }
-
-  async validateToken(token: string): Promise<User | null> {
-    // TODO: Implement token validation
-    // - Verify JWT signature
-    // - Check Redis for revocation
-    // - Return user if valid
-    throw new Error('Not implemented');
-  }
-
-  async revokeToken(token: string): Promise<void> {
-    // TODO: Implement token revocation
-    // - Remove from Redis
     throw new Error('Not implemented');
   }
 }
 ```
+
+**Status:** [ ] Will be created during implementation
 
 **Step 2: Build task dependency graph**
 
@@ -344,38 +333,20 @@ Add to the design doc:
 ```markdown
 ## Skeleton
 
-### Generated Files
-- [x] `src/auth/types.ts` - Created with type definitions
-- [x] `src/auth/service.ts` - Created with stub methods
-- [x] `src/auth/middleware.ts` - Created with stub functions
+### Planned Files
+- [ ] `src/auth/types.ts` - Will contain type definitions
+- [ ] `src/auth/service.ts` - Will contain stub methods
+- [ ] `src/auth/middleware.ts` - Will contain stub functions
+
+**Note:** These files are documented but NOT created yet. They will be created during the implementation phase by executing-plans.
+
+### File Contents
+
+[Include full stub content for each file in code blocks]
 
 ### Task Dependency Graph
 
-```yaml
-tasks:
-  - id: auth-types
-    files: [src/auth/types.ts]
-    description: Core auth type definitions
-    parallel: true
-
-  - id: auth-service
-    files: [src/auth/service.ts]
-    description: Authentication service implementation
-    depends-on: [auth-types]
-
-  - id: auth-middleware
-    files: [src/auth/middleware.ts]
-    description: Express authentication middleware
-    depends-on: [auth-service]
-```
-
-### Dependency Visualization
-
-```mermaid
-graph TD
-    auth-types --> auth-service
-    auth-service --> auth-middleware
-```
+[Include YAML task graph]
 ```
 
 ### Verification Gate
