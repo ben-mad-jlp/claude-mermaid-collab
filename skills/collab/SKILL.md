@@ -124,7 +124,56 @@ Write `.collab/<name>/documents/design.md`:
 
 ## Step 4: Start
 
-### 4.1 Display Session Info
+### 4.1 Set Environment Variable
+
+Set the session path environment variable for hooks:
+
+```bash
+export COLLAB_SESSION_PATH="$(pwd)/.collab/<name>"
+```
+
+This allows hooks like `brainstorming-enforce.sh` and `post-task-complete.sh` to find the active session without scanning directories.
+
+### 4.2 Context Recovery (when resuming)
+
+When resuming an existing session, provide a context recovery summary:
+
+1. **Read state file:**
+   ```bash
+   cat .collab/<name>/collab-state.json
+   ```
+
+2. **Read design doc and count decisions:**
+   ```bash
+   cat .collab/<name>/documents/design.md
+   ```
+   - Count items with decision markers (checkmarks, strikethrough, "Decision:" prefix)
+   - Count items without decision markers (open decisions)
+
+3. **Count task progress:**
+   From state file, check for `completedTasks` and `pendingTasks` arrays if present.
+
+4. **Format and display summary:**
+   ```
+   ## Session Resumed: <name>
+
+   **Phase:** <phase> (<subphase if applicable>)
+
+   **Design Decisions:** <N> made, <M> open
+
+   **Task Progress:** <complete>/<total> complete
+
+   **Last Activity:** <lastAction description or timestamp>
+
+   ---
+   Continue from <current-phase/subphase>?
+   ```
+
+5. **Confirm with user:**
+   - If user confirms → proceed to Step 4.4
+   - If user wants to start fresh → allow redirect to brainstorming
+
+### 4.3 Display Session Info (new sessions)
 
 ```
 Session: <name>
@@ -134,13 +183,13 @@ Phase: <phase>
 Starting <phase> phase...
 ```
 
-### 4.2 Read Design Doc (if resuming)
+### 4.4 Read Design Doc
 
 ```bash
 cat .collab/<name>/documents/design.md
 ```
 
-### 4.3 Invoke Phase Skill
+### 4.5 Invoke Phase Skill
 
 Based on `phase` in `collab-state.json`:
 - `brainstorming` → invoke **brainstorming** skill
@@ -200,7 +249,22 @@ Based on `phase` in `collab-state.json`:
 - **brainstorming** - After creating new session or resuming at brainstorming phase
 - **rough-draft** - When resuming at rough-draft phase
 - **executing-plans** - When resuming at implementation phase
+- **ready-to-implement** - User can invoke to validate design completion before implementation
 
 **Called by:**
 - User directly via `/collab` command
 - Any workflow starting collaborative design work
+
+**Related skills:**
+- **brainstorming** - Explores requirements and design decisions
+- **rough-draft** - Bridges brainstorming to implementation (interface → pseudocode → skeleton)
+- **ready-to-implement** - Validates all design decisions are complete
+- **verify-phase** - Checks rough-draft output aligns with design
+- **executing-plans** - Implements the plan with parallel task execution
+
+**Collab Workflow Chain:**
+```
+collab --> brainstorming --> ready-to-implement --> rough-draft [verify-phase] --> executing-plans
+  ^                                                     ^
+  |_____________________resume__________________________|
+```
