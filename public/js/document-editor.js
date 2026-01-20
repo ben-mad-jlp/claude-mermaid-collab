@@ -182,11 +182,34 @@ function setupClickToSource() {
   });
 }
 
-// Get document ID from URL
+// Get document ID and session from URL
 const params = new URLSearchParams(window.location.search);
 documentId = params.get('id');
+const projectParam = params.get('project');
+const sessionParam = params.get('session');
 
 if (!documentId) {
+  window.location.href = '/';
+}
+
+// Set session from URL params or localStorage
+if (projectParam && sessionParam) {
+  api.setSession(projectParam, sessionParam);
+} else {
+  // Try to get from localStorage
+  const stored = localStorage.getItem('mermaid-collab-session');
+  if (stored) {
+    try {
+      const { project, session } = JSON.parse(stored);
+      api.setSession(project, session);
+    } catch (e) {
+      console.error('Failed to parse stored session:', e);
+    }
+  }
+}
+
+if (!api.hasSession()) {
+  alert('No session selected. Please select a session from the dashboard.');
   window.location.href = '/';
 }
 
