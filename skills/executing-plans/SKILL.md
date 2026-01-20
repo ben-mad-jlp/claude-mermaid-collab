@@ -503,6 +503,24 @@ Ready to move to finishing-a-development-branch? (y/n)
 - **REQUIRED SUB-SKILL:** Use superpowers:finishing-a-development-branch
 - Follow that skill to verify tests, present options, execute choice
 
+### Step 5.1: Offer Collab Cleanup (Within Collab Workflow)
+
+**REQUIRED** when executing within a collab session:
+
+After development work completes (whether through finishing-a-development-branch or direct user commands like "commit and push"), always offer collab session cleanup:
+
+```
+Development complete.
+
+Clean up collab session? This will archive or delete design artifacts.
+Run /collab-cleanup? (y/n)
+```
+
+- If **yes**: Invoke collab-cleanup skill
+- If **no**: "Session kept open. Run `/collab-cleanup` when ready."
+
+**This step ensures users always get the option to clean up, regardless of how they chose to finish the work.**
+
 ## When to Stop and Ask for Help
 
 **STOP executing immediately when:**
