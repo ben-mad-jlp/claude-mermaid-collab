@@ -4,39 +4,88 @@ A collaborative design toolkit for Claude Code: diagram server + skills for desi
 
 **Two components:**
 1. **Server** - Real-time Mermaid diagram collaboration with MCP integration
-2. **Plugin** - Skills for brainstorming, planning, and structured development workflows
+2. **Plugin** - 22 skills for brainstorming, planning, and structured development workflows
+
+## Collab Workflow
+
+The collab workflow turns ideas into working code through structured phases with verification gates at each transition.
+
+![Collab Workflow](docs/images/collab-workflow.png)
+
+```
+/collab → gather-goals → work-item-loop → ready-to-implement → rough-draft → executing-plans → cleanup
+```
+
+### Phases
+
+| Phase | Purpose | Output |
+|-------|---------|--------|
+| **gather-session-goals** | Collect work items with type inference | Work items in design doc |
+| **brainstorming** | Socratic design refinement (EXPLORING → CLARIFYING → DESIGNING → VALIDATING) | Complete design with diagrams |
+| **rough-draft** | Progressive refinement (Interface → Pseudocode → Skeleton → Handoff) | Task dependency graph |
+| **executing-plans** | Parallel task execution with verification gates | Working implementation |
+| **collab-cleanup** | Archive or delete session artifacts | Clean workspace |
+
+### Key Principles
+
+- **Spec-first**: Design is complete before any code is written
+- **Drift detection**: Each phase verifies alignment with original design
+- **Anti-drift rules**: Implementation follows design EXACTLY - no interpretation
+- **Verification gates**: Evidence-based checks before each transition
 
 ## Features
 
 ### Server
 
 - **Multi-Session Architecture**: One server serves multiple projects and sessions
-- **Session Selector**: Dashboard dropdown to switch between projects/sessions
-- **Scratch Session**: Default workspace for casual use (auto-created on startup)
-- **Web Dashboard**: Browse diagrams with cached thumbnails, search, and filter
-- **Folder Organization**: Organize diagrams and documents into folders
-- **Item Locking**: Lock items to prevent accidental deletion
+- **Web Dashboard**: Browse diagrams with cached thumbnails at `http://localhost:3737`
 - **Split-Pane Editor**: Live preview with syntax validation, undo/redo
 - **Real-Time Collaboration**: WebSocket-based live updates
 - **MCP Integration**: Claude Code can create, read, update, and preview diagrams
 - **Wireframe Plugin**: Built-in support for UI wireframes and mockups
-- **SMACH Transpiler**: Convert ROS SMACH state machine YAML to flowcharts
 - **Document Collaboration**: Create and edit markdown documents alongside diagrams
 
-### Skills
+### Skills (22 Total)
 
-- **brainstorming** - Socratic design refinement with live diagram creation
-- **collab** - Full design-to-implementation pipeline with state persistence
-- **rough-draft** - 4-phase refinement: interfaces → pseudocode → skeleton → handoff
-- **writing-plans** - Detailed implementation plans with bite-sized tasks
-- **executing-plans** - Batch execution with human checkpoints
-- **subagent-driven-development** - Fast iteration with two-stage review
-- **test-driven-development** - RED-GREEN-REFACTOR cycle enforcement
-- **systematic-debugging** - 4-phase root cause analysis
-- **verification-before-completion** - Evidence before success claims
-- **using-git-worktrees** - Parallel development branches
-- **finishing-a-development-branch** - Merge/PR decision workflow
-- **requesting-code-review** / **receiving-code-review** - Code review workflows
+#### Core Workflow
+| Skill | Purpose |
+|-------|---------|
+| **collab** | Orchestrator - creates sessions, manages work item loop |
+| **gather-session-goals** | Collects and classifies work items at session start |
+| **brainstorming** | Socratic design refinement through 5 phases |
+| **rough-draft** | Bridges design to implementation via 4 phases |
+| **executing-plans** | Batch execution with dependency-aware parallel dispatch |
+| **ready-to-implement** | Central checkpoint - validates all items documented |
+
+#### Debugging & Verification
+| Skill | Purpose |
+|-------|---------|
+| **systematic-debugging** | 4-phase root cause analysis (documentation only - no fixing) |
+| **verify-phase** | Checks rough-draft output aligns with design |
+| **test-driven-development** | RED-GREEN-REFACTOR cycle enforcement |
+| **verification-before-completion** | Evidence before success claims |
+
+#### Implementation
+| Skill | Purpose |
+|-------|---------|
+| **subagent-driven-development** | Fast iteration with parallel task execution |
+| **dispatching-parallel-agents** | Coordinates independent tasks |
+| **using-git-worktrees** | Creates isolated development branches |
+| **finishing-a-development-branch** | Merge/PR decision workflow |
+| **writing-plans** | Detailed implementation plans (standalone) |
+
+#### Code Review
+| Skill | Purpose |
+|-------|---------|
+| **requesting-code-review** | Prepares code for peer review |
+| **receiving-code-review** | Handles feedback with validation |
+
+#### Visualization & Cleanup
+| Skill | Purpose |
+|-------|---------|
+| **mermaid-collab** | Create/edit diagrams, wireframes, documents |
+| **using-gui-wireframes** | UI mockup creation |
+| **collab-cleanup** | Archive/delete session artifacts |
 
 ## Quick Start
 
@@ -61,11 +110,6 @@ bun run bin/mermaid-collab.ts status
 bun run bin/mermaid-collab.ts stop
 ```
 
-Or add to your PATH for convenience:
-```bash
-alias mermaid-collab="bun run /path/to/claude-mermaid-collab/bin/mermaid-collab.ts"
-```
-
 The server runs at `http://localhost:3737` and serves all sessions.
 
 ### 3. Install Plugin (Claude Code)
@@ -75,60 +119,48 @@ The server runs at `http://localhost:3737` and serves all sessions.
 /plugin install ben-mad-jlp/claude-mermaid-collab
 ```
 
-After installation, skills activate automatically. Start with `/collab` or just describe what you want to build.
+### 4. Start a Collab Session
 
-### 4. Open Dashboard
-
-Open http://localhost:3737 in your browser. Select a session from the dropdown to view its diagrams and documents.
-
-## Collab Workflow
-
-The collab workflow turns ideas into working code through structured phases:
-
-```
-/collab → brainstorming → rough-draft → implementation → cleanup
+```bash
+# In Claude Code
+/collab
 ```
 
-1. **Start a collab** - Run `/collab`, pick a template (feature, bugfix, refactor, spike)
-2. **Brainstorm** - Create design doc with goals, decisions, diagrams, success criteria
-3. **Rough-draft** - Progress through: interfaces → pseudocode → skeleton → handoff
-4. **Execute** - Tasks run with verification gates at each step
-5. **Cleanup** - Artifacts archived, collab folder removed
+This will:
+1. Create a new session with a memorable name (e.g., `bright-calm-river`)
+2. Ask what you want to accomplish
+3. Guide you through the design-to-implementation workflow
 
-Each phase creates live diagrams and documents you can view in the dashboard.
-
-## Sessions
-
-The server supports multiple projects and sessions:
-
-- **Project**: A directory containing a `.collab/` folder (e.g., your code repository)
-- **Session**: A named workspace within a project (e.g., `bright-calm-river`)
-
-### Session Storage
+## Session Storage
 
 ```
 ~/.mermaid-collab/
 ├── sessions.json       # Registry of all sessions
 ├── server.pid          # Server process ID
-├── server.log          # Server logs
 └── .collab/
     └── scratch/        # Default scratch session
-        ├── diagrams/
-        └── documents/
 
 /your/project/
 └── .collab/
     └── session-name/
-        ├── diagrams/
-        ├── documents/
-        └── collab-state.json
+        ├── diagrams/           # .mmd files
+        ├── documents/          # .md files (design.md required)
+        └── collab-state.json   # Phase tracking
 ```
 
-### Scratch Session
+### Collab State
 
-A default "scratch" session is auto-created at `~/.mermaid-collab/.collab/scratch/` when the server starts. Use this for quick diagrams without setting up a full collab session.
+```json
+{
+  "phase": "brainstorming|rough-draft/interface|rough-draft/pseudocode|rough-draft/skeleton|implementation",
+  "lastActivity": "2026-01-20T10:30:00Z",
+  "currentItem": null,
+  "completedTasks": [],
+  "pendingTasks": []
+}
+```
 
-## MCP Tools (for Claude Code)
+## MCP Tools
 
 All tools require `project` (absolute path) and `session` (session name) parameters.
 
@@ -162,71 +194,52 @@ All tools require `project` (absolute path) and `session` (session name) paramet
 
 ## REST API
 
-All endpoints require `?project=...&session=...` query parameters (except `/api/sessions`).
+All endpoints require `?project=...&session=...` query parameters.
 
 ### Sessions
-
 ```bash
-# List all sessions
-GET /api/sessions
-
-# Register a session
-POST /api/sessions
-{"project": "/path/to/project", "session": "session-name"}
-
-# Unregister a session
-DELETE /api/sessions
-{"project": "/path/to/project", "session": "session-name"}
+GET /api/sessions              # List all sessions
+POST /api/sessions             # Register session
+DELETE /api/sessions           # Unregister session
 ```
 
 ### Diagrams
-
 ```bash
-# List diagrams
-GET /api/diagrams?project=/path&session=name
-
-# Get diagram
-GET /api/diagram/:id?project=/path&session=name
-
-# Create diagram
-POST /api/diagram?project=/path&session=name
-{"name": "my-diagram", "content": "graph TD\n  A-->B"}
-
-# Update diagram
-POST /api/diagram/:id?project=/path&session=name
-{"content": "graph TD\n  A-->B-->C"}
-
-# Delete diagram
-DELETE /api/diagram/:id?project=/path&session=name
+GET /api/diagrams              # List diagrams
+GET /api/diagram/:id           # Get diagram
+POST /api/diagram              # Create diagram
+POST /api/diagram/:id          # Update diagram
+DELETE /api/diagram/:id        # Delete diagram
 ```
 
 ### Documents
-
 ```bash
-# List documents
-GET /api/documents?project=/path&session=name
-
-# Get document
-GET /api/document/:id?project=/path&session=name
-
-# Create document
-POST /api/document?project=/path&session=name
-{"name": "design", "content": "# My Design\n\n..."}
-
-# Update document
-POST /api/document/:id?project=/path&session=name
-{"content": "# Updated Design\n\n..."}
-
-# Delete document
-DELETE /api/document/:id?project=/path&session=name
+GET /api/documents             # List documents
+GET /api/document/:id          # Get document
+POST /api/document             # Create document
+POST /api/document/:id         # Update document
+DELETE /api/document/:id       # Delete document
 ```
 
-## Configuration
+## Architecture
 
-```bash
-PORT=3737   # Server port (default: 3737)
-HOST=0.0.0.0  # Bind address (default: 0.0.0.0)
-```
+### Services
+
+| Service | Purpose |
+|---------|---------|
+| **SessionRegistry** | Tracks sessions across projects |
+| **DiagramManager** | Per-session diagram CRUD |
+| **DocumentManager** | Per-session document CRUD |
+| **Validator** | Mermaid syntax validation |
+| **Renderer** | Server-side SVG generation |
+| **WebSocketHandler** | Real-time updates |
+
+### Single Server Model
+
+- One server instance serves all projects and sessions
+- Runs on port 3737 (configurable via `PORT` env var)
+- Session registry at `~/.mermaid-collab/sessions.json`
+- WebSocket broadcasts include project/session context for filtering
 
 ## Wireframe Plugin
 
@@ -243,44 +256,6 @@ wireframe mobile TD
 ```
 
 See [plugins/wireframe/README.md](plugins/wireframe/README.md) for full documentation.
-
-## SMACH Transpiler
-
-Visualize ROS SMACH state machines as interactive flowcharts:
-
-```yaml
-smach_diagram:
-  MyStateMachine:
-    type: StateMachine
-    outcomes: [succeeded, aborted]
-    initial_state: Initialize
-    states:
-      Initialize:
-        type: CallbackState
-        transitions:
-          succeeded: ProcessData
-```
-
-## Architecture
-
-### Single Server Model
-
-One server instance serves all projects and sessions:
-
-- Runs on port 3737 (configurable)
-- Manages session registry at `~/.mermaid-collab/sessions.json`
-- Creates per-session storage directories on demand
-- Broadcasts WebSocket updates with project/session context
-
-### Services
-
-- **SessionRegistry**: Tracks sessions across projects
-- **DiagramManager**: Per-session diagram CRUD
-- **DocumentManager**: Per-session document CRUD
-- **MetadataManager**: Per-session folder and lock state
-- **Validator**: Mermaid syntax validation
-- **Renderer**: Server-side SVG generation
-- **WebSocketHandler**: Real-time updates with session filtering
 
 ## Development
 

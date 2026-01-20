@@ -1,0 +1,12 @@
+graph TD
+    subgraph "Parallel Batch (all independent)"
+        gather["gather-goals-step2<br/>SKILL.md: Step 2"]
+        registry["session-registry-init<br/>session-registry.ts"]
+        executing["executing-plans-verify<br/>SKILL.md: Step 1.7"]
+        brainstorm["brainstorming-checkpoints<br/>SKILL.md: checkpoints"]
+    end
+
+    style gather fill:#c8e6c9,stroke:#2e7d32
+    style registry fill:#c8e6c9,stroke:#2e7d32
+    style executing fill:#c8e6c9,stroke:#2e7d32
+    style brainstorm fill:#c8e6c9,stroke:#2e7d32
