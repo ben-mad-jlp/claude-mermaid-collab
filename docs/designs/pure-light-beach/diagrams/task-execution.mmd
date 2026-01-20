@@ -1,0 +1,33 @@
+graph TD
+    task1(["Task 1: gather-session-goals"])
+    task2(["Task 2: collab-required check"])
+    task3(["Task 3: systematic-debugging"])
+    task4(["Task 4: brainstorming"])
+    task5(["Task 5: ready-to-implement"])
+    task6(["Task 6: collab skill"])
+    task7(["Task 7: rough-draft check"])
+    task8(["Task 8: executing-plans check"])
+    task9(["Task 9: integration test"])
+
+    task1 --> task6
+    task2 --> task3
+    task2 --> task4
+    task2 --> task5
+    task2 --> task7
+    task2 --> task8
+    task3 --> task6
+    task4 --> task6
+    task5 --> task6
+    task6 --> task9
+    task7 --> task9
+    task8 --> task9
+
+    style task1 fill:#c8e6c9,stroke:#2e7d32
+    style task2 fill:#c8e6c9,stroke:#2e7d32
+    style task3 fill:#c8e6c9,stroke:#2e7d32
+    style task4 fill:#c8e6c9,stroke:#2e7d32
+    style task5 fill:#c8e6c9,stroke:#2e7d32
+    style task6 fill:#c8e6c9,stroke:#2e7d32
+    style task7 fill:#c8e6c9,stroke:#2e7d32
+    style task8 fill:#c8e6c9,stroke:#2e7d32
+    style task9 fill:#c8e6c9,stroke:#2e7d32

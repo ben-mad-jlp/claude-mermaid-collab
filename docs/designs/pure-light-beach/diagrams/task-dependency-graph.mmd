@@ -1,0 +1,55 @@
+flowchart TD
+    subgraph Phase1["Phase 1: Foundation (parallel)"]
+        T1[Task 1: Create gather-session-goals skill]
+        T2[Task 2: Add collab-required check pattern]
+    end
+
+    subgraph Phase2["Phase 2: Core Skills (parallel after Phase 1)"]
+        T3[Task 3: Update systematic-debugging<br/>investigation-only + collab check]
+        T4[Task 4: Update brainstorming<br/>per-item focus + collab check]
+        T5[Task 5: Update ready-to-implement<br/>new parsing logic]
+    end
+
+    subgraph Phase3["Phase 3: Orchestrator (after Phase 2)"]
+        T6[Task 6: Update collab skill<br/>work item loop + new flow]
+    end
+
+    subgraph Phase4["Phase 4: Remaining Checks (parallel)"]
+        T7[Task 7: Add collab check to rough-draft]
+        T8[Task 8: Add collab check to executing-plans]
+    end
+
+    subgraph Phase5["Phase 5: Integration Testing"]
+        T9[Task 9: End-to-end test new flow]
+    end
+
+    %% Dependencies
+    T1 --> T6
+    T2 --> T3
+    T2 --> T4
+    T2 --> T5
+    T2 --> T7
+    T2 --> T8
+    T3 --> T6
+    T4 --> T6
+    T5 --> T6
+    T6 --> T9
+    T7 --> T9
+    T8 --> T9
+
+    %% Styles
+    style Phase1 fill:#e3f2fd,stroke:#1976d2
+    style Phase2 fill:#e8f5e9,stroke:#388e3c
+    style Phase3 fill:#fff3e0,stroke:#f57c00
+    style Phase4 fill:#f3e5f5,stroke:#7b1fa2
+    style Phase5 fill:#ffebee,stroke:#c62828
+    
+    style T1 fill:#bbdefb,stroke:#1976d2
+    style T2 fill:#bbdefb,stroke:#1976d2
+    style T3 fill:#c8e6c9,stroke:#388e3c
+    style T4 fill:#c8e6c9,stroke:#388e3c
+    style T5 fill:#c8e6c9,stroke:#388e3c
+    style T6 fill:#ffe0b2,stroke:#f57c00
+    style T7 fill:#e1bee7,stroke:#7b1fa2
+    style T8 fill:#e1bee7,stroke:#7b1fa2
+    style T9 fill:#ffcdd2,stroke:#c62828
