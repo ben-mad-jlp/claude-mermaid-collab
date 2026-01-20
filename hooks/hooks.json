@@ -1,0 +1,40 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__mermaid__*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/server-check.sh",
+            "timeout": 15,
+            "statusMessage": "Checking mermaid-collab server..."
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/brainstorming-enforce.sh",
+            "timeout": 5,
+            "statusMessage": "Checking phase permissions..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "mcp__mermaid__create_diagram|mcp__mermaid__update_diagram",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/sync-diagram-to-doc.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

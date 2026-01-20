@@ -8,5 +8,7 @@
   "homepage": "https://github.com/ben-mad-jlp/claude-mermaid-collab",
   "repository": "https://github.com/ben-mad-jlp/claude-mermaid-collab",
   "license": "MIT",
-  "keywords": ["collaboration", "mermaid", "wireframes", "design", "diagrams", "workflows", "mcp"]
+  "keywords": ["collaboration", "mermaid", "wireframes", "design", "diagrams", "workflows", "mcp"],
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": "./.mcp.json"
 }
