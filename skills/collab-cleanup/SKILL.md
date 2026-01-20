@@ -19,7 +19,11 @@ Close a collab session after development is complete. Offers choices to archive 
 2. Extract session name from path (e.g., `.collab/glowing-sunny-mesa/` → `glowing-sunny-mesa`)
 3. If storage points to a collab session:
    - Display: "Current session: **[name]** ([template])"
-   - Ask: "Clean up this session? (y/n)"
+   - Ask: "Clean up this session?"
+     ```
+     1. Yes
+     2. No
+     ```
 4. If storage doesn't point to a collab session:
    - Call `mcp__mermaid__list_collab_sessions()`
    - If sessions exist: List them, ask which to clean up
@@ -59,9 +63,13 @@ What would you like to do with the design artifacts?
 5. Report what was archived
 
 **If Delete:**
-1. Confirm: "Delete session [name]? This cannot be undone. (y/n)"
-2. If confirmed: Delete `.collab/[session]/` folder
-3. If not confirmed: Return to Step 3
+1. Confirm: "Delete session [name]? This cannot be undone."
+   ```
+   1. Yes, delete
+   2. No, go back
+   ```
+2. If **1 (Yes)**: Delete `.collab/[session]/` folder
+3. If **2 (No)**: Return to Step 3
 
 **If Keep:**
 1. Exit without changes

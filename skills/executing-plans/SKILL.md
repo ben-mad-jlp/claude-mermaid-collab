@@ -492,11 +492,14 @@ Implementation complete:
 - All tests passing
 - All TODOs resolved
 
-Ready to move to finishing-a-development-branch? (y/n)
+Ready to move to finishing-a-development-branch?
+
+1. Yes
+2. No
 ```
 
-- If **yes**: Invoke finishing-a-development-branch skill
-- If **no**: Ask what needs to be addressed
+- If **1 (Yes)**: Invoke finishing-a-development-branch skill
+- If **2 (No)**: Ask what needs to be addressed
 
 **On confirmation:**
 - Announce: "I'm using the finishing-a-development-branch skill to complete this work."
@@ -513,11 +516,14 @@ After development work completes (whether through finishing-a-development-branch
 Development complete.
 
 Clean up collab session? This will archive or delete design artifacts.
-Run /collab-cleanup? (y/n)
+Run /collab-cleanup?
+
+1. Yes
+2. No
 ```
 
-- If **yes**: Invoke collab-cleanup skill
-- If **no**: "Session kept open. Run `/collab-cleanup` when ready."
+- If **1 (Yes)**: Invoke collab-cleanup skill
+- If **2 (No)**: "Session kept open. Run `/collab-cleanup` when ready."
 
 **This step ensures users always get the option to clean up, regardless of how they chose to finish the work.**
 

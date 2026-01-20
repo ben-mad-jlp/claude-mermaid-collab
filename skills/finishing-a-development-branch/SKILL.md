@@ -207,11 +207,14 @@ To close this collab session, run `/collab-cleanup`
 - Or delete the session
 - Or keep it for reference
 
-Run cleanup now? (y/n)
+Run cleanup now?
+
+1. Yes
+2. No
 ```
 
-- If **yes**: Invoke collab-cleanup skill
-- If **no**: "Session kept open. Run `/collab-cleanup` when ready."
+- If **1 (Yes)**: Invoke collab-cleanup skill
+- If **2 (No)**: "Session kept open. Run `/collab-cleanup` when ready."
 
 ## Integration
 

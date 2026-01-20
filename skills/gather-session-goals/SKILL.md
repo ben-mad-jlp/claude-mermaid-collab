@@ -61,7 +61,13 @@ After parsing the initial response:
 
 For each item still marked as type = "unknown":
 
-Ask: **"What type is '[item title]'? (feature/bugfix/refactor/spike)"**
+Ask: **"What type is '[item title]'?"**
+```
+1. feature
+2. bugfix
+3. refactor
+4. spike
+```
 
 Set the item type based on user response.
 
@@ -76,16 +82,23 @@ Here are the work items for this session:
 2. [feature] Add user authentication
 3. [refactor] Clean up database layer
 
-Does this list look correct? (yes / add more / remove / edit)
+Does this list look correct?
+
+1. Yes
+2. Add more
+3. Remove item
+4. Edit item
 ```
 
 **Handle user responses:**
-- **"yes"** - Proceed to Step 5
-- **"add more"** - Return to Step 2
-- **"remove"** - Ask which item to remove, remove it, return to Step 4
-- **"edit"** - Ask which item to edit, update it, return to Step 4
+- **1 (Yes)** - Proceed to Step 5
+- **2 (Add more)** - Return to Step 2
+- **3 (Remove)** - Ask which item to remove, remove it, return to Step 4
+- **4 (Edit)** - Ask which item to edit, update it, return to Step 4
 
 ### Step 5: Write to Design Doc
+
+**Before writing, output:** "Writing work items to design doc..."
 
 1. Read current design doc:
    Tool: mcp__mermaid__get_document

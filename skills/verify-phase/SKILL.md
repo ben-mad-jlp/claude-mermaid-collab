@@ -125,26 +125,20 @@ Parse the drift details and present to user:
 
 ### Step 5: Ask User Decision
 
-Present options using AskUserQuestion:
+Present options:
 
 ```
 How would you like to handle this drift?
+
+1. Accept - return to brainstorming to update design
+2. Reject - redo this phase
+3. Partial - specify what to keep
 ```
 
-Options:
-1. **Accept - return to brainstorming to update design**
-   - Updates design doc with the drift
-   - Sets state.phase = "brainstorming"
-   - Returns to design phase to formalize changes
-
-2. **Reject - redo this phase**
-   - Discards the phase output
-   - Returns signal to redo the phase
-   - Implementation must match original design
-
-3. **Partial - specify what to keep**
-   - Asks user what to keep/discard
-   - Allows selective acceptance of changes
+**Option descriptions:**
+- **1 (Accept)**: Updates design doc with the drift, sets state.phase = "brainstorming", returns to design phase to formalize changes
+- **2 (Reject)**: Discards the phase output, returns signal to redo the phase, implementation must match original design
+- **3 (Partial)**: Asks user what to keep/discard, allows selective acceptance of changes
 
 ### Step 6: Execute User Choice
 
@@ -252,6 +246,6 @@ verify-phase(currentPhase, phaseOutput)
 2. Compares phase output against design
 3. If aligned: returns success, proceed to next phase
 4. If drift: presents changes with pros/cons
-5. User chooses: Accept (update design) / Reject (redo) / Partial
+5. User chooses: 1. Accept / 2. Reject / 3. Partial
 6. Executes choice and returns signal
 ```

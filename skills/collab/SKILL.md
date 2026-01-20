@@ -38,17 +38,18 @@ ls -d .collab/*/ 2>/dev/null | xargs -I{} basename {}
 
 **If sessions exist:**
 1. For each session, read `.collab/<name>/collab-state.json` to get phase
-2. Display list:
+2. Display list with numbered options:
    ```
    Existing sessions:
 
    1. bright-calm-river - brainstorming
    2. swift-green-meadow - implementation
+   3. Create new session
 
-   Resume which session? (or 'new')
+   Select option (1-3):
    ```
-3. If user selects existing session → Jump to **Step 5: Resume Session**
-4. If user selects 'new' → Continue to **Step 3**
+3. If user selects existing session number → Jump to **Step 5: Resume Session**
+4. If user selects 'new' option → Continue to **Step 3**
 
 **If no sessions exist:** Continue to **Step 3**
 
@@ -59,8 +60,12 @@ ls -d .collab/*/ 2>/dev/null | xargs -I{} basename {}
 ### 3.1 Ensure .gitignore
 
 ```bash
-git check-ignore -q .collab 2>/dev/null || echo ".collab/" >> .gitignore
+if [ -f .gitignore ]; then
+  git check-ignore -q .collab 2>/dev/null || echo ".collab/" >> .gitignore
+fi
 ```
+
+**Note:** Only modifies `.gitignore` if it already exists. Does not create a new `.gitignore` file.
 
 ### 3.2 Generate Name
 

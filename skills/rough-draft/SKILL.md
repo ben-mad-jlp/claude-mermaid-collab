@@ -382,8 +382,12 @@ For each phase (INTERFACE, PSEUDOCODE, SKELETON), use the proposed tag workflow 
 1. Write artifact to design doc with `[PROPOSED]` marker
 2. Tell user: "I've added the [interface/pseudocode/skeleton] to the design doc. Please review."
 3. Ask: "Does this look right?"
-4. If accepted: remove `[PROPOSED]` marker, proceed to drift check
-5. If rejected: discuss, revise, repeat
+   ```
+   1. Yes
+   2. No
+   ```
+4. If **1 (Yes)**: remove `[PROPOSED]` marker, proceed to drift check
+5. If **2 (No)**: discuss, revise, repeat
 
 This ensures user reviews each artifact before it becomes part of the design.
 
@@ -452,28 +456,39 @@ When drift is detected, present it clearly:
 
 **Recommendation:** [Keep/Discard] - [Reasoning]
 
-Keep this change? [Yes / No]
+Keep this change?
+
+1. Yes
+2. No
 ```
 
-### If User Keeps Change
+### If User Keeps Change (1)
 
 1. Design doc is already updated (via accepted proposal)
 2. Assess significance:
    - **Minor:** Affects one component, no architectural change
    - **Significant:** Affects multiple components or changes architecture
 3. Present: "This is [minor/significant] because [reasons]. I recommend [continuing/returning to brainstorming]."
-4. Ask: "Go back to brainstorming? [Yes / No]"
-5. If yes → transition to brainstorming skill
-6. If no → continue to next rough-draft phase
+4. Ask: "Go back to brainstorming?"
+   ```
+   1. Yes
+   2. No
+   ```
+5. If **1 (Yes)** → transition to brainstorming skill
+6. If **2 (No)** → continue to next rough-draft phase
 
-### If User Discards Change
+### If User Discards Change (2)
 
 1. Revert the design doc to before the proposal
 2. Recommend restart point:
    - **Beginning (INTERFACE):** If drift affects foundational decisions
    - **Current phase:** If drift is isolated to this phase
 3. Present: "I recommend restarting from [beginning/current phase] because [reasons]."
-4. Ask: "Restart from? [Beginning / Current phase]"
+4. Ask: "Restart from?"
+   ```
+   1. Beginning (INTERFACE)
+   2. Current phase
+   ```
 5. Execute the restart
 
 ---
@@ -555,9 +570,13 @@ Then invoke executing-plans skill.
    - Invoke executing-plans skill (now in worktree context)
 6. On failure:
    - Report error
-   - Ask: "Continue in current directory instead? (y/n)"
-   - If yes: fall back to Option 1 flow
-   - If no: stay at rough-draft phase
+   - Ask: "Continue in current directory instead?"
+     ```
+     1. Yes
+     2. No
+     ```
+   - If **1 (Yes)**: fall back to Option 1 flow
+   - If **2 (No)**: stay at rough-draft phase
 
 **Option 3 - Revise:**
 
@@ -633,22 +652,26 @@ The hook outputs a report like:
    - Adds complexity
    - Not in original scope
 
-**Proceed?** `[accept all / reject all / review each]`
+**Proceed?**
+
+1. Accept all
+2. Reject all
+3. Review each
 ```
 
 ### User Decisions
 
-**Accept all:**
+**1 - Accept all:**
 - Design doc is updated to include the drift
 - Decision logged with rationale
 - Proceed to next phase
 
-**Reject all:**
+**2 - Reject all:**
 - Design doc unchanged
 - All drifts added to `pendingVerificationIssues`
 - Stay in current phase, fix code
 
-**Review each:**
+**3 - Review each:**
 - Go through each drift one by one
 - Accept/reject individually
 - Mixed results: some accepted (update design), some rejected (add to pending)

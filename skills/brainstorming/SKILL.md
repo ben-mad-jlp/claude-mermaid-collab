@@ -132,12 +132,17 @@ During DESIGNING phase, for each section:
 1. Write section to design doc with `[PROPOSED]` marker
 2. Tell user: "I've added a proposed section: **[Section Name]**"
 3. Provide preview link: "Review at: [mermaid-collab preview URL]"
-4. Ask: "Accept this section? (accept / reject / edit)"
+4. Ask: "Accept this section?"
+   ```
+   1. Accept
+   2. Reject
+   3. Edit
+   ```
 
 **User responses:**
-- **accept**: Remove `[PROPOSED]` marker, continue to next section
-- **reject**: Discuss what's wrong, revise the section, repeat from step 1
-- **edit**: User edits directly in browser, Claude acknowledges changes and continues
+- **1 (Accept)**: Remove `[PROPOSED]` marker, continue to next section
+- **2 (Reject)**: Discuss what's wrong, revise the section, repeat from step 1
+- **3 (Edit)**: User edits directly in browser, Claude acknowledges changes and continues
 
 ### Checkpoint: Approach Diagram
 
@@ -192,6 +197,16 @@ IF state.currentItem exists:
 - Ask questions about this specific item (one at a time)
 - Do NOT explore other items or expand scope
 - Ask: "Is there anything else about this item?"
+
+**Incremental Design Doc Updates:**
+After each substantive user answer during CLARIFYING phase:
+1. Output: "Updating [field] for Item [N]..."
+2. Read current design doc via MCP
+3. Update the relevant field (Problem/Goal, Approach, Success Criteria, or Decisions)
+4. Write updated doc via MCP
+5. Output: "Updated [field] for Item [N]"
+
+This ensures context survives compaction - the design doc is the persistent record.
 
 **DESIGNING (scoped to item):**
 - Update the work item in the design doc with:
@@ -372,15 +387,18 @@ Brainstorming complete. Design covers:
 - [Bullet 2: key topic from design]
 - [Bullet 3: key topic from design]
 
-Ready to move to rough-draft? (y/n)
+Ready to move to rough-draft?
+
+1. Yes
+2. No
 ```
 
-- If **yes**: Update collab state and invoke rough-draft skill
+- If **1 (Yes)**: Update collab state and invoke rough-draft skill
   ```
   Tool: mcp__mermaid__update_collab_session_state
   Args: { "sessionName": "<name>", "phase": "rough-draft/interface" }
   ```
-- If **no**: Ask what else needs to be explored, return to appropriate phase
+- If **2 (No)**: Ask what else needs to be explored, return to appropriate phase
 
 ## Context Preservation
 

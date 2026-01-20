@@ -145,12 +145,15 @@ All work items documented:
 - [x] Item 2: Add user authentication (documented)
 - [x] Item 3: Fix login redirect bug (documented)
 
-Ready to proceed to rough-draft? (y/n)
+Ready to proceed to rough-draft?
+
+1. Yes
+2. No
 ```
 
 ### Step 5: Transition to Rough-Draft
 
-On user confirmation ("yes", "y", "confirm"):
+On user confirmation (selects **1**):
 
 **Update collab-state.json:**
 
