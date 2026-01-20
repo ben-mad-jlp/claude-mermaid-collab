@@ -1,6 +1,7 @@
 ---
 name: collab
 description: Use when starting collaborative design work - creates isolated collab sessions with mermaid-collab server
+user_invocable: true
 ---
 
 # Collab Sessions
