@@ -1,20 +1,28 @@
-import { readdir, readFile, writeFile, unlink, stat } from 'fs/promises';
+import { readdir, readFile, writeFile, unlink, stat, mkdir } from 'fs/promises';
 import { join, basename } from 'path';
 import type { Diagram, DiagramMeta } from '../types';
 import { config } from '../config';
 
 export class DiagramManager {
   private index: Map<string, DiagramMeta> = new Map();
+  private basePath: string;
+
+  constructor(basePath?: string) {
+    this.basePath = basePath || this.basePath;
+  }
 
   async initialize(): Promise<void> {
+    // Ensure directory exists
+    await mkdir(this.basePath, { recursive: true });
+
     // Scan diagrams folder and build index
-    const files = await readdir(config.DIAGRAMS_FOLDER);
+    const files = await readdir(this.basePath);
 
     for (const file of files) {
       if (!file.endsWith('.mmd')) continue;
 
       const id = basename(file, '.mmd');
-      const path = join(config.DIAGRAMS_FOLDER, file);
+      const path = join(this.basePath, file);
       const stats = await stat(path);
 
       this.index.set(id, {
@@ -72,7 +80,7 @@ export class DiagramManager {
     const sanitized = name.replace(/[^a-zA-Z0-9-_]/g, '-');
     const filename = `${sanitized}.mmd`;
     const id = sanitized;
-    const path = join(config.DIAGRAMS_FOLDER, filename);
+    const path = join(this.basePath, filename);
 
     if (this.index.has(id)) {
       throw new Error(`Diagram ${id} already exists`);

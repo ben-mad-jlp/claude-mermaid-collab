@@ -1,19 +1,27 @@
-import { readdir, readFile, writeFile, unlink, stat } from 'fs/promises';
+import { readdir, readFile, writeFile, unlink, stat, mkdir } from 'fs/promises';
 import { join, basename } from 'path';
 import type { Document, DocumentMeta } from '../types';
 import { config } from '../config';
 
 export class DocumentManager {
   private index: Map<string, DocumentMeta> = new Map();
+  private basePath: string;
+
+  constructor(basePath?: string) {
+    this.basePath = basePath || this.basePath;
+  }
 
   async initialize(): Promise<void> {
-    const files = await readdir(config.DOCUMENTS_FOLDER);
+    // Ensure directory exists
+    await mkdir(this.basePath, { recursive: true });
+
+    const files = await readdir(this.basePath);
 
     for (const file of files) {
       if (!file.endsWith('.md')) continue;
 
       const id = basename(file, '.md');
-      const path = join(config.DOCUMENTS_FOLDER, file);
+      const path = join(this.basePath, file);
       const stats = await stat(path);
 
       this.index.set(id, {
@@ -70,7 +78,7 @@ export class DocumentManager {
     const sanitized = name.replace(/[^a-zA-Z0-9-_]/g, '-');
     const filename = `${sanitized}.md`;
     const id = sanitized;
-    const path = join(config.DOCUMENTS_FOLDER, filename);
+    const path = join(this.basePath, filename);
 
     if (this.index.has(id)) {
       throw new Error(`Document ${id} already exists`);

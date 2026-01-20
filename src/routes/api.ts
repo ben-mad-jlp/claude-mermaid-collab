@@ -26,15 +26,19 @@ function getSessionParams(url: URL): { project: string; session: string } | null
 /**
  * Create managers for a specific project+session.
  */
-function createManagers(project: string, session: string) {
+async function createManagers(project: string, session: string) {
   const diagramsDir = sessionRegistry.resolvePath(project, session, 'diagrams');
   const documentsDir = sessionRegistry.resolvePath(project, session, 'documents');
 
-  return {
-    diagramManager: new DiagramManager(diagramsDir),
-    documentManager: new DocumentManager(documentsDir),
-    metadataManager: new MetadataManager(join(project, '.collab', session)),
-  };
+  const diagramManager = new DiagramManager(diagramsDir);
+  const documentManager = new DocumentManager(documentsDir);
+  const metadataManager = new MetadataManager(join(project, '.collab', session));
+
+  // Initialize managers (creates directories, builds index)
+  await diagramManager.initialize();
+  await documentManager.initialize();
+
+  return { diagramManager, documentManager, metadataManager };
 }
 
 export async function handleAPI(
@@ -106,7 +110,7 @@ export async function handleAPI(
       return Response.json({ error: 'project and session query params required' }, { status: 400 });
     }
 
-    const { diagramManager } = createManagers(params.project, params.session);
+    const { diagramManager } = await createManagers(params.project, params.session);
     const diagrams = await diagramManager.listDiagrams();
     return Response.json({ diagrams });
   }
@@ -119,7 +123,7 @@ export async function handleAPI(
     }
 
     const id = path.split('/').pop()!;
-    const { diagramManager } = createManagers(params.project, params.session);
+    const { diagramManager } = await createManagers(params.project, params.session);
     const diagram = await diagramManager.getDiagram(id);
 
     if (!diagram) {
@@ -156,7 +160,7 @@ export async function handleAPI(
       // Register session if not already registered
       await sessionRegistry.register(params.project, params.session);
 
-      const { diagramManager } = createManagers(params.project, params.session);
+      const { diagramManager } = await createManagers(params.project, params.session);
       const id = await diagramManager.createDiagram(name, content);
 
       // Broadcast creation immediately
@@ -199,7 +203,7 @@ export async function handleAPI(
     }
 
     try {
-      const { diagramManager } = createManagers(params.project, params.session);
+      const { diagramManager } = await createManagers(params.project, params.session);
       await diagramManager.saveDiagram(id, content);
 
       // Broadcast update immediately
@@ -231,7 +235,7 @@ export async function handleAPI(
     const id = path.split('/').pop()!;
 
     try {
-      const { diagramManager } = createManagers(params.project, params.session);
+      const { diagramManager } = await createManagers(params.project, params.session);
       await diagramManager.deleteDiagram(id);
 
       // Broadcast deletion immediately
@@ -258,7 +262,7 @@ export async function handleAPI(
     const id = path.split('/').pop()!;
     const theme = (url.searchParams.get('theme') || 'default') as Theme;
 
-    const { diagramManager } = createManagers(params.project, params.session);
+    const { diagramManager } = await createManagers(params.project, params.session);
     const diagram = await diagramManager.getDiagram(id);
     if (!diagram) {
       return Response.json({ error: 'Diagram not found' }, { status: 404 });
@@ -283,7 +287,7 @@ export async function handleAPI(
 
     const id = path.split('/').pop()!;
 
-    const { diagramManager } = createManagers(params.project, params.session);
+    const { diagramManager } = await createManagers(params.project, params.session);
     const diagram = await diagramManager.getDiagram(id);
     if (!diagram) {
       return Response.json({ error: 'Diagram not found' }, { status: 404 });
@@ -314,7 +318,7 @@ export async function handleAPI(
     }
 
     const id = path.split('/').pop()!;
-    const { diagramManager } = createManagers(params.project, params.session);
+    const { diagramManager } = await createManagers(params.project, params.session);
     const diagram = await diagramManager.getDiagram(id);
 
     if (!diagram) {
@@ -340,7 +344,7 @@ export async function handleAPI(
       return Response.json({ error: 'project and session query params required' }, { status: 400 });
     }
 
-    const { documentManager } = createManagers(params.project, params.session);
+    const { documentManager } = await createManagers(params.project, params.session);
     const documents = await documentManager.listDocuments();
     return Response.json({ documents });
   }
@@ -353,7 +357,7 @@ export async function handleAPI(
     }
 
     const id = path.split('/').pop()!;
-    const { documentManager } = createManagers(params.project, params.session);
+    const { documentManager } = await createManagers(params.project, params.session);
     const document = await documentManager.getDocument(id);
 
     if (!document) {
@@ -371,7 +375,7 @@ export async function handleAPI(
     }
 
     const id = path.split('/')[3];
-    const { documentManager } = createManagers(params.project, params.session);
+    const { documentManager } = await createManagers(params.project, params.session);
     const content = await documentManager.getCleanContent(id);
 
     if (content === null) {
@@ -398,7 +402,7 @@ export async function handleAPI(
       // Register session if not already registered
       await sessionRegistry.register(params.project, params.session);
 
-      const { documentManager } = createManagers(params.project, params.session);
+      const { documentManager } = await createManagers(params.project, params.session);
       const id = await documentManager.createDocument(name, content);
 
       wsHandler.broadcast({
@@ -430,7 +434,7 @@ export async function handleAPI(
     }
 
     try {
-      const { documentManager } = createManagers(params.project, params.session);
+      const { documentManager } = await createManagers(params.project, params.session);
       await documentManager.saveDocument(id, content);
 
       const document = await documentManager.getDocument(id);
@@ -461,7 +465,7 @@ export async function handleAPI(
     const id = path.split('/').pop()!;
 
     try {
-      const { documentManager } = createManagers(params.project, params.session);
+      const { documentManager } = await createManagers(params.project, params.session);
       await documentManager.deleteDocument(id);
 
       wsHandler.broadcast({
@@ -484,7 +488,7 @@ export async function handleAPI(
       return Response.json({ error: 'project and session query params required' }, { status: 400 });
     }
 
-    const { metadataManager } = createManagers(params.project, params.session);
+    const { metadataManager } = await createManagers(params.project, params.session);
     return Response.json(metadataManager.getMetadata());
   }
 
@@ -499,7 +503,7 @@ export async function handleAPI(
     const updates = await req.json() as { folder?: string | null; locked?: boolean };
 
     try {
-      const { metadataManager } = createManagers(params.project, params.session);
+      const { metadataManager } = await createManagers(params.project, params.session);
       await metadataManager.updateItem(id, updates);
 
       wsHandler.broadcast({
@@ -526,7 +530,7 @@ export async function handleAPI(
     const { action, name, newName } = await req.json() as { action: string; name?: string; newName?: string };
 
     try {
-      const { metadataManager } = createManagers(params.project, params.session);
+      const { metadataManager } = await createManagers(params.project, params.session);
 
       if (action === 'create') {
         if (!name) {
