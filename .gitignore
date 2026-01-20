@@ -18,3 +18,9 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+
+# Test artifacts (local session data)
+/diagrams/
+/documents/
+/metadata.json
+/.collab/

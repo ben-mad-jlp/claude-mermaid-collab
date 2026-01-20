@@ -1,0 +1,12 @@
+{
+  "name": "mermaid-collab",
+  "description": "Collaborative design workflows for Claude Code: mermaid diagrams, wireframes, and design-to-implementation pipelines with real-time preview",
+  "version": "5.0.0",
+  "author": {
+    "name": "Ben Maderazo"
+  },
+  "homepage": "https://github.com/ben-mad-jlp/claude-mermaid-collab",
+  "repository": "https://github.com/ben-mad-jlp/claude-mermaid-collab",
+  "license": "MIT",
+  "keywords": ["collaboration", "mermaid", "wireframes", "design", "diagrams", "workflows", "mcp"]
+}
