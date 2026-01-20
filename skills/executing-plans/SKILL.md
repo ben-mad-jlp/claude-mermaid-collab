@@ -191,6 +191,29 @@ Task execution diagram: <previewUrl>
 2. Replace the style line for the task with the new style
 3. Update diagram: `mcp__mermaid__update_diagram({ "id": "task-execution", "content": <updated> })`
 
+### Step 1.7: Verify Task Diagram Created
+
+**REQUIRED:** Verify the task execution diagram exists before proceeding to execution.
+
+```
+Tool: mcp__mermaid__get_diagram
+Args: { "project": "<cwd>", "session": "<session>", "id": "task-execution" }
+```
+
+**If diagram not found:**
+```
+Task execution diagram not found. Creating now...
+```
+→ Return to Step 1.6 and create the diagram.
+
+**If diagram exists:**
+```
+Task execution diagram verified. Proceeding to execution.
+```
+→ Proceed to Step 2.
+
+**This gate ensures the diagram is always created before any tasks execute.**
+
 ### Step 2: Execute Batch
 **Default: First 3 tasks** (or use dependency graph for collab workflow)
 

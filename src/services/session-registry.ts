@@ -16,11 +16,35 @@ export interface SessionRegistryData {
 const DATA_DIR = join(homedir(), '.mermaid-collab');
 const REGISTRY_PATH = join(DATA_DIR, 'sessions.json');
 
+const INITIAL_DESIGN_TEMPLATE = (sessionName: string) => `# Session: ${sessionName}
+
+## Session Context
+**Out of Scope:** (session-wide boundaries)
+**Shared Decisions:** (cross-cutting choices)
+
+---
+
+## Work Items
+
+*To be filled by gather-session-goals*
+
+---
+
+## Diagrams
+(auto-synced)`;
+
 export class SessionRegistry {
   private registryPath: string;
 
   constructor(registryPath: string = REGISTRY_PATH) {
     this.registryPath = registryPath;
+  }
+
+  private async createFileIfNotExists(filePath: string, content: string): Promise<void> {
+    if (!existsSync(filePath)) {
+      await mkdir(dirname(filePath), { recursive: true });
+      await writeFile(filePath, content, 'utf-8');
+    }
   }
 
   /**
@@ -88,6 +112,19 @@ export class SessionRegistry {
     const sessionPath = join(project, '.collab', session);
     await mkdir(join(sessionPath, 'diagrams'), { recursive: true });
     await mkdir(join(sessionPath, 'documents'), { recursive: true });
+
+    // Create session files if they don't exist
+    const collabStatePath = join(sessionPath, 'collab-state.json');
+    const collabStateContent = JSON.stringify({
+      phase: 'brainstorming',
+      lastActivity: now,
+      currentItem: null
+    }, null, 2);
+    await this.createFileIfNotExists(collabStatePath, collabStateContent);
+
+    const designDocPath = join(sessionPath, 'documents', 'design.md');
+    const designDocContent = INITIAL_DESIGN_TEMPLATE(session);
+    await this.createFileIfNotExists(designDocPath, designDocContent);
   }
 
   /**

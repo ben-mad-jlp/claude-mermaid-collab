@@ -37,21 +37,25 @@ Ask the user: **"What do you want to accomplish this session?"**
 
 Store the initial response. Parse any items mentioned and add them to the work items list with type = "unknown".
 
-### Step 2: Explore Iteratively
+### Step 2: Anything Else Loop
 
-Ask targeted follow-up questions **one at a time** (never batch):
+After parsing the initial response:
 
-1. "Any bugs you're trying to fix?"
-   - If user mentions bugs, add each as type = "bugfix"
+1. Infer type for each item from context:
+   - Contains "fix", "bug", "broken", "error", "crash", "fail" → type = "bugfix"
+   - Contains "add", "new", "create", "implement", "build" → type = "feature"
+   - Contains "refactor", "clean", "reorganize", "simplify", "restructure" → type = "refactor"
+   - Contains "investigate", "explore", "research", "spike", "understand" → type = "spike"
+   - Otherwise → type = "unknown"
 
-2. "Any new features to add?"
-   - If user mentions features, add each as type = "feature"
+2. Ask: **"Anything else?"**
 
-3. "Any code to refactor or clean up?"
-   - If user mentions refactors, add each as type = "refactor"
+3. If user provides more items:
+   - Parse and infer types
+   - Repeat from step 2
 
-4. "Any unknowns to investigate?"
-   - If user mentions spikes, add each as type = "spike"
+4. If user says no/done/that's it:
+   - Proceed to Step 3
 
 ### Step 3: Classify Unknown Items
 

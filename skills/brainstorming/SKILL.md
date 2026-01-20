@@ -87,6 +87,31 @@ digraph brainstorming_phases {
 - Prerequisites: Read relevant files/context, formed initial list of items
 - Announce: "I've gathered context. Now let me discuss each item with you one at a time."
 
+### Checkpoint: Current State Diagram
+
+**REQUIRED** before proceeding to CLARIFYING:
+
+Create a diagram showing the current state relevant to this work:
+
+```
+Tool: mcp__mermaid__create_diagram
+Args: {
+  "project": "<cwd>",
+  "session": "<session>",
+  "name": "current-state-item-N",
+  "content": <flowchart showing existing components/flow>
+}
+```
+
+Display: "Current state diagram: [previewUrl]"
+
+If the work item doesn't involve architecture/flow (e.g., pure text changes), create a simple diagram showing the file(s) being modified:
+
+```mermaid
+graph LR
+    A[File: path/to/file.md] --> B[Section being modified]
+```
+
 **CLARIFYING → DESIGNING**
 - Prerequisites: Each item discussed individually (not batched), asked "Is there anything else?", user confirmed nothing else
 - Announce: "All items clarified. Now let me present the design approach."
@@ -113,6 +138,24 @@ During DESIGNING phase, for each section:
 - **accept**: Remove `[PROPOSED]` marker, continue to next section
 - **reject**: Discuss what's wrong, revise the section, repeat from step 1
 - **edit**: User edits directly in browser, Claude acknowledges changes and continues
+
+### Checkpoint: Approach Diagram
+
+**REQUIRED** for each proposed approach:
+
+Before presenting an approach to the user, create a diagram visualizing it:
+
+```
+Tool: mcp__mermaid__create_diagram
+Args: {
+  "project": "<cwd>",
+  "session": "<session>",
+  "name": "approach-N",
+  "content": <flowchart/sequence showing the proposed approach>
+}
+```
+
+Do NOT describe architecture or flow in text alone. Show it visually, then explain.
 
 ### Red Flags - Phase Violations
 
