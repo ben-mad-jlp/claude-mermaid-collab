@@ -3,6 +3,22 @@ name: executing-plans
 description: Use when you have a written implementation plan to execute in a separate session with review checkpoints
 ---
 
+## Collab Session Required
+
+Before proceeding, check for active collab session:
+
+1. Check if `.collab/` directory exists
+2. Check if any session folders exist within
+3. If no session found:
+   ```
+   ⚠️ No active collab session found.
+
+   Use /collab to start a session first.
+   ```
+   **STOP** - do not proceed with this skill.
+
+4. If multiple sessions exist, check `COLLAB_SESSION_PATH` env var or ask user which session.
+
 # Executing Plans
 
 ## Overview

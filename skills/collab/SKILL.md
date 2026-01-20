@@ -7,6 +7,8 @@ description: Use when starting collaborative design work - creates isolated coll
 
 Start or resume a collaborative design session. The mermaid-collab server must be running.
 
+This skill is the orchestrator for the collab workflow. It manages session creation, the work item loop, and coordinates other skills.
+
 ---
 
 ## Step 1: Check Server
@@ -34,17 +36,17 @@ ls -d .collab/*/ 2>/dev/null | xargs -I{} basename {}
 ```
 
 **If sessions exist:**
-1. For each session, read `.collab/<name>/collab-state.json` to get phase and template
+1. For each session, read `.collab/<name>/collab-state.json` to get phase
 2. Display list:
    ```
    Existing sessions:
 
-   1. bright-calm-river (feature) - brainstorming
-   2. swift-green-meadow (bugfix) - implementation
+   1. bright-calm-river - brainstorming
+   2. swift-green-meadow - implementation
 
    Resume which session? (or 'new')
    ```
-3. If user selects existing session → Jump to **Step 4: Start**
+3. If user selects existing session → Jump to **Step 5: Resume Session**
 4. If user selects 'new' → Continue to **Step 3**
 
 **If no sessions exist:** Continue to **Step 3**
@@ -59,18 +61,7 @@ ls -d .collab/*/ 2>/dev/null | xargs -I{} basename {}
 git check-ignore -q .collab 2>/dev/null || echo ".collab/" >> .gitignore
 ```
 
-### 3.2 Ask Template
-
-```
-What type of work is this?
-
-1. feature - New functionality
-2. bugfix - Fix an issue
-3. refactor - Restructure existing code
-4. spike - Exploratory/research work
-```
-
-### 3.3 Generate Name
+### 3.2 Generate Name
 
 Use the MCP tool to generate a memorable name:
 
@@ -81,50 +72,45 @@ Args: {}
 
 Returns: `{ name: "bright-calm-river" }`
 
-### 3.4 Create Folder Structure
+### 3.3 Create Folder Structure
 
 ```bash
 mkdir -p .collab/<name>/diagrams
 mkdir -p .collab/<name>/documents
 ```
 
-### 3.5 Write Initial Files
+### 3.4 Write Initial Files
 
 Write `.collab/<name>/collab-state.json`:
 ```json
 {
   "phase": "brainstorming",
-  "template": "<selected-template>",
-  "lastActivity": "<ISO-timestamp>"
+  "lastActivity": "<ISO-timestamp>",
+  "currentItem": null
 }
 ```
 
 Write `.collab/<name>/documents/design.md`:
 ```markdown
-# Design
+# Session: <name>
 
-## Problem / Goal
-
-*To be filled during brainstorming*
-
-## Key Decisions
-
-*Decisions will be documented as they are made*
-
-## Success Criteria
-
-*To be defined*
-
-## Out of Scope
-
-*To be defined*
-```
+## Session Context
+**Out of Scope:** (session-wide boundaries)
+**Shared Decisions:** (cross-cutting choices)
 
 ---
 
-## Step 4: Start
+## Work Items
 
-### 4.1 Set Environment Variable
+*To be filled by gather-session-goals*
+
+---
+
+## Diagrams
+(auto-synced)
+```
+
+### 3.5 Set Environment Variable
 
 Set the session path environment variable for hooks:
 
@@ -132,69 +118,138 @@ Set the session path environment variable for hooks:
 export COLLAB_SESSION_PATH="$(pwd)/.collab/<name>"
 ```
 
-This allows hooks like `brainstorming-enforce.sh` and `post-task-complete.sh` to find the active session without scanning directories.
-
-### 4.2 Context Recovery (when resuming)
-
-When resuming an existing session, provide a context recovery summary:
-
-1. **Read state file:**
-   ```bash
-   cat .collab/<name>/collab-state.json
-   ```
-
-2. **Read design doc and count decisions:**
-   ```bash
-   cat .collab/<name>/documents/design.md
-   ```
-   - Count items with decision markers (checkmarks, strikethrough, "Decision:" prefix)
-   - Count items without decision markers (open decisions)
-
-3. **Count task progress:**
-   From state file, check for `completedTasks` and `pendingTasks` arrays if present.
-
-4. **Format and display summary:**
-   ```
-   ## Session Resumed: <name>
-
-   **Phase:** <phase> (<subphase if applicable>)
-
-   **Design Decisions:** <N> made, <M> open
-
-   **Task Progress:** <complete>/<total> complete
-
-   **Last Activity:** <lastAction description or timestamp>
-
-   ---
-   Continue from <current-phase/subphase>?
-   ```
-
-5. **Confirm with user:**
-   - If user confirms → proceed to Step 4.4
-   - If user wants to start fresh → allow redirect to brainstorming
-
-### 4.3 Display Session Info (new sessions)
+### 3.6 Invoke gather-session-goals
 
 ```
-Session: <name>
-Dashboard: http://localhost:3737
-Phase: <phase>
-
-Starting <phase> phase...
+Invoke skill: gather-session-goals
 ```
 
-### 4.4 Read Design Doc
+This skill will:
+- Ask user what they want to accomplish
+- Classify each item as feature/bugfix/refactor/spike
+- Write Work Items section to design doc
+- All items start with `Status: pending`
+
+After gather-session-goals returns → Jump to **Step 4: Work Item Loop**
+
+---
+
+## Step 4: Work Item Loop
+
+This is the core orchestration loop that processes work items one at a time.
+
+### 4.1 Read Design Doc
 
 ```bash
 cat .collab/<name>/documents/design.md
 ```
 
-### 4.5 Invoke Phase Skill
+### 4.2 Parse Work Items
 
-Based on `phase` in `collab-state.json`:
-- `brainstorming` → invoke **brainstorming** skill
-- `rough-draft/*` → invoke **rough-draft** skill
-- `implementation` → invoke **executing-plans** skill
+Use `parseWorkItems()` helper to extract items from design doc:
+- Find all `### Item N:` sections
+- Extract Title, Type, and Status fields
+- Return list of work items
+
+### 4.3 Find First Pending Item
+
+```
+pending_item = items.find(i => i.status == "pending")
+```
+
+**If no pending items:**
+```
+All work items documented. Proceeding to validation...
+```
+→ Invoke **ready-to-implement** skill
+→ **END** (ready-to-implement takes over)
+
+**If pending item found:** Continue to 4.4
+
+### 4.4 Update State
+
+Update `.collab/<name>/collab-state.json`:
+```json
+{
+  "currentItem": <item-number>,
+  "lastActivity": "<ISO-timestamp>"
+}
+```
+
+### 4.5 Route by Type
+
+**If type is `bugfix`:**
+```
+Processing bugfix: <item-title>
+Invoking systematic-debugging for investigation...
+```
+→ Invoke **systematic-debugging** skill
+
+**If type is `feature`, `refactor`, or `spike`:**
+```
+Processing <type>: <item-title>
+Invoking brainstorming...
+```
+→ Invoke **brainstorming** skill
+
+### 4.6 Mark Item Documented
+
+After the invoked skill returns, update the work item in design doc:
+- Change `**Status:** pending` to `**Status:** documented`
+
+### 4.7 Clear Current Item
+
+Update `.collab/<name>/collab-state.json`:
+```json
+{
+  "currentItem": null,
+  "lastActivity": "<ISO-timestamp>"
+}
+```
+
+### 4.8 Continue Loop
+
+→ Go back to **Step 4.1** (continue processing next pending item)
+
+---
+
+## Step 5: Resume Session
+
+When user selects an existing session from Step 2.
+
+### 5.1 Set Environment Variable
+
+```bash
+export COLLAB_SESSION_PATH="$(pwd)/.collab/<name>"
+```
+
+### 5.2 Read State
+
+```bash
+cat .collab/<name>/collab-state.json
+```
+
+### 5.3 Display Session Info
+
+```
+Session Resumed: <name>
+Phase: <phase>
+Dashboard: http://localhost:3737
+
+Checking work item status...
+```
+
+### 5.4 Invoke ready-to-implement
+
+**Always** route through ready-to-implement for resume:
+
+```
+Invoke skill: ready-to-implement
+```
+
+ready-to-implement will:
+- If pending items exist → return with `action: "return_to_loop"` → Go to **Step 4: Work Item Loop**
+- If all documented → proceed to rough-draft (on user confirmation)
 
 ---
 
@@ -214,14 +269,20 @@ Based on `phase` in `collab-state.json`:
 ```json
 {
   "phase": "brainstorming",
-  "template": "feature",
   "lastActivity": "2026-01-19T10:30:00Z",
+  "currentItem": null,
   "pendingVerificationIssues": []
 }
 ```
 
+**Fields:**
+- `phase` - Current workflow phase
+- `lastActivity` - ISO timestamp of last activity
+- `currentItem` - Item number being processed (null when not in loop)
+- `pendingVerificationIssues` - Issues from verification phase
+
 **Phase values:**
-- `brainstorming` - Initial design exploration
+- `brainstorming` - Work item loop / brainstorming phase
 - `rough-draft/interface` - Defining interfaces
 - `rough-draft/pseudocode` - Logic flow
 - `rough-draft/skeleton` - Stub files
@@ -243,28 +304,67 @@ Based on `phase` in `collab-state.json`:
 
 ---
 
+## Helper Functions
+
+### parseWorkItems(designDoc)
+
+Parses the design doc and extracts work items.
+
+```
+FUNCTION parseWorkItems(doc):
+  items = []
+  FOR each "### Item N:" section in doc:
+    item = {
+      number: N,
+      title: parse title after "### Item N:",
+      type: parse **Type:** field value,
+      status: parse **Status:** field value
+    }
+    ADD item to items
+  RETURN items
+```
+
+**Example parsing:**
+```markdown
+### Item 1: Add user authentication
+**Type:** feature
+**Status:** pending
+```
+→ `{ number: 1, title: "Add user authentication", type: "feature", status: "pending" }`
+
+---
+
 ## Integration
 
 **Transitions to:**
-- **brainstorming** - After creating new session or resuming at brainstorming phase
-- **rough-draft** - When resuming at rough-draft phase
-- **executing-plans** - When resuming at implementation phase
-- **ready-to-implement** - User can invoke to validate design completion before implementation
+- **gather-session-goals** - After creating new session (collect work items)
+- **brainstorming** - From work item loop for feature/refactor/spike items
+- **systematic-debugging** - From work item loop for bugfix items
+- **ready-to-implement** - When all items documented or on resume
 
 **Called by:**
 - User directly via `/collab` command
 - Any workflow starting collaborative design work
 
 **Related skills:**
-- **brainstorming** - Explores requirements and design decisions
-- **rough-draft** - Bridges brainstorming to implementation (interface → pseudocode → skeleton)
-- **ready-to-implement** - Validates all design decisions are complete
+- **gather-session-goals** - Collects and classifies work items at session start
+- **brainstorming** - Explores requirements for feature/refactor/spike items
+- **systematic-debugging** - Investigates bugfix items (documentation only)
+- **ready-to-implement** - Central checkpoint, validates all items documented
+- **rough-draft** - Bridges design to implementation (interface → pseudocode → skeleton)
 - **verify-phase** - Checks rough-draft output aligns with design
 - **executing-plans** - Implements the plan with parallel task execution
 
 **Collab Workflow Chain:**
 ```
-collab --> brainstorming --> ready-to-implement --> rough-draft [verify-phase] --> executing-plans
-  ^                                                     ^
-  |_____________________resume__________________________|
+collab --> gather-session-goals --> work-item-loop --> ready-to-implement --> rough-draft --> executing-plans
+                                         |                    ^
+                                         |    (all documented)|
+                                         v                    |
+                                    brainstorming ────────────┤
+                                    or                        |
+                                    systematic-debugging ─────┘
+
+Resume flow:
+collab --> ready-to-implement --> (back to loop if pending) or (rough-draft if done)
 ```

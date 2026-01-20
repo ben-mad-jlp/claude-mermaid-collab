@@ -5,6 +5,41 @@ description: "You MUST use this before any creative work - creating features, bu
 
 # Brainstorming Ideas Into Designs
 
+## Collab Session Required
+
+Before proceeding, check for active collab session:
+
+1. Check if `.collab/` directory exists
+2. Check if any session folders exist within
+3. If no session found:
+   ```
+   No active collab session found.
+
+   Use /collab to start a session first.
+   ```
+   **STOP** - do not proceed with this skill.
+
+4. If multiple sessions exist, check `COLLAB_SESSION_PATH` env var or ask user which session.
+
+## Get Current Work Item
+
+Check if this skill is being invoked for a specific work item:
+
+1. Read `collab-state.json` from the active session
+2. If `currentItem` field exists:
+   - This is **single-item mode** - focus on documenting only that item
+   - Read design doc and find the item by number
+   - Scope all phases to this specific item
+3. If `currentItem` is null or missing:
+   - This is **full-session mode** - use existing behavior for entire design
+
+**Single-item mode behavior:**
+- EXPLORING: Gather context relevant to this specific item
+- CLARIFYING: Discuss only this item's requirements
+- DESIGNING: Document only this item's fields (Problem/Goal, Approach, Success Criteria, Decisions)
+- VALIDATING: Check only this item has all required fields filled
+- On completion: Return to collab skill (do NOT transition to rough-draft)
+
 ## Overview
 
 Help turn ideas into fully formed designs and specs through natural collaborative dialogue.
@@ -90,6 +125,58 @@ If you catch yourself doing any of these, STOP and correct:
 | Moving to DESIGNING without asking "what else?" | Return to CLARIFYING, ask the question |
 | Editing files during brainstorming | Cannot edit until after rough-draft completes |
 | Skipping to implementation | Must go through rough-draft first |
+
+## Single-Item Mode Workflow
+
+When `currentItem` is set in collab-state.json, brainstorming focuses on documenting a single work item rather than designing an entire feature.
+
+**Entering single-item mode:**
+```
+READ collab-state.json
+IF state.currentItem exists:
+  current_item_num = state.currentItem
+  READ design doc
+  current_item = findItem(design_doc, current_item_num)
+  DISPLAY: "Brainstorming: {current_item.title} ({current_item.type})"
+```
+
+**EXPLORING (scoped to item):**
+- Read relevant files based on item description
+- Check git history for related changes
+- Gather context specific to this item only
+
+**CLARIFYING (scoped to item):**
+- Ask questions about this specific item (one at a time)
+- Do NOT explore other items or expand scope
+- Ask: "Is there anything else about this item?"
+
+**DESIGNING (scoped to item):**
+- Update the work item in the design doc with:
+  - `**Problem/Goal:**` - documented problem/goal
+  - `**Approach:**` - documented approach
+  - `**Success Criteria:**` - documented criteria
+  - `**Decisions:**` - any item-specific decisions
+
+**VALIDATING (for this item):**
+- Check item has all required fields filled:
+  - Problem/Goal filled
+  - Approach filled
+  - Success Criteria filled
+- If validation fails: return to DESIGNING to fill gaps
+- If validation passes: return to collab skill
+
+**Completion (single-item mode):**
+```
+DISPLAY: "Item documented. Returning to work item loop."
+RETURN to collab skill
+```
+
+**Important:** In single-item mode, do NOT:
+- Run the full completeness gate
+- Transition to rough-draft
+- Update collab-state.json phase
+
+The collab skill manages the work item loop and will mark the item as documented after this skill returns.
 
 ## Live Design Doc
 

@@ -5,6 +5,50 @@ description: Use when encountering any bug, test failure, or unexpected behavior
 
 # Systematic Debugging
 
+## Collab Session Required
+
+Before proceeding, check for active collab session:
+
+1. Check if `.collab/` directory exists
+2. Check if any session folders exist within
+3. If no session found:
+   ```
+   ⚠️ No active collab session found.
+
+   Use /collab to start a session first.
+   ```
+   **STOP** - do not proceed with this skill.
+
+4. If multiple sessions exist, check `COLLAB_SESSION_PATH` env var or ask user which session.
+
+## Get Current Work Item
+
+After confirming collab session:
+
+1. Read `collab-state.json` from the session folder
+2. Get `currentItem` number from state
+3. Read design doc and find the item with that number
+4. Display: "Investigating: {item.title}"
+
+This item context determines what bug is being investigated.
+
+## EXPLICIT PROHIBITION
+
+```
+⚠️ DO NOT IMPLEMENT FIXES
+
+- No editing source files to fix the bug
+- No writing fix code
+- Document only
+- Fixes happen later via rough-draft → executing-plans
+```
+
+The following are FORBIDDEN in this skill:
+- Using Edit tool on source files (except design doc)
+- Using Write tool on source files
+- Making any code changes to fix the bug
+- Implementing the fix
+
 ## Overview
 
 Random fixes waste time and create new bugs. Quick patches mask underlying issues.
@@ -151,15 +195,16 @@ You MUST complete each phase before proceeding to the next.
    - Write it down
    - Be specific, not vague
 
-2. **Test Minimally**
-   - Make the SMALLEST possible change to test hypothesis
-   - One variable at a time
-   - Don't fix multiple things at once
+2. **Test Minimally (Read-Only)**
+   - Use read-only checks to verify hypothesis
+   - Can run tests, add logging, inspect state
+   - CANNOT modify source files to test fixes
+   - One hypothesis at a time
 
 3. **Verify Before Continuing**
-   - Did it work? Yes → Phase 4
-   - Didn't work? Form NEW hypothesis
-   - DON'T add more fixes on top
+   - Root cause confirmed? Yes → Phase 4 (Document Findings)
+   - Hypothesis disproven? Form NEW hypothesis
+   - DON'T propose fixes yet - keep investigating
 
 4. **When You Don't Know**
    - Say "I don't understand X"
@@ -167,56 +212,47 @@ You MUST complete each phase before proceeding to the next.
    - Ask for help
    - Research more
 
-### Phase 4: Implementation
+### Phase 4: Document Findings
 
-**Fix the root cause, not the symptom:**
+**When root cause is found, document and return:**
 
-1. **Create Failing Test Case**
-   - Simplest possible reproduction
-   - Automated test if possible
-   - One-off test script if no framework
-   - MUST have before fixing
-   - Use the `superpowers:test-driven-development` skill for writing proper failing tests
+1. **Update Work Item in Design Doc**
 
-2. **Implement Single Fix**
-   - Address the root cause identified
-   - ONE change at a time
-   - No "while I'm here" improvements
-   - No bundled refactoring
-   
-   **Stay in scope:**
-   - Fix ONLY the root cause identified
-   - Don't "improve" adjacent code
-   - Don't refactor while fixing
-   - If you notice other issues, log them for later — don't fix now
-   
-3. **Verify Fix**
-   - Test passes now?
-   - No other tests broken?
-   - Issue actually resolved?
+   Update the current work item with:
+   - **Root Cause:** Clear explanation of what's wrong and why
+   - **Approach:** Proposed fix strategy (without implementing)
+   - **Success Criteria:** How to verify the fix worked
 
-4. **If Fix Doesn't Work**
-   - STOP
-   - Count: How many fixes have you tried?
-   - If < 3: Return to Phase 1, re-analyze with new information
-   - **If ≥ 3: STOP and question the architecture (step 5 below)**
-   - DON'T attempt Fix #4 without architectural discussion
+2. **Confirm Documentation**
+   - Root cause is clearly explained
+   - Approach is actionable for implementation phase
+   - Success criteria are testable
 
-5. **If 3+ Fixes Failed: Question Architecture**
+3. **Return to Collab Skill**
+   ```
+   Root cause documented.
+   Proposed fix approach documented.
+   DO NOT IMPLEMENT - fixes happen in implementation phase.
+
+   Returning to work item loop...
+   ```
+
+4. **If 3+ Hypotheses Failed: Question Architecture**
 
    **Pattern indicating architectural problem:**
-   - Each fix reveals new shared state/coupling/problem in different place
-   - Fixes require "massive refactoring" to implement
-   - Each fix creates new symptoms elsewhere
+   - Each hypothesis reveals new shared state/coupling/problem in different place
+   - Proposed fixes would require "massive refactoring" to implement
+   - Each investigation path creates new questions elsewhere
 
    **STOP and question fundamentals:**
    - Is this pattern fundamentally sound?
    - Are we "sticking with it through sheer inertia"?
-   - Should we refactor architecture vs. continue fixing symptoms?
+   - Should we refactor architecture vs. continue investigating symptoms?
 
-   **Discuss with your human partner before attempting more fixes**
+   **Discuss with your human partner before continuing**
 
-   This is NOT a failed hypothesis - this is a wrong architecture.
+   This is NOT a failed investigation - this may be a wrong architecture.
+   Document architectural concerns in the work item and return to collab skill.
 
 ## Red Flags - STOP and Follow Process
 
@@ -235,7 +271,7 @@ If you catch yourself thinking:
 
 **ALL of these mean: STOP. Return to Phase 1.**
 
-**If 3+ fixes failed:** Question the architecture (see Phase 4.5)
+**If 3+ hypotheses failed:** Question the architecture (see Phase 4, step 4)
 
 ## your human partner's Signals You're Doing It Wrong
 
@@ -268,16 +304,17 @@ If you catch yourself thinking:
 | **1. Root Cause** | Read errors, reproduce, check changes, gather evidence | Understand WHAT and WHY |
 | **2. Pattern** | Find working examples, compare | Identify differences |
 | **3. Hypothesis** | Form theory, test minimally | Confirmed or new hypothesis |
-| **4. Implementation** | Create test, fix, verify | Bug resolved, tests pass |
+| **4. Document** | Update design doc, return to collab | Root cause and approach documented |
 
 ## When Process Reveals "No Root Cause"
 
 If systematic investigation reveals issue is truly environmental, timing-dependent, or external:
 
-1. You've completed the process
-2. Document what you investigated
-3. Implement appropriate handling (retry, timeout, error message)
-4. Add monitoring/logging for future investigation
+1. You've completed the investigation
+2. Document what you investigated in the work item
+3. Document recommended handling approach (retry, timeout, error message)
+4. Document recommended monitoring/logging for future investigation
+5. Return to collab skill with documented findings
 
 **But:** 95% of "no root cause" cases are incomplete investigation.
 
@@ -290,8 +327,8 @@ These techniques are part of systematic debugging and available in this director
 - **`condition-based-waiting.md`** - Replace arbitrary timeouts with condition polling
 
 **Related skills:**
-- **superpowers:test-driven-development** - For creating failing test case (Phase 4, Step 1)
-- **superpowers:verification-before-completion** - Verify fix worked before claiming success
+- **superpowers:test-driven-development** - For creating failing test case (used during implementation phase, not this skill)
+- **superpowers:verification-before-completion** - Verify fix worked (used during implementation phase, not this skill)
 
 ## Real-World Impact
 
