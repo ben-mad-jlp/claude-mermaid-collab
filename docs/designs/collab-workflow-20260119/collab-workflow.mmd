@@ -1,0 +1,239 @@
+flowchart TB
+    subgraph Entry["🚀 /collab Entry"]
+        Start([User: /collab])
+        ServerHook["⚡ server-check hook"]
+        CheckServer{Server running?}
+        StartServer[Start server in background]
+        WaitServer[Wait + verify]
+        VerifyStarted{Started?}
+        StartFailed[❌ Check logs]
+        FindSessions{Sessions exist?}
+        ShowSessions[Show session list]
+        ResumeOrNew{Resume or New?}
+        CreateSession[Create .collab/name/]
+    end
+
+    subgraph Resume["🔄 Session Resume"]
+        LoadState[Load collab-state.json]
+        ContextRecovery["⚡ context-recovery:\nRead state + summarize progress"]
+        ConfirmResume[Continue from phase X?]
+        RoutePhase{Current phase?}
+    end
+
+    subgraph Analysis["🔎 Work Item Analysis"]
+        IdentifyItems[Identify work items]
+        NextItem{Next item?}
+        ClassifyItem{Item type?}
+        NewFeature[New feature/change]
+        ExistingBug[Bug/issue]
+        NoMoreItems[All items analyzed]
+    end
+
+    subgraph Brainstorming["💡 brainstorming"]
+        BS_Exploring[EXPLORING]
+        BS_Clarifying[CLARIFYING]
+        BS_Designing[DESIGNING]
+        BS_Diagram["📊 Create diagram?"]
+        BS_SyncDoc["⚡ sync-diagram-to-doc\n(optional: embed in design)"]
+        BS_Validating{Complete?}
+        BS_SaveState["💾 Save state immediately"]
+    end
+
+    subgraph Debugging["🔍 systematic-debugging"]
+        DB_Reproduce[REPRODUCE]
+        DB_Isolate[ISOLATE]
+        DB_Hypothesis[HYPOTHESIS]
+        DB_Validated{Root cause?}
+        DB_SaveState["💾 Save state immediately"]
+    end
+
+    subgraph DesignDoc["📄 Design Document"]
+        AddToDesign[Add to design doc]
+        MoreItems{More items?}
+    end
+
+    subgraph Worktree["🌳 using-git-worktrees"]
+        AskWorktree{Use worktree?}
+        CreateWorktree[Create feature branch]
+        VerifyWorktree[Verify clean baseline]
+    end
+
+    subgraph RoughDraft["📐 rough-draft"]
+        RD_Interface[INTERFACE]
+        RD_VerifyHook1["⚡ verify-phase hook"]
+        RD_IntVerify{On task?}
+        RD_Pseudocode[PSEUDOCODE]
+        RD_VerifyHook2["⚡ verify-phase hook"]
+        RD_PseudoVerify{On task?}
+        RD_Skeleton[SKELETON + task graph]
+        RD_VerifyHook3["⚡ verify-phase hook"]
+        RD_SkelVerify{On task?}
+        RD_Drift[Drift: Accept/Reject]
+        RD_SaveState["💾 Save state immediately"]
+    end
+
+    subgraph Executing["⚙️ executing-plans"]
+        EX_Load[Parse dependency graph]
+        EX_FindReady[Find ready tasks]
+        EX_Parallel{Parallel safe?}
+    end
+
+    subgraph Subagent["🤖 subagent-driven-development"]
+        SA_Dispatch[Dispatch subagents]
+        SA_Implement[Implement task]
+        SA_SpecReview[Spec review]
+        SA_QualityReview[Code quality review]
+        SA_TaskDone{Task passed?}
+        SA_PostTask["⚡ post-task-complete hook:\n• Update diagram\n• Log completion"]
+    end
+
+    subgraph TDD["🧪 test-driven-development"]
+        TDD_Red[RED: Write failing test]
+        TDD_Green[GREEN: Make it pass]
+        TDD_Refactor[REFACTOR: Clean up]
+    end
+
+    subgraph Verification["✓ verification-before-completion"]
+        VF_Evidence[Gather evidence]
+        VF_Tests{Tests pass?}
+        VF_Issues{Issues resolved?}
+        VF_NewIssue[New issue found]
+    end
+
+    subgraph CodeReview["👀 code-review"]
+        CR_Request[requesting-code-review]
+        CR_Receive[receiving-code-review]
+        CR_Feedback{Feedback?}
+        CR_Address[Address feedback]
+    end
+
+    subgraph Finishing["✅ finishing-a-development-branch"]
+        FN_Verify[Final verification]
+        FN_Options{What to do?}
+        FN_Merge[Merge to main]
+        FN_PR[Create PR]
+        FN_Keep[Keep branch]
+        FN_Discard[Discard]
+    end
+
+    subgraph Cleanup["🧹 collab-cleanup"]
+        CL_Summary[Show session summary]
+        CL_Choice{Artifacts?}
+        CL_Archive[Archive to docs/designs/]
+        CL_Delete[Delete session]
+        CL_Keep[Keep session]
+        CL_Done([Session complete])
+    end
+
+    %% Entry with server-check hook
+    Start --> ServerHook --> CheckServer
+    CheckServer -->|No| StartServer --> WaitServer --> VerifyStarted
+    VerifyStarted -->|No| StartFailed
+    VerifyStarted -->|Yes| FindSessions
+    CheckServer -->|Yes| FindSessions
+    FindSessions -->|Yes| ShowSessions --> ResumeOrNew
+    FindSessions -->|No| CreateSession
+    ResumeOrNew -->|Resume| LoadState
+    ResumeOrNew -->|New| CreateSession --> LoadState
+
+    %% Resume with context-recovery
+    LoadState --> ContextRecovery --> ConfirmResume --> RoutePhase
+    RoutePhase -->|brainstorming| IdentifyItems
+    RoutePhase -->|rough-draft| RD_Interface
+    RoutePhase -->|implementation| EX_Load
+
+    %% Analysis
+    IdentifyItems --> NextItem
+    NextItem -->|Yes| ClassifyItem
+    NextItem -->|No| NoMoreItems --> AskWorktree
+    ClassifyItem -->|New| NewFeature --> BS_Exploring
+    ClassifyItem -->|Bug| ExistingBug --> DB_Reproduce
+
+    %% Brainstorming with optional sync
+    BS_Exploring --> BS_Clarifying --> BS_Designing --> BS_Diagram
+    BS_Diagram -->|Yes| BS_SyncDoc --> BS_Validating
+    BS_Diagram -->|No| BS_Validating
+    BS_Validating -->|Yes| BS_SaveState --> AddToDesign
+    BS_Validating -->|No| BS_Designing
+
+    %% Debugging with state save
+    DB_Reproduce --> DB_Isolate --> DB_Hypothesis --> DB_Validated
+    DB_Validated -->|Yes| DB_SaveState --> AddToDesign
+    DB_Validated -->|No| DB_Isolate
+
+    %% Design doc loop
+    AddToDesign --> MoreItems
+    MoreItems -->|Yes| NextItem
+    MoreItems -->|No| AskWorktree
+
+    %% Worktree
+    AskWorktree -->|Yes| CreateWorktree --> VerifyWorktree --> RD_Interface
+    AskWorktree -->|No| RD_Interface
+
+    %% Rough-draft with verify-phase hooks
+    RD_Interface --> RD_VerifyHook1 --> RD_IntVerify
+    RD_IntVerify -->|Yes| RD_SaveState --> RD_Pseudocode
+    RD_IntVerify -->|No| RD_Drift
+    RD_Pseudocode --> RD_VerifyHook2 --> RD_PseudoVerify
+    RD_PseudoVerify -->|Yes| RD_SaveState
+    RD_SaveState --> RD_Skeleton
+    RD_PseudoVerify -->|No| RD_Drift
+    RD_Skeleton --> RD_VerifyHook3 --> RD_SkelVerify
+    RD_SkelVerify -->|Yes| EX_Load
+    RD_SkelVerify -->|No| RD_Drift
+    RD_Drift -->|Accept| RD_Interface
+    RD_Drift -->|Reject| IdentifyItems
+
+    %% Executing
+    EX_Load --> EX_FindReady --> EX_Parallel
+    EX_Parallel --> SA_Dispatch
+
+    %% Subagent + TDD + post-task hook
+    SA_Dispatch --> SA_Implement
+    SA_Implement --> TDD_Red --> TDD_Green --> TDD_Refactor
+    TDD_Refactor --> SA_SpecReview --> SA_QualityReview --> SA_TaskDone
+    SA_TaskDone -->|No| SA_Implement
+    SA_TaskDone -->|Yes| SA_PostTask --> EX_FindReady
+    EX_FindReady -->|All done| VF_Evidence
+
+    %% Verification
+    VF_Evidence --> VF_Tests
+    VF_Tests -->|Fail| RD_Interface
+    VF_Tests -->|Pass| VF_Issues
+    VF_Issues -->|Not fixed| VF_NewIssue --> IdentifyItems
+    VF_Issues -->|Resolved| CR_Request
+
+    %% Code Review
+    CR_Request --> CR_Receive --> CR_Feedback
+    CR_Feedback -->|Changes needed| CR_Address --> SA_Implement
+    CR_Feedback -->|Approved| FN_Verify
+
+    %% Finishing
+    FN_Verify --> FN_Options
+    FN_Options -->|Merge| FN_Merge --> CL_Summary
+    FN_Options -->|PR| FN_PR --> CL_Summary
+    FN_Options -->|Keep| FN_Keep --> CL_Summary
+    FN_Options -->|Discard| FN_Discard --> CL_Summary
+
+    %% Cleanup
+    CL_Summary --> CL_Choice
+    CL_Choice -->|Archive| CL_Archive --> CL_Done
+    CL_Choice -->|Delete| CL_Delete --> CL_Done
+    CL_Choice -->|Keep| CL_Keep --> CL_Done
+
+    style Entry fill:#e3f2fd,stroke:#1976d2
+    style Resume fill:#e0f2f1,stroke:#00897b
+    style Analysis fill:#fafafa,stroke:#9e9e9e
+    style Brainstorming fill:#fff3e0,stroke:#ff9800
+    style Debugging fill:#ffebee,stroke:#f44336
+    style DesignDoc fill:#e8eaf6,stroke:#3f51b5
+    style Worktree fill:#f1f8e9,stroke:#7cb342
+    style RoughDraft fill:#f3e5f5,stroke:#9c27b0
+    style Executing fill:#e8f5e9,stroke:#4caf50
+    style Subagent fill:#e3f2fd,stroke:#1e88e5
+    style TDD fill:#fce4ec,stroke:#d81b60
+    style Verification fill:#fff8e1,stroke:#ffc107
+    style CodeReview fill:#f3e5f5,stroke:#8e24aa
+    style Finishing fill:#fce4ec,stroke:#e91e63
+    style Cleanup fill:#efebe9,stroke:#795548
+    style StartFailed fill:#ffcdd2,stroke:#c62828

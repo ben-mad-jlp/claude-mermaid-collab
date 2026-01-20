@@ -1,0 +1,28 @@
+flowchart LR
+    subgraph Hooks
+        T1[server-check.sh]:::done
+        T2[brainstorming-enforce.sh]:::done
+        T3[post-task-complete.sh]:::done
+        T4[sync-diagram-to-doc.sh]:::done
+    end
+    
+    subgraph Skills
+        T5[ready-to-implement.md]:::done
+        T6[verify-phase.md]:::done
+        T7[collab.md updates]:::done
+    end
+    
+    subgraph Config
+        T8[settings.local.json]:::done
+    end
+    
+    T1 --> T8
+    T2 --> T8
+    T3 --> T8
+    T4 --> T8
+    T5 --> T7
+    T6 --> T7
+    
+    classDef done fill:#c8e6c9,stroke:#2e7d32
+    classDef inprogress fill:#fff3e0,stroke:#f57c00
+    classDef pending fill:#e0e0e0,stroke:#757575

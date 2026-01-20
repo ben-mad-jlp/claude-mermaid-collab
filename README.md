@@ -10,8 +10,6 @@ A collaborative design toolkit for Claude Code: diagram server + skills for desi
 
 The collab workflow turns ideas into working code through structured phases with verification gates at each transition.
 
-![Collab Workflow](docs/images/collab-workflow.png)
-
 ```
 /collab → gather-goals → work-item-loop → ready-to-implement → rough-draft → executing-plans → cleanup
 ```
