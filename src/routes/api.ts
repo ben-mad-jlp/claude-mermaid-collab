@@ -427,7 +427,7 @@ export async function handleAPI(
     }
 
     const id = path.split('/').pop()!;
-    const { content } = await req.json() as { content?: string };
+    const { content, patch } = await req.json() as { content?: string; patch?: { oldString: string; newString: string } };
 
     if (content === undefined) {
       return Response.json({ error: 'Content required' }, { status: 400 });
@@ -446,6 +446,7 @@ export async function handleAPI(
           lastModified: document.lastModified,
           project: params.project,
           session: params.session,
+          ...(patch && { patch }),  // Include patch info for diff highlighting
         });
       }
 

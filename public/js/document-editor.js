@@ -641,7 +641,12 @@ function scheduleAutoRefresh() {
   if (refreshTimeout) clearTimeout(refreshTimeout);
 
   refreshTimeout = setTimeout(() => {
-    renderPreview();
+    // Respect diff mode - keep showing diff if enabled
+    if (diffMode && lastPatch) {
+      renderDiffPreview();
+    } else {
+      renderPreview();
+    }
   }, 2000);
 }
 
@@ -1321,14 +1326,23 @@ function updateUndoRedoButtons() {
   redoBtn.disabled = false; // Will be disabled by command if nothing to redo
 }
 
+// Helper to render preview respecting diff mode
+function refreshPreview() {
+  if (diffMode && lastPatch) {
+    renderDiffPreview();
+  } else {
+    renderPreview();
+  }
+}
+
 // Refresh preview button
-refreshPreviewBtn.addEventListener('click', () => renderPreview());
+refreshPreviewBtn.addEventListener('click', refreshPreview);
 
 // Keyboard shortcut: Ctrl+Enter to refresh preview
 document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
     e.preventDefault();
-    renderPreview();
+    refreshPreview();
   }
 });
 
