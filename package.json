@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "bun run src/server.ts",
     "mcp": "bun run src/mcp/server.ts",
+    "setup": "./setup.sh",
+    "setup:start": "./setup.sh --start",
     "build:wireframe": "cd plugins/wireframe && npm run build",
     "build:wireframe:watch": "cd plugins/wireframe && npm run dev",
     "test:wireframe": "cd plugins/wireframe && npm test",
