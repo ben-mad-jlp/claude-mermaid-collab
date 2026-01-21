@@ -90,56 +90,12 @@ class SessionPanel {
     this.itemsContainer = document.createElement('div');
     this.itemsContainer.className = 'session-panel-items';
 
-    // Resize handle
-    this.resizer = document.createElement('div');
-    this.resizer.className = 'session-panel-resizer';
-    this.setupResizer();
-
     // Assemble panel
     this.panel.appendChild(header);
     this.panel.appendChild(this.itemsContainer);
-    this.panel.appendChild(this.resizer);
 
     // Append to container
     this.container.appendChild(this.panel);
-  }
-
-  /**
-   * Set up the resize drag handler
-   */
-  setupResizer() {
-    let startX = 0;
-    let startWidth = 0;
-    let isDragging = false;
-
-    const onMouseMove = (e) => {
-      if (!isDragging) return;
-      const deltaX = e.clientX - startX;
-      const newWidth = Math.min(Math.max(startWidth + deltaX, this.minWidth), this.maxWidth);
-      this.resize(newWidth);
-    };
-
-    const onMouseUp = () => {
-      isDragging = false;
-      this.resizer.classList.remove('dragging');
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-
-    this.resizer.addEventListener('mousedown', (e) => {
-      if (this.isCollapsed) return;
-      isDragging = true;
-      startX = e.clientX;
-      startWidth = this.panelWidth;
-      this.resizer.classList.add('dragging');
-      document.addEventListener('mousemove', onMouseMove);
-      document.addEventListener('mouseup', onMouseUp);
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
-      e.preventDefault();
-    });
   }
 
   /**
@@ -421,6 +377,9 @@ class SessionPanel {
     this.panel.classList.add('collapsed');
     this.collapseBtn.title = 'Expand panel';
     document.body.classList.add('panel-collapsed');
+    // Hide the external divider when collapsed
+    const divider = document.getElementById('session-panel-divider');
+    if (divider) divider.classList.add('hidden');
   }
 
   /**
@@ -431,6 +390,9 @@ class SessionPanel {
     this.panel.classList.remove('collapsed');
     this.collapseBtn.title = 'Collapse panel';
     document.body.classList.remove('panel-collapsed');
+    // Show the external divider when expanded
+    const divider = document.getElementById('session-panel-divider');
+    if (divider) divider.classList.remove('hidden');
   }
 
   /**

@@ -115,6 +115,24 @@
       background: var(--text-muted);
     }
 
+    /* Session panel divider */
+    .session-panel-divider {
+      width: 4px;
+      background: var(--border-color);
+      cursor: col-resize;
+      flex-shrink: 0;
+      transition: background 0.15s ease;
+    }
+
+    .session-panel-divider:hover,
+    .session-panel-divider.dragging {
+      background: var(--accent-color);
+    }
+
+    .session-panel-divider.hidden {
+      display: none;
+    }
+
     .editor-textarea {
       flex: 1;
       padding: 16px;
@@ -538,6 +556,7 @@
     <div class="main-content" style="display: flex; flex: 1; overflow: hidden;">
       <div class="split-pane">
         <div id="session-panel-container"></div>
+        <div class="session-panel-divider" id="session-panel-divider"></div>
         <div class="editor-pane">
           <div class="code-editor" id="editor"></div>
         </div>

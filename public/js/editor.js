@@ -1328,6 +1328,50 @@ if (propertiesDivider && propertiesPane) {
   });
 }
 
+// Session panel resize handling
+const sessionPanelDivider = document.getElementById('session-panel-divider');
+const sessionPanelContainer = document.getElementById('session-panel-container');
+
+if (sessionPanelDivider && sessionPanelContainer) {
+  let isDragging = false;
+  let startX = 0;
+  let startWidth = 0;
+  const minWidth = 150;
+  const maxWidth = 400;
+
+  sessionPanelDivider.addEventListener('mousedown', (e) => {
+    const panel = sessionPanelContainer.querySelector('.session-panel');
+    if (!panel || panel.classList.contains('collapsed')) return;
+
+    isDragging = true;
+    startX = e.clientX;
+    startWidth = panel.offsetWidth;
+    sessionPanelDivider.classList.add('dragging');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    const panel = sessionPanelContainer.querySelector('.session-panel');
+    if (!panel) return;
+
+    const diff = e.clientX - startX;
+    const newWidth = Math.min(maxWidth, Math.max(minWidth, startWidth + diff));
+    panel.style.width = newWidth + 'px';
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (isDragging) {
+      isDragging = false;
+      sessionPanelDivider.classList.remove('dragging');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+  });
+}
+
 function updatePropertiesPane(props) {
   if (!propertiesPane) return;
 
