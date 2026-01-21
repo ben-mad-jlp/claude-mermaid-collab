@@ -509,9 +509,20 @@ When drift is detected and requires a design doc update, use the proposed tag:
 ```
 
 **Process:**
-1. Read current design doc
-2. Insert proposed content at appropriate location
-3. Update doc: `mcp__mermaid__update_document({ "id": "design", "content": <updated> })`
+1. Identify the unique text at the insertion point
+2. Use patch to insert proposed content:
+   ```
+   Tool: mcp__mermaid__patch_document
+   Args: {
+     "project": "<cwd>",
+     "session": "<session>",
+     "id": "design",
+     "old_string": "<unique text at insertion point>",
+     "new_string": "<unique text><!-- propose-start: description --><content><!-- propose-end -->"
+   }
+   ```
+3. If patch fails (not unique), fall back to full update:
+   `mcp__mermaid__update_document({ "id": "design", "content": <updated> })`
 4. Notify user: "Proposed change visible in design doc (cyan). Accept/reject in mermaid-collab UI."
 5. Wait for user decision before proceeding
 

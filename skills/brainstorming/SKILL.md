@@ -246,7 +246,27 @@ The collab skill manages the work item loop and will mark the item as documented
 
 When brainstorming within a collab session, update the design document using MCP tools.
 
-**To update the design doc:**
+**Prefer patch operations for targeted changes:**
+
+For small, targeted edits (updating a single field, adding a bullet point, changing status):
+
+```
+Tool: mcp__mermaid__patch_document
+Args: {
+  "project": "<cwd>",
+  "session": "<name>",
+  "id": "design",
+  "old_string": "<exact text to find>",
+  "new_string": "<replacement text>"
+}
+```
+
+**Use full update only when:**
+- Adding entirely new sections
+- Restructuring large portions of the document
+- Patch fails (old_string not found or matches multiple locations)
+
+**Fallback to full update:**
 
 1. Read current content:
    Tool: mcp__mermaid__get_document
@@ -258,7 +278,7 @@ When brainstorming within a collab session, update the design document using MCP
    Tool: mcp__mermaid__update_document
    Args: { "project": "<cwd>", "session": "<name>", "id": "design", "content": "<full-updated-content>" }
 
-**Important:** Always read before updating to preserve existing content.
+**Important:** Always read before full update to preserve existing content.
 
 **Update continuously as topics emerge:**
 - After each significant decision, update the design doc immediately

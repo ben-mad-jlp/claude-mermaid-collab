@@ -52,7 +52,8 @@ The server provides these MCP tools through Claude Code:
 - `list_diagrams()` - List all diagrams with metadata
 - `get_diagram(id)` - Read diagram content
 - `create_diagram(name, content)` - Create new diagram (auto-validates)
-- `update_diagram(id, content)` - Update diagram (auto-validates)
+- `update_diagram(id, content)` - Replace full diagram content (auto-validates)
+- `patch_diagram(id, old_string, new_string)` - **Preferred for small edits** - efficient search-replace
 - `validate_diagram(content)` - Check syntax without saving
 - `preview_diagram(id)` - Get browser URL for diagram
 
@@ -62,8 +63,21 @@ Documents are markdown files (`.md`) for collaborative writing - specs, document
 - `list_documents()` - List all markdown documents with metadata
 - `get_document(id)` - Read full document content and metadata
 - `create_document(name, content)` - Create new markdown document (returns ID and preview URL)
-- `update_document(id, content)` - Update document content with real-time sync
+- `update_document(id, content)` - Replace full document content with real-time sync
+- `patch_document(id, old_string, new_string)` - **Preferred for small edits** - efficient search-replace
 - `preview_document(id)` - Get browser URL for document viewer
+
+### Patch vs Update
+
+**Prefer `patch_document`/`patch_diagram`** for targeted changes:
+- Changing a status field
+- Updating a single value
+- Adding text at a specific location
+
+**Use `update_document`/`update_diagram`** for:
+- Adding entirely new sections
+- Restructuring large portions
+- When patch fails (old_string not found or matches multiple locations)
 
 **Note**: There is no delete_document MCP tool yet. Use the dashboard delete button or REST API for deletion.
 

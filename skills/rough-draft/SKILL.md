@@ -37,7 +37,11 @@ Before proceeding, check for active collab session:
 - ❌ Implementing code directly (must go through executing-plans)
 
 **ALLOWED during rough-draft:**
-- ✅ MCP collab tools (update_document, patch_document, create_diagram, etc.)
+- ✅ MCP collab tools - **prefer patch operations** for efficiency:
+  - `patch_document` for targeted edits (status changes, adding fields)
+  - `patch_diagram` for small diagram updates
+  - `update_document`/`update_diagram` only for large rewrites or new sections
+  - `create_diagram`, `create_document` for new artifacts
 - ✅ Read tool (for exploration and context)
 - ✅ Bash tool (for non-destructive commands like `ls`, `git status`)
 

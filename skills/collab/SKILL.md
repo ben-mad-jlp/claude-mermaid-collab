@@ -212,8 +212,20 @@ Invoking brainstorming...
 
 ### 4.6 Mark Item Documented
 
-After the invoked skill returns, update the work item in design doc:
-- Change `**Status:** pending` to `**Status:** documented`
+After the invoked skill returns, use patch to update the work item status:
+
+```
+Tool: mcp__mermaid__patch_document
+Args: {
+  "project": "<cwd>",
+  "session": "<name>",
+  "id": "design",
+  "old_string": "### Item <N>: <title>\n**Type:** <type>\n**Status:** pending",
+  "new_string": "### Item <N>: <title>\n**Type:** <type>\n**Status:** documented"
+}
+```
+
+This is more efficient than reading and rewriting the entire document.
 
 ### 4.7 Clear Current Item
 

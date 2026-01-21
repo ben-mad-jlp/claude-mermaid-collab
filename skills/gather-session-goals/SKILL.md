@@ -135,6 +135,9 @@ Does this list look correct?
    Tool: mcp__mermaid__update_document
    Args: { "project": "<cwd>", "session": "<session>", "id": "design", "content": "<updated-full-content>" }
 
+**Note:** Full update is appropriate here because we're writing an entire new Work Items section.
+For subsequent edits (e.g., updating a single item), prefer `patch_document` instead.
+
 After writing, display:
 
 ```
