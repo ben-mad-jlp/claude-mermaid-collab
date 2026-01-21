@@ -18,6 +18,7 @@
     window.require = { main: null };
   </script>
   <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/session-panel.css">
   <style>
     body {
       margin: 0;
@@ -689,7 +690,9 @@
 
     <div class="error-banner" id="error"></div>
 
-    <div class="split-pane">
+    <div class="main-content" style="display: flex; flex: 1; overflow: hidden;">
+      <div id="session-panel-container"></div>
+      <div class="split-pane">
       <div class="editor-pane">
         <div class="code-editor" id="editor"></div>
       </div>
@@ -727,6 +730,7 @@
             <span>&#128465;</span> Delete State
           </button>
         </div>
+      </div>
       </div>
     </div>
   </div>
@@ -799,5 +803,47 @@
 
   <script type="module" src="/js/api-client.js"></script>
   <script type="module" src="/js/editor.js"></script>
+  <script type="module">
+    import SessionPanel from '/js/session-panel.js';
+    import APIClient from '/js/api-client.js';
+
+    // Get diagram ID and session from URL
+    const params = new URLSearchParams(window.location.search);
+    const diagramId = params.get('id');
+    const projectParam = params.get('project');
+    const sessionParam = params.get('session');
+
+    // Initialize API client with session
+    const api = new APIClient();
+    if (projectParam && sessionParam) {
+      api.setSession(projectParam, sessionParam);
+    } else {
+      const stored = localStorage.getItem('mermaid-collab-session');
+      if (stored) {
+        try {
+          const { project, session } = JSON.parse(stored);
+          api.setSession(project, session);
+        } catch (e) {
+          console.error('Failed to parse stored session:', e);
+        }
+      }
+    }
+
+    // Initialize SessionPanel if we have a session
+    if (api.hasSession() && diagramId) {
+      const panel = new SessionPanel({
+        container: document.getElementById('session-panel-container'),
+        api: api,
+        currentItemId: diagramId,
+        currentItemType: 'diagram',
+        onNavigate: (id, type) => {
+          const project = encodeURIComponent(api.project);
+          const session = encodeURIComponent(api.session);
+          window.location.href = `/${type}.html?id=${id}&project=${project}&session=${session}`;
+        }
+      });
+      panel.initialize();
+    }
+  </script>
 </body>
 </html>

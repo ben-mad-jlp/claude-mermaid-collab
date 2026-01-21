@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Document Editor</title>
   <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/session-panel.css">
   <style>
     body {
       margin: 0;
@@ -534,21 +535,24 @@
       </div>
     </div>
 
-    <div class="split-pane">
-      <div class="editor-pane">
-        <div class="code-editor" id="editor"></div>
-      </div>
-
-      <div class="resizer" id="resizer"></div>
-
-      <div class="preview-pane" id="preview-pane">
-        <div class="preview-scroll" id="preview-scroll">
-          <div class="preview-content" id="preview"></div>
+    <div class="main-content" style="display: flex; flex: 1; overflow: hidden;">
+      <div id="session-panel-container"></div>
+      <div class="split-pane">
+        <div class="editor-pane">
+          <div class="code-editor" id="editor"></div>
         </div>
-        <div class="minimap" id="minimap">
-          <div class="minimap-track" id="minimap-track"></div>
-          <div class="minimap-content" id="minimap-content"></div>
-          <div class="minimap-viewport" id="minimap-viewport"></div>
+
+        <div class="resizer" id="resizer"></div>
+
+        <div class="preview-pane" id="preview-pane">
+          <div class="preview-scroll" id="preview-scroll">
+            <div class="preview-content" id="preview"></div>
+          </div>
+          <div class="minimap" id="minimap">
+            <div class="minimap-track" id="minimap-track"></div>
+            <div class="minimap-content" id="minimap-content"></div>
+            <div class="minimap-viewport" id="minimap-viewport"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -559,5 +563,29 @@
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script type="module" src="/js/api-client.js"></script>
   <script type="module" src="/js/document-editor.js"></script>
+  <script type="module">
+    import SessionPanel from '/js/session-panel.js';
+    import APIClient from '/js/api-client.js';
+
+    // Initialize session panel
+    const api = new APIClient();
+    const urlParams = new URLSearchParams(window.location.search);
+    const documentId = urlParams.get('id');
+
+    if (documentId) {
+      const panel = new SessionPanel({
+        container: document.getElementById('session-panel-container'),
+        api: api,
+        currentItemId: documentId,
+        currentItemType: 'document',
+        onNavigate: (id, type) => {
+          const project = encodeURIComponent(api.project);
+          const session = encodeURIComponent(api.session);
+          window.location.href = `/${type}.html?id=${id}&project=${project}&session=${session}`;
+        }
+      });
+      panel.initialize();
+    }
+  </script>
 </body>
 </html>

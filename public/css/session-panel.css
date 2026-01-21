@@ -1,0 +1,255 @@
+/* Session Panel Styles */
+
+.session-panel {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 200px;
+  height: 100vh;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+  transition: width 0.2s ease;
+}
+
+.session-panel.collapsed {
+  width: 40px;
+}
+
+.session-panel.collapsed .session-panel-header-title,
+.session-panel.collapsed .session-panel-items {
+  display: none;
+}
+
+.session-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  min-height: 48px;
+}
+
+.session-panel-header-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-panel-collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 0.2s, color 0.2s;
+  flex-shrink: 0;
+}
+
+.session-panel-collapse-btn:hover {
+  background: var(--hover-bg);
+  color: var(--text-primary);
+}
+
+.session-panel.collapsed .session-panel-collapse-btn {
+  transform: rotate(180deg);
+}
+
+.session-panel-items {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px 0;
+}
+
+.session-panel-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+  position: relative;
+}
+
+.session-panel-item:hover {
+  background: var(--hover-bg);
+}
+
+.session-panel-item.active {
+  background: var(--accent-color);
+  color: #ffffff;
+}
+
+.session-panel-item.active:hover {
+  background: var(--accent-color);
+}
+
+.session-panel-item.active .session-panel-item-name {
+  color: #ffffff;
+}
+
+.session-panel-item.active .session-panel-item-icon {
+  opacity: 1;
+}
+
+.session-panel-item-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  font-size: 14px;
+  opacity: 0.7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.session-panel-item-name {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.session-panel-item-badge {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-color);
+  flex-shrink: 0;
+}
+
+.session-panel-item.active .session-panel-item-badge {
+  background: #ffffff;
+}
+
+.session-panel-item-newtab {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 4px;
+  flex-shrink: 0;
+  font-size: 12px;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.session-panel-item:hover .session-panel-item-newtab {
+  display: flex;
+}
+
+.session-panel-item-newtab:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.session-panel-item.active .session-panel-item-newtab {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.session-panel-item.active .session-panel-item-newtab:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+.session-panel-resizer {
+  position: absolute;
+  right: -3px;
+  top: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 101;
+}
+
+.session-panel-resizer:hover,
+.session-panel-resizer.dragging {
+  background: var(--accent-color);
+  opacity: 0.5;
+}
+
+.session-panel.collapsed .session-panel-resizer {
+  display: none;
+}
+
+/* Flash animation for updates */
+@keyframes session-item-flash {
+  0% {
+    background-color: var(--accent-color);
+  }
+  50% {
+    background-color: var(--accent-color);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.session-panel-item.flash {
+  animation: session-item-flash 1s ease-out;
+}
+
+.session-panel-item.flash .session-panel-item-name {
+  animation: session-item-text-flash 1s ease-out;
+}
+
+@keyframes session-item-text-flash {
+  0% {
+    color: #ffffff;
+  }
+  50% {
+    color: #ffffff;
+  }
+  100% {
+    color: var(--text-primary);
+  }
+}
+
+/* Empty state */
+.session-panel-empty {
+  padding: 16px 12px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* Loading state */
+.session-panel-loading {
+  padding: 16px 12px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* Adjust main content when panel is present */
+body.has-session-panel .container {
+  margin-left: 200px;
+  max-width: calc(1400px - 200px);
+}
+
+body.has-session-panel.panel-collapsed .container {
+  margin-left: 40px;
+  max-width: calc(1400px - 40px);
+}

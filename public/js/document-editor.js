@@ -78,6 +78,7 @@ let lastSavedContent = ''; // Track what we last saved to ignore our own WebSock
 // Diff view state
 let diffMode = false;
 let lastPatch = null; // { oldString, newString }
+let previousContent = null; // Track previous content for client-side diff computation
 
 // Find line number in source for given text
 function findLineForText(text) {
@@ -395,7 +396,7 @@ function renderDiffPreview() {
   requestAnimationFrame(() => updateMinimap());
 }
 
-// Toggle diff view mode
+// Toggle diff view mode (legacy - kept for compatibility)
 function toggleDiffView() {
   diffMode = !diffMode;
 
@@ -409,6 +410,67 @@ function toggleDiffView() {
   } else {
     renderPreview();
   }
+}
+
+// Clear diff highlighting and reset state
+function clearDiff() {
+  lastPatch = null;
+  previousContent = getEditorContent();
+  diffMode = false;
+
+  // Hide the Clear Diff button
+  if (diffToggleBtn) {
+    diffToggleBtn.style.display = 'none';
+    diffToggleBtn.classList.remove('active');
+  }
+
+  // Re-render preview without diff highlighting
+  renderPreview();
+}
+
+// Compute diff client-side when server doesn't provide patch data
+function computeLocalDiff(oldContent, newContent) {
+  if (oldContent === newContent) return null;
+  if (!oldContent || !newContent) return null;
+
+  // Find the first differing character index
+  let startIndex = 0;
+  const minLength = Math.min(oldContent.length, newContent.length);
+  while (startIndex < minLength && oldContent[startIndex] === newContent[startIndex]) {
+    startIndex++;
+  }
+
+  // Find the last differing character from end
+  let oldEndIndex = oldContent.length - 1;
+  let newEndIndex = newContent.length - 1;
+  while (oldEndIndex >= startIndex && newEndIndex >= startIndex &&
+         oldContent[oldEndIndex] === newContent[newEndIndex]) {
+    oldEndIndex--;
+    newEndIndex--;
+  }
+
+  // Extract changed portions
+  const oldString = oldContent.slice(startIndex, oldEndIndex + 1);
+  const newString = newContent.slice(startIndex, newEndIndex + 1);
+
+  // Return null if no actual difference found
+  if (oldString === '' && newString === '') return null;
+
+  return { oldString, newString };
+}
+
+// Show diff automatically (called when diff data is available)
+function showDiffAutomatically() {
+  diffMode = true;
+
+  // Show the Clear Diff button
+  if (diffToggleBtn) {
+    diffToggleBtn.textContent = '⊟ Clear Diff';
+    diffToggleBtn.style.display = '';
+    diffToggleBtn.classList.add('active');
+  }
+
+  renderDiffPreview();
 }
 
 // Update the minimap with markers for highlighted content
@@ -1450,35 +1512,46 @@ api.onStatusChange((newStatus) => {
 
 api.onWebSocketMessage((message) => {
   if (message.type === 'document_updated' && message.id === documentId) {
-    // Check if this update includes patch info
-    if (message.patch) {
-      lastPatch = {
-        oldString: message.patch.oldString,
-        newString: message.patch.newString
-      };
-
-      // If diff mode is on, re-render with diff highlighting
-      if (diffMode) {
-        renderDiffPreview();
-      }
-    }
-
     // Ignore our own WebSocket echo (content matches what we just saved)
     if (message.content === lastSavedContent) {
       return;
     }
 
+    // Store current content as previousContent BEFORE updating (for diff computation)
+    const currentContent = getEditorContent();
+
+    // Check if this update includes patch info from server
+    if (message.patch) {
+      lastPatch = {
+        oldString: message.patch.oldString,
+        newString: message.patch.newString
+      };
+    } else if (previousContent !== null && previousContent !== message.content) {
+      // Compute local diff as fallback when server doesn't provide patch
+      const computedDiff = computeLocalDiff(previousContent, message.content);
+      if (computedDiff) {
+        lastPatch = computedDiff;
+      }
+    } else if (currentContent !== message.content) {
+      // Use current editor content as basis for diff if no previousContent
+      const computedDiff = computeLocalDiff(currentContent, message.content);
+      if (computedDiff) {
+        lastPatch = computedDiff;
+      }
+    }
+
     // External update - only update if content differs from what's in editor
-    if (message.content !== getEditorContent()) {
+    if (message.content !== currentContent) {
       isUpdatingFromServer = true;
       const sel = getSelection();
 
       lastSavedContent = message.content; // Update so we don't echo back
+      previousContent = currentContent; // Store for future diff computation
       setEditorContent(message.content);
 
-      // Render with diff if in diff mode, otherwise normal
-      if (diffMode && lastPatch) {
-        renderDiffPreview();
+      // If diff exists, show it automatically
+      if (lastPatch) {
+        showDiffAutomatically();
       } else {
         renderPreview();
       }
@@ -1511,9 +1584,11 @@ if (themeToggleBtn) {
   });
 }
 
-// Diff toggle button
+// Diff toggle button - now functions as "Clear Diff" button
 if (diffToggleBtn) {
-  diffToggleBtn.addEventListener('click', toggleDiffView);
+  // Initially hide the button (shown when diff is available)
+  diffToggleBtn.style.display = 'none';
+  diffToggleBtn.addEventListener('click', clearDiff);
 }
 
 // Subscribe to theme changes from other sources
