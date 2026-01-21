@@ -285,6 +285,60 @@ async function patchDocument(project: string, session: string, id: string, oldSt
   }, null, 2);
 }
 
+async function patchDiagram(project: string, session: string, id: string, oldString: string, newString: string): Promise<string> {
+  // First, get the current diagram content
+  const getResponse = await fetch(buildUrl(`/api/diagram/${id}`, project, session));
+  if (!getResponse.ok) {
+    if (getResponse.status === 404) {
+      throw new Error(`Diagram not found: ${id}`);
+    }
+    throw new Error(`Failed to get diagram: ${getResponse.statusText}`);
+  }
+
+  const diagram = await getResponse.json();
+  const currentContent = diagram.content;
+
+  // Check if old_string exists and is unique
+  const occurrences = currentContent.split(oldString).length - 1;
+  if (occurrences === 0) {
+    throw new Error(`old_string not found in diagram: "${oldString.slice(0, 50)}..."`);
+  }
+  if (occurrences > 1) {
+    throw new Error(`old_string found ${occurrences} times - must be unique. Add more context to make it unique.`);
+  }
+
+  // Apply the replacement
+  const updatedContent = currentContent.replace(oldString, newString);
+
+  // Update the diagram
+  const updateResponse = await fetch(buildUrl(`/api/diagram/${id}`, project, session), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      content: updatedContent,
+      patch: { oldString, newString }  // Include patch info for WebSocket broadcast
+    }),
+  });
+
+  if (!updateResponse.ok) {
+    const error = await updateResponse.json();
+    throw new Error(`Failed to patch diagram: ${error.error || updateResponse.statusText}`);
+  }
+
+  // Generate a preview snippet around the change
+  const changeIndex = updatedContent.indexOf(newString);
+  const previewStart = Math.max(0, changeIndex - 50);
+  const previewEnd = Math.min(updatedContent.length, changeIndex + newString.length + 50);
+  const preview = updatedContent.slice(previewStart, previewEnd);
+
+  return JSON.stringify({
+    success: true,
+    id,
+    message: 'Diagram patched successfully',
+    preview: `...${preview}...`,
+  }, null, 2);
+}
+
 async function previewDocument(project: string, session: string, id: string): Promise<string> {
   const response = await fetch(buildUrl(`/api/document/${id}`, project, session));
   if (!response.ok) {
@@ -518,6 +572,20 @@ async function main() {
         },
       },
       {
+        name: 'patch_diagram',
+        description: 'Apply a search-replace patch to a diagram. More efficient than update_diagram for small changes. Fails if old_string is not found or matches multiple locations.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            ...sessionParamsDesc,
+            id: { type: 'string', description: 'The diagram ID' },
+            old_string: { type: 'string', description: 'Text to find (must be unique in diagram)' },
+            new_string: { type: 'string', description: 'Text to replace with' },
+          },
+          required: ['project', 'session', 'id', 'old_string', 'new_string'],
+        },
+      },
+      {
         name: 'preview_document',
         description: 'Get the browser URL to view a document.',
         inputSchema: {
@@ -615,6 +683,12 @@ async function main() {
             const { project, session, id, old_string, new_string } = args as { project: string; session: string; id: string; old_string: string; new_string: string };
             if (!project || !session || !id || !old_string || new_string === undefined) throw new Error('Missing required: project, session, id, old_string, new_string');
             return await patchDocument(project, session, id, old_string, new_string);
+          }
+
+          case 'patch_diagram': {
+            const { project, session, id, old_string, new_string } = args as { project: string; session: string; id: string; old_string: string; new_string: string };
+            if (!project || !session || !id || !old_string || new_string === undefined) throw new Error('Missing required: project, session, id, old_string, new_string');
+            return await patchDiagram(project, session, id, old_string, new_string);
           }
 
           case 'preview_document': {

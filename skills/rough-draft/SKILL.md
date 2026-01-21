@@ -1,6 +1,13 @@
 ---
 name: rough-draft
 description: Bridge brainstorming to implementation through 4 phases - interface, pseudocode, skeleton, and implementation handoff
+user-invocable: false
+model: opus
+allowed-tools:
+  - mcp__plugin_mermaid-collab_mermaid__*
+  - Read
+  - Glob
+  - Grep
 ---
 
 ## Collab Session Required

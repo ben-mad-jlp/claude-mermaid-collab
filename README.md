@@ -129,6 +129,18 @@ This will:
 2. Ask what you want to accomplish
 3. Guide you through the design-to-implementation workflow
 
+## Slash Commands
+
+The plugin provides these slash commands (all namespaced under `mermaid-collab:`):
+
+| Command | Description |
+|---------|-------------|
+| `/mermaid-collab:collab` | Start or resume a collaborative design session |
+| `/mermaid-collab:brainstorming` | Start brainstorming for a feature/component |
+| `/mermaid-collab:mermaid-collab` | Create and collaborate on Mermaid diagrams |
+
+**Note:** Commands are namespaced with `mermaid-collab:` prefix because they come from this plugin. Type `/mermaid-collab:` in Claude Code to see all available commands.
+
 ## Session Storage
 
 ```

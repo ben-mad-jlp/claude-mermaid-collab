@@ -1,6 +1,11 @@
 ---
 name: gather-session-goals
-description: "Collect and classify work items at the start of a collab session. Invoked by collab skill after creating a new session."
+description: Collect and classify work items at the start of a collab session. Invoked by collab skill after creating a new session.
+user-invocable: false
+model: opus
+allowed-tools:
+  - mcp__plugin_mermaid-collab_mermaid__*
+  - Read
 ---
 
 # Gather Session Goals

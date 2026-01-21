@@ -1,6 +1,13 @@
 ---
 name: subagent-driven-development
 description: Use when executing implementation plans with independent tasks in the current session
+model: haiku
+allowed-tools:
+  - mcp__plugin_mermaid-collab_mermaid__*
+  - Read
+  - Glob
+  - Grep
+  - Task
 ---
 
 # Subagent-Driven Development

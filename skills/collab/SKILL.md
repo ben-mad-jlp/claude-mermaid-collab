@@ -1,7 +1,12 @@
 ---
 name: collab
 description: Use when starting collaborative design work - creates isolated collab sessions with mermaid-collab server
-user_invocable: true
+user-invocable: true
+allowed-tools:
+  - mcp__plugin_mermaid-collab_mermaid__*
+  - Read
+  - Glob
+  - Grep
 ---
 
 # Collab Sessions
@@ -67,16 +72,40 @@ fi
 
 **Note:** Only modifies `.gitignore` if it already exists. Does not create a new `.gitignore` file.
 
-### 3.2 Generate Name
+### 3.2 Generate or Choose Name
 
-Use the MCP tool to generate a memorable name:
+1. Generate a suggested name:
+   ```
+   Tool: mcp__mermaid__generate_session_name
+   Args: {}
+   ```
+   Returns: `{ name: "bright-calm-river" }`
 
-```
-Tool: mcp__mermaid__generate_session_name
-Args: {}
-```
+2. Present options to user:
+   ```
+   Generated session name: bright-calm-river
 
-Returns: `{ name: "bright-calm-river" }`
+   1. Use this name
+   2. Pick my own name
+
+   Select option (1-2):
+   ```
+
+3. If user selects "1. Use this name":
+   - Use the generated name
+   - Continue to Step 3.3
+
+4. If user selects "2. Pick my own name":
+   a. Prompt: "Enter session name (alphanumeric and hyphens only):"
+   b. Validate input:
+      - Must match pattern: /^[a-zA-Z0-9-]+$/
+      - Must not be empty
+   c. If invalid:
+      - Show error: "Invalid name. Use only letters, numbers, and hyphens."
+      - Return to step 4a (re-prompt)
+   d. If valid:
+      - Use the custom name
+      - Continue to Step 3.3
 
 ### 3.3 Create Initial Files
 

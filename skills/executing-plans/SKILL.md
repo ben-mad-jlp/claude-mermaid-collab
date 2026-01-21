@@ -1,6 +1,14 @@
 ---
 name: executing-plans
-description: Use when you have a written implementation plan to execute in a separate session with review checkpoints
+description: Use when executing implementation plans with independent tasks in the current session
+user-invocable: true
+model: haiku
+allowed-tools:
+  - mcp__plugin_mermaid-collab_mermaid__*
+  - Read
+  - Glob
+  - Grep
+  - Task
 ---
 
 ## Collab Session Required
@@ -216,9 +224,18 @@ Task execution diagram: <previewUrl>
 | failed | `fill:#ffcdd2,stroke:#c62828` |
 
 **Update diagram on state change:**
-1. Read current diagram: `mcp__mermaid__get_diagram({ "id": "task-execution" })`
-2. Replace the style line for the task with the new style
-3. Update diagram: `mcp__mermaid__update_diagram({ "id": "task-execution", "content": <updated> })`
+1. Use patch_diagram for atomic style updates:
+   ```
+   Tool: mcp__mermaid__patch_diagram
+   Args: {
+     "project": "<cwd>",
+     "session": "<session>",
+     "id": "task-execution",
+     "old_string": "style <task-id> fill:#e0e0e0,stroke:#9e9e9e",
+     "new_string": "style <task-id> fill:#bbdefb,stroke:#1976d2,stroke-width:3px"
+   }
+   ```
+2. If patch_diagram fails (old_string not found), fall back to update_diagram
 
 ### Step 1.7: Verify Task Diagram Created
 
