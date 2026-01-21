@@ -64,6 +64,7 @@ const themeToggleBtn = document.getElementById('theme-toggle');
 const minimapContent = document.getElementById('minimap-content');
 const minimapViewport = document.getElementById('minimap-viewport');
 const minimapTrack = document.getElementById('minimap-track');
+const diffToggleBtn = document.getElementById('diff-toggle');
 
 // State
 let documentId = null;
@@ -73,6 +74,10 @@ let isUpdatingFromServer = false;
 let isSyncing = false;
 let editorView = null;
 let lastSavedContent = ''; // Track what we last saved to ignore our own WebSocket echoes
+
+// Diff view state
+let diffMode = false;
+let lastPatch = null; // { oldString, newString }
 
 // Find line number in source for given text
 function findLineForText(text) {
@@ -339,6 +344,71 @@ function renderPreview() {
 
   // Update minimap after content is rendered
   requestAnimationFrame(() => updateMinimap());
+}
+
+// Render preview with diff highlighting
+function renderDiffPreview() {
+  if (!lastPatch) {
+    renderPreview();
+    return;
+  }
+
+  let content = getEditorContent();
+
+  // Process comment markers BEFORE markdown
+  content = processCommentMarkers(content);
+
+  // Render markdown first
+  let html = marked.parse(content);
+
+  // Process status markers
+  html = processStatusMarkersInHtml(html);
+
+  // Apply diff highlighting - find the new_string in rendered HTML and wrap it
+  // Also insert the old_string with removed styling before it
+  const { oldString, newString } = lastPatch;
+
+  if (newString && html.includes(escapeHtml(newString))) {
+    // Escape HTML entities for matching in rendered content
+    const escapedNew = escapeHtml(newString);
+    const escapedOld = escapeHtml(oldString);
+
+    // Wrap new content with diff-added and prepend old content with diff-removed
+    html = html.replace(
+      escapedNew,
+      `<span class="diff-removed">${escapedOld}</span><span class="diff-added">${escapedNew}</span>`
+    );
+  } else if (newString) {
+    // Try matching without HTML escaping (for simple text)
+    html = html.replace(
+      newString,
+      `<span class="diff-removed">${oldString}</span><span class="diff-added">${newString}</span>`
+    );
+  }
+
+  preview.innerHTML = html;
+
+  // Add tooltip handlers
+  setupTooltips();
+
+  // Update minimap
+  requestAnimationFrame(() => updateMinimap());
+}
+
+// Toggle diff view mode
+function toggleDiffView() {
+  diffMode = !diffMode;
+
+  if (diffToggleBtn) {
+    diffToggleBtn.textContent = diffMode ? '⊟ Hide Diff' : '⊞ Show Diff';
+    diffToggleBtn.classList.toggle('active', diffMode);
+  }
+
+  if (diffMode && lastPatch) {
+    renderDiffPreview();
+  } else {
+    renderPreview();
+  }
 }
 
 // Update the minimap with markers for highlighted content
@@ -1366,6 +1436,19 @@ api.onStatusChange((newStatus) => {
 
 api.onWebSocketMessage((message) => {
   if (message.type === 'document_updated' && message.id === documentId) {
+    // Check if this update includes patch info
+    if (message.patch) {
+      lastPatch = {
+        oldString: message.patch.oldString,
+        newString: message.patch.newString
+      };
+
+      // If diff mode is on, re-render with diff highlighting
+      if (diffMode) {
+        renderDiffPreview();
+      }
+    }
+
     // Ignore our own WebSocket echo (content matches what we just saved)
     if (message.content === lastSavedContent) {
       return;
@@ -1378,7 +1461,13 @@ api.onWebSocketMessage((message) => {
 
       lastSavedContent = message.content; // Update so we don't echo back
       setEditorContent(message.content);
-      renderPreview();
+
+      // Render with diff if in diff mode, otherwise normal
+      if (diffMode && lastPatch) {
+        renderDiffPreview();
+      } else {
+        renderPreview();
+      }
 
       // Restore cursor position
       setCursor(Math.min(sel.from, message.content.length));
@@ -1406,6 +1495,11 @@ if (themeToggleBtn) {
     toggleTheme();
     recreateEditorWithTheme();
   });
+}
+
+// Diff toggle button
+if (diffToggleBtn) {
+  diffToggleBtn.addEventListener('click', toggleDiffView);
 }
 
 // Subscribe to theme changes from other sources

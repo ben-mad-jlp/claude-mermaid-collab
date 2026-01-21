@@ -230,6 +230,61 @@ async function updateDocument(project: string, session: string, id: string, cont
   return JSON.stringify({ success: true, id, message: 'Document updated successfully' }, null, 2);
 }
 
+async function patchDocument(project: string, session: string, id: string, oldString: string, newString: string): Promise<string> {
+  // First, get the current document content
+  const getResponse = await fetch(buildUrl(`/api/document/${id}`, project, session));
+  if (!getResponse.ok) {
+    if (getResponse.status === 404) {
+      throw new Error(`Document not found: ${id}`);
+    }
+    throw new Error(`Failed to get document: ${getResponse.statusText}`);
+  }
+  const docData = await getResponse.json();
+  const currentContent = docData.content;
+
+  // Count occurrences of old_string
+  const occurrences = currentContent.split(oldString).length - 1;
+
+  if (occurrences === 0) {
+    throw new Error(`old_string not found in document. The text you're trying to replace does not exist.`);
+  }
+
+  if (occurrences > 1) {
+    throw new Error(`old_string matches ${occurrences} locations. Provide more context to make it unique.`);
+  }
+
+  // Replace old_string with new_string
+  const updatedContent = currentContent.replace(oldString, newString);
+
+  // Write updated content
+  const updateResponse = await fetch(buildUrl(`/api/document/${id}`, project, session), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      content: updatedContent,
+      patch: { oldString, newString }  // Include patch info for WebSocket broadcast
+    }),
+  });
+
+  if (!updateResponse.ok) {
+    const error = await updateResponse.json();
+    throw new Error(`Failed to patch document: ${error.error || updateResponse.statusText}`);
+  }
+
+  // Generate a preview snippet around the change
+  const changeIndex = updatedContent.indexOf(newString);
+  const previewStart = Math.max(0, changeIndex - 50);
+  const previewEnd = Math.min(updatedContent.length, changeIndex + newString.length + 50);
+  const preview = updatedContent.slice(previewStart, previewEnd);
+
+  return JSON.stringify({
+    success: true,
+    id,
+    message: 'Document patched successfully',
+    preview: `...${preview}...`,
+  }, null, 2);
+}
+
 async function previewDocument(project: string, session: string, id: string): Promise<string> {
   const response = await fetch(buildUrl(`/api/document/${id}`, project, session));
   if (!response.ok) {
@@ -449,6 +504,20 @@ async function main() {
         },
       },
       {
+        name: 'patch_document',
+        description: 'Apply a search-replace patch to a document. More efficient than update_document for small changes. Fails if old_string is not found or matches multiple locations.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            ...sessionParamsDesc,
+            id: { type: 'string', description: 'The document ID' },
+            old_string: { type: 'string', description: 'Text to find (must be unique in document)' },
+            new_string: { type: 'string', description: 'Text to replace with' },
+          },
+          required: ['project', 'session', 'id', 'old_string', 'new_string'],
+        },
+      },
+      {
         name: 'preview_document',
         description: 'Get the browser URL to view a document.',
         inputSchema: {
@@ -540,6 +609,12 @@ async function main() {
             const { project, session, id, content } = args as { project: string; session: string; id: string; content: string };
             if (!project || !session || !id || !content) throw new Error('Missing required: project, session, id, content');
             return await updateDocument(project, session, id, content);
+          }
+
+          case 'patch_document': {
+            const { project, session, id, old_string, new_string } = args as { project: string; session: string; id: string; old_string: string; new_string: string };
+            if (!project || !session || !id || !old_string || new_string === undefined) throw new Error('Missing required: project, session, id, old_string, new_string');
+            return await patchDocument(project, session, id, old_string, new_string);
           }
 
           case 'preview_document': {

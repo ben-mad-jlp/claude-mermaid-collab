@@ -458,6 +458,37 @@
       height: 100%;
       cursor: pointer;
     }
+
+    /* Diff highlighting in preview */
+    .diff-added {
+      background: #d4edda;
+      border-radius: 2px;
+      padding: 1px 2px;
+    }
+
+    .diff-removed {
+      background: #f8d7da;
+      text-decoration: line-through;
+      border-radius: 2px;
+      padding: 1px 2px;
+      opacity: 0.8;
+    }
+
+    /* Dark theme diff colors */
+    [data-theme="dark"] .diff-added {
+      background: #1e4620;
+    }
+
+    [data-theme="dark"] .diff-removed {
+      background: #5c1e1e;
+    }
+
+    /* Diff toggle button active state */
+    #diff-toggle.active {
+      background: var(--info-bg);
+      border-color: var(--info-color);
+      color: var(--info-color);
+    }
   </style>
 </head>
 <body>
@@ -481,6 +512,7 @@
 
       <div class="toolbar-group">
         <button id="refresh-preview" title="Refresh Preview (Ctrl+Enter)">⟳ Refresh</button>
+        <button id="diff-toggle" title="Toggle Diff View">⊞ Show Diff</button>
       </div>
 
       <div class="toolbar-group">

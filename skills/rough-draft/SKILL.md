@@ -21,6 +21,28 @@ Before proceeding, check for active collab session:
 
 # Rough-Draft: From Design to Implementation
 
+## RESTRICTIONS
+
+**FORBIDDEN during rough-draft phase:**
+- ❌ Edit tool on source files (only allowed in `.collab/` folder)
+- ❌ Write tool on source files (only allowed in `.collab/` folder)
+- ❌ Any file modification outside `.collab/` folder
+- ❌ Implementing code directly (must go through executing-plans)
+
+**ALLOWED during rough-draft:**
+- ✅ MCP collab tools (update_document, patch_document, create_diagram, etc.)
+- ✅ Read tool (for exploration and context)
+- ✅ Bash tool (for non-destructive commands like `ls`, `git status`)
+
+**Why this matters:**
+- Editing source files during rough-draft bypasses executing-plans
+- This skips TDD, spec compliance, and code review gates
+- All implementation MUST go through executing-plans with subagent dispatch
+
+**RED FLAG:** If you're about to use Edit or Write on a source file, STOP. You're in the wrong phase. Document changes in the design doc and wait for executing-plans.
+
+---
+
 ## Overview
 
 The rough-draft skill bridges the gap between brainstorming (design) and implementation. It progressively refines the design through 4 phases, with verification gates at each transition to catch drift early.
@@ -145,6 +167,14 @@ Before moving to Phase 2, run verification:
 - [ ] Return types are explicit
 - [ ] Component interactions are documented
 
+**GATE: Do NOT proceed until this checklist passes.**
+
+**If Interface phase doesn't apply** (e.g., pure config changes, docker setup):
+1. Document explicitly: "N/A - [reason why interface phase doesn't apply]"
+2. Add this to the design doc Interface Definition section
+3. You still MUST proceed through pseudocode, skeleton, and executing-plans
+4. Skipping to implementation is NEVER allowed
+
 **Update state on success:**
 
 ```
@@ -225,6 +255,14 @@ Before moving to Phase 3, run verification:
 - [ ] Error handling is explicit for each function
 - [ ] Edge cases are identified
 - [ ] External dependencies are noted
+
+**GATE: Do NOT proceed until this checklist passes.**
+
+**If Pseudocode phase doesn't apply** (e.g., no logic to describe, pure data changes):
+1. Document explicitly: "N/A - [reason why pseudocode phase doesn't apply]"
+2. Add this to the design doc Pseudocode section
+3. You still MUST proceed through skeleton and executing-plans
+4. Skipping to implementation is NEVER allowed
 
 **Update state on success:**
 
@@ -358,13 +396,23 @@ Before moving to Phase 4, run verification:
 ```
 
 **Checklist:**
-- [ ] All files from Interface are created
+- [ ] All files from Interface are documented (NOT created - files are only created by executing-plans)
 - [ ] File paths match exactly
 - [ ] All types are defined
 - [ ] All function signatures present
 - [ ] TODO comments match pseudocode
 - [ ] Dependency graph covers all files
 - [ ] No circular dependencies
+
+**GATE: Do NOT proceed until this checklist passes.**
+
+**If Skeleton phase doesn't apply** (e.g., no code to write, config-only changes):
+1. Document explicitly: "N/A - [reason why skeleton phase doesn't apply]"
+2. Add this to the design doc Skeleton section
+3. You still MUST invoke executing-plans (it will handle the actual changes)
+4. Implementing directly is NEVER allowed
+
+**MANDATORY:** After skeleton phase, you MUST invoke executing-plans. Never implement changes inline.
 
 **Update state on success:**
 

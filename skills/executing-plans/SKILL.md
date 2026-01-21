@@ -96,6 +96,35 @@ Args: {
 
 Then update the file directly to add task arrays (MCP tool doesn't support custom fields yet).
 
+### MANDATORY: Subagent Dispatch
+
+**GATE:** Implementation MUST use the Task tool with subagent-driven-development skill.
+
+**NEVER implement inline** - always dispatch a Task agent for each implementation task.
+
+This is a hard requirement, not a suggestion. If you find yourself writing implementation code directly instead of spawning a Task agent, STOP immediately.
+
+**Why this matters:**
+- Task agents invoke subagent-driven-development which enforces TDD
+- Spec compliance review only happens in subagent flow
+- Code quality review only happens in subagent flow
+- Skipping this means skipping ALL quality gates
+
+**Pre-Task Checklist (before starting ANY task):**
+- [ ] Will spawn a Task agent (not implement inline)
+- [ ] Task prompt includes design doc location
+- [ ] Task prompt specifies subagent-driven-development skill
+
+**Post-Task Checklist (before marking ANY task complete):**
+- [ ] Task agent was spawned (verified Task tool was used)
+- [ ] subagent-driven-development skill was invoked by the agent
+- [ ] Spec compliance review passed
+- [ ] Code quality review passed
+
+**If ANY checklist item fails:** Do NOT mark task as complete. Fix the issue first.
+
+---
+
 ### Anti-Drift Rules
 
 **NO INTERPRETATION:**
@@ -243,13 +272,16 @@ ready_tasks = tasks where:
 2. If multiple parallel-safe tasks exist:
    - Update task diagram: set all parallel tasks to "executing"
    - **REQUIRED:** Spawn Task agents in parallel (single message, multiple tool calls)
-   - Each Task agent uses `superpowers:subagent-driven-development` for its task
+   - Each Task agent MUST invoke `subagent-driven-development` skill
    - Task prompt includes: task ID, files, description, relevant pseudocode
    - Wait for all agents to complete
    - Update task diagram: completed → "completed", failed → "failed"
 3. If only sequential tasks remain:
    - Execute one at a time in topological order
    - Update diagram before/after each task
+
+**RED FLAG - INLINE IMPLEMENTATION:**
+If you find yourself using Edit/Write tools directly on source files instead of spawning Task agents, you are violating the subagent requirement. STOP and use Task tool instead.
 
 **Task agent prompt template (Collab Workflow):**
 
