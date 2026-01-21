@@ -1,0 +1,17 @@
+graph TD
+    %% Node Definitions
+    executing-plans-gates(["executing-plans-gates"])
+    patch-document-mcp(["patch-document-mcp"])
+    diff-view-ui(["diff-view-ui"])
+    rough-draft-gates(["rough-draft-gates"])
+    gather-goals-simplify(["gather-goals-simplify"])
+
+    %% Dependencies
+    patch-document-mcp --> diff-view-ui
+
+    %% Styles - All completed
+    style executing-plans-gates fill:#c8e6c9,stroke:#2e7d32
+    style patch-document-mcp fill:#c8e6c9,stroke:#2e7d32
+    style diff-view-ui fill:#c8e6c9,stroke:#2e7d32
+    style rough-draft-gates fill:#c8e6c9,stroke:#2e7d32
+    style gather-goals-simplify fill:#c8e6c9,stroke:#2e7d32
