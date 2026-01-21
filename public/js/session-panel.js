@@ -102,9 +102,6 @@ class SessionPanel {
 
     // Append to container
     this.container.appendChild(this.panel);
-
-    // Add body class to adjust main content
-    document.body.classList.add('has-session-panel');
   }
 
   /**
@@ -457,13 +454,6 @@ class SessionPanel {
 
     // Update body CSS variable for main content offset
     document.documentElement.style.setProperty('--session-panel-width', `${width}px`);
-
-    // Update the container margin-left directly for immediate feedback
-    const container = document.querySelector('.container');
-    if (container) {
-      container.style.marginLeft = `${width}px`;
-      container.style.maxWidth = `calc(1400px - ${width}px)`;
-    }
   }
 
   /**
@@ -481,16 +471,8 @@ class SessionPanel {
       this.panel.parentNode.removeChild(this.panel);
     }
 
-    // Remove body classes
-    document.body.classList.remove('has-session-panel');
+    // Remove body class for collapsed state
     document.body.classList.remove('panel-collapsed');
-
-    // Reset container styles
-    const container = document.querySelector('.container');
-    if (container) {
-      container.style.marginLeft = '';
-      container.style.maxWidth = '';
-    }
   }
 }
 
