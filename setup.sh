@@ -29,26 +29,26 @@ for arg in "$@"; do
   esac
 done
 
-# Step 1: Install root dependencies
-info "Installing root dependencies..."
-bun install
-
-# Step 2: Install wireframe plugin dependencies
+# Step 1: Install wireframe plugin dependencies (must happen before root install)
 info "Installing wireframe plugin dependencies..."
 cd plugins/wireframe
 npm install
 
-# Step 3: Build wireframe plugin (parser + bundle)
+# Step 2: Build wireframe plugin (parser + bundle)
 info "Building wireframe plugin..."
 npm run build
 
 cd "$SCRIPT_DIR"
 
-# Step 4: Verify build output exists
+# Step 3: Verify build output exists
 if [[ ! -f "plugins/wireframe/dist/mermaid-wireframe.mjs" ]]; then
   error "Build failed - dist files not found"
   exit 1
 fi
+
+# Step 4: Install/link root dependencies (now that wireframe is built)
+info "Installing root dependencies and linking wireframe plugin..."
+bun install
 
 info "Setup complete!"
 
