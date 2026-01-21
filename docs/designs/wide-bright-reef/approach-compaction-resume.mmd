@@ -1,0 +1,33 @@
+flowchart TD
+    START["/collab resume"]
+    CHECK_SNAP{context-snapshot.json<br/>exists?}
+    READ_SNAP[Read snapshot]
+    ACTIVE[Get activeSkill + context]
+    INVOKE_SNAP[Invoke skill with context]
+    
+    CHECK_STATE{collab-state.json<br/>exists?}
+    READ_STATE[Read collab-state.json]
+    ROUTE_PHASE[Route by phase field]
+    INVOKE_PHASE[Invoke skill for phase]
+    
+    ERROR[Session broken - error]
+    
+    CONTINUE[Skill continues]
+    
+    START --> CHECK_SNAP
+    CHECK_SNAP -->|yes| READ_SNAP
+    CHECK_SNAP -->|no| CHECK_STATE
+    READ_SNAP --> ACTIVE
+    ACTIVE --> INVOKE_SNAP
+    INVOKE_SNAP --> CONTINUE
+    
+    CHECK_STATE -->|yes| READ_STATE
+    CHECK_STATE -->|no| ERROR
+    READ_STATE --> ROUTE_PHASE
+    ROUTE_PHASE --> INVOKE_PHASE
+    INVOKE_PHASE --> CONTINUE
+    
+    style READ_SNAP fill:#c8e6c9,stroke:#2e7d32
+    style INVOKE_SNAP fill:#c8e6c9,stroke:#2e7d32
+    style ROUTE_PHASE fill:#fff3e0,stroke:#e65100
+    style ERROR fill:#ffcdd2,stroke:#c62828

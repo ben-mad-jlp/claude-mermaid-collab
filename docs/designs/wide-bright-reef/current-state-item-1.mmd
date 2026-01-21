@@ -1,0 +1,33 @@
+flowchart TD
+    subgraph EP["executing-plans"]
+        LOAD[Load plan with task graph]
+        FIND[Find ready tasks]
+        DISPATCH[Dispatch Task agent]
+    end
+    
+    subgraph SDD["subagent-driven-development"]
+        IMPL[Implementer subagent]
+        SPEC[Spec reviewer]
+        QUAL[Code quality reviewer]
+    end
+    
+    subgraph TDD["test-driven-development"]
+        RED["RED: Write failing test"]
+        GREEN["GREEN: Minimal code"]
+        REFACTOR["REFACTOR: Clean up"]
+        RUN_TESTS["Run ALL tests"]
+    end
+    
+    LOAD --> FIND
+    FIND --> DISPATCH
+    DISPATCH --> IMPL
+    IMPL --> TDD
+    RED --> RUN_TESTS
+    GREEN --> RUN_TESTS
+    REFACTOR --> RUN_TESTS
+    TDD --> SPEC
+    SPEC --> QUAL
+    QUAL -->|"next task"| FIND
+    
+    style RUN_TESTS fill:#ffcdd2,stroke:#c62828
+    style TDD fill:#fff3e0,stroke:#e65100

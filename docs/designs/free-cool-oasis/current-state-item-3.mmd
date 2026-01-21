@@ -1,0 +1,16 @@
+flowchart LR
+    subgraph Plugin
+        A[skills/collab/SKILL.md]
+        B[user_invocable: true]
+    end
+
+    subgraph ClaudeCode
+        C[Skill Discovery]
+        D[Slash Menu]
+    end
+
+    A --> C
+    B -.-> C
+    C --> D
+
+    style B fill:#ffcccc,stroke:#cc0000

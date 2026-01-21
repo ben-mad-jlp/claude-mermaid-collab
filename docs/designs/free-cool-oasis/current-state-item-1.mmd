@@ -1,0 +1,16 @@
+flowchart TD
+    A[User runs /collab] --> B[Check for existing sessions]
+    B --> C{Sessions exist?}
+    C -->|No| D[Generate random name]
+    C -->|Yes| E[Show session list]
+    E --> F{User selects}
+    F -->|New| D
+    F -->|Existing| G[Resume session]
+    D --> H[Create session with generated name]
+    H --> I[gather-session-goals]
+
+    style D fill:#ffcccc,stroke:#cc0000
+    style H fill:#ffcccc,stroke:#cc0000
+
+    note1[/"No option to choose custom name"/]
+    D -.-> note1

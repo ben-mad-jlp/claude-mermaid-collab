@@ -994,7 +994,11 @@ const draw = (text, id, _version, diagObj) => {
 
   // Calculate canvas size based on direction
   let canvasWidth, canvasHeight;
-  if (direction === 'TD') {
+  if (!hasScreens) {
+    // No screens - use raw viewport dimensions
+    canvasWidth = viewportWidth;
+    canvasHeight = viewportHeight;
+  } else if (direction === 'TD') {
     canvasWidth = viewportWidth + (screenPadding * 2);
     canvasHeight = (viewportHeight + screenPadding * 2 + 32) * screenCount + screenGap * (screenCount - 1);
   } else {

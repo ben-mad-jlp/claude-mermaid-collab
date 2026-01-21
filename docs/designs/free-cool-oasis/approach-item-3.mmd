@@ -1,0 +1,9 @@
+flowchart TD
+    A[skills/collab/SKILL.md] --> B{Frontmatter correct?}
+    B -->|"user_invocable ❌"| C[Fix to user-invocable]
+    C --> D[Skill appears as /mermaid-collab:collab]
+    D --> E[Document in README]
+
+    style B fill:#ffcccc
+    style C fill:#ccffcc
+    style D fill:#ccffcc

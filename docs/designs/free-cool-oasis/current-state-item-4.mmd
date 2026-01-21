@@ -1,0 +1,20 @@
+flowchart TD
+    subgraph CurrentFields["Current Frontmatter Fields Used"]
+        A[name]
+        B[description]
+        C[user_invocable]
+    end
+
+    subgraph AvailableFields["Available Fields Not Used"]
+        D[argument-hint]
+        E[allowed-tools]
+        F[context]
+        G[agent]
+        H[model]
+        I[hooks]
+        J[disable-model-invocation]
+    end
+
+    style C fill:#ffcccc
+    style D fill:#ccffcc
+    style E fill:#ccffcc

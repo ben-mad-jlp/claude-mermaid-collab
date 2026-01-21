@@ -1,0 +1,15 @@
+flowchart TD
+    A[User selects Create new session] --> B[Generate random name via MCP]
+    B --> C[Display generated name]
+    C --> D{Ask user}
+    D -->|Use this name| E[Use generated name]
+    D -->|Pick my own| F[Prompt for custom name]
+    F --> G{Validate name}
+    G -->|Valid| H[Use custom name]
+    G -->|Invalid| I[Show error + retry]
+    I --> F
+    E --> J[Create session]
+    H --> J
+
+    style D fill:#ccffcc,stroke:#00cc00
+    style F fill:#ccffcc,stroke:#00cc00

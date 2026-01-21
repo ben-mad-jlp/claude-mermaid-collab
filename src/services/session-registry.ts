@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from 'fs/promises';
-import { existsSync } from 'fs';
+import * as fs from 'fs';
 import { join, dirname, basename } from 'path';
 import { homedir } from 'os';
 
@@ -41,7 +41,7 @@ export class SessionRegistry {
   }
 
   private async createFileIfNotExists(filePath: string, content: string): Promise<void> {
-    if (!existsSync(filePath)) {
+    if (!fs.existsSync(filePath)) {
       await mkdir(dirname(filePath), { recursive: true });
       await writeFile(filePath, content, 'utf-8');
     }
@@ -53,7 +53,7 @@ export class SessionRegistry {
    */
   async load(): Promise<SessionRegistryData> {
     try {
-      if (!existsSync(this.registryPath)) {
+      if (!fs.existsSync(this.registryPath)) {
         return { sessions: [] };
       }
       const content = await readFile(this.registryPath, 'utf-8');
@@ -129,11 +129,48 @@ export class SessionRegistry {
 
   /**
    * List all registered sessions.
+   * Validates each session directory exists and auto-cleans stale entries.
    */
   async list(): Promise<Session[]> {
     const registry = await this.load();
+    const validSessions: Session[] = [];
+    const staleSessions: Session[] = [];
+
+    // Validate each session's existence
+    for (const session of registry.sessions) {
+      try {
+        const sessionPath = join(session.project, '.collab', session.session);
+        if (fs.existsSync(sessionPath)) {
+          validSessions.push(session);
+        } else {
+          staleSessions.push(session);
+        }
+      } catch (error) {
+        // If existsSync throws (permission issues), treat as invalid
+        staleSessions.push(session);
+      }
+    }
+
+    // Auto-clean stale sessions if any were found
+    if (staleSessions.length > 0) {
+      registry.sessions = validSessions;
+      try {
+        await this.save(registry);
+        const staleNames = staleSessions
+          .map(s => `${basename(s.project)}/${s.session}`)
+          .join(', ');
+        console.log(`Removed stale sessions from registry: ${staleNames}`);
+      } catch (error) {
+        console.warn(
+          'Failed to save registry after cleaning stale sessions:',
+          error
+        );
+        // Continue - don't let save failure prevent returning valid sessions
+      }
+    }
+
     // Sort by lastAccess descending (most recent first)
-    return registry.sessions.sort(
+    return validSessions.sort(
       (a, b) => new Date(b.lastAccess).getTime() - new Date(a.lastAccess).getTime()
     );
   }

@@ -1,0 +1,28 @@
+flowchart TD
+    subgraph PERSIST["Persists After Compaction"]
+        DESIGN[".collab/*/design.md"]
+        STATE["collab-state.json<br/>(phase, currentItem)"]
+        DIAGRAMS["diagrams/*.mmd"]
+    end
+    
+    subgraph LOST["Lost on Compaction"]
+        CONV["Conversation context"]
+        PENDING["Pending questions"]
+        PARTIAL["Partial answers"]
+        INPROG["In-progress decisions"]
+    end
+    
+    COMPACT[/"Context Compaction"/]
+    
+    CONV --> COMPACT
+    PENDING --> COMPACT
+    PARTIAL --> COMPACT
+    INPROG --> COMPACT
+    
+    COMPACT -.->|"survives"| DESIGN
+    COMPACT -.->|"survives"| STATE
+    COMPACT -.->|"survives"| DIAGRAMS
+    
+    style LOST fill:#ffcdd2,stroke:#c62828
+    style PERSIST fill:#c8e6c9,stroke:#2e7d32
+    style COMPACT fill:#fff3e0,stroke:#e65100

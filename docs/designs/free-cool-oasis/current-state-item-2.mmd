@@ -1,0 +1,27 @@
+sequenceDiagram
+    participant O as Orchestrator
+    participant D as Diagram
+    participant T1 as Task Agent 1
+    participant T2 as Task Agent 2
+    participant T3 as Task Agent 3
+
+    Note over O: Parallel dispatch starts
+    O->>D: Update all to executing
+    O->>T1: Spawn task 1
+    O->>T2: Spawn task 2
+    O->>T3: Spawn task 3
+
+    Note over O: Waiting for ALL...
+    T1-->>O: Complete
+    Note over D: T1 done but diagram unchanged
+    T2-->>O: Complete
+    Note over D: T2 done but diagram unchanged
+    T3-->>O: Complete
+    Note over D: T3 done but diagram unchanged
+
+    Note over O: ALL tasks returned
+    O->>D: Update all to completed
+
+    rect rgb(255, 200, 200)
+        Note over D: Gap: No updates while<br/>individual tasks complete
+    end

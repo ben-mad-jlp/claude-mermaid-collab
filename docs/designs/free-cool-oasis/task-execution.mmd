@@ -1,0 +1,32 @@
+graph TD
+    %% Node Definitions
+    patch-diagram-mcp(["patch-diagram-mcp"])
+    collab-frontmatter(["collab-frontmatter"])
+    brainstorming-frontmatter(["brainstorming-frontmatter"])
+    rough-draft-frontmatter(["rough-draft-frontmatter"])
+    gather-session-goals-frontmatter(["gather-session-goals-frontmatter"])
+    executing-plans-updates(["executing-plans-updates"])
+    subagent-driven-dev-frontmatter(["subagent-driven-dev-frontmatter"])
+    readme-slash-commands(["readme-slash-commands"])
+    bump-version(["bump-version"])
+
+    %% Dependencies
+    patch-diagram-mcp --> bump-version
+    collab-frontmatter --> bump-version
+    brainstorming-frontmatter --> bump-version
+    rough-draft-frontmatter --> bump-version
+    gather-session-goals-frontmatter --> bump-version
+    executing-plans-updates --> bump-version
+    subagent-driven-dev-frontmatter --> bump-version
+    readme-slash-commands --> bump-version
+
+    %% Styles - All tasks completed
+    style patch-diagram-mcp fill:#c8e6c9,stroke:#2e7d32
+    style collab-frontmatter fill:#c8e6c9,stroke:#2e7d32
+    style brainstorming-frontmatter fill:#c8e6c9,stroke:#2e7d32
+    style rough-draft-frontmatter fill:#c8e6c9,stroke:#2e7d32
+    style gather-session-goals-frontmatter fill:#c8e6c9,stroke:#2e7d32
+    style executing-plans-updates fill:#c8e6c9,stroke:#2e7d32
+    style subagent-driven-dev-frontmatter fill:#c8e6c9,stroke:#2e7d32
+    style readme-slash-commands fill:#c8e6c9,stroke:#2e7d32
+    style bump-version fill:#c8e6c9,stroke:#2e7d32
