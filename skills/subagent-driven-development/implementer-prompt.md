@@ -61,6 +61,18 @@ Task tool (general-purpose):
     5. Self-review (see below)
     6. Report back
 
+    ## Test Execution
+
+    When following TDD (RED-GREEN-REFACTOR):
+    - Run ONLY the tests specified in the task's `tests` field
+    - Command: `npm test -- {tests joined by space}`
+    - Do NOT run the full test suite during TDD cycles
+    - The full test suite will be run by the controller after the wave completes
+
+    Example:
+    If task.tests = ['src/auth/service.test.ts', 'src/auth/__tests__/service.test.ts']
+    Then run: `npm test -- src/auth/service.test.ts src/auth/__tests__/service.test.ts`
+
     ## CRITICAL: No Interpretation, No Shortcuts
 
     **NO INTERPRETATION:**

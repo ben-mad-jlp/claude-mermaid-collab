@@ -247,19 +247,56 @@ Update `.collab/<name>/collab-state.json`:
 
 When user selects an existing session from Step 2.
 
-### 5.1 Set Environment Variable
+### 5.1 Check for Context Snapshot
+
+```bash
+test -f .collab/<session>/context-snapshot.json && echo "snapshot exists" || echo "no snapshot"
+```
+
+**If snapshot exists:**
+
+1. Read snapshot:
+   ```bash
+   cat .collab/<session>/context-snapshot.json
+   ```
+
+2. Display restoration message:
+   ```
+   Restoring from context snapshot...
+   Active skill: <activeSkill>
+   Step: <currentStep>
+   ```
+
+3. Delete snapshot (one-time use):
+   ```bash
+   rm .collab/<session>/context-snapshot.json
+   ```
+
+4. Update state:
+   - Set `hasSnapshot: false` in collab-state.json
+
+5. Invoke the active skill directly:
+   - If activeSkill == "brainstorming" → Invoke brainstorming skill
+   - If activeSkill == "rough-draft" → Invoke rough-draft skill
+   - If activeSkill == "executing-plans" → Invoke executing-plans skill
+
+**STOP** - skill takes over from here.
+
+**If no snapshot:** Continue to 5.2 (existing resume behavior, route by phase)
+
+### 5.2 Set Environment Variable
 
 ```bash
 export COLLAB_SESSION_PATH="$(pwd)/.collab/<name>"
 ```
 
-### 5.2 Read State
+### 5.3 Read State
 
 ```bash
 cat .collab/<name>/collab-state.json
 ```
 
-### 5.3 Display Session Info
+### 5.4 Display Session Info
 
 ```
 Session Resumed: <name>
@@ -269,7 +306,7 @@ Dashboard: http://localhost:3737
 Checking work item status...
 ```
 
-### 5.4 Invoke ready-to-implement
+### 5.5 Invoke ready-to-implement
 
 **Always** route through ready-to-implement for resume:
 

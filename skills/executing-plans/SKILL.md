@@ -335,12 +335,48 @@ Pseudocode:
 4. Report what you implemented
 ```
 
+### Task Prompt with Test Patterns
+
+When dispatching tasks, include the `tests` field in the prompt:
+
+```
+## Targeted Tests
+
+During TDD (RED-GREEN-REFACTOR), run ONLY these tests:
+{task.tests}
+
+Command: npm test -- {tests joined by space}
+
+Do NOT run the full test suite during TDD cycles.
+```
+
 **Task Completion Handling:**
 When a task completes:
 1. Move task from `in_progress` to `completed`
 2. Check what tasks are now unblocked (their `depends-on` all satisfied)
 3. Add newly unblocked tasks to the ready queue
 4. Repeat until all tasks done
+
+### Wave Completion Checkpoint
+
+After all tasks in a wave complete:
+
+1. Run full test suite:
+   ```bash
+   npm test
+   ```
+
+2. If tests fail:
+   ```
+   Full test suite failed after wave completion.
+   Investigate failures before proceeding to next wave.
+   ```
+   STOP and report.
+
+3. If tests pass:
+   ```
+   Full test suite passed. Proceeding to next wave.
+   ```
 
 **Example Execution Flow:**
 ```
@@ -349,6 +385,67 @@ Wave 1: [auth-types, utils] (parallel: true) → dispatch together
 Wave 2: [auth-service] (depends-on: auth-types) → dispatch
   ↓ complete
 Wave 3: [auth-middleware] (depends-on: auth-service) → dispatch
+```
+
+## Snapshot Saving
+
+Save context snapshots to enable recovery after compaction.
+
+### When to Save
+
+Call `saveSnapshot()` after:
+- Each wave completes
+- Before asking for user feedback
+- After major progress checkpoints
+
+### Save Function
+
+```
+FUNCTION saveSnapshot():
+  session = current session name
+  state = READ collab-state.json
+
+  snapshot = {
+    version: 1,
+    timestamp: now(),
+    activeSkill: "executing-plans",
+    currentStep: "implementation",
+    pendingQuestion: null,
+    inProgressItem: null,
+    recentContext: [
+      { type: "progress", content: "Completed tasks: {list of completed task IDs}" }
+    ]
+  }
+
+  WRITE to .collab/{session}/context-snapshot.json
+  state.hasSnapshot = true
+  WRITE state
+```
+
+### Save Points
+
+**After wave completes:**
+```
+[Wave N tasks all complete]
+→ Run full test suite (wave checkpoint)
+→ If tests pass: saveSnapshot()
+→ Update task diagram
+→ Proceed to next wave
+```
+
+**Before user feedback:**
+```
+[Batch complete, about to report to user]
+→ saveSnapshot()
+→ Show progress report
+→ Wait for feedback
+```
+
+**At major milestones:**
+```
+[All tasks complete]
+→ saveSnapshot()
+→ Invoke finishing-a-development-branch
 ```
 
 ### Step 2.5: Per-Task Verification (Collab Workflow)

@@ -447,6 +447,65 @@ ls .collab/<name>/diagrams/
 
 **Update design doc with any new context** discovered during the conversation.
 
+## Snapshot Saving
+
+Save context snapshots to enable recovery after compaction.
+
+### When to Save
+
+Call `saveSnapshot()` after:
+- User answers a question
+- Phase transition (EXPLORING → CLARIFYING → DESIGNING → VALIDATING)
+- Before invoking another skill
+
+### Save Function
+
+```
+FUNCTION saveSnapshot(pendingQuestion):
+  session = current session name
+  state = READ collab-state.json
+
+  snapshot = {
+    version: 1,
+    timestamp: now(),
+    activeSkill: "brainstorming",
+    currentStep: current phase (EXPLORING/CLARIFYING/DESIGNING/VALIDATING),
+    pendingQuestion: pendingQuestion,
+    inProgressItem: state.currentItem,
+    recentContext: []
+  }
+
+  WRITE to .collab/{session}/context-snapshot.json
+
+  state.hasSnapshot = true
+  WRITE state
+```
+
+### Save Points
+
+**After user answers:**
+```
+[User provides answer]
+→ Update design doc with answer
+→ saveSnapshot(next-pending-question-or-null)
+→ Continue conversation
+```
+
+**At phase transitions:**
+```
+[Phase complete, transitioning to next]
+→ Update collab-state.json phase
+→ saveSnapshot(null)
+→ Continue to next phase
+```
+
+**Before invoking another skill:**
+```
+[About to invoke rough-draft]
+→ saveSnapshot(null)
+→ Invoke skill
+```
+
 ## After the Design
 
 **Within collab workflow (called from collab skill):**

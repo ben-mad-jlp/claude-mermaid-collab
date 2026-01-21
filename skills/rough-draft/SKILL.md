@@ -354,6 +354,28 @@ tasks:
     depends-on: [auth-service]
 ```
 
+**Step 2.5: Generate Test Patterns**
+
+For each task in the dependency graph, generate the `tests` field:
+
+For each file in task.files:
+1. Extract directory: `dir = dirname(file)`
+2. Extract basename: `name = filename without extension`
+3. Extract extension: `ext = file extension`
+4. Generate patterns:
+   - `{dir}/{name}.test{ext}`
+   - `{dir}/__tests__/{name}.test{ext}`
+
+Add to task YAML:
+
+```yaml
+tasks:
+  - id: example-task
+    files: [src/auth/service.ts]
+    tests: [src/auth/service.test.ts, src/auth/__tests__/service.test.ts]  # AUTO-GENERATED
+    description: ...
+```
+
 **Step 3: Create Mermaid visualization**
 
 ```mermaid
@@ -793,6 +815,67 @@ When drifts are rejected:
 ```
 
 Issues must be resolved before phase transition.
+
+---
+
+## Snapshot Saving
+
+Save context snapshots to enable recovery after compaction.
+
+### When to Save
+
+Call `saveSnapshot()` after:
+- User accepts proposed interface/pseudocode/skeleton
+- Before transitioning to next phase
+- Before invoking executing-plans
+
+### Save Function
+
+```
+FUNCTION saveSnapshot():
+  session = current session name
+  state = READ collab-state.json
+
+  snapshot = {
+    version: 1,
+    timestamp: now(),
+    activeSkill: "rough-draft",
+    currentStep: state.phase (e.g., "rough-draft/interface"),
+    pendingQuestion: null,
+    inProgressItem: null,
+    recentContext: []
+  }
+
+  WRITE to .collab/{session}/context-snapshot.json
+  state.hasSnapshot = true
+  WRITE state
+```
+
+### Save Points
+
+**After user accepts proposal:**
+```
+[User accepts interface/pseudocode/skeleton]
+→ Remove [PROPOSED] marker
+→ saveSnapshot()
+→ Run drift check
+→ Continue to next phase
+```
+
+**At phase transitions:**
+```
+[Phase complete (interface → pseudocode → skeleton)]
+→ Update collab-state.json phase via MCP
+→ saveSnapshot()
+→ Continue to next phase
+```
+
+**Before invoking executing-plans:**
+```
+[Skeleton complete, user confirms implementation]
+→ saveSnapshot()
+→ Invoke executing-plans skill
+```
 
 ---
 
