@@ -190,6 +190,7 @@
   justify-content: space-between;
   align-items: center;
   padding: 8px 12px;
+  background: var(--bg-tertiary, #f5f5f5);
   border-bottom: 1px solid var(--border-color);
 }
 
@@ -197,13 +198,13 @@
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--text-secondary, #555);
   letter-spacing: 0.5px;
 }
 
 .session-panel-card-time {
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--text-secondary, #555);
 }
 
 .session-panel-card-name {
