@@ -22,7 +22,6 @@ class SessionPanel {
     // State
     this.items = [];
     this.viewedItems = this.loadViewedItems();
-    this.isCollapsed = false;
     this.panelWidth = 200;
     this.minWidth = 150;
     this.maxWidth = 400;
@@ -69,29 +68,11 @@ class SessionPanel {
     this.panel = document.createElement('div');
     this.panel.className = 'session-panel';
 
-    // Header
-    const header = document.createElement('div');
-    header.className = 'session-panel-header';
-
-    const title = document.createElement('span');
-    title.className = 'session-panel-header-title';
-    title.textContent = 'Session Items';
-
-    this.collapseBtn = document.createElement('button');
-    this.collapseBtn.className = 'session-panel-collapse-btn';
-    this.collapseBtn.innerHTML = '&#x276E;'; // Left chevron
-    this.collapseBtn.title = 'Collapse panel';
-    this.collapseBtn.addEventListener('click', () => this.toggle());
-
-    header.appendChild(title);
-    header.appendChild(this.collapseBtn);
-
     // Items list container
     this.itemsContainer = document.createElement('div');
     this.itemsContainer.className = 'session-panel-items';
 
     // Assemble panel
-    this.panel.appendChild(header);
     this.panel.appendChild(this.itemsContainer);
 
     // Append to container
@@ -187,70 +168,74 @@ class SessionPanel {
   }
 
   /**
-   * Render the items list
+   * Create a DOM element with optional class name
+   * @param {string} tag - HTML tag name
+   * @param {string} [className] - Optional class name
+   * @returns {HTMLElement}
+   */
+  createElement(tag, className) {
+    const el = document.createElement(tag);
+    if (className) {
+      el.className = className;
+    }
+    return el;
+  }
+
+  /**
+   * Render the items as thumbnail cards
    */
   renderItems() {
     this.itemsContainer.innerHTML = '';
 
     if (this.items.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'session-panel-empty';
-      empty.textContent = 'No items in session';
-      this.itemsContainer.appendChild(empty);
+      // Show empty state
       return;
     }
 
     for (const item of this.items) {
-      const itemEl = document.createElement('div');
-      itemEl.className = 'session-panel-item';
-      itemEl.dataset.id = item.id;
+      // Create card container
+      const card = this.createElement('div', 'session-panel-card');
+      card.dataset.id = item.id;
 
-      // Mark as active if it's the current item
+      // Mark active item
       if (item.id === this.currentItemId) {
-        itemEl.classList.add('active');
+        card.classList.add('active');
       }
 
-      // Icon
-      const icon = document.createElement('span');
-      icon.className = 'session-panel-item-icon';
-      icon.textContent = item.type === 'document' ? '\u{1F4C4}' : '\u{1F4CA}'; // Document or chart emoji
+      // Create thumbnail
+      const thumbnail = this.createElement('div', 'session-panel-card-thumbnail');
 
-      // Name
-      const name = document.createElement('span');
-      name.className = 'session-panel-item-name';
+      if (item.type === 'diagram') {
+        // Fetch SVG thumbnail
+        const img = document.createElement('img');
+        img.src = this.api.getThumbnailURL(item.id);
+        img.alt = item.name;
+        thumbnail.appendChild(img);
+      } else {
+        // Document text preview
+        const preview = this.createElement('div', 'session-panel-card-preview');
+        preview.textContent = item.content?.substring(0, 100) || 'Document';
+        thumbnail.appendChild(preview);
+      }
+
+      // Create name label
+      const name = this.createElement('div', 'session-panel-card-name');
       name.textContent = item.name;
       name.title = item.name;
 
-      // Badge (update indicator)
-      const badge = document.createElement('span');
-      badge.className = 'session-panel-item-badge';
-      badge.style.display = item.hasUpdate && item.id !== this.currentItemId ? 'block' : 'none';
+      // Assemble card
+      card.appendChild(thumbnail);
+      card.appendChild(name);
 
-      // New tab button
-      const newtabBtn = document.createElement('button');
-      newtabBtn.className = 'session-panel-item-newtab';
-      newtabBtn.innerHTML = '\u{2197}'; // North-east arrow
-      newtabBtn.title = 'Open in new tab';
-      newtabBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.openInNewTab(item.id, item.type);
-      });
-
-      // Assemble item
-      itemEl.appendChild(icon);
-      itemEl.appendChild(name);
-      itemEl.appendChild(badge);
-      itemEl.appendChild(newtabBtn);
-
-      // Click to navigate
-      itemEl.addEventListener('click', () => {
+      // Click handler
+      card.addEventListener('click', () => {
         if (item.id !== this.currentItemId) {
           this.markAsViewed(item.id);
           this.onNavigate(item.id, item.type);
         }
       });
 
-      this.itemsContainer.appendChild(itemEl);
+      this.itemsContainer.appendChild(card);
     }
   }
 
@@ -369,42 +354,6 @@ class SessionPanel {
     }
   }
 
-  /**
-   * Collapse the panel
-   */
-  collapse() {
-    this.isCollapsed = true;
-    this.panel.classList.add('collapsed');
-    this.collapseBtn.title = 'Expand panel';
-    document.body.classList.add('panel-collapsed');
-    // Hide the external divider when collapsed
-    const divider = document.getElementById('session-panel-divider');
-    if (divider) divider.classList.add('hidden');
-  }
-
-  /**
-   * Expand the panel
-   */
-  expand() {
-    this.isCollapsed = false;
-    this.panel.classList.remove('collapsed');
-    this.collapseBtn.title = 'Collapse panel';
-    document.body.classList.remove('panel-collapsed');
-    // Show the external divider when expanded
-    const divider = document.getElementById('session-panel-divider');
-    if (divider) divider.classList.remove('hidden');
-  }
-
-  /**
-   * Toggle collapsed state
-   */
-  toggle() {
-    if (this.isCollapsed) {
-      this.expand();
-    } else {
-      this.collapse();
-    }
-  }
 
   /**
    * Resize the panel width

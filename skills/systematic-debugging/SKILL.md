@@ -318,6 +318,77 @@ If systematic investigation reveals issue is truly environmental, timing-depende
 
 **But:** 95% of "no root cause" cases are incomplete investigation.
 
+## Snapshot Saving
+
+Save context snapshots to enable recovery after compaction.
+
+### When to Save
+
+Call `saveSnapshot()` after:
+- Phase 1 completes (root cause investigation done)
+- Phase 2 completes (pattern analysis done)
+- Phase 3 completes (hypothesis confirmed)
+- Root cause documented in design doc (Phase 4 complete)
+- Before returning to collab skill
+
+### Save Function
+
+```
+FUNCTION saveSnapshot():
+  session = current session name
+  state = READ collab-state.json
+
+  snapshot = {
+    version: 1,
+    timestamp: now(),
+    activeSkill: "systematic-debugging",
+    currentStep: state.phase (e.g., "debugging/phase-1", "debugging/phase-2", etc.),
+    pendingQuestion: null,
+    inProgressItem: currentItem,
+    recentContext: []
+  }
+
+  WRITE to .collab/{session}/context-snapshot.json
+  state.hasSnapshot = true
+  WRITE state
+```
+
+### Save Points
+
+**After Phase 1 (Root Cause Investigation) completes:**
+```
+[Phase 1 complete - root cause found]
+→ Update collab-state.json phase to "debugging/phase-1-complete"
+→ saveSnapshot()
+→ Continue to Phase 2
+```
+
+**After Phase 2 (Pattern Analysis) completes:**
+```
+[Phase 2 complete - pattern analyzed]
+→ Update collab-state.json phase to "debugging/phase-2-complete"
+→ saveSnapshot()
+→ Continue to Phase 3
+```
+
+**After Phase 3 (Hypothesis Testing) completes:**
+```
+[Phase 3 complete - hypothesis confirmed]
+→ Update collab-state.json phase to "debugging/phase-3-complete"
+→ saveSnapshot()
+→ Continue to Phase 4
+```
+
+**After Phase 4 (Documentation) completes:**
+```
+[Phase 4 complete - root cause documented in design doc]
+→ Update collab-state.json phase to "debugging/complete"
+→ saveSnapshot()
+→ Return to collab skill
+```
+
+---
+
 ## Supporting Techniques
 
 These techniques are part of systematic debugging and available in this directory:

@@ -47,10 +47,9 @@ Store the initial response. Parse any items mentioned and add them to the work i
 After parsing the initial response:
 
 1. Infer type for each item from context:
+   - Contains "setup", "install", "configure", "organize", "clean up", "docker", "deploy" → type = "task"
    - Contains "fix", "bug", "broken", "error", "crash", "fail" → type = "bugfix"
-   - Contains "add", "new", "create", "implement", "build" → type = "feature"
-   - Contains "refactor", "clean", "reorganize", "simplify", "restructure" → type = "refactor"
-   - Contains "investigate", "explore", "research", "spike", "understand" → type = "spike"
+   - Contains "add", "new", "create", "implement", "build", "refactor", "clean", "simplify", "restructure", "investigate", "explore", "spike" → type = "code"
    - Otherwise → type = "unknown"
 
 2. Ask: **"Anything else?"**
@@ -68,10 +67,9 @@ For each item still marked as type = "unknown":
 
 Ask: **"What type is '[item title]'?"**
 ```
-1. feature
+1. code
 2. bugfix
-3. refactor
-4. spike
+3. task
 ```
 
 Set the item type based on user response.
@@ -84,8 +82,8 @@ Display the work items for confirmation:
 Here are the work items for this session:
 
 1. [bugfix] Fix login redirect issue
-2. [feature] Add user authentication
-3. [refactor] Clean up database layer
+2. [code] Add user authentication
+3. [code] Clean up database layer
 
 Does this list look correct?
 

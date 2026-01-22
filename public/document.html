@@ -591,7 +591,27 @@
     const urlParams = new URLSearchParams(window.location.search);
     const documentId = urlParams.get('id');
 
-    if (documentId) {
+    // Extract session params from URL
+    const projectParam = urlParams.get('project');
+    const sessionParam = urlParams.get('session');
+
+    // Set session on API client
+    if (projectParam && sessionParam) {
+      api.setSession(projectParam, sessionParam);
+    } else {
+      // Fallback to localStorage
+      const stored = localStorage.getItem('mermaid-collab-session');
+      if (stored) {
+        try {
+          const { project, session } = JSON.parse(stored);
+          api.setSession(project, session);
+        } catch (e) {
+          console.error('Failed to parse stored session:', e);
+        }
+      }
+    }
+
+    if (documentId && api.hasSession()) {
       const panel = new SessionPanel({
         container: document.getElementById('session-panel-container'),
         api: api,

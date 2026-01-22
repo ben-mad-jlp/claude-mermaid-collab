@@ -144,7 +144,7 @@ Invoke skill: gather-session-goals
 
 This skill will:
 - Ask user what they want to accomplish
-- Classify each item as feature/bugfix/refactor/spike
+- Classify each item as code/bugfix/task
 - Write Work Items section to design doc
 - All items start with `Status: pending`
 
@@ -203,12 +203,21 @@ Invoking systematic-debugging for investigation...
 ```
 → Invoke **systematic-debugging** skill
 
-**If type is `feature`, `refactor`, or `spike`:**
+**If type is `task`:**
 ```
-Processing <type>: <item-title>
-Invoking brainstorming...
+Processing task: <item-title>
+Invoking brainstorming for planning...
 ```
 → Invoke **brainstorming** skill
+→ After brainstorming completes, invoke **task-planning** skill
+
+**If type is `code`:**
+```
+Processing code: <item-title>
+Invoking brainstorming for design...
+```
+→ Invoke **brainstorming** skill
+→ After brainstorming completes, invoke **rough-draft** skill (includes feature/refactor/spike work)
 
 ### 4.6 Mark Item Documented
 
@@ -405,8 +414,10 @@ FUNCTION parseWorkItems(doc):
 
 **Transitions to:**
 - **gather-session-goals** - After creating new session (collect work items)
-- **brainstorming** - From work item loop for feature/refactor/spike items
+- **brainstorming** - From work item loop for code and task items
 - **systematic-debugging** - From work item loop for bugfix items
+- **task-planning** - From brainstorming for task items
+- **rough-draft** - From brainstorming for code items
 - **ready-to-implement** - When all items documented or on resume
 
 **Called by:**
@@ -415,8 +426,9 @@ FUNCTION parseWorkItems(doc):
 
 **Related skills:**
 - **gather-session-goals** - Collects and classifies work items at session start
-- **brainstorming** - Explores requirements for feature/refactor/spike items
+- **brainstorming** - Explores requirements for code and task items
 - **systematic-debugging** - Investigates bugfix items (documentation only)
+- **task-planning** - Plans operational tasks (prerequisites → steps → verification)
 - **ready-to-implement** - Central checkpoint, validates all items documented
 - **rough-draft** - Bridges design to implementation (interface → pseudocode → skeleton)
 - **verify-phase** - Checks rough-draft output aligns with design
@@ -429,9 +441,15 @@ collab --> gather-session-goals --> work-item-loop --> ready-to-implement --> ro
                                          |    (all documented)|
                                          v                    |
                                     brainstorming ────────────┤
-                                    or                        |
-                                    systematic-debugging ─────┘
+                                         |                    |
+                                    ┌────┴────┐              |
+                                    v         v              |
+                            task-planning  rough-draft ──────┘
+                                    |
+                            executing-plans
+                                    |
+                            systematic-debugging ────────────┘
 
 Resume flow:
-collab --> ready-to-implement --> (back to loop if pending) or (rough-draft if done)
+collab --> ready-to-implement --> (back to loop if pending) or (rough-draft/task-planning if done)
 ```

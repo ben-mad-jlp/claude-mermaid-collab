@@ -260,6 +260,39 @@ Task execution diagram verified. Proceeding to execution.
 
 **This gate ensures the diagram is always created before any tasks execute.**
 
+### Step 1.8: Understand Item Types and Execution Paths
+
+**CONTEXT:** Within collab workflows, items come from the design doc with a `type` field. The execution path differs based on this type.
+
+**Item Types:**
+- **code:** New features, implementations, refactoring, investigations → uses test-driven-development (TDD)
+- **bugfix:** Bug fixes, crashes, errors → uses test-driven-development (TDD)
+- **task:** Operational tasks (docker setup, installs, configuration, organization) → skips TDD, executes directly
+
+**How to Determine Item Type:**
+
+1. Read the design doc
+2. For each work item in the "Work Items" section, check the `Type:` field
+3. The current item being executed should have an associated type from the design doc
+
+**Execution Logic by Type:**
+
+| Type | Execution Flow |
+|------|----------------|
+| code/bugfix | Invoke test-driven-development skill → Write failing test → Implement → Verify test passes |
+| task | Execute task steps directly → Run verification checks |
+
+**Task Type Items:**
+- Use phases from task-planning: Prerequisites → Steps → Verification
+- Prerequisites define what must exist before starting
+- Steps are ordered commands/actions to execute
+- Verification confirms success
+- No TDD cycle needed (these are operational, not code)
+
+**Code/Bugfix Type Items:**
+- Follow standard TDD flow with red-green-refactor
+- Still require verification but through test suite
+
 ### Step 2: Execute Batch
 **Default: First 3 tasks** (or use dependency graph for collab workflow)
 
@@ -270,6 +303,47 @@ For each task:
 2. Follow each step exactly (plan has bite-sized steps)
 3. Run verifications as specified
 4. Mark as completed
+
+#### Step 2.1: Per-Task Execution with Item Type Routing
+
+Before executing each task, determine its item type and follow the appropriate execution path.
+
+**Determine Item Type:**
+1. Read design doc
+2. Find the work item that this task belongs to
+3. Check the `Type:` field from the work item
+4. Map to execution flow
+
+**Routing Logic:**
+
+```
+FUNCTION executeTask(task, itemType):
+  IF itemType == "task":
+    # Skip TDD for operational tasks
+    EXECUTE task steps directly (from task-planning Prerequisites/Steps/Verification)
+    RUN verification checks
+    MARK task as complete if verification passes
+  ELSE IF itemType IN ["code", "bugfix"]:
+    # Normal TDD flow
+    INVOKE test-driven-development skill
+    WRITE failing test
+    IMPLEMENT code per design spec
+    VERIFY test passes
+    MARK task as complete
+  ELSE:
+    STOP - unknown item type, ask user
+```
+
+**For Task Type Items:**
+1. Execute prerequisites validation (verify all prerequisites exist)
+2. Execute each step in order (run commands/actions)
+3. Run verification checks (confirm success)
+4. Mark task as complete
+
+**For Code/Bugfix Type Items:**
+1. Invoke test-driven-development skill
+2. Work through red-green-refactor cycle
+3. Mark task as complete
 
 #### Dependency-Aware Execution (Collab Workflow)
 
@@ -389,63 +463,111 @@ Wave 3: [auth-middleware] (depends-on: auth-service) → dispatch
 
 ## Snapshot Saving
 
-Save context snapshots to enable recovery after compaction.
+Save context snapshots to enable recovery after compaction events. This preserves the executing-plans skill's state and progress across context compaction.
 
 ### When to Save
 
-Call `saveSnapshot()` after:
-- Each wave completes
+Call `saveSnapshot()` at these critical points:
+- After each wave of tasks completes
+- After full test suite passes (post-wave verification)
+- After each individual task completes (per-task verification)
 - Before asking for user feedback
-- After major progress checkpoints
+- At major milestones (all tasks complete)
 
 ### Save Function
 
-```
+```javascript
 FUNCTION saveSnapshot():
   session = current session name
   state = READ collab-state.json
 
   snapshot = {
     version: 1,
-    timestamp: now(),
+    timestamp: now(),  // ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ
     activeSkill: "executing-plans",
     currentStep: "implementation",
     pendingQuestion: null,
     inProgressItem: null,
+    completedTasks: [list of completed task IDs from collab-state.json],
+    pendingTasks: [list of remaining pending task IDs],
     recentContext: [
-      { type: "progress", content: "Completed tasks: {list of completed task IDs}" }
+      {
+        type: "progress",
+        content: "Completed tasks: {list}. Pending: {list}. Last wave: {wave number}"
+      }
     ]
   }
 
   WRITE to .collab/{session}/context-snapshot.json
+
+  // Update collab state to mark snapshot exists
   state.hasSnapshot = true
-  WRITE state
+  state.lastSnapshot = timestamp
+  WRITE state back to collab-state.json
 ```
 
-### Save Points
+### Save Points with Examples
 
-**After wave completes:**
+**After wave completes with test suite passing:**
 ```
 [Wave N tasks all complete]
-→ Run full test suite (wave checkpoint)
-→ If tests pass: saveSnapshot()
-→ Update task diagram
-→ Proceed to next wave
+→ Run full test suite: npm test
+→ If tests FAIL: Stop, report failure (don't save)
+→ If tests PASS:
+   - saveSnapshot()
+   - Update task diagram (all Wave N tasks → "completed")
+   - Show wave completion report
+   - Proceed to next wave
 ```
 
-**Before user feedback:**
-```
-[Batch complete, about to report to user]
-→ saveSnapshot()
-→ Show progress report
-→ Wait for feedback
+Example snapshot after Wave 1:
+```json
+{
+  "version": 1,
+  "timestamp": "2026-01-21T14:35:22Z",
+  "activeSkill": "executing-plans",
+  "currentStep": "implementation",
+  "completedTasks": ["task-planning-skill", "gather-goals-types", "brainstorming-cleanup"],
+  "pendingTasks": ["collab-routing", "executing-plans-tdd-skip", "pre-compact-script"],
+  "recentContext": [
+    {
+      "type": "progress",
+      "content": "Completed tasks: task-planning-skill, gather-goals-types, brainstorming-cleanup. Pending: 3 tasks. Last wave: 1"
+    }
+  ]
+}
 ```
 
-**At major milestones:**
+**After each task completes (per-task verification):**
 ```
-[All tasks complete]
+[Task execution completes]
+→ Compare implementation against design doc
+→ Check for drift
+→ If verification PASSES:
+   - saveSnapshot() with updated completedTasks list
+   - Unlock dependent tasks
+   - Proceed to next ready task
+→ If verification FAILS:
+   - Keep task as in_progress
+   - Request fixes before saving
+```
+
+**Before batch completion report:**
+```
+[All ready tasks complete, about to report to user]
 → saveSnapshot()
-→ Invoke finishing-a-development-branch
+→ Show progress report with completed tasks
+→ Show which tasks are ready next
+→ Wait for user feedback
+```
+
+**At final completion:**
+```
+[All tasks complete and verified]
+→ saveSnapshot()
+→ Show implementation summary
+→ Invoke finishing-a-development-branch skill
+→ (After finishing-a-development-branch completes: cleanup collab session)
 ```
 
 ### Step 2.5: Per-Task Verification (Collab Workflow)

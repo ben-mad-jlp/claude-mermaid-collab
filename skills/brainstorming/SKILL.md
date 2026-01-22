@@ -301,16 +301,13 @@ Different templates require different emphasis during brainstorming:
 |----------|---------------|---------------|-----------|
 | **feature** | Full design, complete solution | What problem does it solve? Who uses it? How does it integrate? | Wireframes, architecture diagram, data flow |
 | **bugfix** | Minimal intervention | How to reproduce? What's the root cause? Smallest fix? | Reproduction steps, root cause analysis, fix verification |
-| **refactor** | Safe transformation | Current state? Desired state? Migration path? | Before/after diagrams, migration plan, rollback strategy |
-| **spike** | Time-boxed exploration | What are we trying to learn? When do we stop? | Clear success criteria, time limit, decision points |
+| **task** | Bounded work scope | What's the goal? What's the scope? What's success? | Scope document, success criteria, acceptance tests |
 
 **Feature template:** Explore fully - wireframes for every screen, architecture for every component, data flow for every interaction. No ambiguity allowed.
 
 **Bugfix template:** Focus on understanding before fixing. Reproduction steps first, root cause analysis second, minimal fix third. Resist scope creep.
 
-**Refactor template:** Document current state thoroughly before proposing changes. Define clear before/after. Plan migration path with rollback.
-
-**Spike template:** Set strict boundaries. Define what success looks like. Set time limit. Document decision points for go/no-go.
+**Task template:** Define clear boundaries upfront. Document the goal, scope, and success criteria. Keep focused on the specific deliverable.
 
 ## The Process
 

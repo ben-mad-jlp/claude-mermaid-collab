@@ -13,58 +13,6 @@
   transition: width 0.2s ease;
 }
 
-.session-panel.collapsed {
-  width: 40px;
-}
-
-.session-panel.collapsed .session-panel-header-title,
-.session-panel.collapsed .session-panel-items {
-  display: none;
-}
-
-.session-panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px;
-  border-bottom: 1px solid var(--border-color);
-  background: var(--bg-tertiary);
-  min-height: 48px;
-}
-
-.session-panel-header-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.session-panel-collapse-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  border-radius: 4px;
-  transition: background-color 0.2s, color 0.2s;
-  flex-shrink: 0;
-}
-
-.session-panel-collapse-btn:hover {
-  background: var(--hover-bg);
-  color: var(--text-primary);
-}
-
-.session-panel.collapsed .session-panel-collapse-btn {
-  transform: rotate(180deg);
-}
 
 .session-panel-items {
   flex: 1;
@@ -222,3 +170,35 @@
   font-size: 13px;
 }
 
+.session-panel-card {
+  width: 100%;
+  background: var(--card-bg);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.session-panel-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px var(--shadow-color);
+}
+
+.session-panel-card-thumbnail {
+  width: 100%;
+  aspect-ratio: 16/9;
+  background: var(--bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.session-panel-card-name {
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
