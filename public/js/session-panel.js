@@ -182,6 +182,39 @@ class SessionPanel {
   }
 
   /**
+   * Format a timestamp as relative time
+   * @param {number} timestamp - Unix timestamp in milliseconds
+   * @returns {string}
+   */
+  formatRelativeTime(timestamp) {
+    const now = Date.now();
+    const diff = Math.floor((now - timestamp) / 1000); // seconds
+
+    if (diff < 60) {
+      return 'just now';
+    }
+
+    const minutes = Math.floor(diff / 60);
+    if (minutes < 60) {
+      return `${minutes} min ago`;
+    }
+
+    const hours = Math.floor(diff / 3600);
+    if (hours < 24) {
+      return hours === 1 ? '1 hour ago' : `${hours} hours ago`;
+    }
+
+    const days = Math.floor(diff / 86400);
+    if (days < 7) {
+      return days === 1 ? '1 day ago' : `${days} days ago`;
+    }
+
+    // Fallback to date format
+    const date = new Date(timestamp);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+
+  /**
    * Render the items as thumbnail cards
    */
   renderItems() {
@@ -202,21 +235,17 @@ class SessionPanel {
         card.classList.add('active');
       }
 
-      // Create thumbnail
-      const thumbnail = this.createElement('div', 'session-panel-card-thumbnail');
+      // Create header with type and timestamp
+      const header = this.createElement('div', 'session-panel-card-header');
 
-      if (item.type === 'diagram') {
-        // Fetch SVG thumbnail
-        const img = document.createElement('img');
-        img.src = this.api.getThumbnailURL(item.id);
-        img.alt = item.name;
-        thumbnail.appendChild(img);
-      } else {
-        // Document text preview
-        const preview = this.createElement('div', 'session-panel-card-preview');
-        preview.textContent = item.content?.substring(0, 100) || 'Document';
-        thumbnail.appendChild(preview);
-      }
+      const typeLabel = this.createElement('span', 'session-panel-card-type');
+      typeLabel.textContent = item.type === 'diagram' ? 'Diagram' : 'Document';
+
+      const timeLabel = this.createElement('span', 'session-panel-card-time');
+      timeLabel.textContent = this.formatRelativeTime(item.lastModified);
+
+      header.appendChild(typeLabel);
+      header.appendChild(timeLabel);
 
       // Create name label
       const name = this.createElement('div', 'session-panel-card-name');
@@ -224,7 +253,7 @@ class SessionPanel {
       name.title = item.name;
 
       // Assemble card
-      card.appendChild(thumbnail);
+      card.appendChild(header);
       card.appendChild(name);
 
       // Click handler
