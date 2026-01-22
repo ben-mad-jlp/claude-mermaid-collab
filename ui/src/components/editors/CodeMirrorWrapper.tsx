@@ -9,8 +9,9 @@
  * - Support for multiple programming languages (JavaScript, Markdown, YAML, HTML, JSON)
  */
 
-import React, { useMemo, useCallback, useEffect, useState } from 'react';
+import React, { useMemo, useCallback, useEffect, useState, useRef } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
+import { EditorView } from '@codemirror/view';
 
 // Language support imports
 import { javascript } from '@codemirror/lang-javascript';
@@ -48,6 +49,8 @@ export interface CodeMirrorWrapperProps {
   placeholder?: string;
   /** Whether to enable word wrapping */
   wordWrap?: boolean;
+  /** Callback fired when CodeMirror editor is ready with EditorView instance */
+  onEditorReady?: (view: EditorView | null) => void;
 }
 
 /**
@@ -107,14 +110,35 @@ export const CodeMirrorWrapper: React.FC<CodeMirrorWrapperProps> = ({
   height = '400px',
   placeholder = '',
   wordWrap = true,
+  onEditorReady,
 }) => {
   const { theme } = useTheme();
   const [isLoaded, setIsLoaded] = useState(false);
+  const codeMirrorRef = useRef<any>(null);
 
   // Ensure component is loaded before rendering to avoid hydration mismatches
   useEffect(() => {
     setIsLoaded(true);
   }, []);
+
+  // Call onEditorReady callback when CodeMirror editor is mounted
+  useEffect(() => {
+    if (!isLoaded || !codeMirrorRef.current) {
+      return;
+    }
+
+    const view = codeMirrorRef.current.view;
+    if (view && onEditorReady) {
+      onEditorReady(view);
+    }
+
+    // Cleanup: notify parent that editor is unmounting
+    return () => {
+      if (onEditorReady) {
+        onEditorReady(null);
+      }
+    };
+  }, [isLoaded, onEditorReady]);
 
   // Memoize the language extension to avoid unnecessary re-renders
   const languageExtension = useMemo(() => {
@@ -142,12 +166,15 @@ export const CodeMirrorWrapper: React.FC<CodeMirrorWrapperProps> = ({
     [onChange]
   );
 
+  // Use explicit height if provided, otherwise fill container
+  const containerStyle = height === '100%' ? { height: '100%' } : { height };
+
   // Don't render until component is loaded (hydration safety)
   if (!isLoaded) {
     return (
       <div
         className={`border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 ${className}`}
-        style={{ height }}
+        style={containerStyle}
         data-testid="editor-loading"
       />
     );
@@ -155,15 +182,17 @@ export const CodeMirrorWrapper: React.FC<CodeMirrorWrapperProps> = ({
 
   return (
     <div
-      className={`border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden ${className}`}
+      className={`border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden flex flex-col ${className}`}
+      style={containerStyle}
       data-testid="editor-wrapper"
     >
       <CodeMirror
+        ref={codeMirrorRef}
         value={value}
         onChange={handleChange}
         extensions={extensions}
         theme={theme === 'dark' ? 'dark' : 'light'}
-        height={height}
+        height="100%"
         placeholder={placeholder}
         editable={!readOnly}
         basicSetup={{
@@ -180,7 +209,7 @@ export const CodeMirrorWrapper: React.FC<CodeMirrorWrapperProps> = ({
           highlightSelectionMatches: true,
           searchKeymap: true,
         }}
-        className={`${themeClasses} w-full`}
+        className={`${themeClasses} w-full flex-1`}
         data-testid="codemirror-editor"
       />
     </div>

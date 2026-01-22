@@ -34,6 +34,28 @@ export interface EditorToolbarProps {
   onZoomOut: () => void;
   /** Additional actions for the overflow menu */
   overflowActions: ToolbarAction[];
+  /** Callback for export as SVG action */
+  onExportSVG?: (filename: string) => void;
+  /** Callback for export as PNG action */
+  onExportPNG?: (filename: string) => void;
+  /** Whether export is available */
+  canExport?: boolean;
+  /** Callback for format diagram action */
+  onFormat?: () => void;
+  /** Whether format is available */
+  canFormat?: boolean;
+  /** Callback for add comment action */
+  onAddComment?: (lineStart: number, lineEnd: number) => void;
+  /** Callback for approve all proposals */
+  onApproveAll?: () => void;
+  /** Callback for reject all proposals */
+  onRejectAll?: () => void;
+  /** Callback for clear proposals */
+  onClearProposals?: () => void;
+  /** Whether there are proposals to manage */
+  hasProposals?: boolean;
+  /** Type of item being edited (for context-specific actions) */
+  itemType?: 'diagram' | 'document';
 }
 
 /**
@@ -50,6 +72,17 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   onZoomIn,
   onZoomOut,
   overflowActions,
+  onExportSVG,
+  onExportPNG,
+  canExport,
+  onFormat,
+  canFormat,
+  onAddComment,
+  onApproveAll,
+  onRejectAll,
+  onClearProposals,
+  hasProposals,
+  itemType,
 }) => {
   const [isOverflowOpen, setIsOverflowOpen] = useState(false);
   const overflowRef = useRef<HTMLDivElement>(null);
@@ -90,6 +123,184 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
     action.onClick();
     setIsOverflowOpen(false);
   }, []);
+
+  // Build combined actions list with new buttons
+  const allActions = useCallback(() => {
+    const actions = [...overflowActions];
+
+    // Add export actions
+    if (canExport && onExportSVG) {
+      actions.push({
+        id: 'export-svg',
+        label: 'Export as SVG',
+        icon: (
+          <svg
+            className="w-4 h-4"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+            <polyline points="17 21 17 13 7 13 7 21" />
+            <polyline points="7 3 7 8 15 8" />
+          </svg>
+        ),
+        onClick: () => onExportSVG(`diagram-${Date.now()}`),
+        disabled: !canExport,
+      });
+    }
+
+    if (canExport && onExportPNG) {
+      actions.push({
+        id: 'export-png',
+        label: 'Export as PNG',
+        icon: (
+          <svg
+            className="w-4 h-4"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+            <circle cx="8.5" cy="8.5" r="1.5" />
+            <polyline points="21 15 16 10 5 21" />
+          </svg>
+        ),
+        onClick: () => onExportPNG(`diagram-${Date.now()}`),
+        disabled: !canExport,
+      });
+    }
+
+    // Add format action (diagram only)
+    if (canFormat !== undefined && itemType === 'diagram' && onFormat) {
+      actions.push({
+        id: 'format',
+        label: 'Format Diagram',
+        icon: (
+          <svg
+            className="w-4 h-4"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M3 6h18M3 12h18M3 18h18" />
+          </svg>
+        ),
+        onClick: () => onFormat?.(),
+        disabled: !canFormat,
+      });
+    }
+
+    // Add collaboration section (if hasProposals is defined)
+    if (hasProposals !== undefined) {
+      // Add comment button
+      if (onAddComment) {
+        actions.push({
+          id: 'add-comment',
+          label: 'Add Comment',
+          icon: (
+            <svg
+              className="w-4 h-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+          ),
+          onClick: () => onAddComment?.(0, 0),
+          disabled: false,
+        });
+      }
+
+      // Add approve all button
+      if (onApproveAll) {
+        actions.push({
+          id: 'approve-all',
+          label: 'Approve All',
+          icon: (
+            <svg
+              className="w-4 h-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          ),
+          onClick: () => onApproveAll?.(),
+          disabled: !hasProposals,
+        });
+      }
+
+      // Add reject all button
+      if (onRejectAll) {
+        actions.push({
+          id: 'reject-all',
+          label: 'Reject All',
+          icon: (
+            <svg
+              className="w-4 h-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          ),
+          onClick: () => onRejectAll?.(),
+          disabled: !hasProposals,
+        });
+      }
+
+      // Add clear proposals button
+      if (onClearProposals) {
+        actions.push({
+          id: 'clear-proposals',
+          label: 'Clear Proposals',
+          icon: (
+            <svg
+              className="w-4 h-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polyline points="3 6 5 4 21 4 23 6" />
+              <path d="M19 8v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V8m3 0V6a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+            </svg>
+          ),
+          onClick: () => onClearProposals?.(),
+          disabled: !hasProposals,
+        });
+      }
+    }
+
+    return actions;
+  }, [overflowActions, canExport, onExportSVG, onExportPNG, canFormat, itemType, onFormat, hasProposals, onAddComment, onApproveAll, onRejectAll, onClearProposals]);
+
+  const finalActions = allActions();
 
   return (
     <div
@@ -301,7 +512,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         </button>
 
         {/* Overflow Dropdown */}
-        {isOverflowOpen && overflowActions.length > 0 && (
+        {isOverflowOpen && finalActions.length > 0 && (
           <div
             data-testid="editor-toolbar-overflow-menu"
             role="menu"
@@ -315,7 +526,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             "
           >
             <ul className="py-1">
-              {overflowActions.map((action) => (
+              {finalActions.map((action) => (
                 <li key={action.id}>
                   <button
                     role="menuitem"

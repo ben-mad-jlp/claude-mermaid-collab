@@ -7,18 +7,27 @@
  * - Supports toggling between raw/preview and preview-only modes
  * - Persists split position via uiStore
  * - Placeholder state when no item is selected
+ * - Integrates undo/redo history tracking
+ * - Integrates diagram export (SVG/PNG) functionality
+ * - Integrates Mermaid syntax formatting
+ * - Integrates collaborative proposal/comment system
  *
  * This component provides a single editing interface for both Mermaid diagrams
  * and Markdown documents, reducing code duplication and simplifying the UI.
  */
 
-import React from 'react';
+import React, { useCallback } from 'react';
+import { EditorView } from '@codemirror/view';
 import { SplitPane } from '@/components/layout/SplitPane';
 import { CodeMirrorWrapper } from '@/components/editors/CodeMirrorWrapper';
 import { MermaidPreview } from '@/components/editors/MermaidPreview';
 import { MarkdownPreview } from '@/components/editors/MarkdownPreview';
 import { Item } from '@/types';
 import { useUIStore } from '@/stores/uiStore';
+import { useEditorHistory } from '@/hooks/useEditorHistory';
+import { useExportDiagram } from '@/hooks/useExportDiagram';
+import { useProposalStore } from '@/stores/proposalStore';
+import { formatMermaid, canFormat } from '@/lib/mermaidFormatter';
 
 /**
  * Props for the UnifiedEditor component
@@ -30,6 +39,12 @@ export interface UnifiedEditorProps {
   rawVisible: boolean;
   /** Callback when content changes in the editor */
   onContentChange: (content: string) => void;
+  /** Current zoom level (percentage) */
+  zoomLevel?: number;
+  /** Callback for zoom in */
+  onZoomIn?: () => void;
+  /** Callback for zoom out */
+  onZoomOut?: () => void;
 }
 
 /**
@@ -67,8 +82,46 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
   item,
   rawVisible,
   onContentChange,
+  zoomLevel = 100,
+  onZoomIn,
+  onZoomOut,
 }) => {
   const { editorSplitPosition, setEditorSplitPosition } = useUIStore();
+
+  // Initialize hooks for editor features
+  const { setEditor, undo, redo, canUndo, canRedo } = useEditorHistory();
+  const { svgContainerRef, exportAsSVG, exportAsPNG, canExport } = useExportDiagram();
+
+  // Get proposal store functions
+  const {
+    proposals: allProposals,
+    addProposal,
+    approveProposal,
+    rejectProposal,
+    clearProposals,
+    getProposalsForItem,
+  } = useProposalStore((state) => ({
+    proposals: state.proposals,
+    addProposal: state.addProposal,
+    approveProposal: state.approveProposal,
+    rejectProposal: state.rejectProposal,
+    clearProposals: state.clearProposals,
+    getProposalsForItem: state.getProposalsForItem,
+  }));
+
+  // Get proposals for current item
+  const itemProposals = item ? getProposalsForItem(item.id) : [];
+
+  // Format handler function
+  const handleFormat = useCallback(() => {
+    if (!item || item.type !== 'diagram') return;
+
+    const result = formatMermaid(item.content);
+    if (result.success) {
+      onContentChange(result.formatted);
+    }
+    // If error, silently skip (graceful error handling)
+  }, [item, onContentChange]);
 
   // Placeholder when no item is selected
   if (!item) {
@@ -100,35 +153,37 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
 
   /**
    * Renders the appropriate preview component based on item type
+   * Uses key={item.id} to maintain instance across rawVisible toggles
+   * For diagrams, wires the SVG container ref callback for export functionality
    */
-  const renderPreview = () => {
-    if (item.type === 'diagram') {
-      return (
-        <MermaidPreview
-          content={item.content}
-          className="h-full"
-          data-testid="unified-editor-mermaid-preview"
-        />
-      );
-    }
-
-    return (
-      <MarkdownPreview
-        content={item.content}
-        className="h-full"
-        data-testid="unified-editor-markdown-preview"
-      />
-    );
-  };
+  const previewComponent = item.type === 'diagram' ? (
+    <MermaidPreview
+      key={item.id}
+      content={item.content}
+      className="h-full"
+      zoomLevel={zoomLevel}
+      onZoomIn={onZoomIn}
+      onZoomOut={onZoomOut}
+      onContainerRef={svgContainerRef}
+    />
+  ) : (
+    <MarkdownPreview
+      key={item.id}
+      content={item.content}
+      className="h-full"
+    />
+  );
 
   // Preview-only mode (rawVisible is false)
   if (!rawVisible) {
     return (
       <div
-        className="flex flex-col h-full bg-white dark:bg-gray-900 overflow-auto p-4"
+        className="flex flex-col h-full min-h-0 bg-white dark:bg-gray-900 overflow-hidden p-4"
         data-testid="unified-editor-preview-only"
       >
-        {renderPreview()}
+        <div className="flex-1 min-h-0">
+          {previewComponent}
+        </div>
       </div>
     );
   }
@@ -136,7 +191,7 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
   // Split pane mode with editor and preview
   return (
     <div
-      className="flex flex-col h-full bg-white dark:bg-gray-900"
+      className="flex flex-col h-full min-h-0 bg-white dark:bg-gray-900"
       data-testid="unified-editor"
     >
       <SplitPane
@@ -148,7 +203,7 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
         storageId="unified-editor-split"
         onSizeChange={setEditorSplitPosition}
         primaryContent={
-          <div className="flex flex-col h-full" data-testid="unified-editor-code-panel">
+          <div className="flex flex-col h-full min-h-0" data-testid="unified-editor-code-panel">
             <CodeMirrorWrapper
               value={item.content}
               onChange={onContentChange}
@@ -158,19 +213,17 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
               showLineNumbers={true}
               wordWrap={true}
               readOnly={item.locked}
+              onEditorReady={setEditor}
               data-testid="unified-editor-codemirror"
             />
           </div>
         }
         secondaryContent={
           <div
-            className="flex flex-col h-full p-4 bg-gray-50 dark:bg-gray-800 overflow-auto"
+            className="flex flex-col h-full bg-gray-50 dark:bg-gray-800 overflow-hidden"
             data-testid="unified-editor-preview-panel"
           >
-            <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">
-              Preview
-            </h2>
-            <div className="flex-1">{renderPreview()}</div>
+            <div className="flex-1 min-h-0 p-4">{previewComponent}</div>
           </div>
         }
       />
