@@ -177,6 +177,7 @@
   overflow: hidden;
   cursor: pointer;
   transition: transform 0.15s, box-shadow 0.15s;
+  margin: 8px;
 }
 
 .session-panel-card:hover {
@@ -192,6 +193,12 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
+}
+
+.session-panel-card-thumbnail img {
+  object-fit: contain;
+  width: 100%;
+  height: 100%;
 }
 
 .session-panel-card-name {

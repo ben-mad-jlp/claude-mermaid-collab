@@ -1481,6 +1481,19 @@ function setupMinimap() {
 // Resizer functionality
 let isResizing = false;
 
+// Load split pane position from localStorage on page load
+try {
+  const savedPaneWidth = localStorage.getItem('documentEditorPaneWidth');
+  if (savedPaneWidth) {
+    const editorPane = document.querySelector('.editor-pane');
+    if (editorPane) {
+      editorPane.style.flex = `0 0 ${savedPaneWidth}`;
+    }
+  }
+} catch (e) {
+  // Silently ignore localStorage errors
+}
+
 resizer.addEventListener('mousedown', (e) => {
   isResizing = true;
   document.body.style.cursor = 'col-resize';
@@ -1502,6 +1515,19 @@ document.addEventListener('mouseup', () => {
   isResizing = false;
   document.body.style.cursor = '';
   document.body.style.userSelect = '';
+
+  // Save split pane position to localStorage after resize completes
+  const editorPane = document.querySelector('.editor-pane');
+  if (editorPane) {
+    try {
+      const flexValue = editorPane.style.flex;
+      if (flexValue) {
+        localStorage.setItem('documentEditorPaneWidth', flexValue);
+      }
+    } catch (e) {
+      // Silently ignore localStorage errors
+    }
+  }
 });
 
 // Session panel resize handling

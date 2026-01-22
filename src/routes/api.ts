@@ -209,7 +209,7 @@ export async function handleAPI(
       // Broadcast update immediately
       const diagram = await diagramManager.getDiagram(id);
       if (diagram) {
-        wsHandler.broadcastToDiagram(id, {
+        wsHandler.broadcast({
           type: 'diagram_updated',
           id,
           content: diagram.content,
@@ -439,7 +439,7 @@ export async function handleAPI(
 
       const document = await documentManager.getDocument(id);
       if (document) {
-        wsHandler.broadcastToDocument(id, {
+        wsHandler.broadcast({
           type: 'document_updated',
           id,
           content: document.content,
