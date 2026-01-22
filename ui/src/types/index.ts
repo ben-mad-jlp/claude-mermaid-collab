@@ -7,3 +7,4 @@ export * from './session';
 export * from './diagram';
 export * from './document';
 export * from './question';
+export * from './item';

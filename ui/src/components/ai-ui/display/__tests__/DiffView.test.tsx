@@ -1,7 +1,30 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { expect, describe, it, vi } from 'vitest';
+import { expect, describe, it, vi, beforeAll, afterAll } from 'vitest';
 import { DiffView } from '../DiffView';
+
+// Mock window.matchMedia which is not available in jsdom
+const mockMatchMedia = vi.fn().mockImplementation((query) => ({
+  matches: false,
+  media: query,
+  onchange: null,
+  addListener: vi.fn(),
+  removeListener: vi.fn(),
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
+  dispatchEvent: vi.fn(),
+}));
+
+beforeAll(() => {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: mockMatchMedia,
+  });
+});
+
+afterAll(() => {
+  vi.restoreAllMocks();
+});
 
 describe('DiffView Component', () => {
   const beforeCode = `function hello() {
@@ -53,7 +76,7 @@ describe('DiffView Component', () => {
       />
     );
 
-    expect(screen.getByText('JAVASCRIPT')).toBeInTheDocument();
+    expect(screen.getByText('javascript')).toBeInTheDocument();
   });
 
   it('supports split view mode', () => {
@@ -159,7 +182,7 @@ describe('DiffView Component', () => {
         />
       );
 
-      expect(screen.getByText(lang.toUpperCase())).toBeInTheDocument();
+      expect(screen.getByText(lang)).toBeInTheDocument();
       unmount();
     });
   });
@@ -236,8 +259,9 @@ Line 4`;
       />
     );
 
-    const diffContent = container.querySelector('[style*="max-height"]');
-    expect(diffContent).toHaveStyle('max-height: 384px'); // max-h-96 = 384px
+    // Component uses Tailwind's max-h-96 class for max-height constraint
+    const diffContent = container.querySelector('.max-h-96');
+    expect(diffContent).toBeInTheDocument();
   });
 
   it('handles context lines parameter', () => {

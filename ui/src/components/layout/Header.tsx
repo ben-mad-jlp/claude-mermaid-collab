@@ -10,8 +10,10 @@
  */
 
 import React, { useCallback, useState, useRef, useEffect } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useTheme } from '@/hooks/useTheme';
 import { useSession } from '@/hooks/useSession';
+import { useUIStore } from '@/stores/uiStore';
 import { Session } from '@/types';
 
 export interface HeaderProps {
@@ -33,6 +35,12 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const { theme, toggleTheme } = useTheme();
   const { currentSession } = useSession();
+  const { rawVisible, toggleRaw } = useUIStore(
+    useShallow((state) => ({
+      rawVisible: state.rawVisible,
+      toggleRaw: state.toggleRaw,
+    }))
+  );
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -79,6 +87,10 @@ export const Header: React.FC<HeaderProps> = ({
   const handleThemeToggle = useCallback(() => {
     toggleTheme();
   }, [toggleTheme]);
+
+  const handleRawToggle = useCallback(() => {
+    toggleRaw();
+  }, [toggleRaw]);
 
   return (
     <header
@@ -203,6 +215,40 @@ export const Header: React.FC<HeaderProps> = ({
               )}
             </div>
           )}
+
+          {/* Raw Toggle */}
+          <button
+            data-testid="raw-toggle"
+            onClick={handleRawToggle}
+            aria-label={`${rawVisible ? 'Hide' : 'Show'} raw view`}
+            aria-pressed={rawVisible}
+            className={`
+              flex items-center gap-2
+              px-3 py-1.5
+              text-sm font-medium
+              rounded-lg
+              transition-colors
+              ${
+                rawVisible
+                  ? 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300'
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+              }
+            `}
+          >
+            <svg
+              className="w-4 h-4"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                fillRule="evenodd"
+                d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z"
+                clipRule="evenodd"
+              />
+            </svg>
+            <span>Raw</span>
+          </button>
 
           {/* Theme Toggle */}
           <button

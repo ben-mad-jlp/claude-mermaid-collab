@@ -6,6 +6,9 @@ import { Session, Diagram, Document, CollabState } from '../types';
  * Manages current session, diagrams, documents, and selection state
  */
 export interface SessionState {
+  // Available sessions
+  sessions: Session[];
+
   // Current session state
   currentSession: Session | null;
   isLoading: boolean;
@@ -21,6 +24,9 @@ export interface SessionState {
 
   // Collab state for current session
   collabState: CollabState | null;
+
+  // Sessions actions
+  setSessions: (sessions: Session[]) => void;
 
   // Session actions
   setCurrentSession: (session: Session | null) => void;
@@ -57,6 +63,7 @@ export interface SessionState {
  * Initial state for the session store
  */
 const initialState = {
+  sessions: [],
   currentSession: null,
   isLoading: false,
   error: null,
@@ -81,6 +88,9 @@ const initialState = {
  */
 export const useSessionStore = create<SessionState>((set, get) => ({
   ...initialState,
+
+  // Sessions list management
+  setSessions: (sessions: Session[]) => set({ sessions }),
 
   // Session management
   setCurrentSession: (session: Session | null) => {

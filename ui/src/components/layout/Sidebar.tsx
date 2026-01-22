@@ -2,50 +2,31 @@
  * Sidebar Component
  *
  * Left sidebar with:
- * - Navigation items with icons
+ * - Item cards for diagrams and documents
+ * - Search input for filtering
  * - Collapsible functionality
- * - Active state indication
+ * - Selected state indication
  *
- * Integrates with useUIStore for sidebar visibility state.
+ * Integrates with useUIStore for sidebar visibility state
+ * and useSessionStore for diagrams/documents data.
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useUIStore } from '@/stores/uiStore';
-
-export interface NavItem {
-  /** Unique identifier for the nav item */
-  id: string;
-  /** Display label */
-  label: string;
-  /** Icon component or element */
-  icon?: React.ReactNode;
-  /** Click handler */
-  onClick?: () => void;
-  /** Whether this item is currently active */
-  isActive?: boolean;
-  /** Badge count to display */
-  badge?: number;
-}
+import { useSessionStore } from '@/stores/sessionStore';
+import { ItemCard } from '@/components/layout/ItemCard';
+import { Item } from '@/types';
 
 export interface SidebarProps {
-  /** Navigation items to display */
-  items?: NavItem[];
-  /** Currently active item id */
-  activeItemId?: string;
-  /** Callback when an item is clicked */
-  onItemClick?: (item: NavItem) => void;
   /** Optional custom class name */
   className?: string;
 }
 
 /**
- * Collapsible sidebar component with navigation items
+ * Collapsible sidebar component with item cards
  */
 export const Sidebar: React.FC<SidebarProps> = ({
-  items = [],
-  activeItemId,
-  onItemClick,
   className = '',
 }) => {
   const { sidebarVisible, toggleSidebar } = useUIStore(
@@ -55,17 +36,77 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }))
   );
 
-  const handleItemClick = useCallback(
-    (item: NavItem) => {
-      item.onClick?.();
-      onItemClick?.(item);
-    },
-    [onItemClick]
+  const {
+    diagrams,
+    documents,
+    selectedDiagramId,
+    selectedDocumentId,
+    selectDiagram,
+    selectDocument,
+  } = useSessionStore(
+    useShallow((state) => ({
+      diagrams: state.diagrams,
+      documents: state.documents,
+      selectedDiagramId: state.selectedDiagramId,
+      selectedDocumentId: state.selectedDocumentId,
+      selectDiagram: state.selectDiagram,
+      selectDocument: state.selectDocument,
+    }))
   );
+
+  const [searchQuery, setSearchQuery] = useState('');
 
   const handleToggle = useCallback(() => {
     toggleSidebar();
   }, [toggleSidebar]);
+
+  const handleItemClick = useCallback(
+    (item: Item) => {
+      if (item.type === 'diagram') {
+        selectDiagram(item.id);
+      } else {
+        selectDocument(item.id);
+      }
+    },
+    [selectDiagram, selectDocument]
+  );
+
+  const handleSearchChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setSearchQuery(e.target.value);
+    },
+    []
+  );
+
+  // Combine diagrams and documents into Item[], sort by lastModified desc, filter by search
+  const filteredItems = useMemo(() => {
+    const items: Item[] = [
+      ...diagrams.map((d) => ({ ...d, type: 'diagram' as const })),
+      ...documents.map((d) => ({ ...d, type: 'document' as const })),
+    ];
+
+    // Sort by lastModified descending
+    items.sort((a, b) => b.lastModified - a.lastModified);
+
+    // Filter by search query (case-insensitive)
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      return items.filter((item) => item.name.toLowerCase().includes(query));
+    }
+
+    return items;
+  }, [diagrams, documents, searchQuery]);
+
+  // Determine if an item is selected
+  const isItemSelected = useCallback(
+    (item: Item) => {
+      if (item.type === 'diagram') {
+        return item.id === selectedDiagramId;
+      }
+      return item.id === selectedDocumentId;
+    },
+    [selectedDiagramId, selectedDocumentId]
+  );
 
   return (
     <aside
@@ -110,92 +151,52 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </button>
       </div>
 
-      {/* Navigation Items */}
-      <nav className="flex-1 py-2 overflow-y-auto" role="navigation" aria-label="Sidebar navigation">
-        {items.length === 0 ? (
+      {/* Items List */}
+      <div className="flex-1 py-2 overflow-y-auto" role="navigation" aria-label="Sidebar items">
+        {filteredItems.length === 0 ? (
           <div
             data-testid="sidebar-empty"
             className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400"
           >
-            {sidebarVisible && 'No items'}
+            {sidebarVisible && (searchQuery ? 'No matching items' : 'No items')}
           </div>
         ) : (
-          <ul className="space-y-1 px-2">
-            {items.map((item) => {
-              const isActive = item.isActive || item.id === activeItemId;
-              return (
-                <li key={item.id}>
-                  <button
-                    data-testid={`sidebar-item-${item.id}`}
-                    onClick={() => handleItemClick(item)}
-                    title={!sidebarVisible ? item.label : undefined}
-                    className={`
-                      w-full flex items-center gap-3
-                      px-3 py-2
-                      text-sm font-medium
-                      rounded-lg
-                      transition-colors
-                      ${
-                        isActive
-                          ? 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300'
-                          : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                      }
-                    `}
-                  >
-                    {/* Icon */}
-                    {item.icon && (
-                      <span
-                        className={`flex-shrink-0 w-5 h-5 ${
-                          isActive
-                            ? 'text-accent-600 dark:text-accent-400'
-                            : 'text-gray-500 dark:text-gray-400'
-                        }`}
-                      >
-                        {item.icon}
-                      </span>
-                    )}
-
-                    {/* Label */}
-                    {sidebarVisible && (
-                      <span className="flex-1 truncate text-left">{item.label}</span>
-                    )}
-
-                    {/* Badge */}
-                    {sidebarVisible && item.badge !== undefined && item.badge > 0 && (
-                      <span
-                        className={`
-                          flex-shrink-0
-                          px-1.5 py-0.5
-                          text-xs font-semibold
-                          rounded-full
-                          ${
-                            isActive
-                              ? 'bg-accent-200 dark:bg-accent-800 text-accent-800 dark:text-accent-200'
-                              : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
-                          }
-                        `}
-                      >
-                        {item.badge > 99 ? '99+' : item.badge}
-                      </span>
-                    )}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+          <div className="space-y-2 px-2">
+            {filteredItems.map((item) => (
+              <ItemCard
+                key={item.id}
+                item={item}
+                isSelected={isItemSelected(item)}
+                onClick={() => handleItemClick(item)}
+              />
+            ))}
+          </div>
         )}
-      </nav>
+      </div>
 
-      {/* Collapsed Badge Indicator */}
-      {!sidebarVisible && items.some((item) => item.badge && item.badge > 0) && (
-        <div className="px-2 py-3 border-t border-gray-200 dark:border-gray-700">
-          <div
+      {/* Search Input */}
+      {sidebarVisible && (
+        <div className="p-2 border-t border-gray-200 dark:border-gray-700">
+          <input
+            data-testid="sidebar-search"
+            type="text"
+            placeholder="Search items..."
+            value={searchQuery}
+            onChange={handleSearchChange}
             className="
-              w-2 h-2 mx-auto
-              bg-accent-500
-              rounded-full
+              w-full
+              px-3 py-2
+              text-sm
+              bg-white dark:bg-gray-800
+              border border-gray-300 dark:border-gray-600
+              rounded-lg
+              placeholder-gray-400 dark:placeholder-gray-500
+              text-gray-900 dark:text-white
+              focus:outline-none
+              focus:ring-2 focus:ring-accent-500 dark:focus:ring-accent-400
+              focus:border-transparent
+              transition-colors
             "
-            aria-label="Items have notifications"
           />
         </div>
       )}
