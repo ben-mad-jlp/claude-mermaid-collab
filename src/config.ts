@@ -1,8 +1,14 @@
 import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 
 // Get the directory where this module lives (src/)
 // Go up one level to reach the project root where public/ is located
-const PROJECT_ROOT = dirname(import.meta.dir);
+// Handle both Bun (import.meta.dir) and Node.js (import.meta.url) environments
+const PROJECT_ROOT = dirname(
+  typeof (import.meta as any).dir !== 'undefined'
+    ? (import.meta as any).dir
+    : dirname(fileURLToPath(import.meta.url))
+);
 
 /**
  * Validates and parses the PORT environment variable.

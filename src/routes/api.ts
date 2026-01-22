@@ -6,6 +6,7 @@ import { Renderer, type Theme } from '../services/renderer';
 import { WebSocketHandler } from '../websocket/handler';
 import { transpile, isSmachYaml } from '../services/smach-transpiler';
 import { sessionRegistry, type Session } from '../services/session-registry';
+import { questionManager } from '../services/question-manager';
 import { join } from 'path';
 
 /**
@@ -560,6 +561,121 @@ export async function handleAPI(
       });
 
       return Response.json({ success: true, folders: metadataManager.getFolders() });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // ============================================
+  // Question/UI Response Routes
+  // ============================================
+
+  // GET /api/question?project=...&session=... - Get current pending question
+  if (path === '/api/question' && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    try {
+      const sessionKey = `${params.project}:${params.session}`;
+      const question = questionManager.getQuestion(sessionKey);
+      return Response.json({ question });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // POST /api/question-response?project=...&session=... - Submit response to a pending question
+  if (path === '/api/question-response' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    try {
+      const { questionId, response } = await req.json() as { questionId?: string; response?: string };
+
+      if (!questionId || response === undefined) {
+        return Response.json({ error: 'questionId and response required' }, { status: 400 });
+      }
+
+      const sessionKey = `${params.project}:${params.session}`;
+      const success = questionManager.receiveResponse(sessionKey, {
+        questionId,
+        response,
+        timestamp: Date.now(),
+      });
+
+      if (!success) {
+        return Response.json(
+          { error: 'No pending question found or question ID mismatch' },
+          { status: 404 }
+        );
+      }
+
+      // Broadcast question response via WebSocket
+      wsHandler.broadcast({
+        type: 'question_responded',
+        questionId,
+        response,
+        project: params.project,
+        session: params.session,
+      });
+
+      return Response.json({ success: true });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // POST /api/dismiss-ui?project=...&session=... - Dismiss current UI (used by mcp-dismiss-ui)
+  if (path === '/api/dismiss-ui' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    try {
+      const sessionKey = `${params.project}:${params.session}`;
+      const dismissed = questionManager.dismissQuestion(sessionKey);
+
+      // Broadcast dismiss event via WebSocket
+      wsHandler.broadcast({
+        type: 'ui_dismissed',
+        project: params.project,
+        session: params.session,
+      });
+
+      return Response.json({ success: true, dismissed });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // POST /api/update-ui?project=...&session=... - Update current UI (used by mcp-update-ui)
+  if (path === '/api/update-ui' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    try {
+      const { patch } = await req.json() as { patch?: Record<string, unknown> };
+
+      if (!patch) {
+        return Response.json({ error: 'patch required' }, { status: 400 });
+      }
+
+      // Broadcast update event via WebSocket
+      wsHandler.broadcast({
+        type: 'ui_updated',
+        patch,
+        project: params.project,
+        session: params.session,
+      });
+
+      return Response.json({ success: true });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
     }

@@ -10,7 +10,10 @@ export type WSMessage =
   | { type: 'document_deleted'; id: string }
   | { type: 'metadata_updated'; itemId?: string; updates?: Record<string, unknown>; foldersChanged?: boolean }
   | { type: 'subscribe'; id: string }
-  | { type: 'unsubscribe'; id: string };
+  | { type: 'unsubscribe'; id: string }
+  | { type: 'question_responded'; questionId: string; response: string; project: string; session: string }
+  | { type: 'ui_dismissed'; project: string; session: string }
+  | { type: 'ui_updated'; patch: Record<string, unknown>; project: string; session: string };
 
 export class WebSocketHandler {
   private connections: Set<ServerWebSocket<{ subscriptions: Set<string> }>> = new Set();

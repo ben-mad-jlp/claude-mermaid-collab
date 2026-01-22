@@ -18,6 +18,10 @@ import {
 import { readFile } from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { dismissUI, dismissUISchema } from './tools/dismiss-ui.js';
+import { updateUI, updateUISchema } from './tools/update-ui.js';
+import { renderUI, renderUISchema } from './tools/render-ui.js';
+import { WebSocketHandler } from '../websocket/handler.js';
 
 // Configuration
 const API_PORT = parseInt(process.env.PORT || '3737', 10);
@@ -597,6 +601,21 @@ async function main() {
           required: ['project', 'session', 'id'],
         },
       },
+      {
+        name: 'render_ui',
+        description: 'Push UI to browser. Renders JSON UI definitions to the browser and manages user interactions. Can optionally block until user action is received.',
+        inputSchema: renderUISchema,
+      },
+      {
+        name: 'update_ui',
+        description: 'Update the currently displayed UI without full re-render by applying a partial patch to the current UI.',
+        inputSchema: updateUISchema,
+      },
+      {
+        name: 'dismiss_ui',
+        description: 'Dismiss the currently displayed UI in the browser. Called when user responds in terminal to clear the question panel.',
+        inputSchema: dismissUISchema,
+      },
     ],
   }));
 
@@ -695,6 +714,27 @@ async function main() {
             const { project, session, id } = args as { project: string; session: string; id: string };
             if (!project || !session || !id) throw new Error('Missing required: project, session, id');
             return await previewDocument(project, session, id);
+          }
+
+          case 'render_ui': {
+            const { project, session, ui, blocking, timeout } = args as { project: string; session: string; ui: any; blocking?: boolean; timeout?: number };
+            if (!project || !session || !ui) throw new Error('Missing required: project, session, ui');
+            // Create a WebSocket handler instance for this render
+            const wsHandler = new WebSocketHandler();
+            const result = await renderUI(project, session, ui, blocking ?? true, timeout, wsHandler);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'update_ui': {
+            const { project, session, patch } = args as { project: string; session: string; patch: Record<string, any> };
+            if (!project || !session || !patch) throw new Error('Missing required: project, session, patch');
+            return await updateUI(project, session, patch);
+          }
+
+          case 'dismiss_ui': {
+            const { project, session } = args as { project: string; session: string };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            return await dismissUI(project, session);
           }
 
           default:
