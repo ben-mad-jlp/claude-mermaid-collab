@@ -14,7 +14,7 @@
  */
 
 import React, { useState } from 'react';
-import type { SectionProps } from '@types/ai-ui';
+import type { SectionProps } from '@/types/ai-ui';
 
 export interface SectionComponentProps extends SectionProps {
   children?: React.ReactNode;

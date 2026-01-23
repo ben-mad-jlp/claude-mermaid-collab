@@ -15,7 +15,7 @@
  */
 
 import React, { useState } from 'react';
-import type { CardProps } from '@types/ai-ui';
+import type { CardProps } from '@/types/ai-ui';
 
 export interface CardComponentProps extends CardProps {
   children?: React.ReactNode;

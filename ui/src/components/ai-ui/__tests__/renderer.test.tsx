@@ -20,7 +20,7 @@ import {
   renderComponents,
   withAIUIRenderer,
 } from '../renderer';
-import type { UIComponent } from '@types/ai-ui';
+import type { UIComponent } from '@/types/ai-ui';
 
 describe('AIUIRenderer', () => {
   // Setup for window.matchMedia

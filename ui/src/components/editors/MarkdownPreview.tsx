@@ -168,58 +168,58 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
   const components = useMemo(
     () => ({
       // Headings
-      h1: ({ children }: { children: React.ReactNode }) => (
+      h1: ({ children }: { children?: React.ReactNode }) => (
         <h1 className="text-3xl font-bold mt-6 mb-4 text-gray-900 dark:text-white">
           {children}
         </h1>
       ),
-      h2: ({ children }: { children: React.ReactNode }) => (
+      h2: ({ children }: { children?: React.ReactNode }) => (
         <h2 className="text-2xl font-bold mt-5 mb-3 text-gray-800 dark:text-gray-100">
           {children}
         </h2>
       ),
-      h3: ({ children }: { children: React.ReactNode }) => (
+      h3: ({ children }: { children?: React.ReactNode }) => (
         <h3 className="text-xl font-bold mt-4 mb-2 text-gray-700 dark:text-gray-200">
           {children}
         </h3>
       ),
-      h4: ({ children }: { children: React.ReactNode }) => (
+      h4: ({ children }: { children?: React.ReactNode }) => (
         <h4 className="text-lg font-bold mt-3 mb-2 text-gray-700 dark:text-gray-200">
           {children}
         </h4>
       ),
-      h5: ({ children }: { children: React.ReactNode }) => (
+      h5: ({ children }: { children?: React.ReactNode }) => (
         <h5 className="text-base font-bold mt-2 mb-1 text-gray-700 dark:text-gray-200">
           {children}
         </h5>
       ),
-      h6: ({ children }: { children: React.ReactNode }) => (
+      h6: ({ children }: { children?: React.ReactNode }) => (
         <h6 className="text-sm font-bold mt-2 mb-1 text-gray-700 dark:text-gray-200">
           {children}
         </h6>
       ),
 
       // Paragraphs
-      p: ({ children }: { children: React.ReactNode }) => (
+      p: ({ children }: { children?: React.ReactNode }) => (
         <p className="my-3 text-gray-700 dark:text-gray-300 leading-relaxed">
           {children}
         </p>
       ),
 
       // Text styling
-      strong: ({ children }: { children: React.ReactNode }) => (
+      strong: ({ children }: { children?: React.ReactNode }) => (
         <strong className="font-bold text-gray-900 dark:text-white">
           {children}
         </strong>
       ),
-      em: ({ children }: { children: React.ReactNode }) => (
+      em: ({ children }: { children?: React.ReactNode }) => (
         <em className="italic text-gray-700 dark:text-gray-300">
           {children}
         </em>
       ),
 
       // Links
-      a: ({ href, children }: { href?: string; children: React.ReactNode }) => (
+      a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
         <a
           href={href}
           target="_blank"
@@ -231,17 +231,17 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       ),
 
       // Lists
-      ul: ({ children }: { children: React.ReactNode }) => (
+      ul: ({ children }: { children?: React.ReactNode }) => (
         <ul className="list-disc list-inside my-3 ml-2 text-gray-700 dark:text-gray-300">
           {children}
         </ul>
       ),
-      ol: ({ children }: { children: React.ReactNode }) => (
+      ol: ({ children }: { children?: React.ReactNode }) => (
         <ol className="list-decimal list-inside my-3 ml-2 text-gray-700 dark:text-gray-300">
           {children}
         </ol>
       ),
-      li: ({ children }: { children: React.ReactNode }) => (
+      li: ({ children }: { children?: React.ReactNode }) => (
         <li className="my-1">{children}</li>
       ),
 
@@ -286,7 +286,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       },
 
       // Blockquotes
-      blockquote: ({ children }: { children: React.ReactNode }) => (
+      blockquote: ({ children }: { children?: React.ReactNode }) => (
         <blockquote className="border-l-4 border-gray-300 dark:border-gray-600 pl-4 my-4 italic text-gray-600 dark:text-gray-400">
           {children}
         </blockquote>
@@ -298,28 +298,28 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       ),
 
       // Tables
-      table: ({ children }: { children: React.ReactNode }) => (
+      table: ({ children }: { children?: React.ReactNode }) => (
         <table className="my-4 w-full border-collapse border border-gray-300 dark:border-gray-600">
           {children}
         </table>
       ),
-      thead: ({ children }: { children: React.ReactNode }) => (
+      thead: ({ children }: { children?: React.ReactNode }) => (
         <thead className="bg-gray-100 dark:bg-gray-800">{children}</thead>
       ),
-      tbody: ({ children }: { children: React.ReactNode }) => (
+      tbody: ({ children }: { children?: React.ReactNode }) => (
         <tbody>{children}</tbody>
       ),
-      tr: ({ children }: { children: React.ReactNode }) => (
+      tr: ({ children }: { children?: React.ReactNode }) => (
         <tr className="border-b border-gray-300 dark:border-gray-600">
           {children}
         </tr>
       ),
-      td: ({ children }: { children: React.ReactNode }) => (
+      td: ({ children }: { children?: React.ReactNode }) => (
         <td className="p-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300">
           {children}
         </td>
       ),
-      th: ({ children }: { children: React.ReactNode }) => (
+      th: ({ children }: { children?: React.ReactNode }) => (
         <th className="p-2 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white font-bold text-left">
           {children}
         </th>

@@ -15,7 +15,7 @@
  */
 
 import React, { useState } from 'react';
-import type { AlertProps } from '@types/ai-ui';
+import type { AlertProps } from '@/types/ai-ui';
 
 export interface AlertComponentProps extends AlertProps {
   onDismiss?: () => void;

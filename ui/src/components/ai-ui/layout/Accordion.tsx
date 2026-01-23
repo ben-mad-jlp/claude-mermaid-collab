@@ -14,7 +14,7 @@
  */
 
 import React, { useState } from 'react';
-import type { AccordionProps, UIComponent } from '@types/ai-ui';
+import type { AccordionProps, UIComponent } from '@/types/ai-ui';
 
 export interface AccordionComponentProps extends AccordionProps {
   children?: React.ReactNode;
@@ -190,7 +190,7 @@ const AccordionContent: React.FC<{ content: UIComponent }> = ({ content }) => {
     }
   }
 
-  return <div className="text-gray-700 dark:text-gray-300">{content}</div>;
+  return <div className="text-gray-700 dark:text-gray-300">{JSON.stringify(content)}</div>;
 };
 
 export default Accordion;

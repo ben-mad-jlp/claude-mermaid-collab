@@ -12,7 +12,7 @@
  */
 
 import React, { useCallback } from 'react';
-import type { UIComponent, UIAction } from '@types/ai-ui';
+import type { UIComponent, UIAction } from '@/types/ai-ui';
 import { getComponent, validateComponent } from './registry';
 
 /**

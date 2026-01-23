@@ -13,7 +13,7 @@
  */
 
 import React from 'react';
-import type { ColumnsProps } from '@types/ai-ui';
+import type { ColumnsProps } from '@/types/ai-ui';
 
 export interface ColumnsComponentProps extends ColumnsProps {
   children?: React.ReactNode;
