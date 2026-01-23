@@ -1,7 +1,7 @@
-import React, { useId, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 
 export interface TextAreaProps {
-  onChange: (value: string) => void;
+  onChange?: (value: string) => void;
   value?: string;
   label?: string;
   placeholder?: string;
@@ -34,10 +34,19 @@ export const TextArea: React.FC<TextAreaProps> = ({
   const descriptionId = `${id}-description`;
   const errorId = `${id}-error`;
   const [error, setError] = useState<string | null>(null);
+  const [internalValue, setInternalValue] = useState(value || '');
+
+  // Sync with prop when provided (controlled mode)
+  useEffect(() => {
+    if (value !== undefined) {
+      setInternalValue(value);
+    }
+  }, [value]);
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newValue = e.target.value;
-    onChange(newValue);
+    setInternalValue(newValue);
+    onChange?.(newValue);
 
     if (validation) {
       const validationError = validation(newValue);
@@ -47,7 +56,7 @@ export const TextArea: React.FC<TextAreaProps> = ({
 
   const handleBlur = () => {
     if (validation) {
-      const validationError = validation(value);
+      const validationError = validation(internalValue);
       setError(validationError);
     }
   };
@@ -66,7 +75,7 @@ export const TextArea: React.FC<TextAreaProps> = ({
       )}
       <textarea
         id={id}
-        value={value}
+        value={internalValue}
         onChange={handleChange}
         onBlur={handleBlur}
         disabled={disabled}
@@ -98,7 +107,7 @@ export const TextArea: React.FC<TextAreaProps> = ({
       )}
       {maxLength && (
         <span className="text-xs text-gray-500 dark:text-gray-400">
-          {value.length}/{maxLength}
+          {internalValue.length}/{maxLength}
         </span>
       )}
     </div>

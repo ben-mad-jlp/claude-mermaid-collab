@@ -168,7 +168,7 @@ export const Markdown: React.FC<MarkdownProps> = ({
 
   return (
     <div
-      className="w-full rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden bg-white dark:bg-gray-900"
+      className="w-full mb-4 rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden bg-white dark:bg-gray-900"
       role="region"
       aria-label={ariaLabel || 'Markdown content'}
     >

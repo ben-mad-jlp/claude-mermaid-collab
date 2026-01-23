@@ -3,7 +3,7 @@
  * Provides type-safe wrappers around REST API endpoints
  */
 
-import type { Diagram, Document, DiagramMeta, DocumentMeta } from '../types';
+import type { Diagram, Document, DiagramListItem, DocumentListItem } from '../types';
 import type { Session } from '../services/session-registry';
 
 export interface APIError extends Error {
@@ -166,8 +166,8 @@ export class APIClient {
   /**
    * List all diagrams in a session
    */
-  async listDiagrams(project: string, session: string): Promise<DiagramMeta[]> {
-    const response = await this.request<{ diagrams: DiagramMeta[] }>(
+  async listDiagrams(project: string, session: string): Promise<DiagramListItem[]> {
+    const response = await this.request<{ diagrams: DiagramListItem[] }>(
       'GET',
       '/api/diagrams',
       { query: { project, session } }
@@ -279,8 +279,8 @@ export class APIClient {
   /**
    * List all documents in a session
    */
-  async listDocuments(project: string, session: string): Promise<DocumentMeta[]> {
-    const response = await this.request<{ documents: DocumentMeta[] }>(
+  async listDocuments(project: string, session: string): Promise<DocumentListItem[]> {
+    const response = await this.request<{ documents: DocumentListItem[] }>(
       'GET',
       '/api/documents',
       { query: { project, session } }

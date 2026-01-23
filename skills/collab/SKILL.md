@@ -5,6 +5,25 @@ user-invocable: false
 allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Glob, Grep
 ---
 
+## MCP-First Principle
+
+**Always use MCP tools for session/document operations:**
+
+| Operation | MCP Tool |
+|-----------|----------|
+| Server health | `check_server_health` |
+| List sessions | `list_sessions` |
+| Session state | `get_session_state`, `update_session_state` |
+| Documents | `get_document`, `list_documents`, `create_document`, `update_document`, `patch_document` |
+| Diagrams | `get_diagram`, `list_diagrams`, `create_diagram`, `update_diagram`, `patch_diagram` |
+| Snapshots | `has_snapshot`, `save_snapshot`, `load_snapshot`, `delete_snapshot` |
+| UI | `render_ui`, `update_ui`, `dismiss_ui` |
+
+**Bash only for:**
+- Git commands (`git status`, `git commit`, etc.)
+- External tools not available via MCP
+- File operations outside `.collab/` folder
+
 # Collab Sessions
 
 Start or resume a collaborative design session. The mermaid-collab server must be running.
@@ -15,11 +34,14 @@ This skill is the orchestrator for the collab workflow. It manages session creat
 
 ## Step 1: Check Server
 
-```bash
-curl -s http://localhost:3737 > /dev/null 2>&1 && echo "running" || echo "not running"
+```
+Tool: mcp__mermaid__check_server_health
+Args: {}
 ```
 
-**If not running:**
+Returns: `{ "mcp": true, "http": true, "ui": true }` or error
+
+**If not all true:**
 ```
 Server not running. From the plugin directory, run:
 

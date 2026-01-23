@@ -8,8 +8,9 @@ The core orchestration loop that processes work items one at a time.
 
 ### 4.1 Read Design Doc
 
-```bash
-cat .collab/<name>/documents/design.md
+```
+Tool: mcp__mermaid__get_document
+Args: { "project": "<cwd>", "session": "<name>", "id": "design" }
 ```
 
 ### 4.2 Parse Work Items

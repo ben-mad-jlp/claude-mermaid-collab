@@ -11,7 +11,7 @@
  * Integrates with useUIStore for persisting split positions.
  */
 
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   Panel,
   PanelGroup,
@@ -76,6 +76,7 @@ export const SplitPane: React.FC<SplitPaneProps> = ({
 }) => {
   const primaryPanelRef = useRef<ImperativePanelHandle>(null);
   const previousCollapsedRef = useRef<boolean>(false);
+  const [isDragging, setIsDragging] = useState(false);
 
   // Handle layout changes - MixedSizes has sizePercentage and sizePixels properties
   const handleLayout = useCallback(
@@ -129,7 +130,7 @@ export const SplitPane: React.FC<SplitPaneProps> = ({
           onExpand={onPrimaryExpand}
           data-testid="split-pane-primary"
         >
-          <div className="w-full h-full overflow-hidden">
+          <div className={`w-full h-full overflow-hidden ${isDragging ? 'pointer-events-none select-none' : ''}`}>
             {primaryContent}
           </div>
         </Panel>
@@ -137,6 +138,7 @@ export const SplitPane: React.FC<SplitPaneProps> = ({
         {/* Resize Handle */}
         <PanelResizeHandle
           data-testid="split-pane-handle"
+          onDragging={setIsDragging}
           className={`
             group
             ${direction === 'horizontal' ? 'w-1.5' : 'h-1.5'}
@@ -167,7 +169,7 @@ export const SplitPane: React.FC<SplitPaneProps> = ({
           collapsible={secondaryCollapsible}
           data-testid="split-pane-secondary"
         >
-          <div className="w-full h-full overflow-hidden">
+          <div className={`w-full h-full overflow-hidden ${isDragging ? 'pointer-events-none select-none' : ''}`}>
             {secondaryContent}
           </div>
         </Panel>

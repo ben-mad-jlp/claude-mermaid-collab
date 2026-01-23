@@ -15,10 +15,30 @@
 
 import React, { useCallback, useMemo, useState } from 'react';
 import { useSession } from '@/hooks/useSession';
+import { useDataLoader } from '@/hooks/useDataLoader';
 import { useUIStore } from '@/stores/uiStore';
 import SplitPane from '@/components/layout/SplitPane';
 import SessionCard from './SessionCard';
 import ItemGrid, { GridItem } from './ItemGrid';
+
+/**
+ * RefreshIcon component - SVG icon for the refresh button
+ */
+const RefreshIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg
+    className={className}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+    />
+  </svg>
+);
 
 export interface DashboardProps {
   /** List of available sessions */
@@ -59,6 +79,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
   );
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const { loadSessionItems } = useDataLoader();
 
   // Combine diagrams and documents into items
   const items: GridItem[] = useMemo(() => {
@@ -119,6 +142,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
     },
     [setSessionPanelSplitPosition]
   );
+
+  const handleRefresh = useCallback(async () => {
+    if (!currentSession) return;
+
+    setIsRefreshing(true);
+
+    try {
+      // Fetch both in parallel
+      await loadSessionItems(currentSession.project, currentSession.name);
+    } catch (error) {
+      console.error('Refresh failed:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [currentSession, loadSessionItems]);
 
   return (
     <div
@@ -233,43 +271,55 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 {currentSession ? `${currentSession.name}` : 'Items'}
               </h2>
               {currentSession && (
-                <div className="flex-1 relative">
-                  <input
-                    type="text"
-                    placeholder="Search items..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="
-                      w-full
-                      px-3 py-1.5
-                      text-sm
-                      border border-gray-300 dark:border-gray-600
-                      rounded-lg
-                      bg-white dark:bg-gray-700
-                      text-gray-900 dark:text-white
-                      placeholder-gray-500 dark:placeholder-gray-400
-                      focus:outline-none
-                      focus:ring-2 focus:ring-blue-500
-                      focus:border-transparent
-                    "
-                  />
-                  <svg
-                    className="
-                      absolute right-3 top-1/2 -translate-y-1/2
-                      w-4 h-4
-                      text-gray-400 dark:text-gray-500
-                      pointer-events-none
-                    "
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z"
-                      clipRule="evenodd"
+                <>
+                  <div className="flex-1 relative">
+                    <input
+                      type="text"
+                      placeholder="Search items..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="
+                        w-full
+                        px-3 py-1.5
+                        text-sm
+                        border border-gray-300 dark:border-gray-600
+                        rounded-lg
+                        bg-white dark:bg-gray-700
+                        text-gray-900 dark:text-white
+                        placeholder-gray-500 dark:placeholder-gray-400
+                        focus:outline-none
+                        focus:ring-2 focus:ring-blue-500
+                        focus:border-transparent
+                      "
                     />
-                  </svg>
-                </div>
+                    <svg
+                      className="
+                        absolute right-3 top-1/2 -translate-y-1/2
+                        w-4 h-4
+                        text-gray-400 dark:text-gray-500
+                        pointer-events-none
+                      "
+                      viewBox="0 0 20 20"
+                      fill="currentColor"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                  </div>
+                  <button
+                    onClick={handleRefresh}
+                    disabled={isRefreshing}
+                    className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded disabled:opacity-50"
+                    title="Refresh"
+                  >
+                    <RefreshIcon
+                      className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`}
+                    />
+                  </button>
+                </>
               )}
             </div>
 

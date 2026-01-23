@@ -1,6 +1,6 @@
 import { readdir, readFile, writeFile, unlink, stat, mkdir } from 'fs/promises';
 import { join, basename } from 'path';
-import type { Document, DocumentMeta } from '../types';
+import type { Document, DocumentMeta, DocumentListItem } from '../types';
 import { config } from '../config';
 
 export class DocumentManager {
@@ -32,15 +32,13 @@ export class DocumentManager {
     }
   }
 
-  async listDocuments(): Promise<Document[]> {
-    const documents: Document[] = [];
+  async listDocuments(): Promise<DocumentListItem[]> {
+    const documents: DocumentListItem[] = [];
 
     for (const [id, meta] of this.index.entries()) {
-      const content = await readFile(meta.path, 'utf-8');
       documents.push({
         id,
         name: meta.name,
-        content,
         lastModified: meta.lastModified,
       });
     }

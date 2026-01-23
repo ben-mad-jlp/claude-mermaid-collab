@@ -1,6 +1,6 @@
 import { readdir, readFile, writeFile, unlink, stat, mkdir } from 'fs/promises';
 import { join, basename } from 'path';
-import type { Diagram, DiagramMeta } from '../types';
+import type { Diagram, DiagramMeta, DiagramListItem } from '../types';
 import { config } from '../config';
 
 export class DiagramManager {
@@ -33,15 +33,13 @@ export class DiagramManager {
     }
   }
 
-  async listDiagrams(): Promise<Diagram[]> {
-    const diagrams: Diagram[] = [];
+  async listDiagrams(): Promise<DiagramListItem[]> {
+    const diagrams: DiagramListItem[] = [];
 
     for (const [id, meta] of this.index.entries()) {
-      const content = await readFile(meta.path, 'utf-8');
       diagrams.push({
         id,
         name: meta.name,
-        content,
         lastModified: meta.lastModified,
       });
     }

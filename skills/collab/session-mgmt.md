@@ -6,8 +6,16 @@ Detailed procedures for finding, creating, and resuming collab sessions.
 
 ## Step 2: Find Sessions
 
-```bash
-ls -d .collab/*/ 2>/dev/null | xargs -I{} basename {}
+```
+Tool: mcp__mermaid__list_sessions
+Args: {}
+```
+
+Returns: `{ "sessions": [{ "project": "...", "session": "...", "lastAccess": "..." }, ...] }`
+
+**Filter to current project:**
+```
+project_sessions = sessions.filter(s => s.project == "<absolute-path-to-cwd>")
 ```
 
 **If sessions exist:**
@@ -21,8 +29,8 @@ ls -d .collab/*/ 2>/dev/null | xargs -I{} basename {}
    ```
    Existing sessions:
 
-   1. bright-calm-river - brainstorming
-   2. swift-green-meadow - implementation
+   1. bright-calm-river - brainstorming (last active: 2 hours ago)
+   2. swift-green-meadow - implementation (last active: 3 days ago)
    3. Create new session
 
    Select option (1-3):

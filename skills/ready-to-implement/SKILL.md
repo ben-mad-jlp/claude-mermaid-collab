@@ -215,50 +215,26 @@ Use /executing-plans to continue.
 
 ## Browser-Based Questions
 
-When a collab session is active, prefer `render_ui` for user interactions instead of terminal prompts.
+When a collab session is active, use `render_ui` for all user interactions.
 
-### Multiple Choice Example
+**Component selection:**
+| Question Type | Component |
+|--------------|-----------|
+| Yes/No | Card with action buttons |
+| Choose 1 of 2-5 | RadioGroup |
+| Choose 1 of 6+ | MultipleChoice |
+| Free text | TextInput or TextArea |
 
+**Example - Yes/No:**
 ```
 Tool: mcp__mermaid__render_ui
 Args: {
-  "project": "<absolute-path-to-cwd>",
-  "session": "<session-name>",
+  "project": "<cwd>",
+  "session": "<session>",
   "ui": {
     "type": "Card",
-    "props": { "title": "Select an option" },
-    "children": [{
-      "type": "MultipleChoice",
-      "props": {
-        "options": [
-          { "value": "1", "label": "Option 1" },
-          { "value": "2", "label": "Option 2" }
-        ],
-        "name": "choice"
-      }
-    }],
-    "actions": [{ "id": "submit", "label": "Submit", "primary": true }]
-  },
-  "blocking": true
-}
-```
-
-Response: `{ "action": "submit", "data": { "choice": "1" } }`
-
-### Yes/No Confirmation Example
-
-```
-Tool: mcp__mermaid__render_ui
-Args: {
-  "project": "<absolute-path-to-cwd>",
-  "session": "<session-name>",
-  "ui": {
-    "type": "Card",
-    "props": { "title": "Confirm" },
-    "children": [{
-      "type": "Markdown",
-      "props": { "content": "Do you want to proceed?" }
-    }],
+    "props": { "title": "<question context>" },
+    "children": [{ "type": "Markdown", "props": { "content": "<question>" } }],
     "actions": [
       { "id": "yes", "label": "Yes", "primary": true },
       { "id": "no", "label": "No" }
@@ -268,7 +244,7 @@ Args: {
 }
 ```
 
-Response: `{ "action": "yes" }` or `{ "action": "no" }`
+**Terminal prompts only when:** No collab session exists (pre-session selection).
 
 ## Integration
 

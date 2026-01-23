@@ -84,6 +84,45 @@ ready_tasks = tasks where:
 **RED FLAG - INLINE IMPLEMENTATION:**
 If you find yourself using Edit/Write tools directly on source files instead of spawning Task agents, you are violating the subagent requirement. STOP and use Task tool instead.
 
+### Parallel Dispatch Example
+
+When dispatching multiple parallel-safe tasks, use a SINGLE message with multiple Task tool calls:
+
+```
+[In one response, make multiple tool calls:]
+
+<Task tool call>
+  description: "Implement auth-types"
+  prompt: "You are implementing task auth-types..."
+  subagent_type: "mermaid-collab:subagent-driven-development:implementer-prompt"
+</Task tool call>
+
+<Task tool call>
+  description: "Implement utils"
+  prompt: "You are implementing task utils..."
+  subagent_type: "mermaid-collab:subagent-driven-development:implementer-prompt"
+</Task tool call>
+
+<Task tool call>
+  description: "Implement config"
+  prompt: "You are implementing task config..."
+  subagent_type: "mermaid-collab:subagent-driven-development:implementer-prompt"
+</Task tool call>
+```
+
+**CRITICAL:** All three Task tool calls appear in the SAME message.
+Do NOT wait for one to complete before starting the next.
+The agents run concurrently.
+
+**WRONG - Sequential dispatch:**
+```
+Message 1: [Task tool call for auth-types]
+[Wait for completion]
+Message 2: [Task tool call for utils]
+[Wait for completion]
+Message 3: [Task tool call for config]
+```
+
 ### Task Agent Prompt Template (Collab Workflow)
 
 ```

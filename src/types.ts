@@ -11,6 +11,12 @@ export interface DiagramMeta {
   lastModified: number;
 }
 
+export interface DiagramListItem {
+  id: string;
+  name: string;
+  lastModified: number;
+}
+
 export interface Document {
   id: string;
   name: string;
@@ -21,6 +27,12 @@ export interface Document {
 export interface DocumentMeta {
   name: string;
   path: string;
+  lastModified: number;
+}
+
+export interface DocumentListItem {
+  id: string;
+  name: string;
   lastModified: number;
 }
 

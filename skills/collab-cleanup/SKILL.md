@@ -6,6 +6,39 @@ user-invocable: false
 
 # Collab Cleanup
 
+## Browser-Based Questions
+
+When a collab session is active, use `render_ui` for all user interactions.
+
+**Component selection:**
+| Question Type | Component |
+|--------------|-----------|
+| Yes/No | Card with action buttons |
+| Choose 1 of 2-5 | RadioGroup |
+| Choose 1 of 6+ | MultipleChoice |
+| Free text | TextInput or TextArea |
+
+**Example - Yes/No:**
+```
+Tool: mcp__mermaid__render_ui
+Args: {
+  "project": "<cwd>",
+  "session": "<session>",
+  "ui": {
+    "type": "Card",
+    "props": { "title": "<question context>" },
+    "children": [{ "type": "Markdown", "props": { "content": "<question>" } }],
+    "actions": [
+      { "id": "yes", "label": "Yes", "primary": true },
+      { "id": "no", "label": "No" }
+    ]
+  },
+  "blocking": true
+}
+```
+
+**Terminal prompts only when:** No collab session exists (pre-session selection).
+
 ## Overview
 
 Close a collab session after development is complete. Offers choices to archive design artifacts, delete them, or keep the session open for reference.
