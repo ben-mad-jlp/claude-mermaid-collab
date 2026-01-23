@@ -53,50 +53,7 @@ const server = Bun.serve({
       return handleAPI(req, diagramManager, documentManager, metadataManager, validator, renderer, wsHandler);
     }
 
-    // Static files (served from the server's public/ directory, not cwd)
-    if (url.pathname === '/') {
-      const file = Bun.file(join(config.PUBLIC_DIR, 'index.html'));
-      return new Response(file);
-    }
-
-    if (url.pathname === '/diagram.html') {
-      const file = Bun.file(join(config.PUBLIC_DIR, 'diagram.html'));
-      return new Response(file);
-    }
-
-    if (url.pathname === '/document.html') {
-      const file = Bun.file(join(config.PUBLIC_DIR, 'document.html'));
-      return new Response(file);
-    }
-
-    if (url.pathname === '/smach-test.html') {
-      const file = Bun.file(join(config.PUBLIC_DIR, 'smach-test.html'));
-      return new Response(file);
-    }
-
-    if (url.pathname.startsWith('/css/') || url.pathname.startsWith('/js/')) {
-      const file = Bun.file(join(config.PUBLIC_DIR, url.pathname));
-      const exists = await file.exists();
-
-      if (!exists) {
-        return new Response('Not found', { status: 404 });
-      }
-
-      const contentType = url.pathname.endsWith('.css')
-        ? 'text/css'
-        : url.pathname.endsWith('.js')
-        ? 'application/javascript'
-        : 'text/plain';
-
-      return new Response(file, {
-        headers: {
-          'Content-Type': contentType,
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-        },
-      });
-    }
-
-    // React UI from ui/dist/ (SPA fallback)
+    // React UI from ui/dist/ (primary UI)
     if (existsSync(config.UI_DIST_DIR)) {
       // Try to serve static file from dist
       const filePath = join(config.UI_DIST_DIR, url.pathname);
@@ -158,4 +115,5 @@ const server = Bun.serve({
 
 console.log(`🚀 Mermaid Collaboration Server running on http://${config.HOST}:${config.PORT}`);
 console.log(`🌐 Public directory: ${config.PUBLIC_DIR}`);
+console.log(`🎨 UI dist directory: ${config.UI_DIST_DIR} (exists: ${existsSync(config.UI_DIST_DIR)})`);
 console.log(`🔌 WebSocket: ws://${config.HOST}:${config.PORT}/ws`);
