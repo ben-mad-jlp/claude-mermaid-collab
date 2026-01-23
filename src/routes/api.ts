@@ -231,6 +231,8 @@ export async function handleAPI(
         type: 'diagram_created',
         id,
         name: name + '.mmd',
+        content,
+        lastModified: Date.now(),
         project: params.project,
         session: params.session,
       });
@@ -475,6 +477,8 @@ export async function handleAPI(
         type: 'document_created',
         id,
         name: name + '.md',
+        content,
+        lastModified: Date.now(),
         project: params.project,
         session: params.session,
       });

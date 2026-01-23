@@ -91,7 +91,23 @@ Apply these principles to interface documentation and pseudocode comments.
 
 Define the structural contracts of the system - file paths, class/function signatures, public API contracts, and type definitions.
 
-**For detailed instructions, see [Interface Phase](interface.md).**
+**Invoke skill: rough-draft-interface** for detailed instructions.
+
+---
+
+### Compaction Checkpoint: Interface → Pseudocode
+
+After Interface phase completes and is approved:
+
+Ask user: "Ready to compact context before Pseudocode phase?"
+
+```
+1. Yes - compact now
+2. No - continue without compaction
+```
+
+- If **1 (Yes)**: Invoke skill: collab-compact, then continue to Pseudocode
+- If **2 (No)**: Continue to Pseudocode without compaction
 
 ---
 
@@ -99,7 +115,23 @@ Define the structural contracts of the system - file paths, class/function signa
 
 Define the logic flow for each function - step-by-step descriptions, error handling, edge cases, and dependencies.
 
-**For detailed instructions, see [Pseudocode Phase](pseudocode.md).**
+**Invoke skill: rough-draft-pseudocode** for detailed instructions.
+
+---
+
+### Compaction Checkpoint: Pseudocode → Skeleton
+
+After Pseudocode phase completes and is approved:
+
+Ask user: "Ready to compact context before Skeleton phase?"
+
+```
+1. Yes - compact now
+2. No - continue without compaction
+```
+
+- If **1 (Yes)**: Invoke skill: collab-compact, then continue to Skeleton
+- If **2 (No)**: Continue to Skeleton without compaction
 
 ---
 
@@ -107,7 +139,23 @@ Define the logic flow for each function - step-by-step descriptions, error handl
 
 Generate stub file documentation and task dependency graphs. Files are documented but NOT created - they are created during implementation by executing-plans.
 
-**For detailed instructions, see [Skeleton Phase](skeleton.md).**
+**Invoke skill: rough-draft-skeleton** for detailed instructions.
+
+---
+
+### Compaction Checkpoint: Skeleton → Implementation
+
+After Skeleton phase completes and is approved:
+
+Ask user: "Ready to compact context before Implementation?"
+
+```
+1. Yes - compact now
+2. No - continue without compaction
+```
+
+- If **1 (Yes)**: Invoke skill: collab-compact, then continue to Implementation Handoff
+- If **2 (No)**: Continue to Implementation Handoff without compaction
 
 ---
 
@@ -201,7 +249,7 @@ Keep this change?
 
 Hand off to executing-plans with the dependency graph. Includes options for current directory or git worktree isolation.
 
-**For detailed instructions, see [Implementation Handoff](handoff.md).**
+**Invoke skill: rough-draft-handoff** for detailed instructions.
 
 ---
 

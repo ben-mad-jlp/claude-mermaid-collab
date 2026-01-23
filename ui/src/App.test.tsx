@@ -418,38 +418,33 @@ describe('App Component', () => {
       expect(typeof chatStore.markAsRead).toBe('function');
     });
 
-    it('should handle ChatDrawer close action', async () => {
-      const user = userEvent.setup();
+    it('should render ChatPanel always visible in SplitPane', async () => {
       const { container } = render(<App />);
 
-      // Get initial state
-      const chatStore = useChatStore.getState();
+      // Verify ChatPanel exists within the SplitPane structure
+      // ChatPanel should have the "Claude" header
+      const claudeHeader = container.querySelector('h2');
+      expect(claudeHeader?.textContent).toContain('Claude');
 
-      // Verify ChatDrawer close button exists and is interactive
-      // Find the close button specifically in the drawer header
-      const drawerHeaders = container.querySelectorAll('[class*="flex items-center justify-between"]');
-      expect(drawerHeaders.length).toBeGreaterThan(0);
+      // ChatPanel should have border-l for left border (panel on right side)
+      const chatPanel = container.querySelector('[class*="border-l"]');
+      expect(chatPanel).toBeDefined();
 
-      // The drawer has a close button that should be clickable
-      const closeButtons = container.querySelectorAll('button[aria-label*="close"]');
-      expect(closeButtons.length).toBeGreaterThan(0);
-
-      // Verify ChatDrawer component exists even if not currently open
-      const drawer = container.querySelector('[class*="fixed left-0 top-0"]');
-      expect(drawer).toBeDefined();
+      // The SplitPane should exist with resize handle
+      const splitPane = container.querySelector('[data-testid="split-pane"]');
+      expect(splitPane).toBeDefined();
     });
 
-    it('should ensure proper z-index layering', () => {
+    it('should render ChatPanel within SplitPane secondary panel', () => {
       const { container } = render(<App />);
 
-      // ChatToggle should have z-40 (fixed position, top-left)
-      const toggleContainer = container.querySelector('.fixed.top-4.left-4');
-      expect(toggleContainer).toBeDefined();
-      expect(toggleContainer?.className).toContain('z-40');
+      // Verify SplitPane secondary panel contains ChatPanel
+      const secondaryPanel = container.querySelector('[data-testid="split-pane-secondary"]');
+      expect(secondaryPanel).toBeDefined();
 
-      // ChatDrawer should have z-40 (left drawer)
-      const drawerElement = container.querySelector('[class*="z-40"][class*="fixed left-0"]');
-      expect(drawerElement).toBeDefined();
+      // ChatPanel should show message count in footer
+      const footer = container.querySelector('[class*="border-t"][class*="text-xs"]');
+      expect(footer).toBeDefined();
     });
 
     it('should not break existing App functionality with chat integration', () => {

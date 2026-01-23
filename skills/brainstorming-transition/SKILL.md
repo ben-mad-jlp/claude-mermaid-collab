@@ -1,3 +1,16 @@
+---
+name: brainstorming-transition
+description: Transition from brainstorming to rough-draft skill
+user-invocable: false
+allowed-tools:
+  - Read
+  - Glob
+  - Grep
+  - Bash
+  - AskUserQuestion
+  - mcp__plugin_mermaid-collab_mermaid__*
+---
+
 # Transition to Rough-Draft
 
 After the VALIDATING phase passes, transition to the rough-draft skill.

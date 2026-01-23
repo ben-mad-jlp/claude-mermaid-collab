@@ -14,10 +14,10 @@ export interface NotificationData {
 export type WSMessage =
   | { type: 'connected'; diagramCount: number }
   | { type: 'diagram_updated'; id: string; content: string; lastModified: number; patch?: { oldString: string; newString: string } }
-  | { type: 'diagram_created'; id: string; name: string }
+  | { type: 'diagram_created'; id: string; name: string; content: string; lastModified: number; project: string; session: string }
   | { type: 'diagram_deleted'; id: string }
   | { type: 'document_updated'; id: string; content: string; lastModified: number; patch?: { oldString: string; newString: string } }
-  | { type: 'document_created'; id: string; name: string }
+  | { type: 'document_created'; id: string; name: string; content: string; lastModified: number; project: string; session: string }
   | { type: 'document_deleted'; id: string }
   | { type: 'metadata_updated'; itemId?: string; updates?: Record<string, unknown>; foldersChanged?: boolean }
   | { type: 'subscribe'; id?: string; channel?: string }

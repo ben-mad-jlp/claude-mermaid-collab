@@ -1,3 +1,16 @@
+---
+name: rough-draft-handoff
+description: Phase 4 - Hand off to executing-plans with the dependency graph
+user-invocable: false
+allowed-tools:
+  - Read
+  - Glob
+  - Grep
+  - Bash
+  - AskUserQuestion
+  - mcp__plugin_mermaid-collab_mermaid__*
+---
+
 # Phase 4: Implementation Handoff
 
 Hand off to executing-plans with the dependency graph.

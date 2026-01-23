@@ -40,7 +40,7 @@ Session management handles finding existing sessions, creating new sessions, and
 - **Step 3: Create Session** - Generate name, create files, invoke gather-session-goals
 - **Step 5: Resume Session** - Restore from snapshot or route through ready-to-implement
 
-**For detailed session management procedures, see [session-mgmt.md](session-mgmt.md).**
+**Invoke skill: collab-session-mgmt** for detailed session management procedures.
 
 ---
 
@@ -55,7 +55,7 @@ The core orchestration loop (Step 4) that processes work items one at a time.
 - Mark item documented and continue loop
 - When all items done → invoke ready-to-implement
 
-**For detailed work item loop procedures, see [work-item-loop.md](work-item-loop.md).**
+**Invoke skill: collab-work-item-loop** for detailed work item loop procedures.
 
 ---
 

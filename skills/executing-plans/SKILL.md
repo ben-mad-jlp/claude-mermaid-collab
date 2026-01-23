@@ -285,7 +285,7 @@ Task execution diagram verified. Proceeding to execution.
 
 Execute tasks following the dependency graph, dispatching parallel-safe tasks together.
 
-**For detailed execution logic, task routing, and agent prompts, see [execution.md](execution.md).**
+**Invoke skill: executing-plans-execution** for detailed execution logic, task routing, and agent prompts.
 
 Key points:
 - Standard execution: First 3 tasks in sequence
@@ -297,7 +297,7 @@ Key points:
 
 After each task completes, verify implementation against design and check for drift.
 
-**For detailed verification, drift detection, and snapshot logic, see [review.md](review.md).**
+**Invoke skill: executing-plans-review** for detailed verification, drift detection, and snapshot logic.
 
 Key points:
 - Per-task verification compares output against design doc
@@ -419,7 +419,7 @@ collab -> brainstorming -> rough-draft -> executing-plans -> finishing-a-develop
 4. Parallel dispatch independent tasks via `subagent-driven-development`
 5. Verify each task against design before unlocking dependents
 
-## Phase Files
+## Sub-Skills
 
-- [execution.md](execution.md) - Detailed task execution logic, routing, and agent prompts
-- [review.md](review.md) - Verification, drift detection, and snapshot saving
+- **executing-plans-execution** - Detailed task execution logic, routing, and agent prompts
+- **executing-plans-review** - Verification, drift detection, and snapshot saving

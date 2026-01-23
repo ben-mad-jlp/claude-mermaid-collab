@@ -40,8 +40,9 @@ import type { Item, Session, ToolbarAction } from '@/types';
 import Header from '@/components/layout/Header';
 import Sidebar from '@/components/layout/Sidebar';
 import EditorToolbar from '@/components/layout/EditorToolbar';
+import { SplitPane } from '@/components/layout/SplitPane';
 import QuestionPanel from '@/components/question-panel/QuestionPanel';
-import { ChatToggle, ChatDrawer } from '@/components/chat-drawer';
+import { ChatPanel } from '@/components/chat-drawer';
 
 // Import unified editor component
 import UnifiedEditor from '@/components/editors/UnifiedEditor';
@@ -186,14 +187,7 @@ const App: React.FC = () => {
   // WebSocket for real-time updates
   const { isConnected, isConnecting } = useWebSocket();
 
-  // Chat store for drawer state
-  const { isOpen: isChatOpen, unreadCount, setOpen: setChatOpen } = useChatStore(
-    useShallow((state) => ({
-      isOpen: state.isOpen,
-      unreadCount: state.unreadCount,
-      setOpen: state.setOpen,
-    }))
-  );
+  // Chat store - no longer need drawer state, ChatPanel is always visible
 
   // Subscribe to updates and handle messages
   useEffect(() => {
@@ -616,36 +610,36 @@ const App: React.FC = () => {
           isConnecting={isConnecting}
         />
 
-        {/* Main Content Area with Sidebar and Content */}
+        {/* Main Content Area with Sidebar, Content, and ChatPanel */}
         <div className="flex flex-1 min-h-0 overflow-hidden">
           {/* Fixed-width Sidebar */}
           <Sidebar className="h-full" />
 
-          {/* Main Content */}
-          <main
-            className={`
-              flex-1
-              min-h-0
-              overflow-hidden
-              bg-white dark:bg-gray-800
-            `}
-          >
-            {renderMainContent()}
-          </main>
+          {/* Main Content with ChatPanel in SplitPane */}
+          <SplitPane
+            direction="horizontal"
+            defaultPrimarySize={75}
+            minPrimarySize={50}
+            minSecondarySize={20}
+            secondaryCollapsible={true}
+            storageId="main-chat-split"
+            primaryContent={
+              <main
+                className={`
+                  h-full
+                  min-h-0
+                  overflow-hidden
+                  bg-white dark:bg-gray-800
+                `}
+              >
+                {renderMainContent()}
+              </main>
+            }
+            secondaryContent={
+              <ChatPanel className="h-full" />
+            }
+          />
         </div>
-
-        {/* Chat Toggle Button */}
-        <ChatToggle
-          onClick={() => setChatOpen(!isChatOpen)}
-          unreadCount={unreadCount}
-          isOpen={isChatOpen}
-        />
-
-        {/* Chat Drawer */}
-        <ChatDrawer
-          isOpen={isChatOpen}
-          onClose={() => setChatOpen(false)}
-        />
 
         {/* Question Panel Overlay */}
         {currentQuestion && <QuestionPanel />}

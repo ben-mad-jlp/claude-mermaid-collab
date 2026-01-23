@@ -97,7 +97,7 @@ Gather context about the project and form an initial understanding of what needs
 - Form an initial list of items/topics to discuss
 - Focus on gathering context, not making decisions yet
 
-**For detailed instructions, see [exploring.md](exploring.md).**
+**Invoke skill: brainstorming-exploring** for detailed instructions.
 
 ## CLARIFYING Phase
 
@@ -109,7 +109,7 @@ Discuss each item one at a time to fully understand requirements before designin
 - After discussing all items, ask: "Is there anything else?"
 - Only proceed when user confirms nothing else to discuss
 
-**For detailed instructions, see [clarifying.md](clarifying.md).**
+**Invoke skill: brainstorming-clarifying** for detailed instructions.
 
 ## DESIGNING Phase
 
@@ -121,7 +121,7 @@ Present the design approach in small, validated sections.
 - Present sections of 200-300 words, one at a time
 - Get explicit validation before moving to next section
 
-**For detailed instructions, see [designing.md](designing.md).**
+**Invoke skill: brainstorming-designing** for detailed instructions.
 
 ## VALIDATING Phase
 
@@ -132,7 +132,7 @@ Run the completeness gate to ensure the design is ready for implementation.
 - Ensure no TBDs or ambiguous items remain
 - Gate the transition to rough-draft
 
-**For detailed instructions, see [validating.md](validating.md).**
+**Invoke skill: brainstorming-validating** for detailed instructions.
 
 ## Red Flags - Phase Violations
 
@@ -191,7 +191,7 @@ Apply these principles to all design doc prose.
 - If gate passes, transition to **rough-draft** skill
 - Update collab-state.json phase to `rough-draft/interface`
 
-**For detailed transition process, see [transition.md](transition.md).**
+**Invoke skill: brainstorming-transition** for the detailed transition process.
 
 **Standalone (not in collab workflow):**
 - Design remains in the collab session at `.collab/<name>/documents/design.md`
