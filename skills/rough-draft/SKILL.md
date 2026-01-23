@@ -115,7 +115,21 @@ cat .collab/<name>/documents/design.md
 
 ### Output Format
 
-Add an "Interface Definition" section to the design doc:
+**Create per-item interface documents** instead of adding to design.md:
+
+For each work item N, create `interface-item-N.md`:
+
+```
+Tool: mcp__mermaid__create_document
+Args: {
+  "project": "<cwd>",
+  "session": "<session>",
+  "name": "interface-item-N",
+  "content": "<interface content for item N>"
+}
+```
+
+**Document structure:**
 
 ```markdown
 ## Interface Definition
@@ -216,10 +230,24 @@ For each function from the Interface phase:
 
 ### Output Format
 
-Add a "Pseudocode" section to the design doc:
+**Create per-item pseudocode documents** instead of adding to design.md:
+
+For each work item N, create `pseudocode-item-N.md`:
+
+```
+Tool: mcp__mermaid__create_document
+Args: {
+  "project": "<cwd>",
+  "session": "<session>",
+  "name": "pseudocode-item-N",
+  "content": "<pseudocode content for item N>"
+}
+```
+
+**Document structure:**
 
 ```markdown
-## Pseudocode
+# Pseudocode: Item N - [Title]
 
 ### AuthService.authenticate(email, password)
 
@@ -399,25 +427,47 @@ Legend: Green = parallel-safe (no dependencies), Blue = sequential, Purple = tes
 
 ### Output Format
 
-Add to the design doc:
+**Create per-item skeleton documents** instead of adding to design.md:
+
+For each work item N, create `skeleton-item-N.md`:
+
+```
+Tool: mcp__mermaid__create_document
+Args: {
+  "project": "<cwd>",
+  "session": "<session>",
+  "name": "skeleton-item-N",
+  "content": "<skeleton content for item N>"
+}
+```
+
+**Document structure:**
 
 ```markdown
-## Skeleton
+# Skeleton: Item N - [Title]
 
-### Planned Files
+## Planned Files
 - [ ] `src/auth/types.ts` - Will contain type definitions
 - [ ] `src/auth/service.ts` - Will contain stub methods
 - [ ] `src/auth/middleware.ts` - Will contain stub functions
 
 **Note:** These files are documented but NOT created yet. They will be created during the implementation phase by executing-plans.
 
-### File Contents
+## File Contents
 
 [Include full stub content for each file in code blocks]
 
-### Task Dependency Graph
+## Task Dependency Graph
 
 [Include YAML task graph]
+
+## Execution Order
+
+[List waves and parallel batches]
+
+## Verification
+
+[Checklist for this item]
 ```
 
 ### Verification Gate

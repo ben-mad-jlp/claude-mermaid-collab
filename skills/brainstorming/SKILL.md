@@ -122,6 +122,52 @@ graph LR
 - Prerequisites: Each item discussed individually (not batched), asked "Is there anything else?", user confirmed nothing else
 - Announce: "All items clarified. Now let me present the design approach."
 
+### Auto-Decomposition Check
+
+**REQUIRED** before transitioning to DESIGNING, for each work item:
+
+1. Analyze item scope:
+   - Count affected files mentioned in approach
+   - Count distinct concerns (auth, API, UI, tests, etc.)
+   - Estimate number of tasks
+
+2. If item looks large (any of these triggers):
+   - More than 5-6 files affected
+   - More than 2 distinct concerns
+   - Would result in more than 10 tasks
+
+3. Present decomposition proposal:
+   ```
+   This item looks large:
+   - Files: [N] affected
+   - Concerns: [list distinct areas]
+   - Estimated tasks: [N]
+
+   I see [N] pieces:
+   1. [Sub-component 1]: [files/concern]
+   2. [Sub-component 2]: [files/concern]
+   3. [Sub-component 3]: [files/concern]
+
+   Split into separate work items?
+
+   1. Yes - split into [N] items (Recommended for complex work)
+   2. No - keep as single item
+   ```
+
+4. If user selects **1 (Yes)**:
+   - Create new work items in design doc for each sub-component
+   - Mark original item as superseded
+   - Continue CLARIFYING with new items
+
+5. If user selects **2 (No)**:
+   - Keep as single item
+   - Proceed to DESIGNING
+
+**Why auto-decomposition matters:**
+- Smaller items create smaller per-item documents
+- Smaller documents reduce context bloat
+- Parallel execution of independent items
+
 **DESIGNING → VALIDATING**
 - Prerequisites: Each section (200-300 words) presented separately, user validated each
 - Can backtrack to CLARIFYING if user raises new questions

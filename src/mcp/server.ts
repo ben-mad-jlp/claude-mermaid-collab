@@ -15,9 +15,12 @@ import {
   ListResourcesRequestSchema,
   ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { readFile } from 'fs/promises';
+import { readFile, writeFile, mkdir } from 'fs/promises';
+import { existsSync } from 'fs';
+import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { dirname, join, resolve } from 'path';
+import { homedir } from 'os';
 import { dismissUI, dismissUISchema } from './tools/dismiss-ui.js';
 import { updateUI, updateUISchema } from './tools/update-ui.js';
 import { renderUI, renderUISchema } from './tools/render-ui.js';
@@ -27,6 +30,110 @@ import { WebSocketHandler } from '../websocket/handler.js';
 const API_PORT = parseInt(process.env.PORT || '3737', 10);
 const API_HOST = process.env.HOST || 'localhost';
 const API_BASE_URL = `http://${API_HOST}:${API_PORT}`;
+
+// Auto-start configuration
+const DATA_DIR = join(homedir(), '.mermaid-collab');
+const PID_FILE = join(DATA_DIR, 'server.pid');
+const LOG_FILE = join(DATA_DIR, 'server.log');
+const __filename_mcp = fileURLToPath(import.meta.url);
+const __dirname_mcp = dirname(__filename_mcp);
+const SERVER_SCRIPT = resolve(__dirname_mcp, '..', 'server.ts');
+
+/**
+ * Ensure the data directory exists
+ */
+async function ensureDataDir(): Promise<void> {
+  await mkdir(DATA_DIR, { recursive: true });
+}
+
+/**
+ * Read the PID from the PID file
+ */
+async function readPid(): Promise<number | null> {
+  try {
+    if (!existsSync(PID_FILE)) {
+      return null;
+    }
+    const content = await readFile(PID_FILE, 'utf-8');
+    const pid = parseInt(content.trim(), 10);
+    return isNaN(pid) ? null : pid;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check if a process with the given PID is running
+ */
+function isProcessRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Wait for the HTTP server to be ready
+ */
+async function waitForServer(maxWaitMs: number = 10000): Promise<boolean> {
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < maxWaitMs) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/sessions`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(2000),
+      });
+      if (response.ok || response.status === 404) {
+        return true;
+      }
+    } catch {
+      // Server not ready yet
+    }
+    await new Promise(resolve => setTimeout(resolve, 200));
+  }
+  return false;
+}
+
+/**
+ * Start the HTTP server as a detached background process
+ */
+async function startHttpServer(): Promise<void> {
+  await ensureDataDir();
+
+  // Check if already running
+  const existingPid = await readPid();
+  if (existingPid && isProcessRunning(existingPid)) {
+    console.error(`HTTP server already running (PID: ${existingPid})`);
+    return;
+  }
+
+  // Check if server script exists
+  if (!existsSync(SERVER_SCRIPT)) {
+    throw new Error(`Server script not found: ${SERVER_SCRIPT}`);
+  }
+
+  // Spawn detached process
+  const logStream = Bun.file(LOG_FILE).writer();
+  const child = spawn('bun', ['run', SERVER_SCRIPT], {
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, PORT: String(API_PORT) },
+  });
+
+  // Pipe output to log file
+  child.stdout?.on('data', (data) => logStream.write(data));
+  child.stderr?.on('data', (data) => logStream.write(data));
+
+  child.unref();
+
+  // Write PID file
+  await writeFile(PID_FILE, String(child.pid));
+
+  console.error(`Starting HTTP server (PID: ${child.pid})...`);
+}
 
 // Word lists for session name generation
 const ADJECTIVES = [
@@ -373,10 +480,23 @@ async function listSessions(): Promise<string> {
 // ============= Main Server Setup =============
 
 async function main() {
-  // Check if server is running (but don't auto-start)
+  // Auto-start HTTP server if not running
   if (!(await isServerRunning())) {
-    console.error(`Warning: Web server not running at ${API_BASE_URL}`);
-    console.error('Start with: mermaid-collab start');
+    console.error(`HTTP server not running at ${API_BASE_URL}, starting...`);
+    try {
+      await startHttpServer();
+      const ready = await waitForServer(10000);
+      if (!ready) {
+        console.error(`Failed to start HTTP server after 10s. Check logs: ${LOG_FILE}`);
+        process.exit(1);
+      }
+      console.error('HTTP server started successfully');
+    } catch (error) {
+      console.error(`Failed to start HTTP server: ${error instanceof Error ? error.message : error}`);
+      process.exit(1);
+    }
+  } else {
+    console.error(`HTTP server already running at ${API_BASE_URL}`);
   }
 
   const server = new Server(

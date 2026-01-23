@@ -49,4 +49,5 @@ export const config = {
   THUMBNAIL_CACHE_SIZE: 100,
   UNDO_HISTORY_SIZE: 50,
   WS_RECONNECT_MAX_DELAY: 30000,
+  UI_DIST_DIR: join(PROJECT_ROOT, 'ui', 'dist'),
 } as const;

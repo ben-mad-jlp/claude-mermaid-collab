@@ -1,6 +1,6 @@
 {
   "name": "claude-mermaid-collab",
-  "version": "5.18.0",
+  "version": "5.19.0",
   "type": "module",
   "description": "Browser UI for mermaid-collab with AI-powered interactions and backend server",
   "scripts": {
@@ -10,6 +10,7 @@
     "setup": "./setup.sh",
     "setup:start": "./setup.sh --start",
     "build": "cd ui && bun run build",
+    "build:all": "bun run build && bun run build:wireframe",
     "build:wireframe": "cd plugins/wireframe && npm run build",
     "build:wireframe:watch": "cd plugins/wireframe && npm run dev",
     "test": "cd ui && bun run test",

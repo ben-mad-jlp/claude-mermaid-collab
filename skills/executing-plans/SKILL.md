@@ -381,29 +381,35 @@ You are implementing a task from the collab workflow.
 
 ## Design Document Location
 Collab Session: .collab/<session-name>
-Design Doc Path: .collab/<session-name>/documents/design.md
 
-## REQUIRED: Read Design Doc First
-Before implementing, read the design doc and find:
-- Interface Definition section → function signatures, types
-- Pseudocode section → step-by-step logic for your task
+**Per-item documents (read these for your task's context):**
+- Interface: .collab/<session-name>/documents/interface-item-<N>.md
+- Pseudocode: .collab/<session-name>/documents/pseudocode-item-<N>.md
+- Skeleton: .collab/<session-name>/documents/skeleton-item-<N>.md
 
-The design doc is the SOURCE OF TRUTH. Follow it exactly.
+## REQUIRED: Read Per-Item Documents First
+Before implementing, read the per-item documents for your work item:
+1. Read interface-item-<N>.md → function signatures, types, file paths
+2. Read pseudocode-item-<N>.md → step-by-step logic for your task
+3. Read skeleton-item-<N>.md → task graph and planned files
+
+These documents are the SOURCE OF TRUTH. Follow them exactly.
 
 ## Task Details
 Task ID: <task-id>
+Item Number: <item-number>
 Files: <task-files>
 Description: <task-description>
 
 ## Your Task's Design Spec
 Interface:
-<paste-relevant-interface-section>
+<paste from interface-item-<N>.md>
 
 Pseudocode:
-<paste-relevant-pseudocode-section>
+<paste from pseudocode-item-<N>.md>
 
 ## Instructions
-1. Read the design doc sections above
+1. Read the per-item documents above
 2. Implement EXACTLY as specified - no interpretation
 3. Write tests
 4. Report what you implemented
@@ -419,7 +425,7 @@ When dispatching tasks, include the `tests` field in the prompt:
 During TDD (RED-GREEN-REFACTOR), run ONLY these tests:
 {task.tests}
 
-Command: npm test -- {tests joined by space}
+Command: npm run test:ci -- {tests joined by space}
 
 Do NOT run the full test suite during TDD cycles.
 ```
@@ -437,7 +443,7 @@ After all tasks in a wave complete:
 
 1. Run full test suite:
    ```bash
-   npm test
+   npm run test:ci
    ```
 
 2. If tests fail:
@@ -511,7 +517,7 @@ FUNCTION saveSnapshot():
 **After wave completes with test suite passing:**
 ```
 [Wave N tasks all complete]
-→ Run full test suite: npm test
+→ Run full test suite: npm run test:ci
 → If tests FAIL: Stop, report failure (don't save)
 → If tests PASS:
    - saveSnapshot()

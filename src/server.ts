@@ -1,5 +1,6 @@
 import { join } from 'path';
 import { homedir } from 'os';
+import { existsSync } from 'fs';
 import { config } from './config';
 import { DiagramManager } from './services/diagram-manager';
 import { DocumentManager } from './services/document-manager';
@@ -93,6 +94,44 @@ const server = Bun.serve({
           'Cache-Control': 'no-cache, no-store, must-revalidate',
         },
       });
+    }
+
+    // React UI from ui/dist/ (SPA fallback)
+    if (existsSync(config.UI_DIST_DIR)) {
+      // Try to serve static file from dist
+      const filePath = join(config.UI_DIST_DIR, url.pathname);
+      const file = Bun.file(filePath);
+      const fileExists = await file.exists();
+
+      if (fileExists) {
+        const ext = url.pathname.split('.').pop() || '';
+        const mimeTypes: Record<string, string> = {
+          'html': 'text/html',
+          'js': 'application/javascript',
+          'css': 'text/css',
+          'json': 'application/json',
+          'png': 'image/png',
+          'jpg': 'image/jpeg',
+          'jpeg': 'image/jpeg',
+          'svg': 'image/svg+xml',
+          'ico': 'image/x-icon',
+          'woff': 'font/woff',
+          'woff2': 'font/woff2',
+        };
+        const contentType = mimeTypes[ext] || 'application/octet-stream';
+
+        return new Response(file, {
+          headers: { 'Content-Type': contentType },
+        });
+      }
+
+      // SPA fallback: serve index.html for non-file routes
+      const indexPath = join(config.UI_DIST_DIR, 'index.html');
+      if (existsSync(indexPath)) {
+        return new Response(Bun.file(indexPath), {
+          headers: { 'Content-Type': 'text/html' },
+        });
+      }
     }
 
     return new Response('Not found', { status: 404 });

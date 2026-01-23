@@ -58,10 +58,14 @@ What would you like to do with the design artifacts?
 
 **If Archive:**
 1. Create `docs/designs/[session-name]/` directory
-2. Copy `.collab/[session]/documents/*` to `docs/designs/[session-name]/`
+2. Copy all documents including per-item documents:
+   - `.collab/[session]/documents/design.md`
+   - `.collab/[session]/documents/interface-item-*.md`
+   - `.collab/[session]/documents/pseudocode-item-*.md`
+   - `.collab/[session]/documents/skeleton-item-*.md`
 3. Copy `.collab/[session]/diagrams/*` to `docs/designs/[session-name]/`
 4. Delete `.collab/[session]/` folder
-5. Report what was archived
+5. Report what was archived (including count of per-item documents)
 
 **If Delete:**
 1. Confirm: "Delete session [name]? This cannot be undone."
