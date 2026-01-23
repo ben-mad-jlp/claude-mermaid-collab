@@ -1,7 +1,6 @@
 ---
 name: collab
 description: Use when starting collaborative design work - creates isolated collab sessions with mermaid-collab server
-disable-model-invocation: true
 user-invocable: false
 allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Glob, Grep
 ---

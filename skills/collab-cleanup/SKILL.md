@@ -1,7 +1,6 @@
 ---
 name: collab-cleanup
 description: Close out a collab session - archive or delete design artifacts
-disable-model-invocation: true
 user-invocable: false
 ---
 

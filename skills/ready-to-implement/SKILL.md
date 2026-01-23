@@ -1,7 +1,6 @@
 ---
 name: ready-to-implement
 description: Validate design completion and transition to implementation phase
-disable-model-invocation: true
 user-invocable: false
 ---
 

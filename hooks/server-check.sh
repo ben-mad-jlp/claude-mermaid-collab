@@ -15,7 +15,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 check_server() {
-  curl --silent --fail --max-time 1 "http://localhost:$PORT" > /dev/null 2>&1
+  curl --silent --fail --max-time 1 "http://localhost:$PORT/api/health" > /dev/null 2>&1
 }
 
 # If server is already running, we're done

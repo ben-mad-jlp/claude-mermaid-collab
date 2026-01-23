@@ -1,7 +1,6 @@
 ---
 name: mermaid-collab
 description: Create and collaborate on Mermaid diagrams and UI wireframes with real-time preview and team sharing
-disable-model-invocation: true
 user-invocable: false
 ---
 

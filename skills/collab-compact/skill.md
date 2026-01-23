@@ -1,7 +1,6 @@
 ---
 name: collab-compact
 description: Save context and trigger compaction for clean resume
-disable-model-invocation: true
 user-invocable: true
 ---
 

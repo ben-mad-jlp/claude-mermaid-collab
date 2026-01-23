@@ -1,7 +1,6 @@
 ---
 name: task-planning
 description: Plan operational tasks (docker, installs, organization) that skip TDD
-disable-model-invocation: true
 user-invocable: false
 model: opus
 allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Glob, Grep

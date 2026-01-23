@@ -81,30 +81,21 @@ fi
       - Use the custom name
       - Continue to Step 3.3
 
-### 3.3 Create Initial Files
+### 3.3 Initialize Session State
 
-1. Create design.md via MCP (this auto-creates folder structure):
+Initialize collab-state.json via MCP (creates folder and design.md automatically):
 
-   Tool: mcp__mermaid__create_document
-   Args: {
-     "project": "<absolute-path-to-cwd>",
-     "session": "<session-name>",
-     "name": "design",
-     "content": "# Session: <session-name>\n\n## Session Context\n**Out of Scope:** (session-wide boundaries)\n**Shared Decisions:** (cross-cutting choices)\n\n---\n\n## Work Items\n\n*To be filled by gather-session-goals*\n\n---\n\n## Diagrams\n(auto-synced)"
-   }
+```
+Tool: mcp__mermaid__update_session_state
+Args: {
+  "project": "<absolute-path-to-cwd>",
+  "session": "<session-name>",
+  "phase": "brainstorming",
+  "currentItem": null
+}
+```
 
-2. Initialize collab-state.json via MCP (folder now exists from step 1):
-
-   ```
-   Tool: mcp__mermaid__update_session_state
-   Args: {
-     "project": "<absolute-path-to-cwd>",
-     "session": "<session-name>",
-     "phase": "brainstorming",
-     "currentItem": null
-   }
-   ```
-   Note: `lastActivity` is automatically updated by the MCP tool.
+Note: `lastActivity` is automatically updated. The `design.md` file is auto-created by `sessionRegistry.register()` when any MCP tool is first called for this session.
 
 ### 3.4 Set Environment Variable
 
