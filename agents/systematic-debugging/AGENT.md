@@ -1,49 +1,22 @@
 ---
 name: systematic-debugging
-description: Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes
+description: Self-contained debugging investigation that produces a diagnostic report
 ---
 
 # Systematic Debugging
 
-## Collab Session Required
-
-Before proceeding, check for active collab session:
-
-1. Check if `.collab/` directory exists
-2. Check if any session folders exist within
-3. If no session found:
-   ```
-   ⚠️ No active collab session found.
-
-   Use /collab to start a session first.
-   ```
-   **STOP** - do not proceed with this skill.
-
-4. If multiple sessions exist, check `COLLAB_SESSION_PATH` env var or ask user which session.
-
-## Get Current Work Item
-
-After confirming collab session:
-
-1. Read `collab-state.json` from the session folder
-2. Get `currentItem` number from state
-3. Read design doc and find the item with that number
-4. Display: "Investigating: {item.title}"
-
-This item context determines what bug is being investigated.
-
 ## EXPLICIT PROHIBITION
 
 ```
-⚠️ DO NOT IMPLEMENT FIXES
+DO NOT IMPLEMENT FIXES
 
 - No editing source files to fix the bug
 - No writing fix code
 - Document only
-- Fixes happen later via rough-draft → executing-plans
+- Fixes happen later via rough-draft -> executing-plans
 ```
 
-The following are FORBIDDEN in this skill:
+The following are FORBIDDEN in this agent:
 - Using Edit tool on source files (except design doc)
 - Using Write tool on source files
 - Making any code changes to fix the bug
@@ -105,7 +78,7 @@ You MUST complete each phase before proceeding to the next.
    - Can you trigger it reliably?
    - What are the exact steps?
    - Does it happen every time?
-   - If not reproducible → gather more data, don't guess
+   - If not reproducible -> gather more data, don't guess
 
 3. **Check Recent Changes**
    - What changed that could cause this?
@@ -115,7 +88,7 @@ You MUST complete each phase before proceeding to the next.
 
 4. **Gather Evidence in Multi-Component Systems**
 
-   **WHEN system has multiple components (CI → build → signing, API → service → database):**
+   **WHEN system has multiple components (CI -> build -> signing, API -> service -> database):**
 
    **BEFORE proposing fixes, add diagnostic instrumentation:**
    ```
@@ -149,7 +122,7 @@ You MUST complete each phase before proceeding to the next.
    codesign --sign "$IDENTITY" --verbose=4 "$APP"
    ```
 
-   **This reveals:** Which layer fails (secrets → workflow ✓, workflow → build ✗)
+   **This reveals:** Which layer fails (secrets -> workflow, workflow -> build)
 
 5. **Trace Data Flow**
 
@@ -202,7 +175,7 @@ You MUST complete each phase before proceeding to the next.
    - One hypothesis at a time
 
 3. **Verify Before Continuing**
-   - Root cause confirmed? Yes → Phase 4 (Document Findings)
+   - Root cause confirmed? Yes -> Phase 4 (Document Findings)
    - Hypothesis disproven? Form NEW hypothesis
    - DON'T propose fixes yet - keep investigating
 
@@ -216,9 +189,9 @@ You MUST complete each phase before proceeding to the next.
 
 **When root cause is found, document and return:**
 
-1. **Update Work Item in Design Doc**
+1. **Create Diagnostic Report**
 
-   Update the current work item with:
+   Document with:
    - **Root Cause:** Clear explanation of what's wrong and why
    - **Approach:** Proposed fix strategy (without implementing)
    - **Success Criteria:** How to verify the fix worked
@@ -228,13 +201,11 @@ You MUST complete each phase before proceeding to the next.
    - Approach is actionable for implementation phase
    - Success criteria are testable
 
-3. **Return to Collab Skill**
+3. **Return Report**
    ```
    Root cause documented.
    Proposed fix approach documented.
    DO NOT IMPLEMENT - fixes happen in implementation phase.
-
-   Returning to work item loop...
    ```
 
 4. **If 3+ Hypotheses Failed: Question Architecture**
@@ -249,10 +220,9 @@ You MUST complete each phase before proceeding to the next.
    - Are we "sticking with it through sheer inertia"?
    - Should we refactor architecture vs. continue investigating symptoms?
 
-   **Discuss with your human partner before continuing**
+   **Report architectural concerns in the diagnostic report.**
 
    This is NOT a failed investigation - this may be a wrong architecture.
-   Document architectural concerns in the work item and return to collab skill.
 
 ## Red Flags - STOP and Follow Process
 
@@ -273,17 +243,6 @@ If you catch yourself thinking:
 
 **If 3+ hypotheses failed:** Question the architecture (see Phase 4, step 4)
 
-## your human partner's Signals You're Doing It Wrong
-
-**Watch for these redirections:**
-- "Is that not happening?" - You assumed without verifying
-- "Will it show us...?" - You should have added evidence gathering
-- "Stop guessing" - You're proposing fixes without understanding
-- "Ultrathink this" - Question fundamentals, not just symptoms
-- "We're stuck?" (frustrated) - Your approach isn't working
-
-**When you see these:** STOP. Return to Phase 1.
-
 ## Common Rationalizations
 
 | Excuse | Reality |
@@ -294,7 +253,7 @@ If you catch yourself thinking:
 | "I'll write test after confirming fix works" | Untested fixes don't stick. Test first proves it. |
 | "Multiple fixes at once saves time" | Can't isolate what worked. Causes new bugs. |
 | "Reference too long, I'll adapt the pattern" | Partial understanding guarantees bugs. Read it completely. |
-| "I see the problem, let me fix it" | Seeing symptoms ≠ understanding root cause. |
+| "I see the problem, let me fix it" | Seeing symptoms != understanding root cause. |
 | "One more fix attempt" (after 2+ failures) | 3+ failures = architectural problem. Question pattern, don't fix again. |
 
 ## Quick Reference
@@ -304,88 +263,19 @@ If you catch yourself thinking:
 | **1. Root Cause** | Read errors, reproduce, check changes, gather evidence | Understand WHAT and WHY |
 | **2. Pattern** | Find working examples, compare | Identify differences |
 | **3. Hypothesis** | Form theory, test minimally | Confirmed or new hypothesis |
-| **4. Document** | Update design doc, return to collab | Root cause and approach documented |
+| **4. Document** | Create diagnostic report | Root cause and approach documented |
 
 ## When Process Reveals "No Root Cause"
 
 If systematic investigation reveals issue is truly environmental, timing-dependent, or external:
 
 1. You've completed the investigation
-2. Document what you investigated in the work item
+2. Document what you investigated
 3. Document recommended handling approach (retry, timeout, error message)
 4. Document recommended monitoring/logging for future investigation
-5. Return to collab skill with documented findings
+5. Return report with documented findings
 
 **But:** 95% of "no root cause" cases are incomplete investigation.
-
-## Snapshot Saving
-
-Save context snapshots to enable recovery after compaction.
-
-### When to Save
-
-Call `saveSnapshot()` after:
-- Phase 1 completes (root cause investigation done)
-- Phase 2 completes (pattern analysis done)
-- Phase 3 completes (hypothesis confirmed)
-- Root cause documented in design doc (Phase 4 complete)
-- Before returning to collab skill
-
-### Save Function
-
-```
-FUNCTION saveSnapshot():
-  session = current session name
-  state = READ collab-state.json
-
-  snapshot = {
-    version: 1,
-    timestamp: now(),
-    activeSkill: "systematic-debugging",
-    currentStep: state.phase (e.g., "debugging/phase-1", "debugging/phase-2", etc.),
-    pendingQuestion: null,
-    inProgressItem: currentItem,
-    recentContext: []
-  }
-
-  WRITE to .collab/{session}/context-snapshot.json
-  state.hasSnapshot = true
-  WRITE state
-```
-
-### Save Points
-
-**After Phase 1 (Root Cause Investigation) completes:**
-```
-[Phase 1 complete - root cause found]
-→ Update collab-state.json phase to "debugging/phase-1-complete"
-→ saveSnapshot()
-→ Continue to Phase 2
-```
-
-**After Phase 2 (Pattern Analysis) completes:**
-```
-[Phase 2 complete - pattern analyzed]
-→ Update collab-state.json phase to "debugging/phase-2-complete"
-→ saveSnapshot()
-→ Continue to Phase 3
-```
-
-**After Phase 3 (Hypothesis Testing) completes:**
-```
-[Phase 3 complete - hypothesis confirmed]
-→ Update collab-state.json phase to "debugging/phase-3-complete"
-→ saveSnapshot()
-→ Continue to Phase 4
-```
-
-**After Phase 4 (Documentation) completes:**
-```
-[Phase 4 complete - root cause documented in design doc]
-→ Update collab-state.json phase to "debugging/complete"
-→ saveSnapshot()
-→ Return to collab skill
-```
 
 ---
 
@@ -396,10 +286,6 @@ These techniques are part of systematic debugging and available in this director
 - **`root-cause-tracing.md`** - Trace bugs backward through call stack to find original trigger
 - **`defense-in-depth.md`** - Add validation at multiple layers after finding root cause
 - **`condition-based-waiting.md`** - Replace arbitrary timeouts with condition polling
-
-**Related skills:**
-- **superpowers:test-driven-development** - For creating failing test case (used during implementation phase, not this skill)
-- **superpowers:verification-before-completion** - Verify fix worked (used during implementation phase, not this skill)
 
 ## Real-World Impact
 

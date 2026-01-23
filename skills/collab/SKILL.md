@@ -1,12 +1,9 @@
 ---
 name: collab
 description: Use when starting collaborative design work - creates isolated collab sessions with mermaid-collab server
-user-invocable: true
-allowed-tools:
-  - mcp__plugin_mermaid-collab_mermaid__*
-  - Read
-  - Glob
-  - Grep
+disable-model-invocation: true
+user-invocable: false
+allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Glob, Grep
 ---
 
 # Collab Sessions
@@ -35,302 +32,31 @@ Then run /collab again.
 
 ---
 
-## Step 2: Find Sessions
+## Session Management
 
-```bash
-ls -d .collab/*/ 2>/dev/null | xargs -I{} basename {}
-```
+Session management handles finding existing sessions, creating new sessions, and resuming previous work.
 
-**If sessions exist:**
-1. For each session, read `.collab/<name>/collab-state.json` to get phase
-2. Display list with numbered options:
-   ```
-   Existing sessions:
+**Key steps:**
+- **Step 2: Find Sessions** - List existing sessions with their phases
+- **Step 3: Create Session** - Generate name, create files, invoke gather-session-goals
+- **Step 5: Resume Session** - Restore from snapshot or route through ready-to-implement
 
-   1. bright-calm-river - brainstorming
-   2. swift-green-meadow - implementation
-   3. Create new session
-
-   Select option (1-3):
-   ```
-3. If user selects existing session number → Jump to **Step 5: Resume Session**
-4. If user selects 'new' option → Continue to **Step 3**
-
-**If no sessions exist:** Continue to **Step 3**
+**For detailed session management procedures, see [session-mgmt.md](session-mgmt.md).**
 
 ---
 
-## Step 3: Create Session
+## Work Item Loop
 
-### 3.1 Ensure .gitignore
+The core orchestration loop (Step 4) that processes work items one at a time.
 
-```bash
-if [ -f .gitignore ]; then
-  git check-ignore -q .collab 2>/dev/null || echo ".collab/" >> .gitignore
-fi
-```
+**Key steps:**
+- Read design doc and parse work items
+- Find first pending item
+- Route by type (bugfix → systematic-debugging, task → task-planning, code → rough-draft)
+- Mark item documented and continue loop
+- When all items done → invoke ready-to-implement
 
-**Note:** Only modifies `.gitignore` if it already exists. Does not create a new `.gitignore` file.
-
-### 3.2 Generate or Choose Name
-
-1. Generate a suggested name:
-   ```
-   Tool: mcp__mermaid__generate_session_name
-   Args: {}
-   ```
-   Returns: `{ name: "bright-calm-river" }`
-
-2. Present options to user:
-   ```
-   Generated session name: bright-calm-river
-
-   1. Use this name
-   2. Pick my own name
-
-   Select option (1-2):
-   ```
-
-3. If user selects "1. Use this name":
-   - Use the generated name
-   - Continue to Step 3.3
-
-4. If user selects "2. Pick my own name":
-   a. Prompt: "Enter session name (alphanumeric and hyphens only):"
-   b. Validate input:
-      - Must match pattern: /^[a-zA-Z0-9-]+$/
-      - Must not be empty
-   c. If invalid:
-      - Show error: "Invalid name. Use only letters, numbers, and hyphens."
-      - Return to step 4a (re-prompt)
-   d. If valid:
-      - Use the custom name
-      - Continue to Step 3.3
-
-### 3.3 Create Initial Files
-
-1. Create design.md via MCP (this auto-creates folder structure):
-
-   Tool: mcp__mermaid__create_document
-   Args: {
-     "project": "<absolute-path-to-cwd>",
-     "session": "<session-name>",
-     "name": "design",
-     "content": "# Session: <session-name>\n\n## Session Context\n**Out of Scope:** (session-wide boundaries)\n**Shared Decisions:** (cross-cutting choices)\n\n---\n\n## Work Items\n\n*To be filled by gather-session-goals*\n\n---\n\n## Diagrams\n(auto-synced)"
-   }
-
-2. Write collab-state.json (folder now exists from step 1):
-
-   Write .collab/<name>/collab-state.json:
-   {
-     "phase": "brainstorming",
-     "lastActivity": "<ISO-timestamp>",
-     "currentItem": null
-   }
-
-### 3.4 Set Environment Variable
-
-Set the session path environment variable for hooks:
-
-```bash
-export COLLAB_SESSION_PATH="$(pwd)/.collab/<name>"
-```
-
-### 3.5 Invoke gather-session-goals
-
-```
-Invoke skill: gather-session-goals
-```
-
-This skill will:
-- Ask user what they want to accomplish
-- Classify each item as code/bugfix/task
-- Write Work Items section to design doc
-- All items start with `Status: pending`
-
-After gather-session-goals returns → Jump to **Step 4: Work Item Loop**
-
----
-
-## Step 4: Work Item Loop
-
-This is the core orchestration loop that processes work items one at a time.
-
-### 4.1 Read Design Doc
-
-```bash
-cat .collab/<name>/documents/design.md
-```
-
-### 4.2 Parse Work Items
-
-Use `parseWorkItems()` helper to extract items from design doc:
-- Find all `### Item N:` sections
-- Extract Title, Type, and Status fields
-- Return list of work items
-
-### 4.3 Find First Pending Item
-
-```
-pending_item = items.find(i => i.status == "pending")
-```
-
-**If no pending items:**
-```
-All work items documented. Proceeding to validation...
-```
-→ Invoke **ready-to-implement** skill
-→ **END** (ready-to-implement takes over)
-
-**If pending item found:** Continue to 4.4
-
-### 4.4 Update State
-
-Update `.collab/<name>/collab-state.json`:
-```json
-{
-  "currentItem": <item-number>,
-  "lastActivity": "<ISO-timestamp>"
-}
-```
-
-### 4.5 Route by Type
-
-**If type is `bugfix`:**
-```
-Processing bugfix: <item-title>
-Invoking systematic-debugging for investigation...
-```
-→ Invoke skill: collab-compact
-→ Invoke **systematic-debugging** skill
-
-**If type is `task`:**
-```
-Processing task: <item-title>
-Invoking brainstorming for planning...
-```
-→ Invoke skill: collab-compact
-→ Invoke **brainstorming** skill
-→ After brainstorming completes, invoke skill: collab-compact
-→ After collab-compact completes, invoke **task-planning** skill
-
-**If type is `code`:**
-```
-Processing code: <item-title>
-Invoking brainstorming for design...
-```
-→ Invoke skill: collab-compact
-→ Invoke **brainstorming** skill
-→ After brainstorming completes, invoke skill: collab-compact
-→ After collab-compact completes, invoke **rough-draft** skill (includes feature/refactor/spike work)
-
-### 4.6 Mark Item Documented
-
-After the invoked skill returns, use patch to update the work item status:
-
-```
-Tool: mcp__mermaid__patch_document
-Args: {
-  "project": "<cwd>",
-  "session": "<name>",
-  "id": "design",
-  "old_string": "### Item <N>: <title>\n**Type:** <type>\n**Status:** pending",
-  "new_string": "### Item <N>: <title>\n**Type:** <type>\n**Status:** documented"
-}
-```
-
-This is more efficient than reading and rewriting the entire document.
-
-### 4.7 Clear Current Item
-
-Update `.collab/<name>/collab-state.json`:
-```json
-{
-  "currentItem": null,
-  "lastActivity": "<ISO-timestamp>"
-}
-```
-
-### 4.8 Continue Loop
-
-→ Go back to **Step 4.1** (continue processing next pending item)
-
----
-
-## Step 5: Resume Session
-
-When user selects an existing session from Step 2.
-
-### 5.1 Check for Context Snapshot
-
-```bash
-test -f .collab/<session>/context-snapshot.json && echo "snapshot exists" || echo "no snapshot"
-```
-
-**If snapshot exists:**
-
-1. Read snapshot:
-   ```bash
-   cat .collab/<session>/context-snapshot.json
-   ```
-
-2. Display restoration message:
-   ```
-   Restoring from context snapshot...
-   Active skill: <activeSkill>
-   Step: <currentStep>
-   ```
-
-3. Delete snapshot (one-time use):
-   ```bash
-   rm .collab/<session>/context-snapshot.json
-   ```
-
-4. Update state:
-   - Set `hasSnapshot: false` in collab-state.json
-
-5. Invoke the active skill directly:
-   - If activeSkill == "brainstorming" → Invoke brainstorming skill
-   - If activeSkill == "rough-draft" → Invoke rough-draft skill
-   - If activeSkill == "executing-plans" → Invoke executing-plans skill
-
-**STOP** - skill takes over from here.
-
-**If no snapshot:** Continue to 5.2 (existing resume behavior, route by phase)
-
-### 5.2 Set Environment Variable
-
-```bash
-export COLLAB_SESSION_PATH="$(pwd)/.collab/<name>"
-```
-
-### 5.3 Read State
-
-```bash
-cat .collab/<name>/collab-state.json
-```
-
-### 5.4 Display Session Info
-
-```
-Session Resumed: <name>
-Phase: <phase>
-Dashboard: http://localhost:3737
-
-Checking work item status...
-```
-
-### 5.5 Invoke ready-to-implement
-
-**Always** route through ready-to-implement for resume:
-
-```
-Invoke skill: ready-to-implement
-```
-
-ready-to-implement will:
-- If pending items exist → return with `action: "return_to_loop"` → Go to **Step 4: Work Item Loop**
-- If all documented → proceed to rough-draft (on user confirmation)
+**For detailed work item loop procedures, see [work-item-loop.md](work-item-loop.md).**
 
 ---
 

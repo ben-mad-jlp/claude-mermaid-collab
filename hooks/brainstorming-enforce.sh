@@ -5,8 +5,11 @@
 
 set -e
 
-# Parse file_path from TOOL_INPUT
-FILE_PATH=$(echo "$TOOL_INPUT" | jq -r '.file_path // .filePath // empty')
+# Read JSON input from stdin (Claude Code hook input format)
+INPUT=$(cat)
+
+# Parse file_path from tool_input field
+FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.filePath // empty')
 
 if [ -z "$FILE_PATH" ]; then
     # Can't determine file, allow
@@ -63,7 +66,8 @@ case "$FILE_PATH" in
         exit 0
         ;;
     *)
-        echo '{"result":"block","reason":"Cannot edit files outside .collab/ during brainstorming phase","suggestion":"Use /ready-to-implement to transition to implementation phase"}'
-        exit 1
+        # Exit 2 = blocking error, stderr is shown to user
+        echo "Cannot edit files outside .collab/ during brainstorming phase. Use /ready-to-implement to transition to implementation phase." >&2
+        exit 2
         ;;
 esac

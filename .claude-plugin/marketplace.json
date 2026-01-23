@@ -1,18 +1,28 @@
 {
   "name": "mermaid-collab-dev",
-  "description": "Development marketplace for Mermaid Collab plugin",
   "owner": {
     "name": "Ben Maderazo"
+  },
+  "metadata": {
+    "description": "Development marketplace for Mermaid Collab plugin"
   },
   "plugins": [
     {
       "name": "mermaid-collab",
       "description": "Collaborative design workflows for Claude Code: mermaid diagrams, wireframes, and design-to-implementation pipelines",
-      "version": "5.7.0",
+      "version": "5.20.0",
       "source": "./",
       "author": {
         "name": "Ben Maderazo"
-      }
+      },
+      "license": "MIT",
+      "keywords": [
+        "collaboration",
+        "mermaid",
+        "wireframes",
+        "design",
+        "diagrams"
+      ]
     }
   ]
 }

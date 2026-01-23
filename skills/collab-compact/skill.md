@@ -1,6 +1,7 @@
 ---
 name: collab-compact
 description: Save context and trigger compaction for clean resume
+disable-model-invocation: true
 user-invocable: true
 ---
 
@@ -27,31 +28,40 @@ If multiple sessions: Ask user which session.
 
 ### Step 2: Save Context Snapshot
 
-Read current state from `.collab/<session>/collab-state.json`.
+Read current state via MCP:
+```
+Tool: mcp__mermaid__get_session_state
+Args: { "project": "<absolute-path-to-cwd>", "session": "<session-name>" }
+```
+Returns: `{ "phase": "...", "currentItem": ..., ... }`
 
 Determine activeSkill from phase:
 - "brainstorming" → activeSkill = "brainstorming"
 - "rough-draft/*" → activeSkill = "rough-draft"
 - "implementation" → activeSkill = "executing-plans"
 
-Write snapshot to `.collab/<session>/context-snapshot.json`:
-
-```json
-{
-  "version": 1,
-  "timestamp": "<current-ISO-timestamp>",
+Save snapshot via MCP:
+```
+Tool: mcp__mermaid__save_snapshot
+Args: {
+  "project": "<absolute-path-to-cwd>",
+  "session": "<session-name>",
   "activeSkill": "<determined-skill>",
   "currentStep": "<phase-from-state>",
-  "pendingQuestion": null,
   "inProgressItem": <currentItem-from-state>,
+  "pendingQuestion": null,
   "recentContext": []
 }
 ```
+Note: `version` and `timestamp` are automatically added by the MCP tool.
 
 ### Step 3: Update State
 
-Update `.collab/<session>/collab-state.json`:
-- Set `hasSnapshot: true`
+Update collab state via MCP:
+```
+Tool: mcp__mermaid__update_session_state
+Args: { "project": "<absolute-path-to-cwd>", "session": "<session-name>", "hasSnapshot": true }
+```
 
 ### Step 4: Trigger Compaction
 

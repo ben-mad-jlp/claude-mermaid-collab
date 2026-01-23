@@ -1,13 +1,10 @@
 ---
 name: task-planning
 description: Plan operational tasks (docker, installs, organization) that skip TDD
+disable-model-invocation: true
 user-invocable: false
 model: opus
-allowed-tools:
-  - mcp__plugin_mermaid-collab_mermaid__*
-  - Read
-  - Glob
-  - Grep
+allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Glob, Grep
 ---
 
 # Task Planning Skill
@@ -53,14 +50,19 @@ Identify what must exist before the task can start.
 5. When user confirms prerequisites are complete, save snapshot and proceed to Steps phase
 
 **Snapshot Saving:**
-```javascript
+```
 // After each prerequisite documented, save to preserve context
-saveSnapshot({
-  activeSkill: "task-planning",
-  currentStep: "prerequisites",
-  pendingQuestion: "Are there more prerequisites?",
-  inProgressItem: currentItem
-});
+Tool: mcp__mermaid__save_snapshot
+Args: {
+  "project": "<cwd>",
+  "session": "<session-name>",
+  "activeSkill": "task-planning",
+  "currentStep": "prerequisites",
+  "pendingQuestion": "Are there more prerequisites?",
+  "inProgressItem": currentItem,
+  "recentContext": []
+}
+// Note: version and timestamp are automatically added
 ```
 
 ### Phase 2: Steps
@@ -78,14 +80,19 @@ Define the ordered sequence of commands/actions to complete the task.
 5. When user confirms steps are complete, save snapshot and proceed to Verification phase
 
 **Snapshot Saving:**
-```javascript
+```
 // After each step documented, save context
-saveSnapshot({
-  activeSkill: "task-planning",
-  currentStep: "steps",
-  pendingQuestion: "Are there more steps?",
-  inProgressItem: currentItem
-});
+Tool: mcp__mermaid__save_snapshot
+Args: {
+  "project": "<cwd>",
+  "session": "<session-name>",
+  "activeSkill": "task-planning",
+  "currentStep": "steps",
+  "pendingQuestion": "Are there more steps?",
+  "inProgressItem": currentItem,
+  "recentContext": []
+}
+// Note: version and timestamp are automatically added
 ```
 
 ### Phase 3: Verification
@@ -102,14 +109,19 @@ Define how to confirm the task completed successfully.
 6. Return to collab skill (indicate item is ready for executing-plans phase)
 
 **Snapshot Saving:**
-```javascript
+```
 // After verification documented and design.md updated
-saveSnapshot({
-  activeSkill: "task-planning",
-  currentStep: "verification-complete",
-  pendingQuestion: null,
-  inProgressItem: currentItem
-});
+Tool: mcp__mermaid__save_snapshot
+Args: {
+  "project": "<cwd>",
+  "session": "<session-name>",
+  "activeSkill": "task-planning",
+  "currentStep": "verification-complete",
+  "pendingQuestion": null,
+  "inProgressItem": currentItem,
+  "recentContext": []
+}
+// Note: version and timestamp are automatically added
 ```
 
 ## Integration
@@ -165,7 +177,7 @@ The task-planning skill updates the work item in design.md with this structure:
 
 This skill saves snapshots at key transitions to preserve planning progress if the session is compacted.
 
-**Snapshot Structure:**
+**Snapshot Structure (returned by mcp__mermaid__load_snapshot):**
 ```json
 {
   "version": 1,
@@ -177,6 +189,7 @@ This skill saves snapshots at key transitions to preserve planning progress if t
   "recentContext": []
 }
 ```
+Note: `version` and `timestamp` are automatically added by `mcp__mermaid__save_snapshot`.
 
 When the collab session resumes after compaction:
 1. collab skill reads context-snapshot.json

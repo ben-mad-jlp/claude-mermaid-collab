@@ -2,9 +2,7 @@
 name: collab-start
 description: Start the mermaid-collab server and begin a collab session
 user-invocable: true
-allowed-tools:
-  - Bash
-  - Skill
+allowed-tools: Bash, Skill
 ---
 
 # Start Collab

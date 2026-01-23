@@ -11,6 +11,7 @@
 
 import React, { useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import {
   oneDark,
@@ -369,7 +370,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
                 if (segment.type === 'unchanged') {
                   return (
                     <div key={idx} className="diff-unchanged">
-                      <ReactMarkdown components={components}>
+                      <ReactMarkdown components={components} remarkPlugins={[remarkGfm]}>
                         {segment.content}
                       </ReactMarkdown>
                     </div>
@@ -377,7 +378,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
                 } else if (segment.type === 'added') {
                   return (
                     <div key={idx} className="diff-added">
-                      <ReactMarkdown components={components}>
+                      <ReactMarkdown components={components} remarkPlugins={[remarkGfm]}>
                         {segment.content}
                       </ReactMarkdown>
                     </div>
@@ -385,7 +386,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
                 } else {
                   return (
                     <div key={idx} className="diff-removed">
-                      <ReactMarkdown components={components}>
+                      <ReactMarkdown components={components} remarkPlugins={[remarkGfm]}>
                         {segment.content}
                       </ReactMarkdown>
                     </div>
@@ -395,7 +396,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             </div>
           ) : (
             // Render normally
-            <ReactMarkdown components={components}>{content}</ReactMarkdown>
+            <ReactMarkdown components={components} remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
           )}
         </div>
       ) : (

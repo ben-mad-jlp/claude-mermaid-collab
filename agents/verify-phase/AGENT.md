@@ -1,6 +1,6 @@
 ---
 name: verify-phase
-description: Verify rough-draft phase alignment with design doc
+description: Verifies rough-draft phase output aligns with design document
 ---
 
 # Verify Phase
@@ -11,19 +11,17 @@ Checks if rough-draft output aligns with original design. Called after each roug
 
 **Core principle:** Detect drift early before implementation diverges from design.
 
-**Announce at start:** "I'm using the verify-phase skill to check alignment with the design document."
-
 ## When to Use
 
-Use this skill when:
+Use this agent when:
 - Completing a rough-draft phase (INTERFACE, PSEUDOCODE, or SKELETON)
 - You want to verify phase output matches the original design decisions
 - Before transitioning between rough-draft phases
 
 ## When NOT to Use
 
-Do NOT use this skill when:
-- No design document exists yet (use `/brainstorming` first)
+Do NOT use this agent when:
+- No design document exists yet (use brainstorming first)
 - In implementation phase (design is already finalized)
 - No rough-draft output to verify
 
@@ -31,7 +29,7 @@ Do NOT use this skill when:
 
 1. Read current phase output
 2. Read design document
-3. Use LLM to evaluate alignment
+3. Evaluate alignment
 4. If aligned: proceed
 5. If drift detected:
    - Present what changed, pros/cons, suggestion
@@ -40,7 +38,7 @@ Do NOT use this skill when:
 
 ## Implementation
 
-Called by rough-draft skill after each phase with:
+Called after each phase with:
 - `currentPhase`: INTERFACE | PSEUDOCODE | SKELETON
 - `phaseOutput`: content produced
 
@@ -144,16 +142,20 @@ How would you like to handle this drift?
 
 **On Accept:**
 
-```javascript
-// Update state to brainstorming
-state = read_state(SESSION_PATH)
-state.phase = "brainstorming"
-state.lastAction = {
-  type: "drift_accepted",
-  details: drift.what_changed,
-  timestamp: now_iso8601()
+```
+// Update state to brainstorming via MCP
+Tool: mcp__mermaid__update_session_state
+Args: {
+  "project": "<cwd>",
+  "session": "<session-name>",
+  "phase": "brainstorming",
+  "lastAction": {
+    "type": "drift_accepted",
+    "details": drift.what_changed,
+    "timestamp": "<current-ISO-timestamp>"
+  }
 }
-write_state(SESSION_PATH, state)
+// Note: lastActivity is automatically updated by the MCP tool
 ```
 
 Return: `{ aligned: false, userChoice: "accept" }`
@@ -182,7 +184,7 @@ Return: `{ aligned: false, userChoice: "partial", spec: partial_spec }`
 
 ## Drift Detection Patterns
 
-The skill looks for these types of drift:
+The agent looks for these types of drift:
 
 | Type | Example |
 |------|---------|
@@ -216,26 +218,26 @@ Valid phases are: INTERFACE, PSEUDOCODE, SKELETON
 ## Integration
 
 **Called by:**
-- **rough-draft** skill - After each phase completion (INTERFACE, PSEUDOCODE, SKELETON)
+- **rough-draft** - After each phase completion (INTERFACE, PSEUDOCODE, SKELETON)
 
 **Transitions to:**
 - **brainstorming** - If drift is accepted (to update design)
 - **Current phase redo** - If drift is rejected
 - **Next phase** - If aligned
 
-**Related skills:**
+**Related:**
 - **brainstorming** - Where design decisions are made
-- **rough-draft** - The calling skill
+- **rough-draft** - The calling process
 - **ready-to-implement** - Validates complete design before implementation
 
-**Collab Workflow Chain:**
+**Workflow Chain:**
 ```
-collab --> brainstorming --> rough-draft [verify-phase] --> executing-plans
-                               ^             ^
-                        (each phase)  (you are here)
+brainstorming --> rough-draft [verify-phase] --> executing-plans
+                     ^             ^
+              (each phase)  (you are here)
 ```
 
-This skill acts as a checkpoint between rough-draft phases, ensuring implementation plans don't drift from the original design decisions.
+This agent acts as a checkpoint between rough-draft phases, ensuring implementation plans don't drift from the original design decisions.
 
 ## Quick Reference
 

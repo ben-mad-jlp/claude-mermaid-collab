@@ -1,6 +1,8 @@
 ---
 name: collab-cleanup
 description: Close out a collab session - archive or delete design artifacts
+disable-model-invocation: true
+user-invocable: false
 ---
 
 # Collab Cleanup
@@ -88,13 +90,17 @@ What would you like to do with the design artifacts?
 5. Clear Work Items section in `.collab/[session]/documents/design.md`:
    - Keep "## Session Context" and its content intact
    - Replace "## Work Items" section with empty placeholder
-6. Reset `.collab/[session]/collab-state.json` to:
-   ```json
-   {
+6. Reset collab state via MCP:
+   ```
+   Tool: mcp__mermaid__update_session_state
+   Args: {
+     "project": "<absolute-path-to-cwd>",
+     "session": "<session-name>",
      "phase": "brainstorming",
      "currentItem": null
    }
    ```
+   Note: `lastActivity` is automatically updated by the MCP tool.
 7. Report: "Session `[name]` archived to `docs/designs/[name]-[timestamp]/`. Session reset for new work."
 8. Loop back to `gather-session-goals` skill to start work on new items
 

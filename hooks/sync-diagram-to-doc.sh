@@ -5,8 +5,11 @@
 
 set -e
 
-# Parse diagram ID from tool output
-DIAGRAM_ID=$(echo "$TOOL_OUTPUT" | jq -r '.id // empty')
+# Read JSON input from stdin (Claude Code hook input format)
+INPUT=$(cat)
+
+# Parse diagram ID from tool_output field
+DIAGRAM_ID=$(echo "$INPUT" | jq -r '.tool_output.id // empty')
 [ -z "$DIAGRAM_ID" ] && exit 0
 
 # Find session path

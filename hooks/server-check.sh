@@ -39,7 +39,7 @@ while [ "$elapsed" -lt "$MAX_WAIT" ]; do
   elapsed=$((elapsed + 1))
 done
 
-# Timeout - server didn't start
+# Timeout - server didn't start (exit 2 = blocking error)
 echo "ERROR: mermaid-collab server failed to start within ${MAX_WAIT}s" >&2
 echo "Check logs or try manually: cd $PROJECT_ROOT && bun run src/server.ts" >&2
-exit 1
+exit 2

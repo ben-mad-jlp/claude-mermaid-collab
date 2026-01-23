@@ -1,14 +1,14 @@
 {
+  "description": "Hooks for mermaid-collab plugin: server auto-start, phase enforcement, and diagram syncing",
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "mcp__mermaid__*",
+        "matcher": "mcp__.*mermaid__.*",
         "hooks": [
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/server-check.sh",
-            "timeout": 15,
-            "statusMessage": "Checking mermaid-collab server..."
+            "timeout": 15
           }
         ]
       },
@@ -18,15 +18,14 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/brainstorming-enforce.sh",
-            "timeout": 5,
-            "statusMessage": "Checking phase permissions..."
+            "timeout": 5
           }
         ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "mcp__mermaid__create_diagram|mcp__mermaid__update_diagram",
+        "matcher": "mcp__.*mermaid__create_diagram|mcp__.*mermaid__update_diagram",
         "hooks": [
           {
             "type": "command",

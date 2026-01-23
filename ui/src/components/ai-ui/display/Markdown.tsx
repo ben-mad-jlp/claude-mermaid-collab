@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import Highlight from 'react-syntax-highlighter';
 import { atomOneDark, atomOneLight } from 'react-syntax-highlighter/dist/cjs/styles/hljs';
 
@@ -174,6 +175,7 @@ export const Markdown: React.FC<MarkdownProps> = ({
       <div className="p-6 max-h-96 overflow-auto prose prose-sm dark:prose-invert max-w-none">
         <ReactMarkdown
           components={components as any}
+          remarkPlugins={tables !== false ? [remarkGfm] : []}
           skipHtml={!allowHtml}
         >
           {content}

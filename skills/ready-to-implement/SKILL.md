@@ -1,6 +1,8 @@
 ---
 name: ready-to-implement
 description: Validate design completion and transition to implementation phase
+disable-model-invocation: true
+user-invocable: false
 ---
 
 # Ready to Implement
@@ -155,25 +157,17 @@ Ready to proceed to rough-draft?
 
 On user confirmation (selects **1**):
 
-**Update collab-state.json:**
+**Update collab-state via MCP:**
 
-```bash
-# Read current state
-cat .collab/<session-name>/collab-state.json
-
-# Update phase to rough-draft/interface
-# Write updated JSON with phase: "rough-draft/interface"
 ```
-
-The updated state should be:
-
-```json
-{
-  "phase": "rough-draft/interface",
-  "template": "<existing-template>",
-  "lastActivity": "<current-ISO-timestamp>"
+Tool: mcp__mermaid__update_session_state
+Args: {
+  "project": "<absolute-path-to-cwd>",
+  "session": "<session-name>",
+  "phase": "rough-draft/interface"
 }
 ```
+Note: `lastActivity` is automatically updated by the MCP tool.
 
 **Invoke rough-draft skill:**
 

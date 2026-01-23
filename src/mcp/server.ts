@@ -24,6 +24,14 @@ import { homedir } from 'os';
 import { dismissUI, dismissUISchema } from './tools/dismiss-ui.js';
 import { updateUI, updateUISchema } from './tools/update-ui.js';
 import { renderUISchema } from './tools/render-ui.js';
+import {
+  getSessionState,
+  updateSessionState,
+  hasSnapshot,
+  saveSnapshot,
+  loadSnapshot,
+  deleteSnapshot,
+} from './tools/collab-state.js';
 
 // Configuration
 const API_PORT = parseInt(process.env.PORT || '3737', 10);
@@ -498,8 +506,11 @@ async function main() {
     console.error(`HTTP server already running at ${API_BASE_URL}`);
   }
 
+  // Version is synced with package.json via npm version command
+  const SERVER_VERSION = '5.20.0';
+
   const server = new Server(
-    { name: 'mermaid-diagram-server', version: '2.0.0' },
+    { name: 'mermaid-diagram-server', version: SERVER_VERSION },
     { capabilities: { tools: {}, resources: {} } }
   );
 
@@ -735,6 +746,97 @@ async function main() {
         description: 'Dismiss the currently displayed UI in the browser. Called when user responds in terminal to clear the question panel.',
         inputSchema: dismissUISchema,
       },
+      {
+        name: 'check_server_health',
+        description: 'Check if MCP server, HTTP/API backend, and React UI are running',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+          required: [],
+        },
+      },
+      {
+        name: 'get_session_state',
+        description: 'Get current collab session state (phase, currentItem, hasSnapshot, etc.)',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            session: { type: 'string', description: 'Session name' },
+          },
+          required: ['project', 'session'],
+        },
+      },
+      {
+        name: 'update_session_state',
+        description: 'Update collab session state fields (auto-updates lastActivity)',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            session: { type: 'string', description: 'Session name' },
+            phase: { type: 'string', description: 'Current phase' },
+            currentItem: { type: ['number', 'null'], description: 'Current work item number' },
+            hasSnapshot: { type: 'boolean', description: 'Whether snapshot exists' },
+            completedTasks: { type: 'array', items: { type: 'string' }, description: 'Completed task IDs' },
+            pendingTasks: { type: 'array', items: { type: 'string' }, description: 'Pending task IDs' },
+          },
+          required: ['project', 'session'],
+        },
+      },
+      {
+        name: 'has_snapshot',
+        description: 'Check if context snapshot exists for session',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            session: { type: 'string', description: 'Session name' },
+          },
+          required: ['project', 'session'],
+        },
+      },
+      {
+        name: 'save_snapshot',
+        description: 'Save context snapshot for compaction recovery',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            session: { type: 'string', description: 'Session name' },
+            activeSkill: { type: 'string', description: 'Currently active skill name' },
+            currentStep: { type: 'string', description: 'Current step/phase within skill' },
+            inProgressItem: { type: ['number', 'null'], description: 'Work item number in progress' },
+            pendingQuestion: { type: ['string', 'null'], description: 'Question awaiting user response' },
+            recentContext: { type: 'array', description: 'Recent context entries' },
+          },
+          required: ['project', 'session', 'activeSkill', 'currentStep', 'inProgressItem'],
+        },
+      },
+      {
+        name: 'load_snapshot',
+        description: 'Load context snapshot contents',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            session: { type: 'string', description: 'Session name' },
+          },
+          required: ['project', 'session'],
+        },
+      },
+      {
+        name: 'delete_snapshot',
+        description: 'Delete context snapshot file',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            session: { type: 'string', description: 'Session name' },
+          },
+          required: ['project', 'session'],
+        },
+      },
     ],
   }));
 
@@ -864,6 +966,87 @@ async function main() {
             const { project, session } = args as { project: string; session: string };
             if (!project || !session) throw new Error('Missing required: project, session');
             return await dismissUI(project, session);
+          }
+
+          case 'check_server_health': {
+            try {
+              const response = await fetch(`${API_BASE_URL}/api/health`, {
+                method: 'GET',
+                signal: AbortSignal.timeout(5000),
+              });
+              if (!response.ok) {
+                return JSON.stringify({
+                  healthy: false,
+                  error: `Health check failed: ${response.statusText}`,
+                }, null, 2);
+              }
+              return await response.text();
+            } catch (error) {
+              return JSON.stringify({
+                healthy: false,
+                error: error instanceof Error ? error.message : 'Server not responding',
+              }, null, 2);
+            }
+          }
+
+          case 'get_session_state': {
+            const { project, session } = args as { project: string; session: string };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            const state = await getSessionState(project, session);
+            return JSON.stringify(state, null, 2);
+          }
+
+          case 'update_session_state': {
+            const { project, session, ...updates } = args as {
+              project: string;
+              session: string;
+              phase?: string;
+              currentItem?: number | null;
+              hasSnapshot?: boolean;
+              completedTasks?: string[];
+              pendingTasks?: string[];
+            };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            const result = await updateSessionState(project, session, updates);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'has_snapshot': {
+            const { project, session } = args as { project: string; session: string };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            const exists = await hasSnapshot(project, session);
+            return JSON.stringify({ exists }, null, 2);
+          }
+
+          case 'save_snapshot': {
+            const { project, session, activeSkill, currentStep, inProgressItem, pendingQuestion, recentContext } = args as {
+              project: string;
+              session: string;
+              activeSkill: string;
+              currentStep: string;
+              inProgressItem: number | null;
+              pendingQuestion?: string | null;
+              recentContext?: Array<{ type: string; content: string }>;
+            };
+            if (!project || !session || !activeSkill || !currentStep) {
+              throw new Error('Missing required: project, session, activeSkill, currentStep');
+            }
+            const result = await saveSnapshot(project, session, activeSkill, currentStep, inProgressItem, pendingQuestion, recentContext);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'load_snapshot': {
+            const { project, session } = args as { project: string; session: string };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            const snapshot = await loadSnapshot(project, session);
+            return JSON.stringify(snapshot, null, 2);
+          }
+
+          case 'delete_snapshot': {
+            const { project, session } = args as { project: string; session: string };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            const result = await deleteSnapshot(project, session);
+            return JSON.stringify(result, null, 2);
           }
 
           default:

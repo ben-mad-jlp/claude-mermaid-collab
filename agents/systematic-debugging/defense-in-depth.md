@@ -98,7 +98,7 @@ When you find a bug:
 Bug: Empty `projectDir` caused `git init` in source code
 
 **Data flow:**
-1. Test setup → empty string
+1. Test setup -> empty string
 2. `Project.create(name, '')`
 3. `WorkspaceManager.createWorkspace('')`
 4. `git init` runs in `process.cwd()`

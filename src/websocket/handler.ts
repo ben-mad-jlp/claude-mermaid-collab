@@ -20,8 +20,8 @@ export type WSMessage =
   | { type: 'document_created'; id: string; name: string }
   | { type: 'document_deleted'; id: string }
   | { type: 'metadata_updated'; itemId?: string; updates?: Record<string, unknown>; foldersChanged?: boolean }
-  | { type: 'subscribe'; id: string }
-  | { type: 'unsubscribe'; id: string }
+  | { type: 'subscribe'; id?: string; channel?: string }
+  | { type: 'unsubscribe'; id?: string; channel?: string }
   | { type: 'question_responded'; questionId: string; response: string; project: string; session: string }
   | { type: 'ui_render'; uiId: string; project: string; session: string; ui: any; blocking: boolean; timestamp: number }
   | { type: 'ui_dismissed'; project: string; session: string }
@@ -45,9 +45,19 @@ export class WebSocketHandler {
       const data = JSON.parse(message) as WSMessage;
 
       if (data.type === 'subscribe') {
-        ws.data.subscriptions.add(data.id);
+        if (data.id) {
+          // Specific item subscription (existing behavior)
+          ws.data.subscriptions.add(data.id);
+        } else if (data.channel) {
+          // General channel subscription (new)
+          ws.data.subscriptions.add(`channel:${data.channel}`);
+        }
       } else if (data.type === 'unsubscribe') {
-        ws.data.subscriptions.delete(data.id);
+        if (data.id) {
+          ws.data.subscriptions.delete(data.id);
+        } else if (data.channel) {
+          ws.data.subscriptions.delete(`channel:${data.channel}`);
+        }
       }
     } catch (error) {
       console.error('Failed to parse WebSocket message:', error);

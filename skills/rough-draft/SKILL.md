@@ -1,13 +1,10 @@
 ---
 name: rough-draft
 description: Bridge brainstorming to implementation through 4 phases - interface, pseudocode, skeleton, and implementation handoff
+disable-model-invocation: true
 user-invocable: false
 model: opus
-allowed-tools:
-  - mcp__plugin_mermaid-collab_mermaid__*
-  - Read
-  - Glob
-  - Grep
+allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Glob, Grep
 ---
 
 ## Collab Session Required
@@ -18,7 +15,7 @@ Before proceeding, check for active collab session:
 2. Check if any session folders exist within
 3. If no session found:
    ```
-   ⚠️ No active collab session found.
+   No active collab session found.
 
    Use /collab to start a session first.
    ```
@@ -31,19 +28,19 @@ Before proceeding, check for active collab session:
 ## RESTRICTIONS
 
 **FORBIDDEN during rough-draft phase:**
-- ❌ Edit tool on source files (only allowed in `.collab/` folder)
-- ❌ Write tool on source files (only allowed in `.collab/` folder)
-- ❌ Any file modification outside `.collab/` folder
-- ❌ Implementing code directly (must go through executing-plans)
+- Edit tool on source files (only allowed in `.collab/` folder)
+- Write tool on source files (only allowed in `.collab/` folder)
+- Any file modification outside `.collab/` folder
+- Implementing code directly (must go through executing-plans)
 
 **ALLOWED during rough-draft:**
-- ✅ MCP collab tools - **prefer patch operations** for efficiency:
+- MCP collab tools - **prefer patch operations** for efficiency:
   - `patch_document` for targeted edits (status changes, adding fields)
   - `patch_diagram` for small diagram updates
   - `update_document`/`update_diagram` only for large rewrites or new sections
   - `create_diagram`, `create_document` for new artifacts
-- ✅ Read tool (for exploration and context)
-- ✅ Bash tool (for non-destructive commands like `ls`, `git status`)
+- Read tool (for exploration and context)
+- Bash tool (for non-destructive commands like `ls`, `git status`)
 
 **Why this matters:**
 - Editing source files during rough-draft bypasses executing-plans
@@ -89,420 +86,29 @@ When writing interfaces and pseudocode, use clear, precise language.
 
 Apply these principles to interface documentation and pseudocode comments.
 
+---
+
 ## Phase 1: Interface
 
-Define the structural contracts of the system.
+Define the structural contracts of the system - file paths, class/function signatures, public API contracts, and type definitions.
 
-### What to Produce
-
-1. **File paths** - List all files that will be created or modified
-2. **Class and function signatures** - Names, parameters, return types
-3. **Public API contracts** - How components interact with each other
-4. **Type definitions** - Custom types, interfaces, enums
-
-### Process
-
-```bash
-# Read design doc
-cat .collab/<name>/documents/design.md
-```
-
-**For each component identified in design:**
-1. Define the file path where it will live
-2. List all public functions/methods with signatures
-3. Define input/output types
-4. Document how it connects to other components
-
-### Output Format
-
-**Create per-item interface documents** instead of adding to design.md:
-
-For each work item N, create `interface-item-N.md`:
-
-```
-Tool: mcp__mermaid__create_document
-Args: {
-  "project": "<cwd>",
-  "session": "<session>",
-  "name": "interface-item-N",
-  "content": "<interface content for item N>"
-}
-```
-
-**Document structure:**
-
-```markdown
-## Interface Definition
-
-### File Structure
-- `src/auth/types.ts` - Core type definitions
-- `src/auth/service.ts` - Authentication service
-- `src/auth/middleware.ts` - Express middleware
-
-### Type Definitions
-
-```typescript
-// src/auth/types.ts
-interface User {
-  id: string;
-  email: string;
-  role: 'admin' | 'user';
-}
-
-interface AuthResult {
-  success: boolean;
-  user?: User;
-  error?: string;
-}
-```
-
-### Function Signatures
-
-```typescript
-// src/auth/service.ts
-class AuthService {
-  authenticate(email: string, password: string): Promise<AuthResult>
-  validateToken(token: string): Promise<User | null>
-  revokeToken(token: string): Promise<void>
-}
-
-// src/auth/middleware.ts
-function requireAuth(req: Request, res: Response, next: NextFunction): void
-function requireRole(role: string): Middleware
-```
-
-### Component Interactions
-- `middleware.requireAuth` calls `service.validateToken`
-- `service.authenticate` returns tokens stored in Redis
-```
-
-### Verification Gate
-
-Before moving to Phase 2, run verification:
-
-```bash
-# Trigger verify-phase hook
-./hooks/verify-phase.sh interface <collab-name>
-```
-
-**Checklist:**
-- [ ] All files from design are listed
-- [ ] All public interfaces have signatures
-- [ ] Parameter types are explicit (no `any`)
-- [ ] Return types are explicit
-- [ ] Component interactions are documented
-
-**GATE: Do NOT proceed until this checklist passes.**
-
-**If Interface phase doesn't apply** (e.g., pure config changes, docker setup):
-1. Document explicitly: "N/A - [reason why interface phase doesn't apply]"
-2. Add this to the design doc Interface Definition section
-3. You still MUST proceed through pseudocode, skeleton, and executing-plans
-4. Skipping to implementation is NEVER allowed
-
-**Update state on success:**
-
-```
-Tool: mcp__mermaid__update_collab_session_state
-Args: { "sessionName": "<name>", "phase": "rough-draft/pseudocode" }
-```
+**For detailed instructions, see [Interface Phase](interface.md).**
 
 ---
 
 ## Phase 2: Pseudocode
 
-Define the logic flow for each function.
+Define the logic flow for each function - step-by-step descriptions, error handling, edge cases, and dependencies.
 
-### What to Produce
-
-1. **Logic flow** - Step-by-step description of what each function does
-2. **Error handling approach** - How errors are caught, propagated, reported
-3. **Edge cases** - Boundary conditions and how they're handled
-4. **Dependencies** - External services, databases, APIs called
-
-### Process
-
-For each function from the Interface phase:
-1. Write plain-language pseudocode
-2. Identify error conditions
-3. List edge cases
-4. Note any external calls
-
-### Output Format
-
-**Create per-item pseudocode documents** instead of adding to design.md:
-
-For each work item N, create `pseudocode-item-N.md`:
-
-```
-Tool: mcp__mermaid__create_document
-Args: {
-  "project": "<cwd>",
-  "session": "<session>",
-  "name": "pseudocode-item-N",
-  "content": "<pseudocode content for item N>"
-}
-```
-
-**Document structure:**
-
-```markdown
-# Pseudocode: Item N - [Title]
-
-### AuthService.authenticate(email, password)
-
-```
-1. Validate email format
-   - If invalid: return { success: false, error: "Invalid email format" }
-
-2. Look up user by email in database
-   - If not found: return { success: false, error: "User not found" }
-
-3. Verify password hash
-   - If mismatch: return { success: false, error: "Invalid password" }
-   - Rate limit: after 5 failures, lock account for 15 minutes
-
-4. Generate JWT token
-   - Include: user.id, user.role, expiry (1 hour)
-
-5. Store token in Redis with TTL
-   - Key: "token:{tokenId}", Value: user.id
-
-6. Return { success: true, user, token }
-```
-
-**Error Handling:**
-- Database errors: Log and return generic "Authentication failed"
-- Redis errors: Fall back to stateless JWT (no revocation support)
-
-**Edge Cases:**
-- Empty password: Reject before hashing
-- Expired account: Check `user.expiresAt` before authenticating
-- Concurrent logins: Allow (no session limit)
-```
-
-### Verification Gate
-
-Before moving to Phase 3, run verification:
-
-```bash
-./hooks/verify-phase.sh pseudocode <collab-name>
-```
-
-**Checklist:**
-- [ ] Every function from Interface has pseudocode
-- [ ] Error handling is explicit for each function
-- [ ] Edge cases are identified
-- [ ] External dependencies are noted
-
-**GATE: Do NOT proceed until this checklist passes.**
-
-**If Pseudocode phase doesn't apply** (e.g., no logic to describe, pure data changes):
-1. Document explicitly: "N/A - [reason why pseudocode phase doesn't apply]"
-2. Add this to the design doc Pseudocode section
-3. You still MUST proceed through skeleton and executing-plans
-4. Skipping to implementation is NEVER allowed
-
-**Update state on success:**
-
-```
-Tool: mcp__mermaid__update_collab_session_state
-Args: { "sessionName": "<name>", "phase": "rough-draft/skeleton" }
-```
+**For detailed instructions, see [Pseudocode Phase](pseudocode.md).**
 
 ---
 
 ## Phase 3: Skeleton
 
-Generate actual stub files and the task dependency graph.
+Generate stub file documentation and task dependency graphs. Files are documented but NOT created - they are created during implementation by executing-plans.
 
-### What to Produce
-
-1. **Stub files** - Real files with types and TODO comments
-2. **Task dependency graph** - YAML format with explicit dependencies
-3. **Mermaid visualization** - Visual diagram of task dependencies
-
-### Process
-
-**Step 1: Document stub files (DO NOT CREATE)**
-
-For each file in the Interface:
-1. Document the file path
-2. Document the full stub content in a code block
-3. Mark as "will create" (not "created")
-
-**IMPORTANT:** Do NOT use the Write tool. Do NOT create files in the source tree.
-Files are documented here and created during implementation phase by executing-plans.
-
-Example documentation format:
-
-### Planned File: src/auth/service.ts
-
-```typescript
-import { User, AuthResult } from './types';
-
-export class AuthService {
-  async authenticate(email: string, password: string): Promise<AuthResult> {
-    // TODO: Implement authentication logic
-    // - Validate email format
-    // - Look up user by email
-    // - Verify password hash
-    // - Generate JWT token
-    throw new Error('Not implemented');
-  }
-}
-```
-
-**Status:** [ ] Will be created during implementation
-
-**Step 2: Build task dependency graph**
-
-Analyze dependencies between files to determine execution order:
-
-```yaml
-tasks:
-  - id: auth-types
-    files: [src/auth/types.ts]
-    description: Core auth type definitions
-    parallel: true
-
-  - id: auth-service
-    files: [src/auth/service.ts]
-    description: Authentication service implementation
-    depends-on: [auth-types]
-
-  - id: auth-middleware
-    files: [src/auth/middleware.ts]
-    description: Express authentication middleware
-    depends-on: [auth-service]
-
-  - id: auth-tests
-    files: [src/auth/__tests__/service.test.ts]
-    description: Unit tests for auth service
-    depends-on: [auth-service]
-```
-
-**Step 2.5: Generate Test Patterns**
-
-For each task in the dependency graph, generate the `tests` field:
-
-For each file in task.files:
-1. Extract directory: `dir = dirname(file)`
-2. Extract basename: `name = filename without extension`
-3. Extract extension: `ext = file extension`
-4. Generate patterns:
-   - `{dir}/{name}.test{ext}`
-   - `{dir}/__tests__/{name}.test{ext}`
-
-Add to task YAML:
-
-```yaml
-tasks:
-  - id: example-task
-    files: [src/auth/service.ts]
-    tests: [src/auth/service.test.ts, src/auth/__tests__/service.test.ts]  # AUTO-GENERATED
-    description: ...
-```
-
-**Step 3: Create Mermaid visualization**
-
-```mermaid
-graph TD
-    auth-types[auth-types]
-    auth-service[auth-service]
-    auth-middleware[auth-middleware]
-    auth-tests[auth-tests]
-
-    auth-types --> auth-service
-    auth-service --> auth-middleware
-    auth-service --> auth-tests
-
-    style auth-types fill:#c8e6c9
-    style auth-service fill:#bbdefb
-    style auth-middleware fill:#bbdefb
-    style auth-tests fill:#e1bee7
-```
-
-Legend: Green = parallel-safe (no dependencies), Blue = sequential, Purple = tests
-
-### Output Format
-
-**Create per-item skeleton documents** instead of adding to design.md:
-
-For each work item N, create `skeleton-item-N.md`:
-
-```
-Tool: mcp__mermaid__create_document
-Args: {
-  "project": "<cwd>",
-  "session": "<session>",
-  "name": "skeleton-item-N",
-  "content": "<skeleton content for item N>"
-}
-```
-
-**Document structure:**
-
-```markdown
-# Skeleton: Item N - [Title]
-
-## Planned Files
-- [ ] `src/auth/types.ts` - Will contain type definitions
-- [ ] `src/auth/service.ts` - Will contain stub methods
-- [ ] `src/auth/middleware.ts` - Will contain stub functions
-
-**Note:** These files are documented but NOT created yet. They will be created during the implementation phase by executing-plans.
-
-## File Contents
-
-[Include full stub content for each file in code blocks]
-
-## Task Dependency Graph
-
-[Include YAML task graph]
-
-## Execution Order
-
-[List waves and parallel batches]
-
-## Verification
-
-[Checklist for this item]
-```
-
-### Verification Gate
-
-Before moving to Phase 4, run verification:
-
-```bash
-./hooks/verify-phase.sh skeleton <collab-name>
-```
-
-**Checklist:**
-- [ ] All files from Interface are documented (NOT created - files are only created by executing-plans)
-- [ ] File paths match exactly
-- [ ] All types are defined
-- [ ] All function signatures present
-- [ ] TODO comments match pseudocode
-- [ ] Dependency graph covers all files
-- [ ] No circular dependencies
-
-**GATE: Do NOT proceed until this checklist passes.**
-
-**If Skeleton phase doesn't apply** (e.g., no code to write, config-only changes):
-1. Document explicitly: "N/A - [reason why skeleton phase doesn't apply]"
-2. Add this to the design doc Skeleton section
-3. You still MUST invoke executing-plans (it will handle the actual changes)
-4. Implementing directly is NEVER allowed
-
-**MANDATORY:** After skeleton phase, you MUST invoke executing-plans. Never implement changes inline.
-
-**Update state on success:**
-
-```
-Tool: mcp__mermaid__update_collab_session_state
-Args: { "sessionName": "<name>", "phase": "implementation" }
-```
+**For detailed instructions, see [Skeleton Phase](skeleton.md).**
 
 ---
 
@@ -528,44 +134,12 @@ This ensures user reviews each artifact before it becomes part of the design.
 
 After each phase's `[PROPOSED]` content is accepted, check if it matches the original design.
 
-```dot
-digraph drift_detection {
-    rankdir=TB;
-    node [shape=box, style=rounded];
-
-    Produce [label="Produce artifact", style=filled, fillcolor="#ffe0b2"];
-    Compare [label="Compare to\noriginal design", shape=diamond, style=filled, fillcolor="#fff9c4"];
-    Continue [label="Continue to\nnext phase", shape=oval, style=filled, fillcolor="#c8e6c9"];
-    Present [label="Present drift\nwith pros/cons", style=filled, fillcolor="#bbdefb"];
-    KeepDecision [label="User: Keep?", shape=diamond, style=filled, fillcolor="#fff9c4"];
-    UpdateDesign [label="Update design doc", style=filled, fillcolor="#ffe0b2"];
-    Significance [label="AI assesses\nsignificance", style=filled, fillcolor="#bbdefb"];
-    BackDecision [label="User: Back to\nbrainstorming?", shape=diamond, style=filled, fillcolor="#fff9c4"];
-    BackBrainstorm [label="Back to\nbrainstorming", shape=oval, style=filled, fillcolor="#c8e6c9"];
-    RestartRec [label="AI recommends\nrestart point", style=filled, fillcolor="#bbdefb"];
-    RestartDecision [label="User: Restart\nfrom where?", shape=diamond, style=filled, fillcolor="#fff9c4"];
-
-    Produce -> Compare;
-    Compare -> Continue [label="no drift"];
-    Compare -> Present [label="drift detected"];
-    Present -> KeepDecision;
-    KeepDecision -> UpdateDesign [label="yes"];
-    KeepDecision -> RestartRec [label="no"];
-    UpdateDesign -> Significance;
-    Significance -> BackDecision;
-    BackDecision -> BackBrainstorm [label="yes"];
-    BackDecision -> Continue [label="no"];
-    RestartRec -> RestartDecision;
-    RestartDecision -> Continue [label="current phase"];
-}
-```
-
 ### When to Check for Drift
 
 Run drift detection after each phase's artifact is accepted:
-- After INTERFACE accepted → compare to original design
-- After PSEUDOCODE accepted → compare to design + interface
-- After SKELETON accepted → compare to design + interface + pseudocode
+- After INTERFACE accepted - compare to original design
+- After PSEUDOCODE accepted - compare to design + interface
+- After SKELETON accepted - compare to design + interface + pseudocode
 
 ### Presenting Drift
 
@@ -605,8 +179,8 @@ Keep this change?
    1. Yes
    2. No
    ```
-5. If **1 (Yes)** → transition to brainstorming skill
-6. If **2 (No)** → continue to next rough-draft phase
+5. If **1 (Yes)** - transition to brainstorming skill
+6. If **2 (No)** - continue to next rough-draft phase
 
 ### If User Discards Change (2)
 
@@ -626,114 +200,9 @@ Keep this change?
 
 ## Phase 4: Implementation Handoff
 
-Hand off to executing-plans with the dependency graph.
+Hand off to executing-plans with the dependency graph. Includes options for current directory or git worktree isolation.
 
-### Process
-
-**Step 1: Generate implementation plan**
-
-Convert the task dependency graph into an executable plan:
-
-```markdown
-# Implementation Plan
-
-## Task Dependency Graph
-
-[Include the YAML from skeleton phase]
-
-## Execution Order
-
-### Parallel Batch 1 (no dependencies)
-- auth-types
-
-### Batch 2 (depends on batch 1)
-- auth-service
-
-### Batch 3 (depends on batch 2)
-- auth-middleware
-- auth-tests (can run parallel with middleware)
-```
-
-**Step 2: Confirm transition to executing-plans**
-
-Show summary and ask for confirmation:
-
-```
-Rough-draft complete. Ready for implementation:
-- [N] files created with stubs
-- [N] tasks in dependency graph
-- [N] parallel-safe tasks identified
-
-Ready to move to executing-plans?
-  1. Yes, in current directory
-  2. Yes, in a new git worktree (recommended for larger features)
-  3. No, I need to revise something
-```
-
-**Option 1 - Current directory:**
-
-Update collab state and invoke executing-plans:
-```
-Tool: mcp__mermaid__update_collab_session_state
-Args: { "sessionName": "<name>", "phase": "implementation" }
-```
-
-Then invoke executing-plans skill.
-
-**Option 2 - Git worktree:**
-
-1. Get session name from collab state
-2. Prompt for branch name:
-   ```
-   Creating worktree with branch: feature/<session-name>
-   (Press enter to accept, or type a different branch name)
-   ```
-3. Announce: "I'm using the using-git-worktrees skill to set up an isolated workspace."
-4. Invoke using-git-worktrees skill with the branch name
-5. On success:
-   - Update collab-state.json to add `worktreePath` field:
-     ```json
-     {
-       "worktreePath": "<absolute-path-to-worktree>"
-     }
-     ```
-   - Update collab state: `phase: "implementation"`
-   - Invoke executing-plans skill (now in worktree context)
-6. On failure:
-   - Report error
-   - Ask: "Continue in current directory instead?"
-     ```
-     1. Yes
-     2. No
-     ```
-   - If **1 (Yes)**: fall back to Option 1 flow
-   - If **2 (No)**: stay at rough-draft phase
-
-**Option 3 - Revise:**
-
-Ask what needs revision and return to appropriate phase.
-
-**Step 3: Invoke executing-plans**
-
-The executing-plans skill will:
-1. Parse the task dependency graph
-2. Dispatch parallel-safe tasks via subagent-driven-development
-3. Execute sequential tasks in dependency order
-4. Run verify-phase after each task completes
-
-### Final Verification
-
-After all tasks complete:
-
-```bash
-./hooks/verify-phase.sh implementation <collab-name>
-```
-
-**Checklist:**
-- [ ] All tasks from dependency graph completed
-- [ ] All TODOs resolved
-- [ ] Tests pass
-- [ ] Implementation matches design intent
+**For detailed instructions, see [Implementation Handoff](handoff.md).**
 
 ---
 
@@ -760,35 +229,7 @@ The `verify-phase.sh` hook:
 
 **If drift detected:**
 
-The hook outputs a report like:
-
-```markdown
-## Verification: rough-draft:interface
-
-### Aligned
-- UserService interface matches design
-- AuthResult type matches design
-
-### Drift Detected
-
-**1. Added `refreshToken` method not in design**
-   - Design: Not specified
-   - Code: `refreshToken(token: string): Promise<string>`
-
-   Pros:
-   - Enables session extension without re-auth
-   - Common security practice
-
-   Cons:
-   - Adds complexity
-   - Not in original scope
-
-**Proceed?**
-
-1. Accept all
-2. Reject all
-3. Review each
-```
+The hook outputs a report with aligned items, drift detected items with pros/cons, and options to accept all, reject all, or review each.
 
 ### User Decisions
 
@@ -884,21 +325,28 @@ Call `saveSnapshot()` after:
 ```
 FUNCTION saveSnapshot():
   session = current session name
-  state = READ collab-state.json
 
-  snapshot = {
-    version: 1,
-    timestamp: now(),
-    activeSkill: "rough-draft",
-    currentStep: state.phase (e.g., "rough-draft/interface"),
-    pendingQuestion: null,
-    inProgressItem: null,
-    recentContext: []
+  # Read current state via MCP
+  Tool: mcp__mermaid__get_session_state
+  Args: { "project": "<cwd>", "session": session }
+  Returns: state = { "phase": "...", ... }
+
+  # Save snapshot via MCP
+  Tool: mcp__mermaid__save_snapshot
+  Args: {
+    "project": "<cwd>",
+    "session": session,
+    "activeSkill": "rough-draft",
+    "currentStep": state.phase (e.g., "rough-draft/interface"),
+    "inProgressItem": null,
+    "pendingQuestion": null,
+    "recentContext": []
   }
+  # Note: version and timestamp are automatically added
 
-  WRITE to .collab/{session}/context-snapshot.json
-  state.hasSnapshot = true
-  WRITE state
+  # Update state to mark snapshot exists
+  Tool: mcp__mermaid__update_session_state
+  Args: { "project": "<cwd>", "session": session, "hasSnapshot": true }
 ```
 
 ### Save Points
@@ -906,25 +354,25 @@ FUNCTION saveSnapshot():
 **After user accepts proposal:**
 ```
 [User accepts interface/pseudocode/skeleton]
-→ Remove [PROPOSED] marker
-→ saveSnapshot()
-→ Run drift check
-→ Continue to next phase
+-> Remove [PROPOSED] marker
+-> saveSnapshot()
+-> Run drift check
+-> Continue to next phase
 ```
 
 **At phase transitions:**
 ```
-[Phase complete (interface → pseudocode → skeleton)]
-→ Update collab-state.json phase via MCP
-→ saveSnapshot()
-→ Continue to next phase
+[Phase complete (interface -> pseudocode -> skeleton)]
+-> Update collab-state.json phase via MCP
+-> saveSnapshot()
+-> Continue to next phase
 ```
 
 **Before invoking executing-plans:**
 ```
 [Skeleton complete, user confirms implementation]
-→ saveSnapshot()
-→ Invoke executing-plans skill
+-> saveSnapshot()
+-> Invoke executing-plans skill
 ```
 
 ---
@@ -950,128 +398,13 @@ tasks:
 4. **Parallel means independent** - No shared state, no order requirement
 5. **No circular dependencies** - Graph must be acyclic
 
-### Example
-
-```yaml
-tasks:
-  - id: db-schema
-    files: [prisma/schema.prisma]
-    description: Database schema definition
-    parallel: true
-
-  - id: db-migrations
-    files: [prisma/migrations/]
-    description: Generate and apply migrations
-    depends-on: [db-schema]
-
-  - id: user-types
-    files: [src/types/user.ts]
-    description: User type definitions
-    parallel: true
-
-  - id: user-service
-    files: [src/services/user.ts]
-    description: User CRUD operations
-    depends-on: [db-migrations, user-types]
-
-  - id: user-api
-    files: [src/routes/user.ts]
-    description: User REST endpoints
-    depends-on: [user-service]
-
-  - id: user-tests
-    files: [src/__tests__/user.test.ts]
-    description: User service unit tests
-    depends-on: [user-service]
-```
-
-### Mermaid Visualization
-
-Generated from the YAML:
-
-```mermaid
-graph TD
-    db-schema[db-schema]
-    db-migrations[db-migrations]
-    user-types[user-types]
-    user-service[user-service]
-    user-api[user-api]
-    user-tests[user-tests]
-
-    db-schema --> db-migrations
-    db-migrations --> user-service
-    user-types --> user-service
-    user-service --> user-api
-    user-service --> user-tests
-
-    style db-schema fill:#c8e6c9
-    style user-types fill:#c8e6c9
-    style db-migrations fill:#ffe0b2
-    style user-service fill:#bbdefb
-    style user-api fill:#bbdefb
-    style user-tests fill:#e1bee7
-```
-
-Legend: Green = parallel-safe, Orange = migration/setup, Blue = implementation, Purple = tests
-
 ---
 
 ## Browser-Based Questions
 
-When a collab session is active, prefer `render_ui` for user interactions instead of terminal prompts.
+When a collab session is active, prefer `render_ui` for user interactions instead of terminal prompts. Use `mcp__mermaid__render_ui` with Card components containing MultipleChoice or action buttons.
 
-### Multiple Choice Example
-
-```
-Tool: mcp__mermaid__render_ui
-Args: {
-  "project": "<absolute-path-to-cwd>",
-  "session": "<session-name>",
-  "ui": {
-    "type": "Card",
-    "props": { "title": "Select an option" },
-    "children": [{
-      "type": "MultipleChoice",
-      "props": {
-        "options": [
-          { "value": "1", "label": "Option 1" },
-          { "value": "2", "label": "Option 2" }
-        ],
-        "name": "choice"
-      }
-    }],
-    "actions": [{ "id": "submit", "label": "Submit", "primary": true }]
-  },
-  "blocking": true
-}
-```
-
-Response: `{ "action": "submit", "data": { "choice": "1" } }`
-
-### Yes/No Confirmation Example
-
-```
-Tool: mcp__mermaid__render_ui
-Args: {
-  "project": "<absolute-path-to-cwd>",
-  "session": "<session-name>",
-  "ui": {
-    "type": "Card",
-    "props": { "title": "Confirm" },
-    "children": [{
-      "type": "Markdown",
-      "props": { "content": "Do you want to proceed?" }
-    }],
-    "actions": [
-      { "id": "yes", "label": "Yes", "primary": true },
-      { "id": "no", "label": "No" }
-    ]
-  },
-  "blocking": true
-}
-```
-
-Response: `{ "action": "yes" }` or `{ "action": "no" }`
+---
 
 ## Integration
 
@@ -1098,8 +431,8 @@ If context is lost (compaction), re-read state:
 
 ```
 # Get current session state
-Tool: mcp__mermaid__get_collab_session_state
-Args: { "sessionName": "<name>" }
+Tool: mcp__mermaid__get_session_state
+Args: { "project": "<cwd>", "session": "<name>" }
 
 # Read design doc
 Tool: Read
@@ -1135,7 +468,7 @@ Args: { "file_path": ".collab/<name>/documents/design.md" }
 
 ### Not updating collab-state.json
 - **Problem:** Resume doesn't know current phase
-- **Fix:** Use `mcp__mermaid__update_collab_session_state` after each transition (automatically updates lastActivity)
+- **Fix:** Use `mcp__mermaid__update_session_state` after each transition (automatically updates lastActivity)
 
 ## Red Flags
 

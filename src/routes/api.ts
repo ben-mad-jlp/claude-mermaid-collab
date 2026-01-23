@@ -10,6 +10,9 @@ import { questionManager } from '../services/question-manager';
 import { uiManager } from '../services/ui-manager';
 import { join } from 'path';
 
+// Track server start time for uptime calculation
+const serverStartTime = Date.now();
+
 /**
  * Extract project and session from query params.
  * Returns null if either is missing.
@@ -23,6 +26,53 @@ function getSessionParams(url: URL): { project: string; session: string } | null
   }
 
   return { project, session };
+}
+
+/**
+ * Handle health check requests
+ */
+async function handleHealthCheck(wsHandler: WebSocketHandler): Promise<Response> {
+  // Calculate uptime
+  const uptimeMs = Date.now() - serverStartTime;
+  const hours = Math.floor(uptimeMs / (1000 * 60 * 60));
+  const minutes = Math.floor((uptimeMs % (1000 * 60 * 60)) / (1000 * 60));
+  const seconds = Math.floor((uptimeMs % (1000 * 60)) / 1000);
+  const uptime = hours > 0
+    ? `${hours}h ${minutes}m`
+    : minutes > 0
+      ? `${minutes}m ${seconds}s`
+      : `${seconds}s`;
+
+  // API is running (if we're responding)
+  const apiRunning = true;
+  const port = parseInt(process.env.PORT || '3737', 10);
+
+  // Check UI status by trying to serve index.html
+  let uiRunning = false;
+  try {
+    const indexPath = join(process.cwd(), 'ui', 'dist', 'index.html');
+    const indexFile = Bun.file(indexPath);
+    uiRunning = await indexFile.exists();
+  } catch {
+    uiRunning = false;
+  }
+
+  // Get WebSocket connection count
+  const connections = wsHandler.getConnectionCount();
+
+  // Determine overall health
+  const healthy = apiRunning && uiRunning;
+
+  return Response.json({
+    healthy,
+    services: {
+      api: { running: apiRunning, port },
+      ui: { running: uiRunning },
+      websocket: { connections },
+    },
+    pid: process.pid,
+    uptime,
+  });
 }
 
 /**
@@ -99,6 +149,11 @@ export async function handleAPI(
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
     }
+  }
+
+  // GET /api/health - Server health check
+  if (path === '/api/health' && req.method === 'GET') {
+    return handleHealthCheck(wsHandler);
   }
 
   // ============================================
