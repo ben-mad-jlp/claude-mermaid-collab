@@ -60,6 +60,8 @@ export interface EditorToolbarProps {
   onRotate?: () => void;
   /** Whether rotate is enabled (true for diagrams only) */
   canRotate?: boolean;
+  /** Whether to show zoom controls (default true, false for documents) */
+  showZoom?: boolean;
 }
 
 /**
@@ -89,6 +91,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   itemType,
   onRotate,
   canRotate,
+  showZoom = true,
 }) => {
   const [isOverflowOpen, setIsOverflowOpen] = useState(false);
   const overflowRef = useRef<HTMLDivElement>(null);
@@ -414,79 +417,84 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
       </button>
 
       {/* Divider */}
-      <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
+      {showZoom && <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />}
 
-      {/* Zoom Out Button */}
-      <button
-        data-testid="editor-toolbar-zoom-out"
-        onClick={onZoomOut}
-        aria-label="Zoom out"
-        className="
-          p-1.5
-          text-gray-600 dark:text-gray-300
-          hover:text-gray-900 dark:hover:text-white
-          hover:bg-gray-100 dark:hover:bg-gray-700
-          rounded
-          transition-colors
-        "
-      >
-        <svg
-          className="w-4 h-4"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <line x1="5" y1="12" x2="19" y2="12" />
-        </svg>
-      </button>
+      {/* Zoom Controls (hidden for documents) */}
+      {showZoom && (
+        <>
+          {/* Zoom Out Button */}
+          <button
+            data-testid="editor-toolbar-zoom-out"
+            onClick={onZoomOut}
+            aria-label="Zoom out"
+            className="
+              p-1.5
+              text-gray-600 dark:text-gray-300
+              hover:text-gray-900 dark:hover:text-white
+              hover:bg-gray-100 dark:hover:bg-gray-700
+              rounded
+              transition-colors
+            "
+          >
+            <svg
+              className="w-4 h-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          </button>
 
-      {/* Zoom Level Display */}
-      <span
-        data-testid="editor-toolbar-zoom-level"
-        className="
-          text-xs font-medium
-          text-gray-600 dark:text-gray-300
-          min-w-[3rem] text-center
-        "
-      >
-        {zoom}%
-      </span>
+          {/* Zoom Level Display */}
+          <span
+            data-testid="editor-toolbar-zoom-level"
+            className="
+              text-xs font-medium
+              text-gray-600 dark:text-gray-300
+              min-w-[3rem] text-center
+            "
+          >
+            {zoom}%
+          </span>
 
-      {/* Zoom In Button */}
-      <button
-        data-testid="editor-toolbar-zoom-in"
-        onClick={onZoomIn}
-        aria-label="Zoom in"
-        className="
-          p-1.5
-          text-gray-600 dark:text-gray-300
-          hover:text-gray-900 dark:hover:text-white
-          hover:bg-gray-100 dark:hover:bg-gray-700
-          rounded
-          transition-colors
-        "
-      >
-        <svg
-          className="w-4 h-4"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <line x1="12" y1="5" x2="12" y2="19" />
-          <line x1="5" y1="12" x2="19" y2="12" />
-        </svg>
-      </button>
+          {/* Zoom In Button */}
+          <button
+            data-testid="editor-toolbar-zoom-in"
+            onClick={onZoomIn}
+            aria-label="Zoom in"
+            className="
+              p-1.5
+              text-gray-600 dark:text-gray-300
+              hover:text-gray-900 dark:hover:text-white
+              hover:bg-gray-100 dark:hover:bg-gray-700
+              rounded
+              transition-colors
+            "
+          >
+            <svg
+              className="w-4 h-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          </button>
 
-      {/* Divider */}
-      <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
+          {/* Divider */}
+          <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
+        </>
+      )}
 
       {/* Rotate Button (diagram only) */}
       {itemType === 'diagram' && canRotate && onRotate && (

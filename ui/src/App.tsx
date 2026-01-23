@@ -575,6 +575,7 @@ const App: React.FC = () => {
           onZoomIn={zoomIn}
           onZoomOut={zoomOut}
           overflowActions={overflowActions}
+          showZoom={selectedItem?.type !== 'document'}
         />
 
         {/* Unified Editor */}

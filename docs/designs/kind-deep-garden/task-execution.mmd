@@ -1,0 +1,28 @@
+graph TD
+    backend-wstype["backend-wstype"]
+    backend-registry["backend-registry"]
+    backend-api["backend-api"]
+    frontend-session-created["frontend-session-created"]
+    frontend-ui-render["frontend-ui-render"]
+    skill-collab-prompts["skill-collab-prompts"]
+    skill-gather-goals-prompts["skill-gather-goals-prompts"]
+    skill-allowed-tools-1["skill-allowed-tools-1"]
+    skill-allowed-tools-2["skill-allowed-tools-2"]
+    skill-allowed-tools-3["skill-allowed-tools-3"]
+    skill-allowed-tools-4["skill-allowed-tools-4"]
+
+    backend-wstype --> backend-api
+    backend-registry --> backend-api
+    backend-api --> frontend-session-created
+
+    style backend-wstype fill:#c8e6c9,stroke:#2e7d32
+    style backend-registry fill:#c8e6c9,stroke:#2e7d32
+    style backend-api fill:#c8e6c9,stroke:#2e7d32
+    style frontend-session-created fill:#c8e6c9,stroke:#2e7d32
+    style frontend-ui-render fill:#c8e6c9,stroke:#2e7d32
+    style skill-collab-prompts fill:#c8e6c9,stroke:#2e7d32
+    style skill-gather-goals-prompts fill:#c8e6c9,stroke:#2e7d32
+    style skill-allowed-tools-1 fill:#c8e6c9,stroke:#2e7d32
+    style skill-allowed-tools-2 fill:#c8e6c9,stroke:#2e7d32
+    style skill-allowed-tools-3 fill:#c8e6c9,stroke:#2e7d32
+    style skill-allowed-tools-4 fill:#c8e6c9,stroke:#2e7d32

@@ -73,11 +73,14 @@ Triggering compaction now...
 
 Invoke the /compact command.
 
-### Step 5: Resume Instructions
+### Step 5: Auto-Resume Session
 
-After compaction, the conversation resumes. Instruct user:
+After compaction, automatically resume the session:
 
 ```
-Compaction complete. Run /collab to resume your session.
-The snapshot will restore your context automatically.
+Compaction complete. Resuming session...
 ```
+
+Invoke skill: collab
+
+This will restore context from the snapshot and continue where you left off.

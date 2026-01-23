@@ -99,7 +99,7 @@ Define the structural contracts of the system - file paths, class/function signa
 
 After Interface phase completes and is approved:
 
-Ask user: "Ready to compact context before Pseudocode phase?"
+Check your current context usage and ask user: "Context is [X]% full. Ready to compact before Pseudocode phase?"
 
 ```
 1. Yes - compact now
@@ -123,7 +123,7 @@ Define the logic flow for each function - step-by-step descriptions, error handl
 
 After Pseudocode phase completes and is approved:
 
-Ask user: "Ready to compact context before Skeleton phase?"
+Check your current context usage and ask user: "Context is [X]% full. Ready to compact before Skeleton phase?"
 
 ```
 1. Yes - compact now
@@ -147,7 +147,7 @@ Generate stub file documentation and task dependency graphs. Files are documente
 
 After Skeleton phase completes and is approved:
 
-Ask user: "Ready to compact context before Implementation?"
+Check your current context usage and ask user: "Context is [X]% full. Ready to compact before Implementation?"
 
 ```
 1. Yes - compact now
