@@ -230,17 +230,20 @@ describe('useChatStore', () => {
       const response = { action: 'confirm', data: { approved: true } };
       await useChatStore.getState().respondToMessage('msg1', response);
 
-      expect(fetchSpy).toHaveBeenCalledWith('/api/ui-response', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          uiId: 'msg1',
-          action: 'confirm',
-          data: { approved: true },
-        }),
-      });
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining('/api/ui-response'),
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            uiId: 'msg1',
+            action: 'confirm',
+            data: { approved: true },
+          }),
+        }
+      );
 
       vi.unstubAllGlobals();
     });

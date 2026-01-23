@@ -361,11 +361,11 @@ describe('Header', () => {
       expect(toggleButton.getAttribute('aria-label')).toBeDefined();
     });
 
-    it('should have hidden decorative icons', () => {
+    it('should have accessible logo image', () => {
       render(<Header />);
       const logo = screen.getByTestId('header-logo');
-      const svg = logo.querySelector('svg');
-      expect(svg?.getAttribute('aria-hidden')).toBe('true');
+      const img = logo.querySelector('img');
+      expect(img?.getAttribute('alt')).toBe('Mermaid Collab Logo');
     });
   });
 

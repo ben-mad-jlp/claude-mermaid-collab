@@ -164,6 +164,69 @@ Return control to the collab skill.
 - Writes to design doc
 - Does NOT modify collab-state.json (collab skill handles that)
 
+## Browser-Based Questions
+
+When a collab session is active, prefer `render_ui` for user interactions.
+
+**For item type classification:**
+```
+Tool: mcp__mermaid__render_ui
+Args: {
+  "project": "<absolute-path-to-cwd>",
+  "session": "<session-name>",
+  "ui": {
+    "type": "Card",
+    "props": { "title": "Classify item" },
+    "children": [
+      { "type": "Markdown", "props": { "content": "What type is **[item title]**?" } },
+      {
+        "type": "RadioGroup",
+        "props": {
+          "name": "type",
+          "options": [
+            { "value": "code", "label": "Code (feature, refactor, investigation)" },
+            { "value": "bugfix", "label": "Bugfix (fix, error, crash)" },
+            { "value": "task", "label": "Task (setup, config, organization)" }
+          ]
+        }
+      }
+    ],
+    "actions": [{ "id": "classify", "label": "Continue", "primary": true }]
+  },
+  "blocking": true
+}
+```
+
+**For work items list confirmation:**
+```
+Tool: mcp__mermaid__render_ui
+Args: {
+  "project": "<absolute-path-to-cwd>",
+  "session": "<session-name>",
+  "ui": {
+    "type": "Card",
+    "props": { "title": "Confirm work items" },
+    "children": [
+      { "type": "Markdown", "props": { "content": "[markdown list of items]" } },
+      {
+        "type": "RadioGroup",
+        "props": {
+          "name": "action",
+          "options": [
+            { "value": "yes", "label": "Yes, this is correct" },
+            { "value": "add", "label": "Add more items" },
+            { "value": "remove", "label": "Remove an item" },
+            { "value": "edit", "label": "Edit an item" }
+          ]
+        }
+      }
+    ],
+    "actions": [{ "id": "confirm", "label": "Continue", "primary": true }]
+  },
+  "blocking": true
+}
+```
+
 ## Integration
 
 **Called by:**

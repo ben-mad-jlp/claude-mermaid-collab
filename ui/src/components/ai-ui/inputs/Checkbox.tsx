@@ -1,4 +1,4 @@
-import React, { useId } from 'react';
+import React, { useId, useState } from 'react';
 
 export interface CheckboxOption {
   value: string;
@@ -7,9 +7,10 @@ export interface CheckboxOption {
 }
 
 export interface CheckboxProps {
-  options: CheckboxOption[];
-  onChange: (values: string[]) => void;
+  options?: CheckboxOption[];
+  onChange?: (values: string[]) => void;
   values?: string[];
+  name?: string;
   label?: string;
   disabled?: boolean;
   ariaLabel?: string;
@@ -17,9 +18,10 @@ export interface CheckboxProps {
 }
 
 export const Checkbox: React.FC<CheckboxProps> = ({
-  options,
+  options = [],
   onChange,
-  values = [],
+  values: controlledValues,
+  name,
   label,
   disabled = false,
   ariaLabel,
@@ -28,12 +30,16 @@ export const Checkbox: React.FC<CheckboxProps> = ({
   const id = useId();
   const groupId = `${id}-group`;
   const descriptionId = `${id}-description`;
+  const [internalValues, setInternalValues] = useState<string[]>(controlledValues || []);
+
+  const currentValues = controlledValues !== undefined ? controlledValues : internalValues;
 
   const handleChange = (optionValue: string) => {
-    const newValues = values.includes(optionValue)
-      ? values.filter((v) => v !== optionValue)
-      : [...values, optionValue];
-    onChange(newValues);
+    const newValues = currentValues.includes(optionValue)
+      ? currentValues.filter((v) => v !== optionValue)
+      : [...currentValues, optionValue];
+    setInternalValues(newValues);
+    onChange?.(newValues);
   };
 
   return (
@@ -50,9 +56,12 @@ export const Checkbox: React.FC<CheckboxProps> = ({
         aria-label={ariaLabel || label}
         aria-describedby={ariaDescribedBy || descriptionId}
       >
+        {name && (
+          <input type="hidden" name={name} value={JSON.stringify(currentValues)} />
+        )}
         {options.map((option) => {
           const checkboxId = `${id}-${option.value}`;
-          const isChecked = values.includes(option.value);
+          const isChecked = currentValues.includes(option.value);
           const isDisabled = disabled || option.disabled;
 
           return (

@@ -202,6 +202,24 @@ Apply these principles to all design doc prose.
 - Use superpowers:using-git-worktrees to create isolated workspace
 - Use superpowers:writing-plans to create detailed implementation plan
 
+## Browser-Based Questions
+
+When a collab session is active, prefer `render_ui` for user interactions instead of terminal prompts.
+
+**Component selection by question type:**
+
+| Question Type | Component | When to Use |
+|--------------|-----------|-------------|
+| Yes/No | Card with action buttons | Confirmations, proceed checks |
+| Choose 1 of 2-5 | RadioGroup | Approach selection, options |
+| Choose 1 of 6+ | MultipleChoice | Large option lists |
+| Multiple selections | Checkbox | Feature toggles |
+| Free text | TextInput | Names, descriptions |
+
+**See sub-phase skills for specific patterns:**
+- `clarifying.md` - Patterns for clarifying questions
+- `designing.md` - Patterns for design validation
+
 ## Integration
 
 **Called by:**

@@ -422,9 +422,9 @@ describe('App Component', () => {
       const { container } = render(<App />);
 
       // Verify ChatPanel exists within the SplitPane structure
-      // ChatPanel should have the "Claude" header
-      const claudeHeader = container.querySelector('h2');
-      expect(claudeHeader?.textContent).toContain('Claude');
+      // ChatPanel should have the "Chat" header
+      const chatHeader = container.querySelector('h2');
+      expect(chatHeader?.textContent).toContain('Chat');
 
       // ChatPanel should have border-l for left border (panel on right side)
       const chatPanel = container.querySelector('[class*="border-l"]');

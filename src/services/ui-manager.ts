@@ -29,6 +29,7 @@ export interface RenderUIRequest {
   ui: any;
   blocking?: boolean;
   timeout?: number;
+  uiId?: string;  // Optional external uiId to use instead of generating one
 }
 
 /**
@@ -49,7 +50,7 @@ export class UIManager {
    * or immediately (non-blocking mode).
    */
   async renderUI(request: RenderUIRequest): Promise<UIResponse> {
-    const { project, session, ui, blocking: rawBlocking, timeout: rawTimeout } = request;
+    const { project, session, ui, blocking: rawBlocking, timeout: rawTimeout, uiId: externalUiId } = request;
 
     // 1. Validate inputs
     if (!project || !session) {
@@ -73,8 +74,8 @@ export class UIManager {
       throw new Error('timeout must not exceed 300000ms');
     }
 
-    // 3. Generate unique UI ID
-    const uiId = generateUIId();
+    // 3. Use provided UI ID or generate one
+    const uiId = externalUiId || generateUIId();
 
     // 4. Build session key
     const sessionKey = `${project}:${session}`;

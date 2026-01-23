@@ -299,6 +299,8 @@ const App: React.FC = () => {
               blocking: blocking ?? true,
               timestamp: timestamp || Date.now(),
               responded: false,
+              project,
+              session,
             });
           }
           break;
@@ -621,8 +623,7 @@ const App: React.FC = () => {
             direction="horizontal"
             defaultPrimarySize={75}
             minPrimarySize={50}
-            minSecondarySize={20}
-            secondaryCollapsible={true}
+            minSecondarySize={15}
             storageId="main-chat-split"
             primaryContent={
               <main

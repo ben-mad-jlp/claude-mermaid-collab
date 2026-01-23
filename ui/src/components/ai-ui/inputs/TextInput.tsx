@@ -1,8 +1,9 @@
 import React, { useId, useState } from 'react';
 
 export interface TextInputProps {
-  onChange: (value: string) => void;
+  onChange?: (value: string) => void;
   value?: string;
+  name?: string;
   label?: string;
   placeholder?: string;
   disabled?: boolean;
@@ -18,7 +19,8 @@ export interface TextInputProps {
 
 export const TextInput: React.FC<TextInputProps> = ({
   onChange,
-  value = '',
+  value: controlledValue,
+  name,
   label,
   placeholder,
   disabled = false,
@@ -36,10 +38,14 @@ export const TextInput: React.FC<TextInputProps> = ({
   const descriptionId = `${id}-description`;
   const errorId = `${id}-error`;
   const [error, setError] = useState<string | null>(null);
+  const [internalValue, setInternalValue] = useState(controlledValue || '');
+
+  const currentValue = controlledValue !== undefined ? controlledValue : internalValue;
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value;
-    onChange(newValue);
+    setInternalValue(newValue);
+    onChange?.(newValue);
 
     if (validation) {
       const validationError = validation(newValue);
@@ -49,7 +55,7 @@ export const TextInput: React.FC<TextInputProps> = ({
 
   const handleBlur = () => {
     if (validation) {
-      const validationError = validation(value);
+      const validationError = validation(currentValue);
       setError(validationError);
     }
   };
@@ -68,8 +74,9 @@ export const TextInput: React.FC<TextInputProps> = ({
       )}
       <input
         id={id}
+        name={name}
         type={type}
-        value={value}
+        value={currentValue}
         onChange={handleChange}
         onBlur={handleBlur}
         disabled={disabled}

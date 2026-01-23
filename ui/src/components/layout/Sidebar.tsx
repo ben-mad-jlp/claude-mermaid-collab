@@ -105,31 +105,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ${className}
       `.trim()}
     >
-      {/* Items List */}
-      <div className="flex-1 py-2 overflow-y-auto" role="navigation" aria-label="Sidebar items">
-        {filteredItems.length === 0 ? (
-          <div
-            data-testid="sidebar-empty"
-            className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400"
-          >
-            {searchQuery ? 'No matching items' : 'No items'}
-          </div>
-        ) : (
-          <div className="space-y-2 px-2">
-            {filteredItems.map((item) => (
-              <ItemCard
-                key={item.id}
-                item={item}
-                isSelected={isItemSelected(item)}
-                onClick={() => handleItemClick(item)}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-
       {/* Search Input */}
-      <div className="p-2 border-t border-gray-200 dark:border-gray-700">
+      <div className="p-2 border-b border-gray-200 dark:border-gray-700">
         <input
           data-testid="sidebar-search"
           type="text"
@@ -151,6 +128,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
               transition-colors
           "
         />
+      </div>
+
+      {/* Items List */}
+      <div className="flex-1 py-2 overflow-y-auto" role="navigation" aria-label="Sidebar items">
+        {filteredItems.length === 0 ? (
+          <div
+            data-testid="sidebar-empty"
+            className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400"
+          >
+            {searchQuery ? 'No matching items' : 'No items'}
+          </div>
+        ) : (
+          <div className="space-y-2 px-2">
+            {filteredItems.map((item) => (
+              <ItemCard
+                key={item.id}
+                item={item}
+                isSelected={isItemSelected(item)}
+                onClick={() => handleItemClick(item)}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </aside>
   );

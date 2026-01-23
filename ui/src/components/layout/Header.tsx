@@ -117,20 +117,11 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="h-14 px-4 flex items-center justify-between">
         {/* Logo and Title */}
         <div className="flex items-center gap-3" data-testid="header-logo">
-          <svg
-            className="w-8 h-8 text-accent-600"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M12 2L2 7l10 5 10-5-10-5z" />
-            <path d="M2 17l10 5 10-5" />
-            <path d="M2 12l10 5 10-5" />
-          </svg>
+          <img
+            src="/logo.png"
+            alt="Mermaid Collab Logo"
+            className="w-8 h-8"
+          />
           <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
             Mermaid Collab
           </h1>

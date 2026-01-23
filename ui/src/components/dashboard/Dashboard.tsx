@@ -13,7 +13,7 @@
  * - SplitPane for resizable layout
  */
 
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { useSession } from '@/hooks/useSession';
 import { useUIStore } from '@/stores/uiStore';
 import SplitPane from '@/components/layout/SplitPane';
@@ -58,6 +58,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
     (state) => state.setSessionPanelSplitPosition
   );
 
+  const [searchQuery, setSearchQuery] = useState('');
+
   // Combine diagrams and documents into items
   const items: GridItem[] = useMemo(() => {
     const diagramItems: GridItem[] = diagrams.map((d) => ({
@@ -71,12 +73,23 @@ export const Dashboard: React.FC<DashboardProps> = ({
     }));
 
     // Sort by lastModified (most recent first)
-    return [...diagramItems, ...documentItems].sort((a, b) => {
+    let result = [...diagramItems, ...documentItems].sort((a, b) => {
       const aTime = a.lastModified || 0;
       const bTime = b.lastModified || 0;
       return bTime - aTime;
     });
-  }, [diagrams, documents]);
+
+    // Filter by search query
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter((item) =>
+        item.name.toLowerCase().includes(query) ||
+        item.type.toLowerCase().includes(query)
+      );
+    }
+
+    return result;
+  }, [diagrams, documents, searchQuery]);
 
   const selectedItemId = selectedDiagramId || selectedDocumentId;
 
@@ -210,18 +223,53 @@ export const Dashboard: React.FC<DashboardProps> = ({
             {/* Panel Header */}
             <div
               className="
-                px-4 py-3
+                h-14 px-4
+                flex items-center gap-4
                 border-b border-gray-200 dark:border-gray-700
                 bg-white dark:bg-gray-800
               "
             >
-              <h2 className="text-sm font-semibold text-gray-900 dark:text-white">
-                {currentSession ? `${currentSession.name} - Items` : 'Items'}
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-white whitespace-nowrap">
+                {currentSession ? `${currentSession.name}` : 'Items'}
               </h2>
-              {currentSession?.phase && (
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  Phase: {currentSession.phase}
-                </p>
+              {currentSession && (
+                <div className="flex-1 relative">
+                  <input
+                    type="text"
+                    placeholder="Search items..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="
+                      w-full
+                      px-3 py-1.5
+                      text-sm
+                      border border-gray-300 dark:border-gray-600
+                      rounded-lg
+                      bg-white dark:bg-gray-700
+                      text-gray-900 dark:text-white
+                      placeholder-gray-500 dark:placeholder-gray-400
+                      focus:outline-none
+                      focus:ring-2 focus:ring-blue-500
+                      focus:border-transparent
+                    "
+                  />
+                  <svg
+                    className="
+                      absolute right-3 top-1/2 -translate-y-1/2
+                      w-4 h-4
+                      text-gray-400 dark:text-gray-500
+                      pointer-events-none
+                    "
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                </div>
               )}
             </div>
 
@@ -232,7 +280,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   items={items}
                   selectedItemId={selectedItemId}
                   onItemClick={handleItemClick}
-                  showSearch={true}
+                  showSearch={false}
                   isLoading={false}
                   error={null}
                   data-testid="dashboard-items-grid"

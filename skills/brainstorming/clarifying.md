@@ -62,6 +62,7 @@ Which approach do you prefer?
 
 **Use browser-based questions when collab session active:**
 
+For 2-5 visible options, use RadioGroup:
 ```
 Tool: mcp__mermaid__render_ui
 Args: {
@@ -71,16 +72,38 @@ Args: {
     "type": "Card",
     "props": { "title": "Select an option" },
     "children": [{
-      "type": "MultipleChoice",
+      "type": "RadioGroup",
       "props": {
+        "name": "choice",
         "options": [
-          { "value": "1", "label": "Option 1" },
+          { "value": "1", "label": "Option 1 (Recommended)" },
           { "value": "2", "label": "Option 2" }
-        ],
-        "name": "choice"
+        ]
       }
     }],
-    "actions": [{ "id": "submit", "label": "Submit", "primary": true }]
+    "actions": [{ "id": "submit", "label": "Continue", "primary": true }]
+  },
+  "blocking": true
+}
+```
+
+For 6+ options, use MultipleChoice (dropdown):
+```
+Tool: mcp__mermaid__render_ui
+Args: {
+  "project": "<absolute-path-to-cwd>",
+  "session": "<session-name>",
+  "ui": {
+    "type": "Card",
+    "props": { "title": "Select from list" },
+    "children": [{
+      "type": "MultipleChoice",
+      "props": {
+        "name": "choice",
+        "options": [/* ... many options ... */]
+      }
+    }],
+    "actions": [{ "id": "submit", "label": "Continue", "primary": true }]
   },
   "blocking": true
 }

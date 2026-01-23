@@ -30,7 +30,7 @@ export interface ApprovalButtonsProps {
  * - Dark mode support
  */
 export const ApprovalButtons: React.FC<ApprovalButtonsProps> = ({
-  actions,
+  actions = [],
   alignment = 'center',
   spacing = 'normal',
   fullWidth = false,

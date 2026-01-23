@@ -257,6 +257,55 @@ export function createUIResponse(
 }
 
 /**
+ * Component reference for AI-UI components (32 total)
+ */
+export const COMPONENT_REFERENCE = `
+## Available Components (32)
+
+### Display (8)
+- Table: { columns: [{key, header}], rows: [{key: value}] }
+- CodeBlock: { code, language?, showLineNumbers? }
+- DiffView: { oldCode, newCode, language? }
+- JsonViewer: { data, collapsed? }
+- Markdown: { content }
+- Image: { src, alt, width?, height?, caption?, objectFit? }
+- Spinner: { size?, label? }
+- Badge: { text, variant?, size? }
+
+### Layout (6)
+- Card: { title?, subtitle?, footer?, elevation? }
+- Section: { title, collapsible? }
+- Columns: { columns: number }
+- Accordion: { items: [{title, content}] }
+- Alert: { type, title?, message }
+- Divider: { orientation?, label? }
+
+### Interactive (6)
+- Wizard: { steps: [{title, content}], currentStep }
+- Checklist: { items: [{label, checked}] }
+- ApprovalButtons: { actions: [{id, label, primary?}] }
+- ProgressBar: { value, max?, label? }
+- Tabs: { tabs: [{id, label, content}] }
+- Link: { href?, label, onClick?, variant?, external? }
+
+### Inputs (10) - form data collected on action
+- MultipleChoice: { options: [{value, label}], name, label? }
+- TextInput: { name, label?, placeholder?, type? }
+- TextArea: { name, label?, placeholder?, rows? }
+- Checkbox: { options: [{value, label}], name, label? }
+- Confirmation: { message, confirmLabel?, cancelLabel? }
+- RadioGroup: { options: [{value, label}], name, label?, orientation? }
+- Toggle: { name, label?, checked?, size? }
+- NumberInput: { name, label?, min?, max?, step? }
+- Slider: { name, label?, min?, max?, step?, showValue? }
+- FileUpload: { name, accept?, multiple?, maxSize? }
+
+### Mermaid (2)
+- DiagramEmbed: { diagramId }
+- WireframeEmbed: { wireframeId }
+`;
+
+/**
  * Tool input schema for MCP
  */
 export const renderUISchema = {
@@ -272,7 +321,7 @@ export const renderUISchema = {
     },
     ui: {
       type: 'object',
-      description: 'JSON UI component definition',
+      description: `JSON UI component definition. ${COMPONENT_REFERENCE}`,
       additionalProperties: true,
     },
     blocking: {

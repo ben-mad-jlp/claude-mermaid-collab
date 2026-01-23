@@ -13,6 +13,8 @@ export interface ChatMessage {
   timestamp: number;
   responded: boolean;
   response?: any;
+  project?: string;
+  session?: string;
 }
 
 interface ChatState {
@@ -38,6 +40,11 @@ export const useChatStore = create<ChatState & ChatActions>((set, get) => ({
 
   addMessage: (msg: ChatMessage) => {
     set((state) => {
+      // Dedupe by ID - ignore if message already exists
+      if (state.messages.some((m) => m.id === msg.id)) {
+        return state;
+      }
+
       const newState = {
         messages: [...state.messages, msg],
         unreadCount: state.unreadCount,
@@ -68,8 +75,14 @@ export const useChatStore = create<ChatState & ChatActions>((set, get) => ({
     }
 
     try {
+      // Build URL with project/session params
+      const params = new URLSearchParams();
+      if (message.project) params.set('project', message.project);
+      if (message.session) params.set('session', message.session);
+      const url = `/api/ui-response?${params.toString()}`;
+
       // Make API call to submit response
-      await fetch('/api/ui-response', {
+      await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

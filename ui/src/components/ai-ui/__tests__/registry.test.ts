@@ -121,7 +121,7 @@ describe('AI-UI Component Registry', () => {
   describe('getAllComponentNames', () => {
     it('should return all 22 component names', () => {
       const names = getAllComponentNames();
-      expect(names.length).toBe(22);
+      expect(names.length).toBe(32);
     });
 
     it('should return array of strings', () => {
@@ -152,7 +152,7 @@ describe('AI-UI Component Registry', () => {
   describe('getAllComponents', () => {
     it('should return all 22 components metadata', () => {
       const components = getAllComponents();
-      expect(components.length).toBe(22);
+      expect(components.length).toBe(32);
     });
 
     it('should return metadata objects', () => {
@@ -182,33 +182,33 @@ describe('AI-UI Component Registry', () => {
   });
 
   describe('getComponentsByCategory', () => {
-    it('should return 5 display components', () => {
+    it('should return 8 display components', () => {
       const displayComps = getComponentsByCategory('display');
-      expect(displayComps.length).toBe(5);
+      expect(displayComps.length).toBe(8);
       displayComps.forEach((comp) => {
         expect(comp.category).toBe('display');
       });
     });
 
-    it('should return 5 layout components', () => {
+    it('should return 6 layout components', () => {
       const layoutComps = getComponentsByCategory('layout');
-      expect(layoutComps.length).toBe(5);
+      expect(layoutComps.length).toBe(6);
       layoutComps.forEach((comp) => {
         expect(comp.category).toBe('layout');
       });
     });
 
-    it('should return 5 interactive components', () => {
+    it('should return 6 interactive components', () => {
       const interactiveComps = getComponentsByCategory('interactive');
-      expect(interactiveComps.length).toBe(5);
+      expect(interactiveComps.length).toBe(6);
       interactiveComps.forEach((comp) => {
         expect(comp.category).toBe('interactive');
       });
     });
 
-    it('should return 5 input components', () => {
+    it('should return 10 input components', () => {
       const inputComps = getComponentsByCategory('inputs');
-      expect(inputComps.length).toBe(5);
+      expect(inputComps.length).toBe(10);
       inputComps.forEach((comp) => {
         expect(comp.category).toBe('inputs');
       });
@@ -257,7 +257,7 @@ describe('AI-UI Component Registry', () => {
 
   describe('getComponentCount', () => {
     it('should return 22 for total components', () => {
-      expect(getComponentCount()).toBe(22);
+      expect(getComponentCount()).toBe(32);
     });
   });
 
@@ -273,14 +273,14 @@ describe('AI-UI Component Registry', () => {
 
     it('should have correct counts per category', () => {
       const stats = getCategoryStats();
-      expect(stats.display).toBe(5);
-      expect(stats.layout).toBe(5);
-      expect(stats.interactive).toBe(5);
-      expect(stats.inputs).toBe(5);
+      expect(stats.display).toBe(8);
+      expect(stats.layout).toBe(6);
+      expect(stats.interactive).toBe(6);
+      expect(stats.inputs).toBe(10);
       expect(stats.mermaid).toBe(2);
     });
 
-    it('should total 22 components', () => {
+    it('should total 32 components', () => {
       const stats = getCategoryStats();
       const total =
         stats.display +
@@ -288,7 +288,7 @@ describe('AI-UI Component Registry', () => {
         stats.interactive +
         stats.inputs +
         stats.mermaid;
-      expect(total).toBe(22);
+      expect(total).toBe(32);
     });
   });
 
@@ -306,7 +306,7 @@ describe('AI-UI Component Registry', () => {
     });
 
     it('should work with namespace access', () => {
-      expect(aiUIRegistry.getComponentCount()).toBe(22);
+      expect(aiUIRegistry.getComponentCount()).toBe(32);
       expect(aiUIRegistry.hasComponent('Card')).toBe(true);
       expect(aiUIRegistry.getComponent('Card')).toBeDefined();
     });

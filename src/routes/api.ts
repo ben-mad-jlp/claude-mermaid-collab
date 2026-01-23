@@ -796,6 +796,7 @@ export async function handleAPI(
           ui,
           blocking: blocking ?? true,
           timeout,
+          uiId,  // Pass the same uiId that was sent to browsers
         });
         return Response.json(response);
       } catch (error: any) {

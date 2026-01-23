@@ -11,7 +11,7 @@
  * - Type-safe rendering with proper prop validation
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useRef } from 'react';
 import type { UIComponent, UIAction } from '@/types/ai-ui';
 import { getComponent, validateComponent } from './registry';
 
@@ -31,6 +31,7 @@ export interface RendererProps {
   onAction?: ActionCallback;
   componentProps?: Record<string, any>;
   className?: string;
+  disabled?: boolean;
 }
 
 /**
@@ -74,7 +75,43 @@ export const AIUIRenderer: React.FC<RendererProps> = ({
   onAction,
   componentProps = {},
   className = '',
+  disabled = false,
 }) => {
+  // Ref for collecting form data - must be before any early returns
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Collect form data from inputs within the container
+  const collectFormData = useCallback(() => {
+    if (!containerRef.current) return {};
+    const data: Record<string, any> = {};
+
+    // Collect from select elements
+    containerRef.current.querySelectorAll('select[name]').forEach((el) => {
+      const select = el as HTMLSelectElement;
+      if (select.name) data[select.name] = select.value;
+    });
+
+    // Collect from input elements
+    containerRef.current.querySelectorAll('input[name]').forEach((el) => {
+      const input = el as HTMLInputElement;
+      if (input.name) {
+        if (input.type === 'checkbox') {
+          data[input.name] = input.checked;
+        } else {
+          data[input.name] = input.value;
+        }
+      }
+    });
+
+    // Collect from textarea elements
+    containerRef.current.querySelectorAll('textarea[name]').forEach((el) => {
+      const textarea = el as HTMLTextAreaElement;
+      if (textarea.name) data[textarea.name] = textarea.value;
+    });
+
+    return data;
+  }, []);
+
   const handleAction = useCallback(
     async (actionId: string, payload?: any) => {
       if (onAction) {
@@ -93,7 +130,7 @@ export const AIUIRenderer: React.FC<RendererProps> = ({
     return null;
   }
 
-  const { type, props = {}, children = [] } = component;
+  const { type, props = {}, children = [], actions = [] } = component;
 
   // Validate component is registered
   if (!type) {
@@ -122,6 +159,7 @@ export const AIUIRenderer: React.FC<RendererProps> = ({
             component={child}
             onAction={handleAction}
             componentProps={componentProps}
+            disabled={disabled}
           />
         ))
       : undefined;
@@ -130,6 +168,7 @@ export const AIUIRenderer: React.FC<RendererProps> = ({
     const mergedProps = {
       ...props,
       ...componentProps,
+      disabled: disabled || props.disabled,
       className: [props.className, componentProps.className, className]
         .filter(Boolean)
         .join(' '),
@@ -146,11 +185,41 @@ export const AIUIRenderer: React.FC<RendererProps> = ({
       delete propsWithCallback.onAction;
     }
 
-    // Render the component with children
+    // Render action buttons if present
+    const renderedActions = actions.length > 0 ? (
+      <div className="flex flex-wrap gap-2 mt-3">
+        {actions.map((action: any) => (
+          <button
+            key={action.id}
+            disabled={disabled}
+            onClick={() => {
+              if (disabled) return;
+              const formData = collectFormData();
+              handleAction(action.id, { action: action.id, data: formData });
+            }}
+            className={`
+              px-4 py-2 rounded-lg font-medium text-sm transition-colors
+              disabled:opacity-50 disabled:cursor-not-allowed
+              ${action.primary
+                ? 'bg-blue-600 hover:bg-blue-700 text-white disabled:hover:bg-blue-600'
+                : 'bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-white disabled:hover:bg-gray-200 dark:disabled:hover:bg-gray-700'
+              }
+            `}
+          >
+            {action.label}
+          </button>
+        ))}
+      </div>
+    ) : null;
+
+    // Render the component with children and actions
     return (
-      <ComponentType {...propsWithCallback}>
-        {renderedChildren}
-      </ComponentType>
+      <div ref={containerRef}>
+        <ComponentType {...propsWithCallback}>
+          {renderedChildren}
+        </ComponentType>
+        {renderedActions}
+      </div>
     );
   } catch (error) {
     console.error(`Error rendering component ${type}:`, error);

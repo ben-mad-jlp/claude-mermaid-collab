@@ -7,11 +7,11 @@
  * - Type-safe component access
  * - Component availability checking
  *
- * Manages 22 AI-UI components across 5 categories:
- * - Display: Table, CodeBlock, DiffView, JsonViewer, Markdown
- * - Layout: Card, Section, Columns, Accordion, Alert
- * - Interactive: Wizard, Checklist, ApprovalButtons, ProgressBar, Tabs
- * - Inputs: MultipleChoice, TextInput, TextArea, Checkbox, Confirmation
+ * Manages 32 AI-UI components across 5 categories:
+ * - Display: Table, CodeBlock, DiffView, JsonViewer, Markdown, Image, Spinner, Badge
+ * - Layout: Card, Section, Columns, Accordion, Alert, Divider
+ * - Interactive: Wizard, Checklist, ApprovalButtons, ProgressBar, Tabs, Link
+ * - Inputs: MultipleChoice, TextInput, TextArea, Checkbox, Confirmation, RadioGroup, Toggle, NumberInput, Slider, FileUpload
  * - Mermaid: DiagramEmbed, WireframeEmbed
  */
 
@@ -23,6 +23,9 @@ import { CodeBlock } from './display/CodeBlock';
 import { DiffView } from './display/DiffView';
 import { JsonViewer } from './display/JsonViewer';
 import { Markdown } from './display/Markdown';
+import { Image } from './display/Image';
+import { Spinner } from './display/Spinner';
+import { Badge } from './display/Badge';
 
 // Import all layout components
 import { Card } from './layout/Card';
@@ -30,6 +33,7 @@ import { Section } from './layout/Section';
 import { Columns } from './layout/Columns';
 import { Accordion } from './layout/Accordion';
 import { Alert } from './layout/Alert';
+import { Divider } from './layout/Divider';
 
 // Import all interactive components
 import { Wizard } from './interactive/Wizard';
@@ -37,6 +41,7 @@ import { Checklist } from './interactive/Checklist';
 import { ApprovalButtons } from './interactive/ApprovalButtons';
 import { ProgressBar } from './interactive/ProgressBar';
 import { Tabs } from './interactive/Tabs';
+import { Link } from './interactive/Link';
 
 // Import all input components
 import { MultipleChoice } from './inputs/MultipleChoice';
@@ -44,6 +49,11 @@ import { TextInput } from './inputs/TextInput';
 import { TextArea } from './inputs/TextArea';
 import { Checkbox } from './inputs/Checkbox';
 import { Confirmation } from './inputs/Confirmation';
+import { RadioGroup } from './inputs/RadioGroup';
+import { Toggle } from './inputs/Toggle';
+import { NumberInput } from './inputs/NumberInput';
+import { Slider } from './inputs/Slider';
+import { FileUpload } from './inputs/FileUpload';
 
 // Import all mermaid components
 import { DiagramEmbed } from './mermaid/DiagramEmbed';
@@ -63,7 +73,7 @@ export interface ComponentMetadata {
  * Registry of all AI-UI components with metadata
  */
 const componentRegistry: Map<string, ComponentMetadata> = new Map([
-  // Display components (5)
+  // Display components (8)
   [
     'Table',
     {
@@ -109,8 +119,35 @@ const componentRegistry: Map<string, ComponentMetadata> = new Map([
       component: Markdown,
     },
   ],
+  [
+    'Image',
+    {
+      name: 'Image',
+      category: 'display',
+      description: 'Image display with caption',
+      component: Image,
+    },
+  ],
+  [
+    'Spinner',
+    {
+      name: 'Spinner',
+      category: 'display',
+      description: 'Loading spinner indicator',
+      component: Spinner,
+    },
+  ],
+  [
+    'Badge',
+    {
+      name: 'Badge',
+      category: 'display',
+      description: 'Status badge/tag component',
+      component: Badge,
+    },
+  ],
 
-  // Layout components (5)
+  // Layout components (6)
   [
     'Card',
     {
@@ -156,8 +193,17 @@ const componentRegistry: Map<string, ComponentMetadata> = new Map([
       component: Alert,
     },
   ],
+  [
+    'Divider',
+    {
+      name: 'Divider',
+      category: 'layout',
+      description: 'Visual separator with optional label',
+      component: Divider,
+    },
+  ],
 
-  // Interactive components (5)
+  // Interactive components (6)
   [
     'Wizard',
     {
@@ -203,8 +249,17 @@ const componentRegistry: Map<string, ComponentMetadata> = new Map([
       component: Tabs,
     },
   ],
+  [
+    'Link',
+    {
+      name: 'Link',
+      category: 'interactive',
+      description: 'Clickable link/button component',
+      component: Link,
+    },
+  ],
 
-  // Input components (5)
+  // Input components (10)
   [
     'MultipleChoice',
     {
@@ -248,6 +303,51 @@ const componentRegistry: Map<string, ComponentMetadata> = new Map([
       category: 'inputs',
       description: 'Confirmation dialog component',
       component: Confirmation,
+    },
+  ],
+  [
+    'RadioGroup',
+    {
+      name: 'RadioGroup',
+      category: 'inputs',
+      description: 'Radio button group for single selection',
+      component: RadioGroup,
+    },
+  ],
+  [
+    'Toggle',
+    {
+      name: 'Toggle',
+      category: 'inputs',
+      description: 'Toggle switch for boolean values',
+      component: Toggle,
+    },
+  ],
+  [
+    'NumberInput',
+    {
+      name: 'NumberInput',
+      category: 'inputs',
+      description: 'Number input with increment/decrement',
+      component: NumberInput,
+    },
+  ],
+  [
+    'Slider',
+    {
+      name: 'Slider',
+      category: 'inputs',
+      description: 'Range slider for numeric values',
+      component: Slider,
+    },
+  ],
+  [
+    'FileUpload',
+    {
+      name: 'FileUpload',
+      category: 'inputs',
+      description: 'File upload with drag and drop',
+      component: FileUpload,
     },
   ],
 

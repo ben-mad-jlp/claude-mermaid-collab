@@ -1,9 +1,10 @@
-import React, { useId } from 'react';
+import React, { useId, useState } from 'react';
 
 export interface MultipleChoiceProps {
   options: Array<{ value: string; label: string }>;
-  onChange: (value: string) => void;
+  onChange?: (value: string) => void;
   value?: string;
+  name?: string;
   label?: string;
   disabled?: boolean;
   ariaLabel?: string;
@@ -13,7 +14,8 @@ export interface MultipleChoiceProps {
 export const MultipleChoice: React.FC<MultipleChoiceProps> = ({
   options,
   onChange,
-  value,
+  value: controlledValue,
+  name,
   label,
   disabled = false,
   ariaLabel,
@@ -22,9 +24,14 @@ export const MultipleChoice: React.FC<MultipleChoiceProps> = ({
   const id = useId();
   const labelId = `${id}-label`;
   const descriptionId = ariaDescribedBy || `${id}-description`;
+  const [internalValue, setInternalValue] = useState(controlledValue || '');
+
+  const currentValue = controlledValue !== undefined ? controlledValue : internalValue;
 
   const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    onChange(e.target.value);
+    const newValue = e.target.value;
+    setInternalValue(newValue);
+    onChange?.(newValue);
   };
 
   return (
@@ -40,11 +47,13 @@ export const MultipleChoice: React.FC<MultipleChoiceProps> = ({
       )}
       <select
         id={id}
-        value={value || ''}
+        name={name}
+        value={currentValue}
         onChange={handleChange}
         disabled={disabled}
         aria-label={ariaLabel || label}
         aria-describedby={ariaDescribedBy ? descriptionId : undefined}
+        data-value={currentValue}
         className="
           block w-full px-3 py-2 border border-gray-300 rounded-md
           bg-white text-gray-900

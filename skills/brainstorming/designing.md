@@ -146,6 +146,58 @@ Args: {
 
 **Important:** Always read before full update to preserve existing content.
 
+## Browser-Based Questions
+
+When a collab session is active, prefer `render_ui` for user interactions.
+
+**For Accept/Reject/Edit validation:**
+```
+Tool: mcp__mermaid__render_ui
+Args: {
+  "project": "<absolute-path-to-cwd>",
+  "session": "<session-name>",
+  "ui": {
+    "type": "Card",
+    "props": { "title": "Section: [Name]" },
+    "children": [{
+      "type": "Markdown",
+      "props": { "content": "Review the proposed section above. Accept?" }
+    }],
+    "actions": [
+      { "id": "accept", "label": "Accept", "primary": true },
+      { "id": "reject", "label": "Reject" },
+      { "id": "edit", "label": "Edit" }
+    ]
+  },
+  "blocking": true
+}
+```
+
+**For approach selection (2-5 options):**
+```
+Tool: mcp__mermaid__render_ui
+Args: {
+  "project": "<absolute-path-to-cwd>",
+  "session": "<session-name>",
+  "ui": {
+    "type": "Card",
+    "props": { "title": "Choose approach" },
+    "children": [{
+      "type": "RadioGroup",
+      "props": {
+        "name": "approach",
+        "options": [
+          { "value": "1", "label": "Approach 1 (Recommended)" },
+          { "value": "2", "label": "Approach 2" }
+        ]
+      }
+    }],
+    "actions": [{ "id": "select", "label": "Select", "primary": true }]
+  },
+  "blocking": true
+}
+```
+
 ## Exit Criteria
 
 - Each section (200-300 words) presented separately
