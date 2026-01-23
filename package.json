@@ -16,7 +16,9 @@
     "test": "cd ui && bun run test",
     "test:backend": "vitest run",
     "test:wireframe": "cd plugins/wireframe && npm test",
-    "postinstall": "cd plugins/wireframe && npm install && cd ui && bun install"
+    "postinstall": "cd plugins/wireframe && npm install && cd ui && bun install",
+    "version:sync": "bun -e \"const fs = require('fs'); const v = require('./package.json').version; const p = JSON.parse(fs.readFileSync('.claude-plugin/plugin.json')); p.version = v; fs.writeFileSync('.claude-plugin/plugin.json', JSON.stringify(p, null, 2) + '\\n');\"",
+    "postversion": "npm run version:sync && git add .claude-plugin/plugin.json"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^0.5.0",
