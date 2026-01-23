@@ -19,6 +19,8 @@ import userEvent from '@testing-library/user-event';
 import App from './App';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useQuestionStore } from '@/stores/questionStore';
+import { useNotificationStore } from '@/stores/notificationStore';
+import { useChatStore } from '@/stores/chatStore';
 import { getWebSocketClient } from '@/lib/websocket';
 
 describe('App Component', () => {
@@ -323,6 +325,355 @@ describe('App Component', () => {
       // Verify EditorToolbar is rendered
       const toolbar = screen.queryByTestId('editor-toolbar');
       expect(toolbar).toBeDefined();
+    });
+  });
+
+  describe('Item 3: Chat Integration', () => {
+    beforeEach(() => {
+      // Reset chat store before each test
+      const chatStore = useChatStore.getState();
+      chatStore.clearMessages();
+    });
+
+    it('should render ChatToggle button', () => {
+      render(<App />);
+      // ChatToggle should be rendered as a button with fixed positioning
+      const toggleButton = screen.queryByRole('button', { name: /chat/i });
+      expect(toggleButton).toBeDefined();
+    });
+
+    it('should render ChatDrawer component', () => {
+      render(<App />);
+      // ChatDrawer should be in the DOM (even if not visible)
+      const { container } = render(<App />);
+      const drawer = container.querySelector('[class*="fixed left-0 top-0"]');
+      expect(drawer).toBeDefined();
+    });
+
+    it('should toggle chat drawer visibility when ChatToggle is clicked', async () => {
+      const user = userEvent.setup();
+      const { container, rerender } = render(<App />);
+
+      // Find toggle button
+      const toggleButton = screen.queryByRole('button', { name: /chat/i });
+      expect(toggleButton).toBeDefined();
+
+      if (toggleButton) {
+        // Click to open
+        await user.click(toggleButton);
+        // After click, the drawer should be open (isOpen=true)
+        // We can verify by checking if store state changed
+        const chatStore = useChatStore.getState();
+        expect(chatStore.isOpen).toBe(true);
+      }
+    });
+
+    it('should display unread count badge on ChatToggle', () => {
+      // Add a non-blocking message to increase unread count
+      const chatStore = useChatStore.getState();
+      chatStore.addMessage({
+        id: 'test-msg-1',
+        type: 'notification',
+        blocking: false,
+        timestamp: Date.now(),
+        responded: false,
+      });
+
+      render(<App />);
+
+      // The store should show unread count > 0
+      const updatedStore = useChatStore.getState();
+      expect(updatedStore.unreadCount).toBeGreaterThan(0);
+    });
+
+    it('should auto-open drawer when blocking message arrives', () => {
+      const chatStore = useChatStore.getState();
+
+      // Add a blocking message
+      chatStore.addMessage({
+        id: 'blocking-msg-1',
+        type: 'ui_render',
+        blocking: true,
+        timestamp: Date.now(),
+        responded: false,
+      });
+
+      render(<App />);
+
+      // Store should have isOpen=true
+      const updatedStore = useChatStore.getState();
+      expect(updatedStore.isOpen).toBe(true);
+      expect(updatedStore.currentBlockingId).toBe('blocking-msg-1');
+    });
+
+    it('should integrate with useChatStore for state management', () => {
+      render(<App />);
+
+      // Verify the chat store is working
+      const chatStore = useChatStore.getState();
+      expect(typeof chatStore.addMessage).toBe('function');
+      expect(typeof chatStore.respondToMessage).toBe('function');
+      expect(typeof chatStore.setOpen).toBe('function');
+      expect(typeof chatStore.clearMessages).toBe('function');
+      expect(typeof chatStore.markAsRead).toBe('function');
+    });
+
+    it('should handle ChatDrawer close action', async () => {
+      const user = userEvent.setup();
+      const { container } = render(<App />);
+
+      // Get initial state
+      const chatStore = useChatStore.getState();
+
+      // Verify ChatDrawer close button exists and is interactive
+      // Find the close button specifically in the drawer header
+      const drawerHeaders = container.querySelectorAll('[class*="flex items-center justify-between"]');
+      expect(drawerHeaders.length).toBeGreaterThan(0);
+
+      // The drawer has a close button that should be clickable
+      const closeButtons = container.querySelectorAll('button[aria-label*="close"]');
+      expect(closeButtons.length).toBeGreaterThan(0);
+
+      // Verify ChatDrawer component exists even if not currently open
+      const drawer = container.querySelector('[class*="fixed left-0 top-0"]');
+      expect(drawer).toBeDefined();
+    });
+
+    it('should ensure proper z-index layering', () => {
+      const { container } = render(<App />);
+
+      // ChatToggle should have z-40 (fixed position, top-left)
+      const toggleContainer = container.querySelector('.fixed.top-4.left-4');
+      expect(toggleContainer).toBeDefined();
+      expect(toggleContainer?.className).toContain('z-40');
+
+      // ChatDrawer should have z-40 (left drawer)
+      const drawerElement = container.querySelector('[class*="z-40"][class*="fixed left-0"]');
+      expect(drawerElement).toBeDefined();
+    });
+
+    it('should not break existing App functionality with chat integration', () => {
+      const { container } = render(<App />);
+
+      // Verify main app structure is still intact
+      const appDiv = container.firstChild as HTMLElement;
+      expect(appDiv.className).toContain('flex');
+      expect(appDiv.className).toContain('flex-col');
+      expect(appDiv.className).toContain('h-screen');
+
+      // Verify header still renders
+      const main = screen.queryByRole('main');
+      expect(main).toBeDefined();
+
+      // Verify sidebar still renders
+      const sidebar = screen.queryByTestId('sidebar');
+      expect(sidebar).toBeDefined();
+    });
+  });
+
+  describe('Item 4: Notification ToastContainer Integration', () => {
+    beforeEach(() => {
+      // Clear notification store before each test
+      useNotificationStore.setState({ toasts: [] });
+    });
+
+    it('should render ToastContainer in App', () => {
+      const { container } = render(<App />);
+
+      // ToastContainer should be rendered with proper ARIA attributes
+      const notificationRegion = container.querySelector('[role="region"][aria-live="polite"]');
+      expect(notificationRegion).toBeDefined();
+    });
+
+    it('should display single notification toast', async () => {
+      render(<App />);
+
+      // Add a toast to the notification store
+      const toastId = useNotificationStore.getState().addToast({
+        type: 'success',
+        title: 'Test Notification',
+        message: 'This is a test toast',
+        duration: 0, // Don't auto-dismiss
+      });
+
+      await waitFor(() => {
+        const toast = screen.queryByTestId(`toast-${toastId}`);
+        expect(toast).toBeDefined();
+        expect(toast?.textContent).toContain('Test Notification');
+      });
+    });
+
+    it('should display multiple toasts together', async () => {
+      render(<App />);
+
+      const store = useNotificationStore.getState();
+
+      // Add multiple toasts
+      const toastId1 = store.addToast({
+        type: 'info',
+        title: 'First Toast',
+        duration: 0,
+      });
+
+      const toastId2 = store.addToast({
+        type: 'success',
+        title: 'Second Toast',
+        duration: 0,
+      });
+
+      const toastId3 = store.addToast({
+        type: 'error',
+        title: 'Third Toast',
+        duration: 0,
+      });
+
+      await waitFor(() => {
+        expect(screen.queryByTestId(`toast-${toastId1}`)).toBeDefined();
+        expect(screen.queryByTestId(`toast-${toastId2}`)).toBeDefined();
+        expect(screen.queryByTestId(`toast-${toastId3}`)).toBeDefined();
+      });
+    });
+
+    it('should limit visible toasts to 5', async () => {
+      render(<App />);
+
+      const store = useNotificationStore.getState();
+      const toastIds: string[] = [];
+
+      // Add 7 toasts (should only show 5 most recent)
+      for (let i = 0; i < 7; i++) {
+        const id = store.addToast({
+          type: 'info',
+          title: `Toast ${i + 1}`,
+          duration: 0,
+        });
+        toastIds.push(id);
+      }
+
+      await waitFor(() => {
+        // Last 5 toasts should be visible
+        expect(screen.queryByTestId(`toast-${toastIds[6]}`)).toBeDefined();
+        expect(screen.queryByTestId(`toast-${toastIds[5]}`)).toBeDefined();
+        expect(screen.queryByTestId(`toast-${toastIds[4]}`)).toBeDefined();
+        expect(screen.queryByTestId(`toast-${toastIds[3]}`)).toBeDefined();
+        expect(screen.queryByTestId(`toast-${toastIds[2]}`)).toBeDefined();
+
+        // First two should not be visible
+        expect(screen.queryByTestId(`toast-${toastIds[0]}`)).toBeNull();
+        expect(screen.queryByTestId(`toast-${toastIds[1]}`)).toBeNull();
+      });
+    });
+
+    it('should have correct z-index positioning', () => {
+      const { container } = render(<App />);
+
+      const notificationContainer = container.querySelector('[role="region"][aria-live="polite"]') as HTMLElement;
+      expect(notificationContainer).toBeDefined();
+
+      // Check for high z-index class (z-[9999])
+      expect(notificationContainer.className).toContain('z-');
+    });
+
+    it('should remove toast when dismiss button clicked', async () => {
+      render(<App />);
+
+      const store = useNotificationStore.getState();
+      const toastId = store.addToast({
+        type: 'info',
+        title: 'Dismissible Toast',
+        duration: 0,
+      });
+
+      // Wait for toast to appear
+      let toast = await screen.findByTestId(`toast-${toastId}`);
+      expect(toast).toBeDefined();
+
+      // Find and click dismiss button
+      const dismissButton = toast.querySelector('button');
+      if (dismissButton) {
+        fireEvent.click(dismissButton);
+
+        await waitFor(() => {
+          expect(screen.queryByTestId(`toast-${toastId}`)).toBeNull();
+        });
+      }
+    });
+
+    it('should support auto-dismiss with duration prop', async () => {
+      render(<App />);
+
+      const store = useNotificationStore.getState();
+      // Test that addToast accepts duration parameter
+      const toastId = store.addToast({
+        type: 'success',
+        title: 'Auto-dismiss Toast',
+        duration: 2000, // 2 second auto-dismiss
+      });
+
+      // Toast should be added to store
+      const state = useNotificationStore.getState();
+      const toast = state.toasts.find(t => t.id === toastId);
+      expect(toast).toBeDefined();
+      expect(toast?.duration).toBe(2000);
+    });
+
+    it('should display different toast types in DOM', async () => {
+      render(<App />);
+
+      const store = useNotificationStore.getState();
+
+      // Add toasts of different types
+      const successId = store.addToast({
+        type: 'success',
+        title: 'Success',
+        duration: 0,
+      });
+
+      const errorId = store.addToast({
+        type: 'error',
+        title: 'Error',
+        duration: 0,
+      });
+
+      const warningId = store.addToast({
+        type: 'warning',
+        title: 'Warning',
+        duration: 0,
+      });
+
+      const infoId = store.addToast({
+        type: 'info',
+        title: 'Info',
+        duration: 0,
+      });
+
+      // Wait for all toasts to be rendered
+      await waitFor(() => {
+        expect(screen.queryByTestId(`toast-${successId}`)).toBeDefined();
+        expect(screen.queryByTestId(`toast-${errorId}`)).toBeDefined();
+        expect(screen.queryByTestId(`toast-${warningId}`)).toBeDefined();
+        expect(screen.queryByTestId(`toast-${infoId}`)).toBeDefined();
+      });
+    });
+
+    it('should maintain accessibility with aria-live region', () => {
+      const { container } = render(<App />);
+
+      const notificationRegion = container.querySelector('[role="region"]');
+      expect(notificationRegion).toBeDefined();
+      expect(notificationRegion?.getAttribute('aria-live')).toBe('polite');
+      expect(notificationRegion?.getAttribute('aria-label')).toBe('Notifications');
+    });
+
+    it('should not break existing App functionality when ToastContainer is present', () => {
+      const { container } = render(<App />);
+
+      // App should still render all its main components
+      expect(screen.queryByRole('main')).toBeDefined();
+      const appDiv = container.firstChild as HTMLElement;
+      expect(appDiv.className).toContain('flex');
+      expect(appDiv.className).toContain('flex-col');
+      expect(appDiv.className).toContain('h-screen');
     });
   });
 });

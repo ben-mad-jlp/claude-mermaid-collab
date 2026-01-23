@@ -1,0 +1,27 @@
+flowchart TD
+    subgraph "Current Type System"
+        GS[gather-session-goals] --> |infer type| Types{4 Types}
+        Types --> feature
+        Types --> bugfix
+        Types --> refactor
+        Types --> spike
+    end
+
+    subgraph "Work Item Loop Routing"
+        feature --> brainstorming
+        refactor --> brainstorming
+        spike --> brainstorming
+        bugfix --> systematic-debugging
+    end
+
+    subgraph "Implementation Path"
+        brainstorming --> rough-draft
+        systematic-debugging --> rough-draft
+        rough-draft --> executing-plans
+        executing-plans --> TDD[test-driven-development]
+    end
+
+    style bugfix fill:#ffcccc
+    style feature fill:#ccffcc
+    style refactor fill:#cce5ff
+    style spike fill:#fff2cc

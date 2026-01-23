@@ -219,6 +219,63 @@ Current phase: implementation
 Use /executing-plans to continue.
 ```
 
+## Browser-Based Questions
+
+When a collab session is active, prefer `render_ui` for user interactions instead of terminal prompts.
+
+### Multiple Choice Example
+
+```
+Tool: mcp__mermaid__render_ui
+Args: {
+  "project": "<absolute-path-to-cwd>",
+  "session": "<session-name>",
+  "ui": {
+    "type": "Card",
+    "props": { "title": "Select an option" },
+    "children": [{
+      "type": "MultipleChoice",
+      "props": {
+        "options": [
+          { "value": "1", "label": "Option 1" },
+          { "value": "2", "label": "Option 2" }
+        ],
+        "name": "choice"
+      }
+    }],
+    "actions": [{ "id": "submit", "label": "Submit", "primary": true }]
+  },
+  "blocking": true
+}
+```
+
+Response: `{ "action": "submit", "data": { "choice": "1" } }`
+
+### Yes/No Confirmation Example
+
+```
+Tool: mcp__mermaid__render_ui
+Args: {
+  "project": "<absolute-path-to-cwd>",
+  "session": "<session-name>",
+  "ui": {
+    "type": "Card",
+    "props": { "title": "Confirm" },
+    "children": [{
+      "type": "Markdown",
+      "props": { "content": "Do you want to proceed?" }
+    }],
+    "actions": [
+      { "id": "yes", "label": "Yes", "primary": true },
+      { "id": "no", "label": "No" }
+    ]
+  },
+  "blocking": true
+}
+```
+
+Response: `{ "action": "yes" }` or `{ "action": "no" }`
+
 ## Integration
 
 **Called by:**

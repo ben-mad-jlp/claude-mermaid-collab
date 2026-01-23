@@ -1,0 +1,19 @@
+flowchart TB
+    subgraph collab["collab skill (Step 4: Work Item Loop)"]
+        A[Find pending item] --> B{Route by type}
+        B -->|code| C[Invoke brainstorming]
+        B -->|task| D[Invoke brainstorming]
+        B -->|bugfix| E[Invoke systematic-debugging]
+        C --> F[Invoke rough-draft]
+        D --> G[Invoke task-planning]
+        E --> H[Mark item documented]
+        F --> H
+        G --> H
+    end
+
+    style C fill:#ffcccc
+    style D fill:#ffcccc
+    style E fill:#ffcccc
+    style F fill:#ffcccc
+
+    note["❌ No collab-compact calls currently"]

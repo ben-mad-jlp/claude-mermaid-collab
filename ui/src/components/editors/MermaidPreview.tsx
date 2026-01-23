@@ -136,14 +136,14 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
     return () => outer.removeEventListener('wheel', handleWheel, { capture: true });
   }, []);
 
-  // Handle middle-click pan
+  // Handle middle-click or shift+left-click pan
   useEffect(() => {
     const wrapper = wrapperRef.current;
     if (!wrapper) return;
 
     const handleMouseDown = (e: MouseEvent) => {
-      // Middle mouse button (button === 1)
-      if (e.button === 1) {
+      // Middle mouse button (button === 1) OR shift+left click (button === 0 && shiftKey)
+      if (e.button === 1 || (e.button === 0 && (e as any).shiftKey)) {
         e.preventDefault();
         isPanningRef.current = true;
         setIsPanning(true);
@@ -168,10 +168,16 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
     };
 
     const handleMouseUp = (e: MouseEvent) => {
-      if (e.button === 1 && isPanningRef.current) {
+      // End panning on any mouse button release if we were panning
+      if (isPanningRef.current) {
         isPanningRef.current = false;
         setIsPanning(false);
-        wrapper.style.cursor = '';
+        // Restore cursor based on whether shift is still held
+        if ((e as any).shiftKey) {
+          wrapper.style.cursor = 'grab';
+        } else {
+          wrapper.style.cursor = '';
+        }
       }
     };
 
@@ -182,16 +188,33 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
       }
     };
 
+    // Handle shift key to show grab cursor
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Shift' && !isPanningRef.current) {
+        wrapper.style.cursor = 'grab';
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Shift' && !isPanningRef.current) {
+        wrapper.style.cursor = '';
+      }
+    };
+
     wrapper.addEventListener('mousedown', handleMouseDown);
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
     wrapper.addEventListener('contextmenu', handleContextMenu);
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
 
     return () => {
       wrapper.removeEventListener('mousedown', handleMouseDown);
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
       wrapper.removeEventListener('contextmenu', handleContextMenu);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
     };
   }, []);
 

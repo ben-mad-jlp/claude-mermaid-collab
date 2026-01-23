@@ -27,6 +27,7 @@ import { useTheme } from '@/hooks/useTheme';
 import { useUIStore } from '@/stores/uiStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useQuestionStore } from '@/stores/questionStore';
+import { useChatStore } from '@/stores/chatStore';
 import { useDataLoader } from '@/hooks/useDataLoader';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { useWebSocket } from '@/hooks/useWebSocket';
@@ -40,9 +41,13 @@ import Header from '@/components/layout/Header';
 import Sidebar from '@/components/layout/Sidebar';
 import EditorToolbar from '@/components/layout/EditorToolbar';
 import QuestionPanel from '@/components/question-panel/QuestionPanel';
+import { ChatToggle, ChatDrawer } from '@/components/chat-drawer';
 
 // Import unified editor component
 import UnifiedEditor from '@/components/editors/UnifiedEditor';
+
+// Import notification components
+import { ToastContainer } from '@/components/notifications';
 
 /**
  * Error Boundary Component
@@ -180,6 +185,15 @@ const App: React.FC = () => {
 
   // WebSocket for real-time updates
   const { isConnected, isConnecting } = useWebSocket();
+
+  // Chat store for drawer state
+  const { isOpen: isChatOpen, unreadCount, setOpen: setChatOpen } = useChatStore(
+    useShallow((state) => ({
+      isOpen: state.isOpen,
+      unreadCount: state.unreadCount,
+      setOpen: state.setOpen,
+    }))
+  );
 
   // Subscribe to updates and handle messages
   useEffect(() => {
@@ -587,11 +601,27 @@ const App: React.FC = () => {
           </main>
         </div>
 
+        {/* Chat Toggle Button */}
+        <ChatToggle
+          onClick={() => setChatOpen(!isChatOpen)}
+          unreadCount={unreadCount}
+          isOpen={isChatOpen}
+        />
+
+        {/* Chat Drawer */}
+        <ChatDrawer
+          isOpen={isChatOpen}
+          onClose={() => setChatOpen(false)}
+        />
+
         {/* Question Panel Overlay */}
         {currentQuestion && <QuestionPanel />}
 
         {/* Loading Overlay */}
         <LoadingOverlay show={isLoading} />
+
+        {/* Notification Toast Container */}
+        <ToastContainer />
       </div>
     </ErrorBoundary>
   );

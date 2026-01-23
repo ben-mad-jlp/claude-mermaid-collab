@@ -1,0 +1,17 @@
+flowchart TB
+    subgraph Old["Old GUI (public/js/document-editor.js)"]
+        WS1[WebSocket message with patch] --> DF[diffMode = true]
+        DF --> RDP[renderDiffPreview]
+        RDP --> HTML["HTML with .diff-added/.diff-removed spans"]
+        CB[Clear Diff button] --> CD[clearDiff]
+        CD --> RP[renderPreview without diff]
+    end
+
+    subgraph New["New React UI"]
+        WS2[WebSocket message] --> LSI[loadSessionItems - full refresh]
+        LSI --> UP[Update store]
+        UP --> MP[MarkdownPreview renders content]
+        style MP fill:#ffcccc
+    end
+
+    note["❌ New UI has no diff highlighting"]

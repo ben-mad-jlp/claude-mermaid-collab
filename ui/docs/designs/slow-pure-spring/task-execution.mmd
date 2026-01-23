@@ -1,0 +1,31 @@
+graph TD
+    proposal-types["proposal-types"]
+    proposal-store["proposal-store"]
+    editor-history-hook["editor-history-hook"]
+    export-diagram-hook["export-diagram-hook"]
+    mermaid-formatter["mermaid-formatter"]
+    codemirror-wrapper-update["codemirror-wrapper-update"]
+    mermaid-preview-update["mermaid-preview-update"]
+    editor-toolbar-update["editor-toolbar-update"]
+    unified-editor-integration["unified-editor-integration"]
+
+    proposal-types --> proposal-store
+    proposal-types --> editor-toolbar-update
+    editor-history-hook --> codemirror-wrapper-update
+    export-diagram-hook --> mermaid-preview-update
+    
+    codemirror-wrapper-update --> unified-editor-integration
+    mermaid-preview-update --> unified-editor-integration
+    editor-toolbar-update --> unified-editor-integration
+    mermaid-formatter --> unified-editor-integration
+    proposal-store --> unified-editor-integration
+
+    style proposal-types fill:#c8e6c9,stroke:#2e7d32
+    style editor-history-hook fill:#c8e6c9,stroke:#2e7d32
+    style export-diagram-hook fill:#c8e6c9,stroke:#2e7d32
+    style mermaid-formatter fill:#c8e6c9,stroke:#2e7d32
+    style proposal-store fill:#c8e6c9,stroke:#2e7d32
+    style codemirror-wrapper-update fill:#c8e6c9,stroke:#2e7d32
+    style mermaid-preview-update fill:#c8e6c9,stroke:#2e7d32
+    style editor-toolbar-update fill:#c8e6c9,stroke:#2e7d32
+    style unified-editor-integration fill:#c8e6c9,stroke:#2e7d32

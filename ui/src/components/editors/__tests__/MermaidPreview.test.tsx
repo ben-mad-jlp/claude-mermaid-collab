@@ -435,4 +435,314 @@ describe('MermaidPreview', () => {
       expect(onNodeClick).not.toHaveBeenCalled();
     });
   });
+
+  describe('shift+click pan (Item 5)', () => {
+    it('should detect shift+left-click+drag pan gesture', () => {
+      render(<MermaidPreview content="graph TD; A-->B" />);
+
+      const wrapper = screen.getByTestId('mermaid-diagram');
+
+      // Simulate shift+left-click (button 0 with shift key)
+      const mouseDownEvent = new MouseEvent('mousedown', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 100,
+        clientY: 100,
+        buttons: 1,
+      });
+      Object.defineProperty(mouseDownEvent, 'button', { value: 0, writable: true });
+      Object.defineProperty(mouseDownEvent, 'shiftKey', { value: true, writable: true });
+
+      wrapper.dispatchEvent(mouseDownEvent);
+
+      // The component should have entered panning mode
+      expect(wrapper).toBeDefined();
+    });
+
+    it('should maintain middle-click panning functionality', () => {
+      render(<MermaidPreview content="graph TD; A-->B" />);
+
+      const wrapper = screen.getByTestId('mermaid-diagram');
+
+      // Simulate middle-click (button 1)
+      const mouseDownEvent = new MouseEvent('mousedown', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 100,
+        clientY: 100,
+        buttons: 4,
+      });
+      Object.defineProperty(mouseDownEvent, 'button', { value: 1, writable: true });
+      Object.defineProperty(mouseDownEvent, 'shiftKey', { value: false, writable: true });
+
+      wrapper.dispatchEvent(mouseDownEvent);
+
+      // Middle-click panning should still work
+      expect(wrapper).toBeDefined();
+    });
+
+    it('should update cursor to grabbing during shift+click pan', () => {
+      render(<MermaidPreview content="graph TD; A-->B" />);
+
+      const wrapper = screen.getByTestId('mermaid-diagram');
+
+      // Verify initial cursor state
+      expect(wrapper.style.cursor).not.toBe('grabbing');
+
+      // Simulate shift+left-click
+      const mouseDownEvent = new MouseEvent('mousedown', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 100,
+        clientY: 100,
+        buttons: 1,
+      });
+      Object.defineProperty(mouseDownEvent, 'button', { value: 0, writable: true });
+      Object.defineProperty(mouseDownEvent, 'shiftKey', { value: true, writable: true });
+
+      wrapper.dispatchEvent(mouseDownEvent);
+
+      // Cursor should be grabbing
+      expect(wrapper.style.cursor).toBe('grabbing');
+    });
+
+    it('should change cursor to grab when shift key is held', () => {
+      render(<MermaidPreview content="graph TD; A-->B" />);
+
+      const wrapper = screen.getByTestId('mermaid-diagram');
+
+      // Simulate shift key down
+      const keyDownEvent = new KeyboardEvent('keydown', {
+        key: 'Shift',
+        bubbles: true,
+        cancelable: true,
+      });
+
+      window.dispatchEvent(keyDownEvent);
+
+      // Cursor should change to grab
+      expect(wrapper.style.cursor).toBe('grab');
+    });
+
+    it('should reset cursor when shift key is released', () => {
+      render(<MermaidPreview content="graph TD; A-->B" />);
+
+      const wrapper = screen.getByTestId('mermaid-diagram');
+
+      // Simulate shift key down
+      const keyDownEvent = new KeyboardEvent('keydown', {
+        key: 'Shift',
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(keyDownEvent);
+      expect(wrapper.style.cursor).toBe('grab');
+
+      // Simulate shift key up
+      const keyUpEvent = new KeyboardEvent('keyup', {
+        key: 'Shift',
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(keyUpEvent);
+
+      // Cursor should be reset
+      expect(wrapper.style.cursor).toBe('');
+    });
+
+    it('should track drag movement during shift+click pan', () => {
+      render(<MermaidPreview content="graph TD; A-->B" />);
+
+      const wrapper = screen.getByTestId('mermaid-diagram');
+      const containerDiv = wrapper.querySelector('div');
+
+      // Simulate shift+left-click
+      const mouseDownEvent = new MouseEvent('mousedown', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 100,
+        clientY: 100,
+        buttons: 1,
+      });
+      Object.defineProperty(mouseDownEvent, 'button', { value: 0, writable: true });
+      Object.defineProperty(mouseDownEvent, 'shiftKey', { value: true, writable: true });
+
+      wrapper.dispatchEvent(mouseDownEvent);
+
+      // Simulate mouse move
+      const mouseMoveEvent = new MouseEvent('mousemove', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 150,
+        clientY: 150,
+      });
+
+      window.dispatchEvent(mouseMoveEvent);
+
+      // Pan offset should have been updated (transform should reflect movement)
+      const innerDiv = containerDiv as HTMLElement;
+      expect(innerDiv.style.transform).toBeTruthy();
+    });
+
+    it('should update viewBox-like behavior when panning', () => {
+      render(<MermaidPreview content="graph TD; A-->B" zoomLevel={100} />);
+
+      const wrapper = screen.getByTestId('mermaid-diagram');
+      const innerContainer = wrapper.querySelector('div');
+
+      // Start pan with shift+click
+      const mouseDownEvent = new MouseEvent('mousedown', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 50,
+        clientY: 50,
+        buttons: 1,
+      });
+      Object.defineProperty(mouseDownEvent, 'button', { value: 0, writable: true });
+      Object.defineProperty(mouseDownEvent, 'shiftKey', { value: true, writable: true });
+
+      wrapper.dispatchEvent(mouseDownEvent);
+
+      // Move mouse to simulate dragging
+      const mouseMoveEvent = new MouseEvent('mousemove', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 100,
+        clientY: 100,
+      });
+
+      window.dispatchEvent(mouseMoveEvent);
+
+      // Check that transform includes translation
+      const transform = (innerContainer as HTMLElement).style.transform;
+      expect(transform).toMatch(/translate\(/);
+    });
+
+    it('should maintain zoom level while panning', () => {
+      const { rerender } = render(
+        <MermaidPreview content="graph TD; A-->B" zoomLevel={150} />
+      );
+
+      const wrapper = screen.getByTestId('mermaid-diagram');
+      const innerContainer = wrapper.querySelector('div') as HTMLElement;
+
+      // Start pan
+      const mouseDownEvent = new MouseEvent('mousedown', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 50,
+        clientY: 50,
+        buttons: 1,
+      });
+      Object.defineProperty(mouseDownEvent, 'button', { value: 0, writable: true });
+      Object.defineProperty(mouseDownEvent, 'shiftKey', { value: true, writable: true });
+
+      wrapper.dispatchEvent(mouseDownEvent);
+
+      // Move mouse
+      const mouseMoveEvent = new MouseEvent('mousemove', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 100,
+        clientY: 100,
+      });
+
+      window.dispatchEvent(mouseMoveEvent);
+
+      // Transform should include both scale and translate
+      const transform = innerContainer.style.transform;
+      expect(transform).toMatch(/scale\(1\.5\)/);
+      expect(transform).toMatch(/translate\(/);
+    });
+
+    it('should end pan on mouseup after shift+click drag', () => {
+      render(<MermaidPreview content="graph TD; A-->B" />);
+
+      const wrapper = screen.getByTestId('mermaid-diagram');
+
+      // Start pan with shift+click
+      const mouseDownEvent = new MouseEvent('mousedown', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 50,
+        clientY: 50,
+        buttons: 1,
+      });
+      Object.defineProperty(mouseDownEvent, 'button', { value: 0, writable: true });
+      Object.defineProperty(mouseDownEvent, 'shiftKey', { value: true, writable: true });
+
+      wrapper.dispatchEvent(mouseDownEvent);
+      expect(wrapper.style.cursor).toBe('grabbing');
+
+      // Release mouse
+      const mouseUpEvent = new MouseEvent('mouseup', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 100,
+        clientY: 100,
+        buttons: 0,
+      });
+
+      window.dispatchEvent(mouseUpEvent);
+
+      // Cursor should reset (and since shift is not held, it should be empty)
+      expect(wrapper.style.cursor).toBe('');
+    });
+
+    it('should not interfere with other interactions', () => {
+      const onNodeClick = vi.fn();
+
+      render(
+        <MermaidPreview
+          content="graph TD; A-->B"
+          editMode={true}
+          onNodeClick={onNodeClick}
+        />
+      );
+
+      const wrapper = screen.getByTestId('mermaid-diagram');
+
+      // Regular click without shift should not trigger pan
+      const clickEvent = new MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 50,
+        clientY: 50,
+        buttons: 1,
+      });
+      Object.defineProperty(clickEvent, 'button', { value: 0, writable: true });
+      Object.defineProperty(clickEvent, 'shiftKey', { value: false, writable: true });
+
+      wrapper.dispatchEvent(clickEvent);
+
+      // Should not change cursor (only shift triggers grab cursor)
+      expect(wrapper.style.cursor).not.toBe('grab');
+    });
+
+    it('should handle rapid shift key presses', () => {
+      render(<MermaidPreview content="graph TD; A-->B" />);
+
+      const wrapper = screen.getByTestId('mermaid-diagram');
+
+      // Multiple rapid shift key presses
+      for (let i = 0; i < 5; i++) {
+        const keyDownEvent = new KeyboardEvent('keydown', {
+          key: 'Shift',
+          bubbles: true,
+          cancelable: true,
+        });
+        window.dispatchEvent(keyDownEvent);
+
+        const keyUpEvent = new KeyboardEvent('keyup', {
+          key: 'Shift',
+          bubbles: true,
+          cancelable: true,
+        });
+        window.dispatchEvent(keyUpEvent);
+      }
+
+      // Should handle gracefully without errors
+      expect(wrapper).toBeDefined();
+    });
+  });
 });

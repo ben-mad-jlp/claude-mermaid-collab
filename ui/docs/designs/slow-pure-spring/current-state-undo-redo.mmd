@@ -1,0 +1,27 @@
+flowchart TD
+    subgraph Current["Current State"]
+        CM[CodeMirror Editor]
+        CMI["Built-in History<br/>(Ctrl+Z works)"]
+        TB[EditorToolbar]
+        TBU["Undo Button<br/>onClick={() => {}}"]
+        TBR["Redo Button<br/>onClick={() => {}}"]
+        
+        CM --> CMI
+        TB --> TBU
+        TB --> TBR
+    end
+    
+    subgraph Missing["Missing Connection"]
+        X1["❌ No ref to EditorView"]
+        X2["❌ No canUndo/canRedo tracking"]
+        X3["❌ Toolbar buttons do nothing"]
+    end
+    
+    style CM fill:#c8e6c9,stroke:#2e7d32
+    style CMI fill:#c8e6c9,stroke:#2e7d32
+    style TB fill:#bbdefb,stroke:#1976d2
+    style TBU fill:#ffcdd2,stroke:#c62828
+    style TBR fill:#ffcdd2,stroke:#c62828
+    style X1 fill:#fff3e0,stroke:#ef6c00
+    style X2 fill:#fff3e0,stroke:#ef6c00
+    style X3 fill:#fff3e0,stroke:#ef6c00

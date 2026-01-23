@@ -1,0 +1,25 @@
+flowchart TB
+    subgraph collab["collab skill (Step 4.5: Route by Type)"]
+        A[Find pending item] --> B{Route by type}
+        
+        B -->|code| C1[collab-compact]
+        C1 --> C2[Invoke brainstorming]
+        C2 --> C3[collab-compact]
+        C3 --> C4[Invoke rough-draft]
+        
+        B -->|task| D1[collab-compact]
+        D1 --> D2[Invoke brainstorming]
+        D2 --> D3[Invoke task-planning]
+        
+        B -->|bugfix| E1[collab-compact]
+        E1 --> E2[Invoke systematic-debugging]
+        
+        C4 --> H[Mark item documented]
+        D3 --> H
+        E2 --> H
+    end
+
+    style C1 fill:#90EE90
+    style C3 fill:#90EE90
+    style D1 fill:#90EE90
+    style E1 fill:#90EE90

@@ -1,0 +1,18 @@
+graph TD
+    session-registry-fix["session-registry-fix<br/>Stale sessions cleanup"]
+    session-panel-css["session-panel-css<br/>CSS positioning"]
+    session-panel-js["session-panel-js<br/>JS cleanup"]
+    document-html["document-html<br/>Document.html structure"]
+    diagram-html["diagram-html<br/>Diagram.html structure"]
+
+    session-panel-css --> session-panel-js
+    session-panel-css --> document-html
+    session-panel-css --> diagram-html
+    session-panel-js --> document-html
+    session-panel-js --> diagram-html
+
+    style session-registry-fix fill:#c8e6c9,stroke:#2e7d32
+    style session-panel-css fill:#c8e6c9,stroke:#2e7d32
+    style session-panel-js fill:#c8e6c9,stroke:#2e7d32
+    style document-html fill:#c8e6c9,stroke:#2e7d32
+    style diagram-html fill:#c8e6c9,stroke:#2e7d32

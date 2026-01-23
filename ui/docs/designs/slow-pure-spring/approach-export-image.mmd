@@ -1,0 +1,36 @@
+flowchart TD
+    subgraph Current["Current: Mermaid renders to SVG"]
+        MERM[MermaidPreview]
+        SVG["SVG in DOM<br/>(containerRef.innerHTML)"]
+        MERM --> SVG
+    end
+    
+    subgraph Export["Export Options"]
+        BTN[Export Button in Toolbar]
+        MENU["Dropdown: PNG | SVG"]
+        
+        subgraph SVGExport["SVG Export"]
+            S1["Get SVG from container"]
+            S2["Create Blob"]
+            S3["Download as .svg"]
+            S1 --> S2 --> S3
+        end
+        
+        subgraph PNGExport["PNG Export"]
+            P1["Get SVG from container"]
+            P2["Create Image from SVG"]
+            P3["Draw to Canvas"]
+            P4["canvas.toBlob()"]
+            P5["Download as .png"]
+            P1 --> P2 --> P3 --> P4 --> P5
+        end
+        
+        BTN --> MENU
+        MENU -->|"SVG"| SVGExport
+        MENU -->|"PNG"| PNGExport
+    end
+    
+    style MERM fill:#c8e6c9,stroke:#2e7d32
+    style SVG fill:#c8e6c9,stroke:#2e7d32
+    style BTN fill:#bbdefb,stroke:#1976d2
+    style MENU fill:#bbdefb,stroke:#1976d2

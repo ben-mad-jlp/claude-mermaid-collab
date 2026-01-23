@@ -1,0 +1,43 @@
+graph LR
+    subgraph "Batch 1 (Parallel - no dependencies)"
+        A["task-planning-skill"]
+        B["gather-goals-types"]
+        C["brainstorming-cleanup"]
+        D["pre-compact-script"]
+        E["brainstorming-snapshots"]
+        F["debugging-snapshots"]
+        G["document-html-session"]
+        H["session-panel-css"]
+    end
+
+    subgraph "Batch 2 (Parallel - depends on Batch 1)"
+        I["collab-routing"]
+        J["executing-plans-tdd-skip"]
+        K["hooks-json-update"]
+        L["session-panel-js"]
+    end
+
+    subgraph "Batch 3"
+        M["executing-snapshots"]
+    end
+
+    A --> I
+    A --> J
+    D --> K
+    H --> L
+    J --> M
+
+    %% Styles - Gray = waiting
+    style A fill:#c8e6c9,stroke:#2e7d32
+    style B fill:#c8e6c9,stroke:#2e7d32
+    style C fill:#c8e6c9,stroke:#2e7d32
+    style D fill:#c8e6c9,stroke:#2e7d32
+    style E fill:#c8e6c9,stroke:#2e7d32
+    style F fill:#c8e6c9,stroke:#2e7d32
+    style G fill:#c8e6c9,stroke:#2e7d32
+    style H fill:#c8e6c9,stroke:#2e7d32
+    style I fill:#c8e6c9,stroke:#2e7d32
+    style J fill:#c8e6c9,stroke:#2e7d32
+    style K fill:#c8e6c9,stroke:#2e7d32
+    style L fill:#c8e6c9,stroke:#2e7d32
+    style M fill:#c8e6c9,stroke:#2e7d32

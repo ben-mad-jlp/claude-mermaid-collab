@@ -23,8 +23,7 @@ import { dirname, join, resolve } from 'path';
 import { homedir } from 'os';
 import { dismissUI, dismissUISchema } from './tools/dismiss-ui.js';
 import { updateUI, updateUISchema } from './tools/update-ui.js';
-import { renderUI, renderUISchema } from './tools/render-ui.js';
-import { WebSocketHandler } from '../websocket/handler.js';
+import { renderUISchema } from './tools/render-ui.js';
 
 // Configuration
 const API_PORT = parseInt(process.env.PORT || '3737', 10);
@@ -839,10 +838,20 @@ async function main() {
           case 'render_ui': {
             const { project, session, ui, blocking, timeout } = args as { project: string; session: string; ui: any; blocking?: boolean; timeout?: number };
             if (!project || !session || !ui) throw new Error('Missing required: project, session, ui');
-            // Create a WebSocket handler instance for this render
-            const wsHandler = new WebSocketHandler();
-            const result = await renderUI(project, session, ui, blocking ?? true, timeout, wsHandler);
-            return JSON.stringify(result, null, 2);
+
+            // Use HTTP fetch to /api/render-ui instead of direct WebSocket
+            const response = await fetch(buildUrl('/api/render-ui', project, session), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ui, blocking, timeout }),
+            });
+
+            if (!response.ok) {
+              const error = await response.json();
+              throw new Error(`Failed to render UI: ${error.error || response.statusText}`);
+            }
+
+            return await response.text();
           }
 
           case 'update_ui': {

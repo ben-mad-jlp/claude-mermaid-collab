@@ -1,0 +1,52 @@
+graph LR
+    subgraph "Batch 1: Foundation (Parallel) ✓ COMPLETE"
+        skill-collab-compact[skill-collab-compact]
+        skill-archive-continue[skill-archive-continue]
+        store-ui-editmode[store-ui-editmode]
+        store-session-diff[store-session-diff]
+        store-question-websocket[store-question-websocket]
+        lib-diagram-utils[lib-diagram-utils]
+    end
+
+    subgraph "Batch 2: Components ✓ COMPLETE"
+        component-header[component-header]
+        component-toolbar[component-toolbar]
+        component-mermaid-preview[component-mermaid-preview]
+        component-markdown-preview[component-markdown-preview]
+    end
+
+    subgraph "Batch 3: New Components ✓ COMPLETE"
+        component-context-menu[component-context-menu]
+        component-properties-pane[component-properties-pane]
+    end
+
+    subgraph "Batch 4: Integration ✓ COMPLETE"
+        app-integration[app-integration]
+    end
+
+    store-ui-editmode --> component-header
+    store-ui-editmode --> component-mermaid-preview
+    lib-diagram-utils --> component-toolbar
+    store-session-diff --> component-markdown-preview
+    
+    component-mermaid-preview --> component-context-menu
+    component-mermaid-preview --> component-properties-pane
+    
+    store-session-diff --> app-integration
+    store-question-websocket --> app-integration
+    component-context-menu --> app-integration
+    component-markdown-preview --> app-integration
+
+    style skill-collab-compact fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style skill-archive-continue fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style store-ui-editmode fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style store-session-diff fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style store-question-websocket fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style lib-diagram-utils fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style component-header fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style component-toolbar fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style component-mermaid-preview fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style component-markdown-preview fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style component-context-menu fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style component-properties-pane fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style app-integration fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px

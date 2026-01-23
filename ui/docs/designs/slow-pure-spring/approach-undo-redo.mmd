@@ -1,0 +1,42 @@
+flowchart TD
+    subgraph Solution["Proposed Solution"]
+        CM[CodeMirrorWrapper]
+        REF["useRef for EditorView"]
+        HIST["history() extension<br/>with onUpdate"]
+        
+        UE[UnifiedEditor]
+        HOOK["useEditorHistory hook"]
+        STATE["canUndo, canRedo state"]
+        
+        TB[EditorToolbar]
+        UB["Undo Button<br/>calls editorRef.undo()"]
+        RB["Redo Button<br/>calls editorRef.redo()"]
+        
+        CM --> REF
+        CM --> HIST
+        HIST -->|"updates"| HOOK
+        HOOK --> STATE
+        UE --> HOOK
+        UE --> TB
+        STATE --> TB
+        REF -->|"undo()/redo()"| TB
+    end
+    
+    subgraph Flow["Data Flow"]
+        F1["1. CodeMirror edits"]
+        F2["2. History extension tracks"]
+        F3["3. Hook reads canUndo/canRedo"]
+        F4["4. Toolbar buttons enabled/disabled"]
+        F5["5. Click calls undo()/redo()"]
+        
+        F1 --> F2 --> F3 --> F4 --> F5
+    end
+    
+    style CM fill:#c8e6c9,stroke:#2e7d32
+    style REF fill:#c8e6c9,stroke:#2e7d32
+    style HIST fill:#c8e6c9,stroke:#2e7d32
+    style HOOK fill:#bbdefb,stroke:#1976d2
+    style STATE fill:#bbdefb,stroke:#1976d2
+    style TB fill:#e1bee7,stroke:#7b1fa2
+    style UB fill:#e1bee7,stroke:#7b1fa2
+    style RB fill:#e1bee7,stroke:#7b1fa2

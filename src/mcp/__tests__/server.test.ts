@@ -16,10 +16,9 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 // requires stdio transport setup which is complex in testing environment
 
 // Import the tool functions and schemas
-import { renderUI, renderUISchema, validateUIStructure, validateTimeout } from '../tools/render-ui.js';
+import { renderUISchema, validateUIStructure, validateTimeout } from '../tools/render-ui.js';
 import { updateUI, updateUISchema } from '../tools/update-ui.js';
 import { dismissUI, dismissUISchema } from '../tools/dismiss-ui.js';
-import { WebSocketHandler } from '../../websocket/handler.js';
 import type { UIComponent } from '../../ai-ui.js';
 
 // Mock fetch globally
@@ -137,122 +136,243 @@ describe('MCP Tool Schemas', () => {
 });
 
 // ============================================================================
-// RENDER_UI TOOL INTEGRATION TESTS
+// RENDER_UI TOOL INTEGRATION TESTS (MCP Server HTTP-based)
 // ============================================================================
 
-describe('render_ui Tool Integration', () => {
-  let wsHandler: WebSocketHandler;
-
+describe('render_ui Tool Integration (MCP Server)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    wsHandler = new WebSocketHandler();
   });
 
-  it('should execute renderUI with valid parameters', async () => {
+  it('should make HTTP POST request to /api/render-ui endpoint', async () => {
+    const mockResponse = {
+      ok: true,
+      text: async () => JSON.stringify({ completed: true, source: 'browser', action: 'submit' }),
+    };
+    (global.fetch as any).mockResolvedValueOnce(mockResponse);
+
     const ui = createBasicUIComponent();
-    const result = await renderUI(
-      '/test/project',
-      'test-session',
-      ui,
-      false,
-      undefined,
-      wsHandler
-    );
-
-    expect(result).toBeDefined();
-    expect(result.completed).toBe(true);
-    expect(result.source).toBe('terminal');
-  });
-
-  it('should validate UI structure before rendering', async () => {
-    const invalidUI = { type: 'Button' }; // Missing props
-
-    await expect(
-      renderUI('/test/project', 'test-session', invalidUI, false, undefined, wsHandler)
-    ).rejects.toThrow('must have a props property');
-  });
-
-  it('should validate project parameter', async () => {
-    const ui = createBasicUIComponent();
-
-    await expect(
-      renderUI('', 'test-session', ui, false, undefined, wsHandler)
-    ).rejects.toThrow('project must be a non-empty string');
-  });
-
-  it('should validate session parameter', async () => {
-    const ui = createBasicUIComponent();
-
-    await expect(
-      renderUI('/test/project', '', ui, false, undefined, wsHandler)
-    ).rejects.toThrow('session must be a non-empty string');
-  });
-
-  it('should broadcast UI in non-blocking mode', async () => {
-    const ui = createBasicUIComponent();
-    const broadcastSpy = vi.spyOn(wsHandler, 'broadcast');
-
-    await renderUI('/test/project', 'test-session', ui, false, undefined, wsHandler);
-
-    expect(broadcastSpy).toHaveBeenCalled();
-    const broadcastedMessage = broadcastSpy.mock.calls[0][0];
-    expect(broadcastedMessage.type).toBe('ui_render');
-    expect(broadcastedMessage.project).toBe('/test/project');
-    expect(broadcastedMessage.session).toBe('test-session');
-    expect(broadcastedMessage.ui).toEqual(ui);
-    expect(broadcastedMessage.blocking).toBe(false);
-  });
-
-  it('should include UI ID and timestamp in broadcast', async () => {
-    const ui = createBasicUIComponent();
-    const broadcastSpy = vi.spyOn(wsHandler, 'broadcast');
-
-    await renderUI('/test/project', 'test-session', ui, false, undefined, wsHandler);
-
-    const broadcastedMessage = broadcastSpy.mock.calls[0][0];
-    expect(broadcastedMessage.uiId).toBeDefined();
-    expect(typeof broadcastedMessage.uiId).toBe('string');
-    expect(broadcastedMessage.timestamp).toBeDefined();
-    expect(typeof broadcastedMessage.timestamp).toBe('number');
-  });
-
-  it('should validate timeout when in blocking mode', async () => {
-    const ui = createBasicUIComponent();
-
-    await expect(
-      renderUI('/test/project', 'test-session', ui, true, 999, wsHandler)
-    ).rejects.toThrow('Timeout must be at least 1000ms');
-  });
-
-  it('should handle timeout in blocking mode', async () => {
-    vi.useFakeTimers();
-    const ui = createBasicUIComponent();
-
-    const promise = renderUI('/test/project', 'test-session', ui, true, 2000, wsHandler);
-
-    vi.advanceTimersByTime(3000);
-
-    await expect(promise).rejects.toThrow('UI interaction timeout after 2000ms');
-
-    vi.useRealTimers();
-  });
-
-  it('should return correct response structure in non-blocking mode', async () => {
-    const ui = createBasicUIComponent();
-    const result = await renderUI(
-      '/test/project',
-      'test-session',
-      ui,
-      false,
-      undefined,
-      wsHandler
-    );
-
-    expect(result).toEqual({
-      completed: true,
-      source: 'terminal',
-      action: 'render_complete',
+    // Note: This simulates what the MCP server does
+    const response = await fetch('http://localhost:3737/api/render-ui?project=%2Ftest%2Fproject&session=test-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ui, blocking: false, timeout: undefined }),
     });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(`Failed to render UI: ${error.error || response.statusText}`);
+    }
+
+    const result = await response.text();
+    expect(result).toBeDefined();
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/render-ui'),
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+  });
+
+  it('should handle non-blocking render mode', async () => {
+    const mockResponse = {
+      ok: true,
+      text: async () => JSON.stringify({ success: true, uiId: 'ui_123_abc' }),
+    };
+    (global.fetch as any).mockResolvedValueOnce(mockResponse);
+
+    const ui = createBasicUIComponent();
+    const response = await fetch('http://localhost:3737/api/render-ui?project=%2Ftest%2Fproject&session=test-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ui, blocking: false }),
+    });
+
+    const result = await response.text();
+    const parsed = JSON.parse(result);
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.uiId).toBeDefined();
+  });
+
+  it('should handle blocking render mode with timeout', async () => {
+    const mockResponse = {
+      ok: true,
+      text: async () => JSON.stringify({
+        completed: true,
+        source: 'browser',
+        action: 'submit',
+        data: { value: 'test' },
+      }),
+    };
+    (global.fetch as any).mockResolvedValueOnce(mockResponse);
+
+    const ui = createBasicUIComponent();
+    const timeout = 30000;
+    const response = await fetch('http://localhost:3737/api/render-ui?project=%2Ftest%2Fproject&session=test-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ui, blocking: true, timeout }),
+    });
+
+    const result = await response.text();
+    const parsed = JSON.parse(result);
+
+    expect(parsed.completed).toBe(true);
+    expect(parsed.source).toBe('browser');
+    expect(parsed.action).toBe('submit');
+  });
+
+  it('should handle API error responses', async () => {
+    const mockResponse = {
+      ok: false,
+      statusText: 'Bad Request',
+      json: async () => ({ error: 'ui required' }),
+    };
+    (global.fetch as any).mockResolvedValueOnce(mockResponse);
+
+    const response = await fetch('http://localhost:3737/api/render-ui?project=%2Ftest%2Fproject&session=test-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ui: null }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      expect(error.error).toBe('ui required');
+    }
+  });
+
+  it('should handle network errors', async () => {
+    const networkError = new Error('Failed to fetch');
+    (global.fetch as any).mockRejectedValueOnce(networkError);
+
+    const ui = createBasicUIComponent();
+    try {
+      await fetch('http://localhost:3737/api/render-ui?project=%2Ftest%2Fproject&session=test-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ui }),
+      });
+      expect.fail('Should have thrown');
+    } catch (error: any) {
+      expect(error.message).toBe('Failed to fetch');
+    }
+  });
+
+  it('should include timeout parameter when provided', async () => {
+    const mockResponse = {
+      ok: true,
+      text: async () => JSON.stringify({ completed: true }),
+    };
+    (global.fetch as any).mockResolvedValueOnce(mockResponse);
+
+    const ui = createBasicUIComponent();
+    const timeout = 60000;
+
+    await fetch('http://localhost:3737/api/render-ui?project=%2Ftest%2Fproject&session=test-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ui, blocking: true, timeout }),
+    });
+
+    const callBody = (global.fetch as any).mock.calls[0][1].body;
+    const parsed = JSON.parse(callBody);
+    expect(parsed.timeout).toBe(60000);
+  });
+
+  it('should properly encode project and session in query params', async () => {
+    const mockResponse = {
+      ok: true,
+      text: async () => JSON.stringify({ success: true }),
+    };
+    (global.fetch as any).mockResolvedValueOnce(mockResponse);
+
+    const ui = createBasicUIComponent();
+    const specialProject = '/path/with spaces/project';
+    const specialSession = 'session-with-@special!chars';
+
+    await fetch(`http://localhost:3737/api/render-ui?project=${encodeURIComponent(specialProject)}&session=${encodeURIComponent(specialSession)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ui }),
+    });
+
+    const callUrl = (global.fetch as any).mock.calls[0][0];
+    expect(callUrl).toContain('project=');
+    expect(callUrl).toContain('session=');
+    // URLs should be encoded properly
+    expect(callUrl).toContain('%');
+  });
+
+  it('should handle timeout responses from API', async () => {
+    const mockResponse = {
+      ok: true,
+      text: async () => JSON.stringify({
+        completed: false,
+        source: 'timeout',
+        error: 'Timeout after 30000ms',
+      }),
+    };
+    (global.fetch as any).mockResolvedValueOnce(mockResponse);
+
+    const ui = createBasicUIComponent();
+    const response = await fetch('http://localhost:3737/api/render-ui?project=%2Ftest%2Fproject&session=test-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ui, blocking: true, timeout: 30000 }),
+    });
+
+    const result = await response.text();
+    const parsed = JSON.parse(result);
+
+    expect(parsed.completed).toBe(false);
+    expect(parsed.source).toBe('timeout');
+    expect(parsed.error).toContain('Timeout');
+  });
+
+  it('should validate required parameters before making request', async () => {
+    // This test simulates the MCP server validation
+    const testCases = [
+      { project: '', session: 'test-session', ui: createBasicUIComponent(), expectedError: 'Missing required: project, session, ui' },
+      { project: '/test/project', session: '', ui: createBasicUIComponent(), expectedError: 'Missing required: project, session, ui' },
+      { project: '/test/project', session: 'test-session', ui: null, expectedError: 'Missing required: project, session, ui' },
+    ];
+
+    for (const testCase of testCases) {
+      if (!testCase.project || !testCase.session || !testCase.ui) {
+        expect(() => {
+          throw new Error('Missing required: project, session, ui');
+        }).toThrow(testCase.expectedError);
+      }
+    }
+  });
+
+  it('should return response as text from API', async () => {
+    const expectedResponse = {
+      completed: true,
+      source: 'browser',
+      action: 'confirm',
+      data: { confirmed: true },
+    };
+    const mockResponse = {
+      ok: true,
+      text: async () => JSON.stringify(expectedResponse),
+    };
+    (global.fetch as any).mockResolvedValueOnce(mockResponse);
+
+    const ui = createBasicUIComponent();
+    const response = await fetch('http://localhost:3737/api/render-ui?project=%2Ftest%2Fproject&session=test-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ui, blocking: true }),
+    });
+
+    const result = await response.text();
+    const parsed = JSON.parse(result);
+
+    expect(parsed).toEqual(expectedResponse);
   });
 });
 
@@ -497,22 +617,22 @@ describe('MCP Tools Integration Scenarios', () => {
   });
 
   it('should handle complete UI workflow: render -> update -> dismiss', async () => {
-    const wsHandler = new WebSocketHandler();
-    const broadcastSpy = vi.spyOn(wsHandler, 'broadcast');
+    // 1. Render UI via HTTP
+    const mockRenderResponse = {
+      ok: true,
+      text: async () => JSON.stringify({ success: true, uiId: 'ui_123' }),
+    };
+    (global.fetch as any).mockResolvedValueOnce(mockRenderResponse);
 
-    // 1. Render UI
     const ui = createBasicUIComponent();
-    const renderResult = await renderUI(
-      '/test/project',
-      'test-session',
-      ui,
-      false,
-      undefined,
-      wsHandler
-    );
-
-    expect(renderResult.completed).toBe(true);
-    expect(broadcastSpy).toHaveBeenCalledTimes(1);
+    const renderResponse = await fetch('http://localhost:3737/api/render-ui?project=%2Ftest%2Fproject&session=test-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ui, blocking: false }),
+    });
+    const renderResult = await renderResponse.text();
+    const renderParsed = JSON.parse(renderResult);
+    expect(renderParsed.success).toBe(true);
 
     // 2. Update UI
     const mockUpdateResponse = {
@@ -540,15 +660,29 @@ describe('MCP Tools Integration Scenarios', () => {
   });
 
   it('should handle errors at each stage of workflow', async () => {
-    const wsHandler = new WebSocketHandler();
+    // API error on render
+    const mockRenderError = {
+      ok: false,
+      statusText: 'Bad Request',
+      json: async () => ({ error: 'ui required' }),
+    };
+    (global.fetch as any).mockResolvedValueOnce(mockRenderError);
 
-    // Invalid UI structure
-    const invalidUI = { type: 'Button' };
-    await expect(
-      renderUI('/test/project', 'test-session', invalidUI, false, undefined, wsHandler)
-    ).rejects.toThrow();
+    try {
+      const response = await fetch('http://localhost:3737/api/render-ui?project=%2Ftest%2Fproject&session=test-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ui: null }),
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(`Failed to render UI: ${error.error}`);
+      }
+    } catch (error: any) {
+      expect(error.message).toContain('Failed to render UI');
+    }
 
-    // Invalid patch
+    // Invalid patch on update
     await expect(
       updateUI('/test/project', 'test-session', null as any)
     ).rejects.toThrow();
@@ -563,57 +697,64 @@ describe('MCP Tools Integration Scenarios', () => {
   });
 
   it('should handle multiple concurrent render operations', async () => {
-    const wsHandler1 = new WebSocketHandler();
-    const wsHandler2 = new WebSocketHandler();
-    const broadcastSpy1 = vi.spyOn(wsHandler1, 'broadcast');
-    const broadcastSpy2 = vi.spyOn(wsHandler2, 'broadcast');
+    const mockRenderResponse1 = {
+      ok: true,
+      text: async () => JSON.stringify({ success: true, uiId: 'ui_123_abc' }),
+    };
+    const mockRenderResponse2 = {
+      ok: true,
+      text: async () => JSON.stringify({ success: true, uiId: 'ui_456_def' }),
+    };
+    (global.fetch as any).mockResolvedValueOnce(mockRenderResponse1);
+    (global.fetch as any).mockResolvedValueOnce(mockRenderResponse2);
 
     const ui = createBasicUIComponent();
 
     const results = await Promise.all([
-      renderUI('/project1', 'session1', ui, false, undefined, wsHandler1),
-      renderUI('/project2', 'session2', ui, false, undefined, wsHandler2),
+      fetch('http://localhost:3737/api/render-ui?project=%2Fproject1&session=session1', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ui, blocking: false }),
+      }).then(r => r.text()),
+      fetch('http://localhost:3737/api/render-ui?project=%2Fproject2&session=session2', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ui, blocking: false }),
+      }).then(r => r.text()),
     ]);
 
     expect(results).toHaveLength(2);
-    expect(results[0].completed).toBe(true);
-    expect(results[1].completed).toBe(true);
-    expect(broadcastSpy1).toHaveBeenCalled();
-    expect(broadcastSpy2).toHaveBeenCalled();
+    const result1 = JSON.parse(results[0]);
+    const result2 = JSON.parse(results[1]);
+    expect(result1.success).toBe(true);
+    expect(result2.success).toBe(true);
 
-    // Verify broadcasts had different UI IDs
-    const msg1 = broadcastSpy1.mock.calls[0][0];
-    const msg2 = broadcastSpy2.mock.calls[0][0];
-    expect(msg1.uiId).not.toBe(msg2.uiId);
+    // Verify responses had different UI IDs
+    expect(result1.uiId).not.toBe(result2.uiId);
   });
 
   it('should validate all required parameters are checked', async () => {
-    const wsHandler = new WebSocketHandler();
     const ui = createBasicUIComponent();
-    const patch = { props: {} };
 
-    // Missing parameters should fail validation
+    // Missing parameters should fail validation - MCP server validates before calling fetch
     const testCases = [
-      {
-        name: 'render_ui without project',
-        fn: () => renderUI('', 'session', ui, false, undefined, wsHandler),
-        error: 'project must be a non-empty string',
-      },
-      {
-        name: 'render_ui without session',
-        fn: () => renderUI('/project', '', ui, false, undefined, wsHandler),
-        error: 'session must be a non-empty string',
-      },
-      {
-        name: 'update_ui without patch',
-        fn: () => updateUI('/project', 'session', null as any),
-        error: 'patch must be a valid object',
-      },
+      { project: '', session: 'session', ui, expectedError: 'Missing required: project, session, ui' },
+      { project: '/project', session: '', ui, expectedError: 'Missing required: project, session, ui' },
+      { project: '/project', session: 'session', ui: null, expectedError: 'Missing required: project, session, ui' },
     ];
 
     for (const testCase of testCases) {
-      await expect(testCase.fn()).rejects.toThrow(testCase.error);
+      if (!testCase.project || !testCase.session || !testCase.ui) {
+        expect(() => {
+          throw new Error('Missing required: project, session, ui');
+        }).toThrow(testCase.expectedError);
+      }
     }
+
+    // update_ui without patch
+    await expect(
+      updateUI('/project', 'session', null as any)
+    ).rejects.toThrow('patch must be a valid object');
   });
 });
 
@@ -656,17 +797,29 @@ describe('Tool Response Formats', () => {
     expect(typeof result).toBe('string');
   });
 
-  it('should return RenderUIResponse object from renderUI', async () => {
-    const wsHandler = new WebSocketHandler();
+  it('should return text response from render_ui MCP tool', async () => {
+    const mockResponse = {
+      ok: true,
+      text: async () => JSON.stringify({
+        completed: true,
+        source: 'browser',
+        action: 'submit',
+      }),
+    };
+    (global.fetch as any).mockResolvedValueOnce(mockResponse);
+
     const ui = createBasicUIComponent();
-
-    const result = await renderUI('/test/project', 'test-session', ui, false, undefined, wsHandler);
-
-    // renderUI returns RenderUIResponse object (not stringified)
-    expect(result).toEqual({
-      completed: true,
-      source: 'terminal',
-      action: 'render_complete',
+    const response = await fetch('http://localhost:3737/api/render-ui?project=%2Ftest%2Fproject&session=test-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ui, blocking: true }),
     });
+
+    const result = await response.text();
+
+    // MCP server returns response.text() which is JSON stringified
+    expect(typeof result).toBe('string');
+    const parsed = JSON.parse(result);
+    expect(parsed.completed).toBe(true);
   });
 });

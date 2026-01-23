@@ -1,0 +1,29 @@
+graph TB
+    subgraph "Project Root"
+        A[bin/] --> A1[Server entry point]
+        B[src/] --> B1[Core server code]
+        C[public/] --> C1[Web UI files]
+        D[plugins/wireframe/] --> D1[Wireframe plugin source]
+        E[skills/] --> E1[22 skill folders]
+    end
+    
+    subgraph "Potentially Stale"
+        F[docs/designs/] --> F1[9 old design sessions]
+        G[docs/plans/] --> G1[Old implementation plans]
+        H[diagrams/] --> H1[Old test diagrams from other projects]
+        I[documents/] --> I1[Old test documents]
+    end
+    
+    subgraph "Session Data"
+        J[.collab/] --> J1[fresh-brave-bay, kind-quick-island]
+    end
+    
+    subgraph "Hidden/Config"
+        K[.claude/] --> K1[Only .DS_Store]
+        L[.claude-plugin/] --> L1[Plugin config]
+    end
+    
+    style F fill:#ffcccc
+    style G fill:#ffffcc
+    style H fill:#ffcccc
+    style I fill:#ffcccc

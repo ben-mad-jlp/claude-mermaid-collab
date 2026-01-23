@@ -1,0 +1,20 @@
+flowchart TB
+    subgraph Header["Header.tsx"]
+        RT[Raw Toggle Button]
+        RT -->|toggles| RV[rawVisible state]
+    end
+
+    subgraph UI["UnifiedEditor.tsx"]
+        RV -->|true| SP[Split Pane: Editor + Preview]
+        RV -->|false| PO[Preview Only]
+    end
+
+    subgraph OldEditor["DiagramEditor.tsx (legacy)"]
+        HE[Header with Save/Discard]
+        VA[Validation Status Bar]
+        KB[Keyboard Shortcuts]
+        KH[Keyboard Hints Footer]
+    end
+
+    style OldEditor fill:#ffcccc
+    note["❌ Old features not in UnifiedEditor"]

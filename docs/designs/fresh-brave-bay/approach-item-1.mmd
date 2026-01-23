@@ -1,0 +1,31 @@
+flowchart TD
+    subgraph "New Type System"
+        GS[gather-session-goals] --> |infer type| Types{3 Types}
+        Types --> code
+        Types --> bugfix
+        Types --> task
+    end
+
+    subgraph "Work Item Loop Routing"
+        code --> brainstorming
+        bugfix --> systematic-debugging
+        task --> brainstorming
+    end
+
+    subgraph "Planning Phase"
+        brainstorming --> |code| rough-draft
+        brainstorming --> |task| task-planning[task-planning NEW]
+        systematic-debugging --> rough-draft
+    end
+
+    subgraph "Implementation"
+        rough-draft --> exec1[executing-plans]
+        task-planning --> exec2[executing-plans]
+        exec1 --> TDD[with TDD]
+        exec2 --> noTDD[without TDD]
+    end
+
+    style code fill:#ccffcc
+    style bugfix fill:#ffcccc
+    style task fill:#cce5ff
+    style task-planning fill:#fff2cc

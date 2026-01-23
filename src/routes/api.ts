@@ -7,6 +7,7 @@ import { WebSocketHandler } from '../websocket/handler';
 import { transpile, isSmachYaml } from '../services/smach-transpiler';
 import { sessionRegistry, type Session } from '../services/session-registry';
 import { questionManager } from '../services/question-manager';
+import { uiManager } from '../services/ui-manager';
 import { join } from 'path';
 
 /**
@@ -674,6 +675,106 @@ export async function handleAPI(
         project: params.project,
         session: params.session,
       });
+
+      return Response.json({ success: true });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // POST /api/render-ui?project=...&session=... - Render UI to browser
+  if (path === '/api/render-ui' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    try {
+      const { ui, blocking, timeout } = await req.json() as { ui?: any; blocking?: boolean; timeout?: number };
+
+      if (!ui) {
+        return Response.json({ error: 'ui required' }, { status: 400 });
+      }
+
+      // Generate uiId
+      const timestamp = Date.now();
+      const random = Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0');
+      const uiId = `ui_${timestamp}_${random}`;
+
+      // Build WebSocket message
+      const message = {
+        type: 'ui_render',
+        uiId,
+        project: params.project,
+        session: params.session,
+        ui,
+        blocking: blocking ?? true,
+        timestamp: Date.now(),
+      };
+
+      // Broadcast to browsers
+      wsHandler.broadcast(message);
+
+      // If non-blocking mode, return immediately
+      if (blocking === false) {
+        return Response.json({ success: true, uiId });
+      }
+
+      // If blocking mode (default), await response via uiManager
+      try {
+        const response = await uiManager.renderUI({
+          project: params.project,
+          session: params.session,
+          ui,
+          blocking: blocking ?? true,
+          timeout,
+        });
+        return Response.json(response);
+      } catch (error: any) {
+        if (error.message.includes('Timeout')) {
+          return Response.json({
+            completed: false,
+            source: 'timeout',
+            error: error.message,
+          }, { status: 200 });
+        }
+        throw error;
+      }
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // POST /api/ui-response?project=...&session=... - Receive UI response from browser
+  if (path === '/api/ui-response' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    try {
+      const { uiId, action, data, source } = await req.json() as { uiId?: string; action?: string; data?: Record<string, any>; source?: string };
+
+      if (!uiId) {
+        return Response.json({ error: 'uiId required' }, { status: 400 });
+      }
+
+      // Build session key
+      const sessionKey = `${params.project}:${params.session}`;
+
+      // Forward to uiManager
+      const success = uiManager.receiveResponse(sessionKey, uiId, {
+        action,
+        data,
+        source: (source || 'browser') as 'browser' | 'terminal' | 'timeout',
+      });
+
+      if (!success) {
+        return Response.json(
+          { error: 'No pending UI or uiId mismatch' },
+          { status: 404 }
+        );
+      }
 
       return Response.json({ success: true });
     } catch (error: any) {

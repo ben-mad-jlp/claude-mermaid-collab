@@ -1,0 +1,51 @@
+graph TD
+    subgraph "Item 1: Task Type"
+        task-planning[task-planning-skill]
+        gather-goals[gather-goals-types]
+        collab-routing[collab-routing]
+        brainstorm-cleanup[brainstorming-cleanup]
+        exec-tdd[executing-plans-tdd-skip]
+    end
+
+    subgraph "Item 2: Collab Compact"
+        pre-compact[pre-compact-script]
+        hooks-json[hooks-json-update]
+        brain-snap[brainstorming-snapshots]
+        debug-snap[debugging-snapshots]
+        exec-snap[executing-snapshots]
+    end
+
+    subgraph "Item 3: Document Session"
+        doc-html[document-html-session]
+    end
+
+    subgraph "Item 4: Session Panel"
+        panel-css[session-panel-css]
+        panel-js[session-panel-js]
+    end
+
+    %% Dependencies
+    task-planning --> collab-routing
+    task-planning --> exec-tdd
+    pre-compact --> hooks-json
+    exec-tdd --> exec-snap
+    panel-css --> panel-js
+
+    %% Styling - Green = parallel-safe (Batch 1)
+    style task-planning fill:#c8e6c9
+    style gather-goals fill:#c8e6c9
+    style brainstorm-cleanup fill:#c8e6c9
+    style pre-compact fill:#c8e6c9
+    style brain-snap fill:#c8e6c9
+    style debug-snap fill:#c8e6c9
+    style doc-html fill:#c8e6c9
+    style panel-css fill:#c8e6c9
+
+    %% Blue = Batch 2
+    style collab-routing fill:#bbdefb
+    style exec-tdd fill:#bbdefb
+    style hooks-json fill:#bbdefb
+    style panel-js fill:#bbdefb
+
+    %% Orange = Batch 3
+    style exec-snap fill:#ffe0b2
