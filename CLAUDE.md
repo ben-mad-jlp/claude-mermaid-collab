@@ -12,9 +12,9 @@ npm version major   # 5.19.0 → 6.0.0 (breaking changes)
 
 This automatically:
 1. Updates `package.json`
-2. Syncs version to `.claude-plugin/plugin.json` (via postversion hook)
-3. Syncs version to `.claude-plugin/marketplace.json` (via postversion hook)
-4. Syncs version to `src/mcp/server.ts` SERVER_VERSION const (via postversion hook)
+2. Syncs version to `.claude-plugin/plugin.json` (via version hook)
+3. Syncs version to `.claude-plugin/marketplace.json` (via version hook)
+4. Syncs version to `src/mcp/server.ts` SERVER_VERSION const (via version hook)
 5. Creates a git commit and tag
 
 After running `npm version`, push with:
