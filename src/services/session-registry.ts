@@ -80,8 +80,9 @@ export class SessionRegistry {
   /**
    * Register a session. Idempotent - updates lastAccess if already exists.
    * Also ensures the session directories exist.
+   * Returns { created: true } if a new session was created, { created: false } if already existed.
    */
-  async register(project: string, session: string): Promise<void> {
+  async register(project: string, session: string): Promise<{ created: boolean }> {
     // Validate inputs
     if (!project || !project.startsWith('/')) {
       throw new Error('Invalid project path: must be an absolute path');
@@ -98,12 +99,14 @@ export class SessionRegistry {
       s => s.project === project && s.session === session
     );
 
+    let created = false;
     if (existingIndex >= 0) {
       // Update lastAccess
       registry.sessions[existingIndex].lastAccess = now;
     } else {
       // Add new session
       registry.sessions.push({ project, session, lastAccess: now });
+      created = true;
     }
 
     await this.save(registry);
@@ -125,6 +128,8 @@ export class SessionRegistry {
     const designDocPath = join(sessionPath, 'documents', 'design.md');
     const designDocContent = INITIAL_DESIGN_TEMPLATE(session);
     await this.createFileIfNotExists(designDocPath, designDocContent);
+
+    return { created };
   }
 
   /**

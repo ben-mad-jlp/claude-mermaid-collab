@@ -1,6 +1,7 @@
 ---
 name: requesting-code-review
 description: Use when completing tasks, implementing major features, or before merging to verify work meets requirements
+allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Glob, Grep
 ---
 
 # Requesting Code Review

@@ -1,6 +1,7 @@
 ---
 name: dispatching-parallel-agents
 description: Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies
+allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Glob, Grep, Task
 ---
 
 # Dispatching Parallel Agents

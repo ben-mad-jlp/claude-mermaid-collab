@@ -1,6 +1,7 @@
 ---
 name: using-gui-wireframes
 description: Use when creating or editing UI mockups, screen layouts, or interface designs. Use INSTEAD of ASCII art for any visual UI representation.
+allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read
 ---
 
 # Using GUI Wireframes

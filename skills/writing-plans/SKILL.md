@@ -1,6 +1,7 @@
 ---
 name: writing-plans
 description: Use when you have a spec or requirements for a multi-step task, before touching code
+allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Glob, Grep
 ---
 
 # Writing Plans

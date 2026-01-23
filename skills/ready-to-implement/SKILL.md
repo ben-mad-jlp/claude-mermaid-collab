@@ -1,6 +1,7 @@
 ---
 name: ready-to-implement
 description: Validate design completion and transition to implementation phase
+allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Glob, Grep
 user-invocable: false
 ---
 

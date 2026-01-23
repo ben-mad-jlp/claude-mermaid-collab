@@ -290,6 +290,39 @@ const App: React.FC = () => {
           break;
         }
 
+        case 'ui_render': {
+          // Item 3: Handle UI render messages for interactive UI overlays
+          const { uiId, project, session, ui, blocking, timestamp } = message as any;
+
+          // Only process if message matches current session
+          if (currentSession &&
+              project === currentSession.project &&
+              session === currentSession.name) {
+            useChatStore.getState().addMessage({
+              id: uiId,
+              type: 'ui_render',
+              ui,
+              blocking: blocking ?? true,
+              timestamp: timestamp || Date.now(),
+              responded: false,
+            });
+          }
+          break;
+        }
+
+        case 'session_created': {
+          // Item 2: Handle session creation and auto-select new session
+          const { project, session } = message as any;
+          loadSessions().then(() => {
+            const freshSessions = useSessionStore.getState().sessions;
+            const newSession = freshSessions.find(s => s.project === project && s.name === session);
+            if (newSession) {
+              setCurrentSession(newSession);
+            }
+          });
+          break;
+        }
+
         default:
           // Unknown message type - log for debugging
           console.debug('Unknown WebSocket message type:', message.type);

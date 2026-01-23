@@ -1,6 +1,7 @@
 ---
 name: collab-compact
 description: Save context and trigger compaction for clean resume
+allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read
 user-invocable: true
 ---
 

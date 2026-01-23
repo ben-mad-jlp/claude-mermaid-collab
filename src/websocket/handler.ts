@@ -26,6 +26,7 @@ export type WSMessage =
   | { type: 'ui_render'; uiId: string; project: string; session: string; ui: any; blocking: boolean; timestamp: number }
   | { type: 'ui_dismissed'; project: string; session: string }
   | { type: 'ui_updated'; patch: Record<string, unknown>; project: string; session: string }
+  | { type: 'session_created'; project: string; session: string }
   | { type: 'notification'; data: NotificationData };
 
 export class WebSocketHandler {

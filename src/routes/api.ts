@@ -128,7 +128,10 @@ export async function handleAPI(
         return Response.json({ error: 'project and session required' }, { status: 400 });
       }
 
-      await sessionRegistry.register(project, session);
+      const result = await sessionRegistry.register(project, session);
+      if (result.created) {
+        wsHandler.broadcast({ type: 'session_created', project, session });
+      }
       return Response.json({ success: true, project, session });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
@@ -215,7 +218,10 @@ export async function handleAPI(
 
     try {
       // Register session if not already registered
-      await sessionRegistry.register(params.project, params.session);
+      const result = await sessionRegistry.register(params.project, params.session);
+      if (result.created) {
+        wsHandler.broadcast({ type: 'session_created', project: params.project, session: params.session });
+      }
 
       const { diagramManager } = await createManagers(params.project, params.session);
       const id = await diagramManager.createDiagram(name, content);
@@ -457,7 +463,10 @@ export async function handleAPI(
 
     try {
       // Register session if not already registered
-      await sessionRegistry.register(params.project, params.session);
+      const result = await sessionRegistry.register(params.project, params.session);
+      if (result.created) {
+        wsHandler.broadcast({ type: 'session_created', project: params.project, session: params.session });
+      }
 
       const { documentManager } = await createManagers(params.project, params.session);
       const id = await documentManager.createDocument(name, content);
