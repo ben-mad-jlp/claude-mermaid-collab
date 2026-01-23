@@ -1,5 +1,16 @@
 import type { ServerWebSocket } from 'bun';
 
+export type NotificationType = 'info' | 'success' | 'warning' | 'error';
+
+export interface NotificationData {
+  id: string;
+  type: NotificationType;
+  title: string;
+  message?: string;
+  duration: number;
+  timestamp: number;
+}
+
 export type WSMessage =
   | { type: 'connected'; diagramCount: number }
   | { type: 'diagram_updated'; id: string; content: string; lastModified: number; patch?: { oldString: string; newString: string } }
@@ -12,8 +23,10 @@ export type WSMessage =
   | { type: 'subscribe'; id: string }
   | { type: 'unsubscribe'; id: string }
   | { type: 'question_responded'; questionId: string; response: string; project: string; session: string }
+  | { type: 'ui_render'; uiId: string; project: string; session: string; ui: any; blocking: boolean; timestamp: number }
   | { type: 'ui_dismissed'; project: string; session: string }
-  | { type: 'ui_updated'; patch: Record<string, unknown>; project: string; session: string };
+  | { type: 'ui_updated'; patch: Record<string, unknown>; project: string; session: string }
+  | { type: 'notification'; data: NotificationData };
 
 export class WebSocketHandler {
   private connections: Set<ServerWebSocket<{ subscriptions: Set<string> }>> = new Set();
@@ -43,26 +56,88 @@ export class WebSocketHandler {
 
   broadcast(message: WSMessage): void {
     const json = JSON.stringify(message);
+    const deadConnections: ServerWebSocket<{ subscriptions: Set<string> }>[] = [];
+
     for (const ws of this.connections) {
-      ws.send(json);
+      try {
+        ws.send(json);
+      } catch (error) {
+        // Track dead connections to clean up
+        deadConnections.push(ws);
+        console.error('Failed to send WebSocket message:', error);
+      }
+    }
+
+    // Clean up disconnected clients to prevent memory leaks
+    for (const ws of deadConnections) {
+      this.connections.delete(ws);
     }
   }
 
   broadcastToDiagram(id: string, message: WSMessage): void {
     const json = JSON.stringify(message);
+    const deadConnections: ServerWebSocket<{ subscriptions: Set<string> }>[] = [];
+
     for (const ws of this.connections) {
       if (ws.data.subscriptions.has(id)) {
-        ws.send(json);
+        try {
+          ws.send(json);
+        } catch (error) {
+          deadConnections.push(ws);
+          console.error('Failed to send diagram message:', error);
+        }
       }
+    }
+
+    // Clean up disconnected clients
+    for (const ws of deadConnections) {
+      this.connections.delete(ws);
     }
   }
 
   broadcastToDocument(id: string, message: WSMessage): void {
     const json = JSON.stringify(message);
+    const deadConnections: ServerWebSocket<{ subscriptions: Set<string> }>[] = [];
+
     for (const ws of this.connections) {
       if (ws.data.subscriptions.has(id)) {
-        ws.send(json);
+        try {
+          ws.send(json);
+        } catch (error) {
+          deadConnections.push(ws);
+          console.error('Failed to send document message:', error);
+        }
       }
+    }
+
+    // Clean up disconnected clients
+    for (const ws of deadConnections) {
+      this.connections.delete(ws);
+    }
+  }
+
+  broadcastNotification(notificationData: NotificationData): void {
+    const message: WSMessage = {
+      type: 'notification',
+      data: notificationData,
+    };
+
+    const json = JSON.stringify(message);
+    const deadConnections: ServerWebSocket<{ subscriptions: Set<string> }>[] = [];
+
+    for (const ws of this.connections) {
+      try {
+        ws.send(json);
+      } catch (error) {
+        // Track dead connections to clean up
+        deadConnections.push(ws);
+        console.error('Failed to send notification message:', error);
+      }
+    }
+
+    // Clean up disconnected clients to prevent memory leaks
+    for (const ws of deadConnections) {
+      this.connections.delete(ws);
     }
   }
 
