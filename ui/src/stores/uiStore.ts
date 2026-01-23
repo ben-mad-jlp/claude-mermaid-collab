@@ -18,10 +18,10 @@ export interface UIState {
   setSessionPanelVisible: (visible: boolean) => void;
   toggleSessionPanel: () => void;
 
-  // Raw panel visibility
-  rawVisible: boolean;
-  setRawVisible: (visible: boolean) => void;
-  toggleRaw: () => void;
+  // Edit mode visibility
+  editMode: boolean;
+  setEditMode: (mode: boolean) => void;
+  toggleEditMode: () => void;
 
   // Split pane positions (stored as percentages)
   sidebarSplitPosition: number;
@@ -91,12 +91,12 @@ export const useUIStore = create<UIState>()(
         set({ sessionPanelVisible: !current });
       },
 
-      // Raw panel visibility
-      rawVisible: true,
-      setRawVisible: (visible: boolean) => set({ rawVisible: visible }),
-      toggleRaw: () => {
-        const current = get().rawVisible;
-        set({ rawVisible: !current });
+      // Edit mode visibility
+      editMode: true,
+      setEditMode: (mode: boolean) => set({ editMode: mode }),
+      toggleEditMode: () => {
+        const current = get().editMode;
+        set({ editMode: !current });
       },
 
       // Split pane positions
@@ -146,7 +146,7 @@ export const useUIStore = create<UIState>()(
           theme: getDefaultTheme(),
           sidebarVisible: true,
           sessionPanelVisible: true,
-          rawVisible: true,
+          editMode: true,
           sidebarSplitPosition: DEFAULT_SIDEBAR_POSITION,
           sessionPanelSplitPosition: DEFAULT_SESSION_PANEL_POSITION,
           editorSplitPosition: DEFAULT_EDITOR_SPLIT_POSITION,

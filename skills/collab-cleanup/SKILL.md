@@ -51,6 +51,7 @@ What would you like to do with the design artifacts?
 1. Archive - Copy to docs/designs/[session-name]/
 2. Delete - Remove without saving
 3. Keep - Leave session in place, exit without cleanup
+4. Archive & Continue - Archive with timestamp, reset session for new work
 ```
 
 ### Step 4: Execute Choice
@@ -75,6 +76,24 @@ What would you like to do with the design artifacts?
 1. Exit without changes
 2. Remind user: "Session kept open. Run `/collab-cleanup` when ready to close."
 
+**If Archive & Continue:**
+1. Generate timestamp: `[session-name]-[YYYY-MM-DD-HHmmss]`
+2. Create archive directory: `docs/designs/[session-name]-[timestamp]/`
+3. Copy `.collab/[session]/documents/*` to archive directory
+4. Copy `.collab/[session]/diagrams/*` to archive directory
+5. Clear Work Items section in `.collab/[session]/documents/design.md`:
+   - Keep "## Session Context" and its content intact
+   - Replace "## Work Items" section with empty placeholder
+6. Reset `.collab/[session]/collab-state.json` to:
+   ```json
+   {
+     "phase": "brainstorming",
+     "currentItem": null
+   }
+   ```
+7. Report: "Session `[name]` archived to `docs/designs/[name]-[timestamp]/`. Session reset for new work."
+8. Loop back to `gather-session-goals` skill to start work on new items
+
 ### Step 5: Confirm
 
 Display completion message:
@@ -82,6 +101,7 @@ Display completion message:
 - Archive: "Session `[name]` archived to `docs/designs/[name]/`"
 - Delete: "Session `[name]` deleted."
 - Keep: "Session `[name]` kept open."
+- Archive & Continue: "Session `[name]` archived to `docs/designs/[name]-[timestamp]/`. Ready for new work items."
 
 ## Integration
 

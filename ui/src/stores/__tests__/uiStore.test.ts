@@ -122,6 +122,40 @@ describe('useUIStore', () => {
     });
   });
 
+  describe('Edit Mode', () => {
+    it('should initialize with edit mode enabled', () => {
+      const state = useUIStore.getState();
+      expect(state.editMode).toBe(true);
+    });
+
+    it('should disable edit mode', () => {
+      useUIStore.getState().setEditMode(false);
+      expect(useUIStore.getState().editMode).toBe(false);
+    });
+
+    it('should enable edit mode', () => {
+      useUIStore.getState().setEditMode(false);
+      useUIStore.getState().setEditMode(true);
+      expect(useUIStore.getState().editMode).toBe(true);
+    });
+
+    it('should toggle edit mode', () => {
+      const initial = useUIStore.getState().editMode;
+      useUIStore.getState().toggleEditMode();
+      expect(useUIStore.getState().editMode).toBe(!initial);
+      useUIStore.getState().toggleEditMode();
+      expect(useUIStore.getState().editMode).toBe(initial);
+    });
+
+    it('should persist edit mode to localStorage', () => {
+      useUIStore.getState().setEditMode(false);
+      const stored = localStorage.getItem('ui-preferences');
+      expect(stored).toBeDefined();
+      const data = JSON.parse(stored!);
+      expect(data.state.editMode).toBe(false);
+    });
+  });
+
   describe('Sidebar Split Position', () => {
     it('should initialize with default position of 20', () => {
       const state = useUIStore.getState();
@@ -202,6 +236,7 @@ describe('useUIStore', () => {
       useUIStore.getState().setTheme('dark');
       useUIStore.getState().setSidebarVisible(false);
       useUIStore.getState().setSessionPanelVisible(false);
+      useUIStore.getState().setEditMode(false);
       useUIStore.getState().setSidebarSplitPosition(35);
       useUIStore.getState().setSessionPanelSplitPosition(30);
 
@@ -210,6 +245,7 @@ describe('useUIStore', () => {
       expect(state.theme).toBe('dark');
       expect(state.sidebarVisible).toBe(false);
       expect(state.sessionPanelVisible).toBe(false);
+      expect(state.editMode).toBe(false);
       expect(state.sidebarSplitPosition).toBe(35);
       expect(state.sessionPanelSplitPosition).toBe(30);
 
@@ -221,12 +257,14 @@ describe('useUIStore', () => {
       expect(['light', 'dark']).toContain(resetState.theme);
       expect(resetState.sidebarVisible).toBe(true);
       expect(resetState.sessionPanelVisible).toBe(true);
+      expect(resetState.editMode).toBe(true);
       expect(resetState.sidebarSplitPosition).toBe(20);
       expect(resetState.sessionPanelSplitPosition).toBe(20);
     });
 
     it('should persist reset state to localStorage', () => {
       useUIStore.getState().setTheme('dark');
+      useUIStore.getState().setEditMode(false);
       useUIStore.getState().reset();
 
       const stored = localStorage.getItem('ui-preferences');
@@ -234,6 +272,7 @@ describe('useUIStore', () => {
       const data = JSON.parse(stored!);
       expect(data.state.sidebarVisible).toBe(true);
       expect(data.state.sessionPanelVisible).toBe(true);
+      expect(data.state.editMode).toBe(true);
     });
   });
 
@@ -284,10 +323,11 @@ describe('useUIStore', () => {
     });
 
     it('should expose setState through individual setters', () => {
-      const { setTheme, setSidebarVisible, setSessionPanelVisible } = useUIStore.getState();
+      const { setTheme, setSidebarVisible, setSessionPanelVisible, setEditMode } = useUIStore.getState();
       expect(typeof setTheme).toBe('function');
       expect(typeof setSidebarVisible).toBe('function');
       expect(typeof setSessionPanelVisible).toBe('function');
+      expect(typeof setEditMode).toBe('function');
     });
 
     it('should have all required properties in state', () => {
@@ -295,6 +335,7 @@ describe('useUIStore', () => {
       expect(state).toHaveProperty('theme');
       expect(state).toHaveProperty('sidebarVisible');
       expect(state).toHaveProperty('sessionPanelVisible');
+      expect(state).toHaveProperty('editMode');
       expect(state).toHaveProperty('sidebarSplitPosition');
       expect(state).toHaveProperty('sessionPanelSplitPosition');
     });
@@ -307,6 +348,8 @@ describe('useUIStore', () => {
       expect(typeof state.toggleSidebar).toBe('function');
       expect(typeof state.setSessionPanelVisible).toBe('function');
       expect(typeof state.toggleSessionPanel).toBe('function');
+      expect(typeof state.setEditMode).toBe('function');
+      expect(typeof state.toggleEditMode).toBe('function');
       expect(typeof state.setSidebarSplitPosition).toBe('function');
       expect(typeof state.setSessionPanelSplitPosition).toBe('function');
       expect(typeof state.reset).toBe('function');

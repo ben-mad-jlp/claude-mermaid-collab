@@ -35,8 +35,8 @@ import { formatMermaid, canFormat } from '@/lib/mermaidFormatter';
 export interface UnifiedEditorProps {
   /** The item to edit (diagram or document), or null if none selected */
   item: Item | null;
-  /** Whether to show the raw editor (split view) or preview only */
-  rawVisible: boolean;
+  /** Whether to show the editor (split view) or preview only */
+  editMode: boolean;
   /** Callback when content changes in the editor */
   onContentChange: (content: string) => void;
   /** Current zoom level (percentage) */
@@ -52,15 +52,15 @@ export interface UnifiedEditorProps {
  *
  * Combines diagram and document editing into a single component that:
  * - Shows a placeholder when no item is selected
- * - Renders CodeMirror + preview in split pane when rawVisible is true
- * - Renders full-width preview when rawVisible is false
+ * - Renders CodeMirror + preview in split pane when editMode is true
+ * - Renders full-width preview when editMode is false
  * - Automatically selects MermaidPreview or MarkdownPreview based on item type
  *
  * @example
  * ```tsx
  * function EditorPanel() {
  *   const [item, setItem] = useState<Item | null>(null);
- *   const { rawVisible } = useUIStore();
+ *   const { editMode } = useUIStore();
  *
  *   const handleContentChange = (content: string) => {
  *     if (item) {
@@ -71,7 +71,7 @@ export interface UnifiedEditorProps {
  *   return (
  *     <UnifiedEditor
  *       item={item}
- *       rawVisible={rawVisible}
+ *       editMode={editMode}
  *       onContentChange={handleContentChange}
  *     />
  *   );
@@ -80,7 +80,7 @@ export interface UnifiedEditorProps {
  */
 export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
   item,
-  rawVisible,
+  editMode,
   onContentChange,
   zoomLevel = 100,
   onZoomIn,
@@ -153,7 +153,7 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
 
   /**
    * Renders the appropriate preview component based on item type
-   * Uses key={item.id} to maintain instance across rawVisible toggles
+   * Uses key={item.id} to maintain instance across editMode toggles
    * For diagrams, wires the SVG container ref callback for export functionality
    */
   const previewComponent = item.type === 'diagram' ? (
@@ -174,8 +174,8 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
     />
   );
 
-  // Preview-only mode (rawVisible is false)
-  if (!rawVisible) {
+  // Preview-only mode (editMode is false)
+  if (!editMode) {
     return (
       <div
         className="flex flex-col h-full min-h-0 bg-white dark:bg-gray-900 overflow-hidden p-4"

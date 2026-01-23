@@ -31,6 +31,22 @@
   @apply dark:invert;
 }
 
+/* Diff highlighting for document patches */
+.diff-added {
+  background-color: #d4edda;
+  color: #155724;
+  padding: 2px 4px;
+  border-radius: 2px;
+}
+
+.diff-removed {
+  background-color: #f8d7da;
+  color: #721c24;
+  text-decoration: line-through;
+  padding: 2px 4px;
+  border-radius: 2px;
+}
+
 /* Smooth scrolling and full height */
 html {
   height: 100%;

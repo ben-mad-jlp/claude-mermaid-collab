@@ -21,6 +21,10 @@ export interface HeaderProps {
   sessions?: Session[];
   /** Callback when a session is selected */
   onSessionSelect?: (session: Session) => void;
+  /** WebSocket connection status */
+  isConnected?: boolean;
+  /** Whether WebSocket is connecting */
+  isConnecting?: boolean;
   /** Optional custom class name */
   className?: string;
 }
@@ -31,14 +35,16 @@ export interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   sessions = [],
   onSessionSelect,
+  isConnected = false,
+  isConnecting = false,
   className = '',
 }) => {
   const { theme, toggleTheme } = useTheme();
   const { currentSession } = useSession();
-  const { rawVisible, toggleRaw } = useUIStore(
+  const { editMode, toggleEditMode } = useUIStore(
     useShallow((state) => ({
-      rawVisible: state.rawVisible,
-      toggleRaw: state.toggleRaw,
+      editMode: state.editMode,
+      toggleEditMode: state.toggleEditMode,
     }))
   );
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -88,9 +94,15 @@ export const Header: React.FC<HeaderProps> = ({
     toggleTheme();
   }, [toggleTheme]);
 
-  const handleRawToggle = useCallback(() => {
-    toggleRaw();
-  }, [toggleRaw]);
+  const handleEditModeToggle = useCallback(() => {
+    toggleEditMode();
+  }, [toggleEditMode]);
+
+  // Format session display as "project / session"
+  const formatSessionDisplay = (session: Session) => {
+    const projectName = session.project?.split('/').pop() || 'unknown';
+    return `${projectName} / ${session.name}`;
+  };
 
   return (
     <header
@@ -122,6 +134,40 @@ export const Header: React.FC<HeaderProps> = ({
           <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
             Mermaid Collab
           </h1>
+
+          {/* Connection Status Badge */}
+          <div
+            data-testid="connection-badge"
+            className={`
+              flex items-center gap-1.5
+              px-2 py-1
+              text-xs font-medium
+              rounded-full
+              ${
+                isConnected
+                  ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300'
+                  : isConnecting
+                  ? 'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300'
+                  : 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300'
+              }
+            `}
+          >
+            <span
+              className={`
+                w-2 h-2 rounded-full
+                ${
+                  isConnected
+                    ? 'bg-green-500'
+                    : isConnecting
+                    ? 'bg-yellow-500 animate-pulse'
+                    : 'bg-red-500'
+                }
+              `}
+            />
+            <span>
+              {isConnected ? 'Connected' : isConnecting ? 'Connecting' : 'Disconnected'}
+            </span>
+          </div>
         </div>
 
         {/* Right-side controls */}
@@ -145,8 +191,8 @@ export const Header: React.FC<HeaderProps> = ({
                   transition-colors
                 "
               >
-                <span className="max-w-32 truncate">
-                  {currentSession?.name || 'Select Session'}
+                <span className="max-w-48 truncate">
+                  {currentSession ? formatSessionDisplay(currentSession) : 'Select Session'}
                 </span>
                 <svg
                   className={`w-4 h-4 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`}
@@ -168,7 +214,7 @@ export const Header: React.FC<HeaderProps> = ({
                   data-testid="session-dropdown"
                   role="listbox"
                   className="
-                    absolute right-0 mt-2 w-64
+                    absolute right-0 mt-2 w-80
                     bg-white dark:bg-gray-800
                     border border-gray-200 dark:border-gray-700
                     rounded-lg shadow-lg
@@ -200,7 +246,7 @@ export const Header: React.FC<HeaderProps> = ({
                               }
                             `}
                           >
-                            <div className="font-medium truncate">{session.name}</div>
+                            <div className="font-medium truncate">{formatSessionDisplay(session)}</div>
                             {session.phase && (
                               <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                                 Phase: {session.phase}
@@ -216,12 +262,12 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           )}
 
-          {/* Raw Toggle */}
+          {/* Edit Mode Toggle */}
           <button
-            data-testid="raw-toggle"
-            onClick={handleRawToggle}
-            aria-label={`${rawVisible ? 'Hide' : 'Show'} raw view`}
-            aria-pressed={rawVisible}
+            data-testid="edit-mode-toggle"
+            onClick={handleEditModeToggle}
+            aria-label={`Switch to ${editMode ? 'view' : 'edit'} mode`}
+            aria-pressed={editMode}
             className={`
               flex items-center gap-2
               px-3 py-1.5
@@ -229,7 +275,7 @@ export const Header: React.FC<HeaderProps> = ({
               rounded-lg
               transition-colors
               ${
-                rawVisible
+                editMode
                   ? 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300'
                   : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
               }
@@ -241,13 +287,9 @@ export const Header: React.FC<HeaderProps> = ({
               fill="currentColor"
               aria-hidden="true"
             >
-              <path
-                fillRule="evenodd"
-                d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z"
-                clipRule="evenodd"
-              />
+              <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
             </svg>
-            <span>Raw</span>
+            <span>{editMode ? 'View' : 'Edit'}</span>
           </button>
 
           {/* Theme Toggle */}

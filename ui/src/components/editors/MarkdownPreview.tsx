@@ -6,6 +6,7 @@
  * - Responsive styling with Tailwind
  * - Theme support (light/dark mode)
  * - Safe HTML rendering
+ * - Diff highlighting for document patches
  */
 
 import React, { useMemo } from 'react';
@@ -22,6 +23,114 @@ export interface MarkdownPreviewProps {
   content: string;
   /** Optional CSS class name for the container */
   className?: string;
+  /** Optional diff highlighting info */
+  diff?: {
+    oldContent: string;
+    newContent: string;
+  } | null;
+  /** Callback when user clears the diff */
+  onClearDiff?: () => void;
+}
+
+/**
+ * Compute line-by-line diff between old and new content
+ * Returns segments with type: 'unchanged', 'added', or 'removed'
+ */
+function computeLineDiff(
+  oldContent: string,
+  newContent: string
+): Array<{ type: 'unchanged' | 'added' | 'removed'; content: string }> {
+  const oldLines = oldContent.split('\n');
+  const newLines = newContent.split('\n');
+
+  const segments: Array<{
+    type: 'unchanged' | 'added' | 'removed';
+    content: string;
+  }> = [];
+
+  // Simple line-by-line diff using LCS approach
+  const lcs = computeLCS(oldLines, newLines);
+  let oldIdx = 0;
+  let newIdx = 0;
+
+  for (const [oIdx, nIdx] of lcs) {
+    // Add removed lines before old index reaches oIdx
+    while (oldIdx < oIdx) {
+      segments.push({ type: 'removed', content: oldLines[oldIdx] });
+      oldIdx++;
+    }
+
+    // Add added lines before new index reaches nIdx
+    while (newIdx < nIdx) {
+      segments.push({ type: 'added', content: newLines[newIdx] });
+      newIdx++;
+    }
+
+    // Add unchanged line
+    segments.push({ type: 'unchanged', content: oldLines[oldIdx] });
+    oldIdx++;
+    newIdx++;
+  }
+
+  // Add remaining removed lines
+  while (oldIdx < oldLines.length) {
+    segments.push({ type: 'removed', content: oldLines[oldIdx] });
+    oldIdx++;
+  }
+
+  // Add remaining added lines
+  while (newIdx < newLines.length) {
+    segments.push({ type: 'added', content: newLines[newIdx] });
+    newIdx++;
+  }
+
+  return segments;
+}
+
+/**
+ * Compute Longest Common Subsequence
+ */
+function computeLCS(
+  oldLines: string[],
+  newLines: string[]
+): Array<[number, number]> {
+  const m = oldLines.length;
+  const n = newLines.length;
+
+  // Create DP table
+  const dp = Array(m + 1)
+    .fill(null)
+    .map(() => Array(n + 1).fill(0));
+
+  // Fill DP table
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (oldLines[i - 1] === newLines[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+
+  // Reconstruct LCS indices
+  const result: Array<[number, number]> = [];
+  let i = m;
+  let j = n;
+
+  while (i > 0 && j > 0) {
+    if (oldLines[i - 1] === newLines[j - 1]) {
+      result.unshift([i - 1, j - 1]);
+      i--;
+      j--;
+    } else if (dp[i - 1][j] > dp[i][j - 1]) {
+      i--;
+    } else {
+      j--;
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -32,17 +141,25 @@ export interface MarkdownPreviewProps {
  * - Theme-aware styling (light/dark mode)
  * - Responsive typography
  * - Safe HTML rendering
+ * - Diff highlighting for document patches
  *
  * @example
  * ```tsx
  * <MarkdownPreview
  *   content="# Hello\n\nThis is **markdown** content"
+ *   diff={{
+ *     oldContent: "# Hello\n\nOld content",
+ *     newContent: "# Hello\n\nNew content"
+ *   }}
+ *   onClearDiff={() => console.log('cleared')}
  * />
  * ```
  */
 export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
   content,
   className = '',
+  diff,
+  onClearDiff,
 }) => {
   const { theme } = useTheme();
 
@@ -210,20 +327,79 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
     [theme]
   );
 
+  // Compute diff segments if diff is provided
+  const diffSegments = useMemo(() => {
+    if (!diff) return null;
+    try {
+      return computeLineDiff(diff.oldContent, diff.newContent);
+    } catch (error) {
+      console.error('Failed to compute diff:', error);
+      return null;
+    }
+  }, [diff]);
+
+
   return (
     <div
-      className={`markdown-preview-container w-full ${className}`}
+      className={`markdown-preview-container w-full h-full flex flex-col ${className}`}
       data-testid="markdown-preview"
     >
+      {/* Clear Diff Button */}
+      {diff && (
+        <div className="flex justify-end p-2 border-b border-gray-200 dark:border-gray-700">
+          <button
+            onClick={onClearDiff}
+            className="px-3 py-1 text-sm bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded border border-gray-300 dark:border-gray-600"
+          >
+            Clear Diff
+          </button>
+        </div>
+      )}
+
+      {/* Content Area */}
       {content.trim() ? (
         <div
-          className="prose dark:prose-invert max-w-none bg-white dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-700"
+          className="prose dark:prose-invert max-w-none bg-white dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-700 flex-1 overflow-auto"
           data-testid="markdown-content"
         >
-          <ReactMarkdown components={components}>{content}</ReactMarkdown>
+          {diff && diffSegments ? (
+            // Render with diff highlighting
+            <div>
+              {diffSegments.map((segment, idx) => {
+                if (segment.type === 'unchanged') {
+                  return (
+                    <div key={idx} className="diff-unchanged">
+                      <ReactMarkdown components={components}>
+                        {segment.content}
+                      </ReactMarkdown>
+                    </div>
+                  );
+                } else if (segment.type === 'added') {
+                  return (
+                    <div key={idx} className="diff-added">
+                      <ReactMarkdown components={components}>
+                        {segment.content}
+                      </ReactMarkdown>
+                    </div>
+                  );
+                } else {
+                  return (
+                    <div key={idx} className="diff-removed">
+                      <ReactMarkdown components={components}>
+                        {segment.content}
+                      </ReactMarkdown>
+                    </div>
+                  );
+                }
+              })}
+            </div>
+          ) : (
+            // Render normally
+            <ReactMarkdown components={components}>{content}</ReactMarkdown>
+          )}
         </div>
       ) : (
-        <div className="flex items-center justify-center h-48 bg-gray-50 dark:bg-gray-800 rounded-lg">
+        <div className="flex items-center justify-center flex-1 bg-gray-50 dark:bg-gray-800 rounded-lg">
           <p className="text-gray-500 dark:text-gray-400 text-sm">
             Enter Markdown content to preview
           </p>

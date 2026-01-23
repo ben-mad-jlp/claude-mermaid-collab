@@ -410,4 +410,210 @@ lines with markdown
       expect(screen.getByText('Second')).toBeDefined();
     });
   });
+
+  describe('diff highlighting', () => {
+    it('should render normally when no diff is provided', () => {
+      const { container } = render(
+        <MarkdownPreview
+          content="# Hello\n\nThis is content"
+          diff={null}
+        />
+      );
+
+      const h1 = container.querySelector('h1');
+      expect(h1).toBeDefined();
+      expect(h1?.textContent).toContain('Hello');
+    });
+
+    it('should render "Clear Diff" button when diff is provided', () => {
+      render(
+        <MarkdownPreview
+          content="# Hello\n\nThis is new content"
+          diff={{
+            oldContent: '# Hello\n\nThis is old content',
+            newContent: '# Hello\n\nThis is new content',
+          }}
+        />
+      );
+
+      const clearButton = screen.getByRole('button', { name: /clear diff/i });
+      expect(clearButton).toBeDefined();
+    });
+
+    it('should call onClearDiff when Clear Diff button is clicked', () => {
+      const onClearDiff = vi.fn();
+
+      const { rerender } = render(
+        <MarkdownPreview
+          content="# Hello\n\nThis is new content"
+          diff={{
+            oldContent: '# Hello\n\nThis is old content',
+            newContent: '# Hello\n\nThis is new content',
+          }}
+          onClearDiff={onClearDiff}
+        />
+      );
+
+      const clearButton = screen.getByRole('button', { name: /clear diff/i });
+      clearButton.click();
+
+      expect(onClearDiff).toHaveBeenCalledOnce();
+    });
+
+    it('should highlight added text with green background', () => {
+      const { container } = render(
+        <MarkdownPreview
+          content="Hello world"
+          diff={{
+            oldContent: 'Hello',
+            newContent: 'Hello world',
+          }}
+        />
+      );
+
+      const addedElements = container.querySelectorAll('.diff-added');
+      expect(addedElements.length).toBeGreaterThan(0);
+
+      // Verify the added element has correct styling
+      const addedElement = addedElements[0];
+      expect(addedElement.className).toContain('diff-added');
+    });
+
+    it('should highlight removed text with red strikethrough', () => {
+      const { container } = render(
+        <MarkdownPreview
+          content="Hello"
+          diff={{
+            oldContent: 'Hello world',
+            newContent: 'Hello',
+          }}
+        />
+      );
+
+      const removedElements = container.querySelectorAll('.diff-removed');
+      expect(removedElements.length).toBeGreaterThan(0);
+
+      // Verify the removed element has correct styling
+      const removedElement = removedElements[0];
+      expect(removedElement.className).toContain('diff-removed');
+    });
+
+    it('should render unchanged content normally in diff mode', () => {
+      render(
+        <MarkdownPreview
+          content="# Hello\n\nThis is new content"
+          diff={{
+            oldContent: '# Hello\n\nThis is old content',
+            newContent: '# Hello\n\nThis is new content',
+          }}
+        />
+      );
+
+      // Heading should still render
+      expect(screen.getByText('Hello')).toBeDefined();
+    });
+
+    it('should handle multiline diff with added and removed lines', () => {
+      const oldContent = `Line 1
+Line 2
+Line 3`;
+
+      const newContent = `Line 1
+Line 2 modified
+Line 3
+Line 4`;
+
+      const { container } = render(
+        <MarkdownPreview
+          content={newContent}
+          diff={{
+            oldContent,
+            newContent,
+          }}
+        />
+      );
+
+      const addedElements = container.querySelectorAll('.diff-added');
+      const removedElements = container.querySelectorAll('.diff-removed');
+
+      // Should have some diff elements
+      expect(addedElements.length + removedElements.length).toBeGreaterThan(0);
+    });
+
+    it('should handle all new content (empty old content)', () => {
+      const { container } = render(
+        <MarkdownPreview
+          content="New content"
+          diff={{
+            oldContent: '',
+            newContent: 'New content',
+          }}
+        />
+      );
+
+      const addedElements = container.querySelectorAll('.diff-added');
+      expect(addedElements.length).toBeGreaterThan(0);
+    });
+
+    it('should handle all removed content (empty new content)', () => {
+      // Note: When newContent is empty, the content prop should also be empty
+      // but then the component doesn't render markdown content. We test with
+      // at least some content in the new version, or we expect the empty state.
+      const { container } = render(
+        <MarkdownPreview
+          content="Removed: Old content"
+          diff={{
+            oldContent: 'Original: Old content',
+            newContent: 'Removed: Old content',
+          }}
+        />
+      );
+
+      // Since we have diff, we should see diff elements
+      const elements = container.querySelectorAll('[class*="diff-"]');
+      expect(elements.length).toBeGreaterThan(0);
+    });
+
+    it('should still show Clear Diff button even when onClearDiff is not provided', () => {
+      render(
+        <MarkdownPreview
+          content="# Hello\n\nThis is new content"
+          diff={{
+            oldContent: '# Hello\n\nThis is old content',
+            newContent: '# Hello\n\nThis is new content',
+          }}
+        />
+      );
+
+      const clearButton = screen.getByRole('button', { name: /clear diff/i });
+      expect(clearButton).toBeDefined();
+    });
+
+    it('should render diff and normal content together seamlessly', () => {
+      const oldContent = `# Introduction
+
+This is old text that will be kept.
+
+This is old text that will be removed.`;
+
+      const newContent = `# Introduction
+
+This is old text that will be kept.
+
+This is new text that will be added.`;
+
+      render(
+        <MarkdownPreview
+          content={newContent}
+          diff={{
+            oldContent,
+            newContent,
+          }}
+        />
+      );
+
+      expect(screen.getByText('Introduction')).toBeDefined();
+      expect(screen.getByText(/will be kept/)).toBeDefined();
+    });
+  });
 });

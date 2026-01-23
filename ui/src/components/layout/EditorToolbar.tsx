@@ -56,6 +56,10 @@ export interface EditorToolbarProps {
   hasProposals?: boolean;
   /** Type of item being edited (for context-specific actions) */
   itemType?: 'diagram' | 'document';
+  /** Callback for rotate/direction toggle action */
+  onRotate?: () => void;
+  /** Whether rotate is enabled (true for diagrams only) */
+  canRotate?: boolean;
 }
 
 /**
@@ -83,6 +87,8 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   onClearProposals,
   hasProposals,
   itemType,
+  onRotate,
+  canRotate,
 }) => {
   const [isOverflowOpen, setIsOverflowOpen] = useState(false);
   const overflowRef = useRef<HTMLDivElement>(null);
@@ -481,6 +487,42 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 
       {/* Divider */}
       <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
+
+      {/* Rotate Button (diagram only) */}
+      {itemType === 'diagram' && canRotate && onRotate && (
+        <button
+          data-testid="editor-toolbar-rotate"
+          onClick={onRotate}
+          aria-label="Rotate diagram direction"
+          className="
+            p-1.5
+            text-gray-600 dark:text-gray-300
+            hover:text-gray-900 dark:hover:text-white
+            hover:bg-gray-100 dark:hover:bg-gray-700
+            rounded
+            transition-colors
+          "
+        >
+          <svg
+            className="w-4 h-4"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M17.89 7.89L10 15.78M17.89 7.89h5.22v5.22" />
+            <path d="M6.11 16.11l7.89-7.89M6.11 16.11H.89v-5.22" />
+          </svg>
+        </button>
+      )}
+
+      {/* Divider (before overflow if rotate button shown) */}
+      {itemType === 'diagram' && canRotate && onRotate && (
+        <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
+      )}
 
       {/* Overflow Menu */}
       <div className="relative" ref={overflowRef}>

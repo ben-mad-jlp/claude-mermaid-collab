@@ -31,6 +31,12 @@ export interface MermaidPreviewProps {
   onZoomOut?: () => void;
   /** Optional callback to receive SVG container ref when mounted */
   onContainerRef?: (ref: HTMLDivElement | null) => void;
+  /** Whether to enable edit mode for visual diagram editing */
+  editMode?: boolean;
+  /** Callback when a node is clicked in edit mode */
+  onNodeClick?: (nodeId: string) => void;
+  /** Callback when an edge is clicked in edit mode */
+  onEdgeClick?: (edgeId: string) => void;
 }
 
 export interface MermaidPreviewState {
@@ -62,6 +68,9 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
   onZoomIn,
   onZoomOut,
   onContainerRef,
+  editMode = false,
+  onNodeClick,
+  onEdgeClick,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -186,6 +195,67 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
     };
   }, []);
 
+  // Handle diagram clicks in edit mode (node/edge selection)
+  useEffect(() => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper || !editMode) return;
+
+    const handleDiagramClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+
+      // Walk up DOM tree to find element with data-id attribute and class 'node' or 'edgePath'
+      let current: HTMLElement | null = target;
+      let foundElement: HTMLElement | null = null;
+      let elementType: 'node' | 'edge' | null = null;
+
+      while (current && current !== wrapper) {
+        const dataId = current.getAttribute('data-id');
+
+        // Check if this is a node element
+        if (
+          dataId &&
+          (current.classList.contains('node') ||
+            current.classList.contains('nodes'))
+        ) {
+          foundElement = current;
+          elementType = 'node';
+          break;
+        }
+
+        // Check if this is an edge element
+        if (
+          dataId &&
+          (current.classList.contains('edgePath') ||
+            current.classList.contains('edges'))
+        ) {
+          foundElement = current;
+          elementType = 'edge';
+          break;
+        }
+
+        current = current.parentElement;
+      }
+
+      // Trigger appropriate callback if element found
+      if (foundElement && elementType) {
+        const targetId = foundElement.getAttribute('data-id');
+        if (targetId) {
+          if (elementType === 'node' && onNodeClick) {
+            onNodeClick(targetId);
+          } else if (elementType === 'edge' && onEdgeClick) {
+            onEdgeClick(targetId);
+          }
+        }
+      }
+    };
+
+    wrapper.addEventListener('click', handleDiagramClick);
+
+    return () => {
+      wrapper.removeEventListener('click', handleDiagramClick);
+    };
+  }, [editMode, onNodeClick, onEdgeClick]);
+
   // Initialize mermaid with theme
   useEffect(() => {
     mermaid.initialize({
@@ -205,8 +275,9 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
     try {
       setState({ isLoading: true, error: null });
 
-      // Validate and render with unique ID
-      const { svg } = await mermaid.render(`mermaid-${uniqueId}`, content);
+      // Generate unique render ID with timestamp to avoid caching issues
+      const renderId = `mermaid-${uniqueId}-${Date.now()}`;
+      const { svg } = await mermaid.render(renderId, content);
 
       // Check ref still exists after async operation
       if (containerRef.current) {

@@ -28,7 +28,12 @@ export const api: ApiClient = {
       throw new Error(response.statusText);
     }
     const data = await response.json();
-    return data;
+    // API returns { sessions: [...] } with 'session' field, map to frontend Session type with 'name'
+    return (data.sessions || []).map((s: { project: string; session: string; lastAccess?: string }) => ({
+      project: s.project,
+      name: s.session,
+      lastActivity: s.lastAccess,
+    }));
   },
 
   /**
@@ -41,7 +46,8 @@ export const api: ApiClient = {
       throw new Error(response.statusText);
     }
     const data = await response.json();
-    return data;
+    // API returns { diagrams: [...] }
+    return data.diagrams || [];
   },
 
   /**
@@ -54,7 +60,8 @@ export const api: ApiClient = {
       throw new Error(response.statusText);
     }
     const data = await response.json();
-    return data;
+    // API returns { documents: [...] }
+    return data.documents || [];
   },
 
   /**

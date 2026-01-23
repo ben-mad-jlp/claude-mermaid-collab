@@ -512,7 +512,7 @@ describe('useSessionStore', () => {
       useSessionStore.getState().setDiagrams(diagrams);
       useSessionStore.getState().setDocuments(documents);
 
-      // Select both
+      // Select diagram first, then document (mutual exclusion - only last selection kept)
       useSessionStore.getState().selectDiagram('diagram-1');
       useSessionStore.getState().selectDocument('doc-1');
 
@@ -520,9 +520,9 @@ describe('useSessionStore', () => {
       useSessionStore.getState().updateDiagram('diagram-1', { name: 'Updated Diagram 1' });
       useSessionStore.getState().updateDocument('doc-1', { name: 'Updated Document 1' });
 
-      // Verify selections are independent
+      // Verify only document selection is kept (last selection wins - mutual exclusion)
       const state = useSessionStore.getState();
-      expect(state.selectedDiagramId).toBe('diagram-1');
+      expect(state.selectedDiagramId).toBeNull(); // Cleared when document was selected
       expect(state.selectedDocumentId).toBe('doc-1');
       expect(state.diagrams[0].name).toBe('Updated Diagram 1');
       expect(state.documents[0].name).toBe('Updated Document 1');
@@ -577,6 +577,116 @@ describe('useSessionStore', () => {
     });
   });
 
+  describe('Pending Diff State', () => {
+    it('should initialize pendingDiff as null', () => {
+      const state = useSessionStore.getState();
+      expect(state.pendingDiff).toBeNull();
+    });
+
+    it('should set pendingDiff with diff data', () => {
+      const diff = {
+        documentId: 'doc-1',
+        oldContent: 'old text',
+        newContent: 'new text',
+        timestamp: Date.now(),
+      };
+      useSessionStore.getState().setPendingDiff(diff);
+      expect(useSessionStore.getState().pendingDiff).toEqual(diff);
+    });
+
+    it('should store diff with correct structure', () => {
+      const timestamp = Date.now();
+      const diff = {
+        documentId: 'doc-1',
+        oldContent: 'old text',
+        newContent: 'new text',
+        timestamp,
+      };
+      useSessionStore.getState().setPendingDiff(diff);
+      const pendingDiff = useSessionStore.getState().pendingDiff;
+      expect(pendingDiff?.documentId).toBe('doc-1');
+      expect(pendingDiff?.oldContent).toBe('old text');
+      expect(pendingDiff?.newContent).toBe('new text');
+      expect(pendingDiff?.timestamp).toBe(timestamp);
+    });
+
+    it('should clear pendingDiff with clearPendingDiff', () => {
+      const diff = {
+        documentId: 'doc-1',
+        oldContent: 'old text',
+        newContent: 'new text',
+        timestamp: Date.now(),
+      };
+      useSessionStore.getState().setPendingDiff(diff);
+      expect(useSessionStore.getState().pendingDiff).not.toBeNull();
+
+      useSessionStore.getState().clearPendingDiff();
+      expect(useSessionStore.getState().pendingDiff).toBeNull();
+    });
+
+    it('should set pendingDiff to null explicitly', () => {
+      const diff = {
+        documentId: 'doc-1',
+        oldContent: 'old text',
+        newContent: 'new text',
+        timestamp: Date.now(),
+      };
+      useSessionStore.getState().setPendingDiff(diff);
+      useSessionStore.getState().setPendingDiff(null);
+      expect(useSessionStore.getState().pendingDiff).toBeNull();
+    });
+
+    it('should update pendingDiff with new diff data', () => {
+      const diff1 = {
+        documentId: 'doc-1',
+        oldContent: 'old text 1',
+        newContent: 'new text 1',
+        timestamp: Date.now(),
+      };
+      useSessionStore.getState().setPendingDiff(diff1);
+      expect(useSessionStore.getState().pendingDiff?.documentId).toBe('doc-1');
+
+      const diff2 = {
+        documentId: 'doc-2',
+        oldContent: 'old text 2',
+        newContent: 'new text 2',
+        timestamp: Date.now() + 1000,
+      };
+      useSessionStore.getState().setPendingDiff(diff2);
+      expect(useSessionStore.getState().pendingDiff?.documentId).toBe('doc-2');
+      expect(useSessionStore.getState().pendingDiff?.oldContent).toBe('old text 2');
+    });
+
+    it('should preserve pendingDiff when other state changes', () => {
+      const diff = {
+        documentId: 'doc-1',
+        oldContent: 'old text',
+        newContent: 'new text',
+        timestamp: Date.now(),
+      };
+      useSessionStore.getState().setPendingDiff(diff);
+      const diagram = createMockDiagram();
+      useSessionStore.getState().addDiagram(diagram);
+
+      expect(useSessionStore.getState().pendingDiff).toEqual(diff);
+    });
+
+    it('should clear pendingDiff when session changes', () => {
+      const diff = {
+        documentId: 'doc-1',
+        oldContent: 'old text',
+        newContent: 'new text',
+        timestamp: Date.now(),
+      };
+      useSessionStore.getState().setPendingDiff(diff);
+      const session = createMockSession();
+      useSessionStore.getState().setCurrentSession(session);
+
+      // pendingDiff should persist across session changes (not auto-cleared)
+      expect(useSessionStore.getState().pendingDiff).toEqual(diff);
+    });
+  });
+
   describe('Store API', () => {
     it('should expose getState method', () => {
       const state = useSessionStore.getState();
@@ -594,6 +704,7 @@ describe('useSessionStore', () => {
       expect(state).toHaveProperty('documents');
       expect(state).toHaveProperty('selectedDocumentId');
       expect(state).toHaveProperty('collabState');
+      expect(state).toHaveProperty('pendingDiff');
     });
 
     it('should have all required methods', () => {
@@ -616,6 +727,8 @@ describe('useSessionStore', () => {
       expect(typeof state.setCollabState).toBe('function');
       expect(typeof state.clearSession).toBe('function');
       expect(typeof state.reset).toBe('function');
+      expect(typeof state.setPendingDiff).toBe('function');
+      expect(typeof state.clearPendingDiff).toBe('function');
     });
   });
 });

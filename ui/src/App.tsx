@@ -29,14 +29,15 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useQuestionStore } from '@/stores/questionStore';
 import { useDataLoader } from '@/hooks/useDataLoader';
 import { useAutoSave } from '@/hooks/useAutoSave';
+import { useWebSocket } from '@/hooks/useWebSocket';
+import { getWebSocketClient } from '@/lib/websocket';
 import { useShallow } from 'zustand/react/shallow';
 import { api } from '@/lib/api';
-import type { Item, ToolbarAction } from '@/types';
+import type { Item, Session, ToolbarAction } from '@/types';
 
 // Import layout components
 import Header from '@/components/layout/Header';
 import Sidebar from '@/components/layout/Sidebar';
-import SplitPane from '@/components/layout/SplitPane';
 import EditorToolbar from '@/components/layout/EditorToolbar';
 import QuestionPanel from '@/components/question-panel/QuestionPanel';
 
@@ -118,19 +119,13 @@ const App: React.FC = () => {
 
   // UI state
   const {
-    sidebarVisible,
-    sidebarSplitPosition,
-    setSidebarSplitPosition,
-    rawVisible,
+    editMode,
     zoomLevel,
     zoomIn,
     zoomOut,
   } = useUIStore(
     useShallow((state) => ({
-      sidebarVisible: state.sidebarVisible,
-      sidebarSplitPosition: state.sidebarSplitPosition,
-      setSidebarSplitPosition: state.setSidebarSplitPosition,
-      rawVisible: state.rawVisible,
+      editMode: state.editMode,
       zoomLevel: state.zoomLevel,
       zoomIn: state.zoomIn,
       zoomOut: state.zoomOut,
@@ -139,22 +134,36 @@ const App: React.FC = () => {
 
   // Session state
   const {
+    sessions,
     currentSession,
+    setCurrentSession,
     diagrams,
     documents,
     selectedDiagramId,
     selectedDocumentId,
     updateDiagram,
     updateDocument,
+    addDiagram,
+    addDocument,
+    removeDiagram,
+    removeDocument,
+    setPendingDiff,
   } = useSessionStore(
     useShallow((state) => ({
+      sessions: state.sessions,
       currentSession: state.currentSession,
+      setCurrentSession: state.setCurrentSession,
       diagrams: state.diagrams,
       documents: state.documents,
       selectedDiagramId: state.selectedDiagramId,
       selectedDocumentId: state.selectedDocumentId,
       updateDiagram: state.updateDiagram,
       updateDocument: state.updateDocument,
+      addDiagram: state.addDiagram,
+      addDocument: state.addDocument,
+      removeDiagram: state.removeDiagram,
+      removeDocument: state.removeDocument,
+      setPendingDiff: state.setPendingDiff,
     }))
   );
 
@@ -162,7 +171,121 @@ const App: React.FC = () => {
   const { isLoading, error: dataError, loadSessions, loadSessionItems } = useDataLoader();
 
   // Question state
-  const { currentQuestion } = useQuestionStore();
+  const { currentQuestion, receiveQuestion } = useQuestionStore(
+    useShallow((state) => ({
+      currentQuestion: state.currentQuestion,
+      receiveQuestion: state.receiveQuestion,
+    }))
+  );
+
+  // WebSocket for real-time updates
+  const { isConnected, isConnecting } = useWebSocket();
+
+  // Subscribe to updates and handle messages
+  useEffect(() => {
+    const client = getWebSocketClient();
+
+    // Subscribe to updates when connected
+    if (isConnected && currentSession) {
+      client.subscribe('updates');
+    }
+
+    // Handle incoming messages with incremental updates (Item 2 & 9)
+    const subscription = client.onMessage((message) => {
+      if (!currentSession) return;
+
+      switch (message.type) {
+        case 'diagram_updated': {
+          // Item 2: Use incremental update instead of full refresh
+          const { id, content } = message as any;
+          if (id && content !== undefined) {
+            updateDiagram(id, { content, lastModified: Date.now() });
+          }
+          break;
+        }
+
+        case 'document_updated': {
+          // Item 2 + Item 5: Incremental update + diff state
+          const { id, content, patchInfo } = message as any;
+          if (id && content !== undefined) {
+            if (patchInfo) {
+              setPendingDiff({
+                documentId: id,
+                oldContent: patchInfo.oldString || '',
+                newContent: patchInfo.newString || '',
+                timestamp: Date.now(),
+              });
+            }
+            updateDocument(id, { content, lastModified: Date.now() });
+          }
+          break;
+        }
+
+        case 'diagram_created': {
+          // Item 2: Add new diagram without full refresh
+          const { id, name, content, lastModified } = message as any;
+          if (id && name && content !== undefined) {
+            addDiagram({
+              id,
+              name,
+              content,
+              lastModified: lastModified || Date.now(),
+            } as any);
+          }
+          break;
+        }
+
+        case 'document_created': {
+          // Item 2: Add new document without full refresh
+          const { id, name, content, lastModified } = message as any;
+          if (id && name && content !== undefined) {
+            addDocument({
+              id,
+              name,
+              content,
+              lastModified: lastModified || Date.now(),
+            } as any);
+          }
+          break;
+        }
+
+        case 'diagram_deleted': {
+          // Item 2: Remove diagram without full refresh
+          const { id } = message as any;
+          if (id) {
+            removeDiagram(id);
+          }
+          break;
+        }
+
+        case 'document_deleted': {
+          // Item 2: Remove document without full refresh
+          const { id } = message as any;
+          if (id) {
+            removeDocument(id);
+          }
+          break;
+        }
+
+        case 'claude_question': {
+          // Item 9: Handle incoming Claude Code questions
+          const { question } = message as any;
+          if (question && question.id && question.text) {
+            receiveQuestion(question);
+          }
+          break;
+        }
+
+        default:
+          // Unknown message type - log for debugging
+          console.debug('Unknown WebSocket message type:', message.type);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [isConnected, currentSession, updateDiagram, updateDocument, addDiagram, addDocument, removeDiagram, removeDocument, setPendingDiff, receiveQuestion]);
 
   // Compute selected item from diagrams/documents
   const selectedItem: Item | null = useMemo(() => {
@@ -196,6 +319,13 @@ const App: React.FC = () => {
   // Track local content for auto-save
   const [localContent, setLocalContent] = React.useState<string>('');
 
+  // Item 4: Use useMemo to compute effective content based on selectedItem
+  // This ensures type switches get fresh content immediately without async race condition
+  const effectiveContent = useMemo(() => {
+    if (!selectedItem) return '';
+    return selectedItem.content;
+  }, [selectedItem?.id, selectedItem?.content]);
+
   // Update local content when selected item changes
   useEffect(() => {
     if (selectedItem) {
@@ -203,7 +333,7 @@ const App: React.FC = () => {
     }
   }, [selectedItem?.id, selectedItem?.content]);
 
-  // Auto-save handler
+  // Auto-save handler - uses WebSocket to persist changes
   const handleSave = useCallback(
     async (content: string) => {
       if (!selectedItem || !currentSession) return;
@@ -211,22 +341,34 @@ const App: React.FC = () => {
       const project = currentSession.project || '';
       const session = currentSession.name;
 
+      // Update local store immediately
       if (selectedItem.type === 'diagram') {
-        await api.updateDiagram(project, session, selectedItem.id, content);
         updateDiagram(selectedItem.id, { content });
       } else {
-        await api.updateDocument(project, session, selectedItem.id, content);
         updateDocument(selectedItem.id, { content });
+      }
+
+      // Send update via WebSocket if connected
+      const client = getWebSocketClient();
+      if (client.isConnected()) {
+        client.send({
+          type: selectedItem.type === 'diagram' ? 'update_diagram' : 'update_document',
+          project,
+          session,
+          id: selectedItem.id,
+          content,
+        });
       }
     },
     [selectedItem, currentSession, updateDiagram, updateDocument]
   );
 
-  // Auto-save hook
+  // Auto-save hook - pass selectedItem?.id to reset when switching items
   const { isSaving, hasUnsavedChanges } = useAutoSave(
     localContent,
     handleSave,
-    2000
+    2000,
+    selectedItem?.id // Reset auto-save state when item changes
   );
 
   // Apply theme to document
@@ -243,6 +385,13 @@ const App: React.FC = () => {
     loadSessions();
   }, [loadSessions]);
 
+  // Auto-select first session when sessions load
+  useEffect(() => {
+    if (sessions.length > 0 && !currentSession) {
+      setCurrentSession(sessions[0]);
+    }
+  }, [sessions, currentSession, setCurrentSession]);
+
   // Load session items when current session changes
   useEffect(() => {
     if (currentSession) {
@@ -251,17 +400,18 @@ const App: React.FC = () => {
     }
   }, [currentSession, loadSessionItems]);
 
-  const handleSidebarResize = useCallback(
-    (newSize: number) => {
-      setSidebarSplitPosition(newSize);
-    },
-    [setSidebarSplitPosition]
-  );
-
   // Handle content changes from editor
   const handleContentChange = useCallback((content: string) => {
     setLocalContent(content);
   }, []);
+
+  // Handle session selection from Header dropdown
+  const handleSessionSelect = useCallback(
+    (session: Session) => {
+      setCurrentSession(session);
+    },
+    [setCurrentSession]
+  );
 
   // Build overflow actions for toolbar
   const overflowActions: ToolbarAction[] = useMemo(() => {
@@ -363,13 +513,15 @@ const App: React.FC = () => {
       );
     }
 
-    // Convert selectedItem for UnifiedEditor (use local content)
+    // Item 4: Use effectiveContent to avoid type mismatch during item switches
+    // If localContent hasn't updated yet via useEffect, use the fresh effectiveContent
+    // This prevents rendering diagram with markdown content (or vice versa)
     const editorItem = selectedItem
-      ? { ...selectedItem, content: localContent }
+      ? { ...selectedItem, content: effectiveContent || localContent }
       : null;
 
     return (
-      <div className="flex flex-col h-full">
+      <div className="flex flex-col h-full min-h-0">
         {/* Editor Toolbar */}
         <EditorToolbar
           itemName={selectedItem?.name || ''}
@@ -385,11 +537,14 @@ const App: React.FC = () => {
         />
 
         {/* Unified Editor */}
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 min-h-0 overflow-hidden">
           <UnifiedEditor
             item={editorItem}
-            rawVisible={rawVisible}
+            editMode={editMode}
             onContentChange={handleContentChange}
+            zoomLevel={zoomLevel}
+            onZoomIn={zoomIn}
+            onZoomOut={zoomOut}
           />
         </div>
       </div>
@@ -407,38 +562,29 @@ const App: React.FC = () => {
         `}
       >
         {/* Header */}
-        <Header />
+        <Header
+          sessions={sessions}
+          onSessionSelect={handleSessionSelect}
+          isConnected={isConnected}
+          isConnecting={isConnecting}
+        />
 
         {/* Main Content Area with Sidebar and Content */}
-        <div className="flex flex-1 overflow-hidden">
-          {/* Sidebar with Split Pane */}
-          <SplitPane
-            primaryContent={
-              sidebarVisible && (
-                <Sidebar
-                  className="overflow-y-auto"
-                />
-              )
-            }
-            secondaryContent={
-              <main
-                className={`
-                  flex-1
-                  overflow-hidden
-                  bg-white dark:bg-gray-800
-                `}
-              >
-                {renderMainContent()}
-              </main>
-            }
-            direction="horizontal"
-            defaultPrimarySize={sidebarVisible ? sidebarSplitPosition : 0}
-            minPrimarySize={0}
-            maxPrimarySize={50}
-            onSizeChange={handleSidebarResize}
-            className="flex-1"
-            primaryCollapsible={false}
-          />
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+          {/* Fixed-width Sidebar */}
+          <Sidebar className="h-full" />
+
+          {/* Main Content */}
+          <main
+            className={`
+              flex-1
+              min-h-0
+              overflow-hidden
+              bg-white dark:bg-gray-800
+            `}
+          >
+            {renderMainContent()}
+          </main>
         </div>
 
         {/* Question Panel Overlay */}

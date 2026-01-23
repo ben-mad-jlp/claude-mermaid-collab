@@ -2,6 +2,16 @@ import { create } from 'zustand';
 import { Session, Diagram, Document, CollabState } from '../types';
 
 /**
+ * Diff state for highlighting document patches
+ */
+export interface DiffState {
+  documentId: string;
+  oldContent: string;
+  newContent: string;
+  timestamp: number;
+}
+
+/**
  * Session Store State Interface
  * Manages current session, diagrams, documents, and selection state
  */
@@ -24,6 +34,9 @@ export interface SessionState {
 
   // Collab state for current session
   collabState: CollabState | null;
+
+  // Pending diff state for document patches
+  pendingDiff: DiffState | null;
 
   // Sessions actions
   setSessions: (sessions: Session[]) => void;
@@ -52,6 +65,10 @@ export interface SessionState {
   // Collab state actions
   setCollabState: (state: CollabState | null) => void;
 
+  // Diff state actions
+  setPendingDiff: (diff: DiffState | null) => void;
+  clearPendingDiff: () => void;
+
   // Clear all session data
   clearSession: () => void;
 
@@ -72,6 +89,7 @@ const initialState = {
   documents: [],
   selectedDocumentId: null,
   collabState: null,
+  pendingDiff: null,
 };
 
 /**
@@ -148,7 +166,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const { diagrams } = get();
     // Only select if diagram exists or if clearing selection
     if (id === null || diagrams.find((d) => d.id === id)) {
-      set({ selectedDiagramId: id });
+      set({ selectedDiagramId: id, selectedDocumentId: null });
     }
   },
 
@@ -194,7 +212,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const { documents } = get();
     // Only select if document exists or if clearing selection
     if (id === null || documents.find((d) => d.id === id)) {
-      set({ selectedDocumentId: id });
+      set({ selectedDocumentId: id, selectedDiagramId: null });
     }
   },
 
@@ -206,6 +224,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   // Collab state management
   setCollabState: (state: CollabState | null) => {
     set({ collabState: state });
+  },
+
+  // Diff state management
+  setPendingDiff: (diff: DiffState | null) => {
+    set({ pendingDiff: diff });
+  },
+
+  clearPendingDiff: () => {
+    set({ pendingDiff: null });
   },
 
   // Clear all session data

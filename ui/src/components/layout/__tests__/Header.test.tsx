@@ -174,7 +174,8 @@ describe('Header', () => {
       });
 
       render(<Header sessions={mockSessions} />);
-      expect(screen.getByText('session-1')).toBeDefined();
+      // Session display format is "projectName / sessionName"
+      expect(screen.getByText('project1 / session-1')).toBeDefined();
     });
 
     it('should open dropdown on click', async () => {
@@ -194,9 +195,10 @@ describe('Header', () => {
       const selector = screen.getByTestId('session-selector');
       await user.click(selector);
 
-      expect(screen.getByText('session-1')).toBeDefined();
-      expect(screen.getByText('session-2')).toBeDefined();
-      expect(screen.getByText('session-3')).toBeDefined();
+      // Session display format is "projectName / sessionName"
+      expect(screen.getByText('project1 / session-1')).toBeDefined();
+      expect(screen.getByText('project2 / session-2')).toBeDefined();
+      expect(screen.getByText('project3 / session-3')).toBeDefined();
     });
 
     it('should display phase information in dropdown', async () => {
@@ -219,7 +221,8 @@ describe('Header', () => {
       const selector = screen.getByTestId('session-selector');
       await user.click(selector);
 
-      const sessionOption = screen.getByText('session-2');
+      // Session display format is "projectName / sessionName"
+      const sessionOption = screen.getByText('project2 / session-2');
       await user.click(sessionOption);
 
       expect(mockOnSessionSelect).toHaveBeenCalledWith(mockSessions[1]);
@@ -234,7 +237,8 @@ describe('Header', () => {
       const selector = screen.getByTestId('session-selector');
       await user.click(selector);
 
-      const sessionOption = screen.getByText('session-2');
+      // Session display format is "projectName / sessionName"
+      const sessionOption = screen.getByText('project2 / session-2');
       await user.click(sessionOption);
 
       expect(screen.queryByTestId('session-dropdown')).toBeNull();
@@ -382,6 +386,119 @@ describe('Header', () => {
       render(<Header />);
       const header = screen.getByTestId('header');
       expect(header.className).toContain('dark:bg-gray-800');
+    });
+  });
+
+  describe('Edit Mode Toggle', () => {
+    it('should render the edit mode toggle button', () => {
+      render(<Header />);
+      expect(screen.getByTestId('edit-mode-toggle')).toBeDefined();
+    });
+
+    it('should show "Edit" text when editMode is false', () => {
+      useUIStore.setState({ editMode: false });
+      render(<Header />);
+      const toggleButton = screen.getByTestId('edit-mode-toggle');
+      expect(toggleButton.textContent).toContain('Edit');
+    });
+
+    it('should show "View" text when editMode is true', () => {
+      useUIStore.setState({ editMode: true });
+      render(<Header />);
+      const toggleButton = screen.getByTestId('edit-mode-toggle');
+      expect(toggleButton.textContent).toContain('View');
+    });
+
+    it('should toggle editMode state when clicked', async () => {
+      const user = userEvent.setup();
+      useUIStore.setState({ editMode: false });
+
+      render(<Header />);
+      const toggleButton = screen.getByTestId('edit-mode-toggle');
+
+      expect(useUIStore.getState().editMode).toBe(false);
+
+      await user.click(toggleButton);
+
+      expect(useUIStore.getState().editMode).toBe(true);
+    });
+
+    it('should call toggleEditMode from the store', async () => {
+      const user = userEvent.setup();
+      useUIStore.setState({ editMode: true });
+
+      render(<Header />);
+      const toggleButton = screen.getByTestId('edit-mode-toggle');
+
+      await user.click(toggleButton);
+
+      // Verify the state was toggled
+      expect(useUIStore.getState().editMode).toBe(false);
+    });
+
+    it('should have appropriate aria-label based on editMode', () => {
+      useUIStore.setState({ editMode: false });
+      render(<Header />);
+      const toggleButton = screen.getByTestId('edit-mode-toggle');
+      expect(toggleButton.getAttribute('aria-label')).toBe('Switch to edit mode');
+    });
+
+    it('should update aria-label when editMode changes', () => {
+      const { rerender } = render(<Header />);
+      useUIStore.setState({ editMode: false });
+      rerender(<Header />);
+
+      const toggleButton = screen.getByTestId('edit-mode-toggle');
+      expect(toggleButton.getAttribute('aria-label')).toBe('Switch to edit mode');
+
+      useUIStore.setState({ editMode: true });
+      rerender(<Header />);
+
+      expect(toggleButton.getAttribute('aria-label')).toBe('Switch to view mode');
+    });
+
+    it('should have aria-pressed attribute reflecting editMode state', () => {
+      useUIStore.setState({ editMode: true });
+      render(<Header />);
+      const toggleButton = screen.getByTestId('edit-mode-toggle');
+      expect(toggleButton.getAttribute('aria-pressed')).toBe('true');
+    });
+
+    it('should change styling based on editMode', () => {
+      useUIStore.setState({ editMode: true });
+      const { rerender } = render(<Header />);
+      const toggleButton = screen.getByTestId('edit-mode-toggle');
+
+      // When in edit mode, should have accent color classes
+      expect(toggleButton.className).toContain('bg-accent');
+
+      useUIStore.setState({ editMode: false });
+      rerender(<Header />);
+
+      // When in view mode, should have gray color classes
+      expect(toggleButton.className).toContain('bg-gray');
+    });
+
+    it('should preserve other header functionality when toggling edit mode', async () => {
+      const user = userEvent.setup();
+      useUIStore.setState({ editMode: false, theme: 'light' });
+
+      render(<Header />);
+
+      const editToggleButton = screen.getByTestId('edit-mode-toggle');
+      const themeToggleButton = screen.getByTestId('theme-toggle');
+
+      await user.click(editToggleButton);
+
+      // Verify edit mode was toggled
+      expect(useUIStore.getState().editMode).toBe(true);
+
+      // Verify theme is still light
+      expect(useUIStore.getState().theme).toBe('light');
+
+      // Verify theme toggle still works
+      await user.click(themeToggleButton);
+      expect(useUIStore.getState().theme).toBe('dark');
     });
   });
 

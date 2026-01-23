@@ -28,6 +28,7 @@ const DEFAULT_DELAY = 2000;
  * @param content - The current content to monitor for changes
  * @param onSave - Async callback to perform the save operation
  * @param delay - Debounce delay in milliseconds (default: 2000ms)
+ * @param key - Optional key to reset the hook when switching items (e.g., item ID)
  * @returns Object with isSaving, lastSaved timestamp, and hasUnsavedChanges flag
  *
  * @example
@@ -39,7 +40,8 @@ const DEFAULT_DELAY = 2000;
  *     async (content) => {
  *       await api.saveDocument(content);
  *     },
- *     2000
+ *     2000,
+ *     selectedItemId // Reset when item changes
  *   );
  *
  *   return (
@@ -56,7 +58,8 @@ const DEFAULT_DELAY = 2000;
 export function useAutoSave(
   content: string,
   onSave: (content: string) => Promise<void>,
-  delay: number = DEFAULT_DELAY
+  delay: number = DEFAULT_DELAY,
+  key?: string | null
 ): UseAutoSaveReturn {
   // State for tracking save status
   const [isSaving, setIsSaving] = useState(false);
@@ -73,6 +76,26 @@ export function useAutoSave(
   // Stable reference to onSave to avoid effect re-runs
   const onSaveRef = useRef(onSave);
   onSaveRef.current = onSave;
+
+  // Track the key to detect item changes
+  const keyRef = useRef(key);
+
+  // Reset original content when key changes (e.g., switching items)
+  // This prevents triggering a save when switching between items
+  useEffect(() => {
+    if (key !== keyRef.current) {
+      keyRef.current = key;
+      originalContentRef.current = content;
+      setHasUnsavedChanges(false);
+      setLastSaved(null);
+
+      // Clear any pending save timer
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+    }
+  }, [key, content]);
 
   // Perform the save operation
   const performSave = useCallback(async (contentToSave: string) => {

@@ -5,6 +5,7 @@
 
 import { create } from 'zustand';
 import type { Question, QuestionResponse, QuestionSubmitState } from '../types/question';
+import { getWebSocketClient } from '../lib/websocket';
 
 export interface QuestionState {
   // Current question
@@ -29,15 +30,17 @@ export interface QuestionState {
 }
 
 /**
- * Mock API function to submit responses
- * In a real implementation, this would call the actual API
+ * Submit question response via WebSocket
+ * Sends response to Claude Code question handler
+ * Fire-and-forget pattern: message is sent but response is not awaited
  */
 async function submitQuestionResponse(response: QuestionResponse): Promise<void> {
-  // Simulate API call with a small delay
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve();
-    }, 100);
+  const client = getWebSocketClient();
+  client.send({
+    type: 'submit_question_response',
+    questionId: response.questionId,
+    answer: response.answer,
+    timestamp: Date.now(),
   });
 }
 
