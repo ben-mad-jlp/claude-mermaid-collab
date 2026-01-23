@@ -1,0 +1,32 @@
+graph TD
+    subgraph Wave1["Wave 1 - Independent (Parallel)"]
+        T1["item-1<br/>MCP Session Discovery"]
+        T3["item-3<br/>Parallel Dispatch"]
+        T4["item-4<br/>render_ui Default"]
+        T6["item-6<br/>Optimize list APIs"]
+        T7["item-7<br/>Diagram Encouragement"]
+        T8["item-8<br/>npm Warnings"]
+        T9["item-9<br/>TextArea Fix"]
+        T10["item-10<br/>Markdown Padding"]
+        T11["item-11<br/>SplitBar Fix"]
+    end
+
+    subgraph Wave2["Wave 2 - Dependencies"]
+        T2["item-2<br/>MCP Default Setup"]
+        T5["item-5<br/>Refresh Button"]
+    end
+
+    T1 --> T2
+    T6 --> T5
+
+    style T1 fill:#c8e6c9,stroke:#2e7d32
+    style T3 fill:#c8e6c9,stroke:#2e7d32
+    style T4 fill:#c8e6c9,stroke:#2e7d32
+    style T6 fill:#c8e6c9,stroke:#2e7d32
+    style T7 fill:#c8e6c9,stroke:#2e7d32
+    style T8 fill:#c8e6c9,stroke:#2e7d32
+    style T9 fill:#c8e6c9,stroke:#2e7d32
+    style T10 fill:#c8e6c9,stroke:#2e7d32
+    style T11 fill:#c8e6c9,stroke:#2e7d32
+    style T2 fill:#bbdefb,stroke:#1976d2
+    style T5 fill:#bbdefb,stroke:#1976d2
