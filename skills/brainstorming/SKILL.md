@@ -220,6 +220,50 @@ When a collab session is active, prefer `render_ui` for user interactions instea
 - `clarifying.md` - Patterns for clarifying questions
 - `designing.md` - Patterns for design validation
 
+## Diagram Opportunities
+
+**Diagrams are cheap. When in doubt, make one.**
+
+### When to Create a Diagram
+
+CHECK these triggers as you work:
+
+| Trigger | Diagram Type |
+|---------|--------------|
+| Discussing 3+ interacting components | Architecture diagram |
+| Explaining data flow | Sequence or flowchart |
+| Describing state transitions | State diagram |
+| Showing dependencies | Dependency graph |
+| Tracing execution path | Sequence diagram |
+| Debugging complex flow | Flowchart with decision points |
+
+### How to Create
+
+```
+cwd = getCurrentWorkingDirectory()
+session = getCurrentSession()
+
+mcp__mermaid__create_diagram({
+  project: cwd,
+  session: session,
+  name: "<descriptive-name>",
+  content: "<mermaid-syntax>"
+})
+```
+
+### Example Triggers for This Skill
+
+**DURING EXPLORING phase:**
+- IF user mentions 3+ components: CREATE architecture diagram showing relationships
+- IF user describes data flow: CREATE sequence diagram showing flow
+
+**DURING DESIGNING phase:**
+- BEFORE presenting design options: CREATE diagram showing proposed architecture
+- IF design involves state changes: CREATE state diagram
+
+**AFTER user approves design section:**
+- IF section involves multiple files: CREATE dependency diagram
+
 ## Integration
 
 **Called by:**

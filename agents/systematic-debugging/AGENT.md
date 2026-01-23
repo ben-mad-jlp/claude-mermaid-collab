@@ -294,3 +294,45 @@ From debugging sessions:
 - Random fixes approach: 2-3 hours of thrashing
 - First-time fix rate: 95% vs 40%
 - New bugs introduced: Near zero vs common
+
+## Diagram Opportunities
+
+**Diagrams are cheap. When in doubt, make one.**
+
+### When to Create a Diagram
+
+CHECK these triggers as you work:
+
+| Trigger | Diagram Type |
+|---------|--------------|
+| Discussing 3+ interacting components | Architecture diagram |
+| Explaining data flow | Sequence or flowchart |
+| Describing state transitions | State diagram |
+| Showing dependencies | Dependency graph |
+| Tracing execution path | Sequence diagram |
+| Debugging complex flow | Flowchart with decision points |
+
+### How to Create
+
+```
+cwd = getCurrentWorkingDirectory()
+session = getCurrentSession()
+
+mcp__mermaid__create_diagram({
+  project: cwd,
+  session: session,
+  name: "<descriptive-name>",
+  content: "<mermaid-syntax>"
+})
+```
+
+### Example Triggers for This Skill
+
+**WHEN tracing bug through multiple components:**
+- CREATE sequence diagram showing bug propagation
+
+**WHEN analyzing state that leads to bug:**
+- CREATE state diagram showing transitions
+
+**WHEN documenting root cause:**
+- CREATE flowchart showing decision path to bug

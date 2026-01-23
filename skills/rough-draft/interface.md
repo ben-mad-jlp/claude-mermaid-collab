@@ -116,3 +116,45 @@ Tool: mcp__mermaid__update_session_state
 Args: { "project": "<cwd>", "session": "<name>", "phase": "rough-draft/pseudocode" }
 ```
 Note: `lastActivity` is automatically updated by the MCP tool.
+
+## Diagram Opportunities
+
+**Diagrams are cheap. When in doubt, make one.**
+
+### When to Create a Diagram
+
+CHECK these triggers as you work:
+
+| Trigger | Diagram Type |
+|---------|--------------|
+| Discussing 3+ interacting components | Architecture diagram |
+| Explaining data flow | Sequence or flowchart |
+| Describing state transitions | State diagram |
+| Showing dependencies | Dependency graph |
+| Tracing execution path | Sequence diagram |
+| Debugging complex flow | Flowchart with decision points |
+
+### How to Create
+
+```
+cwd = getCurrentWorkingDirectory()
+session = getCurrentSession()
+
+mcp__mermaid__create_diagram({
+  project: cwd,
+  session: session,
+  name: "<descriptive-name>",
+  content: "<mermaid-syntax>"
+})
+```
+
+### Example Triggers for This Skill
+
+**WHEN defining interfaces for 3+ files:**
+- CREATE class diagram showing relationships
+
+**WHEN documenting component interactions:**
+- CREATE sequence diagram showing calls
+
+**WHEN defining complex types:**
+- CREATE entity-relationship diagram
