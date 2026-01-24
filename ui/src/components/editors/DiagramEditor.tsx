@@ -313,7 +313,7 @@ export const DiagramEditor: React.FC<DiagramEditorProps> = ({
                 </div>
               )}
 
-              {editorState.validation?.valid && editorContent.trim() && (
+              {editorState.validation?.valid && editorContent?.trim() && (
                 <div className="px-4 py-2 bg-green-50 dark:bg-green-900 border-t border-green-200 dark:border-green-700 text-xs text-green-700 dark:text-green-200">
                   Valid diagram syntax
                 </div>

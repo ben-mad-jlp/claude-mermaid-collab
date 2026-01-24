@@ -358,7 +358,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       )}
 
       {/* Content Area */}
-      {content.trim() ? (
+      {content?.trim() ? (
         <div
           className="prose dark:prose-invert max-w-none bg-white dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-700 flex-1 overflow-auto"
           data-testid="markdown-content"

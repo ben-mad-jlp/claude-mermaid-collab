@@ -93,7 +93,7 @@ export const DiagramEmbed: React.FC<DiagramEmbedProps> = ({
 
   // Render the diagram
   const renderDiagram = useCallback(async () => {
-    if (!containerRef.current || !content.trim()) {
+    if (!containerRef.current || !content?.trim()) {
       setState({ isLoading: false, error: null });
       return;
     }
@@ -163,7 +163,7 @@ export const DiagramEmbed: React.FC<DiagramEmbedProps> = ({
       )}
 
       {/* Diagram container */}
-      {!state.isLoading && !state.error && content.trim() && (
+      {!state.isLoading && !state.error && content?.trim() && (
         <div
           ref={containerRef}
           className={`diagram-wrapper overflow-auto bg-white dark:bg-gray-900 rounded-lg p-3 border border-gray-200 dark:border-gray-700 h-full ${theme === 'dark' ? 'dark' : ''}`}
@@ -172,7 +172,7 @@ export const DiagramEmbed: React.FC<DiagramEmbedProps> = ({
       )}
 
       {/* Empty state */}
-      {!state.isLoading && !state.error && !content.trim() && (
+      {!state.isLoading && !state.error && !content?.trim() && (
         <div className="flex items-center justify-center h-full bg-gray-50 dark:bg-gray-800 rounded-lg">
           <p className="text-gray-500 dark:text-gray-400 text-xs">
             No diagram content
