@@ -20,7 +20,7 @@ export interface AgentStatusState {
 /**
  * Hook for monitoring agent status
  *
- * Fetches status from localhost:3737/api/status and listens
+ * Fetches status from /api/status and listens
  * to WebSocket events for real-time updates.
  *
  * @param pollInterval - Polling interval in milliseconds (default: 2000)
@@ -52,7 +52,7 @@ export function useAgentStatus(pollInterval = 2000): AgentStatusState {
   // Fetch status from API
   const fetchStatus = useCallback(async () => {
     try {
-      const response = await fetch('http://localhost:3737/api/status');
+      const response = await fetch('/api/status');
       if (!response.ok) {
         throw new Error(`Status: ${response.status}`);
       }

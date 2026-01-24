@@ -310,7 +310,7 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
 
   // Render the diagram
   const renderDiagram = useCallback(async () => {
-    if (!content.trim()) {
+    if (!content?.trim()) {
       setState({ isLoading: false, error: null });
       return;
     }
@@ -382,7 +382,7 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
       <div
         ref={wrapperRef}
         className={`mermaid-diagram-wrapper overflow-auto bg-white dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-700 flex-1 ${
-          state.isLoading || state.error || !content.trim() ? 'hidden' : ''
+          state.isLoading || state.error || !content?.trim() ? 'hidden' : ''
         } ${theme === 'dark' ? 'dark' : ''}`}
         style={{ cursor: isPanning ? 'grabbing' : 'default' }}
         data-testid="mermaid-diagram"
@@ -399,7 +399,7 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
       </div>
 
       {/* Empty state */}
-      {!state.isLoading && !state.error && !content.trim() && (
+      {!state.isLoading && !state.error && !content?.trim() && (
         <div className="flex items-center justify-center flex-1 bg-gray-50 dark:bg-gray-800 rounded-lg">
           <p className="text-gray-500 dark:text-gray-400 text-sm">
             Enter Mermaid syntax to preview diagram

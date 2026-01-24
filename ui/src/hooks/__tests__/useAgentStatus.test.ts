@@ -71,7 +71,7 @@ describe('useAgentStatus', () => {
   });
 
   describe('API Fetching', () => {
-    it('should fetch status from localhost:3737/api/status', async () => {
+    it('should fetch status from /api/status', async () => {
       global.fetch = vi.fn(() =>
         Promise.resolve(
           new Response(JSON.stringify(mockStatusResponse), { status: 200 })
@@ -81,7 +81,7 @@ describe('useAgentStatus', () => {
       renderHook(() => useAgentStatus(2000));
 
       await waitFor(() => {
-        expect(global.fetch).toHaveBeenCalledWith('http://localhost:3737/api/status');
+        expect(global.fetch).toHaveBeenCalledWith('/api/status');
       }, { timeout: 3000 });
     });
 
