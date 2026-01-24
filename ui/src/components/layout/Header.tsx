@@ -13,7 +13,9 @@ import React, { useCallback, useState, useRef, useEffect } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useTheme } from '@/hooks/useTheme';
 import { useSession } from '@/hooks/useSession';
+import { useAgentStatus } from '@/hooks/useAgentStatus';
 import { useUIStore } from '@/stores/uiStore';
+import { StatusIndicator } from '@/components/StatusIndicator';
 import { Session } from '@/types';
 
 export interface HeaderProps {
@@ -41,6 +43,7 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const { theme, toggleTheme } = useTheme();
   const { currentSession } = useSession();
+  const { agentStatus, agentMessage, agentIsLoading } = useAgentStatus();
   const { editMode, toggleEditMode } = useUIStore(
     useShallow((state) => ({
       editMode: state.editMode,
@@ -160,6 +163,15 @@ export const Header: React.FC<HeaderProps> = ({
             </span>
           </div>
         </div>
+
+        {/* Agent Status Indicator */}
+        {!agentIsLoading && (
+          <StatusIndicator
+            status={agentStatus}
+            message={agentMessage}
+            className="ml-2"
+          />
+        )}
 
         {/* Right-side controls */}
         <div className="flex items-center gap-3">
