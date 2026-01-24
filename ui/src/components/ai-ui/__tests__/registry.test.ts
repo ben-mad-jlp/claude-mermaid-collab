@@ -38,12 +38,13 @@ describe('AI-UI Component Registry', () => {
 
     it('should retrieve all 22 AI-UI components', () => {
       const componentNames = [
-        // Display (5)
+        // Display (6)
         'Table',
         'CodeBlock',
         'DiffView',
         'JsonViewer',
         'Markdown',
+        'SkillTransition',
         // Layout (5)
         'Card',
         'Section',
@@ -121,7 +122,7 @@ describe('AI-UI Component Registry', () => {
   describe('getAllComponentNames', () => {
     it('should return all 22 component names', () => {
       const names = getAllComponentNames();
-      expect(names.length).toBe(32);
+      expect(names.length).toBe(33);
     });
 
     it('should return array of strings', () => {
@@ -152,7 +153,7 @@ describe('AI-UI Component Registry', () => {
   describe('getAllComponents', () => {
     it('should return all 22 components metadata', () => {
       const components = getAllComponents();
-      expect(components.length).toBe(32);
+      expect(components.length).toBe(33);
     });
 
     it('should return metadata objects', () => {
@@ -206,9 +207,9 @@ describe('AI-UI Component Registry', () => {
       });
     });
 
-    it('should return 10 input components', () => {
+    it('should return 11 input components', () => {
       const inputComps = getComponentsByCategory('inputs');
-      expect(inputComps.length).toBe(10);
+      expect(inputComps.length).toBe(11);
       inputComps.forEach((comp) => {
         expect(comp.category).toBe('inputs');
       });
@@ -257,7 +258,7 @@ describe('AI-UI Component Registry', () => {
 
   describe('getComponentCount', () => {
     it('should return 22 for total components', () => {
-      expect(getComponentCount()).toBe(32);
+      expect(getComponentCount()).toBe(33);
     });
   });
 
@@ -273,10 +274,10 @@ describe('AI-UI Component Registry', () => {
 
     it('should have correct counts per category', () => {
       const stats = getCategoryStats();
-      expect(stats.display).toBe(8);
+      expect(stats.display).toBe(9);
       expect(stats.layout).toBe(6);
       expect(stats.interactive).toBe(6);
-      expect(stats.inputs).toBe(10);
+      expect(stats.inputs).toBe(11);
       expect(stats.mermaid).toBe(2);
     });
 
@@ -288,7 +289,7 @@ describe('AI-UI Component Registry', () => {
         stats.interactive +
         stats.inputs +
         stats.mermaid;
-      expect(total).toBe(32);
+      expect(total).toBe(33);
     });
   });
 
@@ -306,7 +307,7 @@ describe('AI-UI Component Registry', () => {
     });
 
     it('should work with namespace access', () => {
-      expect(aiUIRegistry.getComponentCount()).toBe(32);
+      expect(aiUIRegistry.getComponentCount()).toBe(33);
       expect(aiUIRegistry.hasComponent('Card')).toBe(true);
       expect(aiUIRegistry.getComponent('Card')).toBeDefined();
     });

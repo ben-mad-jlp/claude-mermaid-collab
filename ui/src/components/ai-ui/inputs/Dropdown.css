@@ -1,0 +1,95 @@
+/* Dropdown field wrapper */
+.dropdown-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+/* Dropdown label */
+.dropdown-label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #111827;
+}
+
+/* Dark mode label */
+:root.dark .dropdown-label,
+.dark .dropdown-label {
+  color: #f3f4f6;
+}
+
+/* Dropdown select element */
+.dropdown-select {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
+  background-color: #ffffff;
+  color: #111827;
+  font-size: 1rem;
+  line-height: 1.5rem;
+  transition: colors 0.2s ease, border-colors 0.2s ease;
+  appearance: auto;
+}
+
+/* Dark mode select */
+:root.dark .dropdown-select,
+.dark .dropdown-select {
+  background-color: #1f2937;
+  color: #f3f4f6;
+  border-color: #4b5563;
+}
+
+/* Dropdown focus state */
+.dropdown-select:focus {
+  outline: none;
+  ring: 2px;
+  ring-color: #3b82f6;
+  border-color: transparent;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5);
+}
+
+/* Dark mode focus state */
+:root.dark .dropdown-select:focus,
+.dark .dropdown-select:focus {
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+}
+
+/* Dropdown disabled state */
+.dropdown-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Dropdown hover state */
+.dropdown-select:hover:not(:disabled) {
+  border-color: #9ca3af;
+}
+
+/* Dark mode hover state */
+:root.dark .dropdown-select:hover:not(:disabled),
+.dark .dropdown-select:hover:not(:disabled) {
+  border-color: #6b7280;
+}
+
+/* Dropdown option styling */
+.dropdown-select option {
+  background-color: #ffffff;
+  color: #111827;
+}
+
+/* Dark mode option styling */
+:root.dark .dropdown-select option,
+.dark .dropdown-select option {
+  background-color: #1f2937;
+  color: #f3f4f6;
+}
+
+/* Disabled option styling */
+.dropdown-select option:disabled {
+  opacity: 0.5;
+  color: #9ca3af;
+}

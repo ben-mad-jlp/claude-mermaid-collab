@@ -7,11 +7,11 @@
  * - Type-safe component access
  * - Component availability checking
  *
- * Manages 32 AI-UI components across 5 categories:
- * - Display: Table, CodeBlock, DiffView, JsonViewer, Markdown, Image, Spinner, Badge
+ * Manages 33 AI-UI components across 5 categories:
+ * - Display: Table, CodeBlock, DiffView, JsonViewer, Markdown, Image, Spinner, Badge, SkillTransition
  * - Layout: Card, Section, Columns, Accordion, Alert, Divider
  * - Interactive: Wizard, Checklist, ApprovalButtons, ProgressBar, Tabs, Link
- * - Inputs: MultipleChoice, TextInput, TextArea, Checkbox, Confirmation, RadioGroup, Toggle, NumberInput, Slider, FileUpload
+ * - Inputs: MultipleChoice, TextInput, TextArea, Checkbox, Confirmation, Dropdown, RadioGroup, Toggle, NumberInput, Slider, FileUpload
  * - Mermaid: DiagramEmbed, WireframeEmbed
  */
 
@@ -26,6 +26,7 @@ import { Markdown } from './display/Markdown';
 import { Image } from './display/Image';
 import { Spinner } from './display/Spinner';
 import { Badge } from './display/Badge';
+import { SkillTransition } from './display/SkillTransition';
 
 // Import all layout components
 import { Card } from './layout/Card';
@@ -49,6 +50,7 @@ import { TextInput } from './inputs/TextInput';
 import { TextArea } from './inputs/TextArea';
 import { Checkbox } from './inputs/Checkbox';
 import { Confirmation } from './inputs/Confirmation';
+import { Dropdown } from './inputs/Dropdown';
 import { RadioGroup } from './inputs/RadioGroup';
 import { Toggle } from './inputs/Toggle';
 import { NumberInput } from './inputs/NumberInput';
@@ -73,7 +75,7 @@ export interface ComponentMetadata {
  * Registry of all AI-UI components with metadata
  */
 const componentRegistry: Map<string, ComponentMetadata> = new Map([
-  // Display components (8)
+  // Display components (9)
   [
     'Table',
     {
@@ -144,6 +146,15 @@ const componentRegistry: Map<string, ComponentMetadata> = new Map([
       category: 'display',
       description: 'Status badge/tag component',
       component: Badge,
+    },
+  ],
+  [
+    'SkillTransition',
+    {
+      name: 'SkillTransition',
+      category: 'display',
+      description: 'Skill transition display component',
+      component: SkillTransition,
     },
   ],
 
@@ -259,7 +270,7 @@ const componentRegistry: Map<string, ComponentMetadata> = new Map([
     },
   ],
 
-  // Input components (10)
+  // Input components (11)
   [
     'MultipleChoice',
     {
@@ -276,6 +287,15 @@ const componentRegistry: Map<string, ComponentMetadata> = new Map([
       category: 'inputs',
       description: 'Text input field component',
       component: TextInput,
+    },
+  ],
+  [
+    'Dropdown',
+    {
+      name: 'Dropdown',
+      category: 'inputs',
+      description: 'Dropdown select menu component',
+      component: Dropdown,
     },
   ],
   [

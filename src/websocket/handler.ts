@@ -27,7 +27,8 @@ export type WSMessage =
   | { type: 'ui_dismissed'; project: string; session: string }
   | { type: 'ui_updated'; patch: Record<string, unknown>; project: string; session: string }
   | { type: 'session_created'; project: string; session: string }
-  | { type: 'notification'; data: NotificationData };
+  | { type: 'notification'; data: NotificationData }
+  | { type: 'status_changed'; status: 'working' | 'waiting' | 'idle'; message?: string; lastActivity: string };
 
 export class WebSocketHandler {
   private connections: Set<ServerWebSocket<{ subscriptions: Set<string> }>> = new Set();
@@ -143,6 +144,33 @@ export class WebSocketHandler {
         // Track dead connections to clean up
         deadConnections.push(ws);
         console.error('Failed to send notification message:', error);
+      }
+    }
+
+    // Clean up disconnected clients to prevent memory leaks
+    for (const ws of deadConnections) {
+      this.connections.delete(ws);
+    }
+  }
+
+  broadcastStatus(status: 'working' | 'waiting' | 'idle', message?: string, lastActivity?: string): void {
+    const message_obj: WSMessage = {
+      type: 'status_changed',
+      status,
+      message,
+      lastActivity: lastActivity || new Date().toISOString(),
+    };
+
+    const json = JSON.stringify(message_obj);
+    const deadConnections: ServerWebSocket<{ subscriptions: Set<string> }>[] = [];
+
+    for (const ws of this.connections) {
+      try {
+        ws.send(json);
+      } catch (error) {
+        // Track dead connections to clean up
+        deadConnections.push(ws);
+        console.error('Failed to send status message:', error);
       }
     }
 

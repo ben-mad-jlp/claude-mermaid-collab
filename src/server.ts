@@ -10,6 +10,7 @@ import { Renderer } from './services/renderer';
 import { WebSocketHandler } from './websocket/handler';
 import { handleAPI } from './routes/api';
 import { sessionRegistry } from './services/session-registry';
+import { statusManager } from './services/status-manager';
 
 // Scratch session - a default workspace for casual use
 const SCRATCH_PROJECT = join(homedir(), '.mermaid-collab');
@@ -23,6 +24,9 @@ console.log(`📋 Scratch session: ${SCRATCH_PROJECT}/.collab/${SCRATCH_SESSION}
 const validator = new Validator();
 const renderer = new Renderer();
 const wsHandler = new WebSocketHandler();
+
+// Initialize status manager with WebSocket handler
+statusManager.setWebSocketHandler(wsHandler);
 
 // Placeholder managers - these are created per-session in api.ts
 // but we need them for the handleAPI signature (they're unused there now)

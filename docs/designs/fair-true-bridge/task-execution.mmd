@@ -1,0 +1,65 @@
+graph TD
+    %% Wave 1: Components (completed)
+    radio-group(["radio-group"])
+    toggle(["toggle"])
+    number-input(["number-input"])
+    slider(["slider"])
+    file-upload(["file-upload"])
+    image(["image"])
+    spinner(["spinner"])
+    badge(["badge"])
+    divider(["divider"])
+    link(["link"])
+
+    %% Wave 2: Registry (completed)
+    registry-update(["registry-update"])
+
+    %% Wave 3: MCP Docs (completed)
+    mcp-docs-update(["mcp-docs-update"])
+
+    %% Wave 4: New Skill (completed)
+    using-ai-ui-skill(["using-ai-ui-skill"])
+
+    %% Wave 5: Skill Updates (completed)
+    update-brainstorming(["update-brainstorming"])
+    update-clarifying(["update-clarifying"])
+    update-designing(["update-designing"])
+    update-gather-goals(["update-gather-goals"])
+
+    %% Dependencies
+    radio-group --> registry-update
+    toggle --> registry-update
+    number-input --> registry-update
+    slider --> registry-update
+    file-upload --> registry-update
+    image --> registry-update
+    spinner --> registry-update
+    badge --> registry-update
+    divider --> registry-update
+    link --> registry-update
+
+    registry-update --> mcp-docs-update
+    mcp-docs-update --> using-ai-ui-skill
+    using-ai-ui-skill --> update-brainstorming
+    using-ai-ui-skill --> update-clarifying
+    using-ai-ui-skill --> update-designing
+    using-ai-ui-skill --> update-gather-goals
+
+    %% All completed
+    style radio-group fill:#c8e6c9,stroke:#2e7d32
+    style toggle fill:#c8e6c9,stroke:#2e7d32
+    style number-input fill:#c8e6c9,stroke:#2e7d32
+    style slider fill:#c8e6c9,stroke:#2e7d32
+    style file-upload fill:#c8e6c9,stroke:#2e7d32
+    style image fill:#c8e6c9,stroke:#2e7d32
+    style spinner fill:#c8e6c9,stroke:#2e7d32
+    style badge fill:#c8e6c9,stroke:#2e7d32
+    style divider fill:#c8e6c9,stroke:#2e7d32
+    style link fill:#c8e6c9,stroke:#2e7d32
+    style registry-update fill:#c8e6c9,stroke:#2e7d32
+    style mcp-docs-update fill:#c8e6c9,stroke:#2e7d32
+    style using-ai-ui-skill fill:#c8e6c9,stroke:#2e7d32
+    style update-brainstorming fill:#c8e6c9,stroke:#2e7d32
+    style update-clarifying fill:#c8e6c9,stroke:#2e7d32
+    style update-designing fill:#c8e6c9,stroke:#2e7d32
+    style update-gather-goals fill:#c8e6c9,stroke:#2e7d32

@@ -8,6 +8,7 @@ import { transpile, isSmachYaml } from '../services/smach-transpiler';
 import { sessionRegistry, type Session } from '../services/session-registry';
 import { questionManager } from '../services/question-manager';
 import { uiManager } from '../services/ui-manager';
+import { statusManager } from '../services/status-manager';
 import { join } from 'path';
 
 // Track server start time for uptime calculation
@@ -157,6 +158,12 @@ export async function handleAPI(
   // GET /api/health - Server health check
   if (path === '/api/health' && req.method === 'GET') {
     return handleHealthCheck(wsHandler);
+  }
+
+  // GET /api/status - Agent status check
+  if (path === '/api/status' && req.method === 'GET') {
+    const status = statusManager.getStatus();
+    return Response.json(status);
   }
 
   // ============================================
