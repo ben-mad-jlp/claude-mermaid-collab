@@ -507,7 +507,7 @@ async function main() {
   }
 
   // Version is synced with package.json via npm version command
-  const SERVER_VERSION = '5.26.0';
+  const SERVER_VERSION = '5.27.0';
 
   const server = new Server(
     { name: 'mermaid-diagram-server', version: SERVER_VERSION },
