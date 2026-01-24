@@ -40,15 +40,39 @@ export function useTerminal(config: TerminalConfig) {
     }
 
     try {
-      const ws = new WebSocket(config.wsUrl);
+      // ttyd requires the 'tty' subprotocol
+      const ws = new WebSocket(config.wsUrl, ['tty']);
+
+      ws.binaryType = 'arraybuffer';
 
       ws.onopen = () => {
         setState({ connected: true, error: null });
+        // Send initial resize message to ttyd
+        if (terminalRef.current) {
+          const cols = terminalRef.current.cols;
+          const rows = terminalRef.current.rows;
+          // ttyd resize command: '1' + JSON
+          ws.send('1' + JSON.stringify({ columns: cols, rows: rows }));
+        }
       };
 
       ws.onmessage = (event) => {
         if (terminalRef.current) {
-          terminalRef.current.write(event.data);
+          // ttyd sends data with command prefix
+          // '0' = output, '1' = resize ack, '2' = client info
+          if (event.data instanceof ArrayBuffer) {
+            const data = new Uint8Array(event.data);
+            const cmd = data[0];
+            if (cmd === 48) { // '0' = output
+              const text = new TextDecoder().decode(data.slice(1));
+              terminalRef.current.write(text);
+            }
+          } else if (typeof event.data === 'string') {
+            // Handle string data (fallback)
+            if (event.data.charAt(0) === '0') {
+              terminalRef.current.write(event.data.slice(1));
+            }
+          }
         }
       };
 
@@ -80,7 +104,8 @@ export function useTerminal(config: TerminalConfig) {
 
     terminalRef.current.onData((data: string) => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(data);
+        // ttyd input format: '0' + data
+        wsRef.current.send('0' + data);
       }
     });
   };
@@ -104,6 +129,12 @@ export function useTerminal(config: TerminalConfig) {
       if (fitAddonRef.current && terminalRef.current) {
         try {
           fitAddonRef.current.fit();
+          // Send resize to ttyd
+          if (wsRef.current?.readyState === WebSocket.OPEN) {
+            const cols = terminalRef.current.cols;
+            const rows = terminalRef.current.rows;
+            wsRef.current.send('1' + JSON.stringify({ columns: cols, rows: rows }));
+          }
         } catch (e) {
           // Terminal not yet mounted, ignore
         }
