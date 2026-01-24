@@ -73,7 +73,7 @@ ready_tasks = tasks where:
 2. If multiple parallel-safe tasks exist:
    - Update task diagram: set all parallel tasks to "executing"
    - **REQUIRED:** Spawn Task agents in parallel (single message, multiple tool calls)
-   - Each Task agent MUST invoke `subagent-driven-development` skill
+   - Each Task agent MUST invoke `mermaid-collab:subagent-driven-development:implementer-prompt` skill
    - Task prompt includes: task ID, files, description, relevant pseudocode
    - Wait for all agents to complete
    - Update task diagram: completed → "completed", failed → "failed"

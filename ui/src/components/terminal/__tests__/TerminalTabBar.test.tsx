@@ -6,8 +6,8 @@ import type { TerminalTab } from '../../../types/terminal';
 
 describe('TerminalTabBar', () => {
   const mockTabs: TerminalTab[] = [
-    { id: 'tab-1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
-    { id: 'tab-2', name: 'Terminal 2', wsUrl: 'ws://localhost:7682/ws' },
+    { id: 'tab-1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws', sessionName: 'mc-test-abc1' },
+    { id: 'tab-2', name: 'Terminal 2', wsUrl: 'ws://localhost:7682/ws', sessionName: 'mc-test-def2' },
   ];
 
   const defaultProps = {
@@ -53,7 +53,7 @@ describe('TerminalTabBar', () => {
 
     it('should show close buttons when multiple tabs exist', () => {
       render(<TerminalTabBar {...defaultProps} />);
-      const closeButtons = screen.getAllByRole('button', { name: /close|x/i });
+      const closeButtons = screen.getAllByRole('button', { name: /close tab/i });
       expect(closeButtons.length).toBe(mockTabs.length);
     });
 
@@ -66,7 +66,7 @@ describe('TerminalTabBar', () => {
           activeTabId="tab-1"
         />
       );
-      const closeButtons = screen.queryAllByRole('button', { name: /close|x/i });
+      const closeButtons = screen.queryAllByRole('button', { name: /close tab/i });
       expect(closeButtons.length).toBe(0);
     });
 
@@ -122,7 +122,7 @@ describe('TerminalTabBar', () => {
           onTabClose={onTabClose}
         />
       );
-      const closeButtons = screen.getAllByRole('button', { name: /close|x/i });
+      const closeButtons = screen.getAllByRole('button', { name: /close tab/i });
       fireEvent.click(closeButtons[0]);
       expect(onTabClose).toHaveBeenCalledWith('tab-1');
     });
@@ -138,7 +138,7 @@ describe('TerminalTabBar', () => {
           onTabClose={onTabClose}
         />
       );
-      const closeButtons = screen.queryAllByRole('button', { name: /close|x/i });
+      const closeButtons = screen.queryAllByRole('button', { name: /close tab/i });
       expect(closeButtons.length).toBe(0);
     });
   });

@@ -139,7 +139,7 @@ Ask user: "Compact context before starting implementation?"
 
 The executing-plans skill will:
 1. Parse the task dependency graph
-2. Dispatch parallel-safe tasks via subagent-driven-development
+2. Dispatch parallel-safe tasks via mermaid-collab:subagent-driven-development:implementer-prompt
 3. Execute sequential tasks in dependency order
 4. Run verify-phase after each task completes
 

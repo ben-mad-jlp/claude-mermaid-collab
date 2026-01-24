@@ -140,7 +140,7 @@ After saving the plan, offer execution choice:
 **Which approach?"**
 
 **If Subagent-Driven chosen:**
-- **REQUIRED SUB-SKILL:** Use superpowers:subagent-driven-development
+- **REQUIRED SUB-SKILL:** Use mermaid-collab:subagent-driven-development:implementer-prompt
 - Stay in this session
 - Fresh subagent per task + code review
 

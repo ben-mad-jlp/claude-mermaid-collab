@@ -127,14 +127,14 @@ Note: `lastActivity` is automatically updated by the MCP tool.
 
 ### MANDATORY: Subagent Dispatch
 
-**GATE:** Implementation MUST use the Task tool with subagent-driven-development skill.
+**GATE:** Implementation MUST use the Task tool with mermaid-collab:subagent-driven-development:implementer-prompt skill.
 
 **NEVER implement inline** - always dispatch a Task agent for each implementation task.
 
 This is a hard requirement, not a suggestion. If you find yourself writing implementation code directly instead of spawning a Task agent, STOP immediately.
 
 **Why this matters:**
-- Task agents invoke subagent-driven-development which enforces TDD
+- Task agents invoke mermaid-collab:subagent-driven-development:implementer-prompt which enforces TDD
 - Spec compliance review only happens in subagent flow
 - Code quality review only happens in subagent flow
 - Skipping this means skipping ALL quality gates
@@ -142,11 +142,11 @@ This is a hard requirement, not a suggestion. If you find yourself writing imple
 **Pre-Task Checklist (before starting ANY task):**
 - [ ] Will spawn a Task agent (not implement inline)
 - [ ] Task prompt includes design doc location
-- [ ] Task prompt specifies subagent-driven-development skill
+- [ ] Task prompt specifies mermaid-collab:subagent-driven-development:implementer-prompt skill
 
 **Post-Task Checklist (before marking ANY task complete):**
 - [ ] Task agent was spawned (verified Task tool was used)
-- [ ] subagent-driven-development skill was invoked by the agent
+- [ ] mermaid-collab:subagent-driven-development:implementer-prompt skill was invoked by the agent
 - [ ] Spec compliance review passed
 - [ ] Code quality review passed
 
@@ -493,7 +493,7 @@ collab -> brainstorming -> rough-draft -> executing-plans -> finishing-a-develop
 1. Design doc is already complete with task dependency graph
 2. Skeleton files already exist with TODOs
 3. Your job: implement TODOs respecting dependency order
-4. Parallel dispatch independent tasks via `subagent-driven-development`
+4. Parallel dispatch independent tasks via `mermaid-collab:subagent-driven-development:implementer-prompt`
 5. Verify each task against design before unlocking dependents
 
 ## Sub-Skills

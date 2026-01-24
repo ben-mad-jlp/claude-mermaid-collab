@@ -1,6 +1,7 @@
 {
   "mcpServers": {
     "mermaid": {
+      "type": "sse",
       "url": "http://localhost:3737/mcp/sse",
       "instructions": "Use these tools for collaborative design workflows: creating and managing Mermaid diagrams, wireframes, markdown documents, and UI rendering. All diagram/document operations require project path and session name parameters."
     }

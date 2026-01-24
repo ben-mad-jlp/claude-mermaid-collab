@@ -253,7 +253,7 @@ Run cleanup now?
 ## Integration
 
 **Called by:**
-- **subagent-driven-development** (Step 7) - After all tasks complete
+- **mermaid-collab:subagent-driven-development:implementer-prompt** (Step 7) - After all tasks complete
 - **executing-plans** (Step 5) - After all batches complete
 
 **Transitions to:**

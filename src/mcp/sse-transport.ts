@@ -10,11 +10,15 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 import { JSONRPCMessageSchema } from '@modelcontextprotocol/sdk/types.js';
 
+// Heartbeat interval in milliseconds (15 seconds)
+const HEARTBEAT_INTERVAL = 15000;
+
 export class BunSSEServerTransport implements Transport {
   private _sessionId: string;
   private _endpoint: string;
   private _controller: ReadableStreamDefaultController<string> | null = null;
   private _closed = false;
+  private _heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   onclose?: () => void;
   onerror?: (error: Error) => void;
@@ -23,6 +27,35 @@ export class BunSSEServerTransport implements Transport {
   constructor(endpoint: string) {
     this._endpoint = endpoint;
     this._sessionId = randomUUID();
+  }
+
+  /**
+   * Start sending heartbeat pings to keep the connection alive.
+   */
+  private _startHeartbeat(): void {
+    this._heartbeatTimer = setInterval(() => {
+      if (this._controller && !this._closed) {
+        try {
+          // Send a comment line as heartbeat (: is a comment in SSE)
+          this._controller.enqueue(`: heartbeat ${Date.now()}\n\n`);
+        } catch (error) {
+          // Connection may have closed, stop heartbeat
+          this._stopHeartbeat();
+        }
+      } else {
+        this._stopHeartbeat();
+      }
+    }, HEARTBEAT_INTERVAL);
+  }
+
+  /**
+   * Stop the heartbeat timer.
+   */
+  private _stopHeartbeat(): void {
+    if (this._heartbeatTimer) {
+      clearInterval(this._heartbeatTimer);
+      this._heartbeatTimer = null;
+    }
   }
 
   get sessionId(): string {
@@ -43,8 +76,12 @@ export class BunSSEServerTransport implements Transport {
         // Send the endpoint event (tells client where to POST messages)
         const endpointUrl = `${self._endpoint}?sessionId=${self._sessionId}`;
         controller.enqueue(`event: endpoint\ndata: ${encodeURI(endpointUrl)}\n\n`);
+
+        // Start heartbeat to keep connection alive
+        self._startHeartbeat();
       },
       cancel() {
+        self._stopHeartbeat();
         self._closed = true;
         self._controller = null;
         self.onclose?.();
@@ -116,6 +153,7 @@ export class BunSSEServerTransport implements Transport {
    * Close the SSE connection.
    */
   async close(): Promise<void> {
+    this._stopHeartbeat();
     if (this._controller && !this._closed) {
       this._controller.close();
       this._controller = null;
