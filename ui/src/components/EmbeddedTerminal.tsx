@@ -1,5 +1,4 @@
-import React, { useEffect } from 'react';
-import { useTerminal } from '../hooks/useTerminal';
+import React, { useState, useCallback } from 'react';
 import type { TerminalConfig } from '../types/terminal';
 
 export interface EmbeddedTerminalProps {
@@ -8,43 +7,72 @@ export interface EmbeddedTerminalProps {
 }
 
 export function EmbeddedTerminal({ config, className = '' }: EmbeddedTerminalProps) {
-  const { terminalRef, isConnected, error, reconnect } = useTerminal(config);
+  const [isStarted, setIsStarted] = useState(false);
 
-  useEffect(() => {
-    if (terminalRef.current && typeof (terminalRef.current as any).open === 'function') {
-      const container = document.getElementById('terminal-container');
-      if (container && !container.hasChildNodes()) {
-        (terminalRef.current as any).open(container);
-      }
-    }
-  }, [terminalRef]);
+  // Extract host from wsUrl (ws://localhost:7682/ws -> http://localhost:7682)
+  const iframeUrl = config.wsUrl
+    .replace('ws://', 'http://')
+    .replace('wss://', 'https://')
+    .replace('/ws', '');
+
+  const startTerminal = useCallback(() => {
+    setIsStarted(true);
+  }, []);
 
   return (
-    <div className={`embedded-terminal ${className}`}>
-      {error && (
-        <div className="terminal-error">
-          <p>{error}</p>
-          <button onClick={reconnect} className="reconnect-btn">
-            Reconnect
+    <div className={`embedded-terminal ${className}`} style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
+      {!isStarted && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: '#1e1e1e',
+            zIndex: 10,
+          }}
+        >
+          <button
+            onClick={startTerminal}
+            style={{
+              padding: '12px 24px',
+              fontSize: '14px',
+              fontWeight: 500,
+              color: '#fff',
+              background: '#3b82f6',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+            }}
+          >
+            Start Terminal
           </button>
+          <p style={{ marginTop: '8px', fontSize: '12px', color: '#888' }}>
+            Click to open terminal session
+          </p>
         </div>
       )}
-      {!error && (
-        <div className="terminal-status">
-          <span className={`status-indicator ${isConnected ? 'connected' : 'connecting'}`} />
-          {isConnected ? 'Connected' : 'Connecting...'}
-        </div>
+
+      {isStarted && (
+        <iframe
+          src={iframeUrl}
+          style={{
+            flex: 1,
+            border: 'none',
+            background: '#1e1e1e',
+          }}
+          title="Terminal"
+        />
       )}
-      <div
-        id="terminal-container"
-        data-testid="terminal-container"
-        className="terminal-container"
-        style={{
-          width: '100%',
-          height: '100%',
-          overflow: 'hidden',
-        }}
-      />
+
+      {!isStarted && (
+        <div
+          data-testid="terminal-container"
+          style={{ flex: 1, minHeight: '200px', visibility: 'hidden' }}
+        />
+      )}
     </div>
   );
 }

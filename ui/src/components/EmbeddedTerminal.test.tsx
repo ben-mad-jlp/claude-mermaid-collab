@@ -1,5 +1,4 @@
-import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Unmock the EmbeddedTerminal so we test the real component (not the global mock)
@@ -7,27 +6,14 @@ vi.unmock('@/components/EmbeddedTerminal');
 
 import { EmbeddedTerminal } from './EmbeddedTerminal';
 
-// Mock the useTerminal hook
-vi.mock('../hooks/useTerminal', () => ({
-  useTerminal: () => ({
-    terminalRef: { current: { open: vi.fn(), write: vi.fn() } },
-    isConnected: true,
-    error: null,
-    reconnect: vi.fn(),
-  }),
-}));
-
 describe('EmbeddedTerminal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('should render terminal container', () => {
-    const { container } = render(
-      <EmbeddedTerminal config={{ wsUrl: 'ws://localhost:7681/ws' }} />
-    );
-    const terminalDiv = container.querySelector('[data-testid="terminal-container"]');
-    expect(terminalDiv).toBeInTheDocument();
+  it('should render start button initially', () => {
+    render(<EmbeddedTerminal config={{ wsUrl: 'ws://localhost:7681/ws' }} />);
+    expect(screen.getByText('Start Terminal')).toBeInTheDocument();
   });
 
   it('should apply custom className', () => {
@@ -41,49 +27,25 @@ describe('EmbeddedTerminal', () => {
     expect(terminalDiv).toHaveClass('custom-class');
   });
 
-  it('should display connected status', () => {
-    render(<EmbeddedTerminal config={{ wsUrl: 'ws://localhost:7681/ws' }} />);
-    // Terminal is connected by default in mock
-    const statusText = screen.queryByText(/connected/i);
-    // Status might not always be shown, just verify component renders
-  });
-
-  it('should render terminal with connection status', () => {
+  it('should show iframe when started', () => {
     const { container } = render(
       <EmbeddedTerminal config={{ wsUrl: 'ws://localhost:7681/ws' }} />
     );
-    const terminalContainer = container.querySelector('[data-testid="terminal-container"]');
-    expect(terminalContainer).toBeInTheDocument();
+
+    const startButton = screen.getByText('Start Terminal');
+    fireEvent.click(startButton);
+
+    const iframe = container.querySelector('iframe');
+    expect(iframe).toBeInTheDocument();
+    expect(iframe).toHaveAttribute('src', 'http://localhost:7681');
   });
 
-  it('should call reconnect function when button is clicked', async () => {
-    const user = userEvent.setup();
+  it('should keep iframe visible once started', () => {
     const { container } = render(
       <EmbeddedTerminal config={{ wsUrl: 'ws://localhost:7681/ws' }} />
     );
-    const terminalDiv = container.querySelector('.embedded-terminal');
-    expect(terminalDiv).toBeInTheDocument();
-  });
 
-  it('should accept fontSize and fontFamily in config', () => {
-    render(
-      <EmbeddedTerminal
-        config={{
-          wsUrl: 'ws://localhost:7681/ws',
-          fontSize: 16,
-          fontFamily: 'Courier',
-        }}
-      />
-    );
-    const { container } = render(
-      <EmbeddedTerminal
-        config={{
-          wsUrl: 'ws://localhost:7681/ws',
-          fontSize: 16,
-          fontFamily: 'Courier',
-        }}
-      />
-    );
-    expect(container.querySelector('[data-testid="terminal-container"]')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Start Terminal'));
+    expect(container.querySelector('iframe')).toBeInTheDocument();
   });
 });
