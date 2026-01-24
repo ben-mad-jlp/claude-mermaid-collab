@@ -11,6 +11,8 @@ export interface ApiClient {
   getSessions(): Promise<Session[]>;
   getDiagrams(project: string, session: string): Promise<Diagram[]>;
   getDocuments(project: string, session: string): Promise<Document[]>;
+  getDiagram(project: string, session: string, id: string): Promise<Diagram | null>;
+  getDocument(project: string, session: string, id: string): Promise<Document | null>;
   updateDiagram(project: string, session: string, id: string, content: string): Promise<void>;
   updateDocument(project: string, session: string, id: string, content: string): Promise<void>;
 }
@@ -62,6 +64,36 @@ export const api: ApiClient = {
     const data = await response.json();
     // API returns { documents: [...] }
     return data.documents || [];
+  },
+
+  /**
+   * Fetch a single diagram with full content
+   */
+  async getDiagram(project: string, session: string, id: string): Promise<Diagram | null> {
+    const url = `/api/diagram/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const response = await fetch(url);
+    if (response.status === 404) {
+      return null;
+    }
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+    return response.json();
+  },
+
+  /**
+   * Fetch a single document with full content
+   */
+  async getDocument(project: string, session: string, id: string): Promise<Document | null> {
+    const url = `/api/document/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const response = await fetch(url);
+    if (response.status === 404) {
+      return null;
+    }
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+    return response.json();
   },
 
   /**

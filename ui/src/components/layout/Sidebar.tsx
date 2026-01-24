@@ -12,6 +12,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useDataLoader } from '@/hooks/useDataLoader';
 import { ItemCard } from '@/components/layout/ItemCard';
 import { Item } from '@/types';
 
@@ -31,30 +32,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
     documents,
     selectedDiagramId,
     selectedDocumentId,
-    selectDiagram,
-    selectDocument,
+    currentSession,
   } = useSessionStore(
     useShallow((state) => ({
       diagrams: state.diagrams,
       documents: state.documents,
       selectedDiagramId: state.selectedDiagramId,
       selectedDocumentId: state.selectedDocumentId,
-      selectDiagram: state.selectDiagram,
-      selectDocument: state.selectDocument,
+      currentSession: state.currentSession,
     }))
   );
+
+  const { selectDiagramWithContent, selectDocumentWithContent } = useDataLoader();
 
   const [searchQuery, setSearchQuery] = useState('');
 
   const handleItemClick = useCallback(
     (item: Item) => {
+      if (!currentSession) return;
+
       if (item.type === 'diagram') {
-        selectDiagram(item.id);
+        selectDiagramWithContent(currentSession.project, currentSession.name, item.id);
       } else {
-        selectDocument(item.id);
+        selectDocumentWithContent(currentSession.project, currentSession.name, item.id);
       }
     },
-    [selectDiagram, selectDocument]
+    [currentSession, selectDiagramWithContent, selectDocumentWithContent]
   );
 
   const handleSearchChange = useCallback(

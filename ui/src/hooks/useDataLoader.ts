@@ -23,6 +23,10 @@ export interface UseDataLoaderReturn {
   loadSessions: () => Promise<void>;
   /** Load diagrams and documents for a specific session */
   loadSessionItems: (project: string, session: string) => Promise<void>;
+  /** Select a diagram and fetch its content */
+  selectDiagramWithContent: (project: string, session: string, id: string) => Promise<void>;
+  /** Select a document and fetch its content */
+  selectDocumentWithContent: (project: string, session: string, id: string) => Promise<void>;
 }
 
 /**
@@ -58,6 +62,10 @@ export function useDataLoader(): UseDataLoaderReturn {
   const setSessions = useSessionStore((state) => state.setSessions);
   const setDiagrams = useSessionStore((state) => state.setDiagrams);
   const setDocuments = useSessionStore((state) => state.setDocuments);
+  const selectDiagram = useSessionStore((state) => state.selectDiagram);
+  const selectDocument = useSessionStore((state) => state.selectDocument);
+  const updateDiagram = useSessionStore((state) => state.updateDiagram);
+  const updateDocument = useSessionStore((state) => state.updateDocument);
 
   /**
    * Load all available sessions from the API
@@ -100,10 +108,58 @@ export function useDataLoader(): UseDataLoaderReturn {
     [setDiagrams, setDocuments]
   );
 
+  /**
+   * Select a diagram and fetch its full content
+   */
+  const selectDiagramWithContent = useCallback(
+    async (project: string, session: string, id: string) => {
+      // First, set the selection (for immediate UI feedback)
+      selectDiagram(id);
+
+      // Then fetch the full content
+      try {
+        const diagram = await api.getDiagram(project, session, id);
+        if (diagram) {
+          // Update the diagram in the store with its content
+          updateDiagram(id, { content: diagram.content });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to load diagram content';
+        setError(message);
+      }
+    },
+    [selectDiagram, updateDiagram]
+  );
+
+  /**
+   * Select a document and fetch its full content
+   */
+  const selectDocumentWithContent = useCallback(
+    async (project: string, session: string, id: string) => {
+      // First, set the selection (for immediate UI feedback)
+      selectDocument(id);
+
+      // Then fetch the full content
+      try {
+        const document = await api.getDocument(project, session, id);
+        if (document) {
+          // Update the document in the store with its content
+          updateDocument(id, { content: document.content });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to load document content';
+        setError(message);
+      }
+    },
+    [selectDocument, updateDocument]
+  );
+
   return {
     isLoading,
     error,
     loadSessions,
     loadSessionItems,
+    selectDiagramWithContent,
+    selectDocumentWithContent,
   };
 }

@@ -1,6 +1,10 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// Unmock the EmbeddedTerminal so we test the real component (not the global mock)
+vi.unmock('@/components/EmbeddedTerminal');
+
 import { EmbeddedTerminal } from './EmbeddedTerminal';
 
 // Mock the useTerminal hook
