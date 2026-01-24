@@ -85,7 +85,7 @@ describe('MCP Tool Schemas', () => {
 
     it('should have correct default values', () => {
       expect(renderUISchema.properties.blocking.default).toBe(true);
-      expect(renderUISchema.properties.timeout.default).toBe(30000);
+      expect(renderUISchema.properties.timeout.default).toBeUndefined();
     });
   });
 

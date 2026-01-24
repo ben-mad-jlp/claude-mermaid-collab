@@ -161,9 +161,10 @@ The plugin provides these slash commands (all namespaced under `mermaid-collab:`
 /your/project/
 └── .collab/
     └── session-name/
-        ├── diagrams/           # .mmd files
-        ├── documents/          # .md files (design.md required)
-        ├── collab-state.json   # Phase tracking
+        ├── diagrams/              # .mmd files
+        ├── documents/             # .md files (design.md required)
+        ├── collab-state.json      # Phase tracking
+        ├── terminal-sessions.json # Persistent terminal tabs
         └── context-snapshot.json  # Recovery after compaction
 ```
 
@@ -230,9 +231,19 @@ All tools require `project` (absolute path) and `session` (session name) paramet
 
 | Tool | Description |
 |------|-------------|
-| `render_ui(project, session, ui, blocking?, timeout?)` | Push UI to browser |
+| `render_ui(project, session, ui, blocking?, timeout?)` | Push UI to browser (no default timeout) |
 | `update_ui(project, session, patch)` | Update displayed UI with patch |
 | `dismiss_ui(project, session)` | Dismiss current UI |
+
+### Terminal Session Tools
+
+| Tool | Description |
+|------|-------------|
+| `terminal_create_session(project, session, name?)` | Create a new tmux terminal session |
+| `terminal_list_sessions(project, session)` | List all terminal sessions for a collab |
+| `terminal_kill_session(project, session, id)` | Kill a terminal session |
+| `terminal_rename_session(project, session, id, name)` | Rename a terminal session |
+| `terminal_reorder_sessions(project, session, orderedIds)` | Reorder terminal sessions |
 
 ## REST API
 
@@ -270,6 +281,15 @@ PATCH /api/document/:id        # Patch document
 DELETE /api/document/:id       # Delete document
 ```
 
+### Terminal Sessions
+```bash
+GET /api/terminal/sessions           # List terminal sessions
+POST /api/terminal/sessions          # Create terminal session
+DELETE /api/terminal/sessions/:id    # Kill terminal session
+PATCH /api/terminal/sessions/:id     # Rename terminal session
+PUT /api/terminal/sessions/reorder   # Reorder terminal sessions
+```
+
 ## Architecture
 
 ### Services
@@ -279,6 +299,7 @@ DELETE /api/document/:id       # Delete document
 | **SessionRegistry** | Tracks sessions across projects |
 | **DiagramManager** | Per-session diagram CRUD |
 | **DocumentManager** | Per-session document CRUD |
+| **TerminalManager** | Collab-scoped tmux session lifecycle |
 | **Validator** | Mermaid syntax validation |
 | **Renderer** | Server-side SVG generation |
 | **WebSocketHandler** | Real-time updates with channel subscriptions |
