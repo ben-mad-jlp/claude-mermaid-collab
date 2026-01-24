@@ -50,7 +50,7 @@ export function parseArtifactNotification(
 
   // Extract artifact name from message
   const name = extractArtifactName(mcpResponse.message);
-  if (!name) {
+  if (!name || name.trim().length === 0) {
     return null;
   }
 
