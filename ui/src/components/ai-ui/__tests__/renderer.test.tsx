@@ -573,4 +573,223 @@ describe('AIUIRenderer', () => {
       expect(screen.getByText(/script/)).toBeInTheDocument();
     });
   });
+
+  describe('Form data collection', () => {
+    describe('RadioGroup handling', () => {
+      it('should collect only the checked radio button value', async () => {
+        const mockAction = vi.fn();
+        const component: UIComponent = {
+          type: 'Card',
+          props: { title: 'Radio Form' },
+          children: [
+            {
+              type: 'RadioGroup',
+              props: {
+                name: 'choice',
+                options: [
+                  { value: 'option1', label: 'Option 1' },
+                  { value: 'option2', label: 'Option 2' },
+                  { value: 'option3', label: 'Option 3' },
+                ],
+              },
+            },
+          ],
+          actions: [{ id: 'submit', label: 'Submit' }],
+        };
+
+        render(<AIUIRenderer component={component} onAction={mockAction} />);
+
+        // Find and click the second radio button
+        const option2 = screen.getByLabelText('Option 2');
+        await userEvent.click(option2);
+
+        // Click submit
+        const submitButton = screen.getByRole('button', { name: 'Submit' });
+        await userEvent.click(submitButton);
+
+        // Verify the action was called with the correct form data
+        await waitFor(() => {
+          expect(mockAction).toHaveBeenCalledWith('submit', expect.objectContaining({
+            data: expect.objectContaining({
+              choice: 'option2',
+            }),
+          }));
+        });
+      });
+
+      it('should return the checked radio value not the last radio in DOM', async () => {
+        const mockAction = vi.fn();
+        const component: UIComponent = {
+          type: 'Card',
+          props: { title: 'Radio Form' },
+          children: [
+            {
+              type: 'RadioGroup',
+              props: {
+                name: 'preference',
+                options: [
+                  { value: 'a', label: 'A' },
+                  { value: 'b', label: 'B' },
+                  { value: 'c', label: 'C' },
+                ],
+              },
+            },
+          ],
+          actions: [{ id: 'submit', label: 'Submit' }],
+        };
+
+        render(<AIUIRenderer component={component} onAction={mockAction} />);
+
+        // Select option B (not the last one)
+        const optionB = screen.getByLabelText('B');
+        await userEvent.click(optionB);
+
+        // Click submit
+        const submitButton = screen.getByRole('button', { name: 'Submit' });
+        await userEvent.click(submitButton);
+
+        // Should capture option B's value, not C (the last radio in DOM)
+        await waitFor(() => {
+          expect(mockAction).toHaveBeenCalledWith('submit', expect.objectContaining({
+            data: expect.objectContaining({
+              preference: 'b',
+            }),
+          }));
+        });
+      });
+
+      it('should not include unchecked radio values in form data', async () => {
+        const mockAction = vi.fn();
+        const component: UIComponent = {
+          type: 'Card',
+          props: { title: 'Radio Form' },
+          children: [
+            {
+              type: 'RadioGroup',
+              props: {
+                name: 'selection',
+                options: [
+                  { value: 'first', label: 'First' },
+                  { value: 'second', label: 'Second' },
+                ],
+              },
+            },
+          ],
+          actions: [{ id: 'submit', label: 'Submit' }],
+        };
+
+        render(<AIUIRenderer component={component} onAction={mockAction} />);
+
+        // Select the first option
+        const firstOption = screen.getByLabelText('First');
+        await userEvent.click(firstOption);
+
+        // Click submit
+        const submitButton = screen.getByRole('button', { name: 'Submit' });
+        await userEvent.click(submitButton);
+
+        // Verify form data contains only the checked value
+        await waitFor(() => {
+          const call = mockAction.mock.calls[0];
+          const formData = call[1].data;
+          expect(formData.selection).toBe('first');
+        });
+      });
+    });
+
+    describe('Text input handling (regression)', () => {
+      it('should still collect text input values correctly', async () => {
+        const mockAction = vi.fn();
+        const component: UIComponent = {
+          type: 'Card',
+          props: { title: 'Text Form' },
+          children: [
+            {
+              type: 'TextInput',
+              props: {
+                name: 'username',
+                label: 'Username',
+                placeholder: 'Enter username',
+              },
+            },
+          ],
+          actions: [{ id: 'submit', label: 'Submit' }],
+        };
+
+        render(<AIUIRenderer component={component} onAction={mockAction} />);
+
+        // Type in the input
+        const input = screen.getByPlaceholderText('Enter username');
+        await userEvent.type(input, 'testuser');
+
+        // Click submit
+        const submitButton = screen.getByRole('button', { name: 'Submit' });
+        await userEvent.click(submitButton);
+
+        // Verify text input is collected
+        await waitFor(() => {
+          expect(mockAction).toHaveBeenCalledWith('submit', expect.objectContaining({
+            data: expect.objectContaining({
+              username: 'testuser',
+            }),
+          }));
+        });
+      });
+    });
+
+    describe('Mixed form data collection', () => {
+      it('should collect radio and text input together', async () => {
+        const mockAction = vi.fn();
+        const component: UIComponent = {
+          type: 'Card',
+          props: { title: 'Mixed Form' },
+          children: [
+            {
+              type: 'TextInput',
+              props: {
+                name: 'email',
+                label: 'Email',
+                placeholder: 'Enter email',
+              },
+            },
+            {
+              type: 'RadioGroup',
+              props: {
+                name: 'frequency',
+                options: [
+                  { value: 'daily', label: 'Daily' },
+                  { value: 'weekly', label: 'Weekly' },
+                ],
+              },
+            },
+          ],
+          actions: [{ id: 'submit', label: 'Submit' }],
+        };
+
+        render(<AIUIRenderer component={component} onAction={mockAction} />);
+
+        // Fill in email
+        const emailInput = screen.getByPlaceholderText('Enter email');
+        await userEvent.type(emailInput, 'test@example.com');
+
+        // Select radio button
+        const weeklyRadio = screen.getByLabelText('Weekly');
+        await userEvent.click(weeklyRadio);
+
+        // Click submit
+        const submitButton = screen.getByRole('button', { name: 'Submit' });
+        await userEvent.click(submitButton);
+
+        // Verify all form data is collected correctly
+        await waitFor(() => {
+          expect(mockAction).toHaveBeenCalledWith('submit', expect.objectContaining({
+            data: expect.objectContaining({
+              email: 'test@example.com',
+              frequency: 'weekly',
+            }),
+          }));
+        });
+      });
+    });
+  });
 });

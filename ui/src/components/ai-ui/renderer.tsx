@@ -97,6 +97,11 @@ export const AIUIRenderer: React.FC<RendererProps> = ({
       if (input.name) {
         if (input.type === 'checkbox') {
           data[input.name] = input.checked;
+        } else if (input.type === 'radio') {
+          // Only store the value of the checked radio button
+          if (input.checked) {
+            data[input.name] = input.value;
+          }
         } else {
           data[input.name] = input.value;
         }
