@@ -622,7 +622,7 @@ const App: React.FC = () => {
           <SplitPane
             direction="horizontal"
             defaultPrimarySize={75}
-            minPrimarySize={50}
+            minPrimarySize={20}
             minSecondarySize={15}
             storageId="main-chat-split"
             primaryContent={

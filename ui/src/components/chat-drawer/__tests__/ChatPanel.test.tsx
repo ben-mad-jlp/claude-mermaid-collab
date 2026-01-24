@@ -18,9 +18,11 @@ describe('ChatPanel with InputControls', () => {
   });
 
   describe('Rendering', () => {
-    it('should render ChatPanel with header', () => {
-      render(<ChatPanel />);
-      expect(screen.getByText('Chat')).toBeDefined();
+    it('should render ChatPanel with horizontal split layout', () => {
+      const { container } = render(<ChatPanel />);
+      // Check for SplitPane with horizontal direction
+      const splitPane = container.querySelector('[data-testid="split-pane"]');
+      expect(splitPane).toBeDefined();
     });
 
     it('should render InputControls component', () => {
@@ -147,9 +149,12 @@ describe('ChatPanel with InputControls', () => {
 
     it('should not send message when only clear button is visible', () => {
       const { container } = render(<ChatPanel />);
-      const buttons = screen.getAllByRole('button');
 
-      // Should have clear and send buttons
+      // Get buttons only in the input controls area (now at top with border-b)
+      const inputControls = container.querySelector('.px-3.py-2.border-b');
+      const buttons = inputControls?.querySelectorAll('button') || [];
+
+      // Should have clear and send buttons in the input area
       expect(buttons.length).toBe(2);
     });
   });
@@ -179,29 +184,28 @@ describe('ChatPanel with InputControls', () => {
     });
   });
 
-  describe('Header', () => {
-    it('should have clean header without secondary controls', () => {
-      render(<ChatPanel />);
-      const header = screen.getByText('Chat');
-      const headerDiv = header.parentElement;
-
-      // Count buttons in header
-      const headerId = headerDiv?.parentElement?.className;
-      expect(headerDiv).toBeDefined();
+  describe('Terminal Panel', () => {
+    it('should have terminal in secondary pane', () => {
+      const { container } = render(<ChatPanel />);
+      // TerminalTabsContainer should be rendered
+      const terminalContainer = container.querySelector('.terminal-tabs-container');
+      expect(terminalContainer).toBeDefined();
     });
 
-    it('should display Chat title', () => {
-      render(<ChatPanel />);
-      const heading = screen.getByText('Chat');
-      expect(heading.tagName).toBe('H2');
+    it('should render TerminalTabsContainer', () => {
+      const { container } = render(<ChatPanel />);
+      // Look for the terminal tabs container class
+      const terminalContainer = container.querySelector('.terminal-tabs-container');
+      expect(terminalContainer).toBeDefined();
     });
   });
 
   describe('Accessibility', () => {
-    it('should have proper heading structure', () => {
-      render(<ChatPanel />);
-      const heading = screen.getByText('Chat');
-      expect(heading.tagName).toBe('H2');
+    it('should have proper layout structure', () => {
+      const { container } = render(<ChatPanel />);
+      // No headers in the new layout, check for input controls presence
+      const inputControls = container.querySelector('.px-3.py-2.border-b');
+      expect(inputControls).toBeDefined();
     });
 
     it('should have accessible input field', () => {

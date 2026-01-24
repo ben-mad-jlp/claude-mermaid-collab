@@ -32,24 +32,6 @@ function generateTabId(): string {
 }
 
 /**
- * Find the next available port not used by any existing tab
- */
-function findNextPort(tabs: TerminalTab[], defaultPort: number): number {
-  const usedPorts = new Set(
-    tabs.map(tab => {
-      const match = tab.wsUrl.match(/:(\d+)\/ws$/);
-      return match ? parseInt(match[1], 10) : null;
-    }).filter((port): port is number => port !== null)
-  );
-
-  let port = defaultPort;
-  while (usedPorts.has(port)) {
-    port++;
-  }
-  return port;
-}
-
-/**
  * Initialize state from localStorage, with fallback to default state
  */
 function initializeState(
@@ -105,14 +87,14 @@ export function useTerminalTabs(options: UseTerminalTabsOptions = {}): UseTermin
   // For same-tab updates, localStorage.setItem handles it through this hook's state
 
   const addTab = useCallback(() => {
-    // Get current tabs to calculate next port
+    // All tabs connect to the same ttyd instance on the default port
+    // Each WebSocket connection creates a new PTY session
     setTabsState(prevState => {
       const { tabs: prevTabs } = prevState;
-      const port = findNextPort(prevTabs, defaultPort);
       const newTab: TerminalTab = {
         id: generateTabId(),
         name: `Terminal ${prevTabs.length + 1}`,
-        wsUrl: `ws://localhost:${port}/ws`,
+        wsUrl: `ws://localhost:${defaultPort}/ws`,
       };
 
       return {

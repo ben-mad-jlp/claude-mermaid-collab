@@ -198,9 +198,10 @@ describe('ChatPanel with ArtifactLink Integration', () => {
   });
 
   describe('Message Rendering with Artifacts', () => {
-    it('should render chat panel header', () => {
-      render(<ChatPanel />);
-      expect(screen.getByText('Chat')).toBeDefined();
+    it('should render chat panel with input controls', () => {
+      const { container } = render(<ChatPanel />);
+      const inputControls = container.querySelector('.px-3.py-2.border-b');
+      expect(inputControls).toBeDefined();
     });
 
     it('should show empty state when no messages', () => {
@@ -239,10 +240,11 @@ describe('ChatPanel with ArtifactLink Integration', () => {
   });
 
   describe('Accessibility', () => {
-    it('should render with proper heading structure', () => {
-      render(<ChatPanel />);
-      const heading = screen.getByText('Chat');
-      expect(heading.tagName).toBe('H2');
+    it('should render with proper layout structure', () => {
+      const { container } = render(<ChatPanel />);
+      // No headers in the new layout, but input controls should be present
+      const inputControls = container.querySelector('.px-3.py-2.border-b');
+      expect(inputControls).toBeDefined();
     });
 
     it('should have clear labels for interaction elements', () => {

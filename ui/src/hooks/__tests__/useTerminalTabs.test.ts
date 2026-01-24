@@ -127,7 +127,7 @@ describe('useTerminalTabs', () => {
       expect(firstId).not.toBe(secondId);
     });
 
-    it('should find next available port starting from default', async () => {
+    it('should use default port for all tabs (same ttyd instance)', async () => {
       const { result } = renderHook(() => useTerminalTabs({ defaultPort: 7681 }));
 
       expect(result.current.tabs[0].wsUrl).toContain(':7681/ws');
@@ -140,7 +140,8 @@ describe('useTerminalTabs', () => {
         expect(result.current.tabs).toHaveLength(2);
       });
 
-      expect(result.current.tabs[1].wsUrl).toContain(':7682/ws');
+      // All tabs connect to same ttyd instance, each gets separate PTY session
+      expect(result.current.tabs[1].wsUrl).toContain(':7681/ws');
 
       act(() => {
         result.current.addTab();
@@ -150,7 +151,7 @@ describe('useTerminalTabs', () => {
         expect(result.current.tabs).toHaveLength(3);
       });
 
-      expect(result.current.tabs[2].wsUrl).toContain(':7683/ws');
+      expect(result.current.tabs[2].wsUrl).toContain(':7681/ws');
     });
 
     it('should set new tab as active', async () => {
@@ -832,8 +833,10 @@ describe('useTerminalTabs', () => {
 
       expect(result.current.tabs).toHaveLength(11);
 
+      // All tabs use same port (same ttyd instance, separate PTY sessions)
       const ports = new Set(result.current.tabs.map(t => t.wsUrl));
-      expect(ports.size).toBe(11); // All unique ports
+      expect(ports.size).toBe(1); // All same port
+      expect(result.current.tabs[0].wsUrl).toContain(':7681/ws');
     });
 
     it('should handle activeTabId being null initially', () => {
