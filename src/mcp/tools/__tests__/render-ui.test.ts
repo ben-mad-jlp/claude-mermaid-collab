@@ -242,9 +242,14 @@ describe('validateUIStructure', () => {
 });
 
 describe('validateTimeout', () => {
-  it('should return default timeout when undefined', () => {
+  it('should return undefined when timeout is undefined', () => {
     const result = validateTimeout(undefined);
-    expect(result).toBe(30000);
+    expect(result).toBeUndefined();
+  });
+
+  it('should return undefined when timeout is 0', () => {
+    const result = validateTimeout(0);
+    expect(result).toBeUndefined();
   });
 
   it('should accept valid timeout values', () => {
@@ -253,6 +258,7 @@ describe('validateTimeout', () => {
     expect(validateTimeout(30000)).toBe(30000);
     expect(validateTimeout(60000)).toBe(60000);
     expect(validateTimeout(300000)).toBe(300000);
+    expect(validateTimeout(1000000)).toBe(1000000); // No max limit
   });
 
   it('should reject non-number timeout', () => {
@@ -267,15 +273,16 @@ describe('validateTimeout', () => {
     expect(() => validateTimeout(NaN)).toThrow('must be a finite number');
   });
 
-  it('should reject timeout below minimum', () => {
+  it('should reject timeout below minimum when specified', () => {
     expect(() => validateTimeout(999)).toThrow('must be at least 1000ms');
-    expect(() => validateTimeout(0)).toThrow('must be at least 1000ms');
     expect(() => validateTimeout(-5000)).toThrow('must be at least 1000ms');
   });
 
-  it('should reject timeout above maximum', () => {
-    expect(() => validateTimeout(300001)).toThrow('must not exceed 300000ms');
-    expect(() => validateTimeout(1000000)).toThrow('must not exceed 300000ms');
+  it('should not reject timeout above old maximum', () => {
+    expect(() => validateTimeout(300001)).not.toThrow();
+    expect(validateTimeout(300001)).toBe(300001);
+    expect(() => validateTimeout(1000000)).not.toThrow();
+    expect(validateTimeout(1000000)).toBe(1000000);
   });
 });
 
@@ -380,21 +387,55 @@ describe('renderUI', () => {
     // Advance time past timeout
     vi.advanceTimersByTime(6000);
 
-    await expect(promise).rejects.toThrow('UI interaction timeout after 5000ms');
+    await expect(promise).rejects.toThrow('Timeout after 5000ms');
 
     vi.useRealTimers();
   });
 
-  it('should use default timeout when not specified in blocking mode', async () => {
+  it('should not setup timeout when no timeout is specified in blocking mode', async () => {
     vi.useFakeTimers();
     const ui = createBasicUIComponent();
 
     const promise = renderUI('/project', 'session', ui, true, undefined, wsHandler);
 
-    // Advance time past default timeout (30 seconds)
-    vi.advanceTimersByTime(31000);
+    // Get the UI ID from the broadcast message
+    const messages = wsHandler.getBroadcastedMessages();
+    const uiId = messages[0].message.uiId;
 
-    await expect(promise).rejects.toThrow('UI interaction timeout after 30000ms');
+    // Advance time well past old default timeout - should NOT timeout
+    vi.advanceTimersByTime(60000);
+
+    // Simulate user response to end the promise
+    const response = createUIResponse(uiId, 'submit', { selected: 'option1' });
+    handleUIResponse(wsHandler, response);
+
+    const result = await promise;
+    expect(result.completed).toBe(true);
+    expect(result.source).toBe('browser');
+
+    vi.useRealTimers();
+  });
+
+  it('should not setup timeout when timeout is 0 in blocking mode', async () => {
+    vi.useFakeTimers();
+    const ui = createBasicUIComponent();
+
+    const promise = renderUI('/project', 'session', ui, true, 0, wsHandler);
+
+    // Get the UI ID from the broadcast message
+    const messages = wsHandler.getBroadcastedMessages();
+    const uiId = messages[0].message.uiId;
+
+    // Advance time well past old default timeout - should NOT timeout
+    vi.advanceTimersByTime(60000);
+
+    // Simulate user response to end the promise
+    const response = createUIResponse(uiId, 'submit', { selected: 'option1' });
+    handleUIResponse(wsHandler, response);
+
+    const result = await promise;
+    expect(result.completed).toBe(true);
+    expect(result.source).toBe('browser');
 
     vi.useRealTimers();
   });
@@ -408,7 +449,7 @@ describe('renderUI', () => {
     // Advance past timeout
     vi.advanceTimersByTime(11000);
 
-    await expect(promise).rejects.toThrow('UI interaction timeout after 10000ms');
+    await expect(promise).rejects.toThrow('Timeout after 10000ms');
 
     vi.useRealTimers();
   });
@@ -588,7 +629,7 @@ describe('Integration: renderUI with handleUIResponse', () => {
 
     vi.advanceTimersByTime(6000);
 
-    await expect(renderPromise).rejects.toThrow('UI interaction timeout after 5000ms');
+    await expect(renderPromise).rejects.toThrow('Timeout after 5000ms');
 
     vi.useRealTimers();
   });
