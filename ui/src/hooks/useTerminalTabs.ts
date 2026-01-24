@@ -1,207 +1,134 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { TerminalTab, TerminalTabsState } from '../types/terminal';
+import { api } from '../lib/api';
+import type { TerminalSession, CreateSessionResult } from '../types/terminal';
 
 export interface UseTerminalTabsOptions {
-  storageKey?: string;
-  defaultPort?: number;
+  project: string;
+  session: string;
 }
 
 export interface UseTerminalTabsReturn {
-  tabs: TerminalTab[];
+  tabs: TerminalSession[];
   activeTabId: string | null;
-  activeTab: TerminalTab | null;
-  addTab: () => void;
-  removeTab: (id: string) => void;
-  renameTab: (id: string, name: string) => void;
+  activeTab: TerminalSession | null;
+  isLoading: boolean;
+  error: Error | null;
+  addTab: () => Promise<void>;
+  removeTab: (id: string) => Promise<void>;
+  renameTab: (id: string, name: string) => Promise<void>;
   setActiveTab: (id: string) => void;
-  reorderTabs: (fromIndex: number, toIndex: number) => void;
+  reorderTabs: (fromIndex: number, toIndex: number) => Promise<void>;
+  refresh: () => Promise<void>;
 }
 
-const DEFAULT_STORAGE_KEY = 'terminal-tabs';
-const DEFAULT_PORT = 7681;
+export function useTerminalTabs({ project, session }: UseTerminalTabsOptions): UseTerminalTabsReturn {
+  const [tabs, setTabs] = useState<TerminalSession[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
 
-/**
- * Generate a unique tab ID using crypto.randomUUID if available,
- * otherwise fall back to timestamp-based ID
- */
-function generateTabId(): string {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return crypto.randomUUID();
-  }
-  return Date.now().toString(36) + Math.random().toString(36).substr(2);
-}
-
-/**
- * Initialize state from localStorage, with fallback to default state
- */
-function initializeState(
-  storageKey: string,
-  defaultPort: number
-): TerminalTabsState {
-  try {
-    const stored = localStorage.getItem(storageKey);
-    if (stored) {
-      const data = JSON.parse(stored) as TerminalTabsState;
-      // Validate that we have tabs and activeTabId
-      if (data.tabs && Array.isArray(data.tabs) && data.activeTabId) {
-        return data;
+  // Fetch sessions from API
+  const refresh = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const sessions = await api.getTerminalSessions(project, session);
+      setTabs(sessions);
+      // Set active tab to first session, or null if empty
+      if (sessions.length > 0) {
+        setActiveTabId(sessions[0].id);
+      } else {
+        setActiveTabId(null);
       }
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      setError(error);
+      setTabs([]);
+      setActiveTabId(null);
+    } finally {
+      setIsLoading(false);
     }
-  } catch (error) {
-    // If parsing fails, fall through to default
-    console.warn(`Failed to parse localStorage for key "${storageKey}":`, error);
-  }
+  }, [project, session]);
 
-  // Create default state with one tab
-  const defaultTab: TerminalTab = {
-    id: generateTabId(),
-    name: 'Terminal 1',
-    wsUrl: `ws://localhost:${defaultPort}/ws`,
-  };
-
-  return {
-    tabs: [defaultTab],
-    activeTabId: defaultTab.id,
-  };
-}
-
-export function useTerminalTabs(options: UseTerminalTabsOptions = {}): UseTerminalTabsReturn {
-  const { storageKey = DEFAULT_STORAGE_KEY, defaultPort = DEFAULT_PORT } = options;
-
-  // Initialize both tabs and activeTabId from the same state
-  const [{ tabs, activeTabId }, setTabsState] = useState<TerminalTabsState>(() => {
-    return initializeState(storageKey, defaultPort);
-  });
-
-
-  // Sync to localStorage on state change
+  // Load on mount and when project/session changes
   useEffect(() => {
-    const state: TerminalTabsState = {
-      tabs,
-      activeTabId,
-    };
-    localStorage.setItem(storageKey, JSON.stringify(state));
-  }, [tabs, activeTabId, storageKey]);
+    refresh();
+  }, [refresh]);
 
-  // Note: Storage events don't fire in the same tab, so we only listen for cross-tab updates
-  // For same-tab updates, localStorage.setItem handles it through this hook's state
+  const addTab = useCallback(async () => {
+    try {
+      const result = await api.createTerminalSession(project, session);
+      // Refresh to get the updated list
+      await refresh();
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      setError(error);
+      throw error;
+    }
+  }, [project, session, refresh]);
 
-  const addTab = useCallback(() => {
-    // All tabs connect to the same ttyd instance on the default port
-    // Each WebSocket connection creates a new PTY session
-    setTabsState(prevState => {
-      const { tabs: prevTabs } = prevState;
-      const newTab: TerminalTab = {
-        id: generateTabId(),
-        name: `Terminal ${prevTabs.length + 1}`,
-        wsUrl: `ws://localhost:${defaultPort}/ws`,
-      };
+  const removeTab = useCallback(async (id: string) => {
+    try {
+      await api.deleteTerminalSession(project, session, id);
+      // Refresh to get the updated list
+      await refresh();
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      setError(error);
+      throw error;
+    }
+  }, [project, session, refresh]);
 
-      return {
-        tabs: [...prevTabs, newTab],
-        activeTabId: newTab.id,
-      };
-    });
-  }, [defaultPort]);
+  const renameTab = useCallback(async (id: string, name: string) => {
+    try {
+      await api.renameTerminalSession(project, session, id, name);
+      // Refresh to get the updated list
+      await refresh();
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      setError(error);
+      throw error;
+    }
+  }, [project, session, refresh]);
 
-  const removeTab = useCallback((id: string) => {
-    setTabsState(prevState => {
-      const { tabs: prevTabs, activeTabId: prevActiveId } = prevState;
+  const reorderTabs = useCallback(async (fromIndex: number, toIndex: number) => {
+    // Validate indices
+    if (
+      fromIndex < 0 ||
+      fromIndex >= tabs.length ||
+      toIndex < 0 ||
+      toIndex >= tabs.length ||
+      fromIndex === toIndex
+    ) {
+      throw new Error('Invalid reorder indices');
+    }
 
-      // Don't remove if it's the last tab
-      if (prevTabs.length === 1) {
-        return prevState;
-      }
+    // Perform optimistic update
+    const originalTabs = tabs;
+    const newTabs = [...tabs];
+    const [removed] = newTabs.splice(fromIndex, 1);
+    newTabs.splice(toIndex, 0, removed);
+    setTabs(newTabs);
 
-      // Find the index of the tab to remove
-      const indexToRemove = prevTabs.findIndex(t => t.id === id);
-      if (indexToRemove === -1) {
-        return prevState;
-      }
+    try {
+      // Create ordered IDs array for API call
+      const orderedIds = newTabs.map(t => t.id);
+      await api.reorderTerminalSessions(project, session, orderedIds);
+    } catch (err) {
+      // Revert optimistic update on error
+      setTabs(originalTabs);
+      const error = err instanceof Error ? err : new Error(String(err));
+      setError(error);
+      throw error;
+    }
+  }, [tabs, project, session]);
 
-      // Remove the tab
-      const newTabs = prevTabs.filter((_, index) => index !== indexToRemove);
-
-      // If the removed tab was active, select a new active tab
-      let newActiveTabId = prevActiveId;
-      if (prevActiveId === id) {
-        // Removed tab was active, select adjacent tab
-        if (indexToRemove > 0) {
-          // Select previous tab
-          newActiveTabId = newTabs[indexToRemove - 1].id;
-        } else if (newTabs.length > 0) {
-          // Select first tab (if removed was first)
-          newActiveTabId = newTabs[0].id;
-        } else {
-          newActiveTabId = null;
-        }
-      }
-
-      return {
-        tabs: newTabs,
-        activeTabId: newActiveTabId,
-      };
-    });
-  }, []);
-
-  const renameTab = useCallback((id: string, name: string) => {
-    setTabsState(prevState => {
-      const { tabs: prevTabs } = prevState;
-      const tab = prevTabs.find(t => t.id === id);
-      if (!tab) {
-        return prevState;
-      }
-
-      // Trim the name and use default if empty
-      const trimmedName = name.trim();
-      const finalName = trimmedName.length === 0 ? 'Terminal' : trimmedName;
-
-      return {
-        ...prevState,
-        tabs: prevTabs.map(t =>
-          t.id === id ? { ...t, name: finalName } : t
-        ),
-      };
-    });
-  }, []);
-
-  const setActiveTabCb = useCallback((id: string) => {
-    setTabsState(prevState => {
-      // Verify tab exists
-      const tabExists = prevState.tabs.some(t => t.id === id);
-      if (!tabExists) {
-        return prevState;
-      }
-      return { ...prevState, activeTabId: id };
-    });
-  }, []);
-
-  const reorderTabs = useCallback((fromIndex: number, toIndex: number) => {
-    setTabsState(prevState => {
-      const { tabs: prevTabs } = prevState;
-
-      // Validate indices
-      if (
-        fromIndex < 0 ||
-        fromIndex >= prevTabs.length ||
-        toIndex < 0 ||
-        toIndex >= prevTabs.length ||
-        fromIndex === toIndex
-      ) {
-        return prevState;
-      }
-
-      // Create new array with reordered tabs
-      const newTabs = [...prevTabs];
-      const [removed] = newTabs.splice(fromIndex, 1);
-      newTabs.splice(toIndex, 0, removed);
-
-      return {
-        ...prevState,
-        tabs: newTabs,
-      };
-    });
-  }, []);
+  const handleSetActiveTab = useCallback((id: string) => {
+    // Verify tab exists before setting
+    if (tabs.some(t => t.id === id)) {
+      setActiveTabId(id);
+    }
+  }, [tabs]);
 
   const activeTab = tabs.find(t => t.id === activeTabId) || null;
 
@@ -209,10 +136,13 @@ export function useTerminalTabs(options: UseTerminalTabsOptions = {}): UseTermin
     tabs,
     activeTabId,
     activeTab,
+    isLoading,
+    error,
     addTab,
     removeTab,
     renameTab,
-    setActiveTab: setActiveTabCb,
+    setActiveTab: handleSetActiveTab,
     reorderTabs,
+    refresh,
   };
 }
