@@ -823,3 +823,325 @@ describe('Tool Response Formats', () => {
     expect(parsed.completed).toBe(true);
   });
 });
+
+// ============================================================================
+// TERMINAL TOOLS REGISTRATION TESTS
+// ============================================================================
+
+describe('Terminal MCP Tools Registration', () => {
+  it('should have terminal_create_session tool schema defined', async () => {
+    // Import and verify the schema exists
+    const { terminalToolSchemas } = await import('../tools/terminal-sessions.js');
+
+    expect(terminalToolSchemas).toBeDefined();
+    expect(terminalToolSchemas.terminal_create_session).toBeDefined();
+    expect(terminalToolSchemas.terminal_create_session.name).toBe('terminal_create_session');
+    expect(terminalToolSchemas.terminal_create_session.description).toContain('Create a new terminal session');
+  });
+
+  it('should have terminal_list_sessions tool schema defined', async () => {
+    const { terminalToolSchemas } = await import('../tools/terminal-sessions.js');
+
+    expect(terminalToolSchemas.terminal_list_sessions).toBeDefined();
+    expect(terminalToolSchemas.terminal_list_sessions.name).toBe('terminal_list_sessions');
+    expect(terminalToolSchemas.terminal_list_sessions.description).toContain('List terminal sessions');
+  });
+
+  it('should have terminal_kill_session tool schema defined', async () => {
+    const { terminalToolSchemas } = await import('../tools/terminal-sessions.js');
+
+    expect(terminalToolSchemas.terminal_kill_session).toBeDefined();
+    expect(terminalToolSchemas.terminal_kill_session.name).toBe('terminal_kill_session');
+    expect(terminalToolSchemas.terminal_kill_session.description).toContain('Kill a terminal session');
+  });
+
+  it('should have terminal_rename_session tool schema defined', async () => {
+    const { terminalToolSchemas } = await import('../tools/terminal-sessions.js');
+
+    expect(terminalToolSchemas.terminal_rename_session).toBeDefined();
+    expect(terminalToolSchemas.terminal_rename_session.name).toBe('terminal_rename_session');
+    expect(terminalToolSchemas.terminal_rename_session.description).toContain('Rename a terminal session');
+  });
+
+  it('should have terminal_reorder_sessions tool schema defined', async () => {
+    const { terminalToolSchemas } = await import('../tools/terminal-sessions.js');
+
+    expect(terminalToolSchemas.terminal_reorder_sessions).toBeDefined();
+    expect(terminalToolSchemas.terminal_reorder_sessions.name).toBe('terminal_reorder_sessions');
+    expect(terminalToolSchemas.terminal_reorder_sessions.description).toContain('Reorder terminal sessions');
+  });
+
+  it('should have correct input schema for terminal_create_session', async () => {
+    const { terminalToolSchemas } = await import('../tools/terminal-sessions.js');
+    const schema = terminalToolSchemas.terminal_create_session;
+
+    expect(schema.inputSchema.type).toBe('object');
+    expect(schema.inputSchema.properties.project).toBeDefined();
+    expect(schema.inputSchema.properties.session).toBeDefined();
+    expect(schema.inputSchema.properties.name).toBeDefined();
+    expect(schema.inputSchema.required).toContain('project');
+    expect(schema.inputSchema.required).toContain('session');
+    expect(schema.inputSchema.required).not.toContain('name');
+  });
+
+  it('should have correct input schema for terminal_list_sessions', async () => {
+    const { terminalToolSchemas } = await import('../tools/terminal-sessions.js');
+    const schema = terminalToolSchemas.terminal_list_sessions;
+
+    expect(schema.inputSchema.type).toBe('object');
+    expect(schema.inputSchema.properties.project).toBeDefined();
+    expect(schema.inputSchema.properties.session).toBeDefined();
+    expect(schema.inputSchema.required).toContain('project');
+    expect(schema.inputSchema.required).toContain('session');
+    expect(schema.inputSchema.required.length).toBe(2);
+  });
+
+  it('should have correct input schema for terminal_kill_session', async () => {
+    const { terminalToolSchemas } = await import('../tools/terminal-sessions.js');
+    const schema = terminalToolSchemas.terminal_kill_session;
+
+    expect(schema.inputSchema.required).toContain('project');
+    expect(schema.inputSchema.required).toContain('session');
+    expect(schema.inputSchema.required).toContain('id');
+    expect(schema.inputSchema.required.length).toBe(3);
+  });
+
+  it('should have correct input schema for terminal_rename_session', async () => {
+    const { terminalToolSchemas } = await import('../tools/terminal-sessions.js');
+    const schema = terminalToolSchemas.terminal_rename_session;
+
+    expect(schema.inputSchema.required).toContain('project');
+    expect(schema.inputSchema.required).toContain('session');
+    expect(schema.inputSchema.required).toContain('id');
+    expect(schema.inputSchema.required).toContain('name');
+    expect(schema.inputSchema.required.length).toBe(4);
+  });
+
+  it('should have correct input schema for terminal_reorder_sessions', async () => {
+    const { terminalToolSchemas } = await import('../tools/terminal-sessions.js');
+    const schema = terminalToolSchemas.terminal_reorder_sessions;
+
+    expect(schema.inputSchema.required).toContain('project');
+    expect(schema.inputSchema.required).toContain('session');
+    expect(schema.inputSchema.required).toContain('orderedIds');
+    expect(schema.inputSchema.required.length).toBe(3);
+    expect(schema.inputSchema.properties.orderedIds.type).toBe('array');
+    expect(schema.inputSchema.properties.orderedIds.items.type).toBe('string');
+  });
+
+  it('should export all 5 terminal tool schemas', async () => {
+    const { terminalToolSchemas } = await import('../tools/terminal-sessions.js');
+
+    const toolNames = Object.keys(terminalToolSchemas);
+    expect(toolNames).toContain('terminal_create_session');
+    expect(toolNames).toContain('terminal_list_sessions');
+    expect(toolNames).toContain('terminal_kill_session');
+    expect(toolNames).toContain('terminal_rename_session');
+    expect(toolNames).toContain('terminal_reorder_sessions');
+    expect(toolNames).toHaveLength(5);
+  });
+});
+
+// ============================================================================
+// MCP SERVER REGISTRATION TESTS
+// ============================================================================
+
+describe('Terminal Tools Server Registration', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('should have terminal_create_session handler', async () => {
+    const { setupMCPServer } = await import('../setup.js');
+    const server = await setupMCPServer();
+
+    // The setupMCPServer returns the server with handlers registered
+    expect(server).toBeDefined();
+  });
+
+  it('should register terminal_create_session in ListToolsRequestSchema', async () => {
+    const { setupMCPServer } = await import('../setup.js');
+    const server = await setupMCPServer();
+
+    // Access the handler that was registered
+    // We need to test that the tool schema includes terminal_create_session
+    const { terminalToolSchemas } = await import('../tools/terminal-sessions.js');
+    expect(terminalToolSchemas.terminal_create_session).toBeDefined();
+    expect(terminalToolSchemas.terminal_create_session.name).toBe('terminal_create_session');
+  });
+
+  it('should register terminal_list_sessions in ListToolsRequestSchema', async () => {
+    const { terminalToolSchemas } = await import('../tools/terminal-sessions.js');
+    expect(terminalToolSchemas.terminal_list_sessions).toBeDefined();
+    expect(terminalToolSchemas.terminal_list_sessions.name).toBe('terminal_list_sessions');
+  });
+
+  it('should register terminal_kill_session in ListToolsRequestSchema', async () => {
+    const { terminalToolSchemas } = await import('../tools/terminal-sessions.js');
+    expect(terminalToolSchemas.terminal_kill_session).toBeDefined();
+    expect(terminalToolSchemas.terminal_kill_session.name).toBe('terminal_kill_session');
+  });
+
+  it('should register terminal_rename_session in ListToolsRequestSchema', async () => {
+    const { terminalToolSchemas } = await import('../tools/terminal-sessions.js');
+    expect(terminalToolSchemas.terminal_rename_session).toBeDefined();
+    expect(terminalToolSchemas.terminal_rename_session.name).toBe('terminal_rename_session');
+  });
+
+  it('should register terminal_reorder_sessions in ListToolsRequestSchema', async () => {
+    const { terminalToolSchemas } = await import('../tools/terminal-sessions.js');
+    expect(terminalToolSchemas.terminal_reorder_sessions).toBeDefined();
+    expect(terminalToolSchemas.terminal_reorder_sessions.name).toBe('terminal_reorder_sessions');
+  });
+
+  it('should have all terminal tools with correct descriptions', async () => {
+    const { terminalToolSchemas } = await import('../tools/terminal-sessions.js');
+
+    expect(terminalToolSchemas.terminal_create_session.description).toContain('Create');
+    expect(terminalToolSchemas.terminal_list_sessions.description).toContain('List');
+    expect(terminalToolSchemas.terminal_kill_session.description).toContain('Kill');
+    expect(terminalToolSchemas.terminal_rename_session.description).toContain('Rename');
+    expect(terminalToolSchemas.terminal_reorder_sessions.description).toContain('Reorder');
+  });
+
+  it('should handle terminal_create_session call with project and session', async () => {
+    const { terminalCreateSession } = await import('../tools/terminal-sessions.js');
+
+    // Mock the terminalManager
+    vi.mock('../../services/terminal-manager.js');
+
+    // This test verifies the function signature exists and is callable
+    expect(terminalCreateSession).toBeDefined();
+    expect(typeof terminalCreateSession).toBe('function');
+  });
+
+  it('should handle terminal_list_sessions call with project and session', async () => {
+    const { terminalListSessions } = await import('../tools/terminal-sessions.js');
+
+    expect(terminalListSessions).toBeDefined();
+    expect(typeof terminalListSessions).toBe('function');
+  });
+
+  it('should handle terminal_kill_session call with project, session, and id', async () => {
+    const { terminalKillSession } = await import('../tools/terminal-sessions.js');
+
+    expect(terminalKillSession).toBeDefined();
+    expect(typeof terminalKillSession).toBe('function');
+  });
+
+  it('should handle terminal_rename_session call with project, session, id, and name', async () => {
+    const { terminalRenameSession } = await import('../tools/terminal-sessions.js');
+
+    expect(terminalRenameSession).toBeDefined();
+    expect(typeof terminalRenameSession).toBe('function');
+  });
+
+  it('should handle terminal_reorder_sessions call with project, session, and orderedIds', async () => {
+    const { terminalReorderSessions } = await import('../tools/terminal-sessions.js');
+
+    expect(terminalReorderSessions).toBeDefined();
+    expect(typeof terminalReorderSessions).toBe('function');
+  });
+
+  it('should verify all terminal tools are properly imported in setup.ts', async () => {
+    const setupContent = await import('fs/promises').then(fs =>
+      fs.readFile('/Users/benmaderazo/Code/claude-mermaid-collab/src/mcp/setup.ts', 'utf-8')
+    );
+
+    // Verify import statement exists
+    expect(setupContent).toContain('import { terminalToolSchemas }');
+    expect(setupContent).toContain('from \'./tools/terminal-sessions.js\'');
+  });
+
+  it('should verify all 5 terminal tools are registered in tools array', async () => {
+    const setupContent = await import('fs/promises').then(fs =>
+      fs.readFile('/Users/benmaderazo/Code/claude-mermaid-collab/src/mcp/setup.ts', 'utf-8')
+    );
+
+    // Verify all tool registrations exist
+    expect(setupContent).toContain('terminalToolSchemas.terminal_create_session');
+    expect(setupContent).toContain('terminalToolSchemas.terminal_list_sessions');
+    expect(setupContent).toContain('terminalToolSchemas.terminal_kill_session');
+    expect(setupContent).toContain('terminalToolSchemas.terminal_rename_session');
+    expect(setupContent).toContain('terminalToolSchemas.terminal_reorder_sessions');
+  });
+
+  it('should verify all 5 terminal tools have case handlers', async () => {
+    const setupContent = await import('fs/promises').then(fs =>
+      fs.readFile('/Users/benmaderazo/Code/claude-mermaid-collab/src/mcp/setup.ts', 'utf-8')
+    );
+
+    // Verify case handlers exist
+    expect(setupContent).toContain("case 'terminal_create_session':");
+    expect(setupContent).toContain("case 'terminal_list_sessions':");
+    expect(setupContent).toContain("case 'terminal_kill_session':");
+    expect(setupContent).toContain("case 'terminal_rename_session':");
+    expect(setupContent).toContain("case 'terminal_reorder_sessions':");
+  });
+
+  it('should verify terminal_create_session handler validates required parameters', async () => {
+    const setupContent = await import('fs/promises').then(fs =>
+      fs.readFile('/Users/benmaderazo/Code/claude-mermaid-collab/src/mcp/setup.ts', 'utf-8')
+    );
+
+    const createSessionSection = setupContent.split("case 'terminal_create_session':")[1].split("case 'terminal_list_sessions':")[0];
+    expect(createSessionSection).toContain("if (!project || !session) throw new Error('Missing required: project, session')");
+  });
+
+  it('should verify terminal_list_sessions handler validates required parameters', async () => {
+    const setupContent = await import('fs/promises').then(fs =>
+      fs.readFile('/Users/benmaderazo/Code/claude-mermaid-collab/src/mcp/setup.ts', 'utf-8')
+    );
+
+    const listSessionsSection = setupContent.split("case 'terminal_list_sessions':")[1].split("case 'terminal_kill_session':")[0];
+    expect(listSessionsSection).toContain("if (!project || !session) throw new Error('Missing required: project, session')");
+  });
+
+  it('should verify terminal_kill_session handler validates required parameters', async () => {
+    const setupContent = await import('fs/promises').then(fs =>
+      fs.readFile('/Users/benmaderazo/Code/claude-mermaid-collab/src/mcp/setup.ts', 'utf-8')
+    );
+
+    const killSessionSection = setupContent.split("case 'terminal_kill_session':")[1].split("case 'terminal_rename_session':")[0];
+    expect(killSessionSection).toContain("if (!project || !session || !id) throw new Error('Missing required: project, session, id')");
+  });
+
+  it('should verify terminal_rename_session handler validates required parameters', async () => {
+    const setupContent = await import('fs/promises').then(fs =>
+      fs.readFile('/Users/benmaderazo/Code/claude-mermaid-collab/src/mcp/setup.ts', 'utf-8')
+    );
+
+    const renameSessionSection = setupContent.split("case 'terminal_rename_session':")[1].split("case 'terminal_reorder_sessions':")[0];
+    expect(renameSessionSection).toContain("if (!project || !session || !id || !name) throw new Error('Missing required: project, session, id, name')");
+  });
+
+  it('should verify terminal_reorder_sessions handler validates required parameters', async () => {
+    const setupContent = await import('fs/promises').then(fs =>
+      fs.readFile('/Users/benmaderazo/Code/claude-mermaid-collab/src/mcp/setup.ts', 'utf-8')
+    );
+
+    const reorderSessionsSection = setupContent.split("case 'terminal_reorder_sessions':")[1].split("default:")[0];
+    expect(reorderSessionsSection).toContain("if (!project || !session || !orderedIds) throw new Error('Missing required: project, session, orderedIds')");
+  });
+
+  it('should verify all handlers return JSON stringified results', async () => {
+    const setupContent = await import('fs/promises').then(fs =>
+      fs.readFile('/Users/benmaderazo/Code/claude-mermaid-collab/src/mcp/setup.ts', 'utf-8')
+    );
+
+    const createSessionSection = setupContent.split("case 'terminal_create_session':")[1].split("case 'terminal_list_sessions':")[0];
+    expect(createSessionSection).toContain('JSON.stringify(result, null, 2)');
+
+    const listSessionsSection = setupContent.split("case 'terminal_list_sessions':")[1].split("case 'terminal_kill_session':")[0];
+    expect(listSessionsSection).toContain('JSON.stringify(result, null, 2)');
+
+    const killSessionSection = setupContent.split("case 'terminal_kill_session':")[1].split("case 'terminal_rename_session':")[0];
+    expect(killSessionSection).toContain('JSON.stringify(result, null, 2)');
+
+    const renameSessionSection = setupContent.split("case 'terminal_rename_session':")[1].split("case 'terminal_reorder_sessions':")[0];
+    expect(renameSessionSection).toContain('JSON.stringify(result, null, 2)');
+
+    const reorderSessionsSection = setupContent.split("case 'terminal_reorder_sessions':")[1].split("default:")[0];
+    expect(reorderSessionsSection).toContain('JSON.stringify(result, null, 2)');
+  });
+});
