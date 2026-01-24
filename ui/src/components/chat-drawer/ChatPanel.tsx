@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useChatStore } from '../../stores/chatStore';
 import { AIUIRenderer } from '../ai-ui/renderer';
 import { MessageArea } from './MessageArea';
+import { InputControls } from './InputControls';
 
 export interface ChatPanelProps {
   className?: string;
@@ -22,8 +23,6 @@ export interface ChatPanelProps {
 export const ChatPanel: React.FC<ChatPanelProps> = ({ className }) => {
   const { messages, respondToMessage, clearMessages } = useChatStore();
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [inputValue, setInputValue] = useState('');
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -41,38 +40,20 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ className }) => {
   const pendingBlockingMessage = messages.filter(m => m.blocking && !m.responded).pop();
 
   // Handle sending a custom text response
-  const handleSendMessage = () => {
-    if (!inputValue.trim()) return;
+  const handleSendMessage = (message: string) => {
+    if (!message.trim()) return;
 
     if (pendingBlockingMessage) {
       // Respond to the pending blocking message with custom text
       respondToMessage(pendingBlockingMessage.id, {
         action: 'custom_response',
-        data: { text: inputValue.trim() }
+        data: { text: message.trim() }
       });
     }
-    setInputValue('');
-    // Reset textarea height
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-    }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
-    }
-  };
-
-  // Auto-resize textarea
-  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInputValue(e.target.value);
-    // Reset height to auto to get the correct scrollHeight
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 150)}px`;
-    }
+  const handleClearMessages = () => {
+    clearMessages();
   };
 
   return (
@@ -89,14 +70,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ className }) => {
         <h2 className="text-sm font-semibold text-gray-900 dark:text-white">
           Chat
         </h2>
-        {messages.length > 0 && (
-          <button
-            onClick={clearMessages}
-            className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
-          >
-            Clear
-          </button>
-        )}
       </div>
 
       {/* Messages Container */}
@@ -122,40 +95,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ className }) => {
 
       {/* Chat Input */}
       <div className="px-3 py-2 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-        <div className="flex gap-2 items-end">
-          <textarea
-            ref={textareaRef}
-            value={inputValue}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            placeholder={pendingBlockingMessage ? "Type a response..." : "No pending message"}
-            disabled={!pendingBlockingMessage}
-            rows={1}
-            style={{ minHeight: '38px' }}
-            className="
-              flex-1 px-3 py-2 text-sm
-              border border-gray-300 dark:border-gray-600 rounded-lg
-              bg-white dark:bg-gray-700
-              text-gray-900 dark:text-white
-              placeholder-gray-400 dark:placeholder-gray-500
-              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
-              disabled:opacity-50 disabled:cursor-not-allowed
-              resize-none overflow-hidden
-            "
-          />
-          <button
-            onClick={handleSendMessage}
-            disabled={!pendingBlockingMessage || !inputValue.trim()}
-            className="
-              px-4 py-2 text-sm font-medium
-              bg-blue-600 hover:bg-blue-700 text-white
-              rounded-lg transition-colors
-              disabled:opacity-50 disabled:cursor-not-allowed
-            "
-          >
-            Send
-          </button>
-        </div>
+        <InputControls
+          onSend={handleSendMessage}
+          onClear={handleClearMessages}
+          disabled={!pendingBlockingMessage}
+        />
       </div>
     </div>
   );
