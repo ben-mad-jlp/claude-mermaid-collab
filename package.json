@@ -4,8 +4,10 @@
   "type": "module",
   "description": "Browser UI for mermaid-collab with AI-powered interactions and backend server",
   "scripts": {
-    "dev": "bun run src/server.ts",
+    "dev": "concurrently -n api,ui,term -c blue,green,yellow \"bun run src/server.ts\" \"cd ui && bun run dev\" \"ttyd -p 7681 -W bash\"",
+    "dev:api": "bun run src/server.ts",
     "dev:ui": "cd ui && bun run dev",
+    "dev:term": "ttyd -p 7681 -W bash",
     "mcp": "bun run src/mcp/server.ts",
     "setup": "./setup.sh",
     "setup:start": "./setup.sh --start",

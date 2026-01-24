@@ -29,6 +29,30 @@ for arg in "$@"; do
   esac
 done
 
+# Check for ttyd installation
+check_ttyd() {
+  if ! command -v ttyd &> /dev/null; then
+    error "ttyd is not installed"
+    echo ""
+    echo "To install ttyd, run:"
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      echo "  brew install ttyd"
+    elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+      echo "  apt install ttyd"
+    else
+      echo "  See https://github.com/tsl0922/ttyd for installation instructions"
+    fi
+    echo ""
+    return 1
+  fi
+  return 0
+}
+
+# Check ttyd before setup
+if ! check_ttyd; then
+  exit 1
+fi
+
 # Step 1: Install wireframe plugin dependencies (must happen before root install)
 info "Installing wireframe plugin dependencies..."
 cd plugins/wireframe
