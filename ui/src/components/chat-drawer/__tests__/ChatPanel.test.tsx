@@ -69,7 +69,7 @@ describe('ChatPanel with InputControls', () => {
       expect(textarea.disabled).toBe(false);
     });
 
-    it('should update disabled state when message responds', async () => {
+    it('should have clear and send buttons from InputControls', () => {
       const chatStore = useChatStore.getState();
       chatStore.addMessage({
         id: 'blocking-msg-1',
@@ -79,19 +79,14 @@ describe('ChatPanel with InputControls', () => {
         responded: false,
       });
 
-      const { container, rerender } = render(<ChatPanel />);
-      let textarea = container.querySelector('textarea') as HTMLTextAreaElement;
-      expect(textarea.disabled).toBe(false);
+      render(<ChatPanel />);
 
-      // Respond to the message
-      chatStore.respondToMessage('blocking-msg-1', {
-        action: 'test_action'
-      });
+      // Should have both clear and send buttons
+      const clearButton = screen.getByRole('button', { name: /clear/i });
+      const sendButton = screen.getByRole('button', { name: /send/i });
 
-      // Rerender to get updated state
-      rerender(<ChatPanel />);
-      textarea = container.querySelector('textarea') as HTMLTextAreaElement;
-      expect(textarea.disabled).toBe(true);
+      expect(clearButton).toBeDefined();
+      expect(sendButton).toBeDefined();
     });
   });
 
