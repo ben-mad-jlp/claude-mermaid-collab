@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { hasComponent, getComponent, getComponentMetadata } from './registry';
+import { hasComponent, getComponent, getComponentMetadata } from '../registry';
 
 describe('Dropdown Integration', () => {
   it('is registered in the component registry', () => {
