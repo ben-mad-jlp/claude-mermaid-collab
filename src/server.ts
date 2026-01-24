@@ -11,6 +11,7 @@ import { WebSocketHandler } from './websocket/handler';
 import { handleAPI } from './routes/api';
 import { sessionRegistry } from './services/session-registry';
 import { statusManager } from './services/status-manager';
+import { handleSSEConnection, handleSSEMessage, getActiveSessionCount } from './mcp/sse-handler';
 
 // Scratch session - a default workspace for casual use
 const SCRATCH_PROJECT = join(homedir(), '.mermaid-collab');
@@ -50,6 +51,16 @@ const server = Bun.serve({
 
       if (upgraded) return undefined;
       return new Response('WebSocket upgrade failed', { status: 500 });
+    }
+
+    // MCP SSE routes
+    if (url.pathname === '/mcp/sse') {
+      console.log('[MCP] SSE connection request');
+      return handleSSEConnection(req);
+    }
+
+    if (url.pathname === '/mcp/message') {
+      return handleSSEMessage(req);
     }
 
     // API routes
@@ -121,3 +132,4 @@ console.log(`🚀 Mermaid Collaboration Server running on http://${config.HOST}:
 console.log(`🌐 Public directory: ${config.PUBLIC_DIR}`);
 console.log(`🎨 UI dist directory: ${config.UI_DIST_DIR} (exists: ${existsSync(config.UI_DIST_DIR)})`);
 console.log(`🔌 WebSocket: ws://${config.HOST}:${config.PORT}/ws`);
+console.log(`🤖 MCP SSE: http://${config.HOST}:${config.PORT}/mcp/sse`);
