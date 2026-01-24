@@ -23,6 +23,15 @@ export interface UIState {
   setEditMode: (mode: boolean) => void;
   toggleEditMode: () => void;
 
+  // Chat and Terminal panel visibility
+  chatPanelVisible: boolean;
+  setChatPanelVisible: (visible: boolean) => void;
+  toggleChatPanel: () => void;
+
+  terminalPanelVisible: boolean;
+  setTerminalPanelVisible: (visible: boolean) => void;
+  toggleTerminalPanel: () => void;
+
   // Split pane positions (stored as percentages)
   sidebarSplitPosition: number;
   setSidebarSplitPosition: (position: number) => void;
@@ -99,6 +108,21 @@ export const useUIStore = create<UIState>()(
         set({ editMode: !current });
       },
 
+      // Chat and Terminal panel visibility (default off)
+      chatPanelVisible: false,
+      setChatPanelVisible: (visible: boolean) => set({ chatPanelVisible: visible }),
+      toggleChatPanel: () => {
+        const current = get().chatPanelVisible;
+        set({ chatPanelVisible: !current });
+      },
+
+      terminalPanelVisible: false,
+      setTerminalPanelVisible: (visible: boolean) => set({ terminalPanelVisible: visible }),
+      toggleTerminalPanel: () => {
+        const current = get().terminalPanelVisible;
+        set({ terminalPanelVisible: !current });
+      },
+
       // Split pane positions
       sidebarSplitPosition: DEFAULT_SIDEBAR_POSITION,
       setSidebarSplitPosition: (position: number) => {
@@ -147,6 +171,8 @@ export const useUIStore = create<UIState>()(
           sidebarVisible: true,
           sessionPanelVisible: true,
           editMode: true,
+          chatPanelVisible: false,
+          terminalPanelVisible: false,
           sidebarSplitPosition: DEFAULT_SIDEBAR_POSITION,
           sessionPanelSplitPosition: DEFAULT_SESSION_PANEL_POSITION,
           editorSplitPosition: DEFAULT_EDITOR_SPLIT_POSITION,
@@ -155,7 +181,7 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'ui-preferences', // localStorage key
-      version: 2,
+      version: 3,
     }
   )
 );

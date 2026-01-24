@@ -3,18 +3,53 @@
  */
 
 import type { Session, Diagram, Document } from '@/types';
+import type { TerminalSession, CreateSessionResult } from '@/types/terminal';
+
+// Word lists for session name generation (matching backend)
+const ADJECTIVES = [
+  'bright', 'calm', 'swift', 'bold', 'warm', 'cool', 'soft', 'clear',
+  'fresh', 'pure', 'wise', 'keen', 'fair', 'true', 'kind', 'brave',
+  'deep', 'wide', 'tall', 'light', 'dark', 'loud', 'quiet', 'quick',
+  'slow', 'sharp', 'smooth', 'rough', 'wild', 'free', 'open', 'still'
+];
+
+const NOUNS = [
+  'river', 'mountain', 'forest', 'meadow', 'ocean', 'valley', 'canyon', 'lake',
+  'stream', 'hill', 'cliff', 'beach', 'island', 'bridge', 'tower', 'garden',
+  'field', 'grove', 'pond', 'spring', 'peak', 'ridge', 'shore', 'delta',
+  'harbor', 'bay', 'cape', 'reef', 'dune', 'oasis', 'mesa', 'fjord'
+];
+
+/**
+ * Generate a memorable session name in adjective-adjective-noun format
+ */
+export function generateSessionName(): string {
+  const adj1 = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
+  const adj2 = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
+  const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
+  return `${adj1}-${adj2}-${noun}`;
+}
 
 /**
  * API client interface defining available HTTP operations
  */
 export interface ApiClient {
   getSessions(): Promise<Session[]>;
+  createSession(project: string, session: string): Promise<Session>;
+  deleteSession(project: string, session: string): Promise<boolean>;
   getDiagrams(project: string, session: string): Promise<Diagram[]>;
   getDocuments(project: string, session: string): Promise<Document[]>;
   getDiagram(project: string, session: string, id: string): Promise<Diagram | null>;
   getDocument(project: string, session: string, id: string): Promise<Document | null>;
   updateDiagram(project: string, session: string, id: string, content: string): Promise<void>;
   updateDocument(project: string, session: string, id: string, content: string): Promise<void>;
+  killTerminalSession(sessionName: string): Promise<void>;
+  cleanupTerminalSessions(activeSessions: string[]): Promise<{ killed: string[]; kept: string[] }>;
+  getTerminalSessions(project: string, session: string): Promise<TerminalSession[]>;
+  createTerminalSession(project: string, session: string, name?: string): Promise<CreateSessionResult>;
+  deleteTerminalSession(project: string, session: string, id: string): Promise<void>;
+  renameTerminalSession(project: string, session: string, id: string, name: string): Promise<void>;
+  reorderTerminalSessions(project: string, session: string, orderedIds: string[]): Promise<void>;
 }
 
 /**
@@ -36,6 +71,46 @@ export const api: ApiClient = {
       name: s.session,
       lastActivity: s.lastAccess,
     }));
+  },
+
+  /**
+   * Create a new session
+   */
+  async createSession(project: string, session: string): Promise<Session> {
+    const response = await fetch('/api/sessions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ project, session }),
+    });
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+    const data = await response.json();
+    // Use the expanded project path from the server response
+    return {
+      project: data.project,
+      name: data.session,
+    };
+  },
+
+  /**
+   * Delete/unregister a session
+   */
+  async deleteSession(project: string, session: string): Promise<boolean> {
+    const response = await fetch('/api/sessions', {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ project, session }),
+    });
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+    const data = await response.json();
+    return data.success;
   },
 
   /**
@@ -124,6 +199,108 @@ export const api: ApiClient = {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ content }),
+    });
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+  },
+
+  /**
+   * Kill a terminal tmux session
+   */
+  async killTerminalSession(sessionName: string): Promise<void> {
+    const response = await fetch('/api/terminal/kill-session', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ sessionName }),
+    });
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+  },
+
+  /**
+   * Cleanup orphaned terminal sessions
+   */
+  async cleanupTerminalSessions(activeSessions: string[]): Promise<{ killed: string[]; kept: string[] }> {
+    const response = await fetch('/api/terminal/cleanup', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ activeSessions }),
+    });
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+    return response.json();
+  },
+
+  /**
+   * Get all terminal sessions for a collab session
+   */
+  async getTerminalSessions(project: string, session: string): Promise<TerminalSession[]> {
+    const url = `/api/terminal/sessions?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+    const data = await response.json();
+    return data.sessions || [];
+  },
+
+  /**
+   * Create a new terminal session
+   */
+  async createTerminalSession(project: string, session: string, name?: string): Promise<CreateSessionResult> {
+    const response = await fetch('/api/terminal/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project, session, name }),
+    });
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+    return response.json();
+  },
+
+  /**
+   * Delete a terminal session
+   */
+  async deleteTerminalSession(project: string, session: string, id: string): Promise<void> {
+    const url = `/api/terminal/sessions/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const response = await fetch(url, { method: 'DELETE' });
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+  },
+
+  /**
+   * Rename a terminal session
+   */
+  async renameTerminalSession(project: string, session: string, id: string, name: string): Promise<void> {
+    const url = `/api/terminal/sessions/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const response = await fetch(url, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+  },
+
+  /**
+   * Reorder terminal sessions
+   */
+  async reorderTerminalSessions(project: string, session: string, orderedIds: string[]): Promise<void> {
+    const url = `/api/terminal/sessions/reorder?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderedIds }),
     });
     if (!response.ok) {
       throw new Error(response.statusText);

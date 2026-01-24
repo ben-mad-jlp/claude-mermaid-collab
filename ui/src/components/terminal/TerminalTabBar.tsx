@@ -95,7 +95,7 @@ const SortableTab: React.FC<SortableTabProps> = ({
       data-sortable-id={tab.id}
       role="tab"
       aria-selected={isActive}
-      className={`inline-flex items-center gap-2 px-3 py-2 border-b-2 cursor-pointer transition-all ${
+      className={`inline-flex items-center gap-2 px-3 py-1.5 border-b-2 cursor-pointer transition-all whitespace-nowrap ${
         isActive
           ? 'border-blue-500 text-blue-600 bg-white'
           : 'border-transparent text-gray-600 hover:bg-gray-50'
@@ -105,7 +105,7 @@ const SortableTab: React.FC<SortableTabProps> = ({
       <div
         {...attributes}
         {...listeners}
-        className="cursor-grab active:cursor-grabbing"
+        className="cursor-grab active:cursor-grabbing text-xs"
       >
         <span className="text-gray-400">⋮⋮</span>
       </div>
@@ -118,10 +118,10 @@ const SortableTab: React.FC<SortableTabProps> = ({
           onBlur={handleInputBlur}
           onKeyDown={handleKeyDown}
           autoFocus
-          className="px-1 py-0 border border-gray-300 rounded focus:outline-none focus:border-blue-500"
+          className="px-1 py-0 border border-gray-300 rounded focus:outline-none focus:border-blue-500 text-sm"
         />
       ) : (
-        <span onDoubleClick={handleDoubleClick}>{tab.name}</span>
+        <span onDoubleClick={handleDoubleClick} className="text-sm truncate max-w-[120px]">{tab.name}</span>
       )}
 
       {canClose && (
@@ -197,7 +197,7 @@ export const TerminalTabBar: React.FC<TerminalTabBarProps> = ({
             <button
               type="button"
               onClick={onTabAdd}
-              className="ml-auto px-3 py-2 text-gray-600 hover:bg-gray-200 rounded transition-colors"
+              className="ml-auto px-2 py-1 text-gray-600 hover:bg-gray-200 rounded transition-colors text-sm"
               aria-label="Add new tab"
               title="Add new terminal tab"
             >

@@ -23,6 +23,12 @@ export interface HeaderProps {
   sessions?: Session[];
   /** Callback when a session is selected */
   onSessionSelect?: (session: Session) => void;
+  /** Callback to refresh sessions list */
+  onRefreshSessions?: () => void;
+  /** Callback to create a new session */
+  onCreateSession?: () => void;
+  /** Callback to delete a session */
+  onDeleteSession?: (session: Session) => void;
   /** WebSocket connection status */
   isConnected?: boolean;
   /** Whether WebSocket is connecting */
@@ -37,6 +43,9 @@ export interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   sessions = [],
   onSessionSelect,
+  onRefreshSessions,
+  onCreateSession,
+  onDeleteSession,
   isConnected = false,
   isConnecting = false,
   className = '',
@@ -44,10 +53,14 @@ export const Header: React.FC<HeaderProps> = ({
   const { theme, toggleTheme } = useTheme();
   const { currentSession } = useSession();
   const { agentStatus, agentMessage, agentIsLoading } = useAgentStatus();
-  const { editMode, toggleEditMode } = useUIStore(
+  const { editMode, toggleEditMode, chatPanelVisible, toggleChatPanel, terminalPanelVisible, toggleTerminalPanel } = useUIStore(
     useShallow((state) => ({
       editMode: state.editMode,
       toggleEditMode: state.toggleEditMode,
+      chatPanelVisible: state.chatPanelVisible,
+      toggleChatPanel: state.toggleChatPanel,
+      terminalPanelVisible: state.terminalPanelVisible,
+      toggleTerminalPanel: state.toggleTerminalPanel,
     }))
   );
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -100,6 +113,29 @@ export const Header: React.FC<HeaderProps> = ({
   const handleEditModeToggle = useCallback(() => {
     toggleEditMode();
   }, [toggleEditMode]);
+
+  const handleChatToggle = useCallback(() => {
+    toggleChatPanel();
+  }, [toggleChatPanel]);
+
+  const handleTerminalToggle = useCallback(() => {
+    toggleTerminalPanel();
+  }, [toggleTerminalPanel]);
+
+  const handleRefreshSessions = useCallback(() => {
+    onRefreshSessions?.();
+  }, [onRefreshSessions]);
+
+  const handleCreateSession = useCallback(() => {
+    onCreateSession?.();
+  }, [onCreateSession]);
+
+  const handleDeleteSession = useCallback((e: React.MouseEvent, session: Session) => {
+    e.stopPropagation(); // Prevent selecting the session
+    if (window.confirm(`Delete session "${session.name}"? This removes it from the list but does not delete files.`)) {
+      onDeleteSession?.(session);
+    }
+  }, [onDeleteSession]);
 
   // Format session display as "project / session"
   const formatSessionDisplay = (session: Session) => {
@@ -175,6 +211,70 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right-side controls */}
         <div className="flex items-center gap-3">
+          {/* Create Session Button */}
+          {onCreateSession && (
+            <button
+              data-testid="create-session"
+              onClick={handleCreateSession}
+              aria-label="Create new session"
+              title="Create new session"
+              className="
+                p-2
+                text-gray-600 dark:text-gray-300
+                hover:text-gray-900 dark:hover:text-white
+                hover:bg-gray-100 dark:hover:bg-gray-700
+                rounded-lg
+                transition-colors
+              "
+            >
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+            </button>
+          )}
+
+          {/* Refresh Sessions Button */}
+          {onRefreshSessions && (
+            <button
+              data-testid="refresh-sessions"
+              onClick={handleRefreshSessions}
+              aria-label="Refresh sessions"
+              title="Refresh sessions"
+              className="
+                p-2
+                text-gray-600 dark:text-gray-300
+                hover:text-gray-900 dark:hover:text-white
+                hover:bg-gray-100 dark:hover:bg-gray-700
+                rounded-lg
+                transition-colors
+              "
+            >
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M23 4v6h-6" />
+                <path d="M1 20v-6h6" />
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10" />
+                <path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14" />
+              </svg>
+            </button>
+          )}
+
           {/* Session Selector */}
           {sessions.length > 0 && (
             <div className="relative" ref={dropdownRef}>
@@ -233,29 +333,57 @@ export const Header: React.FC<HeaderProps> = ({
                     <ul className="max-h-60 overflow-y-auto">
                       {sessions.map((session) => (
                         <li key={`${session.project}-${session.name}`}>
-                          <button
-                            role="option"
-                            aria-selected={currentSession?.name === session.name}
-                            onClick={() => handleSessionClick(session)}
+                          <div
                             className={`
-                              w-full px-4 py-2.5
-                              text-left text-sm
+                              flex items-center
                               hover:bg-gray-100 dark:hover:bg-gray-700
                               transition-colors
                               ${
                                 currentSession?.name === session.name
-                                  ? 'bg-accent-50 dark:bg-accent-900/30 text-accent-700 dark:text-accent-300'
-                                  : 'text-gray-700 dark:text-gray-200'
+                                  ? 'bg-accent-50 dark:bg-accent-900/30'
+                                  : ''
                               }
                             `}
                           >
-                            <div className="font-medium truncate">{formatSessionDisplay(session)}</div>
-                            {session.phase && (
-                              <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                                Phase: {session.phase}
-                              </div>
+                            <button
+                              role="option"
+                              aria-selected={currentSession?.name === session.name}
+                              onClick={() => handleSessionClick(session)}
+                              className={`
+                                flex-1 px-4 py-2.5
+                                text-left text-sm
+                                ${
+                                  currentSession?.name === session.name
+                                    ? 'text-accent-700 dark:text-accent-300'
+                                    : 'text-gray-700 dark:text-gray-200'
+                                }
+                              `}
+                            >
+                              <div className="font-medium truncate">{formatSessionDisplay(session)}</div>
+                              {session.phase && (
+                                <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                  Phase: {session.phase}
+                                </div>
+                              )}
+                            </button>
+                            {onDeleteSession && (
+                              <button
+                                onClick={(e) => handleDeleteSession(e, session)}
+                                className="
+                                  p-2 mr-2
+                                  text-gray-400 hover:text-red-500
+                                  dark:text-gray-500 dark:hover:text-red-400
+                                  transition-colors
+                                "
+                                aria-label={`Delete session ${session.name}`}
+                                title="Delete session"
+                              >
+                                <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                                </svg>
+                              </button>
                             )}
-                          </button>
+                          </div>
                         </li>
                       ))}
                     </ul>
@@ -265,12 +393,66 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           )}
 
+          {/* Chat Panel Toggle */}
+          <button
+            data-testid="chat-panel-toggle"
+            onClick={handleChatToggle}
+            aria-label={chatPanelVisible ? 'Hide Chat' : 'Show Chat'}
+            aria-pressed={chatPanelVisible}
+            title={chatPanelVisible ? 'Hide Chat' : 'Show Chat'}
+            className={`
+              flex items-center gap-2
+              px-3 py-1.5
+              text-sm font-medium
+              rounded-lg
+              transition-colors
+              ${
+                chatPanelVisible
+                  ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+              }
+            `}
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+            <span>Chat</span>
+          </button>
+
+          {/* Terminal Panel Toggle */}
+          <button
+            data-testid="terminal-panel-toggle"
+            onClick={handleTerminalToggle}
+            aria-label={terminalPanelVisible ? 'Hide Terminal' : 'Show Terminal'}
+            aria-pressed={terminalPanelVisible}
+            title={terminalPanelVisible ? 'Hide Terminal' : 'Show Terminal'}
+            className={`
+              flex items-center gap-2
+              px-3 py-1.5
+              text-sm font-medium
+              rounded-lg
+              transition-colors
+              ${
+                terminalPanelVisible
+                  ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+              }
+            `}
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="4 17 10 11 4 5" />
+              <line x1="12" y1="19" x2="20" y2="19" />
+            </svg>
+            <span>Terminal</span>
+          </button>
+
           {/* Edit Mode Toggle */}
           <button
             data-testid="edit-mode-toggle"
             onClick={handleEditModeToggle}
-            aria-label={`Switch to ${editMode ? 'view' : 'edit'} mode`}
+            aria-label={editMode ? 'Hide Edit Panel' : 'Show Edit Panel'}
             aria-pressed={editMode}
+            title={editMode ? 'Hide Edit Panel' : 'Show Edit Panel'}
             className={`
               flex items-center gap-2
               px-3 py-1.5
@@ -279,7 +461,7 @@ export const Header: React.FC<HeaderProps> = ({
               transition-colors
               ${
                 editMode
-                  ? 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300'
+                  ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
                   : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
               }
             `}
@@ -292,7 +474,7 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
             </svg>
-            <span>{editMode ? 'View' : 'Edit'}</span>
+            <span>Edit</span>
           </button>
 
           {/* Theme Toggle */}

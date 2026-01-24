@@ -1,29 +1,8 @@
-export interface TerminalConfig {
-  wsUrl: string;
-  fontSize?: number;
-  fontFamily?: string;
-}
+/**
+ * Terminal session type definitions
+ * Shared between backend and can be imported by frontend
+ */
 
-export interface TerminalState {
-  connected: boolean;
-  error: string | null;
-}
-
-// NEW: Tab-related types
-export interface TerminalTab {
-  id: string;
-  name: string;
-  wsUrl: string;
-  /** Unique tmux session name for persistence across refreshes */
-  sessionName: string;
-}
-
-export interface TerminalTabsState {
-  tabs: TerminalTab[];
-  activeTabId: string | null;
-}
-
-// Terminal session types (shared with backend)
 export interface TerminalSession {
   /** Unique identifier (UUID) */
   id: string;
@@ -43,6 +22,7 @@ export interface TerminalSessionsState {
 }
 
 // MCP Tool Response Types
+
 export interface CreateSessionResult {
   id: string;
   tmuxSession: string;

@@ -5,52 +5,86 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ChatPanel } from '../ChatPanel';
 import { useChatStore } from '@/stores/chatStore';
 import { useViewerStore } from '@/stores/viewerStore';
+import { useUIStore } from '@/stores/uiStore';
+
+// Helper to enable chat panel via store (toggle buttons are now in Header)
+const enableChat = () => {
+  useUIStore.getState().setChatPanelVisible(true);
+};
+
+// Helper to enable terminal panel via store (toggle buttons are now in Header)
+const enableTerminal = () => {
+  useUIStore.getState().setTerminalPanelVisible(true);
+};
+
+// Helper to enable both panels
+const enableBothPanels = () => {
+  enableChat();
+  enableTerminal();
+};
 
 describe('ChatPanel with InputControls', () => {
   beforeEach(() => {
     useChatStore.getState().clearMessages();
     useViewerStore.getState().reset();
+    useUIStore.getState().reset();
   });
 
   describe('Rendering', () => {
-    it('should render ChatPanel with horizontal split layout', () => {
+    it('should render ChatPanel with placeholder when panels are off', () => {
+      render(<ChatPanel />);
+      // Toggle buttons are now in Header, ChatPanel shows placeholder
+      expect(screen.getByText(/Use the Chat or Terminal buttons/)).toBeDefined();
+    });
+
+    it('should render horizontal split layout when both panels enabled', () => {
+      enableBothPanels();
       const { container } = render(<ChatPanel />);
-      // Check for SplitPane with horizontal direction
       const splitPane = container.querySelector('[data-testid="split-pane"]');
       expect(splitPane).toBeDefined();
     });
 
-    it('should render InputControls component', () => {
+    it('should render InputControls component when chat enabled', () => {
+      enableChat();
       const { container } = render(<ChatPanel />);
       const textarea = container.querySelector('textarea');
       expect(textarea).toBeDefined();
     });
 
-    it('should have clear button from InputControls', () => {
+    it('should have clear button from InputControls when chat enabled', () => {
+      enableChat();
       render(<ChatPanel />);
       const clearButton = screen.getByRole('button', { name: /clear/i });
       expect(clearButton).toBeDefined();
     });
 
-    it('should have send button from InputControls', () => {
+    it('should have send button from InputControls when chat enabled', () => {
+      enableChat();
       render(<ChatPanel />);
       const sendButton = screen.getByRole('button', { name: /send/i });
       expect(sendButton).toBeDefined();
     });
 
-    it('should show empty state initially', () => {
+    it('should show empty state when chat enabled', () => {
+      enableChat();
       render(<ChatPanel />);
       expect(screen.getByText('No messages yet')).toBeDefined();
+    });
+
+    it('should show placeholder when both panels off', () => {
+      render(<ChatPanel />);
+      expect(screen.getByText(/Use the Chat or Terminal buttons/)).toBeDefined();
     });
   });
 
   describe('InputControls Integration', () => {
     it('should disable InputControls when no pending blocking message', () => {
+      enableChat();
       const { container } = render(<ChatPanel />);
       const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
       expect(textarea.disabled).toBe(true);
@@ -66,6 +100,7 @@ describe('ChatPanel with InputControls', () => {
         responded: false,
       });
 
+      enableChat();
       const { container } = render(<ChatPanel />);
       const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
       expect(textarea.disabled).toBe(false);
@@ -81,6 +116,7 @@ describe('ChatPanel with InputControls', () => {
         responded: false,
       });
 
+      enableChat();
       render(<ChatPanel />);
 
       // Should have both clear and send buttons
@@ -105,6 +141,7 @@ describe('ChatPanel with InputControls', () => {
         responded: false,
       });
 
+      enableChat();
       const { container } = render(<ChatPanel />);
       const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
 
@@ -127,6 +164,7 @@ describe('ChatPanel with InputControls', () => {
         responded: false,
       });
 
+      enableChat();
       const { container } = render(<ChatPanel />);
       const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
       const sendButton = screen.getByRole('button', { name: /send/i });
@@ -141,16 +179,18 @@ describe('ChatPanel with InputControls', () => {
 
   describe('Clear Button Functionality', () => {
     it('should have accessible clear button', () => {
+      enableChat();
       render(<ChatPanel />);
       const clearButton = screen.getByRole('button', { name: /clear/i });
       expect(clearButton).toBeDefined();
       expect(clearButton.getAttribute('aria-label')).toBe('Clear message area');
     });
 
-    it('should not send message when only clear button is visible', () => {
+    it('should have clear and send buttons in input area', () => {
+      enableChat();
       const { container } = render(<ChatPanel />);
 
-      // Get buttons only in the input controls area (now at top with border-b)
+      // Get buttons in the input controls area (at top with border-b)
       const inputControls = container.querySelector('.px-3.py-2.border-b');
       const buttons = inputControls?.querySelectorAll('button') || [];
 
@@ -161,6 +201,7 @@ describe('ChatPanel with InputControls', () => {
 
   describe('Layout', () => {
     it('should have clear button, input, and send button in correct order', () => {
+      enableChat();
       const { container } = render(<ChatPanel />);
 
       // Get the flex container with the controls
@@ -169,7 +210,8 @@ describe('ChatPanel with InputControls', () => {
       expect(flexContainer?.children.length).toBe(3); // clear button, textarea, send button
     });
 
-    it('should display clean header without secondary clear button', () => {
+    it('should display only one clear button', () => {
+      enableChat();
       render(<ChatPanel />);
       const clearButtons = screen.getAllByRole('button', { name: /clear/i });
       // Should only have one clear button (from InputControls)
@@ -185,14 +227,16 @@ describe('ChatPanel with InputControls', () => {
   });
 
   describe('Terminal Panel', () => {
-    it('should have terminal in secondary pane', () => {
+    it('should have terminal in secondary pane when enabled', () => {
+      enableTerminal();
       const { container } = render(<ChatPanel />);
       // TerminalTabsContainer should be rendered
       const terminalContainer = container.querySelector('.terminal-tabs-container');
       expect(terminalContainer).toBeDefined();
     });
 
-    it('should render TerminalTabsContainer', () => {
+    it('should render TerminalTabsContainer when enabled', () => {
+      enableTerminal();
       const { container } = render(<ChatPanel />);
       // Look for the terminal tabs container class
       const terminalContainer = container.querySelector('.terminal-tabs-container');
@@ -202,20 +246,23 @@ describe('ChatPanel with InputControls', () => {
 
   describe('Accessibility', () => {
     it('should have proper layout structure', () => {
+      enableChat();
       const { container } = render(<ChatPanel />);
-      // No headers in the new layout, check for input controls presence
+      // Check for input controls presence
       const inputControls = container.querySelector('.px-3.py-2.border-b');
       expect(inputControls).toBeDefined();
     });
 
-    it('should have accessible input field', () => {
+    it('should have accessible input field when chat enabled', () => {
+      enableChat();
       const { container } = render(<ChatPanel />);
       const textarea = container.querySelector('textarea');
       expect(textarea).toBeDefined();
       expect(textarea?.getAttribute('placeholder')).toBeDefined();
     });
 
-    it('should have accessible buttons with labels', () => {
+    it('should have accessible buttons with labels when chat enabled', () => {
+      enableChat();
       render(<ChatPanel />);
       const clearButton = screen.getByRole('button', { name: /clear/i });
       const sendButton = screen.getByRole('button', { name: /send/i });

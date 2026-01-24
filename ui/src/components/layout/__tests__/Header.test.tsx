@@ -395,18 +395,15 @@ describe('Header', () => {
       expect(screen.getByTestId('edit-mode-toggle')).toBeDefined();
     });
 
-    it('should show "Edit" text when editMode is false', () => {
+    it('should always show "Edit" text regardless of editMode state', () => {
       useUIStore.setState({ editMode: false });
-      render(<Header />);
+      const { rerender } = render(<Header />);
       const toggleButton = screen.getByTestId('edit-mode-toggle');
       expect(toggleButton.textContent).toContain('Edit');
-    });
 
-    it('should show "View" text when editMode is true', () => {
       useUIStore.setState({ editMode: true });
-      render(<Header />);
-      const toggleButton = screen.getByTestId('edit-mode-toggle');
-      expect(toggleButton.textContent).toContain('View');
+      rerender(<Header />);
+      expect(toggleButton.textContent).toContain('Edit');
     });
 
     it('should toggle editMode state when clicked', async () => {
@@ -440,7 +437,7 @@ describe('Header', () => {
       useUIStore.setState({ editMode: false });
       render(<Header />);
       const toggleButton = screen.getByTestId('edit-mode-toggle');
-      expect(toggleButton.getAttribute('aria-label')).toBe('Switch to edit mode');
+      expect(toggleButton.getAttribute('aria-label')).toBe('Show Edit Panel');
     });
 
     it('should update aria-label when editMode changes', () => {
@@ -449,12 +446,12 @@ describe('Header', () => {
       rerender(<Header />);
 
       const toggleButton = screen.getByTestId('edit-mode-toggle');
-      expect(toggleButton.getAttribute('aria-label')).toBe('Switch to edit mode');
+      expect(toggleButton.getAttribute('aria-label')).toBe('Show Edit Panel');
 
       useUIStore.setState({ editMode: true });
       rerender(<Header />);
 
-      expect(toggleButton.getAttribute('aria-label')).toBe('Switch to view mode');
+      expect(toggleButton.getAttribute('aria-label')).toBe('Hide Edit Panel');
     });
 
     it('should have aria-pressed attribute reflecting editMode state', () => {
@@ -469,8 +466,8 @@ describe('Header', () => {
       const { rerender } = render(<Header />);
       const toggleButton = screen.getByTestId('edit-mode-toggle');
 
-      // When in edit mode, should have accent color classes
-      expect(toggleButton.className).toContain('bg-accent');
+      // When in edit mode, should have blue color classes (matching Chat/Terminal buttons)
+      expect(toggleButton.className).toContain('bg-blue');
 
       useUIStore.setState({ editMode: false });
       rerender(<Header />);

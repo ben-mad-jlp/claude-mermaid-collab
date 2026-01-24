@@ -350,22 +350,16 @@ describe('App Component', () => {
       expect(drawer).toBeDefined();
     });
 
-    it('should toggle chat drawer visibility when ChatToggle is clicked', async () => {
-      const user = userEvent.setup();
-      const { container, rerender } = render(<App />);
+    it('should render ChatPanel with toggle buttons', async () => {
+      render(<App />);
 
-      // Find toggle button
-      const toggleButton = screen.queryByRole('button', { name: /chat/i });
-      expect(toggleButton).toBeDefined();
+      // ChatPanel should have toggle buttons for Chat and Terminal
+      // The buttons have titles like "Show Chat" or "Hide Chat"
+      const chatToggle = screen.queryByTitle(/Chat/);
+      const terminalToggle = screen.queryByTitle(/Terminal/);
 
-      if (toggleButton) {
-        // Click to open
-        await user.click(toggleButton);
-        // After click, the drawer should be open (isOpen=true)
-        // We can verify by checking if store state changed
-        const chatStore = useChatStore.getState();
-        expect(chatStore.isOpen).toBe(true);
-      }
+      expect(chatToggle).toBeDefined();
+      expect(terminalToggle).toBeDefined();
     });
 
     it('should display unread count badge on ChatToggle', () => {

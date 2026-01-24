@@ -5,17 +5,24 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ChatPanel } from '../ChatPanel';
 import { useChatStore } from '@/stores/chatStore';
 import { useViewerStore } from '@/stores/viewerStore';
+import { useUIStore } from '@/stores/uiStore';
+
+// Helper to enable chat panel via store (toggle buttons are now in Header)
+const enableChat = () => {
+  useUIStore.getState().setChatPanelVisible(true);
+};
 
 describe('ChatPanel with ArtifactLink Integration', () => {
   beforeEach(() => {
     // Reset stores before each test
     useChatStore.getState().clearMessages();
     useViewerStore.getState().reset();
+    useUIStore.getState().reset();
   });
 
   describe('Artifact Notifications in Messages', () => {
@@ -25,8 +32,6 @@ describe('ChatPanel with ArtifactLink Integration', () => {
     });
 
     it('should display artifact notification when message contains artifact link', async () => {
-      const { container } = render(<ChatPanel />);
-
       // Add a message with artifact content (via UI rendering)
       const chatStore = useChatStore.getState();
       chatStore.addMessage({
@@ -45,6 +50,9 @@ describe('ChatPanel with ArtifactLink Integration', () => {
         },
       });
 
+      enableChat();
+      const { container } = render(<ChatPanel />);
+
       await waitFor(() => {
         const messageElement = container.querySelector('[data-testid="message-msg-1"]');
         expect(messageElement).toBeDefined();
@@ -53,6 +61,7 @@ describe('ChatPanel with ArtifactLink Integration', () => {
 
     it('should allow clicking artifact links to navigate', async () => {
       const user = userEvent.setup();
+      enableChat();
       render(<ChatPanel />);
 
       // This test verifies that the integration allows artifact links
@@ -70,6 +79,7 @@ describe('ChatPanel with ArtifactLink Integration', () => {
         responded: false,
       });
 
+      enableChat();
       const { container } = render(<ChatPanel />);
 
       await waitFor(() => {
@@ -88,6 +98,7 @@ describe('ChatPanel with ArtifactLink Integration', () => {
         responded: false,
       });
 
+      enableChat();
       const { container } = render(<ChatPanel />);
 
       await waitFor(() => {
@@ -198,13 +209,15 @@ describe('ChatPanel with ArtifactLink Integration', () => {
   });
 
   describe('Message Rendering with Artifacts', () => {
-    it('should render chat panel with input controls', () => {
+    it('should render chat panel with input controls when chat enabled', () => {
+      enableChat();
       const { container } = render(<ChatPanel />);
       const inputControls = container.querySelector('.px-3.py-2.border-b');
       expect(inputControls).toBeDefined();
     });
 
-    it('should show empty state when no messages', () => {
+    it('should show empty state when no messages and chat enabled', () => {
+      enableChat();
       render(<ChatPanel />);
       expect(screen.getByText('No messages yet')).toBeDefined();
     });
@@ -228,6 +241,7 @@ describe('ChatPanel with ArtifactLink Integration', () => {
         responded: false,
       });
 
+      enableChat();
       const { container } = render(<ChatPanel />);
 
       await waitFor(() => {
@@ -241,6 +255,7 @@ describe('ChatPanel with ArtifactLink Integration', () => {
 
   describe('Accessibility', () => {
     it('should render with proper layout structure', () => {
+      enableChat();
       const { container } = render(<ChatPanel />);
       // No headers in the new layout, but input controls should be present
       const inputControls = container.querySelector('.px-3.py-2.border-b');
@@ -248,6 +263,7 @@ describe('ChatPanel with ArtifactLink Integration', () => {
     });
 
     it('should have clear labels for interaction elements', () => {
+      enableChat();
       const { container } = render(<ChatPanel />);
       // Should have input placeholder or similar
       const textarea = container.querySelector('textarea');
@@ -256,6 +272,7 @@ describe('ChatPanel with ArtifactLink Integration', () => {
 
     it('should support keyboard navigation in messages', async () => {
       const user = userEvent.setup();
+      enableChat();
       const { container } = render(<ChatPanel />);
 
       // Should be able to tab through focusable elements

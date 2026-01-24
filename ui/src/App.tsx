@@ -33,7 +33,7 @@ import { useAutoSave } from '@/hooks/useAutoSave';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { getWebSocketClient } from '@/lib/websocket';
 import { useShallow } from 'zustand/react/shallow';
-import { api } from '@/lib/api';
+import { api, generateSessionName } from '@/lib/api';
 import type { Item, Session, ToolbarAction } from '@/types';
 
 // Import layout components
@@ -129,14 +129,21 @@ const App: React.FC = () => {
     zoomLevel,
     zoomIn,
     zoomOut,
+    chatPanelVisible,
+    terminalPanelVisible,
   } = useUIStore(
     useShallow((state) => ({
       editMode: state.editMode,
       zoomLevel: state.zoomLevel,
       zoomIn: state.zoomIn,
       zoomOut: state.zoomOut,
+      chatPanelVisible: state.chatPanelVisible,
+      terminalPanelVisible: state.terminalPanelVisible,
     }))
   );
+
+  // Show chat/terminal panel area when either is visible
+  const showSecondaryPanel = chatPanelVisible || terminalPanelVisible;
 
   // Session state
   const {
@@ -456,6 +463,56 @@ const App: React.FC = () => {
     [setCurrentSession]
   );
 
+  // Handle creating a new session
+  const handleCreateSession = useCallback(async () => {
+    const suggestedName = generateSessionName();
+
+    // Prompt user for session name with generated name as default
+    const sessionName = window.prompt('Enter session name:', suggestedName);
+
+    // User cancelled or entered empty name
+    if (!sessionName?.trim()) {
+      return;
+    }
+
+    // Prompt for project folder, default to ~/.mermaid-collab
+    const projectPath = window.prompt(
+      'Project folder:',
+      '~/.mermaid-collab'
+    );
+
+    // User cancelled
+    if (projectPath === null) {
+      return;
+    }
+
+    const finalProject = projectPath.trim() || '~/.mermaid-collab';
+
+    try {
+      const newSession = await api.createSession(finalProject, sessionName.trim());
+      // Refresh sessions list and select the new session
+      await loadSessions();
+      setCurrentSession(newSession);
+    } catch (error) {
+      console.error('Failed to create session:', error);
+    }
+  }, [currentSession, loadSessions, setCurrentSession]);
+
+  // Handle deleting a session
+  const handleDeleteSession = useCallback(async (session: Session) => {
+    try {
+      await api.deleteSession(session.project, session.name);
+      // If we deleted the current session, clear it
+      if (currentSession?.project === session.project && currentSession?.name === session.name) {
+        setCurrentSession(null);
+      }
+      // Refresh sessions list
+      await loadSessions();
+    } catch (error) {
+      console.error('Failed to delete session:', error);
+    }
+  }, [currentSession, loadSessions, setCurrentSession]);
+
   // Build overflow actions for toolbar
   const overflowActions: ToolbarAction[] = useMemo(() => {
     if (!selectedItem) return [];
@@ -609,6 +666,9 @@ const App: React.FC = () => {
         <Header
           sessions={sessions}
           onSessionSelect={handleSessionSelect}
+          onRefreshSessions={loadSessions}
+          onCreateSession={handleCreateSession}
+          onDeleteSession={handleDeleteSession}
           isConnected={isConnected}
           isConnecting={isConnecting}
         />
@@ -618,29 +678,43 @@ const App: React.FC = () => {
           {/* Fixed-width Sidebar */}
           <Sidebar className="h-full" />
 
-          {/* Main Content with ChatPanel in SplitPane */}
-          <SplitPane
-            direction="horizontal"
-            defaultPrimarySize={75}
-            minPrimarySize={20}
-            minSecondarySize={15}
-            storageId="main-chat-split"
-            primaryContent={
-              <main
-                className={`
-                  h-full
-                  min-h-0
-                  overflow-hidden
-                  bg-white dark:bg-gray-800
-                `}
-              >
-                {renderMainContent()}
-              </main>
-            }
-            secondaryContent={
-              <ChatPanel className="h-full" />
-            }
-          />
+          {/* Main Content - with or without ChatPanel split */}
+          {showSecondaryPanel ? (
+            <SplitPane
+              direction="horizontal"
+              defaultPrimarySize={75}
+              minPrimarySize={20}
+              minSecondarySize={15}
+              storageId="main-chat-split"
+              primaryContent={
+                <main
+                  className={`
+                    h-full
+                    min-h-0
+                    overflow-hidden
+                    bg-white dark:bg-gray-800
+                  `}
+                >
+                  {renderMainContent()}
+                </main>
+              }
+              secondaryContent={
+                <ChatPanel className="h-full" />
+              }
+            />
+          ) : (
+            <main
+              className={`
+                flex-1
+                h-full
+                min-h-0
+                overflow-hidden
+                bg-white dark:bg-gray-800
+              `}
+            >
+              {renderMainContent()}
+            </main>
+          )}
         </div>
 
         {/* Question Panel Overlay */}

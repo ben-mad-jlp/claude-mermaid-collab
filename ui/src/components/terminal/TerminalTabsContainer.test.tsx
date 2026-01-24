@@ -4,6 +4,14 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { TerminalTabsContainer } from './TerminalTabsContainer';
 import '@testing-library/jest-dom';
 
+// Mock the store
+vi.mock('../../stores/sessionStore', () => ({
+  useSessionStore: vi.fn((selector) => {
+    const mockSession = { project: '/test/project', name: 'test-session' };
+    return selector({ currentSession: mockSession });
+  }),
+}));
+
 // Mock the hooks and components
 vi.mock('../../hooks/useTerminalTabs', () => ({
   useTerminalTabs: vi.fn(),
@@ -48,20 +56,32 @@ describe('TerminalTabsContainer', () => {
     vi.clearAllMocks();
   });
 
+  const createMockReturn = (overrides: any = {}) => ({
+    tabs: [],
+    activeTabId: null,
+    activeTab: null,
+    isLoading: false,
+    error: null,
+    addTab: vi.fn(),
+    removeTab: vi.fn(),
+    renameTab: vi.fn(),
+    setActiveTab: vi.fn(),
+    reorderTabs: vi.fn(),
+    refresh: vi.fn(),
+    ...overrides,
+  });
+
   describe('Rendering', () => {
     it('should render the container with tab bar', () => {
-      mockUseTerminalTabs.mockReturnValue({
-        tabs: [
-          { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
-        ],
-        activeTabId: 'tab1',
-        activeTab: { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
-        addTab: vi.fn(),
-        removeTab: vi.fn(),
-        renameTab: vi.fn(),
-        setActiveTab: vi.fn(),
-        reorderTabs: vi.fn(),
-      });
+      mockUseTerminalTabs.mockReturnValue(
+        createMockReturn({
+          tabs: [
+            { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
+          ],
+          activeTabId: 'tab1',
+          activeTab: { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
+        })
+      );
 
       render(<TerminalTabsContainer />);
 
@@ -70,16 +90,13 @@ describe('TerminalTabsContainer', () => {
 
     it('should render the active terminal', () => {
       const activeTab = { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' };
-      mockUseTerminalTabs.mockReturnValue({
-        tabs: [activeTab],
-        activeTabId: 'tab1',
-        activeTab,
-        addTab: vi.fn(),
-        removeTab: vi.fn(),
-        renameTab: vi.fn(),
-        setActiveTab: vi.fn(),
-        reorderTabs: vi.fn(),
-      });
+      mockUseTerminalTabs.mockReturnValue(
+        createMockReturn({
+          tabs: [activeTab],
+          activeTabId: 'tab1',
+          activeTab,
+        })
+      );
 
       render(<TerminalTabsContainer />);
 
@@ -93,16 +110,13 @@ describe('TerminalTabsContainer', () => {
         { id: 'tab3', name: 'Terminal 3', wsUrl: 'ws://localhost:7683/ws' },
       ];
 
-      mockUseTerminalTabs.mockReturnValue({
-        tabs,
-        activeTabId: 'tab2',
-        activeTab: tabs[1],
-        addTab: vi.fn(),
-        removeTab: vi.fn(),
-        renameTab: vi.fn(),
-        setActiveTab: vi.fn(),
-        reorderTabs: vi.fn(),
-      });
+      mockUseTerminalTabs.mockReturnValue(
+        createMockReturn({
+          tabs,
+          activeTabId: 'tab2',
+          activeTab: tabs[1],
+        })
+      );
 
       const { container } = render(<TerminalTabsContainer />);
 
@@ -128,18 +142,15 @@ describe('TerminalTabsContainer', () => {
     });
 
     it('should apply className to container', () => {
-      mockUseTerminalTabs.mockReturnValue({
-        tabs: [
-          { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
-        ],
-        activeTabId: 'tab1',
-        activeTab: { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
-        addTab: vi.fn(),
-        removeTab: vi.fn(),
-        renameTab: vi.fn(),
-        setActiveTab: vi.fn(),
-        reorderTabs: vi.fn(),
-      });
+      mockUseTerminalTabs.mockReturnValue(
+        createMockReturn({
+          tabs: [
+            { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
+          ],
+          activeTabId: 'tab1',
+          activeTab: { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
+        })
+      );
 
       const { container } = render(<TerminalTabsContainer className="custom-class" />);
 
@@ -147,39 +158,63 @@ describe('TerminalTabsContainer', () => {
     });
 
     it('should show placeholder when no active tab', () => {
-      mockUseTerminalTabs.mockReturnValue({
-        tabs: [],
-        activeTabId: null,
-        activeTab: null,
-        addTab: vi.fn(),
-        removeTab: vi.fn(),
-        renameTab: vi.fn(),
-        setActiveTab: vi.fn(),
-        reorderTabs: vi.fn(),
-      });
+      mockUseTerminalTabs.mockReturnValue(createMockReturn());
 
       render(<TerminalTabsContainer />);
 
       expect(screen.getByText(/no terminal selected/i)).toBeInTheDocument();
+    });
+
+    it('should show loading state when isLoading is true', () => {
+      mockUseTerminalTabs.mockReturnValue(
+        createMockReturn({
+          isLoading: true,
+          tabs: [],
+          activeTabId: null,
+          activeTab: null,
+        })
+      );
+
+      render(<TerminalTabsContainer />);
+
+      expect(screen.getByText(/loading terminals/i)).toBeInTheDocument();
+      expect(screen.queryByTestId('tab-bar')).not.toBeInTheDocument();
+    });
+
+    it('should show error state when error is present', () => {
+      const errorMessage = 'Failed to connect to terminal service';
+      mockUseTerminalTabs.mockReturnValue(
+        createMockReturn({
+          isLoading: false,
+          error: new Error(errorMessage),
+          tabs: [],
+          activeTabId: null,
+          activeTab: null,
+        })
+      );
+
+      render(<TerminalTabsContainer />);
+
+      expect(screen.getByText(/error loading terminals/i)).toBeInTheDocument();
+      expect(screen.getByText(errorMessage)).toBeInTheDocument();
+      expect(screen.queryByTestId('tab-bar')).not.toBeInTheDocument();
     });
   });
 
   describe('Tab Switching', () => {
     it('should pass setActiveTab handler to tab bar', () => {
       const setActiveTabMock = vi.fn();
-      mockUseTerminalTabs.mockReturnValue({
-        tabs: [
-          { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
-          { id: 'tab2', name: 'Terminal 2', wsUrl: 'ws://localhost:7682/ws' },
-        ],
-        activeTabId: 'tab1',
-        activeTab: { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
-        addTab: vi.fn(),
-        removeTab: vi.fn(),
-        renameTab: vi.fn(),
-        setActiveTab: setActiveTabMock,
-        reorderTabs: vi.fn(),
-      });
+      mockUseTerminalTabs.mockReturnValue(
+        createMockReturn({
+          tabs: [
+            { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
+            { id: 'tab2', name: 'Terminal 2', wsUrl: 'ws://localhost:7682/ws' },
+          ],
+          activeTabId: 'tab1',
+          activeTab: { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
+          setActiveTab: setActiveTabMock,
+        })
+      );
 
       render(<TerminalTabsContainer />);
 
@@ -193,18 +228,16 @@ describe('TerminalTabsContainer', () => {
   describe('Tab Operations', () => {
     it('should pass addTab handler to tab bar', () => {
       const addTabMock = vi.fn();
-      mockUseTerminalTabs.mockReturnValue({
-        tabs: [
-          { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
-        ],
-        activeTabId: 'tab1',
-        activeTab: { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
-        addTab: addTabMock,
-        removeTab: vi.fn(),
-        renameTab: vi.fn(),
-        setActiveTab: vi.fn(),
-        reorderTabs: vi.fn(),
-      });
+      mockUseTerminalTabs.mockReturnValue(
+        createMockReturn({
+          tabs: [
+            { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
+          ],
+          activeTabId: 'tab1',
+          activeTab: { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
+          addTab: addTabMock,
+        })
+      );
 
       render(<TerminalTabsContainer />);
 
@@ -216,18 +249,16 @@ describe('TerminalTabsContainer', () => {
 
     it('should pass removeTab handler to tab bar', () => {
       const removeTabMock = vi.fn();
-      mockUseTerminalTabs.mockReturnValue({
-        tabs: [
-          { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
-        ],
-        activeTabId: 'tab1',
-        activeTab: { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
-        addTab: vi.fn(),
-        removeTab: removeTabMock,
-        renameTab: vi.fn(),
-        setActiveTab: vi.fn(),
-        reorderTabs: vi.fn(),
-      });
+      mockUseTerminalTabs.mockReturnValue(
+        createMockReturn({
+          tabs: [
+            { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
+          ],
+          activeTabId: 'tab1',
+          activeTab: { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
+          removeTab: removeTabMock,
+        })
+      );
 
       render(<TerminalTabsContainer />);
 
@@ -239,18 +270,16 @@ describe('TerminalTabsContainer', () => {
 
     it('should pass renameTab handler to tab bar', () => {
       const renameTabMock = vi.fn();
-      mockUseTerminalTabs.mockReturnValue({
-        tabs: [
-          { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
-        ],
-        activeTabId: 'tab1',
-        activeTab: { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
-        addTab: vi.fn(),
-        removeTab: vi.fn(),
-        renameTab: renameTabMock,
-        setActiveTab: vi.fn(),
-        reorderTabs: vi.fn(),
-      });
+      mockUseTerminalTabs.mockReturnValue(
+        createMockReturn({
+          tabs: [
+            { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
+          ],
+          activeTabId: 'tab1',
+          activeTab: { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
+          renameTab: renameTabMock,
+        })
+      );
 
       render(<TerminalTabsContainer />);
 
@@ -262,19 +291,17 @@ describe('TerminalTabsContainer', () => {
 
     it('should pass reorderTabs handler to tab bar', () => {
       const reorderTabsMock = vi.fn();
-      mockUseTerminalTabs.mockReturnValue({
-        tabs: [
-          { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
-          { id: 'tab2', name: 'Terminal 2', wsUrl: 'ws://localhost:7682/ws' },
-        ],
-        activeTabId: 'tab1',
-        activeTab: { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
-        addTab: vi.fn(),
-        removeTab: vi.fn(),
-        renameTab: vi.fn(),
-        setActiveTab: vi.fn(),
-        reorderTabs: reorderTabsMock,
-      });
+      mockUseTerminalTabs.mockReturnValue(
+        createMockReturn({
+          tabs: [
+            { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
+            { id: 'tab2', name: 'Terminal 2', wsUrl: 'ws://localhost:7682/ws' },
+          ],
+          activeTabId: 'tab1',
+          activeTab: { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
+          reorderTabs: reorderTabsMock,
+        })
+      );
 
       render(<TerminalTabsContainer />);
 
@@ -292,16 +319,13 @@ describe('TerminalTabsContainer', () => {
         { id: 'tab2', name: 'Terminal 2', wsUrl: 'ws://localhost:7682/ws' },
       ];
 
-      mockUseTerminalTabs.mockReturnValue({
-        tabs,
-        activeTabId: 'tab1',
-        activeTab: tabs[0],
-        addTab: vi.fn(),
-        removeTab: vi.fn(),
-        renameTab: vi.fn(),
-        setActiveTab: vi.fn(),
-        reorderTabs: vi.fn(),
-      });
+      mockUseTerminalTabs.mockReturnValue(
+        createMockReturn({
+          tabs,
+          activeTabId: 'tab1',
+          activeTab: tabs[0],
+        })
+      );
 
       render(<TerminalTabsContainer />);
 
@@ -323,16 +347,13 @@ describe('TerminalTabsContainer', () => {
 
     it('should pass correct config to EmbeddedTerminal', () => {
       const activeTab = { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' };
-      mockUseTerminalTabs.mockReturnValue({
-        tabs: [activeTab],
-        activeTabId: 'tab1',
-        activeTab,
-        addTab: vi.fn(),
-        removeTab: vi.fn(),
-        renameTab: vi.fn(),
-        setActiveTab: vi.fn(),
-        reorderTabs: vi.fn(),
-      });
+      mockUseTerminalTabs.mockReturnValue(
+        createMockReturn({
+          tabs: [activeTab],
+          activeTabId: 'tab1',
+          activeTab,
+        })
+      );
 
       render(<TerminalTabsContainer />);
 
@@ -347,16 +368,13 @@ describe('TerminalTabsContainer', () => {
       ];
 
       // Start with tab1 active
-      mockUseTerminalTabs.mockReturnValue({
-        tabs,
-        activeTabId: 'tab1',
-        activeTab: tabs[0],
-        addTab: vi.fn(),
-        removeTab: vi.fn(),
-        renameTab: vi.fn(),
-        setActiveTab: vi.fn(),
-        reorderTabs: vi.fn(),
-      });
+      mockUseTerminalTabs.mockReturnValue(
+        createMockReturn({
+          tabs,
+          activeTabId: 'tab1',
+          activeTab: tabs[0],
+        })
+      );
 
       const { rerender } = render(<TerminalTabsContainer />);
 
@@ -369,16 +387,13 @@ describe('TerminalTabsContainer', () => {
       expect(wrapper2?.style.display).toBe('none');
 
       // Change to tab2 active
-      mockUseTerminalTabs.mockReturnValue({
-        tabs,
-        activeTabId: 'tab2',
-        activeTab: tabs[1],
-        addTab: vi.fn(),
-        removeTab: vi.fn(),
-        renameTab: vi.fn(),
-        setActiveTab: vi.fn(),
-        reorderTabs: vi.fn(),
-      });
+      mockUseTerminalTabs.mockReturnValue(
+        createMockReturn({
+          tabs,
+          activeTabId: 'tab2',
+          activeTab: tabs[1],
+        })
+      );
 
       rerender(<TerminalTabsContainer />);
 
@@ -407,12 +422,14 @@ describe('TerminalTabsContainer', () => {
         reorderTabs: vi.fn(),
       };
 
-      mockUseTerminalTabs.mockReturnValue({
-        tabs,
-        activeTabId: 'tab1',
-        activeTab: tabs[0],
-        ...handlers,
-      });
+      mockUseTerminalTabs.mockReturnValue(
+        createMockReturn({
+          tabs,
+          activeTabId: 'tab1',
+          activeTab: tabs[0],
+          ...handlers,
+        })
+      );
 
       render(<TerminalTabsContainer />);
 
@@ -423,16 +440,7 @@ describe('TerminalTabsContainer', () => {
 
   describe('Edge Cases', () => {
     it('should handle empty tabs array', () => {
-      mockUseTerminalTabs.mockReturnValue({
-        tabs: [],
-        activeTabId: null,
-        activeTab: null,
-        addTab: vi.fn(),
-        removeTab: vi.fn(),
-        renameTab: vi.fn(),
-        setActiveTab: vi.fn(),
-        reorderTabs: vi.fn(),
-      });
+      mockUseTerminalTabs.mockReturnValue(createMockReturn());
 
       render(<TerminalTabsContainer />);
 
@@ -440,18 +448,15 @@ describe('TerminalTabsContainer', () => {
     });
 
     it('should handle activeTabId mismatch with tabs', () => {
-      mockUseTerminalTabs.mockReturnValue({
-        tabs: [
-          { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
-        ],
-        activeTabId: 'tab2', // tab2 doesn't exist
-        activeTab: null,
-        addTab: vi.fn(),
-        removeTab: vi.fn(),
-        renameTab: vi.fn(),
-        setActiveTab: vi.fn(),
-        reorderTabs: vi.fn(),
-      });
+      mockUseTerminalTabs.mockReturnValue(
+        createMockReturn({
+          tabs: [
+            { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
+          ],
+          activeTabId: 'tab2', // tab2 doesn't exist
+          activeTab: null,
+        })
+      );
 
       render(<TerminalTabsContainer />);
 
@@ -460,16 +465,13 @@ describe('TerminalTabsContainer', () => {
 
     it('should handle single tab correctly', () => {
       const tab = { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' };
-      mockUseTerminalTabs.mockReturnValue({
-        tabs: [tab],
-        activeTabId: 'tab1',
-        activeTab: tab,
-        addTab: vi.fn(),
-        removeTab: vi.fn(),
-        renameTab: vi.fn(),
-        setActiveTab: vi.fn(),
-        reorderTabs: vi.fn(),
-      });
+      mockUseTerminalTabs.mockReturnValue(
+        createMockReturn({
+          tabs: [tab],
+          activeTabId: 'tab1',
+          activeTab: tab,
+        })
+      );
 
       render(<TerminalTabsContainer />);
 

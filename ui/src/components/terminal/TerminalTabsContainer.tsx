@@ -2,22 +2,57 @@ import React from 'react';
 import { useTerminalTabs } from '../../hooks/useTerminalTabs';
 import { TerminalTabBar } from './TerminalTabBar';
 import { EmbeddedTerminal } from '../EmbeddedTerminal';
+import { useSessionStore } from '../../stores/sessionStore';
 
 export interface TerminalTabsContainerProps {
   className?: string;
 }
 
 export const TerminalTabsContainer: React.FC<TerminalTabsContainerProps> = ({ className = '' }) => {
+  // Get current collab session
+  const currentSession = useSessionStore(state => state.currentSession);
+
+  // Extract project and session from currentSession
+  const project = currentSession?.project || '';
+  const session = currentSession?.name || '';
+
   const {
     tabs,
     activeTabId,
     activeTab,
+    isLoading,
+    error,
     addTab,
     removeTab,
     renameTab,
     setActiveTab,
     reorderTabs,
-  } = useTerminalTabs();
+  } = useTerminalTabs({ project, session });
+
+  // Handle loading state
+  if (isLoading) {
+    return (
+      <div className={`terminal-tabs-container ${className}`} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666' }}>
+          Loading terminals...
+        </div>
+      </div>
+    );
+  }
+
+  // Handle error state
+  if (error) {
+    return (
+      <div className={`terminal-tabs-container ${className}`} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#d32f2f', padding: '20px' }}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ marginBottom: '10px', fontWeight: 'bold' }}>Error loading terminals</div>
+            <div style={{ fontSize: '0.9em' }}>{error.message}</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`terminal-tabs-container ${className}`} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -48,6 +83,7 @@ export const TerminalTabsContainer: React.FC<TerminalTabsContainerProps> = ({ cl
               >
                 <EmbeddedTerminal
                   config={{ wsUrl: tab.wsUrl }}
+                  sessionName={tab.sessionName}
                   className="h-full"
                 />
               </div>
