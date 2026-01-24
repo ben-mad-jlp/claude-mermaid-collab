@@ -10,6 +10,20 @@ import { questionManager } from '../services/question-manager';
 import { uiManager } from '../services/ui-manager';
 import { statusManager } from '../services/status-manager';
 import { join } from 'path';
+import { homedir } from 'os';
+
+/**
+ * Expand ~ to home directory in paths
+ */
+function expandPath(path: string): string {
+  if (path.startsWith('~/')) {
+    return join(homedir(), path.slice(2));
+  }
+  if (path === '~') {
+    return homedir();
+  }
+  return path;
+}
 
 // Track server start time for uptime calculation
 const serverStartTime = Date.now();
@@ -114,7 +128,11 @@ export async function handleAPI(
   if (path === '/api/sessions' && req.method === 'GET') {
     try {
       const sessions = await sessionRegistry.list();
-      return Response.json({ sessions });
+      return Response.json({ sessions }, {
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+        },
+      });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 500 });
     }
@@ -123,17 +141,21 @@ export async function handleAPI(
   // POST /api/sessions - Register a session (called by MCP tools)
   if (path === '/api/sessions' && req.method === 'POST') {
     try {
-      const { project, session } = await req.json() as { project?: string; session?: string };
+      const { project: rawProject, session } = await req.json() as { project?: string; session?: string };
 
-      if (!project || !session) {
+      if (!rawProject || !session) {
         return Response.json({ error: 'project and session required' }, { status: 400 });
       }
+
+      // Expand ~ to home directory
+      const project = expandPath(rawProject);
 
       const result = await sessionRegistry.register(project, session);
       if (result.created) {
         wsHandler.broadcast({ type: 'session_created', project, session });
       }
-      return Response.json({ success: true, project, session });
+      // Return the expanded project path so the client uses the correct path
+      return Response.json({ success: true, project, session, created: result.created });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
     }
@@ -142,11 +164,14 @@ export async function handleAPI(
   // DELETE /api/sessions - Unregister a session
   if (path === '/api/sessions' && req.method === 'DELETE') {
     try {
-      const { project, session } = await req.json() as { project?: string; session?: string };
+      const { project: rawProject, session } = await req.json() as { project?: string; session?: string };
 
-      if (!project || !session) {
+      if (!rawProject || !session) {
         return Response.json({ error: 'project and session required' }, { status: 400 });
       }
+
+      // Expand ~ to home directory
+      const project = expandPath(rawProject);
 
       const removed = await sessionRegistry.unregister(project, session);
       return Response.json({ success: removed });
@@ -855,6 +880,167 @@ export async function handleAPI(
       return Response.json({ success: true });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // ============================================
+  // Terminal Session Management
+  // ============================================
+
+  // POST /api/terminal/kill-session - Kill a tmux session
+  if (path === '/api/terminal/kill-session' && req.method === 'POST') {
+    try {
+      const { sessionName } = await req.json() as { sessionName?: string };
+
+      if (!sessionName) {
+        return Response.json({ error: 'sessionName required' }, { status: 400 });
+      }
+
+      // Validate session name format (must start with our prefix)
+      if (!sessionName.startsWith('mc-')) {
+        return Response.json({ error: 'Invalid session name' }, { status: 400 });
+      }
+
+      // Kill the tmux session
+      const proc = Bun.spawn(['tmux', 'kill-session', '-t', sessionName], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+      await proc.exited;
+
+      // Success even if session didn't exist (idempotent)
+      return Response.json({ success: true, sessionName });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // POST /api/terminal/cleanup - Kill all orphaned mc-* tmux sessions
+  if (path === '/api/terminal/cleanup' && req.method === 'POST') {
+    try {
+      const { activeSessions = [] } = await req.json() as { activeSessions?: string[] };
+
+      // List all tmux sessions
+      const listProc = Bun.spawn(['tmux', 'list-sessions', '-F', '#{session_name}'], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+      const output = await new Response(listProc.stdout).text();
+      await listProc.exited;
+
+      // Find mc-* sessions that aren't in the active list
+      const allSessions = output.trim().split('\n').filter(s => s.startsWith('mc-'));
+      const orphaned = allSessions.filter(s => !activeSessions.includes(s));
+
+      // Kill orphaned sessions
+      for (const sessionName of orphaned) {
+        const killProc = Bun.spawn(['tmux', 'kill-session', '-t', sessionName], {
+          stdout: 'pipe',
+          stderr: 'pipe',
+        });
+        await killProc.exited;
+      }
+
+      return Response.json({ success: true, killed: orphaned, kept: activeSessions.filter(s => allSessions.includes(s)) });
+    } catch (error: any) {
+      // tmux might not be running or no sessions exist
+      return Response.json({ success: true, killed: [], kept: [] });
+    }
+  }
+
+  // ============================================
+  // Terminal Session Management (MCP-backed)
+  // ============================================
+
+  // GET /api/terminal/sessions?project=...&session=...
+  if (path === '/api/terminal/sessions' && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    try {
+      const { terminalListSessions } = await import('../mcp/tools/terminal-sessions.js');
+      const result = await terminalListSessions(params.project, params.session);
+      return Response.json(result);
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // POST /api/terminal/sessions
+  if (path === '/api/terminal/sessions' && req.method === 'POST') {
+    try {
+      const { project, session, name } = await req.json() as { project?: string; session?: string; name?: string };
+
+      if (!project || !session) {
+        return Response.json({ error: 'project and session required' }, { status: 400 });
+      }
+
+      const { terminalCreateSession } = await import('../mcp/tools/terminal-sessions.js');
+      const result = await terminalCreateSession(project, session, name);
+      return Response.json(result);
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // DELETE /api/terminal/sessions/:id
+  if (path.startsWith('/api/terminal/sessions/') && !path.includes('/reorder') && req.method === 'DELETE') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const id = path.split('/').pop()!;
+
+    try {
+      const { terminalKillSession } = await import('../mcp/tools/terminal-sessions.js');
+      const result = await terminalKillSession(params.project, params.session, id);
+      return Response.json(result);
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // PATCH /api/terminal/sessions/:id
+  if (path.startsWith('/api/terminal/sessions/') && !path.includes('/reorder') && req.method === 'PATCH') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const id = path.split('/').pop()!;
+    const { name } = await req.json() as { name?: string };
+
+    try {
+      const { terminalRenameSession } = await import('../mcp/tools/terminal-sessions.js');
+      const result = await terminalRenameSession(params.project, params.session, id, name || '');
+      return Response.json(result);
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // PUT /api/terminal/sessions/reorder
+  if (path === '/api/terminal/sessions/reorder' && req.method === 'PUT') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    try {
+      const { orderedIds } = await req.json() as { orderedIds?: string[] };
+
+      if (!orderedIds) {
+        return Response.json({ error: 'orderedIds required' }, { status: 400 });
+      }
+
+      const { terminalReorderSessions } = await import('../mcp/tools/terminal-sessions.js');
+      const result = await terminalReorderSessions(params.project, params.session, orderedIds);
+      return Response.json(result);
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
     }
   }
 
