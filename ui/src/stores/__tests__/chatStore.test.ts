@@ -92,7 +92,7 @@ describe('useChatStore', () => {
       expect(state.unreadCount).toBe(0); // Blocking messages don't increment unread
     });
 
-    it('should handle multiple non-blocking messages', () => {
+    it('should replace previous message with new one (single message mode)', () => {
       const msg1: ChatMessage = {
         id: 'msg1',
         type: 'ui_render',
@@ -113,11 +113,12 @@ describe('useChatStore', () => {
       useChatStore.getState().addMessage(msg2);
 
       const state = useChatStore.getState();
-      expect(state.messages).toHaveLength(2);
-      expect(state.unreadCount).toBe(2);
+      // Only keeps the latest message
+      expect(state.messages).toHaveLength(1);
+      expect(state.messages[0].id).toBe('msg2');
     });
 
-    it('should preserve message order', () => {
+    it('should only keep latest message', () => {
       const msg1: ChatMessage = {
         id: 'msg1',
         type: 'ui_render',
@@ -138,8 +139,9 @@ describe('useChatStore', () => {
       useChatStore.getState().addMessage(msg2);
 
       const state = useChatStore.getState();
-      expect(state.messages[0].id).toBe('msg1');
-      expect(state.messages[1].id).toBe('msg2');
+      // Single message mode - only latest is kept
+      expect(state.messages).toHaveLength(1);
+      expect(state.messages[0].id).toBe('msg2');
     });
 
     it('should add message with UI data', () => {

@@ -41,7 +41,9 @@ export const Toggle: React.FC<ToggleProps> = ({
   const toggleId = `${id}-toggle`;
   const [internalChecked, setInternalChecked] = useState(controlledChecked || false);
 
-  const currentChecked = controlledChecked !== undefined ? controlledChecked : internalChecked;
+  // Only use controlled mode if onChange is provided, otherwise use internal state
+  const isControlled = controlledChecked !== undefined && onChange !== undefined;
+  const currentChecked = isControlled ? controlledChecked : internalChecked;
   const sizes = sizeClasses[size];
 
   const handleToggle = () => {

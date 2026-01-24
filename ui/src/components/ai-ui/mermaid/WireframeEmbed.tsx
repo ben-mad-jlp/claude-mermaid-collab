@@ -11,7 +11,7 @@
  * Supports Mermaid wireframe syntax for UI mockup display.
  */
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useId } from 'react';
 import mermaid from 'mermaid';
 import { useTheme } from '@/hooks/useTheme';
 
@@ -61,12 +61,23 @@ export const WireframeEmbed: React.FC<WireframeEmbedProps> = ({
   onError,
   height,
 }) => {
+  const uniqueId = useId();
+  const mermaidId = `wireframe-${uniqueId.replace(/:/g, '')}`;
   const containerRef = useRef<HTMLDivElement>(null);
+  const [refReady, setRefReady] = useState(false);
   const [state, setState] = useState<WireframeEmbedState>({
     isLoading: true,
     error: null,
   });
   const { theme } = useTheme();
+
+  // Callback ref to detect when container is mounted
+  const setContainerRef = useCallback((node: HTMLDivElement | null) => {
+    containerRef.current = node;
+    if (node) {
+      setRefReady(true);
+    }
+  }, []);
 
   // Initialize mermaid with theme
   useEffect(() => {
@@ -108,11 +119,17 @@ export const WireframeEmbed: React.FC<WireframeEmbedProps> = ({
       setState({ isLoading: true, error: null });
 
       // Clear previous content
-      containerRef.current.innerHTML = '';
+      if (containerRef.current) {
+        containerRef.current.innerHTML = '';
+      }
 
-      // Validate and render
-      const { svg } = await mermaid.render('mermaid-wireframe', content);
-      containerRef.current.innerHTML = svg;
+      // Validate and render with unique ID
+      const { svg } = await mermaid.render(mermaidId, content);
+
+      // Check ref still exists after async operation
+      if (containerRef.current) {
+        containerRef.current.innerHTML = svg;
+      }
 
       setState({ isLoading: false, error: null });
       onRender?.();
@@ -122,12 +139,14 @@ export const WireframeEmbed: React.FC<WireframeEmbedProps> = ({
       setState({ isLoading: false, error: errorMessage });
       onError?.(error instanceof Error ? error : new Error(errorMessage));
     }
-  }, [content, onRender, onError]);
+  }, [content, mermaidId, onRender, onError]);
 
-  // Re-render when content or theme changes
+  // Re-render when content, theme, or ref changes
   useEffect(() => {
-    renderWireframe();
-  }, [renderWireframe]);
+    if (refReady) {
+      renderWireframe();
+    }
+  }, [renderWireframe, refReady]);
 
   const heightStyle = height
     ? typeof height === 'string'
@@ -168,14 +187,12 @@ export const WireframeEmbed: React.FC<WireframeEmbedProps> = ({
         </div>
       )}
 
-      {/* Wireframe container */}
-      {!state.isLoading && !state.error && content?.trim() && (
-        <div
-          ref={containerRef}
-          className={`wireframe-wrapper overflow-auto bg-white dark:bg-gray-900 rounded-lg p-3 border border-gray-200 dark:border-gray-700 h-full ${theme === 'dark' ? 'dark' : ''}`}
-          data-testid="wireframe-embed-diagram"
-        />
-      )}
+      {/* Wireframe container - always render but hide when loading/error */}
+      <div
+        ref={setContainerRef}
+        className={`wireframe-wrapper overflow-auto bg-white dark:bg-gray-900 rounded-lg p-3 border border-gray-200 dark:border-gray-700 h-full ${theme === 'dark' ? 'dark' : ''} ${state.isLoading || state.error || !content?.trim() ? 'hidden' : ''}`}
+        data-testid="wireframe-embed-diagram"
+      />
 
       {/* Empty state */}
       {!state.isLoading && !state.error && !content?.trim() && (

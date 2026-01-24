@@ -45,15 +45,27 @@ export const Checklist: React.FC<ChecklistProps> = ({
   onSubItemChange,
   className = '',
 }) => {
+  // Normalize items to ensure each has a unique id
+  const normalizedItems = React.useMemo(() =>
+    (items || []).map((item, index) => ({
+      ...item,
+      id: item.id || `item-${index}`,
+    })),
+    [items]
+  );
+
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [itemStates, setItemStates] = useState<Record<string, boolean>>(
-    items.reduce((acc, item) => ({ ...acc, [item.id]: item.completed || false }), {})
+    normalizedItems.reduce((acc, item) => ({ ...acc, [item.id]: item.completed || false }), {})
   );
   const [subItemStates, setSubItemStates] = useState<Record<string, Record<string, boolean>>>(
-    items.reduce((acc, item) => {
+    normalizedItems.reduce((acc, item) => {
       if (item.subItems) {
         acc[item.id] = item.subItems.reduce(
-          (subAcc, subItem) => ({ ...subAcc, [subItem.id]: subItem.completed || false }),
+          (subAcc, subItem, subIndex) => ({
+            ...subAcc,
+            [subItem.id || `subitem-${subIndex}`]: subItem.completed || false
+          }),
           {}
         );
       }
@@ -102,12 +114,12 @@ export const Checklist: React.FC<ChecklistProps> = ({
   };
 
   // Calculate progress
-  const totalItems = items.length;
-  const completedItems = items.filter((item) => itemStates[item.id]).length;
+  const totalItems = normalizedItems.length;
+  const completedItems = normalizedItems.filter((item) => itemStates[item.id]).length;
   const completionPercentage = (completedItems / totalItems) * 100;
 
   // Calculate required items
-  const requiredItems = items.filter((item) => item.required || allRequired);
+  const requiredItems = normalizedItems.filter((item) => item.required || allRequired);
   const completedRequiredItems = requiredItems.filter((item) => itemStates[item.id]).length;
   const allRequiredComplete = completedRequiredItems === requiredItems.length;
 
@@ -147,7 +159,7 @@ export const Checklist: React.FC<ChecklistProps> = ({
 
       {/* Items List */}
       <div className="space-y-2">
-        {items.map((item) => {
+        {normalizedItems.map((item) => {
           const isCompleted = itemStates[item.id];
           const hasSubItems = item.subItems && item.subItems.length > 0;
           const isExpanded = expandedItems.has(item.id);

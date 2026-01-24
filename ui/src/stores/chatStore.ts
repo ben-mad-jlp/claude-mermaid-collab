@@ -45,8 +45,9 @@ export const useChatStore = create<ChatState & ChatActions>((set, get) => ({
         return state;
       }
 
+      // Replace with single message only
       const newState = {
-        messages: [...state.messages, msg],
+        messages: [msg],
         unreadCount: state.unreadCount,
         isOpen: state.isOpen,
         currentBlockingId: state.currentBlockingId,

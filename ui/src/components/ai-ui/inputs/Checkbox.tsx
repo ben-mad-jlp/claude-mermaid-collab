@@ -51,7 +51,7 @@ export const Checkbox: React.FC<CheckboxProps> = ({
       )}
       <div
         id={groupId}
-        className="flex flex-col gap-2"
+        className="flex flex-col gap-2 mt-2"
         role="group"
         aria-label={ariaLabel || label}
         aria-describedby={ariaDescribedBy || descriptionId}

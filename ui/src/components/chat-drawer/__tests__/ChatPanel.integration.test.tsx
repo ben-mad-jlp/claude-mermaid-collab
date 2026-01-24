@@ -162,7 +162,7 @@ describe('ChatPanel with ArtifactLink Integration', () => {
       expect(state.currentView?.id).toBe('doc-2');
     });
 
-    it('should preserve chat history while navigating artifacts', async () => {
+    it('should keep latest message while navigating artifacts (single message mode)', async () => {
       const { addMessage } = useChatStore.getState();
       const { navigateToArtifact } = useViewerStore.getState();
 
@@ -190,7 +190,9 @@ describe('ChatPanel with ArtifactLink Integration', () => {
       const chatState = useChatStore.getState();
       const viewerState = useViewerStore.getState();
 
-      expect(chatState.messages.length).toBe(2);
+      // Single message mode - only keeps latest message
+      expect(chatState.messages.length).toBe(1);
+      expect(chatState.messages[0].id).toBe('msg-2');
       expect(viewerState.currentView?.id).toBe('doc-1');
     });
   });
