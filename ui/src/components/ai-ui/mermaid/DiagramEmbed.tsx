@@ -64,11 +64,31 @@ export const DiagramEmbed: React.FC<DiagramEmbedProps> = ({
 
   // Initialize mermaid with theme
   useEffect(() => {
-    mermaid.initialize({
+    const config = {
       startOnLoad: false,
       theme: theme === 'dark' ? 'dark' : 'default',
       securityLevel: 'loose',
-    });
+    } as any;
+
+    // Apply dark mode theme variables for better contrast
+    if (theme === 'dark') {
+      config.themeVariables = {
+        primaryColor: '#4a9eff',
+        primaryTextColor: '#ffffff',
+        primaryBorderColor: '#3a7bd5',
+        lineColor: '#888888',
+        secondaryColor: '#2d5a8c',
+        tertiaryColor: '#1e3a5f',
+        background: '#1a1a2e',
+        mainBkg: '#1a1a2e',
+        nodeBorder: '#4a9eff',
+        clusterBkg: '#2d3748',
+        titleColor: '#ffffff',
+        edgeLabelBackground: '#1a1a2e',
+      };
+    }
+
+    mermaid.initialize(config);
   }, [theme]);
 
   // Render the diagram
@@ -111,7 +131,7 @@ export const DiagramEmbed: React.FC<DiagramEmbedProps> = ({
 
   return (
     <div
-      className={`diagram-embed-container relative w-full ${className}`}
+      className={`diagram-embed-container relative w-full ${theme === 'dark' ? 'dark' : ''} ${className}`}
       data-testid="diagram-embed"
       style={heightStyle ? { height: heightStyle } : undefined}
     >
@@ -146,7 +166,7 @@ export const DiagramEmbed: React.FC<DiagramEmbedProps> = ({
       {!state.isLoading && !state.error && content.trim() && (
         <div
           ref={containerRef}
-          className="diagram-wrapper overflow-auto bg-white dark:bg-gray-900 rounded-lg p-3 border border-gray-200 dark:border-gray-700 h-full"
+          className={`diagram-wrapper overflow-auto bg-white dark:bg-gray-900 rounded-lg p-3 border border-gray-200 dark:border-gray-700 h-full ${theme === 'dark' ? 'dark' : ''}`}
           data-testid="diagram-embed-diagram"
         />
       )}

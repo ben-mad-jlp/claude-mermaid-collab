@@ -1,0 +1,89 @@
+/**
+ * Diagram Theming Styles
+ *
+ * Dark mode styles for Mermaid diagrams to ensure proper contrast
+ * and readability in dark mode.
+ */
+
+/* Dark mode diagram container styles */
+.diagram-embed-container.dark,
+.mermaid-preview-container.dark {
+  --diagram-bg: #1a1a2e;
+}
+
+/* Ensure text is readable in dark mode */
+.diagram-embed-container.dark text,
+.mermaid-preview-container.dark text,
+.diagram-wrapper.dark text,
+.mermaid-diagram-wrapper.dark text {
+  fill: #ffffff !important;
+}
+
+/* Diagram node styling for dark mode */
+.diagram-embed-container.dark .node rect,
+.diagram-embed-container.dark .node circle,
+.diagram-embed-container.dark .node polygon,
+.mermaid-preview-container.dark .node rect,
+.mermaid-preview-container.dark .node circle,
+.mermaid-preview-container.dark .node polygon {
+  stroke: #4a9eff !important;
+  fill: #2d5a8c !important;
+}
+
+/* Edge/line styling for dark mode */
+.diagram-embed-container.dark .edgePath path,
+.mermaid-preview-container.dark .edgePath path {
+  stroke: #888888 !important;
+}
+
+/* Cluster styling for dark mode */
+.diagram-embed-container.dark .cluster,
+.mermaid-preview-container.dark .cluster {
+  fill: #2d3748 !important;
+  stroke: #4a9eff !important;
+}
+
+/* Label styling for dark mode */
+.diagram-embed-container.dark .label,
+.mermaid-preview-container.dark .label {
+  background-color: #1a1a2e !important;
+  color: #ffffff !important;
+}
+
+/* Title styling for dark mode */
+.diagram-embed-container.dark .title,
+.mermaid-preview-container.dark .title {
+  fill: #ffffff !important;
+}
+
+/* Actor/entity styling for dark mode */
+.diagram-embed-container.dark .actor,
+.mermaid-preview-container.dark .actor {
+  stroke: #4a9eff !important;
+  fill: #2d5a8c !important;
+}
+
+/* Message/sequence styling for dark mode */
+.diagram-embed-container.dark .message,
+.mermaid-preview-container.dark .message {
+  stroke: #888888 !important;
+}
+
+/* Section styling for dark mode */
+.diagram-embed-container.dark .section,
+.mermaid-preview-container.dark .section {
+  stroke: #4a9eff !important;
+  fill: #2d3748 !important;
+}
+
+/* Ensure SVG background is transparent to use container bg */
+.diagram-embed-container.dark svg,
+.mermaid-preview-container.dark svg {
+  background: transparent !important;
+}
+
+/* Dark mode wrapper background */
+.diagram-wrapper.dark,
+.mermaid-diagram-wrapper.dark {
+  background-color: #1a1a2e !important;
+}

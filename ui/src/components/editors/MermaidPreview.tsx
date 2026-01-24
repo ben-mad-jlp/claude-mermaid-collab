@@ -281,11 +281,31 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
 
   // Initialize mermaid with theme
   useEffect(() => {
-    mermaid.initialize({
+    const config = {
       startOnLoad: false,
       theme: theme === 'dark' ? 'dark' : 'default',
       securityLevel: 'loose',
-    });
+    } as any;
+
+    // Apply dark mode theme variables for better contrast
+    if (theme === 'dark') {
+      config.themeVariables = {
+        primaryColor: '#4a9eff',
+        primaryTextColor: '#ffffff',
+        primaryBorderColor: '#3a7bd5',
+        lineColor: '#888888',
+        secondaryColor: '#2d5a8c',
+        tertiaryColor: '#1e3a5f',
+        background: '#1a1a2e',
+        mainBkg: '#1a1a2e',
+        nodeBorder: '#4a9eff',
+        clusterBkg: '#2d3748',
+        titleColor: '#ffffff',
+        edgeLabelBackground: '#1a1a2e',
+      };
+    }
+
+    mermaid.initialize(config);
   }, [theme]);
 
   // Render the diagram
@@ -330,7 +350,7 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
   return (
     <div
       ref={outerRef}
-      className={`mermaid-preview-container relative w-full h-full flex flex-col ${className}`}
+      className={`mermaid-preview-container relative w-full h-full flex flex-col ${theme === 'dark' ? 'dark' : ''} ${className}`}
       data-testid="mermaid-preview"
     >
       {/* Loading indicator */}
@@ -363,7 +383,7 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
         ref={wrapperRef}
         className={`mermaid-diagram-wrapper overflow-auto bg-white dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-700 flex-1 ${
           state.isLoading || state.error || !content.trim() ? 'hidden' : ''
-        }`}
+        } ${theme === 'dark' ? 'dark' : ''}`}
         style={{ cursor: isPanning ? 'grabbing' : 'default' }}
         data-testid="mermaid-diagram"
       >
