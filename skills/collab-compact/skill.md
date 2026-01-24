@@ -84,3 +84,27 @@ Compaction complete. Resuming session...
 Invoke skill: collab
 
 This will restore context from the snapshot and continue where you left off.
+
+## Context Full Detection
+
+When context usage is high before triggering compaction, render an Alert to notify the user:
+
+**Tool call:**
+```
+Tool: mcp__mermaid__render_ui
+Args: {
+  "project": "<absolute-path-to-cwd>",
+  "session": "<session-name>",
+  "ui": {
+    "type": "Alert",
+    "props": {
+      "type": "warning",
+      "title": "Context Full",
+      "message": "Run /compact in terminal, then /collab to resume."
+    }
+  },
+  "blocking": false
+}
+```
+
+This provides a non-blocking visual notification without interrupting the skill execution.

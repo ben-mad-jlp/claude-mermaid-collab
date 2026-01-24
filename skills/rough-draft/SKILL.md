@@ -67,6 +67,54 @@ The rough-draft skill bridges the gap between brainstorming (design) and impleme
 
 **Announce at start:** "I'm using the rough-draft skill to refine the design through interface, pseudocode, skeleton, and implementation handoff."
 
+## Auto-Accept Prompt (At Start)
+
+When first invoking rough-draft, ask user for approval workflow preference:
+
+**Render UI Dropdown:**
+```
+Tool: mcp__mermaid__render_ui
+Args: {
+  "project": "<absolute-path-to-cwd>",
+  "session": "<session-name>",
+  "ui": {
+    "type": "Card",
+    "props": { "title": "Rough-Draft Workflow Preference" },
+    "children": [{
+      "type": "Markdown",
+      "props": { "content": "How should I handle [PROPOSED] artifact reviews during rough-draft phases?" }
+    }],
+    "children": [{
+      "type": "RadioGroup",
+      "props": {
+        "name": "autoAccept",
+        "options": [
+          { "value": "yes", "label": "Yes - Skip approval prompts" },
+          { "value": "no", "label": "No - Review each phase" }
+        ]
+      }
+    }]
+  },
+  "blocking": true
+}
+```
+
+**Store preference in session state:**
+```
+Tool: mcp__mermaid__update_session_state
+Args: {
+  "project": "<absolute-path-to-cwd>",
+  "session": "<session-name>",
+  "metadata": { "autoAcceptRoughDraft": true/false }
+}
+```
+
+**Use preference in phases:**
+- If `autoAcceptRoughDraft: true` - Automatically proceed with [PROPOSED] artifacts without approval prompts
+- If `autoAcceptRoughDraft: false` - Always ask for approval before removing [PROPOSED] markers
+
+This preference applies to all Interface, Pseudocode, and Skeleton phase artifacts.
+
 ## Prerequisites
 
 Before starting rough-draft, ensure:
@@ -446,6 +494,30 @@ tasks:
 5. **No circular dependencies** - Graph must be acyclic
 
 ---
+
+## Context Full Detection
+
+During any rough-draft phase, if context usage approaches capacity, render a non-blocking Alert to notify the user:
+
+**Tool call:**
+```
+Tool: mcp__mermaid__render_ui
+Args: {
+  "project": "<absolute-path-to-cwd>",
+  "session": "<session-name>",
+  "ui": {
+    "type": "Alert",
+    "props": {
+      "type": "warning",
+      "title": "Context Full",
+      "message": "Run /compact in terminal, then /collab to resume."
+    }
+  },
+  "blocking": false
+}
+```
+
+This provides early warning before compaction becomes critical.
 
 ## Browser-Based Questions
 

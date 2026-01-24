@@ -202,6 +202,30 @@ Apply these principles to all design doc prose.
 - Use superpowers:using-git-worktrees to create isolated workspace
 - Use superpowers:writing-plans to create detailed implementation plan
 
+## Context Full Detection
+
+During brainstorming phases, if context usage approaches capacity, render a non-blocking Alert to notify the user:
+
+**Tool call:**
+```
+Tool: mcp__mermaid__render_ui
+Args: {
+  "project": "<absolute-path-to-cwd>",
+  "session": "<session-name>",
+  "ui": {
+    "type": "Alert",
+    "props": {
+      "type": "warning",
+      "title": "Context Full",
+      "message": "Run /compact in terminal, then /collab to resume."
+    }
+  },
+  "blocking": false
+}
+```
+
+This provides early warning before compaction becomes critical, allowing the user to proactively trigger compaction.
+
 ## Browser-Based Questions
 
 When a collab session is active, prefer `render_ui` for user interactions instead of terminal prompts.

@@ -208,17 +208,22 @@ Before executing ANY tasks, verify:
 
 **If anything is missing:** STOP. Go back to brainstorming/writing-plans. Do not proceed with incomplete specs.
 
-### Step 1.6: Create Task Execution Diagram
+### Step 1.6: Create Task Execution Diagram (MANDATORY)
 
-When within a collab workflow, create a visual diagram showing all tasks and their dependencies:
+**REQUIREMENT:** Always create a task execution diagram at the start of implementation. Never skip this step.
+
+When within a collab workflow, create a visual diagram showing all tasks and their dependencies. This diagram serves as a live progress tracker throughout implementation.
 
 **Build diagram content from task dependency graph:**
+
+Extract task information from the design doc's task dependency graph YAML and build a Mermaid graph:
+
 ```
 graph TD
-    %% Node Definitions
+    %% Node Definitions (one per task)
     <for each task: task-id(["task-id"])>
 
-    %% Dependencies
+    %% Dependencies (arrow from dependency to dependent)
     <for each dependency: dep-id --> task-id>
 
     %% Styles (all waiting initially)
@@ -228,35 +233,74 @@ graph TD
 **Create the diagram:**
 ```
 Tool: mcp__mermaid__create_diagram
-Args: { "name": "task-execution", "content": <generated-content> }
+Args: {
+  "project": "<absolute-path-to-cwd>",
+  "session": "<session-name>",
+  "name": "task-execution",
+  "content": <generated-mermaid-content>
+}
 ```
 
 **Display to user:**
 ```
-Task execution diagram: <previewUrl>
+Task execution diagram created: <preview-url>
+
+Tracking tasks:
+- task-1 (dependency root)
+- task-2 (depends on task-1)
+[etc.]
 ```
 
-**Style definitions for state changes:**
-| State | Style |
-|-------|-------|
-| waiting | `fill:#e0e0e0,stroke:#9e9e9e` |
-| executing | `fill:#bbdefb,stroke:#1976d2,stroke-width:3px` |
-| completed | `fill:#c8e6c9,stroke:#2e7d32` |
-| failed | `fill:#ffcdd2,stroke:#c62828` |
+**State tracking - Style definitions:**
+| State | Style | Meaning |
+|-------|-------|---------|
+| waiting | `fill:#e0e0e0,stroke:#9e9e9e` | Task queued, waiting for dependencies |
+| executing | `fill:#bbdefb,stroke:#1976d2,stroke-width:3px` | Task currently being implemented |
+| completed | `fill:#c8e6c9,stroke:#2e7d32` | Task finished and verified |
+| failed | `fill:#ffcdd2,stroke:#c62828` | Task encountered error |
 
 **Update diagram on state change:**
-1. Use patch_diagram for atomic style updates:
-   ```
-   Tool: mcp__mermaid__patch_diagram
-   Args: {
-     "project": "<cwd>",
-     "session": "<session>",
-     "id": "task-execution",
-     "old_string": "style <task-id> fill:#e0e0e0,stroke:#9e9e9e",
-     "new_string": "style <task-id> fill:#bbdefb,stroke:#1976d2,stroke-width:3px"
-   }
-   ```
-2. If patch_diagram fails (old_string not found), fall back to update_diagram
+
+Use `patch_diagram` for atomic style updates when task state changes:
+
+```
+Tool: mcp__mermaid__patch_diagram
+Args: {
+  "project": "<absolute-path-to-cwd>",
+  "session": "<session-name>",
+  "id": "task-execution",
+  "old_string": "style <task-id> fill:#e0e0e0,stroke:#9e9e9e",
+  "new_string": "style <task-id> fill:#bbdefb,stroke:#1976d2,stroke-width:3px"
+}
+```
+
+If `patch_diagram` fails (old_string not found), use `update_diagram` instead.
+
+**Helper function pseudocode:**
+
+```
+FUNCTION buildTaskDiagram(taskDependencyGraph):
+  nodes = []
+  edges = []
+  styles = []
+
+  FOR EACH task IN taskDependencyGraph.tasks:
+    nodes.append(`${task.id}(["${task.id}"])`)
+    styles.append(`style ${task.id} fill:#e0e0e0,stroke:#9e9e9e`)
+
+    FOR EACH dependency IN task.depends-on:
+      edges.append(`${dependency} --> ${task.id}`)
+
+  content = "graph TD\n"
+  content += "    %% Node Definitions\n"
+  content += nodes.join("\n    ") + "\n"
+  content += "\n    %% Dependencies\n"
+  content += edges.join("\n    ") + "\n"
+  content += "\n    %% Styles\n"
+  content += styles.join("\n    ")
+
+  RETURN content
+```
 
 ### Step 1.7: Verify Task Diagram Created
 

@@ -29,6 +29,37 @@ for arg in "$@"; do
   esac
 done
 
+# Step 0: Create MCP permissions file
+setup_mcp_permissions() {
+  local settings_dir=".claude"
+  local settings_file="$settings_dir/settings.local.json"
+
+  # Create .claude directory if it doesn't exist
+  if [[ ! -d "$settings_dir" ]]; then
+    info "Creating $settings_dir directory..."
+    mkdir -p "$settings_dir"
+  fi
+
+  # Create settings file with mermaid tool allowances if it doesn't exist
+  if [[ ! -f "$settings_file" ]]; then
+    info "Creating MCP permissions file..."
+    cat > "$settings_file" << 'EOF'
+{
+  "permissions": {
+    "allow": [
+      "mcp__mermaid__*",
+      "mcp__plugin_mermaid-collab_mermaid__*"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": ["mermaid"]
+}
+EOF
+  fi
+}
+
+setup_mcp_permissions
+
 # Check for ttyd installation
 check_ttyd() {
   if ! command -v ttyd &> /dev/null; then
