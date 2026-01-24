@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useChatStore } from '../../stores/chatStore';
 import { AIUIRenderer } from '../ai-ui/renderer';
+import { MessageArea } from './MessageArea';
 
 export interface ChatPanelProps {
   className?: string;
@@ -113,43 +114,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ className }) => {
           </div>
         ) : (
           <>
-            {messages.map((message, index) => (
-              <div
-                key={message.id}
-                data-testid={`message-${message.id}`}
-                data-blocking={message.blocking}
-                data-responded={message.responded}
-                className={index > 0 ? 'pt-4 border-t border-gray-200 dark:border-gray-700' : ''}
-              >
-                {/* Header with timestamp and badges */}
-                <div className="flex items-center gap-2 mb-2 text-xs text-gray-500 dark:text-gray-400">
-                  <span>{new Date(message.timestamp).toLocaleTimeString()}</span>
-                  {message.blocking && (
-                    <span className="px-1.5 py-0.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded font-medium">
-                      Blocking
-                    </span>
-                  )}
-                  {message.responded && (
-                    <span className="px-1.5 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded font-medium">
-                      Responded
-                    </span>
-                  )}
-                </div>
-
-                {/* Render UI Component */}
-                {message.type === 'ui_render' && message.ui ? (
-                  <AIUIRenderer
-                    component={message.ui}
-                    onAction={createActionHandler(message.id)}
-                    disabled={message.responded}
-                  />
-                ) : (
-                  <p className="text-sm text-gray-700 dark:text-gray-300">
-                    {message.response?.message || 'No content'}
-                  </p>
-                )}
-              </div>
-            ))}
+            <MessageArea messages={messages} onAction={createActionHandler} />
             <div ref={messagesEndRef} />
           </>
         )}
