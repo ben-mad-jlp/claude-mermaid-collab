@@ -784,11 +784,12 @@ export async function setupMCPServer(): Promise<Server> {
       },
       {
         name: 'kodex_list_drafts',
-        description: 'List all pending drafts awaiting approval.',
+        description: 'List all pending drafts awaiting approval. Returns summary (names only) by default to reduce response size.',
         inputSchema: {
           type: 'object',
           properties: {
             project: { type: 'string', description: 'Absolute path to project root' },
+            include_content: { type: 'boolean', description: 'Include full draft content (default: false for summary only)' },
           },
           required: ['project'],
         },
@@ -1167,11 +1168,16 @@ export async function setupMCPServer(): Promise<Server> {
           }
 
           case 'kodex_list_drafts': {
-            const { project } = args as { project: string };
+            const { project, include_content } = args as { project: string; include_content?: boolean };
             if (!project) throw new Error('Missing required: project');
             const kodex = getKodexManager(project);
-            const drafts = await kodex.listDrafts();
-            return JSON.stringify({ drafts }, null, 2);
+            if (include_content) {
+              const drafts = await kodex.listDrafts();
+              return JSON.stringify({ drafts }, null, 2);
+            } else {
+              const drafts = await kodex.listDraftsSummary();
+              return JSON.stringify({ drafts }, null, 2);
+            }
           }
 
           case 'kodex_approve_draft': {

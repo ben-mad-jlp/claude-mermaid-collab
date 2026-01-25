@@ -342,6 +342,16 @@ export class KodexManager {
     return drafts;
   }
 
+  async listDraftsSummary(): Promise<{ topicName: string; title: string; createdAt: string }[]> {
+    const db = this.ensureInitialized();
+    const rows = db.query('SELECT name, title, updated_at FROM topics WHERE has_draft = 1 ORDER BY updated_at DESC').all() as any[];
+    return rows.map(row => ({
+      topicName: row.name,
+      title: row.title,
+      createdAt: row.updated_at,
+    }));
+  }
+
   async getDraft(topicName: string): Promise<Draft | null> {
     const db = this.ensureInitialized();
     const row = db.query('SELECT * FROM topics WHERE name = ? AND has_draft = 1').get(topicName) as any;
