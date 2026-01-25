@@ -11,6 +11,27 @@ allowed-tools:
   - mcp__plugin_mermaid-collab_mermaid__*
 ---
 
+## Step 0: Query Kodex
+
+Query project knowledge for file structure conventions.
+
+### Topic Inference (Skeleton Focus)
+
+From work item context, build candidates:
+- `{item-keyword}-file-structure`
+- `file-naming`
+- `directory-conventions`
+- `project-structure`
+
+### Example
+
+```
+Tool: mcp__mermaid__kodex_query_topic
+Args: { "project": "<cwd>", "name": "file-naming" }
+```
+
+Display found topics as context before planning file structure.
+
 # Phase 3: Skeleton
 
 Generate actual stub files and the task dependency graph.

@@ -11,6 +11,27 @@ allowed-tools:
   - mcp__plugin_mermaid-collab_mermaid__*
 ---
 
+## Step 0: Query Kodex
+
+Query project knowledge for type conventions and patterns.
+
+### Topic Inference (Interface Focus)
+
+From work item context, build candidates:
+- `{item-keyword}-types`
+- `{item-keyword}-patterns`
+- `type-conventions`
+- `coding-standards`
+
+### Example
+
+```
+Tool: mcp__mermaid__kodex_query_topic
+Args: { "project": "<cwd>", "name": "type-conventions" }
+```
+
+Display found topics as context before defining interfaces.
+
 # Phase 1: Interface
 
 Define the structural contracts of the system.

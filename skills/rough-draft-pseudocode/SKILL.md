@@ -11,6 +11,27 @@ allowed-tools:
   - mcp__plugin_mermaid-collab_mermaid__*
 ---
 
+## Step 0: Query Kodex
+
+Query project knowledge for error handling and logic patterns.
+
+### Topic Inference (Pseudocode Focus)
+
+From work item context, build candidates:
+- `{item-keyword}-error-handling`
+- `{item-keyword}-logic`
+- `error-patterns`
+- `validation-patterns`
+
+### Example
+
+```
+Tool: mcp__mermaid__kodex_query_topic
+Args: { "project": "<cwd>", "name": "error-patterns" }
+```
+
+Display found topics as context before writing pseudocode.
+
 # Phase 2: Pseudocode
 
 Define the logic flow for each function.

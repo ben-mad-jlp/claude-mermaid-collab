@@ -22,6 +22,50 @@ The EXPLORING phase gathers context about the project and forms an initial under
 - Check recent git history for context
 - Form an initial list of items/topics to discuss
 
+## Step 0: Query Kodex
+
+Before reading files, check project knowledge base for relevant context.
+
+### Topic Inference
+
+1. Get current work item from collab-state.json
+2. Extract keywords from item title/description
+3. Build topic candidates:
+   - `{keyword}`
+   - `{keyword}-patterns`
+   - `{keyword}-conventions`
+
+### Query Process
+
+```
+FOR each candidate topic name:
+  Tool: mcp__mermaid__kodex_query_topic
+  Args: { "project": "<cwd>", "name": "<candidate>" }
+
+  IF found: Add to context
+```
+
+### Example
+
+For work item "Add user authentication":
+
+```
+Tool: mcp__mermaid__kodex_query_topic
+Args: {
+  "project": "<absolute-path-to-cwd>",
+  "name": "authentication"
+}
+```
+
+### Fallback
+
+If no topics found from title keywords:
+1. Try keywords from item description
+2. Try removing suffixes (-patterns, -conventions)
+3. Continue to file exploration without Kodex context
+
+Display found topics before proceeding to "Check project state".
+
 ## Process
 
 1. **Check project state:**
