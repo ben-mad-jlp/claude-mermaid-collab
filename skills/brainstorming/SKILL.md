@@ -30,7 +30,7 @@ Check if this skill is being invoked for a specific work item:
 
 1. Read collab state via MCP:
    ```
-   Tool: mcp__mermaid__get_session_state
+   Tool: mcp__plugin_mermaid-collab_mermaid__get_session_state
    Args: { "project": "<absolute-path-to-cwd>", "session": "<session-name>" }
    ```
    Returns: `{ "phase": "...", "currentItem": ..., ... }`
@@ -208,7 +208,7 @@ During brainstorming phases, if context usage approaches capacity, render a non-
 
 **Tool call:**
 ```
-Tool: mcp__mermaid__render_ui
+Tool: mcp__plugin_mermaid-collab_mermaid__render_ui
 Args: {
   "project": "<absolute-path-to-cwd>",
   "session": "<session-name>",
@@ -267,7 +267,7 @@ CHECK these triggers as you work:
 cwd = getCurrentWorkingDirectory()
 session = getCurrentSession()
 
-mcp__mermaid__create_diagram({
+mcp__plugin_mermaid-collab_mermaid__create_diagram({
   project: cwd,
   session: session,
   name: "<descriptive-name>",
@@ -306,5 +306,5 @@ When invoked from collab skill, the following are already set up:
 - Design doc location: `.collab/<name>/documents/design.md`
 
 **State updates:**
-- On completion: Use `mcp__mermaid__update_session_state({ project, session, phase: "rough-draft/interface" })`
+- On completion: Use `mcp__plugin_mermaid-collab_mermaid__update_session_state({ project, session, phase: "rough-draft/interface" })`
 - The MCP tool automatically updates `lastActivity` timestamp

@@ -53,7 +53,7 @@ All work items documented. Proceeding to validation...
 
 Update collab state via MCP:
 ```
-Tool: mcp__mermaid__update_session_state
+Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
 Args: {
   "project": "<absolute-path-to-cwd>",
   "session": "<session-name>",
@@ -97,7 +97,7 @@ Invoking brainstorming for design...
 After the invoked skill returns, use patch to update the work item status:
 
 ```
-Tool: mcp__mermaid__patch_document
+Tool: mcp__plugin_mermaid-collab_mermaid__patch_document
 Args: {
   "project": "<cwd>",
   "session": "<name>",
@@ -113,7 +113,7 @@ This is more efficient than reading and rewriting the entire document.
 
 Update collab state via MCP:
 ```
-Tool: mcp__mermaid__update_session_state
+Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
 Args: {
   "project": "<absolute-path-to-cwd>",
   "session": "<session-name>",

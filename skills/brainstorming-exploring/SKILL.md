@@ -39,7 +39,7 @@ Before reading files, check project knowledge base for relevant context.
 
 ```
 FOR each candidate topic name:
-  Tool: mcp__mermaid__kodex_query_topic
+  Tool: mcp__plugin_mermaid-collab_mermaid__kodex_query_topic
   Args: { "project": "<cwd>", "name": "<candidate>" }
 
   IF found: Add to context
@@ -50,7 +50,7 @@ FOR each candidate topic name:
 For work item "Add user authentication":
 
 ```
-Tool: mcp__mermaid__kodex_query_topic
+Tool: mcp__plugin_mermaid-collab_mermaid__kodex_query_topic
 Args: {
   "project": "<absolute-path-to-cwd>",
   "name": "authentication"
@@ -105,7 +105,7 @@ When `currentItem` is set in collab-state.json:
 Create a diagram showing the current state relevant to this work:
 
 ```
-Tool: mcp__mermaid__create_diagram
+Tool: mcp__plugin_mermaid-collab_mermaid__create_diagram
 Args: {
   "project": "<cwd>",
   "session": "<session>",

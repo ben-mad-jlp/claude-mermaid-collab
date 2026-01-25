@@ -38,7 +38,7 @@ When a collab session is active, use `render_ui` for all user interactions.
 
 **Example - Yes/No:**
 ```
-Tool: mcp__mermaid__render_ui
+Tool: mcp__plugin_mermaid-collab_mermaid__render_ui
 Args: {
   "project": "<cwd>",
   "session": "<session>",
@@ -84,7 +84,7 @@ Identify what must exist before the task can start.
 **Snapshot Saving:**
 ```
 // After each prerequisite documented, save to preserve context
-Tool: mcp__mermaid__save_snapshot
+Tool: mcp__plugin_mermaid-collab_mermaid__save_snapshot
 Args: {
   "project": "<cwd>",
   "session": "<session-name>",
@@ -114,7 +114,7 @@ Define the ordered sequence of commands/actions to complete the task.
 **Snapshot Saving:**
 ```
 // After each step documented, save context
-Tool: mcp__mermaid__save_snapshot
+Tool: mcp__plugin_mermaid-collab_mermaid__save_snapshot
 Args: {
   "project": "<cwd>",
   "session": "<session-name>",
@@ -143,7 +143,7 @@ Define how to confirm the task completed successfully.
 **Snapshot Saving:**
 ```
 // After verification documented and design.md updated
-Tool: mcp__mermaid__save_snapshot
+Tool: mcp__plugin_mermaid-collab_mermaid__save_snapshot
 Args: {
   "project": "<cwd>",
   "session": "<session-name>",
@@ -209,7 +209,7 @@ The task-planning skill updates the work item in design.md with this structure:
 
 This skill saves snapshots at key transitions to preserve planning progress if the session is compacted.
 
-**Snapshot Structure (returned by mcp__mermaid__load_snapshot):**
+**Snapshot Structure (returned by mcp__plugin_mermaid-collab_mermaid__load_snapshot):**
 ```json
 {
   "version": 1,
@@ -221,7 +221,7 @@ This skill saves snapshots at key transitions to preserve planning progress if t
   "recentContext": []
 }
 ```
-Note: `version` and `timestamp` are automatically added by `mcp__mermaid__save_snapshot`.
+Note: `version` and `timestamp` are automatically added by `mcp__plugin_mermaid-collab_mermaid__save_snapshot`.
 
 When the collab session resumes after compaction:
 1. collab skill reads context-snapshot.json

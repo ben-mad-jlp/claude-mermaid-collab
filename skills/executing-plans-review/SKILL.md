@@ -38,12 +38,12 @@ FUNCTION saveSnapshot():
   session = current session name
 
   // Read current state via MCP
-  Tool: mcp__mermaid__get_session_state
+  Tool: mcp__plugin_mermaid-collab_mermaid__get_session_state
   Args: { "project": "<cwd>", "session": session }
   Returns: state = { "phase": "...", "completedTasks": [...], "pendingTasks": [...], ... }
 
   // Save snapshot via MCP
-  Tool: mcp__mermaid__save_snapshot
+  Tool: mcp__plugin_mermaid-collab_mermaid__save_snapshot
   Args: {
     "project": "<cwd>",
     "session": session,
@@ -61,7 +61,7 @@ FUNCTION saveSnapshot():
   // Note: version and timestamp are automatically added
 
   // Update collab state to mark snapshot exists
-  Tool: mcp__mermaid__update_session_state
+  Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
   Args: {
     "project": "<cwd>",
     "session": session,
@@ -174,7 +174,7 @@ After implementer reports completion, check for drift:
 ### Step 1: Read design doc and implementation
 
 1. Read design doc:
-   Tool: mcp__mermaid__get_document
+   Tool: mcp__plugin_mermaid-collab_mermaid__get_document
    Args: { "project": "<cwd>", "session": "<session>", "id": "design" }
 
 2. Read implemented files (from task's file list)
@@ -295,7 +295,7 @@ When drift is detected and requires a design doc update, use the proposed tag:
 1. Identify the unique text at the insertion point
 2. Use patch to insert proposed content:
    ```
-   Tool: mcp__mermaid__patch_document
+   Tool: mcp__plugin_mermaid-collab_mermaid__patch_document
    Args: {
      "project": "<cwd>",
      "session": "<session>",
@@ -305,7 +305,7 @@ When drift is detected and requires a design doc update, use the proposed tag:
    }
    ```
 3. If patch fails (not unique), fall back to full update:
-   `mcp__mermaid__update_document({ "id": "design", "content": <updated> })`
+   `mcp__plugin_mermaid-collab_mermaid__update_document({ "id": "design", "content": <updated> })`
 4. Notify user: "Proposed change visible in design doc (cyan). Accept/reject in mermaid-collab UI."
 5. Wait for user decision before proceeding
 

@@ -102,7 +102,7 @@ Does this list look correct?
 **Before writing, output:** "Writing work items to design doc..."
 
 1. Read current design doc:
-   Tool: mcp__mermaid__get_document
+   Tool: mcp__plugin_mermaid-collab_mermaid__get_document
    Args: { "project": "<cwd>", "session": "<session>", "id": "design" }
 
 2. Parse existing content and locate "## Work Items" section
@@ -128,7 +128,7 @@ Does this list look correct?
 4. Replace "## Work Items" section with new content
 
 5. Write updated design doc:
-   Tool: mcp__mermaid__update_document
+   Tool: mcp__plugin_mermaid-collab_mermaid__update_document
    Args: { "project": "<cwd>", "session": "<session>", "id": "design", "content": "<updated-full-content>" }
 
 **Note:** Full update is appropriate here because we're writing an entire new Work Items section.
@@ -170,7 +170,7 @@ When a collab session is active, prefer `render_ui` for user interactions.
 
 **For item type classification:**
 ```
-Tool: mcp__mermaid__render_ui
+Tool: mcp__plugin_mermaid-collab_mermaid__render_ui
 Args: {
   "project": "<absolute-path-to-cwd>",
   "session": "<session-name>",
@@ -199,7 +199,7 @@ Args: {
 
 **For work items list confirmation:**
 ```
-Tool: mcp__mermaid__render_ui
+Tool: mcp__plugin_mermaid-collab_mermaid__render_ui
 Args: {
   "project": "<absolute-path-to-cwd>",
   "session": "<session-name>",

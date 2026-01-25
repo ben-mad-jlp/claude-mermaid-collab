@@ -337,7 +337,7 @@ Sizes: sm, md, lg
 
 ## Integration
 
-**MCP Tool:** `mcp__mermaid__render_ui`
+**MCP Tool:** `mcp__plugin_mermaid-collab_mermaid__render_ui`
 
 **Parameters:**
 - `project` (required): Absolute path to project root

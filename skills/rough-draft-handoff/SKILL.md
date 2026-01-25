@@ -61,7 +61,7 @@ Ready to move to executing-plans?
 
 Update collab state and invoke executing-plans:
 ```
-Tool: mcp__mermaid__update_session_state
+Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
 Args: { "project": "<cwd>", "session": "<name>", "phase": "implementation" }
 ```
 Note: `lastActivity` is automatically updated by the MCP tool.

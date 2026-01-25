@@ -20,7 +20,7 @@ When a collab session is active, use `render_ui` for all user interactions.
 
 **Example - Yes/No:**
 ```
-Tool: mcp__mermaid__render_ui
+Tool: mcp__plugin_mermaid-collab_mermaid__render_ui
 Args: {
   "project": "<cwd>",
   "session": "<session>",

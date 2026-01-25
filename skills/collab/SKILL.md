@@ -35,7 +35,7 @@ This skill is the orchestrator for the collab workflow. It manages session creat
 ## Step 1: Check Server
 
 ```
-Tool: mcp__mermaid__check_server_health
+Tool: mcp__plugin_mermaid-collab_mermaid__check_server_health
 Args: {}
 ```
 
@@ -120,13 +120,15 @@ The core orchestration loop (Step 4) that processes work items one at a time.
 
 ## MCP Tools Reference
 
+All MCP tools use the prefix `mcp__plugin_mermaid-collab_mermaid__`. For example:
+
 | Action | Tool |
 |--------|------|
-| Generate session name | `mcp__mermaid__generate_session_name()` |
-| Create diagram | `mcp__mermaid__create_diagram({ project, session, name, content })` |
-| Create document | `mcp__mermaid__create_document({ project, session, name, content })` |
-| Preview diagram | `mcp__mermaid__preview_diagram({ project, session, id })` |
-| Preview document | `mcp__mermaid__preview_document({ project, session, id })` |
+| Generate session name | `mcp__plugin_mermaid-collab_mermaid__generate_session_name()` |
+| Create diagram | `mcp__plugin_mermaid-collab_mermaid__create_diagram({ project, session, name, content })` |
+| Create document | `mcp__plugin_mermaid-collab_mermaid__create_document({ project, session, name, content })` |
+| Preview diagram | `mcp__plugin_mermaid-collab_mermaid__preview_diagram({ project, session, id })` |
+| Preview document | `mcp__plugin_mermaid-collab_mermaid__preview_document({ project, session, id })` |
 
 **Note:** `project` is the current working directory (absolute path). `session` is the session name.
 

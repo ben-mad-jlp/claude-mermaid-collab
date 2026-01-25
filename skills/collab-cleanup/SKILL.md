@@ -20,7 +20,7 @@ When a collab session is active, use `render_ui` for all user interactions.
 
 **Example - Yes/No:**
 ```
-Tool: mcp__mermaid__render_ui
+Tool: mcp__plugin_mermaid-collab_mermaid__render_ui
 Args: {
   "project": "<cwd>",
   "session": "<session>",
@@ -49,16 +49,16 @@ Close a collab session after development is complete. Offers choices to archive 
 
 ### Step 1: Identify Current Session
 
-1. Call `mcp__mermaid__list_sessions` to get all sessions across projects:
+1. Call `mcp__plugin_mermaid-collab_mermaid__list_sessions` to get all sessions across projects:
    ```
-   Tool: mcp__mermaid__list_sessions
+   Tool: mcp__plugin_mermaid-collab_mermaid__list_sessions
    Args: {}
    ```
 2. Filter results to current project (match `project` field against absolute cwd path)
 3. If sessions found for current project:
-   - For each session, fetch phase via `mcp__mermaid__get_session_state`:
+   - For each session, fetch phase via `mcp__plugin_mermaid-collab_mermaid__get_session_state`:
      ```
-     Tool: mcp__mermaid__get_session_state
+     Tool: mcp__plugin_mermaid-collab_mermaid__get_session_state
      Args: { "project": "<cwd>", "session": "<session-name>" }
      ```
    - Display list with phases:
@@ -133,7 +133,7 @@ What would you like to do with the design artifacts?
    - Replace "## Work Items" section with empty placeholder
 6. Reset collab state via MCP:
    ```
-   Tool: mcp__mermaid__update_session_state
+   Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
    Args: {
      "project": "<absolute-path-to-cwd>",
      "session": "<session-name>",

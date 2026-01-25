@@ -114,7 +114,7 @@ Ready to move to rough-draft?
 When collab session is active, use render_ui for the confirmation:
 
 ```
-Tool: mcp__mermaid__render_ui
+Tool: mcp__plugin_mermaid-collab_mermaid__render_ui
 Args: {
   "project": "<absolute-path-to-cwd>",
   "session": "<session-name>",

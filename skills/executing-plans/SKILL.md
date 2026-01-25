@@ -36,7 +36,7 @@ When a collab session is active, use `render_ui` for all user interactions.
 
 **Example - Yes/No:**
 ```
-Tool: mcp__mermaid__render_ui
+Tool: mcp__plugin_mermaid-collab_mermaid__render_ui
 Args: {
   "project": "<cwd>",
   "session": "<session>",
@@ -113,7 +113,7 @@ tasks:
 Initialize task tracking via MCP:
 
 ```
-Tool: mcp__mermaid__update_session_state
+Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
 Args: {
   "project": "<cwd>",
   "session": "<name>",
@@ -232,7 +232,7 @@ graph TD
 
 **Create the diagram:**
 ```
-Tool: mcp__mermaid__create_diagram
+Tool: mcp__plugin_mermaid-collab_mermaid__create_diagram
 Args: {
   "project": "<absolute-path-to-cwd>",
   "session": "<session-name>",
@@ -264,7 +264,7 @@ Tracking tasks:
 Use `patch_diagram` for atomic style updates when task state changes:
 
 ```
-Tool: mcp__mermaid__patch_diagram
+Tool: mcp__plugin_mermaid-collab_mermaid__patch_diagram
 Args: {
   "project": "<absolute-path-to-cwd>",
   "session": "<session-name>",
@@ -307,7 +307,7 @@ FUNCTION buildTaskDiagram(taskDependencyGraph):
 **REQUIRED:** Verify the task execution diagram exists before proceeding to execution.
 
 ```
-Tool: mcp__mermaid__get_diagram
+Tool: mcp__plugin_mermaid-collab_mermaid__get_diagram
 Args: { "project": "<cwd>", "session": "<session>", "id": "task-execution" }
 ```
 

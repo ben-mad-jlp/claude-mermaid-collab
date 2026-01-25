@@ -76,7 +76,7 @@ Which approach do you prefer?
 **Use browser-based questions when collab session active:**
 
 ```
-Tool: mcp__mermaid__render_ui
+Tool: mcp__plugin_mermaid-collab_mermaid__render_ui
 Args: {
   "project": "<absolute-path-to-cwd>",
   "session": "<session-name>",

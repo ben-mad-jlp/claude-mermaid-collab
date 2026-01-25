@@ -26,7 +26,7 @@ From work item context, build candidates:
 ### Example
 
 ```
-Tool: mcp__mermaid__kodex_query_topic
+Tool: mcp__plugin_mermaid-collab_mermaid__kodex_query_topic
 Args: { "project": "<cwd>", "name": "file-naming" }
 ```
 
@@ -152,7 +152,7 @@ Legend: Green = parallel-safe (no dependencies), Blue = sequential, Purple = tes
 For each work item N, create `skeleton-item-N.md`:
 
 ```
-Tool: mcp__mermaid__create_document
+Tool: mcp__plugin_mermaid-collab_mermaid__create_document
 Args: {
   "project": "<cwd>",
   "session": "<session>",
@@ -220,7 +220,7 @@ Before moving to Phase 4, run verification:
 **Update state on success:**
 
 ```
-Tool: mcp__mermaid__update_session_state
+Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
 Args: { "project": "<cwd>", "session": "<name>", "phase": "implementation" }
 ```
 Note: `lastActivity` is automatically updated by the MCP tool.

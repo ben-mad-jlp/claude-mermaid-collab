@@ -75,7 +75,7 @@ If multiple sessions exist, ask user which session to check.
 Use the MCP tool to get the design document:
 
 ```
-Tool: mcp__mermaid__get_document
+Tool: mcp__plugin_mermaid-collab_mermaid__get_document
 Args: { "project": "<project-path>", "session": "<session-name>", "id": "design" }
 ```
 
@@ -160,7 +160,7 @@ On user confirmation (selects **1**):
 **Update collab-state via MCP:**
 
 ```
-Tool: mcp__mermaid__update_session_state
+Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
 Args: {
   "project": "<absolute-path-to-cwd>",
   "session": "<session-name>",
@@ -227,7 +227,7 @@ When a collab session is active, use `render_ui` for all user interactions.
 
 **Example - Yes/No:**
 ```
-Tool: mcp__mermaid__render_ui
+Tool: mcp__plugin_mermaid-collab_mermaid__render_ui
 Args: {
   "project": "<cwd>",
   "session": "<session>",

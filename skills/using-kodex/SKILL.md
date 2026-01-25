@@ -3,9 +3,9 @@ name: using-kodex
 description: Use when project knowledge could help - queries Kodex topics and flags outdated information
 user-invocable: false
 allowed-tools:
-  - mcp__mermaid__kodex_query_topic
-  - mcp__mermaid__kodex_list_topics
-  - mcp__mermaid__kodex_flag_topic
+  - mcp__plugin_mermaid-collab_mermaid__kodex_query_topic
+  - mcp__plugin_mermaid-collab_mermaid__kodex_list_topics
+  - mcp__plugin_mermaid-collab_mermaid__kodex_flag_topic
 ---
 
 # Using Kodex
@@ -34,7 +34,7 @@ Infer topic names from your current context:
 ### Example
 
 ```
-Tool: mcp__mermaid__kodex_query_topic
+Tool: mcp__plugin_mermaid-collab_mermaid__kodex_query_topic
 Args: {
   "project": "<absolute-path-to-cwd>",
   "name": "authentication"
@@ -59,7 +59,7 @@ Flag a topic when it contradicts actual code **after verification**:
 ### Flagging Example
 
 ```
-Tool: mcp__mermaid__kodex_flag_topic
+Tool: mcp__plugin_mermaid-collab_mermaid__kodex_flag_topic
 Args: {
   "project": "<absolute-path-to-cwd>",
   "name": "authentication",

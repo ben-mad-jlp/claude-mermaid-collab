@@ -30,7 +30,7 @@ If multiple sessions: Ask user which session.
 
 Read current state via MCP:
 ```
-Tool: mcp__mermaid__get_session_state
+Tool: mcp__plugin_mermaid-collab_mermaid__get_session_state
 Args: { "project": "<absolute-path-to-cwd>", "session": "<session-name>" }
 ```
 Returns: `{ "phase": "...", "currentItem": ..., ... }`
@@ -42,7 +42,7 @@ Determine activeSkill from phase:
 
 Save snapshot via MCP:
 ```
-Tool: mcp__mermaid__save_snapshot
+Tool: mcp__plugin_mermaid-collab_mermaid__save_snapshot
 Args: {
   "project": "<absolute-path-to-cwd>",
   "session": "<session-name>",
@@ -59,7 +59,7 @@ Note: `version` and `timestamp` are automatically added by the MCP tool.
 
 Update collab state via MCP:
 ```
-Tool: mcp__mermaid__update_session_state
+Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
 Args: { "project": "<absolute-path-to-cwd>", "session": "<session-name>", "hasSnapshot": true }
 ```
 
@@ -91,7 +91,7 @@ When context usage is high before triggering compaction, render an Alert to noti
 
 **Tool call:**
 ```
-Tool: mcp__mermaid__render_ui
+Tool: mcp__plugin_mermaid-collab_mermaid__render_ui
 Args: {
   "project": "<absolute-path-to-cwd>",
   "session": "<session-name>",

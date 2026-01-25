@@ -26,7 +26,7 @@ ls -d .collab/*/ 2>/dev/null | xargs -I{} basename {}
 **If sessions exist:**
 1. For each session, get phase via MCP:
    ```
-   Tool: mcp__mermaid__get_session_state
+   Tool: mcp__plugin_mermaid-collab_mermaid__get_session_state
    Args: { "project": "<absolute-path-to-cwd>", "session": "<session-name>" }
    ```
    Returns: `{ "phase": "brainstorming", "lastActivity": "...", ... }`
@@ -63,7 +63,7 @@ fi
 
 1. Generate a suggested name:
    ```
-   Tool: mcp__mermaid__generate_session_name
+   Tool: mcp__plugin_mermaid-collab_mermaid__generate_session_name
    Args: {}
    ```
    Returns: `{ name: "bright-calm-river" }`
@@ -99,7 +99,7 @@ fi
 Initialize collab-state.json via MCP (creates folder and design.md automatically):
 
 ```
-Tool: mcp__mermaid__update_session_state
+Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
 Args: {
   "project": "<absolute-path-to-cwd>",
   "session": "<session-name>",
@@ -141,7 +141,7 @@ When user selects an existing session from Step 2.
 ### 5.1 Check for Context Snapshot
 
 ```
-Tool: mcp__mermaid__has_snapshot
+Tool: mcp__plugin_mermaid-collab_mermaid__has_snapshot
 Args: { "project": "<absolute-path-to-cwd>", "session": "<session-name>" }
 ```
 Returns: `{ "exists": true }` or `{ "exists": false }`
@@ -150,7 +150,7 @@ Returns: `{ "exists": true }` or `{ "exists": false }`
 
 1. Load snapshot:
    ```
-   Tool: mcp__mermaid__load_snapshot
+   Tool: mcp__plugin_mermaid-collab_mermaid__load_snapshot
    Args: { "project": "<absolute-path-to-cwd>", "session": "<session-name>" }
    ```
    Returns: `{ "version": 1, "timestamp": "...", "activeSkill": "...", "currentStep": "...", ... }`
@@ -164,13 +164,13 @@ Returns: `{ "exists": true }` or `{ "exists": false }`
 
 3. Delete snapshot (one-time use):
    ```
-   Tool: mcp__mermaid__delete_snapshot
+   Tool: mcp__plugin_mermaid-collab_mermaid__delete_snapshot
    Args: { "project": "<absolute-path-to-cwd>", "session": "<session-name>" }
    ```
 
 4. Update state:
    ```
-   Tool: mcp__mermaid__update_session_state
+   Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
    Args: { "project": "<absolute-path-to-cwd>", "session": "<session-name>", "hasSnapshot": false }
    ```
 
@@ -192,7 +192,7 @@ export COLLAB_SESSION_PATH="$(pwd)/.collab/<name>"
 ### 5.3 Read State
 
 ```
-Tool: mcp__mermaid__get_session_state
+Tool: mcp__plugin_mermaid-collab_mermaid__get_session_state
 Args: { "project": "<absolute-path-to-cwd>", "session": "<session-name>" }
 ```
 Returns: `{ "phase": "...", "lastActivity": "...", "currentItem": ..., ... }`

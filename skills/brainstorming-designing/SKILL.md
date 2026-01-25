@@ -74,7 +74,7 @@ Update the work item in the design doc with:
 Before presenting an approach to the user, create a diagram visualizing it:
 
 ```
-Tool: mcp__mermaid__create_diagram
+Tool: mcp__plugin_mermaid-collab_mermaid__create_diagram
 Args: {
   "project": "<cwd>",
   "session": "<session>",
@@ -130,7 +130,7 @@ When brainstorming within a collab session, update the design document using MCP
 For small, targeted edits (updating a single field, adding a bullet point, changing status):
 
 ```
-Tool: mcp__mermaid__patch_document
+Tool: mcp__plugin_mermaid-collab_mermaid__patch_document
 Args: {
   "project": "<cwd>",
   "session": "<name>",
@@ -148,13 +148,13 @@ Args: {
 **Fallback to full update:**
 
 1. Read current content:
-   Tool: mcp__mermaid__get_document
+   Tool: mcp__plugin_mermaid-collab_mermaid__get_document
    Args: { "project": "<cwd>", "session": "<name>", "id": "design" }
 
 2. Modify content as needed (add sections, update decisions, etc.)
 
 3. Write updated content:
-   Tool: mcp__mermaid__update_document
+   Tool: mcp__plugin_mermaid-collab_mermaid__update_document
    Args: { "project": "<cwd>", "session": "<name>", "id": "design", "content": "<full-updated-content>" }
 
 **Important:** Always read before full update to preserve existing content.

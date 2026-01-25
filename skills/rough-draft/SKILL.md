@@ -73,7 +73,7 @@ When first invoking rough-draft, ask user for approval workflow preference:
 
 **Render UI Dropdown:**
 ```
-Tool: mcp__mermaid__render_ui
+Tool: mcp__plugin_mermaid-collab_mermaid__render_ui
 Args: {
   "project": "<absolute-path-to-cwd>",
   "session": "<session-name>",
@@ -101,7 +101,7 @@ Args: {
 
 **Store preference in session state:**
 ```
-Tool: mcp__mermaid__update_session_state
+Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
 Args: {
   "project": "<absolute-path-to-cwd>",
   "session": "<session-name>",
@@ -422,12 +422,12 @@ FUNCTION saveSnapshot():
   session = current session name
 
   # Read current state via MCP
-  Tool: mcp__mermaid__get_session_state
+  Tool: mcp__plugin_mermaid-collab_mermaid__get_session_state
   Args: { "project": "<cwd>", "session": session }
   Returns: state = { "phase": "...", ... }
 
   # Save snapshot via MCP
-  Tool: mcp__mermaid__save_snapshot
+  Tool: mcp__plugin_mermaid-collab_mermaid__save_snapshot
   Args: {
     "project": "<cwd>",
     "session": session,
@@ -440,7 +440,7 @@ FUNCTION saveSnapshot():
   # Note: version and timestamp are automatically added
 
   # Update state to mark snapshot exists
-  Tool: mcp__mermaid__update_session_state
+  Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
   Args: { "project": "<cwd>", "session": session, "hasSnapshot": true }
 ```
 
@@ -501,7 +501,7 @@ During any rough-draft phase, if context usage approaches capacity, render a non
 
 **Tool call:**
 ```
-Tool: mcp__mermaid__render_ui
+Tool: mcp__plugin_mermaid-collab_mermaid__render_ui
 Args: {
   "project": "<absolute-path-to-cwd>",
   "session": "<session-name>",
@@ -521,7 +521,7 @@ This provides early warning before compaction becomes critical.
 
 ## Browser-Based Questions
 
-When a collab session is active, prefer `render_ui` for user interactions instead of terminal prompts. Use `mcp__mermaid__render_ui` with Card components containing MultipleChoice or action buttons.
+When a collab session is active, prefer `render_ui` for user interactions instead of terminal prompts. Use `mcp__plugin_mermaid-collab_mermaid__render_ui` with Card components containing MultipleChoice or action buttons.
 
 ---
 
@@ -550,7 +550,7 @@ If context is lost (compaction), re-read state:
 
 ```
 # Get current session state
-Tool: mcp__mermaid__get_session_state
+Tool: mcp__plugin_mermaid-collab_mermaid__get_session_state
 Args: { "project": "<cwd>", "session": "<name>" }
 
 # Read design doc
@@ -587,7 +587,7 @@ Args: { "file_path": ".collab/<name>/documents/design.md" }
 
 ### Not updating collab-state.json
 - **Problem:** Resume doesn't know current phase
-- **Fix:** Use `mcp__mermaid__update_session_state` after each transition (automatically updates lastActivity)
+- **Fix:** Use `mcp__plugin_mermaid-collab_mermaid__update_session_state` after each transition (automatically updates lastActivity)
 
 ## Red Flags
 
