@@ -5,7 +5,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { kodexApi, type TopicMetadata } from '@/lib/kodex-api';
-import { useSessionStore } from '@/stores/sessionStore';
+import { useKodexStore } from '@/stores/kodexStore';
 
 const ConfidenceBadge: React.FC<{ confidence: TopicMetadata['confidence'] }> = ({ confidence }) => {
   const colors = {
@@ -63,10 +63,10 @@ export const Topics: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'verified' | 'unverified' | 'has_draft'>('all');
   const [search, setSearch] = useState('');
-  const currentSession = useSessionStore((s) => s.currentSession);
+  const selectedProject = useKodexStore((s) => s.selectedProject);
 
   useEffect(() => {
-    if (!currentSession?.project) {
+    if (!selectedProject) {
       setLoading(false);
       return;
     }
@@ -74,7 +74,7 @@ export const Topics: React.FC = () => {
     const loadTopics = async () => {
       try {
         setLoading(true);
-        const data = await kodexApi.listTopics(currentSession.project);
+        const data = await kodexApi.listTopics(selectedProject);
         setTopics(data);
         setError(null);
       } catch (err) {
@@ -85,7 +85,7 @@ export const Topics: React.FC = () => {
     };
 
     loadTopics();
-  }, [currentSession?.project]);
+  }, [selectedProject]);
 
   // Filter topics
   const filteredTopics = topics.filter((topic) => {
@@ -106,10 +106,10 @@ export const Topics: React.FC = () => {
     return true;
   });
 
-  if (!currentSession?.project) {
+  if (!selectedProject) {
     return (
       <div className="flex items-center justify-center h-full">
-        <p className="text-gray-500">Select a session to view topics</p>
+        <p className="text-gray-500">Select a project to view Kodex</p>
       </div>
     );
   }

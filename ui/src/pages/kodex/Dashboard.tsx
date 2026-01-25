@@ -5,7 +5,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { kodexApi, type DashboardStats } from '@/lib/kodex-api';
-import { useSessionStore } from '@/stores/sessionStore';
+import { useKodexStore } from '@/stores/kodexStore';
 
 const StatCard: React.FC<{
   label: string;
@@ -38,10 +38,10 @@ export const Dashboard: React.FC = () => {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const currentSession = useSessionStore((s) => s.currentSession);
+  const selectedProject = useKodexStore((s) => s.selectedProject);
 
   useEffect(() => {
-    if (!currentSession?.project) {
+    if (!selectedProject) {
       setLoading(false);
       return;
     }
@@ -49,7 +49,7 @@ export const Dashboard: React.FC = () => {
     const loadStats = async () => {
       try {
         setLoading(true);
-        const data = await kodexApi.getDashboard(currentSession.project);
+        const data = await kodexApi.getDashboard(selectedProject);
         setStats(data);
         setError(null);
       } catch (err) {
@@ -60,14 +60,14 @@ export const Dashboard: React.FC = () => {
     };
 
     loadStats();
-  }, [currentSession?.project]);
+  }, [selectedProject]);
 
-  if (!currentSession?.project) {
+  if (!selectedProject) {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center">
           <p className="text-gray-500 dark:text-gray-400">
-            Select a session to view Kodex dashboard
+            Select a project to view Kodex
           </p>
           <Link to="/" className="text-blue-600 hover:underline mt-2 inline-block">
             Go to Collab

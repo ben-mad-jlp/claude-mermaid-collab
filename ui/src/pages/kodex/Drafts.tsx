@@ -5,7 +5,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { kodexApi, type Draft, type Topic, type TopicContent } from '@/lib/kodex-api';
-import { useSessionStore } from '@/stores/sessionStore';
+import { useKodexStore } from '@/stores/kodexStore';
 
 const ContentSection: React.FC<{ title: string; draftContent?: string; liveContent?: string }> = ({
   title,
@@ -47,7 +47,7 @@ export const Drafts: React.FC = () => {
   const [expandedDraft, setExpandedDraft] = useState<string | null>(null);
   const [liveTopic, setLiveTopic] = useState<Topic | null>(null);
   const [loadingLiveTopic, setLoadingLiveTopic] = useState(false);
-  const currentSession = useSessionStore((s) => s.currentSession);
+  const selectedProject = useKodexStore((s) => s.selectedProject);
 
   const handleExpand = async (topicName: string) => {
     if (expandedDraft === topicName) {
@@ -61,7 +61,7 @@ export const Drafts: React.FC = () => {
     setLoadingLiveTopic(true);
 
     try {
-      const topic = await kodexApi.getTopic(currentSession!.project, topicName);
+      const topic = await kodexApi.getTopic(selectedProject!, topicName);
       setLiveTopic(topic);
     } catch {
       // Topic might not exist yet (new topic draft)
@@ -72,10 +72,10 @@ export const Drafts: React.FC = () => {
   };
 
   const loadDrafts = async () => {
-    if (!currentSession?.project) return;
+    if (!selectedProject) return;
     try {
       setLoading(true);
-      const data = await kodexApi.listDrafts(currentSession.project);
+      const data = await kodexApi.listDrafts(selectedProject);
       setDrafts(data);
       setError(null);
     } catch (err) {
@@ -87,12 +87,12 @@ export const Drafts: React.FC = () => {
 
   useEffect(() => {
     loadDrafts();
-  }, [currentSession?.project]);
+  }, [selectedProject]);
 
   const handleApprove = async (name: string) => {
-    if (!currentSession?.project) return;
+    if (!selectedProject) return;
     try {
-      await kodexApi.approveDraft(currentSession.project, name);
+      await kodexApi.approveDraft(selectedProject, name);
       loadDrafts();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to approve');
@@ -100,20 +100,20 @@ export const Drafts: React.FC = () => {
   };
 
   const handleReject = async (name: string) => {
-    if (!currentSession?.project) return;
+    if (!selectedProject) return;
     if (!confirm('Are you sure you want to reject this draft?')) return;
     try {
-      await kodexApi.rejectDraft(currentSession.project, name);
+      await kodexApi.rejectDraft(selectedProject, name);
       loadDrafts();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to reject');
     }
   };
 
-  if (!currentSession?.project) {
+  if (!selectedProject) {
     return (
       <div className="flex items-center justify-center h-full">
-        <p className="text-gray-500">Select a session to view drafts</p>
+        <p className="text-gray-500">Select a project to view Kodex</p>
       </div>
     );
   }

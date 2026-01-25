@@ -5,7 +5,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { kodexApi, type Topic, type Flag, type Draft } from '@/lib/kodex-api';
-import { useSessionStore } from '@/stores/sessionStore';
+import { useKodexStore } from '@/stores/kodexStore';
 
 const ConfidenceBadge: React.FC<{ confidence: Topic['confidence'] }> = ({ confidence }) => {
   const colors = {
@@ -79,10 +79,10 @@ export const TopicDetail: React.FC = () => {
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [draft, setDraft] = useState<Draft | null>(null);
   const [loadingDraft, setLoadingDraft] = useState(false);
-  const currentSession = useSessionStore((s) => s.currentSession);
+  const selectedProject = useKodexStore((s) => s.selectedProject);
 
   useEffect(() => {
-    if (!currentSession?.project || !name) {
+    if (!selectedProject || !name) {
       setLoading(false);
       return;
     }
@@ -90,7 +90,7 @@ export const TopicDetail: React.FC = () => {
     const loadTopic = async () => {
       try {
         setLoading(true);
-        const data = await kodexApi.getTopic(currentSession.project, name);
+        const data = await kodexApi.getTopic(selectedProject, name);
         setTopic(data);
         setError(null);
       } catch (err) {
@@ -101,13 +101,13 @@ export const TopicDetail: React.FC = () => {
     };
 
     loadTopic();
-  }, [currentSession?.project, name]);
+  }, [selectedProject, name]);
 
   const handleFlag = async () => {
-    if (!currentSession?.project || !name || !flagForm.description) return;
+    if (!selectedProject || !name || !flagForm.description) return;
     try {
       await kodexApi.createFlag(
-        currentSession.project,
+        selectedProject,
         name,
         flagForm.type,
         flagForm.description
@@ -121,11 +121,11 @@ export const TopicDetail: React.FC = () => {
   };
 
   const handleVerify = async () => {
-    if (!currentSession?.project || !name) return;
+    if (!selectedProject || !name) return;
     try {
-      await kodexApi.verifyTopic(currentSession.project, name, 'user');
+      await kodexApi.verifyTopic(selectedProject, name, 'user');
       // Reload topic to get updated verified status
-      const data = await kodexApi.getTopic(currentSession.project, name);
+      const data = await kodexApi.getTopic(selectedProject, name);
       setTopic(data);
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to verify topic');
@@ -133,9 +133,9 @@ export const TopicDetail: React.FC = () => {
   };
 
   const handleDelete = async () => {
-    if (!currentSession?.project || !name || deleteConfirmText !== name) return;
+    if (!selectedProject || !name || deleteConfirmText !== name) return;
     try {
-      await kodexApi.deleteTopic(currentSession.project, name);
+      await kodexApi.deleteTopic(selectedProject, name);
       navigate('/kodex/topics');
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to delete topic');
@@ -144,7 +144,7 @@ export const TopicDetail: React.FC = () => {
 
   // Auto-load draft when topic has one
   useEffect(() => {
-    if (!currentSession?.project || !name || !topic?.hasDraft) {
+    if (!selectedProject || !name || !topic?.hasDraft) {
       setDraft(null);
       return;
     }
@@ -152,7 +152,7 @@ export const TopicDetail: React.FC = () => {
     const loadDraft = async () => {
       setLoadingDraft(true);
       try {
-        const drafts = await kodexApi.listDrafts(currentSession.project);
+        const drafts = await kodexApi.listDrafts(selectedProject);
         const topicDraft = drafts.find((d) => d.topicName === name);
         setDraft(topicDraft || null);
       } catch {
@@ -163,14 +163,14 @@ export const TopicDetail: React.FC = () => {
     };
 
     loadDraft();
-  }, [currentSession?.project, name, topic?.hasDraft]);
+  }, [selectedProject, name, topic?.hasDraft]);
 
   const handleApproveDraft = async () => {
-    if (!currentSession?.project || !name) return;
+    if (!selectedProject || !name) return;
     try {
-      await kodexApi.approveDraft(currentSession.project, name);
+      await kodexApi.approveDraft(selectedProject, name);
       // Reload topic to get updated content
-      const data = await kodexApi.getTopic(currentSession.project, name);
+      const data = await kodexApi.getTopic(selectedProject, name);
       setTopic(data);
       setDraft(null);
     } catch (err) {
@@ -179,12 +179,12 @@ export const TopicDetail: React.FC = () => {
   };
 
   const handleRejectDraft = async () => {
-    if (!currentSession?.project || !name) return;
+    if (!selectedProject || !name) return;
     if (!confirm('Are you sure you want to reject this draft?')) return;
     try {
-      await kodexApi.rejectDraft(currentSession.project, name);
+      await kodexApi.rejectDraft(selectedProject, name);
       // Reload topic to clear hasDraft flag
-      const data = await kodexApi.getTopic(currentSession.project, name);
+      const data = await kodexApi.getTopic(selectedProject, name);
       setTopic(data);
       setDraft(null);
     } catch (err) {
@@ -192,10 +192,10 @@ export const TopicDetail: React.FC = () => {
     }
   };
 
-  if (!currentSession?.project) {
+  if (!selectedProject) {
     return (
       <div className="flex items-center justify-center h-full">
-        <p className="text-gray-500">Select a session to view topic</p>
+        <p className="text-gray-500">Select a project to view Kodex</p>
       </div>
     );
   }

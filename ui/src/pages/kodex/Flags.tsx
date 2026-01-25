@@ -5,7 +5,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { kodexApi, type Flag } from '@/lib/kodex-api';
-import { useSessionStore } from '@/stores/sessionStore';
+import { useKodexStore } from '@/stores/kodexStore';
 
 const FlagTypeBadge: React.FC<{ type: Flag['type'] }> = ({ type }) => {
   const colors: Record<Flag['type'], string> = {
@@ -41,13 +41,13 @@ export const Flags: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'open' | 'resolved' | 'dismissed'>('open');
-  const currentSession = useSessionStore((s) => s.currentSession);
+  const selectedProject = useKodexStore((s) => s.selectedProject);
 
   const loadFlags = async () => {
-    if (!currentSession?.project) return;
+    if (!selectedProject) return;
     try {
       setLoading(true);
-      const data = await kodexApi.listFlags(currentSession.project);
+      const data = await kodexApi.listFlags(selectedProject);
       setFlags(data);
       setError(null);
     } catch (err) {
@@ -59,12 +59,12 @@ export const Flags: React.FC = () => {
 
   useEffect(() => {
     loadFlags();
-  }, [currentSession?.project]);
+  }, [selectedProject]);
 
   const handleResolve = async (id: number) => {
-    if (!currentSession?.project) return;
+    if (!selectedProject) return;
     try {
-      await kodexApi.updateFlagStatus(currentSession.project, id, 'resolved');
+      await kodexApi.updateFlagStatus(selectedProject, id, 'resolved');
       loadFlags();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to resolve flag');
@@ -72,9 +72,9 @@ export const Flags: React.FC = () => {
   };
 
   const handleDismiss = async (id: number) => {
-    if (!currentSession?.project) return;
+    if (!selectedProject) return;
     try {
-      await kodexApi.updateFlagStatus(currentSession.project, id, 'dismissed');
+      await kodexApi.updateFlagStatus(selectedProject, id, 'dismissed');
       loadFlags();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to dismiss flag');
@@ -89,10 +89,10 @@ export const Flags: React.FC = () => {
     return true;
   });
 
-  if (!currentSession?.project) {
+  if (!selectedProject) {
     return (
       <div className="flex items-center justify-center h-full">
-        <p className="text-gray-500">Select a session to view flags</p>
+        <p className="text-gray-500">Select a project to view Kodex</p>
       </div>
     );
   }
