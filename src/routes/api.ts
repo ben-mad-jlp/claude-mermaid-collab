@@ -9,8 +9,10 @@ import { sessionRegistry, type Session } from '../services/session-registry';
 import { questionManager } from '../services/question-manager';
 import { uiManager } from '../services/ui-manager';
 import { statusManager } from '../services/status-manager';
-import { join } from 'path';
+import { projectRegistry } from '../services/project-registry';
+import { join, isAbsolute } from 'path';
 import { homedir } from 'os';
+import { existsSync } from 'fs';
 
 /**
  * Expand ~ to home directory in paths
@@ -177,6 +179,82 @@ export async function handleAPI(
       return Response.json({ success: removed });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // ============================================
+  // Project Registry Routes
+  // ============================================
+
+  // GET /api/projects - List all projects
+  if (path === '/api/projects' && req.method === 'GET') {
+    try {
+      const projects = await projectRegistry.list();
+      return Response.json({ projects }, {
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+        },
+      });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // POST /api/projects - Register a project
+  if (path === '/api/projects' && req.method === 'POST') {
+    try {
+      const { path: projectPath } = await req.json() as { path?: string };
+
+      if (!projectPath) {
+        return Response.json({ success: false, error: 'path is required' }, { status: 400 });
+      }
+
+      // Validate path is absolute
+      if (!isAbsolute(projectPath)) {
+        return Response.json({ success: false, error: 'Invalid project path: must be an absolute path' }, { status: 400 });
+      }
+
+      // Validate path exists
+      if (!existsSync(projectPath)) {
+        return Response.json({ success: false, error: `Project path does not exist: ${projectPath}` }, { status: 400 });
+      }
+
+      // Register the project
+      await projectRegistry.register(projectPath);
+
+      // Get the project details
+      const projects = await projectRegistry.list();
+      const project = projects.find(p => p.path === projectPath);
+
+      if (!project) {
+        return Response.json({ success: false, error: 'Failed to retrieve registered project' }, { status: 500 });
+      }
+
+      return Response.json({ success: true, project }, { status: 201 });
+    } catch (error: any) {
+      return Response.json({ success: false, error: error.message }, { status: 400 });
+    }
+  }
+
+  // DELETE /api/projects - Unregister a project
+  if (path === '/api/projects' && req.method === 'DELETE') {
+    try {
+      const projectPath = url.searchParams.get('path');
+
+      if (!projectPath) {
+        return Response.json({ success: false, error: 'path query parameter is required' }, { status: 400 });
+      }
+
+      // Unregister the project
+      const removed = await projectRegistry.unregister(projectPath);
+
+      if (!removed) {
+        return Response.json({ success: false, error: 'Project not found' }, { status: 404 });
+      }
+
+      return Response.json({ success: true });
+    } catch (error: any) {
+      return Response.json({ success: false, error: error.message }, { status: 400 });
     }
   }
 
