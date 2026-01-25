@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useTerminalTabs } from '../../hooks/useTerminalTabs';
 import { TerminalTabBar } from './TerminalTabBar';
 import { EmbeddedTerminal } from '../EmbeddedTerminal';
@@ -28,6 +28,9 @@ export const TerminalTabsContainer: React.FC<TerminalTabsContainerProps> = ({ cl
     setActiveTab,
     reorderTabs,
   } = useTerminalTabs({ project, session });
+
+  // Memoize terminal config to prevent unnecessary iframe reloads
+  const terminalConfig = useMemo(() => ({ wsUrl: 'ws://localhost:7681/ws' }), []);
 
   // Handle loading state
   if (isLoading) {
@@ -82,7 +85,7 @@ export const TerminalTabsContainer: React.FC<TerminalTabsContainerProps> = ({ cl
                 }}
               >
                 <EmbeddedTerminal
-                  config={{ wsUrl: `ws://localhost:7681/ws` }}
+                  config={terminalConfig}
                   sessionName={tab.tmuxSession}
                   className="h-full"
                 />

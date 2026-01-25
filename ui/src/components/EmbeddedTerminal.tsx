@@ -14,7 +14,7 @@ export interface EmbeddedTerminalProps {
  * Terminals auto-start immediately on render (no "Start Terminal" button).
  * This prevents state reset issues when React remounts the component.
  */
-export function EmbeddedTerminal({ config, sessionName, className = '' }: EmbeddedTerminalProps) {
+export const EmbeddedTerminal = React.memo(function EmbeddedTerminal({ config, sessionName, className = '' }: EmbeddedTerminalProps) {
   // Build iframe URL from WebSocket URL
   // ws://localhost:7681/ws -> http://localhost:7681
   let iframeUrl = config.wsUrl
@@ -25,9 +25,9 @@ export function EmbeddedTerminal({ config, sessionName, className = '' }: Embedd
   // Append session name for tmux session attachment
   // ttyd is started with: ttyd tmux new-session -A -s
   // The ?arg= parameter passes the session name to tmux
-  if (sessionName) {
-    iframeUrl += `?arg=${encodeURIComponent(sessionName)}`;
-  }
+  // Always provide a session name (use 'default' as fallback)
+  const tmuxSession = sessionName || 'default';
+  iframeUrl += `?arg=${encodeURIComponent(tmuxSession)}`;
 
   return (
     <div
@@ -49,6 +49,6 @@ export function EmbeddedTerminal({ config, sessionName, className = '' }: Embedd
       />
     </div>
   );
-}
+});
 
 EmbeddedTerminal.displayName = 'EmbeddedTerminal';

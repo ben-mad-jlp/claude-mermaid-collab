@@ -21,6 +21,10 @@ export interface UseTerminalTabsReturn {
   refresh: () => Promise<void>;
 }
 
+// Helper to generate localStorage key for active tab persistence
+const getStorageKey = (project: string, session: string) =>
+  `terminal-active-tab:${project}:${session}`;
+
 export function useTerminalTabs({ project, session }: UseTerminalTabsOptions): UseTerminalTabsReturn {
   const [tabs, setTabs] = useState<TerminalSession[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
@@ -42,8 +46,11 @@ export function useTerminalTabs({ project, session }: UseTerminalTabsOptions): U
       setError(null);
       const sessions = await api.getTerminalSessions(project, session);
       setTabs(sessions);
-      // Set active tab to first session, or null if empty
-      if (sessions.length > 0) {
+      // Restore active tab from localStorage, or default to first session
+      const savedTabId = localStorage.getItem(getStorageKey(project, session));
+      if (savedTabId && sessions.some(s => s.id === savedTabId)) {
+        setActiveTabId(savedTabId);
+      } else if (sessions.length > 0) {
         setActiveTabId(sessions[0].id);
       } else {
         setActiveTabId(null);
@@ -135,8 +142,10 @@ export function useTerminalTabs({ project, session }: UseTerminalTabsOptions): U
     // Verify tab exists before setting
     if (tabs.some(t => t.id === id)) {
       setActiveTabId(id);
+      // Persist active tab selection to localStorage
+      localStorage.setItem(getStorageKey(project, session), id);
     }
-  }, [tabs]);
+  }, [tabs, project, session]);
 
   const activeTab = tabs.find(t => t.id === activeTabId) || null;
 
