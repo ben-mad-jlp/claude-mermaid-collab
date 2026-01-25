@@ -26,6 +26,14 @@ import {
   loadSnapshot,
   deleteSnapshot,
 } from './tools/collab-state.js';
+import {
+  handleListProjects,
+  handleRegisterProject,
+  handleUnregisterProject,
+  listProjectsSchema,
+  registerProjectSchema,
+  unregisterProjectSchema,
+} from './tools/projects.js';
 import { getKodexManager } from '../services/kodex-manager.js';
 import type { FlagType, TopicContent } from '../services/kodex-manager.js';
 
@@ -403,6 +411,21 @@ export async function setupMCPServer(): Promise<Server> {
         name: 'list_sessions',
         description: 'List all registered collab sessions across all projects.',
         inputSchema: { type: 'object', properties: {} },
+      },
+      {
+        name: 'list_projects',
+        description: 'List all registered projects',
+        inputSchema: listProjectsSchema,
+      },
+      {
+        name: 'register_project',
+        description: 'Register a new project',
+        inputSchema: registerProjectSchema,
+      },
+      {
+        name: 'unregister_project',
+        description: 'Unregister a project (does not delete files)',
+        inputSchema: unregisterProjectSchema,
       },
       {
         name: 'list_diagrams',
@@ -856,6 +879,25 @@ export async function setupMCPServer(): Promise<Server> {
 
           case 'list_sessions':
             return await listSessions();
+
+          case 'list_projects': {
+            const result = await handleListProjects();
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'register_project': {
+            const { path } = args as { path: string };
+            if (!path) throw new Error('Missing required: path');
+            const result = await handleRegisterProject({ path });
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'unregister_project': {
+            const { path } = args as { path: string };
+            if (!path) throw new Error('Missing required: path');
+            const result = await handleUnregisterProject({ path });
+            return JSON.stringify(result, null, 2);
+          }
 
           case 'list_diagrams': {
             const { project, session } = args as { project: string; session: string };
