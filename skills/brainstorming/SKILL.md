@@ -241,8 +241,8 @@ When a collab session is active, prefer `render_ui` for user interactions instea
 | Free text | TextInput | Names, descriptions |
 
 **See sub-phase skills for specific patterns:**
-- `clarifying.md` - Patterns for clarifying questions
-- `designing.md` - Patterns for design validation
+- `brainstorming-clarifying` - Patterns for clarifying questions
+- `brainstorming-designing` - Patterns for design validation
 
 ## Diagram Opportunities
 

@@ -361,10 +361,110 @@ Never fix bugs without a test.
 
 ## Testing Anti-Patterns
 
-When adding mocks or test utilities, read @testing-anti-patterns.md to avoid common pitfalls:
-- Testing mock behavior instead of real behavior
-- Adding test-only methods to production classes
-- Mocking without understanding dependencies
+When adding mocks or test utilities, avoid these common pitfalls.
+
+**Core principle:** Test what the code does, not what the mocks do.
+
+### The Iron Laws
+
+```
+1. NEVER test mock behavior
+2. NEVER add test-only methods to production classes
+3. NEVER mock without understanding dependencies
+```
+
+### Anti-Pattern 1: Testing Mock Behavior
+
+**Bad:**
+```typescript
+// Testing that the mock exists
+test('renders sidebar', () => {
+  render(<Page />);
+  expect(screen.getByTestId('sidebar-mock')).toBeInTheDocument();
+});
+```
+
+**Good:**
+```typescript
+test('renders sidebar', () => {
+  render(<Page />);  // Don't mock sidebar
+  expect(screen.getByRole('navigation')).toBeInTheDocument();
+});
+```
+
+**Gate:** Before asserting on any mock element, ask: "Am I testing real component behavior or just mock existence?"
+
+### Anti-Pattern 2: Test-Only Methods in Production
+
+**Bad:**
+```typescript
+class Session {
+  async destroy() {  // Only used in tests!
+    await this._workspaceManager?.destroyWorkspace(this.id);
+  }
+}
+```
+
+**Good:**
+```typescript
+// In test-utils/
+export async function cleanupSession(session: Session) {
+  const workspace = session.getWorkspaceInfo();
+  if (workspace) {
+    await workspaceManager.destroyWorkspace(workspace.id);
+  }
+}
+```
+
+**Gate:** Before adding any method to production class, ask: "Is this only used by tests?" If yes, put it in test utilities.
+
+### Anti-Pattern 3: Mocking Without Understanding
+
+**Bad:**
+```typescript
+// Mock breaks test logic - prevents config write that test depends on
+vi.mock('ToolCatalog', () => ({
+  discoverAndCacheTools: vi.fn().mockResolvedValue(undefined)
+}));
+```
+
+**Gate:** Before mocking, understand what side effects the real method has and whether the test depends on them.
+
+### Anti-Pattern 4: Incomplete Mocks
+
+**Bad:**
+```typescript
+const mockResponse = {
+  status: 'success',
+  data: { userId: '123', name: 'Alice' }
+  // Missing: metadata that downstream code uses
+};
+```
+
+**Good:** Mirror real API completeness - include ALL fields the real API returns.
+
+### Anti-Pattern 5: Integration Tests as Afterthought
+
+Testing is part of implementation, not optional follow-up. TDD cycle: test → implement → refactor → complete.
+
+### Quick Reference
+
+| Anti-Pattern | Fix |
+|--------------|-----|
+| Assert on mock elements | Test real component or unmock it |
+| Test-only methods in production | Move to test utilities |
+| Mock without understanding | Understand dependencies first, mock minimally |
+| Incomplete mocks | Mirror real API completely |
+| Tests as afterthought | TDD - tests first |
+| Over-complex mocks | Consider integration tests |
+
+**Red Flags:**
+- Assertion checks for `*-mock` test IDs
+- Methods only called in test files
+- Mock setup is >50% of test
+- Test fails when you remove mock
+- Can't explain why mock is needed
+- Mocking "just to be safe"
 
 ## Final Rule
 

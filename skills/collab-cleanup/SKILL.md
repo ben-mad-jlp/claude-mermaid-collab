@@ -49,19 +49,28 @@ Close a collab session after development is complete. Offers choices to archive 
 
 ### Step 1: Identify Current Session
 
-1. Call `mcp__mermaid__get_storage_config()` to get current storage path
-2. Extract session name from path (e.g., `.collab/glowing-sunny-mesa/` → `glowing-sunny-mesa`)
-3. If storage points to a collab session:
-   - Display: "Current session: **[name]** ([template])"
-   - Ask: "Clean up this session?"
+1. Call `mcp__mermaid__list_sessions` to get all sessions across projects:
+   ```
+   Tool: mcp__mermaid__list_sessions
+   Args: {}
+   ```
+2. Filter results to current project (match `project` field against absolute cwd path)
+3. If sessions found for current project:
+   - For each session, fetch phase via `mcp__mermaid__get_session_state`:
      ```
-     1. Yes
-     2. No
+     Tool: mcp__mermaid__get_session_state
+     Args: { "project": "<cwd>", "session": "<session-name>" }
      ```
-4. If storage doesn't point to a collab session:
-   - Call `mcp__mermaid__list_collab_sessions()`
-   - If sessions exist: List them, ask which to clean up
-   - If no sessions: "No collab sessions found." and exit
+   - Display list with phases:
+     ```
+     Sessions in this project:
+     1. glowing-sunny-mesa (phase: rough-draft)
+     2. bright-calm-river (phase: implementation)
+     ```
+   - Ask: "Which session to clean up?" (or if only one, confirm it)
+4. If no sessions for current project:
+   - Display: "No collab sessions found in this project."
+   - Exit
 
 ### Step 2: Show Session Summary
 

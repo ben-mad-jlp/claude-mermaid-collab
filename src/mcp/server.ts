@@ -3,7 +3,7 @@
  * MCP Server for Mermaid Diagram Management (stdio transport)
  *
  * This is the legacy stdio transport server, kept for backwards compatibility.
- * For new installations, use the SSE transport via the API server.
+ * For new installations, use the HTTP transport via the API server.
  *
  * NOTE: This server expects the HTTP API server to already be running.
  * Run `npm run dev` or `bun run src/server.ts` first.

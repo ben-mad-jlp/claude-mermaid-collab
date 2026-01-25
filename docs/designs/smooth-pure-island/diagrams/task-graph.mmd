@@ -1,0 +1,29 @@
+flowchart TB
+    subgraph Phase1["Phase 1: Foundation"]
+        T1[Update session paths<br/>in existing code]
+        T2[Create KodexManager<br/>service with SQLite]
+    end
+    
+    subgraph Phase2["Phase 2: Backend"]
+        T3[Add Kodex API routes]
+        T4[Add Kodex MCP tools]
+    end
+    
+    subgraph Phase3["Phase 3: Frontend"]
+        T5[Create Kodex pages<br/>and components]
+        T6[Add cross-links<br/>between sections]
+    end
+    
+    T1 --> T2
+    T2 --> T3
+    T2 --> T4
+    T3 --> T5
+    T4 --> T5
+    T5 --> T6
+    
+    style T1 fill:#e3f2fd
+    style T2 fill:#e3f2fd
+    style T3 fill:#fff3e0
+    style T4 fill:#fff3e0
+    style T5 fill:#e8f5e9
+    style T6 fill:#e8f5e9

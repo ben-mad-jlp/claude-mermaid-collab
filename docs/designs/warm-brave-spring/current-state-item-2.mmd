@@ -1,0 +1,21 @@
+flowchart TB
+    subgraph "brainstorming-exploring/SKILL.md"
+        Step1["1. Check project state"]
+        Step1a["Read files"]
+        Step1b["Check git"]
+        Step1c["Understand architecture"]
+        
+        Step2["2. Gather requirements"]
+        Step3["3. Form item list"]
+    end
+    
+    Step1 --> Step1a
+    Step1 --> Step1b
+    Step1 --> Step1c
+    Step1 --> Step2
+    Step2 --> Step3
+    
+    Kodex[(Kodex<br/>Project Knowledge)]
+    Step1 -.->|"Missing integration"| Kodex
+    
+    style Kodex fill:#ffcccc

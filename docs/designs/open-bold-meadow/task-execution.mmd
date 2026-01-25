@@ -1,0 +1,29 @@
+graph TD
+    render-ui-timeout(["render-ui-timeout"])
+    auto-start-terminal(["auto-start-terminal"])
+    terminal-types(["terminal-types"])
+    terminal-frontend-api(["terminal-frontend-api"])
+    terminal-manager(["terminal-manager"])
+    terminal-mcp-tools(["terminal-mcp-tools"])
+    terminal-api-routes(["terminal-api-routes"])
+    mcp-server-register(["mcp-server-register"])
+    terminal-hook-rewrite(["terminal-hook-rewrite"])
+    terminal-container-update(["terminal-container-update"])
+
+    terminal-types --> terminal-manager
+    terminal-manager --> terminal-mcp-tools
+    terminal-mcp-tools --> terminal-api-routes
+    terminal-mcp-tools --> mcp-server-register
+    terminal-frontend-api --> terminal-hook-rewrite
+    terminal-hook-rewrite --> terminal-container-update
+
+    style render-ui-timeout fill:#c8e6c9,stroke:#2e7d32
+    style auto-start-terminal fill:#c8e6c9,stroke:#2e7d32
+    style terminal-types fill:#c8e6c9,stroke:#2e7d32
+    style terminal-frontend-api fill:#c8e6c9,stroke:#2e7d32
+    style terminal-manager fill:#c8e6c9,stroke:#2e7d32
+    style terminal-mcp-tools fill:#c8e6c9,stroke:#2e7d32
+    style terminal-api-routes fill:#c8e6c9,stroke:#2e7d32
+    style mcp-server-register fill:#c8e6c9,stroke:#2e7d32
+    style terminal-hook-rewrite fill:#c8e6c9,stroke:#2e7d32
+    style terminal-container-update fill:#c8e6c9,stroke:#2e7d32

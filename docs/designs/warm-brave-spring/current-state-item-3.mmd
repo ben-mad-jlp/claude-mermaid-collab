@@ -1,0 +1,19 @@
+flowchart LR
+    subgraph rough-draft["rough-draft Skill"]
+        RD[rough-draft/SKILL.md] --> INT[rough-draft-interface]
+        RD --> PSE[rough-draft-pseudocode]
+        RD --> SKE[rough-draft-skeleton]
+        RD --> HAN[rough-draft-handoff]
+    end
+
+    subgraph context["Context Gathering"]
+        DD[Design Doc] --> INT
+        CF[Code Files] --> INT
+    end
+
+    style DD fill:#f9f,stroke:#333
+    style CF fill:#bbf,stroke:#333
+    
+    KD[Kodex Topics] -.->|NOT INTEGRATED| INT
+    
+    note[/"No Kodex query currently"/]

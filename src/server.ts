@@ -12,8 +12,7 @@ import { handleAPI } from './routes/api';
 import { handleKodexAPI } from './routes/kodex-api';
 import { sessionRegistry } from './services/session-registry';
 import { statusManager } from './services/status-manager';
-import { handleSSEConnection, handleSSEMessage, getActiveSessionCount } from './mcp/sse-handler';
-import { handleMCPRequest, getActiveSessionCount as getHttpSessionCount } from './mcp/http-handler';
+import { handleMCPRequest, getActiveSessionCount } from './mcp/http-handler';
 
 // Scratch session - a default workspace for casual use
 const SCRATCH_PROJECT = join(homedir(), '.mermaid-collab');
@@ -55,18 +54,9 @@ const server = Bun.serve({
       return new Response('WebSocket upgrade failed', { status: 500 });
     }
 
-    // MCP Streamable HTTP transport (recommended - protocol version 2025-03-26)
+    // MCP Streamable HTTP transport (protocol version 2025-03-26)
     if (url.pathname === '/mcp') {
       return handleMCPRequest(req);
-    }
-
-    // MCP SSE routes (deprecated - kept for backwards compatibility)
-    if (url.pathname === '/mcp/sse') {
-      return handleSSEConnection(req);
-    }
-
-    if (url.pathname === '/mcp/message') {
-      return handleSSEMessage(req);
     }
 
     // Kodex API routes
@@ -143,5 +133,4 @@ console.log(`🚀 Mermaid Collaboration Server running on http://${config.HOST}:
 console.log(`🌐 Public directory: ${config.PUBLIC_DIR}`);
 console.log(`🎨 UI dist directory: ${config.UI_DIST_DIR} (exists: ${existsSync(config.UI_DIST_DIR)})`);
 console.log(`🔌 WebSocket: ws://${config.HOST}:${config.PORT}/ws`);
-console.log(`🤖 MCP HTTP: http://${config.HOST}:${config.PORT}/mcp (recommended)`);
-console.log(`🤖 MCP SSE: http://${config.HOST}:${config.PORT}/mcp/sse (deprecated)`);
+console.log(`🤖 MCP HTTP: http://${config.HOST}:${config.PORT}/mcp`);

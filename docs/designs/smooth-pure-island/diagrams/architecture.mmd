@@ -1,0 +1,57 @@
+flowchart TB
+    subgraph Clients
+        CC[Claude Code]
+        Browser[Browser]
+    end
+
+    subgraph "Unified Server :3737"
+        subgraph MCP["MCP /mcp"]
+            CollabTools["Collab Tools\ndiagrams, documents\nsessions, render_ui"]
+            KodexTools["Kodex Tools\nquery_topic, flag_topic\nlist_topics, verify_topic"]
+        end
+
+        subgraph API["REST API"]
+            CollabAPI["/api/*\nCollab endpoints"]
+            KodexAPI["/api/kodex/*\nKodex endpoints"]
+        end
+
+        subgraph Storage
+            CollabFS[".collab/\nSessions & docs"]
+            KodexFS["kodex/topics/\nMarkdown files"]
+            KodexDB["kodex/kodex.db\nSQLite metadata"]
+        end
+
+        WS[WebSocket /ws]
+    end
+
+    subgraph "React UI"
+        direction TB
+        subgraph CollabSection["/ Collab Section"]
+            CollabNav[Sidebar]
+            CollabDash[Dashboard]
+            CollabSessions[Sessions]
+            CollabDiagrams[Diagrams/Docs]
+        end
+        
+        subgraph KodexSection["/kodex Kodex Section"]
+            KodexNav[Sidebar]
+            KodexDash[Dashboard]
+            KodexTopics[Topic Browser]
+            KodexEditor[Topic Editor]
+            KodexFlags[Flags]
+        end
+        
+        Link["Cross-links\nbetween sections"]
+    end
+
+    CC --> MCP
+    CollabTools --> CollabAPI
+    KodexTools --> KodexAPI
+    CollabAPI --> CollabFS
+    KodexAPI --> KodexFS
+    KodexAPI --> KodexDB
+    
+    Browser --> CollabSection
+    Browser --> KodexSection
+    CollabSection <--> Link
+    KodexSection <--> Link

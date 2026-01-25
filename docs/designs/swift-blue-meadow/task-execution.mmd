@@ -1,0 +1,30 @@
+graph TD
+    %% Node Definitions
+    task-1(["Item 1: Fix skill paths"])
+    task-2(["Item 2: Diagram batching"])
+    task-3(["Item 3: README rewrite"])
+    task-4a(["Item 4a: MCP Server Core"])
+    task-4b(["Item 4b: SQLite Storage"])
+    task-4c(["Item 4c: GUI Layout + Dashboard"])
+    task-4d(["Item 4d: Topic Browser + Detail"])
+    task-4e(["Item 4e: Editor + Draft Review"])
+    task-4f(["Item 4f: Flags + Missing Topics"])
+    task-5(["Item 5: Terminal clipboard"])
+
+    %% Dependencies
+    task-4a --> task-4b
+    task-4c --> task-4d
+    task-4d --> task-4e
+    task-4e --> task-4f
+
+    %% Styles - ALL WAVES COMPLETE (green)
+    style task-1 fill:#c8e6c9,stroke:#388e3c,stroke-width:3px
+    style task-2 fill:#c8e6c9,stroke:#388e3c,stroke-width:3px
+    style task-3 fill:#c8e6c9,stroke:#388e3c,stroke-width:3px
+    style task-4a fill:#c8e6c9,stroke:#388e3c,stroke-width:3px
+    style task-4b fill:#c8e6c9,stroke:#388e3c,stroke-width:3px
+    style task-4c fill:#c8e6c9,stroke:#388e3c,stroke-width:3px
+    style task-4d fill:#c8e6c9,stroke:#388e3c,stroke-width:3px
+    style task-4e fill:#c8e6c9,stroke:#388e3c,stroke-width:3px
+    style task-4f fill:#c8e6c9,stroke:#388e3c,stroke-width:3px
+    style task-5 fill:#c8e6c9,stroke:#388e3c,stroke-width:3px

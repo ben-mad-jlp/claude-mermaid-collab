@@ -1,7 +1,7 @@
 /**
  * MCP Server Setup
  *
- * Shared MCP server configuration used by both stdio and SSE transports.
+ * Shared MCP server configuration used by both stdio and HTTP transports.
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';

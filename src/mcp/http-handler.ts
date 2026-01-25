@@ -2,7 +2,6 @@
  * MCP Streamable HTTP Handler
  *
  * Manages MCP server instances over Streamable HTTP transport.
- * This is the recommended transport, replacing the deprecated SSE transport.
  *
  * Features:
  * - Single endpoint for all MCP communication

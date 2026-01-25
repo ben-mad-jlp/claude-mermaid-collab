@@ -1,12 +1,11 @@
 /**
  * Streamable HTTP Transport for MCP (Protocol Version 2025-03-26)
  *
- * Implements the Streamable HTTP transport which replaces the deprecated SSE transport.
  * Uses a single endpoint that handles both POST (client→server) and GET (server→client).
  *
- * This transport is simpler than SSE:
+ * How it works:
  * - Each client message is a POST request
- * - Server responds inline or via SSE stream
+ * - Server responds inline or via streaming
  * - No persistent connection required
  */
 
