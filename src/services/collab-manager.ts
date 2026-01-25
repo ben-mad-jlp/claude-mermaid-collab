@@ -100,61 +100,109 @@ function getCollabDir(baseDir: string): string {
 }
 
 /**
- * List all collab sessions in the .collab directory
- * @param baseDir - The base directory to search in (typically cwd)
+ * Get the sessions directory path (.collab/sessions)
  */
-export async function listCollabSessions(baseDir: string): Promise<CollabSession[]> {
+function getSessionsDir(baseDir: string): string {
+  return join(baseDir, '.collab', 'sessions');
+}
+
+/**
+ * Check if old session structure exists (.collab/<name>/ with collab-state.json)
+ * Returns true if we should check old paths for backwards compatibility
+ */
+async function hasOldSessionStructure(baseDir: string): Promise<boolean> {
   const collabDir = getCollabDir(baseDir);
-
-  // Check if .collab exists
   if (!(await directoryExists(collabDir))) {
-    return [];
+    return false;
   }
-
-  const sessions: CollabSession[] = [];
 
   try {
     const entries = await readdir(collabDir, { withFileTypes: true });
-
     for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-
-      const sessionPath = join(collabDir, entry.name);
-      const statePath = join(sessionPath, 'collab-state.json');
-      const metadataPath = join(sessionPath, 'metadata.json');
-
+      if (!entry.isDirectory() || entry.name === 'sessions' || entry.name === 'kodex') continue;
+      const statePath = join(collabDir, entry.name, 'collab-state.json');
       try {
-        // Read collab-state.json
-        const stateContent = await readFile(statePath, 'utf-8');
-        const state: CollabState = JSON.parse(stateContent);
-
-        // Try to read metadata.json for template info
-        let template: CollabTemplate = state.template || 'feature';
-        try {
-          const metadataContent = await readFile(metadataPath, 'utf-8');
-          const metadata: CollabMetadata = JSON.parse(metadataContent);
-          template = metadata.template || template;
-        } catch {
-          // metadata.json might not exist or be malformed
-        }
-
-        sessions.push({
-          name: entry.name,
-          template,
-          phase: state.phase,
-          lastActivity: state.lastActivity,
-          pendingIssueCount: state.pendingVerificationIssues?.length || 0,
-          path: sessionPath,
-        });
+        await access(statePath);
+        return true; // Found old-style session
       } catch {
-        // Skip directories without valid collab-state.json
         continue;
       }
     }
-  } catch (error) {
-    // If we can't read the directory, return empty list
-    return [];
+  } catch {
+    return false;
   }
+  return false;
+}
+
+/**
+ * List all collab sessions in the .collab/sessions directory
+ * Also checks old location (.collab/<name>) for backwards compatibility
+ * @param baseDir - The base directory to search in (typically cwd)
+ */
+export async function listCollabSessions(baseDir: string): Promise<CollabSession[]> {
+  const sessions: CollabSession[] = [];
+
+  // Helper to read sessions from a directory
+  async function readSessionsFromDir(dir: string): Promise<void> {
+    if (!(await directoryExists(dir))) {
+      return;
+    }
+
+    try {
+      const entries = await readdir(dir, { withFileTypes: true });
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        // Skip special directories
+        if (entry.name === 'sessions' || entry.name === 'kodex') continue;
+
+        const sessionPath = join(dir, entry.name);
+        const statePath = join(sessionPath, 'collab-state.json');
+        const metadataPath = join(sessionPath, 'metadata.json');
+
+        try {
+          // Read collab-state.json
+          const stateContent = await readFile(statePath, 'utf-8');
+          const state: CollabState = JSON.parse(stateContent);
+
+          // Try to read metadata.json for template info
+          let template: CollabTemplate = state.template || 'feature';
+          try {
+            const metadataContent = await readFile(metadataPath, 'utf-8');
+            const metadata: CollabMetadata = JSON.parse(metadataContent);
+            template = metadata.template || template;
+          } catch {
+            // metadata.json might not exist or be malformed
+          }
+
+          // Skip if we already have this session (from new location)
+          if (sessions.some(s => s.name === entry.name)) continue;
+
+          sessions.push({
+            name: entry.name,
+            template,
+            phase: state.phase,
+            lastActivity: state.lastActivity,
+            pendingIssueCount: state.pendingVerificationIssues?.length || 0,
+            path: sessionPath,
+          });
+        } catch {
+          // Skip directories without valid collab-state.json
+          continue;
+        }
+      }
+    } catch {
+      // If we can't read the directory, continue
+    }
+  }
+
+  // First, read from new location (.collab/sessions/)
+  const sessionsDir = getSessionsDir(baseDir);
+  await readSessionsFromDir(sessionsDir);
+
+  // Then check old location (.collab/) for backwards compatibility
+  const collabDir = getCollabDir(baseDir);
+  await readSessionsFromDir(collabDir);
 
   // Sort by last activity (most recent first)
   sessions.sort((a, b) => new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime());
@@ -173,22 +221,23 @@ export async function createCollabSession(
   template: CollabTemplate,
   customName?: string
 ): Promise<{ name: string; path: string }> {
-  const collabDir = getCollabDir(baseDir);
+  const sessionsDir = getSessionsDir(baseDir);
 
-  // Create .collab directory if it doesn't exist
-  if (!(await directoryExists(collabDir))) {
-    await mkdir(collabDir, { recursive: true });
+  // Create .collab/sessions directory if it doesn't exist
+  if (!(await directoryExists(sessionsDir))) {
+    await mkdir(sessionsDir, { recursive: true });
   }
 
   // Generate or use provided name
   let name = customName || generateSessionName();
 
-  // Ensure unique name
-  let sessionPath = join(collabDir, name);
+  // Ensure unique name (check both new and old locations)
+  let sessionPath = join(sessionsDir, name);
+  const oldSessionPath = join(getCollabDir(baseDir), name);
   let attempts = 0;
-  while (await directoryExists(sessionPath) && attempts < 10) {
+  while ((await directoryExists(sessionPath) || await directoryExists(oldSessionPath)) && attempts < 10) {
     name = generateSessionName();
-    sessionPath = join(collabDir, name);
+    sessionPath = join(sessionsDir, name);
     attempts++;
   }
 
@@ -231,6 +280,25 @@ export async function createCollabSession(
 }
 
 /**
+ * Find the actual path to a session (checks new then old location)
+ */
+async function findSessionPath(baseDir: string, sessionName: string): Promise<string | null> {
+  // Check new location first
+  const newPath = join(getSessionsDir(baseDir), sessionName);
+  if (await directoryExists(newPath)) {
+    return newPath;
+  }
+
+  // Check old location for backwards compatibility
+  const oldPath = join(getCollabDir(baseDir), sessionName);
+  if (await directoryExists(oldPath)) {
+    return oldPath;
+  }
+
+  return null;
+}
+
+/**
  * Get the state of a collab session
  * @param baseDir - The base directory (typically cwd)
  * @param sessionName - The session name
@@ -239,8 +307,12 @@ export async function getCollabSessionState(
   baseDir: string,
   sessionName: string
 ): Promise<CollabState> {
-  const statePath = join(getCollabDir(baseDir), sessionName, 'collab-state.json');
+  const sessionPath = await findSessionPath(baseDir, sessionName);
+  if (!sessionPath) {
+    throw new Error(`Session not found or invalid: ${sessionName}`);
+  }
 
+  const statePath = join(sessionPath, 'collab-state.json');
   try {
     const content = await readFile(statePath, 'utf-8');
     return JSON.parse(content);
@@ -260,7 +332,12 @@ export async function updateCollabSessionState(
   sessionName: string,
   updates: Partial<CollabState>
 ): Promise<CollabState> {
-  const statePath = join(getCollabDir(baseDir), sessionName, 'collab-state.json');
+  const sessionPath = await findSessionPath(baseDir, sessionName);
+  if (!sessionPath) {
+    throw new Error(`Session not found or invalid: ${sessionName}`);
+  }
+
+  const statePath = join(sessionPath, 'collab-state.json');
 
   // Read current state
   let currentState: CollabState;
@@ -286,9 +363,23 @@ export async function updateCollabSessionState(
 
 /**
  * Get the absolute path to a collab session
+ * Checks new location first, then old location for backwards compatibility
  * @param baseDir - The base directory (typically cwd)
  * @param sessionName - The session name
  */
-export function getCollabSessionPath(baseDir: string, sessionName: string): string {
-  return join(getCollabDir(baseDir), sessionName);
+export async function getCollabSessionPath(baseDir: string, sessionName: string): Promise<string> {
+  const sessionPath = await findSessionPath(baseDir, sessionName);
+  if (sessionPath) {
+    return sessionPath;
+  }
+  // Default to new location for new sessions
+  return join(getSessionsDir(baseDir), sessionName);
+}
+
+/**
+ * Synchronous version for cases where async isn't possible
+ * Prefers new location, but caller should verify existence
+ */
+export function getCollabSessionPathSync(baseDir: string, sessionName: string): string {
+  return join(getSessionsDir(baseDir), sessionName);
 }

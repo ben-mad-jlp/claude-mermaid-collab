@@ -111,8 +111,8 @@ export class SessionRegistry {
 
     await this.save(registry);
 
-    // Ensure directories exist
-    const sessionPath = join(project, '.collab', session);
+    // Ensure directories exist (new structure: .collab/sessions/<name>/)
+    const sessionPath = join(project, '.collab', 'sessions', session);
     await mkdir(join(sessionPath, 'diagrams'), { recursive: true });
     await mkdir(join(sessionPath, 'documents'), { recursive: true });
 
@@ -141,11 +141,15 @@ export class SessionRegistry {
     const validSessions: Session[] = [];
     const staleSessions: Session[] = [];
 
-    // Validate each session's existence
+    // Validate each session's existence (check both new and old locations)
     for (const session of registry.sessions) {
       try {
-        const sessionPath = join(session.project, '.collab', session.session);
-        if (fs.existsSync(sessionPath)) {
+        // Check new location first
+        const newSessionPath = join(session.project, '.collab', 'sessions', session.session);
+        // Then old location for backwards compatibility
+        const oldSessionPath = join(session.project, '.collab', session.session);
+
+        if (fs.existsSync(newSessionPath) || fs.existsSync(oldSessionPath)) {
           validSessions.push(session);
         } else {
           staleSessions.push(session);
@@ -182,6 +186,7 @@ export class SessionRegistry {
 
   /**
    * Resolve the path for a session's diagrams or documents folder.
+   * Checks new location first, then old location for backwards compatibility.
    */
   resolvePath(project: string, session: string, type: 'diagrams' | 'documents'): string {
     if (!project || !project.startsWith('/')) {
@@ -194,7 +199,20 @@ export class SessionRegistry {
       throw new Error('Invalid type: must be "diagrams" or "documents"');
     }
 
-    return join(project, '.collab', session, type);
+    // Check new location first
+    const newPath = join(project, '.collab', 'sessions', session, type);
+    if (fs.existsSync(newPath)) {
+      return newPath;
+    }
+
+    // Check old location for backwards compatibility
+    const oldPath = join(project, '.collab', session, type);
+    if (fs.existsSync(oldPath)) {
+      return oldPath;
+    }
+
+    // Default to new location
+    return newPath;
   }
 
   /**

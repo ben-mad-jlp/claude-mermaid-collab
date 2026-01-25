@@ -59,7 +59,7 @@ export const DiagramEmbed: React.FC<DiagramEmbedProps> = (props) => {
 
   const uniqueId = useId();
   const mermaidId = `mermaid-${uniqueId.replace(/:/g, '')}`;
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const [refReady, setRefReady] = useState(false);
   const [state, setState] = useState<DiagramEmbedState>({
     isLoading: true,

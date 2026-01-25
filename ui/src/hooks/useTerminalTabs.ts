@@ -29,6 +29,14 @@ export function useTerminalTabs({ project, session }: UseTerminalTabsOptions): U
 
   // Fetch sessions from API
   const refresh = useCallback(async () => {
+    // Skip API call if project or session is empty
+    if (!project || !session) {
+      setTabs([]);
+      setActiveTabId(null);
+      setIsLoading(false);
+      return;
+    }
+
     try {
       setIsLoading(true);
       setError(null);

@@ -9,9 +9,23 @@ const execAsync = promisify(exec);
 export class TerminalManager {
   /**
    * Get storage path for terminal sessions
+   * Checks new location first (.collab/sessions/), then old location for backwards compatibility
    */
   private getStoragePath(project: string, session: string): string {
-    return join(project, '.collab', session, 'terminal-sessions.json');
+    // Check new location first
+    const newPath = join(project, '.collab', 'sessions', session, 'terminal-sessions.json');
+    if (existsSync(newPath) || existsSync(dirname(newPath))) {
+      return newPath;
+    }
+
+    // Check old location for backwards compatibility
+    const oldPath = join(project, '.collab', session, 'terminal-sessions.json');
+    if (existsSync(oldPath) || existsSync(dirname(oldPath))) {
+      return oldPath;
+    }
+
+    // Default to new location
+    return newPath;
   }
 
   /**

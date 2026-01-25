@@ -10,8 +10,8 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 import { JSONRPCMessageSchema } from '@modelcontextprotocol/sdk/types.js';
 
-// Heartbeat interval in milliseconds (15 seconds)
-const HEARTBEAT_INTERVAL = 15000;
+// Heartbeat interval in milliseconds (5 seconds for better connection stability)
+const HEARTBEAT_INTERVAL = 5000;
 
 export class BunSSEServerTransport implements Transport {
   private _sessionId: string;
@@ -24,9 +24,9 @@ export class BunSSEServerTransport implements Transport {
   onerror?: (error: Error) => void;
   onmessage?: (message: JSONRPCMessage) => void;
 
-  constructor(endpoint: string) {
+  constructor(endpoint: string, sessionId?: string) {
     this._endpoint = endpoint;
-    this._sessionId = randomUUID();
+    this._sessionId = sessionId || randomUUID();
   }
 
   /**
@@ -102,7 +102,10 @@ export class BunSSEServerTransport implements Transport {
    */
   async handlePostMessage(body: string): Promise<Response> {
     if (!this._controller || this._closed) {
-      return new Response('SSE connection not established', { status: 500 });
+      return Response.json(
+        { error: 'connection_closed', message: 'SSE connection not established or closed' },
+        { status: 503 }
+      );
     }
 
     try {
@@ -112,7 +115,10 @@ export class BunSSEServerTransport implements Transport {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.onerror?.(error instanceof Error ? error : new Error(errorMessage));
-      return new Response(`Invalid message: ${errorMessage}`, { status: 400 });
+      return Response.json(
+        { error: 'invalid_message', message: errorMessage },
+        { status: 400 }
+      );
     }
   }
 

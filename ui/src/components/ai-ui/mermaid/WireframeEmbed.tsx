@@ -63,7 +63,7 @@ export const WireframeEmbed: React.FC<WireframeEmbedProps> = ({
 }) => {
   const uniqueId = useId();
   const mermaidId = `wireframe-${uniqueId.replace(/:/g, '')}`;
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const [refReady, setRefReady] = useState(false);
   const [state, setState] = useState<WireframeEmbedState>({
     isLoading: true,

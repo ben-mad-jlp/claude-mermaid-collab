@@ -26,6 +26,8 @@ import {
   loadSnapshot,
   deleteSnapshot,
 } from './tools/collab-state.js';
+import { getKodexManager } from '../services/kodex-manager.js';
+import type { FlagType, TopicContent } from '../services/kodex-manager.js';
 
 // Configuration
 const API_PORT = parseInt(process.env.PORT || '3737', 10);
@@ -682,6 +684,162 @@ export async function setupMCPServer(): Promise<Server> {
       terminalToolSchemas.terminal_kill_session,
       terminalToolSchemas.terminal_rename_session,
       terminalToolSchemas.terminal_reorder_sessions,
+      // Kodex tools
+      {
+        name: 'kodex_query_topic',
+        description: 'Query a topic from the project knowledge base. Returns topic content and metadata, or logs missing topic if not found.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            name: { type: 'string', description: 'Topic name (kebab-case)' },
+            include_content: { type: 'boolean', description: 'Include full content (default: true)' },
+          },
+          required: ['project', 'name'],
+        },
+      },
+      {
+        name: 'kodex_list_topics',
+        description: 'List all topics in the project knowledge base.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            filter: { type: 'string', enum: ['all', 'verified', 'unverified', 'has_draft'], description: 'Filter topics (default: all)' },
+          },
+          required: ['project'],
+        },
+      },
+      {
+        name: 'kodex_create_topic',
+        description: 'Create a new topic (as draft). Requires human approval before going live.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            name: { type: 'string', description: 'Topic name (kebab-case)' },
+            title: { type: 'string', description: 'Human-readable title' },
+            content: {
+              type: 'object',
+              properties: {
+                conceptual: { type: 'string', description: 'Conceptual overview' },
+                technical: { type: 'string', description: 'Technical details' },
+                files: { type: 'string', description: 'Related files' },
+                related: { type: 'string', description: 'Related topics' },
+              },
+              required: ['conceptual', 'technical', 'files', 'related'],
+            },
+          },
+          required: ['project', 'name', 'title', 'content'],
+        },
+      },
+      {
+        name: 'kodex_update_topic',
+        description: 'Update an existing topic (creates draft). Requires human approval.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            name: { type: 'string', description: 'Topic name' },
+            content: {
+              type: 'object',
+              properties: {
+                conceptual: { type: 'string', description: 'Conceptual overview' },
+                technical: { type: 'string', description: 'Technical details' },
+                files: { type: 'string', description: 'Related files' },
+                related: { type: 'string', description: 'Related topics' },
+              },
+            },
+            reason: { type: 'string', description: 'Reason for the update' },
+          },
+          required: ['project', 'name', 'content', 'reason'],
+        },
+      },
+      {
+        name: 'kodex_flag_topic',
+        description: 'Flag a topic for review (outdated, incorrect, incomplete, or missing).',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            name: { type: 'string', description: 'Topic name' },
+            type: { type: 'string', enum: ['outdated', 'incorrect', 'incomplete', 'missing'], description: 'Flag type' },
+            description: { type: 'string', description: 'Description of the issue' },
+          },
+          required: ['project', 'name', 'type', 'description'],
+        },
+      },
+      {
+        name: 'kodex_verify_topic',
+        description: 'Mark a topic as verified (human-only operation).',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            name: { type: 'string', description: 'Topic name' },
+            verified_by: { type: 'string', description: 'Who is verifying' },
+          },
+          required: ['project', 'name', 'verified_by'],
+        },
+      },
+      {
+        name: 'kodex_list_drafts',
+        description: 'List all pending drafts awaiting approval.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+          },
+          required: ['project'],
+        },
+      },
+      {
+        name: 'kodex_approve_draft',
+        description: 'Approve a pending draft (human-only operation).',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            name: { type: 'string', description: 'Topic name' },
+          },
+          required: ['project', 'name'],
+        },
+      },
+      {
+        name: 'kodex_reject_draft',
+        description: 'Reject a pending draft (human-only operation).',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            name: { type: 'string', description: 'Topic name' },
+          },
+          required: ['project', 'name'],
+        },
+      },
+      {
+        name: 'kodex_dashboard',
+        description: 'Get Kodex dashboard stats (total topics, verified, drafts, flags, etc.).',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+          },
+          required: ['project'],
+        },
+      },
+      {
+        name: 'kodex_list_flags',
+        description: 'List flagged topics.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            status: { type: 'string', enum: ['open', 'resolved', 'dismissed'], description: 'Filter by status' },
+          },
+          required: ['project'],
+        },
+      },
     ],
   }));
 
@@ -931,6 +1089,121 @@ export async function setupMCPServer(): Promise<Server> {
             if (!project || !session || !orderedIds) throw new Error('Missing required: project, session, orderedIds');
             const result = await terminalReorderSessions(project, session, orderedIds);
             return JSON.stringify(result, null, 2);
+          }
+
+          // Kodex tools
+          case 'kodex_query_topic': {
+            const { project, name: topicName, include_content } = args as { project: string; name: string; include_content?: boolean };
+            if (!project || !topicName) throw new Error('Missing required: project, name');
+            const kodex = getKodexManager(project);
+            const topic = await kodex.getTopic(topicName, include_content !== false);
+            if (!topic) {
+              return JSON.stringify({ found: false, error: 'Topic not found' }, null, 2);
+            }
+            return JSON.stringify({ found: true, topic }, null, 2);
+          }
+
+          case 'kodex_list_topics': {
+            const { project, filter } = args as { project: string; filter?: string };
+            if (!project) throw new Error('Missing required: project');
+            const kodex = getKodexManager(project);
+            let topics = await kodex.listTopics();
+            if (filter === 'verified') {
+              topics = topics.filter(t => t.verified);
+            } else if (filter === 'unverified') {
+              topics = topics.filter(t => !t.verified);
+            } else if (filter === 'has_draft') {
+              topics = topics.filter(t => t.hasDraft);
+            }
+            return JSON.stringify({ topics }, null, 2);
+          }
+
+          case 'kodex_create_topic': {
+            const { project, name: topicName, title, content } = args as {
+              project: string;
+              name: string;
+              title: string;
+              content: TopicContent;
+            };
+            if (!project || !topicName || !title || !content) throw new Error('Missing required: project, name, title, content');
+            const kodex = getKodexManager(project);
+            const draft = await kodex.createTopic(topicName, title, content, 'claude');
+            return JSON.stringify({ draft, message: 'Draft created. Requires human approval.' }, null, 2);
+          }
+
+          case 'kodex_update_topic': {
+            const { project, name: topicName, content, reason } = args as {
+              project: string;
+              name: string;
+              content: Partial<TopicContent>;
+              reason: string;
+            };
+            if (!project || !topicName || !content || !reason) throw new Error('Missing required: project, name, content, reason');
+            const kodex = getKodexManager(project);
+            const draft = await kodex.updateTopic(topicName, content, reason);
+            return JSON.stringify({ draft, message: 'Draft created. Requires human approval.' }, null, 2);
+          }
+
+          case 'kodex_flag_topic': {
+            const { project, name: topicName, type, description } = args as {
+              project: string;
+              name: string;
+              type: FlagType;
+              description: string;
+            };
+            if (!project || !topicName || !type || !description) throw new Error('Missing required: project, name, type, description');
+            const kodex = getKodexManager(project);
+            const flag = await kodex.createFlag(topicName, type, description);
+            return JSON.stringify({ flag }, null, 2);
+          }
+
+          case 'kodex_verify_topic': {
+            const { project, name: topicName, verified_by } = args as { project: string; name: string; verified_by: string };
+            if (!project || !topicName || !verified_by) throw new Error('Missing required: project, name, verified_by');
+            const kodex = getKodexManager(project);
+            await kodex.verifyTopic(topicName, verified_by);
+            const topic = await kodex.getTopic(topicName, false);
+            return JSON.stringify({ topic, message: 'Topic verified' }, null, 2);
+          }
+
+          case 'kodex_list_drafts': {
+            const { project } = args as { project: string };
+            if (!project) throw new Error('Missing required: project');
+            const kodex = getKodexManager(project);
+            const drafts = await kodex.listDrafts();
+            return JSON.stringify({ drafts }, null, 2);
+          }
+
+          case 'kodex_approve_draft': {
+            const { project, name: topicName } = args as { project: string; name: string };
+            if (!project || !topicName) throw new Error('Missing required: project, name');
+            const kodex = getKodexManager(project);
+            const topic = await kodex.approveDraft(topicName);
+            return JSON.stringify({ topic, message: 'Draft approved and published' }, null, 2);
+          }
+
+          case 'kodex_reject_draft': {
+            const { project, name: topicName } = args as { project: string; name: string };
+            if (!project || !topicName) throw new Error('Missing required: project, name');
+            const kodex = getKodexManager(project);
+            await kodex.rejectDraft(topicName);
+            return JSON.stringify({ message: 'Draft rejected' }, null, 2);
+          }
+
+          case 'kodex_dashboard': {
+            const { project } = args as { project: string };
+            if (!project) throw new Error('Missing required: project');
+            const kodex = getKodexManager(project);
+            const stats = await kodex.getDashboardStats();
+            return JSON.stringify(stats, null, 2);
+          }
+
+          case 'kodex_list_flags': {
+            const { project, status } = args as { project: string; status?: 'open' | 'resolved' | 'dismissed' };
+            if (!project) throw new Error('Missing required: project');
+            const kodex = getKodexManager(project);
+            const flags = await kodex.listFlags(status);
+            return JSON.stringify({ flags }, null, 2);
           }
 
           default:

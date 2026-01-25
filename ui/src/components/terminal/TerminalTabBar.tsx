@@ -16,10 +16,10 @@ import {
   useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import type { TerminalTab } from '../../types/terminal';
+import type { TerminalSession } from '../../types/terminal';
 
 export interface TerminalTabBarProps {
-  tabs: TerminalTab[];
+  tabs: TerminalSession[];
   activeTabId: string | null;
   onTabSelect: (id: string) => void;
   onTabClose: (id: string) => void;
@@ -29,7 +29,7 @@ export interface TerminalTabBarProps {
 }
 
 interface SortableTabProps {
-  tab: TerminalTab;
+  tab: TerminalSession;
   isActive: boolean;
   canClose: boolean;
   isCopied: boolean;
@@ -231,7 +231,7 @@ export const TerminalTabBar: React.FC<TerminalTabBarProps> = ({
                 onSelect={() => onTabSelect(tab.id)}
                 onClose={() => onTabClose(tab.id)}
                 onRename={(name) => onTabRename(tab.id, name)}
-                onCopy={() => handleCopy(tab.id, tab.sessionName)}
+                onCopy={() => handleCopy(tab.id, tab.tmuxSession)}
               />
             ))}
             <button

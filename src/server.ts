@@ -9,9 +9,11 @@ import { Validator } from './services/validator';
 import { Renderer } from './services/renderer';
 import { WebSocketHandler } from './websocket/handler';
 import { handleAPI } from './routes/api';
+import { handleKodexAPI } from './routes/kodex-api';
 import { sessionRegistry } from './services/session-registry';
 import { statusManager } from './services/status-manager';
 import { handleSSEConnection, handleSSEMessage, getActiveSessionCount } from './mcp/sse-handler';
+import { handleMCPRequest, getActiveSessionCount as getHttpSessionCount } from './mcp/http-handler';
 
 // Scratch session - a default workspace for casual use
 const SCRATCH_PROJECT = join(homedir(), '.mermaid-collab');
@@ -19,7 +21,7 @@ const SCRATCH_SESSION = 'scratch';
 
 // Register scratch session on startup
 await sessionRegistry.register(SCRATCH_PROJECT, SCRATCH_SESSION);
-console.log(`📋 Scratch session: ${SCRATCH_PROJECT}/.collab/${SCRATCH_SESSION}/`);
+console.log(`📋 Scratch session: ${SCRATCH_PROJECT}/.collab/sessions/${SCRATCH_SESSION}/`);
 
 // Initialize shared services (stateless, no storage)
 const validator = new Validator();
@@ -53,14 +55,23 @@ const server = Bun.serve({
       return new Response('WebSocket upgrade failed', { status: 500 });
     }
 
-    // MCP SSE routes
+    // MCP Streamable HTTP transport (recommended - protocol version 2025-03-26)
+    if (url.pathname === '/mcp') {
+      return handleMCPRequest(req);
+    }
+
+    // MCP SSE routes (deprecated - kept for backwards compatibility)
     if (url.pathname === '/mcp/sse') {
-      console.log('[MCP] SSE connection request');
       return handleSSEConnection(req);
     }
 
     if (url.pathname === '/mcp/message') {
       return handleSSEMessage(req);
+    }
+
+    // Kodex API routes
+    if (url.pathname.startsWith('/api/kodex')) {
+      return handleKodexAPI(req);
     }
 
     // API routes
@@ -132,4 +143,5 @@ console.log(`🚀 Mermaid Collaboration Server running on http://${config.HOST}:
 console.log(`🌐 Public directory: ${config.PUBLIC_DIR}`);
 console.log(`🎨 UI dist directory: ${config.UI_DIST_DIR} (exists: ${existsSync(config.UI_DIST_DIR)})`);
 console.log(`🔌 WebSocket: ws://${config.HOST}:${config.PORT}/ws`);
-console.log(`🤖 MCP SSE: http://${config.HOST}:${config.PORT}/mcp/sse`);
+console.log(`🤖 MCP HTTP: http://${config.HOST}:${config.PORT}/mcp (recommended)`);
+console.log(`🤖 MCP SSE: http://${config.HOST}:${config.PORT}/mcp/sse (deprecated)`);

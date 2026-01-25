@@ -82,8 +82,8 @@ export const TerminalTabsContainer: React.FC<TerminalTabsContainerProps> = ({ cl
                 }}
               >
                 <EmbeddedTerminal
-                  config={{ wsUrl: tab.wsUrl }}
-                  sessionName={tab.sessionName}
+                  config={{ wsUrl: `ws://localhost:7681/ws` }}
+                  sessionName={tab.tmuxSession}
                   className="h-full"
                 />
               </div>
