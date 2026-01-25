@@ -3,8 +3,8 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { kodexApi, type Topic, type Flag } from '@/lib/kodex-api';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import { kodexApi, type Topic, type Flag, type Draft } from '@/lib/kodex-api';
 import { useSessionStore } from '@/stores/sessionStore';
 
 const ConfidenceBadge: React.FC<{ confidence: Topic['confidence'] }> = ({ confidence }) => {
@@ -27,10 +27,41 @@ const ContentSection: React.FC<{ title: string; content?: string }> = ({ title, 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
       <h3 className="font-medium text-gray-900 dark:text-white mb-3">{title}</h3>
-      <div className="prose prose-sm dark:prose-invert max-w-none">
-        <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300 font-sans">
-          {content}
-        </pre>
+      <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300 font-sans bg-transparent">
+        {content}
+      </pre>
+    </div>
+  );
+};
+
+const DraftComparisonSection: React.FC<{
+  title: string;
+  liveContent?: string;
+  draftContent?: string;
+}> = ({ title, liveContent, draftContent }) => {
+  const hasChanges = draftContent !== liveContent;
+
+  return (
+    <div className="mb-4">
+      <h4 className="font-medium text-sm text-gray-900 dark:text-white mb-2 flex items-center gap-2">
+        {title}
+        {hasChanges && (
+          <span className="px-1.5 py-0.5 text-xs bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300 rounded">
+            Changed
+          </span>
+        )}
+      </h4>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-600 p-3">
+          <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300 font-sans bg-transparent min-h-[60px]">
+            {liveContent || <span className="text-gray-400 italic">No content</span>}
+          </pre>
+        </div>
+        <div className={`rounded-lg border p-3 ${hasChanges ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-700' : 'bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-600'}`}>
+          <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300 font-sans bg-transparent min-h-[60px]">
+            {draftContent || <span className="text-gray-400 italic">No content</span>}
+          </pre>
+        </div>
       </div>
     </div>
   );
@@ -38,11 +69,16 @@ const ContentSection: React.FC<{ title: string; content?: string }> = ({ title, 
 
 export const TopicDetail: React.FC = () => {
   const { name } = useParams<{ name: string }>();
+  const navigate = useNavigate();
   const [topic, setTopic] = useState<Topic | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [flagging, setFlagging] = useState(false);
   const [flagForm, setFlagForm] = useState<{ type: Flag['type']; description: string }>({ type: 'incomplete', description: '' });
+  const [deleting, setDeleting] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [loadingDraft, setLoadingDraft] = useState(false);
   const currentSession = useSessionStore((s) => s.currentSession);
 
   useEffect(() => {
@@ -93,6 +129,66 @@ export const TopicDetail: React.FC = () => {
       setTopic(data);
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to verify topic');
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!currentSession?.project || !name || deleteConfirmText !== name) return;
+    try {
+      await kodexApi.deleteTopic(currentSession.project, name);
+      navigate('/kodex/topics');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete topic');
+    }
+  };
+
+  // Auto-load draft when topic has one
+  useEffect(() => {
+    if (!currentSession?.project || !name || !topic?.hasDraft) {
+      setDraft(null);
+      return;
+    }
+
+    const loadDraft = async () => {
+      setLoadingDraft(true);
+      try {
+        const drafts = await kodexApi.listDrafts(currentSession.project);
+        const topicDraft = drafts.find((d) => d.topicName === name);
+        setDraft(topicDraft || null);
+      } catch {
+        setDraft(null);
+      } finally {
+        setLoadingDraft(false);
+      }
+    };
+
+    loadDraft();
+  }, [currentSession?.project, name, topic?.hasDraft]);
+
+  const handleApproveDraft = async () => {
+    if (!currentSession?.project || !name) return;
+    try {
+      await kodexApi.approveDraft(currentSession.project, name);
+      // Reload topic to get updated content
+      const data = await kodexApi.getTopic(currentSession.project, name);
+      setTopic(data);
+      setDraft(null);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to approve draft');
+    }
+  };
+
+  const handleRejectDraft = async () => {
+    if (!currentSession?.project || !name) return;
+    if (!confirm('Are you sure you want to reject this draft?')) return;
+    try {
+      await kodexApi.rejectDraft(currentSession.project, name);
+      // Reload topic to clear hasDraft flag
+      const data = await kodexApi.getTopic(currentSession.project, name);
+      setTopic(data);
+      setDraft(null);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to reject draft');
     }
   };
 
@@ -158,12 +254,9 @@ export const TopicDetail: React.FC = () => {
             </span>
           )}
           {topic.hasDraft && (
-            <Link
-              to="/kodex/drafts"
-              className="px-2 py-1 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 rounded"
-            >
+            <span className="px-2 py-1 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 rounded">
               Has Draft
-            </Link>
+            </span>
           )}
         </div>
       </div>
@@ -184,7 +277,54 @@ export const TopicDetail: React.FC = () => {
         >
           {flagging ? 'Cancel' : 'Flag Topic'}
         </button>
+        <button
+          onClick={() => setDeleting(true)}
+          className="px-4 py-2 border border-red-300 dark:border-red-600 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+        >
+          Delete Topic
+        </button>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {deleting && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Delete Topic</h3>
+            <p className="text-gray-600 dark:text-gray-400 mb-4">
+              This action cannot be undone. This will permanently delete the topic
+              <span className="font-mono font-semibold text-gray-900 dark:text-white"> {name}</span>.
+            </p>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+              Please type <span className="font-mono font-semibold text-gray-900 dark:text-white">{name}</span> to confirm.
+            </p>
+            <input
+              type="text"
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder="Type topic name to confirm"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white mb-4"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setDeleting(false);
+                  setDeleteConfirmText('');
+                }}
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleteConfirmText !== name}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Flag Form */}
       {flagging && (
@@ -234,13 +374,82 @@ export const TopicDetail: React.FC = () => {
         )}
       </div>
 
+      {/* Draft Comparison Section */}
+      {topic.hasDraft && (
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-blue-200 dark:border-blue-700 p-4">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-4">
+              <h3 className="font-medium text-gray-900 dark:text-white">Draft Changes</h3>
+              {draft && (
+                <span className="text-sm text-gray-500">
+                  {draft.reason} &middot; by {draft.createdBy}
+                </span>
+              )}
+            </div>
+            {draft && (
+              <div className="flex gap-2">
+                <button
+                  onClick={handleApproveDraft}
+                  className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700"
+                >
+                  Approve
+                </button>
+                <button
+                  onClick={handleRejectDraft}
+                  className="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700"
+                >
+                  Reject
+                </button>
+              </div>
+            )}
+          </div>
+
+          {loadingDraft ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+            </div>
+          ) : draft ? (
+            <>
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <h4 className="text-sm font-medium text-gray-500">Current</h4>
+                <h4 className="text-sm font-medium text-gray-500">Draft</h4>
+              </div>
+              <DraftComparisonSection
+                title="Conceptual Overview"
+                liveContent={topic.content?.conceptual}
+                draftContent={draft.content.conceptual}
+              />
+              <DraftComparisonSection
+                title="Technical Details"
+                liveContent={topic.content?.technical}
+                draftContent={draft.content.technical}
+              />
+              <DraftComparisonSection
+                title="Related Files"
+                liveContent={topic.content?.files}
+                draftContent={draft.content.files}
+              />
+              <DraftComparisonSection
+                title="Related Topics"
+                liveContent={topic.content?.related}
+                draftContent={draft.content.related}
+              />
+            </>
+          ) : (
+            <p className="text-center py-4 text-gray-500">Draft not found</p>
+          )}
+        </div>
+      )}
+
       {/* Content Sections */}
-      <div className="space-y-4">
-        <ContentSection title="Conceptual Overview" content={topic.content?.conceptual} />
-        <ContentSection title="Technical Details" content={topic.content?.technical} />
-        <ContentSection title="Related Files" content={topic.content?.files} />
-        <ContentSection title="Related Topics" content={topic.content?.related} />
-      </div>
+      {!topic.hasDraft && (
+        <div className="space-y-4">
+          <ContentSection title="Conceptual Overview" content={topic.content?.conceptual} />
+          <ContentSection title="Technical Details" content={topic.content?.technical} />
+          <ContentSection title="Related Files" content={topic.content?.files} />
+          <ContentSection title="Related Topics" content={topic.content?.related} />
+        </div>
+      )}
     </div>
   );
 };
