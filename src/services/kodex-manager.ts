@@ -387,6 +387,15 @@ export class KodexManager {
     const now = this.isoTimestamp();
     db.run('UPDATE topics SET has_draft = 0, updated_at = ? WHERE name = ?', now, topicName);
 
+    // Auto-resolve open flags for this topic
+    const openFlags = db.query(
+      "SELECT id FROM flags WHERE topic_name = ? AND status = 'open'"
+    ).all(topicName) as { id: number }[];
+
+    for (const flag of openFlags) {
+      await this.updateFlagStatus(flag.id, 'resolved');
+    }
+
     const topic = await this.getTopic(topicName);
     if (!topic) {
       throw new Error(`Topic not found after approval: ${topicName}`);
