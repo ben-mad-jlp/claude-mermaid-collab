@@ -2,13 +2,30 @@
  * Kodex Layout - Wrapper for all Kodex pages
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import { KodexSidebar } from '@/components/kodex/KodexSidebar';
+import { ProjectSelector } from '@/components/kodex/ProjectSelector';
 import { useTheme } from '@/hooks/useTheme';
+import { useKodexStore } from '@/stores/kodexStore';
+import { useSessionStore } from '@/stores/sessionStore';
 
 export const KodexLayout: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
+  const { selectedProject, fetchProjects, setSelectedProject } = useKodexStore();
+  const currentSession = useSessionStore((s) => s.currentSession);
+
+  // On mount: fetch projects and set default
+  useEffect(() => {
+    fetchProjects();
+  }, [fetchProjects]);
+
+  // On mount: set default project from session if available
+  useEffect(() => {
+    if (!selectedProject && currentSession?.project) {
+      setSelectedProject(currentSession.project);
+    }
+  }, [selectedProject, currentSession?.project, setSelectedProject]);
 
   return (
     <div className="flex h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100">
@@ -23,6 +40,7 @@ export const KodexLayout: React.FC = () => {
             <span className="px-2 py-1 text-xs font-medium bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 rounded">
               Kodex
             </span>
+            <ProjectSelector className="ml-2" />
           </div>
           <button
             onClick={toggleTheme}
