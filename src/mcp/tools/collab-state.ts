@@ -40,11 +40,11 @@ export interface StateUpdateParams {
 // ============= Helper Functions =============
 
 function getStatePath(project: string, session: string): string {
-  return join(project, '.collab', session, 'collab-state.json');
+  return join(project, '.collab', 'sessions', session, 'collab-state.json');
 }
 
 function getSnapshotPath(project: string, session: string): string {
-  return join(project, '.collab', session, 'context-snapshot.json');
+  return join(project, '.collab', 'sessions', session, 'context-snapshot.json');
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -96,7 +96,7 @@ export async function updateSessionState(
   };
 
   // Ensure directory exists
-  const dir = join(project, '.collab', session);
+  const dir = join(project, '.collab', 'sessions', session);
   await mkdir(dir, { recursive: true });
 
   await writeFile(path, JSON.stringify(newState, null, 2));
@@ -132,7 +132,7 @@ export async function saveSnapshot(
   };
 
   // Ensure directory exists
-  const dir = join(project, '.collab', session);
+  const dir = join(project, '.collab', 'sessions', session);
   await mkdir(dir, { recursive: true });
 
   await writeFile(path, JSON.stringify(snapshot, null, 2));
