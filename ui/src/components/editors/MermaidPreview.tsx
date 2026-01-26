@@ -13,6 +13,7 @@
 import React, { useEffect, useRef, useState, useCallback, useId } from 'react';
 import mermaid from 'mermaid';
 import { useTheme } from '@/hooks/useTheme';
+import { extractNodeId, extractEdgeInfo } from '@/lib/diagramUtils';
 
 export interface MermaidPreviewProps {
   /** The Mermaid diagram syntax content to render */
@@ -37,6 +38,10 @@ export interface MermaidPreviewProps {
   onNodeClick?: (nodeId: string) => void;
   /** Callback when an edge is clicked in edit mode */
   onEdgeClick?: (edgeId: string) => void;
+  /** Callback when node is clicked with click position */
+  onNodeClickWithPosition?: (nodeId: string, event: MouseEvent) => void;
+  /** Callback when edge is clicked with click position */
+  onEdgeClickWithPosition?: (source: string, target: string, event: MouseEvent) => void;
 }
 
 export interface MermaidPreviewState {
@@ -71,6 +76,8 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
   editMode = false,
   onNodeClick,
   onEdgeClick,
+  onNodeClickWithPosition,
+  onEdgeClickWithPosition,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -278,6 +285,34 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
       wrapper.removeEventListener('click', handleDiagramClick);
     };
   }, [editMode, onNodeClick, onEdgeClick]);
+
+  // Handle diagram clicks with position for context menus (independent of editMode)
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    if (!onNodeClickWithPosition && !onEdgeClickWithPosition) return;
+
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target as Element;
+
+      // Check if it's a node using diagramUtils
+      const nodeId = extractNodeId(target);
+      if (nodeId && onNodeClickWithPosition) {
+        onNodeClickWithPosition(nodeId, e);
+        return;
+      }
+
+      // Check if it's an edge using diagramUtils
+      const edgeInfo = extractEdgeInfo(target);
+      if (edgeInfo && onEdgeClickWithPosition) {
+        onEdgeClickWithPosition(edgeInfo.source, edgeInfo.target, e);
+        return;
+      }
+    };
+
+    container.addEventListener('click', handleClick);
+    return () => container.removeEventListener('click', handleClick);
+  }, [onNodeClickWithPosition, onEdgeClickWithPosition]);
 
   // Initialize mermaid with theme
   useEffect(() => {

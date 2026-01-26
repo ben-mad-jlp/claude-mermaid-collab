@@ -8,6 +8,11 @@
  * - Document saving and change tracking
  * - Keyboard shortcuts (Ctrl+S to save)
  * - Loading and error states
+ * - Annotation toolbar for collaborative editing
+ * - Minimap for document navigation
+ * - Synchronized scrolling between editor and preview
+ * - Diff view for comparing changes
+ * - Export clean markdown without annotation markers
  */
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
@@ -16,6 +21,11 @@ import { CodeMirrorWrapper } from './CodeMirrorWrapper';
 import { MarkdownPreview } from './MarkdownPreview';
 import { useDocument } from '@/hooks/useDocument';
 import { Document } from '@/types';
+import { AnnotationToolbar } from './AnnotationToolbar';
+import { Minimap } from './Minimap';
+import { useSyncScroll } from '@/hooks/useSyncScroll';
+import { downloadCleanMarkdown } from '@/lib/annotationUtils';
+import { EditorView } from '@codemirror/view';
 
 /**
  * Props for the DocumentEditor component
@@ -33,6 +43,10 @@ export interface DocumentEditorProps {
   className?: string;
   /** Debounce delay for preview updates (milliseconds) */
   debounceDelay?: number;
+  /** Whether to show minimap (default: true) */
+  showMinimap?: boolean;
+  /** Whether sync scroll is enabled by default (default: true) */
+  defaultSyncScroll?: boolean;
 }
 
 /**
@@ -69,6 +83,8 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   showButtons = true,
   className = '',
   debounceDelay = 300,
+  showMinimap = true,
+  defaultSyncScroll = true,
 }) => {
   const { selectedDocument, updateDocument } = useDocument();
 
@@ -86,6 +102,26 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
 
   // Debounce timer ref
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // New state for annotation features
+  const [editorView, setEditorView] = useState<EditorView | null>(null);
+  const [showDiff, setShowDiff] = useState(false);
+  const [previousContent, setPreviousContent] = useState<string>('');
+
+  // Refs for scroll synchronization
+  const editorScrollRef = useRef<HTMLDivElement>(null);
+  const previewScrollRef = useRef<HTMLDivElement>(null);
+
+  // Scroll position tracking for minimap
+  const [scrollPosition, setScrollPosition] = useState(0);
+  const [viewportFraction, setViewportFraction] = useState(0.2);
+
+  // Use sync scroll hook
+  const { isSynced, toggleSync } = useSyncScroll({
+    editorRef: editorScrollRef,
+    previewRef: previewScrollRef,
+    enabled: defaultSyncScroll,
+  });
 
   // Update local content when document changes
   useEffect(() => {
@@ -165,6 +201,76 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
     }
   }, [document]);
 
+  // Handle editor ready callback
+  const handleEditorReady = useCallback((view: EditorView | null) => {
+    setEditorView(view);
+  }, []);
+
+  // Handle export clean markdown
+  const handleExportClean = useCallback(() => {
+    if (document) {
+      downloadCleanMarkdown(document.name, content);
+    }
+  }, [document, content]);
+
+  // Handle diff toggle
+  const handleToggleDiff = useCallback(() => {
+    if (!showDiff) {
+      setPreviousContent(document?.content || '');
+    }
+    setShowDiff(!showDiff);
+  }, [showDiff, document?.content]);
+
+  // Handle clear diff
+  const handleClearDiff = useCallback(() => {
+    setShowDiff(false);
+    setPreviousContent('');
+  }, []);
+
+  // Handle minimap scroll navigation
+  const handleMinimapScrollTo = useCallback((position: number) => {
+    if (editorScrollRef.current) {
+      const scrollHeight = editorScrollRef.current.scrollHeight - editorScrollRef.current.clientHeight;
+      editorScrollRef.current.scrollTop = position * scrollHeight;
+    }
+  }, []);
+
+  // Handle click-to-source from preview
+  const handleSourceLineClick = useCallback((line: number) => {
+    if (editorView) {
+      try {
+        // Scroll to line in editor
+        const lineInfo = editorView.state.doc.line(line);
+        editorView.dispatch({
+          selection: { anchor: lineInfo.from },
+          scrollIntoView: true,
+        });
+      } catch {
+        // Line number out of range, ignore
+      }
+    }
+  }, [editorView]);
+
+  // Track scroll position for minimap
+  useEffect(() => {
+    const editorElement = editorScrollRef.current;
+    if (!editorElement) return;
+
+    const handleScroll = () => {
+      const scrollableHeight = editorElement.scrollHeight - editorElement.clientHeight;
+      const newPosition = scrollableHeight > 0 ? editorElement.scrollTop / scrollableHeight : 0;
+      const newViewportFraction = editorElement.clientHeight / editorElement.scrollHeight;
+      setScrollPosition(newPosition);
+      setViewportFraction(newViewportFraction);
+    };
+
+    // Initial calculation
+    handleScroll();
+
+    editorElement.addEventListener('scroll', handleScroll);
+    return () => editorElement.removeEventListener('scroll', handleScroll);
+  }, []);
+
   // Handle keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -241,42 +347,87 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
         </div>
       )}
 
-      {/* Editor header with document name and buttons */}
+      {/* Editor header with document name, annotation toolbar, and buttons */}
       {showButtons && (
         <div
-          className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800"
+          className="flex flex-col border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800"
           data-testid="document-editor-header"
         >
-          <div className="flex-1 min-w-0">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white truncate">
-              {document.name}
-            </h2>
-            {hasChanges && (
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Unsaved changes
-              </p>
-            )}
+          {/* Primary header row */}
+          <div className="flex items-center justify-between px-4 py-3">
+            <div className="flex-1 min-w-0">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white truncate">
+                {document.name}
+              </h2>
+              {hasChanges && (
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Unsaved changes
+                </p>
+              )}
+            </div>
+
+            <div className="flex gap-2 ml-4">
+              <button
+                onClick={handleCancel}
+                disabled={!hasChanges || isSaving}
+                className="px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
+                data-testid="document-editor-cancel-btn"
+                title="Escape key"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={!hasChanges || isSaving}
+                className="px-3 py-1.5 text-sm font-medium text-white bg-accent-500 hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
+                data-testid="document-editor-save-btn"
+                title="Ctrl+S or Cmd+S"
+              >
+                {isSaving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
           </div>
 
-          <div className="flex gap-2 ml-4">
-            <button
-              onClick={handleCancel}
-              disabled={!hasChanges || isSaving}
-              className="px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
-              data-testid="document-editor-cancel-btn"
-              title="Escape key"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={!hasChanges || isSaving}
-              className="px-3 py-1.5 text-sm font-medium text-white bg-accent-500 hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
-              data-testid="document-editor-save-btn"
-              title="Ctrl+S or Cmd+S"
-            >
-              {isSaving ? 'Saving...' : 'Save'}
-            </button>
+          {/* Secondary toolbar row with annotation tools and feature toggles */}
+          <div className="flex items-center justify-between px-4 py-2 border-t border-gray-200 dark:border-gray-700">
+            {/* Annotation toolbar */}
+            <AnnotationToolbar editorView={editorView} />
+
+            {/* Feature toggle buttons */}
+            <div className="flex gap-2 items-center">
+              <button
+                onClick={toggleSync}
+                className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
+                  isSynced
+                    ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'
+                    : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                }`}
+                data-testid="document-editor-sync-btn"
+                title="Toggle synchronized scrolling"
+              >
+                {isSynced ? 'Sync On' : 'Sync Off'}
+              </button>
+              <button
+                onClick={handleToggleDiff}
+                className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
+                  showDiff
+                    ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400'
+                    : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                }`}
+                data-testid="document-editor-diff-btn"
+                title="Toggle diff view"
+              >
+                Diff
+              </button>
+              <button
+                onClick={handleExportClean}
+                className="px-2 py-1 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
+                data-testid="document-editor-export-btn"
+                title="Export clean markdown without annotations"
+              >
+                Export Clean
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -286,25 +437,46 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
         <SplitPane
           primaryContent={
             <div className="flex flex-col h-full">
-              <div className="flex-1 min-h-0 border-r border-gray-200 dark:border-gray-700">
+              <div
+                ref={editorScrollRef}
+                className="flex-1 min-h-0 border-r border-gray-200 dark:border-gray-700 overflow-auto"
+              >
                 <CodeMirrorWrapper
                   value={content}
                   onChange={handleContentChange}
+                  onEditorReady={handleEditorReady}
                   language="markdown"
                   height="100%"
                   placeholder="Enter markdown content..."
-                  data-testid="document-editor-codemirror"
                 />
               </div>
             </div>
           }
           secondaryContent={
-            <div className="flex flex-col h-full overflow-auto">
-              <MarkdownPreview
-                content={content}
-                className="flex-1"
-                data-testid="document-editor-preview"
-              />
+            <div className="flex h-full">
+              {/* Preview pane */}
+              <div className="flex flex-col flex-1 min-w-0">
+                <MarkdownPreview
+                  content={content}
+                  className="flex-1"
+                  diff={showDiff ? { oldContent: previousContent, newContent: content } : null}
+                  onClearDiff={handleClearDiff}
+                  onElementClick={handleSourceLineClick}
+                  scrollRef={previewScrollRef}
+                />
+              </div>
+
+              {/* Minimap */}
+              {showMinimap && (
+                <Minimap
+                  content={content}
+                  lineCount={content.split('\n').length}
+                  scrollPosition={scrollPosition}
+                  viewportFraction={viewportFraction}
+                  onScrollTo={handleMinimapScrollTo}
+                  className="flex-shrink-0 h-full"
+                />
+              )}
             </div>
           }
           direction="horizontal"

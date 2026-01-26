@@ -9,8 +9,21 @@
  * - Edge cases and error handling
  */
 
-import { describe, it, expect } from 'vitest';
-import { detectDirection, toggleDirection, type DiagramDirection } from '../diagramUtils';
+import { describe, it, expect, vi } from 'vitest';
+import {
+  detectDirection,
+  toggleDirection,
+  extractNodeId,
+  extractEdgeInfo,
+  findNodeLine,
+  findEdgeLine,
+  generateNodeId,
+  buildNodeDefinition,
+  buildNodeStyle,
+  NODE_TYPES,
+  type DiagramDirection,
+  type NodeType,
+} from '../diagramUtils';
 
 describe('diagramUtils', () => {
   describe('detectDirection', () => {
@@ -387,6 +400,326 @@ describe('diagramUtils', () => {
       expect(toggled.content).toContain('B{Valid?}');
       expect(toggled.content).toContain('|Yes|');
       expect(toggled.content).toContain('|No|');
+    });
+  });
+
+  describe('NODE_TYPES', () => {
+    it('should have terminal type with stadium shape', () => {
+      expect(NODE_TYPES.terminal).toEqual({
+        name: 'terminal',
+        shape: { open: '([', close: '])' },
+        style: 'fill:#c8e6c9,stroke:#2e7d32',
+      });
+    });
+
+    it('should have state type with circle shape', () => {
+      expect(NODE_TYPES.state).toEqual({
+        name: 'state',
+        shape: { open: '((', close: '))' },
+        style: 'fill:#bbdefb,stroke:#1976d2',
+      });
+    });
+
+    it('should have decision type with diamond shape', () => {
+      expect(NODE_TYPES.decision).toEqual({
+        name: 'decision',
+        shape: { open: '{', close: '}' },
+        style: 'fill:#fff9c4,stroke:#f9a825',
+      });
+    });
+
+    it('should have action type with rectangle shape', () => {
+      expect(NODE_TYPES.action).toEqual({
+        name: 'action',
+        shape: { open: '[', close: ']' },
+        style: 'fill:#ffe0b2,stroke:#f57c00',
+      });
+    });
+  });
+
+  describe('extractNodeId', () => {
+    it('should extract node ID from data-id attribute', () => {
+      const element = document.createElement('div');
+      element.setAttribute('data-id', 'NodeA');
+
+      expect(extractNodeId(element)).toBe('NodeA');
+    });
+
+    it('should walk up tree to find data-id', () => {
+      const parent = document.createElement('div');
+      parent.setAttribute('data-id', 'ParentNode');
+      const child = document.createElement('span');
+      parent.appendChild(child);
+
+      expect(extractNodeId(child)).toBe('ParentNode');
+    });
+
+    it('should extract node ID from older Mermaid id format', () => {
+      const element = document.createElement('g');
+      element.setAttribute('id', 'flowchart-Start-123');
+
+      expect(extractNodeId(element)).toBe('Start');
+    });
+
+    it('should extract node ID with hyphen from older format', () => {
+      const element = document.createElement('g');
+      element.setAttribute('id', 'flowchart-node-1-456');
+
+      expect(extractNodeId(element)).toBe('node');
+    });
+
+    it('should prefer data-id over id attribute', () => {
+      const element = document.createElement('div');
+      element.setAttribute('data-id', 'DataIdNode');
+      element.setAttribute('id', 'flowchart-IdNode-123');
+
+      expect(extractNodeId(element)).toBe('DataIdNode');
+    });
+
+    it('should return null when no node ID found', () => {
+      const element = document.createElement('div');
+      element.setAttribute('id', 'some-random-id');
+
+      expect(extractNodeId(element)).toBeNull();
+    });
+
+    it('should return null for element without relevant attributes', () => {
+      const element = document.createElement('div');
+
+      expect(extractNodeId(element)).toBeNull();
+    });
+  });
+
+  describe('extractEdgeInfo', () => {
+    it('should extract edge info from edgePath element with L-format', () => {
+      const element = document.createElement('path');
+      element.classList.add('edgePath');
+      element.setAttribute('id', 'L-NodeA-NodeB');
+
+      expect(extractEdgeInfo(element)).toEqual({
+        source: 'NodeA',
+        target: 'NodeB',
+      });
+    });
+
+    it('should extract edge info from parent edgePath', () => {
+      const parent = document.createElement('g');
+      parent.classList.add('edgePath');
+      parent.setAttribute('id', 'L-Start-End');
+      const child = document.createElement('path');
+      parent.appendChild(child);
+
+      expect(extractEdgeInfo(child)).toEqual({
+        source: 'Start',
+        target: 'End',
+      });
+    });
+
+    it('should extract edge info from data-id attribute', () => {
+      const element = document.createElement('g');
+      element.classList.add('edgePath');
+      element.setAttribute('data-id', 'L-A-B');
+
+      expect(extractEdgeInfo(element)).toEqual({
+        source: 'A',
+        target: 'B',
+      });
+    });
+
+    it('should handle non-L prefix format', () => {
+      const element = document.createElement('g');
+      element.classList.add('edgePath');
+      element.setAttribute('id', 'NodeX-NodeY');
+
+      expect(extractEdgeInfo(element)).toEqual({
+        source: 'NodeX',
+        target: 'NodeY',
+      });
+    });
+
+    it('should return null when not in edgePath', () => {
+      const element = document.createElement('path');
+      element.setAttribute('id', 'L-A-B');
+
+      expect(extractEdgeInfo(element)).toBeNull();
+    });
+
+    it('should return null for edgePath without valid id', () => {
+      const element = document.createElement('g');
+      element.classList.add('edgePath');
+
+      expect(extractEdgeInfo(element)).toBeNull();
+    });
+  });
+
+  describe('findNodeLine', () => {
+    const content = `graph LR
+  Start[Start Here]
+  Process[Do Something]
+  End[Finish]
+  Start --> Process
+  Process --> End`;
+
+    it('should find node definition line', () => {
+      expect(findNodeLine('Start', content)).toBe(2);
+    });
+
+    it('should find second node definition', () => {
+      expect(findNodeLine('Process', content)).toBe(3);
+    });
+
+    it('should find third node definition', () => {
+      expect(findNodeLine('End', content)).toBe(4);
+    });
+
+    it('should return null for non-existent node', () => {
+      expect(findNodeLine('NonExistent', content)).toBeNull();
+    });
+
+    it('should handle node with special regex characters', () => {
+      const specialContent = 'graph LR\n  Node.1[Label]';
+      expect(findNodeLine('Node.1', specialContent)).toBe(2);
+    });
+
+    it('should handle nodes with parentheses shape', () => {
+      const circleContent = 'graph LR\n  State((Circle))';
+      expect(findNodeLine('State', circleContent)).toBe(2);
+    });
+
+    it('should handle nodes with curly brace shape', () => {
+      const diamondContent = 'graph LR\n  Decision{Question}';
+      expect(findNodeLine('Decision', diamondContent)).toBe(2);
+    });
+  });
+
+  describe('findEdgeLine', () => {
+    const content = `graph LR
+  A[Start]
+  B[Middle]
+  C[End]
+  A --> B
+  B --> C
+  A ---|label|> C`;
+
+    it('should find edge line with arrow', () => {
+      expect(findEdgeLine('A', 'B', content)).toBe(5);
+    });
+
+    it('should find second edge line', () => {
+      expect(findEdgeLine('B', 'C', content)).toBe(6);
+    });
+
+    it('should find edge with label', () => {
+      expect(findEdgeLine('A', 'C', content)).toBe(7);
+    });
+
+    it('should return null for non-existent edge', () => {
+      expect(findEdgeLine('C', 'A', content)).toBeNull();
+    });
+
+    it('should handle special regex characters in node names', () => {
+      const specialContent = 'graph LR\n  Node.1 --> Node.2';
+      expect(findEdgeLine('Node.1', 'Node.2', specialContent)).toBe(2);
+    });
+
+    it('should handle double arrow', () => {
+      const doubleArrow = 'graph LR\n  X ==> Y';
+      expect(findEdgeLine('X', 'Y', doubleArrow)).toBe(2);
+    });
+  });
+
+  describe('generateNodeId', () => {
+    it('should generate node1 for empty content', () => {
+      expect(generateNodeId('')).toBe('node1');
+    });
+
+    it('should generate next available ID', () => {
+      const content = 'graph LR\n  node1[First]\n  node2[Second]';
+      expect(generateNodeId(content)).toBe('node3');
+    });
+
+    it('should use custom prefix', () => {
+      const content = 'graph LR\n  step1[First]';
+      expect(generateNodeId(content, 'step')).toBe('step2');
+    });
+
+    it('should skip to next available when gap exists', () => {
+      const content = 'graph LR\n  node1[A]\n  node3[B]';
+      expect(generateNodeId(content)).toBe('node2');
+    });
+
+    it('should handle multiple node types', () => {
+      const content = 'graph LR\n  action1[A]\n  state1((S))\n  decision1{D}';
+      expect(generateNodeId(content, 'action')).toBe('action2');
+      expect(generateNodeId(content, 'state')).toBe('state2');
+      expect(generateNodeId(content, 'decision')).toBe('decision2');
+    });
+
+    it('should handle content without nodes', () => {
+      const content = 'graph LR\n%% just a comment';
+      expect(generateNodeId(content)).toBe('node1');
+    });
+  });
+
+  describe('buildNodeDefinition', () => {
+    it('should build terminal node definition', () => {
+      expect(buildNodeDefinition('Start', 'Begin Process', 'terminal')).toBe(
+        'Start(["Begin Process"])'
+      );
+    });
+
+    it('should build state node definition', () => {
+      expect(buildNodeDefinition('Waiting', 'Wait State', 'state')).toBe(
+        'Waiting(("Wait State"))'
+      );
+    });
+
+    it('should build decision node definition', () => {
+      expect(buildNodeDefinition('Check', 'Is Valid?', 'decision')).toBe(
+        'Check{"Is Valid?"}'
+      );
+    });
+
+    it('should build action node definition', () => {
+      expect(buildNodeDefinition('DoIt', 'Execute Task', 'action')).toBe(
+        'DoIt["Execute Task"]'
+      );
+    });
+
+    it('should handle empty label', () => {
+      expect(buildNodeDefinition('Empty', '', 'action')).toBe('Empty[""]');
+    });
+
+    it('should handle label with quotes', () => {
+      expect(buildNodeDefinition('Quote', 'Say "Hello"', 'action')).toBe(
+        'Quote["Say "Hello""]'
+      );
+    });
+  });
+
+  describe('buildNodeStyle', () => {
+    it('should build terminal style', () => {
+      expect(buildNodeStyle('Start', 'terminal')).toBe(
+        'style Start fill:#c8e6c9,stroke:#2e7d32'
+      );
+    });
+
+    it('should build state style', () => {
+      expect(buildNodeStyle('State1', 'state')).toBe(
+        'style State1 fill:#bbdefb,stroke:#1976d2'
+      );
+    });
+
+    it('should build decision style', () => {
+      expect(buildNodeStyle('Check', 'decision')).toBe(
+        'style Check fill:#fff9c4,stroke:#f9a825'
+      );
+    });
+
+    it('should build action style', () => {
+      expect(buildNodeStyle('DoTask', 'action')).toBe(
+        'style DoTask fill:#ffe0b2,stroke:#f57c00'
+      );
     });
   });
 });

@@ -18,6 +18,8 @@ import {
   oneLight,
 } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useTheme } from '@/hooks/useTheme';
+import { remarkAnnotations } from '@/lib/remarkAnnotations';
+import { AnnotationRenderer } from './AnnotationComponents';
 
 export interface MarkdownPreviewProps {
   /** The Markdown content to render */
@@ -31,6 +33,10 @@ export interface MarkdownPreviewProps {
   } | null;
   /** Callback when user clears the diff */
   onClearDiff?: () => void;
+  /** Callback when element is clicked (for click-to-source) */
+  onElementClick?: (line: number) => void;
+  /** Ref for scroll container */
+  scrollRef?: React.RefObject<HTMLDivElement>;
 }
 
 /**
@@ -161,6 +167,9 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
   className = '',
   diff,
   onClearDiff,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  onElementClick,
+  scrollRef,
 }) => {
   const { theme } = useTheme();
 
@@ -324,6 +333,13 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
           {children}
         </th>
       ),
+
+      // Annotation component for remarkAnnotations plugin
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      annotation: ({ node }: { node?: any }) => {
+        if (!node?.data) return null;
+        return <AnnotationRenderer {...node.data} />;
+      },
     }),
     [theme]
   );
@@ -360,6 +376,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       {/* Content Area */}
       {content?.trim() ? (
         <div
+          ref={scrollRef}
           className="prose dark:prose-invert max-w-none bg-white dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-700 flex-1 overflow-auto"
           data-testid="markdown-content"
         >
@@ -370,7 +387,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
                 if (segment.type === 'unchanged') {
                   return (
                     <div key={idx} className="diff-unchanged">
-                      <ReactMarkdown components={components} remarkPlugins={[remarkGfm]}>
+                      <ReactMarkdown components={components} remarkPlugins={[remarkGfm, remarkAnnotations]}>
                         {segment.content}
                       </ReactMarkdown>
                     </div>
@@ -378,7 +395,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
                 } else if (segment.type === 'added') {
                   return (
                     <div key={idx} className="diff-added">
-                      <ReactMarkdown components={components} remarkPlugins={[remarkGfm]}>
+                      <ReactMarkdown components={components} remarkPlugins={[remarkGfm, remarkAnnotations]}>
                         {segment.content}
                       </ReactMarkdown>
                     </div>
@@ -386,7 +403,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
                 } else {
                   return (
                     <div key={idx} className="diff-removed">
-                      <ReactMarkdown components={components} remarkPlugins={[remarkGfm]}>
+                      <ReactMarkdown components={components} remarkPlugins={[remarkGfm, remarkAnnotations]}>
                         {segment.content}
                       </ReactMarkdown>
                     </div>
@@ -396,7 +413,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             </div>
           ) : (
             // Render normally
-            <ReactMarkdown components={components} remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+            <ReactMarkdown components={components} remarkPlugins={[remarkGfm, remarkAnnotations]}>{content}</ReactMarkdown>
           )}
         </div>
       ) : (
