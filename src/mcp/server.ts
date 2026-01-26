@@ -13,7 +13,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { setupMCPServer } from './setup.js';
 
 // Version is synced with package.json via npm version command
-const SERVER_VERSION = '5.32.1';
+const SERVER_VERSION = '5.33.0';
 
 async function main() {
   // Check if API server is running
