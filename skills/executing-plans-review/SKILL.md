@@ -153,6 +153,46 @@ When within a collab workflow, run verification after each task completes:
 - Unlock dependent tasks
 - Proceed to next ready tasks
 
+```javascript
+FUNCTION markTaskComplete(taskId):
+  session = current session name
+
+  // 1. Read current state
+  Tool: mcp__plugin_mermaid-collab_mermaid__get_session_state
+  Args: { "project": "<cwd>", "session": session }
+  Returns: state = { "completedTasks": [...], "pendingTasks": [...], ... }
+
+  // 2. Move task from pending to completed
+  newCompleted = [...state.completedTasks, taskId]
+  newPending = state.pendingTasks.filter(t => t !== taskId)
+
+  // 3. Update session state via MCP (updates progress bar)
+  Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
+  Args: {
+    "project": "<cwd>",
+    "session": session,
+    "completedTasks": newCompleted,
+    "pendingTasks": newPending
+  }
+
+  // 4. Update task execution diagram (visual progress)
+  // Change from executing (blue) to completed (green)
+  Tool: mcp__plugin_mermaid-collab_mermaid__patch_diagram
+  Args: {
+    "project": "<cwd>",
+    "session": session,
+    "id": "task-execution",
+    "old_string": "style {taskId} fill:#bbdefb,stroke:#1976d2,stroke-width:3px",  // executing
+    "new_string": "style {taskId} fill:#c8e6c9,stroke:#2e7d32"                    // completed
+  }
+  // If patch fails (task wasn't marked executing), try from waiting state:
+  // old_string: "style {taskId} fill:#e0e0e0,stroke:#9e9e9e"  // waiting
+```
+
+**IMPORTANT:** You MUST call `markTaskComplete(taskId)` after each task passes verification. This:
+1. Updates the progress bar in the UI (completedTasks/pendingTasks)
+2. Updates the task execution diagram (visual green checkmark)
+
 **On Verification Failure:**
 - Keep task as `in_progress` (not completed)
 - Show drift report with pros/cons

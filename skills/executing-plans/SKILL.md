@@ -149,8 +149,11 @@ This is a hard requirement, not a suggestion. If you find yourself writing imple
 - [ ] mermaid-collab:subagent-driven-development:implementer-prompt skill was invoked by the agent
 - [ ] Spec compliance review passed
 - [ ] Code quality review passed
+- [ ] Called `markTaskComplete(taskId)` to update progress (see executing-plans-review skill)
 
 **If ANY checklist item fails:** Do NOT mark task as complete. Fix the issue first.
+
+**CRITICAL:** After verification passes, you MUST call `markTaskComplete(taskId)` to move the task from `pendingTasks` to `completedTasks`. This updates the progress bar in the UI. See the executing-plans-review skill for the implementation.
 
 ---
 
