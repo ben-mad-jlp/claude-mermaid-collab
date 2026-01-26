@@ -45,9 +45,10 @@ export const useChatStore = create<ChatState & ChatActions>((set, get) => ({
         return state;
       }
 
-      // Replace with single message only
+      // Prepend new message and keep history (max 50 messages)
+      const MAX_MESSAGES = 50;
       const newState = {
-        messages: [msg],
+        messages: [msg, ...state.messages].slice(0, MAX_MESSAGES),
         unreadCount: state.unreadCount,
         isOpen: state.isOpen,
         currentBlockingId: state.currentBlockingId,

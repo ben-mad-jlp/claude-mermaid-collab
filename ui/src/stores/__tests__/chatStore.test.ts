@@ -92,7 +92,7 @@ describe('useChatStore', () => {
       expect(state.unreadCount).toBe(0); // Blocking messages don't increment unread
     });
 
-    it('should replace previous message with new one (single message mode)', () => {
+    it('should accumulate messages with newest first', () => {
       const msg1: ChatMessage = {
         id: 'msg1',
         type: 'ui_render',
@@ -113,35 +113,32 @@ describe('useChatStore', () => {
       useChatStore.getState().addMessage(msg2);
 
       const state = useChatStore.getState();
-      // Only keeps the latest message
-      expect(state.messages).toHaveLength(1);
+      // Should keep both messages with newest first
+      expect(state.messages).toHaveLength(2);
       expect(state.messages[0].id).toBe('msg2');
+      expect(state.messages[1].id).toBe('msg1');
     });
 
-    it('should only keep latest message', () => {
-      const msg1: ChatMessage = {
-        id: 'msg1',
-        type: 'ui_render',
-        blocking: false,
-        timestamp: 1000,
-        responded: false,
-      };
-
-      const msg2: ChatMessage = {
-        id: 'msg2',
-        type: 'ui_render',
-        blocking: false,
-        timestamp: 2000,
-        responded: false,
-      };
-
-      useChatStore.getState().addMessage(msg1);
-      useChatStore.getState().addMessage(msg2);
+    it('should limit messages to MAX_MESSAGES (50)', () => {
+      // Add 55 messages
+      for (let i = 0; i < 55; i++) {
+        const msg: ChatMessage = {
+          id: `msg${i}`,
+          type: 'ui_render',
+          blocking: false,
+          timestamp: i * 1000,
+          responded: false,
+        };
+        useChatStore.getState().addMessage(msg);
+      }
 
       const state = useChatStore.getState();
-      // Single message mode - only latest is kept
-      expect(state.messages).toHaveLength(1);
-      expect(state.messages[0].id).toBe('msg2');
+      // Should only keep 50 messages
+      expect(state.messages).toHaveLength(50);
+      // Newest message should be first
+      expect(state.messages[0].id).toBe('msg54');
+      // Oldest kept message should be msg5 (lost msg0-msg4)
+      expect(state.messages[49].id).toBe('msg5');
     });
 
     it('should add message with UI data', () => {
