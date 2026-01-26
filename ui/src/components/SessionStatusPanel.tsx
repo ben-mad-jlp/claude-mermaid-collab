@@ -77,28 +77,70 @@ export function SessionStatusPanel() {
     return null;
   }
 
-  const { phase, currentItem, lastActivity } = collabState;
+  const { phase, currentItem, lastActivity, completedTasks, pendingTasks, totalItems, documentedItems } = collabState;
+
+  // Calculate progress for task-based (implementation) or item-based (brainstorming/rough-draft)
+  const isImplementation = phase === 'implementation';
+  const hasTaskData = completedTasks && pendingTasks && (completedTasks.length > 0 || pendingTasks.length > 0);
+  const hasItemData = totalItems !== undefined && totalItems > 0 && documentedItems !== undefined;
+  const isBrainstormingOrRoughDraft = phase === 'brainstorming' || phase?.startsWith('rough-draft');
+
+  let progressValue = 0;
+  let progressMax = 0;
+  let progressLabel = '';
+  let progressColorClass = '';
+
+  if (isImplementation && hasTaskData) {
+    progressValue = completedTasks.length;
+    progressMax = completedTasks.length + pendingTasks.length;
+    progressLabel = 'Tasks';
+    progressColorClass = 'bg-green-500 dark:bg-green-400';
+  } else if (isBrainstormingOrRoughDraft && hasItemData) {
+    progressValue = documentedItems;
+    progressMax = totalItems;
+    progressLabel = 'Items';
+    progressColorClass = 'bg-blue-500 dark:bg-blue-400';
+  }
+
+  const showProgress = progressMax > 0;
+  const progressPercentage = showProgress ? Math.round((progressValue / progressMax) * 100) : 0;
 
   return (
     <div className="px-3 py-2 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
-      {/* Row 1: Phase badge + current item */}
+      {/* Row 1: Phase badge + timestamp + current item */}
       <div className="flex items-center gap-2 text-xs">
         <span
           className={`px-2 py-0.5 rounded font-medium ${getPhaseColor(phase)}`}
         >
           {formatPhase(phase)}
         </span>
+        {lastActivity && (
+          <span className="text-gray-400 dark:text-gray-500">
+            {formatRelativeTime(lastActivity)}
+          </span>
+        )}
         {currentItem !== null && (
           <span className="text-gray-500 dark:text-gray-400">
-            Item {currentItem}
+            · Item {currentItem}
           </span>
         )}
       </div>
 
-      {/* Row 2: Last activity */}
-      {lastActivity && (
-        <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">
-          {formatRelativeTime(lastActivity)}
+      {/* Row 3: Progress bar (if tasks/items exist) */}
+      {showProgress && (
+        <div className="mt-2">
+          <div className="flex items-center justify-between text-xs mb-1">
+            <span className="text-gray-500 dark:text-gray-400">{progressLabel}</span>
+            <span className="text-gray-600 dark:text-gray-300 font-medium">
+              {progressValue}/{progressMax}
+            </span>
+          </div>
+          <div className="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+            <div
+              className={`h-full ${progressColorClass} transition-all duration-300`}
+              style={{ width: `${progressPercentage}%` }}
+            />
+          </div>
         </div>
       )}
     </div>

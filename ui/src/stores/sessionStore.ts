@@ -112,6 +112,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   // Session management
   setCurrentSession: (session: Session | null) => {
+    const current = get().currentSession;
+
+    // Only clear state if actually changing sessions
+    if (current?.project === session?.project && current?.name === session?.name) {
+      return;
+    }
+
     // Clear diagrams, documents, and related state when session changes
     // This ensures clean state when switching between sessions
     set({

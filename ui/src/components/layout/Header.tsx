@@ -20,6 +20,8 @@ import { Session } from '@/types';
 export interface HeaderProps {
   /** Available sessions to select from */
   sessions?: Session[];
+  /** Registered projects (may have no sessions yet) */
+  registeredProjects?: string[];
   /** Callback when a session is selected */
   onSessionSelect?: (session: Session) => void;
   /** Callback to refresh sessions list */
@@ -43,6 +45,7 @@ export interface HeaderProps {
  */
 export const Header: React.FC<HeaderProps> = ({
   sessions = [],
+  registeredProjects = [],
   onSessionSelect,
   onRefreshSessions,
   onCreateSession,
@@ -71,14 +74,17 @@ export const Header: React.FC<HeaderProps> = ({
   const projectDropdownRef = useRef<HTMLDivElement>(null);
   const sessionDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Get unique projects from sessions
+  // Get unique projects from sessions and registered projects
   const projects = useMemo(() => {
     const projectSet = new Set<string>();
+    // Add projects from sessions
     sessions.forEach((s) => {
       if (s.project) projectSet.add(s.project);
     });
+    // Add registered projects (may have no sessions yet)
+    registeredProjects.forEach((p) => projectSet.add(p));
     return Array.from(projectSet).sort();
-  }, [sessions]);
+  }, [sessions, registeredProjects]);
 
   // Get sessions for selected project
   const projectSessions = useMemo(() => {
@@ -249,6 +255,7 @@ export const Header: React.FC<HeaderProps> = ({
               {isConnected ? 'Connected' : isConnecting ? 'Connecting' : 'Disconnected'}
             </span>
           </div>
+
         </div>
 
         {/* Right-side controls */}
