@@ -3,6 +3,7 @@ import React, { useEffect, useId, useState } from 'react';
 export interface TextAreaProps {
   onChange?: (value: string) => void;
   value?: string;
+  name?: string;
   label?: string;
   placeholder?: string;
   disabled?: boolean;
@@ -18,6 +19,7 @@ export interface TextAreaProps {
 export const TextArea: React.FC<TextAreaProps> = ({
   onChange,
   value = '',
+  name,
   label,
   placeholder,
   disabled = false,
@@ -75,6 +77,7 @@ export const TextArea: React.FC<TextAreaProps> = ({
       )}
       <textarea
         id={id}
+        name={name}
         value={internalValue}
         onChange={handleChange}
         onBlur={handleBlur}
