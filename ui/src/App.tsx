@@ -463,8 +463,8 @@ const App: React.FC = () => {
     [setCurrentSession]
   );
 
-  // Handle creating a new session
-  const handleCreateSession = useCallback(async () => {
+  // Handle creating a new session in a specific project
+  const handleCreateSession = useCallback(async (project: string) => {
     const suggestedName = generateSessionName();
 
     // Prompt user for session name with generated name as default
@@ -475,28 +475,46 @@ const App: React.FC = () => {
       return;
     }
 
-    // Prompt for project folder, default to ~/.mermaid-collab
-    const projectPath = window.prompt(
-      'Project folder:',
-      '~/.mermaid-collab'
-    );
-
-    // User cancelled
-    if (projectPath === null) {
-      return;
-    }
-
-    const finalProject = projectPath.trim() || '~/.mermaid-collab';
-
     try {
-      const newSession = await api.createSession(finalProject, sessionName.trim());
+      const newSession = await api.createSession(project, sessionName.trim());
       // Refresh sessions list and select the new session
       await loadSessions();
       setCurrentSession(newSession);
     } catch (error) {
       console.error('Failed to create session:', error);
     }
-  }, [currentSession, loadSessions, setCurrentSession]);
+  }, [loadSessions, setCurrentSession]);
+
+  // Handle adding a new project
+  const handleAddProject = useCallback(async () => {
+    const projectPath = window.prompt('Enter project path:', '/Users');
+
+    // User cancelled or entered empty path
+    if (!projectPath?.trim()) {
+      return;
+    }
+
+    try {
+      // Register the project via the projects API
+      const response = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: projectPath.trim() }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        alert(data.error || 'Failed to add project');
+        return;
+      }
+
+      // Refresh sessions list to pick up any sessions in the new project
+      await loadSessions();
+    } catch (error) {
+      console.error('Failed to add project:', error);
+      alert('Failed to add project');
+    }
+  }, [loadSessions]);
 
   // Handle deleting a session
   const handleDeleteSession = useCallback(async (session: Session) => {
@@ -668,6 +686,7 @@ const App: React.FC = () => {
           onSessionSelect={handleSessionSelect}
           onRefreshSessions={loadSessions}
           onCreateSession={handleCreateSession}
+          onAddProject={handleAddProject}
           onDeleteSession={handleDeleteSession}
           isConnected={isConnected}
           isConnecting={isConnecting}

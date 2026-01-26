@@ -47,6 +47,7 @@ export const Drafts: React.FC = () => {
   const [expandedDraft, setExpandedDraft] = useState<string | null>(null);
   const [liveTopic, setLiveTopic] = useState<Topic | null>(null);
   const [loadingLiveTopic, setLoadingLiveTopic] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const selectedProject = useKodexStore((s) => s.selectedProject);
 
   const handleExpand = async (topicName: string) => {
@@ -118,9 +119,44 @@ export const Drafts: React.FC = () => {
     );
   }
 
+  // Filter drafts by search query
+  const filteredDrafts = drafts.filter((draft) => {
+    if (!searchQuery.trim()) return true;
+    const query = searchQuery.toLowerCase();
+    return (
+      draft.topicName.toLowerCase().includes(query) ||
+      draft.reason?.toLowerCase().includes(query) ||
+      draft.createdBy?.toLowerCase().includes(query)
+    );
+  });
+
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Pending Drafts</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Pending Drafts</h1>
+        <div className="relative">
+          <input
+            type="text"
+            placeholder="Search drafts..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9 pr-4 py-2 w-64 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <svg
+            className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+            />
+          </svg>
+        </div>
+      </div>
 
       {loading && (
         <div className="flex items-center justify-center h-32">
@@ -140,9 +176,15 @@ export const Drafts: React.FC = () => {
         </div>
       )}
 
-      {!loading && !error && drafts.length > 0 && (
+      {!loading && !error && drafts.length > 0 && filteredDrafts.length === 0 && (
+        <div className="text-center py-12 text-gray-500">
+          No drafts match "{searchQuery}"
+        </div>
+      )}
+
+      {!loading && !error && filteredDrafts.length > 0 && (
         <div className="space-y-4">
-          {drafts.map((draft) => {
+          {filteredDrafts.map((draft) => {
             const isExpanded = expandedDraft === draft.topicName;
             return (
               <div

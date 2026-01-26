@@ -4,12 +4,13 @@
  * Top navigation bar with:
  * - Logo and application title
  * - Theme toggle (light/dark mode)
+ * - Project selector dropdown
  * - Session selector dropdown
  *
  * Integrates with useTheme and useSession hooks for state management.
  */
 
-import React, { useCallback, useState, useRef, useEffect } from 'react';
+import React, { useCallback, useState, useRef, useEffect, useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useTheme } from '@/hooks/useTheme';
 import { useSession } from '@/hooks/useSession';
@@ -24,7 +25,9 @@ export interface HeaderProps {
   /** Callback to refresh sessions list */
   onRefreshSessions?: () => void;
   /** Callback to create a new session */
-  onCreateSession?: () => void;
+  onCreateSession?: (project: string) => void;
+  /** Callback to add a new project */
+  onAddProject?: () => void;
   /** Callback to delete a session */
   onDeleteSession?: (session: Session) => void;
   /** WebSocket connection status */
@@ -36,13 +39,14 @@ export interface HeaderProps {
 }
 
 /**
- * Header component with logo, theme toggle, and session selector
+ * Header component with logo, theme toggle, project selector, and session selector
  */
 export const Header: React.FC<HeaderProps> = ({
   sessions = [],
   onSessionSelect,
   onRefreshSessions,
   onCreateSession,
+  onAddProject,
   onDeleteSession,
   isConnected = false,
   isConnecting = false,
@@ -60,14 +64,50 @@ export const Header: React.FC<HeaderProps> = ({
       toggleTerminalPanel: state.toggleTerminalPanel,
     }))
   );
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown when clicking outside
+  const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
+  const [isSessionDropdownOpen, setIsSessionDropdownOpen] = useState(false);
+  const [selectedProject, setSelectedProject] = useState<string | null>(null);
+  const projectDropdownRef = useRef<HTMLDivElement>(null);
+  const sessionDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Get unique projects from sessions
+  const projects = useMemo(() => {
+    const projectSet = new Set<string>();
+    sessions.forEach((s) => {
+      if (s.project) projectSet.add(s.project);
+    });
+    return Array.from(projectSet).sort();
+  }, [sessions]);
+
+  // Get sessions for selected project
+  const projectSessions = useMemo(() => {
+    if (!selectedProject) return [];
+    return sessions.filter((s) => s.project === selectedProject);
+  }, [sessions, selectedProject]);
+
+  // Sync selectedProject with currentSession
+  useEffect(() => {
+    if (currentSession?.project && currentSession.project !== selectedProject) {
+      setSelectedProject(currentSession.project);
+    }
+  }, [currentSession?.project]);
+
+  // Auto-select first project if none selected
+  useEffect(() => {
+    if (!selectedProject && projects.length > 0) {
+      setSelectedProject(projects[0]);
+    }
+  }, [projects, selectedProject]);
+
+  // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsDropdownOpen(false);
+      if (projectDropdownRef.current && !projectDropdownRef.current.contains(event.target as Node)) {
+        setIsProjectDropdownOpen(false);
+      }
+      if (sessionDropdownRef.current && !sessionDropdownRef.current.contains(event.target as Node)) {
+        setIsSessionDropdownOpen(false);
       }
     };
 
@@ -77,11 +117,12 @@ export const Header: React.FC<HeaderProps> = ({
     };
   }, []);
 
-  // Close dropdown on escape key
+  // Close dropdowns on escape key
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setIsDropdownOpen(false);
+        setIsProjectDropdownOpen(false);
+        setIsSessionDropdownOpen(false);
       }
     };
 
@@ -91,14 +132,20 @@ export const Header: React.FC<HeaderProps> = ({
     };
   }, []);
 
-  const handleToggleDropdown = useCallback(() => {
-    setIsDropdownOpen((prev) => !prev);
-  }, []);
+  const handleProjectSelect = useCallback((project: string) => {
+    setSelectedProject(project);
+    setIsProjectDropdownOpen(false);
+    // If there's a session in this project, auto-select the first one
+    const sessionsInProject = sessions.filter((s) => s.project === project);
+    if (sessionsInProject.length > 0 && onSessionSelect) {
+      onSessionSelect(sessionsInProject[0]);
+    }
+  }, [sessions, onSessionSelect]);
 
   const handleSessionClick = useCallback(
     (session: Session) => {
       onSessionSelect?.(session);
-      setIsDropdownOpen(false);
+      setIsSessionDropdownOpen(false);
     },
     [onSessionSelect]
   );
@@ -123,21 +170,28 @@ export const Header: React.FC<HeaderProps> = ({
     onRefreshSessions?.();
   }, [onRefreshSessions]);
 
+  const handleAddProject = useCallback(() => {
+    setIsProjectDropdownOpen(false);
+    onAddProject?.();
+  }, [onAddProject]);
+
   const handleCreateSession = useCallback(() => {
-    onCreateSession?.();
-  }, [onCreateSession]);
+    setIsSessionDropdownOpen(false);
+    if (selectedProject) {
+      onCreateSession?.(selectedProject);
+    }
+  }, [onCreateSession, selectedProject]);
 
   const handleDeleteSession = useCallback((e: React.MouseEvent, session: Session) => {
-    e.stopPropagation(); // Prevent selecting the session
+    e.stopPropagation();
     if (window.confirm(`Delete session "${session.name}"? This removes it from the list but does not delete files.`)) {
       onDeleteSession?.(session);
     }
   }, [onDeleteSession]);
 
-  // Format session display as "project / session"
-  const formatSessionDisplay = (session: Session) => {
-    const projectName = session.project?.split('/').pop() || 'unknown';
-    return `${projectName} / ${session.name}`;
+  // Get display name for project (basename)
+  const getProjectDisplayName = (project: string) => {
+    return project.split('/').pop() || project;
   };
 
   return (
@@ -199,44 +253,13 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right-side controls */}
         <div className="flex items-center gap-3">
-          {/* Create Session Button */}
-          {onCreateSession && (
-            <button
-              data-testid="create-session"
-              onClick={handleCreateSession}
-              aria-label="Create new session"
-              title="Create new session"
-              className="
-                p-2
-                text-gray-600 dark:text-gray-300
-                hover:text-gray-900 dark:hover:text-white
-                hover:bg-gray-100 dark:hover:bg-gray-700
-                rounded-lg
-                transition-colors
-              "
-            >
-              <svg
-                className="w-4 h-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-            </button>
-          )}
-
-          {/* Refresh Sessions Button */}
+          {/* Refresh Button */}
           {onRefreshSessions && (
             <button
               data-testid="refresh-sessions"
               onClick={handleRefreshSessions}
-              aria-label="Refresh sessions"
-              title="Refresh sessions"
+              aria-label="Refresh"
+              title="Refresh projects and sessions"
               className="
                 p-2
                 text-gray-600 dark:text-gray-300
@@ -263,123 +286,226 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {/* Session Selector */}
-          {sessions.length > 0 && (
-            <div className="relative" ref={dropdownRef}>
-              <button
-                data-testid="session-selector"
-                onClick={handleToggleDropdown}
-                aria-expanded={isDropdownOpen}
-                aria-haspopup="listbox"
+          {/* Project Selector */}
+          <div className="relative" ref={projectDropdownRef}>
+            <button
+              data-testid="project-selector"
+              onClick={() => setIsProjectDropdownOpen((prev) => !prev)}
+              aria-expanded={isProjectDropdownOpen}
+              aria-haspopup="listbox"
+              className="
+                flex items-center gap-2
+                px-3 py-1.5
+                text-sm font-medium
+                text-gray-700 dark:text-gray-200
+                bg-gray-100 dark:bg-gray-700
+                hover:bg-gray-200 dark:hover:bg-gray-600
+                rounded-lg
+                transition-colors
+                min-w-[200px]
+              "
+            >
+              <svg className="w-4 h-4 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+              </svg>
+              <span className="flex-1 text-left truncate">
+                {selectedProject ? getProjectDisplayName(selectedProject) : 'Select Project'}
+              </span>
+              <svg
+                className={`w-4 h-4 transition-transform ${isProjectDropdownOpen ? 'rotate-180' : ''}`}
+                viewBox="0 0 20 20"
+                fill="currentColor"
+              >
+                <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
+            </button>
+
+            {isProjectDropdownOpen && (
+              <div
+                data-testid="project-dropdown"
+                role="listbox"
                 className="
-                  flex items-center gap-2
-                  px-3 py-1.5
-                  text-sm font-medium
-                  text-gray-700 dark:text-gray-200
-                  bg-gray-100 dark:bg-gray-700
-                  hover:bg-gray-200 dark:hover:bg-gray-600
-                  rounded-lg
-                  transition-colors
+                  absolute left-0 mt-2 w-80
+                  bg-white dark:bg-gray-800
+                  border border-gray-200 dark:border-gray-700
+                  rounded-lg shadow-lg
+                  z-50 overflow-hidden
+                  animate-fadeIn
                 "
               >
-                <span className="max-w-96 truncate">
-                  {currentSession ? formatSessionDisplay(currentSession) : 'Select Session'}
-                </span>
-                <svg
-                  className={`w-4 h-4 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`}
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                  aria-hidden="true"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </button>
+                <ul className="max-h-60 overflow-y-auto">
+                  {projects.map((project) => (
+                    <li key={project}>
+                      <button
+                        role="option"
+                        aria-selected={selectedProject === project}
+                        onClick={() => handleProjectSelect(project)}
+                        className={`
+                          w-full px-4 py-2.5
+                          text-left text-sm
+                          hover:bg-gray-100 dark:hover:bg-gray-700
+                          transition-colors
+                          ${selectedProject === project ? 'bg-accent-50 dark:bg-accent-900/30 text-accent-700 dark:text-accent-300' : 'text-gray-700 dark:text-gray-200'}
+                        `}
+                      >
+                        <div className="font-medium truncate">{getProjectDisplayName(project)}</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{project}</div>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                {onAddProject && (
+                  <div className="border-t border-gray-200 dark:border-gray-700">
+                    <button
+                      onClick={handleAddProject}
+                      className="
+                        w-full px-4 py-2.5
+                        text-left text-sm
+                        text-blue-600 dark:text-blue-400
+                        hover:bg-gray-100 dark:hover:bg-gray-700
+                        transition-colors
+                        flex items-center gap-2
+                      "
+                    >
+                      <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                      </svg>
+                      Add Project
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
-              {/* Dropdown Menu */}
-              {isDropdownOpen && (
-                <div
-                  data-testid="session-dropdown"
-                  role="listbox"
-                  className="
-                    absolute right-0 mt-2 w-[640px]
-                    bg-white dark:bg-gray-800
-                    border border-gray-200 dark:border-gray-700
-                    rounded-lg shadow-lg
-                    z-50 overflow-hidden
-                    animate-fadeIn
-                  "
-                >
-                  {sessions.length === 0 ? (
-                    <div className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      No sessions available
-                    </div>
-                  ) : (
-                    <ul className="max-h-60 overflow-y-auto">
-                      {sessions.map((session) => (
-                        <li key={`${session.project}-${session.name}`}>
-                          <div
+          {/* Session Selector */}
+          <div className="relative" ref={sessionDropdownRef}>
+            <button
+              data-testid="session-selector"
+              onClick={() => setIsSessionDropdownOpen((prev) => !prev)}
+              aria-expanded={isSessionDropdownOpen}
+              aria-haspopup="listbox"
+              disabled={!selectedProject}
+              className={`
+                flex items-center gap-2
+                px-3 py-1.5
+                text-sm font-medium
+                rounded-lg
+                transition-colors
+                min-w-[200px]
+                ${!selectedProject
+                  ? 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
+                  : 'text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600'
+                }
+              `}
+            >
+              <svg className="w-4 h-4 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <path d="M3 9h18" />
+              </svg>
+              <span className="flex-1 text-left truncate">
+                {currentSession?.project === selectedProject ? currentSession.name : 'Select Session'}
+              </span>
+              <svg
+                className={`w-4 h-4 transition-transform ${isSessionDropdownOpen ? 'rotate-180' : ''}`}
+                viewBox="0 0 20 20"
+                fill="currentColor"
+              >
+                <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
+            </button>
+
+            {isSessionDropdownOpen && selectedProject && (
+              <div
+                data-testid="session-dropdown"
+                role="listbox"
+                className="
+                  absolute left-0 mt-2 w-80
+                  bg-white dark:bg-gray-800
+                  border border-gray-200 dark:border-gray-700
+                  rounded-lg shadow-lg
+                  z-50 overflow-hidden
+                  animate-fadeIn
+                "
+              >
+                {projectSessions.length === 0 ? (
+                  <div className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                    No sessions in this project
+                  </div>
+                ) : (
+                  <ul className="max-h-60 overflow-y-auto">
+                    {projectSessions.map((session) => (
+                      <li key={session.name}>
+                        <div
+                          className={`
+                            flex items-center
+                            hover:bg-gray-100 dark:hover:bg-gray-700
+                            transition-colors
+                            ${currentSession?.name === session.name && currentSession?.project === session.project ? 'bg-accent-50 dark:bg-accent-900/30' : ''}
+                          `}
+                        >
+                          <button
+                            role="option"
+                            aria-selected={currentSession?.name === session.name}
+                            onClick={() => handleSessionClick(session)}
                             className={`
-                              flex items-center
-                              hover:bg-gray-100 dark:hover:bg-gray-700
-                              transition-colors
-                              ${
-                                currentSession?.name === session.name
-                                  ? 'bg-accent-50 dark:bg-accent-900/30'
-                                  : ''
-                              }
+                              flex-1 px-4 py-2.5
+                              text-left text-sm
+                              ${currentSession?.name === session.name && currentSession?.project === session.project ? 'text-accent-700 dark:text-accent-300' : 'text-gray-700 dark:text-gray-200'}
                             `}
                           >
-                            <button
-                              role="option"
-                              aria-selected={currentSession?.name === session.name}
-                              onClick={() => handleSessionClick(session)}
-                              className={`
-                                flex-1 px-4 py-2.5
-                                text-left text-sm
-                                ${
-                                  currentSession?.name === session.name
-                                    ? 'text-accent-700 dark:text-accent-300'
-                                    : 'text-gray-700 dark:text-gray-200'
-                                }
-                              `}
-                            >
-                              <div className="font-medium truncate">{formatSessionDisplay(session)}</div>
-                              {session.phase && (
-                                <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                                  Phase: {session.phase}
-                                </div>
-                              )}
-                            </button>
-                            {onDeleteSession && (
-                              <button
-                                onClick={(e) => handleDeleteSession(e, session)}
-                                className="
-                                  p-2 mr-2
-                                  text-gray-400 hover:text-red-500
-                                  dark:text-gray-500 dark:hover:text-red-400
-                                  transition-colors
-                                "
-                                aria-label={`Delete session ${session.name}`}
-                                title="Delete session"
-                              >
-                                <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                                </svg>
-                              </button>
+                            <div className="font-medium truncate">{session.name}</div>
+                            {session.phase && (
+                              <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                Phase: {session.phase}
+                              </div>
                             )}
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
+                          </button>
+                          {onDeleteSession && (
+                            <button
+                              onClick={(e) => handleDeleteSession(e, session)}
+                              className="
+                                p-2 mr-2
+                                text-gray-400 hover:text-red-500
+                                dark:text-gray-500 dark:hover:text-red-400
+                                transition-colors
+                              "
+                              aria-label={`Delete session ${session.name}`}
+                              title="Delete session"
+                            >
+                              <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                              </svg>
+                            </button>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {onCreateSession && (
+                  <div className="border-t border-gray-200 dark:border-gray-700">
+                    <button
+                      onClick={handleCreateSession}
+                      className="
+                        w-full px-4 py-2.5
+                        text-left text-sm
+                        text-blue-600 dark:text-blue-400
+                        hover:bg-gray-100 dark:hover:bg-gray-700
+                        transition-colors
+                        flex items-center gap-2
+                      "
+                    >
+                      <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                      </svg>
+                      New Session
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* Chat Panel Toggle */}
           <button

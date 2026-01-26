@@ -41,6 +41,7 @@ export const Flags: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'open' | 'resolved' | 'dismissed'>('open');
+  const [searchQuery, setSearchQuery] = useState('');
   const selectedProject = useKodexStore((s) => s.selectedProject);
 
   const loadFlags = async () => {
@@ -81,11 +82,22 @@ export const Flags: React.FC = () => {
     }
   };
 
-  // Filter flags
+  // Filter flags by status and search query
   const filteredFlags = flags.filter((flag) => {
-    if (filter === 'open') return flag.status === 'open';
-    if (filter === 'resolved') return flag.status === 'resolved';
-    if (filter === 'dismissed') return flag.status === 'dismissed';
+    // Status filter
+    if (filter === 'open' && flag.status !== 'open') return false;
+    if (filter === 'resolved' && flag.status !== 'resolved') return false;
+    if (filter === 'dismissed' && flag.status !== 'dismissed') return false;
+
+    // Search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      return (
+        flag.topicName.toLowerCase().includes(query) ||
+        flag.description?.toLowerCase().includes(query) ||
+        flag.type.toLowerCase().includes(query)
+      );
+    }
     return true;
   });
 
@@ -101,16 +113,40 @@ export const Flags: React.FC = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Flags</h1>
-        <select
-          value={filter}
-          onChange={(e) => setFilter(e.target.value as any)}
-          className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800"
-        >
-          <option value="open">Open</option>
-          <option value="resolved">Resolved</option>
-          <option value="dismissed">Dismissed</option>
-          <option value="all">All</option>
-        </select>
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Search flags..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9 pr-4 py-2 w-64 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <svg
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              />
+            </svg>
+          </div>
+          <select
+            value={filter}
+            onChange={(e) => setFilter(e.target.value as any)}
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800"
+          >
+            <option value="open">Open</option>
+            <option value="resolved">Resolved</option>
+            <option value="dismissed">Dismissed</option>
+            <option value="all">All</option>
+          </select>
+        </div>
       </div>
 
       {loading && (
@@ -127,7 +163,15 @@ export const Flags: React.FC = () => {
 
       {!loading && !error && filteredFlags.length === 0 && (
         <div className="text-center py-12 text-gray-500">
-          {filter === 'open' ? 'No open flags' : filter === 'resolved' ? 'No resolved flags' : filter === 'dismissed' ? 'No dismissed flags' : 'No flags'}
+          {searchQuery.trim()
+            ? `No flags match "${searchQuery}"`
+            : filter === 'open'
+            ? 'No open flags'
+            : filter === 'resolved'
+            ? 'No resolved flags'
+            : filter === 'dismissed'
+            ? 'No dismissed flags'
+            : 'No flags'}
         </div>
       )}
 

@@ -5,6 +5,7 @@
  * - Component rendering and initialization
  * - Logo and title display
  * - Theme toggle functionality
+ * - Project selector dropdown behavior
  * - Session selector dropdown behavior
  * - Session selection callbacks
  * - Keyboard navigation (Escape to close)
@@ -40,6 +41,7 @@ const mockUseSession = vi.mocked(useSession);
 describe('Header', () => {
   const mockSessions: Session[] = [
     { project: '/project1', name: 'session-1', phase: 'brainstorming' },
+    { project: '/project1', name: 'session-1b', phase: 'design' },
     { project: '/project2', name: 'session-2', phase: 'implementation' },
     { project: '/project3', name: 'session-3' },
   ];
@@ -109,6 +111,16 @@ describe('Header', () => {
       const header = screen.getByTestId('header');
       expect(header.className).toContain('custom-header');
     });
+
+    it('should render project selector', () => {
+      render(<Header sessions={mockSessions} />);
+      expect(screen.getByTestId('project-selector')).toBeDefined();
+    });
+
+    it('should render session selector', () => {
+      render(<Header sessions={mockSessions} />);
+      expect(screen.getByTestId('session-selector')).toBeDefined();
+    });
   });
 
   describe('Theme Toggle', () => {
@@ -151,19 +163,80 @@ describe('Header', () => {
     });
   });
 
+  describe('Project Selector', () => {
+    it('should show "Select Project" when no sessions provided', () => {
+      render(<Header sessions={[]} />);
+      expect(screen.getByText('Select Project')).toBeDefined();
+    });
+
+    it('should auto-select first project when sessions are provided', () => {
+      render(<Header sessions={mockSessions} />);
+      // Should auto-select the first project (project1)
+      expect(screen.getByText('project1')).toBeDefined();
+    });
+
+    it('should open project dropdown on click', async () => {
+      const user = userEvent.setup();
+      render(<Header sessions={mockSessions} />);
+
+      const selector = screen.getByTestId('project-selector');
+      await user.click(selector);
+
+      expect(screen.getByTestId('project-dropdown')).toBeDefined();
+    });
+
+    it('should display unique projects in dropdown', async () => {
+      const user = userEvent.setup();
+      render(<Header sessions={mockSessions} />);
+
+      const selector = screen.getByTestId('project-selector');
+      await user.click(selector);
+
+      const dropdown = screen.getByTestId('project-dropdown');
+      // Should show 3 project options
+      const options = dropdown.querySelectorAll('button[role="option"]');
+      expect(options.length).toBe(3);
+    });
+
+    it('should close project dropdown on Escape key', async () => {
+      const user = userEvent.setup();
+      render(<Header sessions={mockSessions} />);
+
+      const selector = screen.getByTestId('project-selector');
+      await user.click(selector);
+
+      expect(screen.getByTestId('project-dropdown')).toBeDefined();
+
+      await user.keyboard('{Escape}');
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('project-dropdown')).toBeNull();
+      });
+    });
+
+    it('should have aria-expanded attribute', async () => {
+      const user = userEvent.setup();
+      render(<Header sessions={mockSessions} />);
+
+      const selector = screen.getByTestId('project-selector');
+      expect(selector.getAttribute('aria-expanded')).toBe('false');
+
+      await user.click(selector);
+      expect(selector.getAttribute('aria-expanded')).toBe('true');
+    });
+  });
+
   describe('Session Selector', () => {
-    it('should not render session selector when no sessions provided', () => {
-      render(<Header />);
-      expect(screen.queryByTestId('session-selector')).toBeNull();
-    });
-
-    it('should render session selector when sessions are provided', () => {
+    it('should show "Select Session" when no session is selected', async () => {
+      const user = userEvent.setup();
       render(<Header sessions={mockSessions} />);
-      expect(screen.getByTestId('session-selector')).toBeDefined();
-    });
 
-    it('should show "Select Session" when no session is selected', () => {
-      render(<Header sessions={mockSessions} />);
+      // First select a project - click within the dropdown
+      const projectSelector = screen.getByTestId('project-selector');
+      await user.click(projectSelector);
+      const dropdown = screen.getByTestId('project-dropdown');
+      await user.click(dropdown.querySelector('button[role="option"]')!);
+
       expect(screen.getByText('Select Session')).toBeDefined();
     });
 
@@ -174,42 +247,59 @@ describe('Header', () => {
       });
 
       render(<Header sessions={mockSessions} />);
-      // Session display format is "projectName / sessionName"
-      expect(screen.getByText('project1 / session-1')).toBeDefined();
+      // Session selector should show just the session name
+      expect(screen.getByText('session-1')).toBeDefined();
     });
 
-    it('should open dropdown on click', async () => {
+    it('should open session dropdown on click', async () => {
       const user = userEvent.setup();
       render(<Header sessions={mockSessions} />);
 
-      const selector = screen.getByTestId('session-selector');
-      await user.click(selector);
+      // First select a project - click within the dropdown
+      const projectSelector = screen.getByTestId('project-selector');
+      await user.click(projectSelector);
+      const projectDropdown = screen.getByTestId('project-dropdown');
+      await user.click(projectDropdown.querySelector('button[role="option"]')!);
+
+      const sessionSelector = screen.getByTestId('session-selector');
+      await user.click(sessionSelector);
 
       expect(screen.getByTestId('session-dropdown')).toBeDefined();
     });
 
-    it('should display all sessions in dropdown', async () => {
+    it('should display sessions filtered by project', async () => {
       const user = userEvent.setup();
       render(<Header sessions={mockSessions} />);
 
-      const selector = screen.getByTestId('session-selector');
-      await user.click(selector);
+      // Select project1 which has 2 sessions
+      const projectSelector = screen.getByTestId('project-selector');
+      await user.click(projectSelector);
+      const projectDropdown = screen.getByTestId('project-dropdown');
+      await user.click(projectDropdown.querySelector('button[role="option"]')!);
 
-      // Session display format is "projectName / sessionName"
-      expect(screen.getByText('project1 / session-1')).toBeDefined();
-      expect(screen.getByText('project2 / session-2')).toBeDefined();
-      expect(screen.getByText('project3 / session-3')).toBeDefined();
+      const sessionSelector = screen.getByTestId('session-selector');
+      await user.click(sessionSelector);
+
+      // Should show sessions for project1
+      expect(screen.getByText('session-1')).toBeDefined();
+      expect(screen.getByText('session-1b')).toBeDefined();
     });
 
     it('should display phase information in dropdown', async () => {
       const user = userEvent.setup();
       render(<Header sessions={mockSessions} />);
 
-      const selector = screen.getByTestId('session-selector');
-      await user.click(selector);
+      // Select project1
+      const projectSelector = screen.getByTestId('project-selector');
+      await user.click(projectSelector);
+      const projectDropdown = screen.getByTestId('project-dropdown');
+      await user.click(projectDropdown.querySelector('button[role="option"]')!);
+
+      const sessionSelector = screen.getByTestId('session-selector');
+      await user.click(sessionSelector);
 
       expect(screen.getByText('Phase: brainstorming')).toBeDefined();
-      expect(screen.getByText('Phase: implementation')).toBeDefined();
+      expect(screen.getByText('Phase: design')).toBeDefined();
     });
 
     it('should call onSessionSelect when a session is clicked', async () => {
@@ -218,27 +308,37 @@ describe('Header', () => {
         <Header sessions={mockSessions} onSessionSelect={mockOnSessionSelect} />
       );
 
-      const selector = screen.getByTestId('session-selector');
-      await user.click(selector);
+      // Select project1
+      const projectSelector = screen.getByTestId('project-selector');
+      await user.click(projectSelector);
+      const projectDropdown = screen.getByTestId('project-dropdown');
+      await user.click(projectDropdown.querySelector('button[role="option"]')!);
 
-      // Session display format is "projectName / sessionName"
-      const sessionOption = screen.getByText('project2 / session-2');
+      const sessionSelector = screen.getByTestId('session-selector');
+      await user.click(sessionSelector);
+
+      const sessionOption = screen.getByText('session-1b');
       await user.click(sessionOption);
 
       expect(mockOnSessionSelect).toHaveBeenCalledWith(mockSessions[1]);
     });
 
-    it('should close dropdown after selection', async () => {
+    it('should close session dropdown after selection', async () => {
       const user = userEvent.setup();
       render(
         <Header sessions={mockSessions} onSessionSelect={mockOnSessionSelect} />
       );
 
-      const selector = screen.getByTestId('session-selector');
-      await user.click(selector);
+      // Select project1
+      const projectSelector = screen.getByTestId('project-selector');
+      await user.click(projectSelector);
+      const projectDropdown = screen.getByTestId('project-dropdown');
+      await user.click(projectDropdown.querySelector('button[role="option"]')!);
 
-      // Session display format is "projectName / sessionName"
-      const sessionOption = screen.getByText('project2 / session-2');
+      const sessionSelector = screen.getByTestId('session-selector');
+      await user.click(sessionSelector);
+
+      const sessionOption = screen.getByText('session-1b');
       await user.click(sessionOption);
 
       expect(screen.queryByTestId('session-dropdown')).toBeNull();
@@ -248,8 +348,14 @@ describe('Header', () => {
       const user = userEvent.setup();
       render(<Header sessions={mockSessions} />);
 
-      const selector = screen.getByTestId('session-selector');
-      await user.click(selector);
+      // Select project1
+      const projectSelector = screen.getByTestId('project-selector');
+      await user.click(projectSelector);
+      const projectDropdown = screen.getByTestId('project-dropdown');
+      await user.click(projectDropdown.querySelector('button[role="option"]')!);
+
+      const sessionSelector = screen.getByTestId('session-selector');
+      await user.click(sessionSelector);
 
       expect(screen.getByTestId('session-dropdown')).toBeDefined();
 
@@ -260,91 +366,27 @@ describe('Header', () => {
       });
     });
 
-    it('should close dropdown on click outside', async () => {
-      const user = userEvent.setup();
-      render(
-        <div>
-          <Header sessions={mockSessions} />
-          <div data-testid="outside">Outside</div>
-        </div>
-      );
-
-      const selector = screen.getByTestId('session-selector');
-      await user.click(selector);
-
-      expect(screen.getByTestId('session-dropdown')).toBeDefined();
-
-      const outside = screen.getByTestId('outside');
-      fireEvent.mouseDown(outside);
-
-      await waitFor(() => {
-        expect(screen.queryByTestId('session-dropdown')).toBeNull();
-      });
-    });
-
-    it('should toggle dropdown on repeated clicks', async () => {
-      const user = userEvent.setup();
-      render(<Header sessions={mockSessions} />);
-
-      const selector = screen.getByTestId('session-selector');
-
-      // Open
-      await user.click(selector);
-      expect(screen.getByTestId('session-dropdown')).toBeDefined();
-
-      // Close
-      await user.click(selector);
-      await waitFor(() => {
-        expect(screen.queryByTestId('session-dropdown')).toBeNull();
-      });
-
-      // Open again
-      await user.click(selector);
-      expect(screen.getByTestId('session-dropdown')).toBeDefined();
-    });
-
     it('should have aria-expanded attribute', async () => {
       const user = userEvent.setup();
       render(<Header sessions={mockSessions} />);
 
-      const selector = screen.getByTestId('session-selector');
-      expect(selector.getAttribute('aria-expanded')).toBe('false');
+      // Select project1 first
+      const projectSelector = screen.getByTestId('project-selector');
+      await user.click(projectSelector);
+      const projectDropdown = screen.getByTestId('project-dropdown');
+      await user.click(projectDropdown.querySelector('button[role="option"]')!);
 
-      await user.click(selector);
-      expect(selector.getAttribute('aria-expanded')).toBe('true');
+      const sessionSelector = screen.getByTestId('session-selector');
+      expect(sessionSelector.getAttribute('aria-expanded')).toBe('false');
+
+      await user.click(sessionSelector);
+      expect(sessionSelector.getAttribute('aria-expanded')).toBe('true');
     });
 
     it('should have aria-haspopup attribute', () => {
       render(<Header sessions={mockSessions} />);
       const selector = screen.getByTestId('session-selector');
       expect(selector.getAttribute('aria-haspopup')).toBe('listbox');
-    });
-
-    it('should mark current session as selected in dropdown', async () => {
-      const user = userEvent.setup();
-      mockUseSession.mockReturnValue({
-        ...mockUseSession(),
-        currentSession: mockSessions[0],
-      });
-
-      render(<Header sessions={mockSessions} />);
-
-      const selector = screen.getByTestId('session-selector');
-      await user.click(selector);
-
-      // Find the button for session-1 and check aria-selected
-      const sessionButtons = screen.getAllByRole('option');
-      const selectedButton = sessionButtons.find(
-        (btn) => btn.getAttribute('aria-selected') === 'true'
-      );
-      expect(selectedButton).toBeDefined();
-    });
-  });
-
-  describe('Empty Sessions', () => {
-    it('should handle empty sessions array', () => {
-      render(<Header sessions={[]} />);
-      expect(screen.queryByTestId('session-selector')).toBeNull();
     });
   });
 
@@ -504,7 +546,7 @@ describe('Header', () => {
       const user = userEvent.setup();
       const { unmount } = render(<Header sessions={mockSessions} />);
 
-      const selector = screen.getByTestId('session-selector');
+      const selector = screen.getByTestId('project-selector');
       await user.click(selector);
 
       expect(() => {

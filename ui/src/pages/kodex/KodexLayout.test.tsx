@@ -196,14 +196,24 @@ describe('KodexLayout', () => {
     expect(buttons.length).toBeGreaterThan(0);
   });
 
-  it('has Kodex label in header', () => {
+  it('has connection badge in header', () => {
     render(
       <BrowserRouter>
         <KodexLayout />
       </BrowserRouter>
     );
 
-    expect(screen.getByText('Kodex')).toBeInTheDocument();
+    expect(screen.getByTestId('connection-badge')).toBeInTheDocument();
+  });
+
+  it('has refresh projects button in header', () => {
+    render(
+      <BrowserRouter>
+        <KodexLayout />
+      </BrowserRouter>
+    );
+
+    expect(screen.getByTestId('refresh-projects')).toBeInTheDocument();
   });
 
   it('only calls setSelectedProject once even with multiple renders', async () => {
