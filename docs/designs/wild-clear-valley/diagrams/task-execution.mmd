@@ -1,0 +1,32 @@
+graph TD
+    %% Node Definitions
+    project-registry(["project-registry"])
+    mcp-projects-tools(["mcp-projects-tools"])
+    api-projects-endpoints(["api-projects-endpoints"])
+    mcp-setup-projects(["mcp-setup-projects"])
+    ui-projects-api(["ui-projects-api"])
+    kodex-store(["kodex-store"])
+    project-selector(["project-selector"])
+    kodex-pages-update(["kodex-pages-update"])
+    kodex-layout-update(["kodex-layout-update"])
+
+    %% Dependencies
+    project-registry --> mcp-projects-tools
+    project-registry --> api-projects-endpoints
+    mcp-projects-tools --> mcp-setup-projects
+    api-projects-endpoints --> ui-projects-api
+    ui-projects-api --> kodex-store
+    kodex-store --> project-selector
+    kodex-store --> kodex-pages-update
+    project-selector --> kodex-layout-update
+
+    %% Styles - all completed
+    style project-registry fill:#c8e6c9,stroke:#2e7d32
+    style mcp-projects-tools fill:#c8e6c9,stroke:#2e7d32
+    style api-projects-endpoints fill:#c8e6c9,stroke:#2e7d32
+    style mcp-setup-projects fill:#c8e6c9,stroke:#2e7d32
+    style ui-projects-api fill:#c8e6c9,stroke:#2e7d32
+    style kodex-store fill:#c8e6c9,stroke:#2e7d32
+    style project-selector fill:#c8e6c9,stroke:#2e7d32
+    style kodex-pages-update fill:#c8e6c9,stroke:#2e7d32
+    style kodex-layout-update fill:#c8e6c9,stroke:#2e7d32
