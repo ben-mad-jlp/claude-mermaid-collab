@@ -23,6 +23,20 @@ export interface UIResponse {
   error?: string;
 }
 
+export type UIStatus = 'pending' | 'responded' | 'canceled';
+
+export interface CachedUI {
+  uiId: string;
+  project: string;
+  session: string;
+  ui: any;
+  blocking: boolean;
+  status: UIStatus;
+  createdAt: number;
+  respondedAt?: number;
+  response?: Partial<UIResponse>;
+}
+
 export interface RenderUIRequest {
   project: string;
   session: string;
@@ -43,6 +57,7 @@ function generateUIId(): string {
 
 export class UIManager {
   private pendingUIs: Map<string, PendingUI> = new Map();
+  private currentUIBySession: Map<string, CachedUI> = new Map();
 
   /**
    * Register a UI render request and optionally wait for response.
@@ -80,7 +95,19 @@ export class UIManager {
     // 4. Build session key
     const sessionKey = `${project}:${session}`;
 
-    // 5. If non-blocking mode, return immediately
+    // 5. Cache the UI for reconnection recovery
+    const cachedUI: CachedUI = {
+      uiId,
+      project,
+      session,
+      ui,
+      blocking,
+      status: 'pending',
+      createdAt: Date.now(),
+    };
+    this.currentUIBySession.set(sessionKey, cachedUI);
+
+    // 6. If non-blocking mode, return immediately
     if (!blocking) {
       return {
         completed: true,
@@ -90,7 +117,7 @@ export class UIManager {
       };
     }
 
-    // 6. If blocking mode, create Promise with resolve/reject handlers
+    // 7. If blocking mode, create Promise with resolve/reject handlers
     return new Promise<UIResponse>((resolve, reject) => {
       // Set up timeout handler
       const timeoutHandle = setTimeout(() => {
@@ -143,13 +170,21 @@ export class UIManager {
       data: response.data,
     };
 
-    // 5. Resolve the Promise
+    // 5. Update cache status
+    const cachedUI = this.currentUIBySession.get(sessionKey);
+    if (cachedUI && cachedUI.uiId === uiId) {
+      cachedUI.status = 'responded';
+      cachedUI.respondedAt = Date.now();
+      cachedUI.response = response;
+    }
+
+    // 6. Resolve the Promise
     pending.resolve(result);
 
-    // 6. Cleanup
+    // 7. Cleanup
     this.pendingUIs.delete(sessionKey);
 
-    // 7. Return true (success)
+    // 8. Return true (success)
     return true;
   }
 
@@ -169,6 +204,12 @@ export class UIManager {
       return false;
     }
 
+    // Update cache status to canceled
+    const cachedUI = this.currentUIBySession.get(sessionKey);
+    if (cachedUI && cachedUI.uiId === pending.uiId) {
+      cachedUI.status = 'canceled';
+    }
+
     // Clear timeout
     clearTimeout(pending.timeoutHandle);
 
@@ -179,6 +220,13 @@ export class UIManager {
     this.pendingUIs.delete(sessionKey);
 
     return true;
+  }
+
+  /**
+   * Get the current cached UI for a session (for reconnection recovery).
+   */
+  getCurrentUI(sessionKey: string): CachedUI | null {
+    return this.currentUIBySession.get(sessionKey) || null;
   }
 }
 

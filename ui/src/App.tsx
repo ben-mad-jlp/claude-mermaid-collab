@@ -33,7 +33,7 @@ import { useAutoSave } from '@/hooks/useAutoSave';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { getWebSocketClient } from '@/lib/websocket';
 import { useShallow } from 'zustand/react/shallow';
-import { api, generateSessionName } from '@/lib/api';
+import { api, generateSessionName, type CachedUIState } from '@/lib/api';
 import type { Item, Session, ToolbarAction } from '@/types';
 
 // Import layout components
@@ -196,6 +196,20 @@ const App: React.FC = () => {
 
   // Chat store - no longer need drawer state, ChatPanel is always visible
 
+  // Restore UI state from backend cache (for reconnection recovery)
+  const restoreUIState = useCallback(async () => {
+    if (!currentSession) return;
+
+    try {
+      const cachedUI = await api.getUIState(currentSession.project, currentSession.name);
+      if (cachedUI) {
+        useChatStore.getState().restoreUIFromCache(cachedUI);
+      }
+    } catch (error) {
+      console.error('Failed to restore UI state:', error);
+    }
+  }, [currentSession]);
+
   // Subscribe to updates and handle messages
   useEffect(() => {
     const client = getWebSocketClient();
@@ -203,6 +217,8 @@ const App: React.FC = () => {
     // Subscribe to updates when connected
     if (isConnected && currentSession) {
       client.subscribe('updates');
+      // Restore any cached UI state on reconnection
+      restoreUIState();
     }
 
     // Handle incoming messages with incremental updates (Item 2 & 9)
@@ -314,13 +330,18 @@ const App: React.FC = () => {
         }
 
         case 'session_created': {
-          // Item 2: Handle session creation and auto-select new session
+          // Handle session creation - only auto-select if no session currently active
           const { project, session } = message as any;
           loadSessions().then(() => {
-            const freshSessions = useSessionStore.getState().sessions;
-            const newSession = freshSessions.find(s => s.project === project && s.name === session);
-            if (newSession) {
-              setCurrentSession(newSession);
+            const { currentSession: existingSession } = useSessionStore.getState();
+
+            // Only auto-select if no session currently selected (preserve user's context)
+            if (!existingSession) {
+              const freshSessions = useSessionStore.getState().sessions;
+              const newSession = freshSessions.find(s => s.project === project && s.name === session);
+              if (newSession) {
+                setCurrentSession(newSession);
+              }
             }
           });
           break;
@@ -335,7 +356,7 @@ const App: React.FC = () => {
     return () => {
       subscription.unsubscribe();
     };
-  }, [isConnected, currentSession, updateDiagram, updateDocument, addDiagram, addDocument, removeDiagram, removeDocument, setPendingDiff, receiveQuestion]);
+  }, [isConnected, currentSession, updateDiagram, updateDocument, addDiagram, addDocument, removeDiagram, removeDocument, setPendingDiff, receiveQuestion, restoreUIState]);
 
   // Compute selected item from diagrams/documents
   const selectedItem: Item | null = useMemo(() => {
@@ -516,6 +537,18 @@ const App: React.FC = () => {
     }
   }, [loadSessions]);
 
+  // Handle refreshing everything - sessions list and current session items
+  const handleRefreshAll = useCallback(async () => {
+    // Refresh sessions list
+    await loadSessions();
+
+    // Refresh current session items if a session is selected
+    if (currentSession) {
+      const project = currentSession.project || '';
+      await loadSessionItems(project, currentSession.name);
+    }
+  }, [loadSessions, loadSessionItems, currentSession]);
+
   // Handle deleting a session
   const handleDeleteSession = useCallback(async (session: Session) => {
     try {
@@ -684,7 +717,7 @@ const App: React.FC = () => {
         <Header
           sessions={sessions}
           onSessionSelect={handleSessionSelect}
-          onRefreshSessions={loadSessions}
+          onRefreshSessions={handleRefreshAll}
           onCreateSession={handleCreateSession}
           onAddProject={handleAddProject}
           onDeleteSession={handleDeleteSession}

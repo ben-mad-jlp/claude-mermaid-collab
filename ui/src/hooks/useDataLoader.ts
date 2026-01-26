@@ -23,6 +23,8 @@ export interface UseDataLoaderReturn {
   loadSessions: () => Promise<void>;
   /** Load diagrams and documents for a specific session */
   loadSessionItems: (project: string, session: string) => Promise<void>;
+  /** Refresh session items while preserving current selection */
+  refreshSessionItems: (project: string, session: string) => Promise<void>;
   /** Select a diagram and fetch its content */
   selectDiagramWithContent: (project: string, session: string, id: string) => Promise<void>;
   /** Select a document and fetch its content */
@@ -66,6 +68,7 @@ export function useDataLoader(): UseDataLoaderReturn {
   const selectDocument = useSessionStore((state) => state.selectDocument);
   const updateDiagram = useSessionStore((state) => state.updateDiagram);
   const updateDocument = useSessionStore((state) => state.updateDocument);
+  const setCollabState = useSessionStore((state) => state.setCollabState);
 
   /**
    * Load all available sessions from the API
@@ -86,6 +89,22 @@ export function useDataLoader(): UseDataLoaderReturn {
   }, [setSessions]);
 
   /**
+   * Load collab session state
+   */
+  const loadCollabState = useCallback(
+    async (project: string, session: string) => {
+      try {
+        const state = await api.getSessionState(project, session);
+        setCollabState(state);
+      } catch (err) {
+        console.error('Failed to load collab state:', err);
+        setCollabState(null);
+      }
+    },
+    [setCollabState]
+  );
+
+  /**
    * Load diagrams and documents for a specific session
    */
   const loadSessionItems = useCallback(
@@ -98,6 +117,9 @@ export function useDataLoader(): UseDataLoaderReturn {
         const documents = await api.getDocuments(project, session);
         setDiagrams(diagrams);
         setDocuments(documents);
+
+        // Also load collab state
+        await loadCollabState(project, session);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to load session items';
         setError(message);
@@ -105,7 +127,30 @@ export function useDataLoader(): UseDataLoaderReturn {
         setIsLoading(false);
       }
     },
-    [setDiagrams, setDocuments]
+    [setDiagrams, setDocuments, loadCollabState]
+  );
+
+  /**
+   * Refresh session items while preserving current selection
+   */
+  const refreshSessionItems = useCallback(
+    async (project: string, session: string) => {
+      // Capture current selection
+      const { selectedDiagramId, selectedDocumentId } = useSessionStore.getState();
+
+      // Load fresh data
+      await loadSessionItems(project, session);
+
+      // Restore selection if items still exist
+      const { diagrams: newDiagrams, documents: newDocuments } = useSessionStore.getState();
+
+      if (selectedDiagramId && newDiagrams.find((d) => d.id === selectedDiagramId)) {
+        selectDiagram(selectedDiagramId);
+      } else if (selectedDocumentId && newDocuments.find((d) => d.id === selectedDocumentId)) {
+        selectDocument(selectedDocumentId);
+      }
+    },
+    [loadSessionItems, selectDiagram, selectDocument]
   );
 
   /**
@@ -159,6 +204,7 @@ export function useDataLoader(): UseDataLoaderReturn {
     error,
     loadSessions,
     loadSessionItems,
+    refreshSessionItems,
     selectDiagramWithContent,
     selectDocumentWithContent,
   };

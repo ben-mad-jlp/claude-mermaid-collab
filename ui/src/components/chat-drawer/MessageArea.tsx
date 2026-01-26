@@ -75,25 +75,41 @@ export const MessageArea: React.FC<MessageAreaProps> = ({ messages, onAction }) 
                   Responded
                 </span>
               )}
+              {message.canceled && (
+                <span className="px-1.5 py-0.5 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 rounded font-medium">
+                  Canceled
+                </span>
+              )}
             </div>
 
-            {/* Render content based on message type */}
-            {message.type === 'ui_render' && message.ui ? (
-              <AIUIRenderer
-                component={message.ui}
-                onAction={onAction(message.id)}
-                disabled={message.responded}
-              />
-            ) : hasArtifact && artifactData ? (
-              <ArtifactLink
-                notification={artifactData}
-                onClick={handleArtifactClick}
-              />
-            ) : (
-              <p className="text-sm text-gray-700 dark:text-gray-300">
-                {message.response?.message || 'No content'}
-              </p>
-            )}
+            {/* Render content based on message type - with canceled overlay if applicable */}
+            <div className={message.canceled ? 'relative' : ''}>
+              {message.canceled && (
+                <div className="absolute inset-0 bg-gray-100 dark:bg-gray-800 bg-opacity-75 dark:bg-opacity-75 flex items-center justify-center z-10 rounded pointer-events-none">
+                  <span className="px-3 py-1 bg-orange-500 text-white text-sm font-medium rounded-full shadow">
+                    Action Canceled
+                  </span>
+                </div>
+              )}
+              <div className={message.canceled ? 'opacity-50 pointer-events-none' : ''}>
+                {message.type === 'ui_render' && message.ui ? (
+                  <AIUIRenderer
+                    component={message.ui}
+                    onAction={onAction(message.id)}
+                    disabled={message.responded || message.canceled}
+                  />
+                ) : hasArtifact && artifactData ? (
+                  <ArtifactLink
+                    notification={artifactData}
+                    onClick={handleArtifactClick}
+                  />
+                ) : (
+                  <p className="text-sm text-gray-700 dark:text-gray-300">
+                    {message.response?.message || 'No content'}
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
         );
       })}

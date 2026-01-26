@@ -15,6 +15,15 @@ export interface ChatMessage {
   response?: any;
   project?: string;
   session?: string;
+  canceled?: boolean;
+}
+
+export interface CachedUIState {
+  uiId: string;
+  ui: any;
+  blocking: boolean;
+  status: 'pending' | 'responded' | 'canceled';
+  createdAt: number;
 }
 
 interface ChatState {
@@ -30,6 +39,7 @@ interface ChatActions {
   markAsRead: (id: string) => void;
   setOpen: (open: boolean) => void;
   clearMessages: () => void;
+  restoreUIFromCache: (cachedUI: CachedUIState) => void;
 }
 
 export const useChatStore = create<ChatState & ChatActions>((set, get) => ({
@@ -153,6 +163,50 @@ export const useChatStore = create<ChatState & ChatActions>((set, get) => ({
       messages: [],
       unreadCount: 0,
       currentBlockingId: null,
+    });
+  },
+
+  restoreUIFromCache: (cachedUI: CachedUIState) => {
+    set((state) => {
+      // Check if message with this uiId already exists
+      const existingIndex = state.messages.findIndex((m) => m.id === cachedUI.uiId);
+
+      if (existingIndex !== -1) {
+        // Update existing message status
+        const updatedMessages = [...state.messages];
+        updatedMessages[existingIndex] = {
+          ...updatedMessages[existingIndex],
+          canceled: cachedUI.status === 'canceled',
+          responded: cachedUI.status === 'responded',
+        };
+        return { messages: updatedMessages };
+      }
+
+      // Create new message from cached UI
+      const newMessage: ChatMessage = {
+        id: cachedUI.uiId,
+        type: 'ui_render',
+        ui: cachedUI.ui,
+        blocking: cachedUI.blocking,
+        timestamp: cachedUI.createdAt,
+        responded: cachedUI.status === 'responded',
+        canceled: cachedUI.status === 'canceled',
+      };
+
+      const newState = {
+        messages: [newMessage, ...state.messages],
+        unreadCount: state.unreadCount,
+        isOpen: state.isOpen,
+        currentBlockingId: state.currentBlockingId,
+      };
+
+      // If blocking and pending, auto-open drawer and set current blocking ID
+      if (cachedUI.blocking && cachedUI.status === 'pending') {
+        newState.currentBlockingId = cachedUI.uiId;
+        newState.isOpen = true;
+      }
+
+      return newState;
     });
   },
 }));

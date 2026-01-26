@@ -263,6 +263,61 @@ export async function handleAPI(
     return handleHealthCheck(wsHandler);
   }
 
+  // GET /api/session-state?project=...&session=... - Get collab session state
+  if (path === '/api/session-state' && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    try {
+      // Check new location first, then old location for backwards compatibility
+      const newPath = join(params.project, '.collab', 'sessions', params.session, 'collab-state.json');
+      const oldPath = join(params.project, '.collab', params.session, 'collab-state.json');
+
+      let stateFile = Bun.file(newPath);
+      if (!await stateFile.exists()) {
+        stateFile = Bun.file(oldPath);
+        if (!await stateFile.exists()) {
+          return Response.json({ error: 'Session state not found' }, { status: 404 });
+        }
+      }
+
+      const content = await stateFile.text();
+      const state = JSON.parse(content);
+      return Response.json(state);
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // GET /api/ui-state?project=...&session=... - Get cached UI state for reconnection
+  if (path === '/api/ui-state' && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    try {
+      const sessionKey = `${params.project}:${params.session}`;
+      const cachedUI = uiManager.getCurrentUI(sessionKey);
+
+      if (!cachedUI) {
+        return Response.json({ status: 'none' });
+      }
+
+      return Response.json({
+        uiId: cachedUI.uiId,
+        ui: cachedUI.ui,
+        blocking: cachedUI.blocking,
+        status: cachedUI.status,
+        createdAt: cachedUI.createdAt,
+      });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
   // GET /api/status - Agent status check
   if (path === '/api/status' && req.method === 'GET') {
     const status = statusManager.getStatus();

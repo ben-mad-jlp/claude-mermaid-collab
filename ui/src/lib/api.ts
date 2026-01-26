@@ -2,7 +2,7 @@
  * API Client - HTTP fetch methods for communicating with the backend
  */
 
-import type { Session, Diagram, Document } from '@/types';
+import type { Session, Diagram, Document, CollabState } from '@/types';
 import type { TerminalSession, CreateSessionResult } from '@/types/terminal';
 
 // Word lists for session name generation (matching backend)
@@ -50,6 +50,16 @@ export interface ApiClient {
   deleteTerminalSession(project: string, session: string, id: string): Promise<void>;
   renameTerminalSession(project: string, session: string, id: string, name: string): Promise<void>;
   reorderTerminalSessions(project: string, session: string, orderedIds: string[]): Promise<void>;
+  getSessionState(project: string, session: string): Promise<CollabState | null>;
+  getUIState(project: string, session: string): Promise<CachedUIState | null>;
+}
+
+export interface CachedUIState {
+  uiId: string;
+  ui: any;
+  blocking: boolean;
+  status: 'pending' | 'responded' | 'canceled';
+  createdAt: number;
 }
 
 /**
@@ -305,5 +315,37 @@ export const api: ApiClient = {
     if (!response.ok) {
       throw new Error(response.statusText);
     }
+  },
+
+  /**
+   * Get collab session state
+   */
+  async getSessionState(project: string, session: string): Promise<CollabState | null> {
+    const url = `/api/session-state?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const response = await fetch(url);
+    if (response.status === 404) {
+      return null;
+    }
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+    return response.json();
+  },
+
+  /**
+   * Get cached UI state for reconnection recovery
+   */
+  async getUIState(project: string, session: string): Promise<CachedUIState | null> {
+    const url = `/api/ui-state?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+    const data = await response.json();
+    // API returns { status: 'none' } when no cached UI
+    if (data.status === 'none') {
+      return null;
+    }
+    return data as CachedUIState;
   },
 };
