@@ -3,8 +3,8 @@
 A collaborative design toolkit for Claude Code: diagram server + skills/agents for design-to-implementation workflows.
 
 **Two components:**
-1. **Server** - Real-time Mermaid diagram collaboration with MCP integration
-2. **Plugin** - 18 skills + 4 agents for brainstorming, planning, and structured development workflows
+1. **Server** - Real-time Mermaid diagram collaboration with MCP integration and React GUI
+2. **Plugin** - 42 skills + 5 agents for brainstorming, planning, and structured development workflows
 
 ## Collab Workflow
 
@@ -36,57 +36,106 @@ The collab workflow turns ideas into working code through structured phases with
 ### Server
 
 - **Multi-Session Architecture**: One server serves multiple projects and sessions
-- **Web Dashboard**: Browse diagrams with cached thumbnails at `http://localhost:3737`
+- **React GUI**: Full-featured web dashboard at `http://localhost:3737`
 - **Split-Pane Editor**: Live preview with syntax validation, undo/redo
 - **Real-Time Collaboration**: WebSocket-based live updates with channel subscriptions
 - **MCP Integration**: Claude Code can create, read, update, and preview diagrams
 - **Wireframe Plugin**: Built-in support for UI wireframes and mockups
 - **Document Collaboration**: Create and edit markdown documents alongside diagrams
+- **AI UI System**: Rich interactive components rendered in browser (forms, tables, code blocks, etc.)
+- **Terminal Integration**: Embedded terminal sessions with tmux support
+- **Kodex Knowledge Base**: Project-specific knowledge management with topic CRUD
 - **Health Monitoring**: `/api/health` endpoint and `check_server_health` MCP tool
 
-### Skills (18 Total)
+### Skills (42 Total)
 
 Skills are orchestration-focused instructions for Claude Code, loaded on-demand. Large skills use phase modules to reduce context overhead.
 
-#### Core Workflow
+#### Collab Core (8)
 | Skill | Purpose |
 |-------|---------|
 | **collab** | Orchestrator - creates sessions, manages work item loop |
 | **collab-start** | Quick-start: ensures server running then launches collab |
+| **collab-work-item-loop** | Core loop that processes work items one at a time |
+| **collab-session-mgmt** | Session finding, creating, and resuming procedures |
 | **collab-compact** | Save context snapshot and trigger compaction |
 | **collab-cleanup** | Archive or delete session artifacts |
+| **collab-clear** | Close out a collab session |
 | **gather-session-goals** | Collects and classifies work items at session start |
-| **brainstorming** | Socratic design refinement through 5 phases |
-| **rough-draft** | Bridges design to implementation via 4 phases |
-| **executing-plans** | Batch execution with dependency-aware parallel dispatch |
-| **ready-to-implement** | Central checkpoint - validates all items documented |
-| **task-planning** | Plans operational tasks (Prerequisites → Steps → Verification) |
 
-#### Implementation
+#### Brainstorming (6)
 | Skill | Purpose |
 |-------|---------|
-| **subagent-driven-development** | Fast iteration with parallel task execution |
+| **brainstorming** | Parent skill - Socratic design refinement through phases |
+| **brainstorming-exploring** | Phase: Gather context and form initial understanding |
+| **brainstorming-clarifying** | Phase: Discuss each item to understand requirements |
+| **brainstorming-designing** | Phase: Present design approach in validated sections |
+| **brainstorming-validating** | Phase: Run completeness gate for implementation readiness |
+| **brainstorming-transition** | Transition from brainstorming to rough-draft |
+
+#### Rough Draft (5)
+| Skill | Purpose |
+|-------|---------|
+| **rough-draft** | Parent skill - Bridges design to implementation via 4 phases |
+| **rough-draft-interface** | Phase 1: Define structural contracts |
+| **rough-draft-pseudocode** | Phase 2: Define logic flow for each function |
+| **rough-draft-skeleton** | Phase 3: Generate stub files and task dependency graph |
+| **rough-draft-handoff** | Phase 4: Hand off to executing-plans |
+
+#### Executing Plans (3)
+| Skill | Purpose |
+|-------|---------|
+| **executing-plans** | Parent skill - Batch execution with dependency-aware dispatch |
+| **executing-plans-execution** | Detailed execution logic |
+| **executing-plans-review** | Verification, drift detection, and snapshot logic |
+
+#### Kodex Knowledge Base (7)
+| Skill | Purpose |
+|-------|---------|
+| **using-kodex** | Query topics and flag outdated information |
+| **kodex-init** | Bootstrap knowledge base by analyzing codebase |
+| **kodex-fix** | Fix flagged topics by generating updated content |
+| **kodex-fix-outdated** | Update topics with codebase changes |
+| **kodex-fix-incorrect** | Correct factually incorrect content |
+| **kodex-fix-incomplete** | Fill in missing sections |
+| **kodex-fix-missing** | Create new topics for missing documentation |
+
+#### Implementation (5)
+| Skill | Purpose |
+|-------|---------|
+| **ready-to-implement** | Central checkpoint - validates all items documented |
+| **task-planning** | Plans operational tasks (Prerequisites → Steps → Verification) |
 | **dispatching-parallel-agents** | Coordinates independent tasks |
 | **finishing-a-development-branch** | Merge/PR decision workflow |
 | **writing-plans** | Detailed implementation plans (standalone) |
-| **test-driven-development** | RED-GREEN-REFACTOR cycle enforcement |
 
-#### Code Review & Visualization
+#### Development Practices (2)
+| Skill | Purpose |
+|-------|---------|
+| **test-driven-development** | RED-GREEN-REFACTOR cycle enforcement |
+| **writing-skills** | Create and verify new skills |
+
+#### Code Review (2)
 | Skill | Purpose |
 |-------|---------|
 | **requesting-code-review** | Prepares code for peer review |
 | **receiving-code-review** | Handles feedback with validation |
+
+#### Visualization & Utilities (4)
+| Skill | Purpose |
+|-------|---------|
 | **mermaid-collab** | Create/edit diagrams, wireframes, documents |
 | **using-gui-wireframes** | UI mockup creation |
-| **writing-skills** | Create and verify new skills |
+| **using-ai-ui** | Guide for interactive UI components |
 | **using-superpowers** | Establishes skill discovery and usage |
 
-### Agents (4 Total)
+### Agents (5 Total)
 
 Agents are standalone Task tool targets with simplified frontmatter. They focus on specific bounded tasks.
 
 | Agent | Purpose |
 |-------|---------|
+| **subagent-driven-development** | Fast iteration with parallel task execution |
 | **systematic-debugging** | 4-phase root cause analysis (documentation only) |
 | **verify-phase** | Checks rough-draft output aligns with design |
 | **verification-before-completion** | Evidence before success claims |
@@ -159,13 +208,16 @@ The plugin provides these slash commands (all namespaced under `mermaid-collab:`
     └── scratch/        # Default scratch session
 
 /your/project/
-└── .collab/
-    └── session-name/
-        ├── diagrams/              # .mmd files
-        ├── documents/             # .md files (design.md required)
-        ├── collab-state.json      # Phase tracking
-        ├── terminal-sessions.json # Persistent terminal tabs
-        └── context-snapshot.json  # Recovery after compaction
+├── .collab/
+│   └── session-name/
+│       ├── diagrams/              # .mmd files
+│       ├── documents/             # .md files (design.md required)
+│       ├── collab-state.json      # Phase tracking
+│       ├── terminal-sessions.json # Persistent terminal tabs
+│       └── context-snapshot.json  # Recovery after compaction
+└── .kodex/                        # Project knowledge base
+    └── topics/
+        └── *.md                   # Topic files
 ```
 
 ### Collab State
@@ -192,6 +244,9 @@ All tools require `project` (absolute path) and `session` (session name) paramet
 | `check_server_health()` | Check server health status |
 | `generate_session_name()` | Generate a memorable session name |
 | `list_sessions()` | List all registered sessions |
+| `list_projects()` | List all registered projects |
+| `register_project(path)` | Register a new project |
+| `unregister_project(path)` | Unregister a project |
 
 ### Collab State Tools
 
@@ -215,6 +270,7 @@ All tools require `project` (absolute path) and `session` (session name) paramet
 | `patch_diagram(project, session, id, old_string, new_string)` | Patch diagram content |
 | `validate_diagram(content)` | Check Mermaid syntax |
 | `preview_diagram(project, session, id)` | Get browser URL |
+| `transpile_diagram(project, session, id)` | Get transpiled output for SMACH diagrams |
 
 ### Document Tools
 
@@ -231,7 +287,7 @@ All tools require `project` (absolute path) and `session` (session name) paramet
 
 | Tool | Description |
 |------|-------------|
-| `render_ui(project, session, ui, blocking?, timeout?)` | Push UI to browser (no default timeout) |
+| `render_ui(project, session, ui, blocking?, timeout?)` | Push UI to browser |
 | `update_ui(project, session, patch)` | Update displayed UI with patch |
 | `dismiss_ui(project, session)` | Dismiss current UI |
 
@@ -244,6 +300,22 @@ All tools require `project` (absolute path) and `session` (session name) paramet
 | `terminal_kill_session(project, session, id)` | Kill a terminal session |
 | `terminal_rename_session(project, session, id, name)` | Rename a terminal session |
 | `terminal_reorder_sessions(project, session, orderedIds)` | Reorder terminal sessions |
+
+### Kodex Knowledge Base Tools
+
+| Tool | Description |
+|------|-------------|
+| `kodex_query_topic(project, name)` | Query a topic from knowledge base |
+| `kodex_list_topics(project, filter?)` | List all topics (all/verified/unverified/has_draft) |
+| `kodex_create_topic(project, name, title, content)` | Create new topic (as draft) |
+| `kodex_update_topic(project, name, content, reason)` | Update topic (creates draft) |
+| `kodex_flag_topic(project, name, type, description)` | Flag topic for review |
+| `kodex_verify_topic(project, name, verified_by)` | Mark topic as verified |
+| `kodex_list_drafts(project, include_content?)` | List pending drafts |
+| `kodex_approve_draft(project, name)` | Approve a pending draft |
+| `kodex_reject_draft(project, name)` | Reject a pending draft |
+| `kodex_dashboard(project)` | Get dashboard stats |
+| `kodex_list_flags(project, status?)` | List flagged topics |
 
 ## REST API
 
@@ -300,6 +372,7 @@ PUT /api/terminal/sessions/reorder   # Reorder terminal sessions
 | **DiagramManager** | Per-session diagram CRUD |
 | **DocumentManager** | Per-session document CRUD |
 | **TerminalManager** | Collab-scoped tmux session lifecycle |
+| **KodexManager** | Project knowledge base management |
 | **Validator** | Mermaid syntax validation |
 | **Renderer** | Server-side SVG generation |
 | **WebSocketHandler** | Real-time updates with channel subscriptions |
@@ -311,6 +384,25 @@ PUT /api/terminal/sessions/reorder   # Reorder terminal sessions
 - Session registry at `~/.mermaid-collab/sessions.json`
 - WebSocket broadcasts include project/session context for filtering
 - Channel-based subscriptions for targeted updates
+
+## AI UI Components
+
+The `render_ui` tool supports 32 component types for rich browser interactions:
+
+### Display Components
+`Table`, `CodeBlock`, `DiffView`, `JsonViewer`, `Markdown`, `Image`, `Spinner`, `Badge`
+
+### Layout Components
+`Card`, `Section`, `Columns`, `Accordion`, `Alert`, `Divider`
+
+### Interactive Components
+`Wizard`, `Checklist`, `ApprovalButtons`, `ProgressBar`, `Tabs`, `Link`
+
+### Input Components (form data collected on action)
+`MultipleChoice`, `TextInput`, `TextArea`, `Checkbox`, `Confirmation`, `RadioGroup`, `Toggle`, `NumberInput`, `Slider`, `FileUpload`
+
+### Mermaid Components
+`DiagramEmbed`, `WireframeEmbed`
 
 ## Wireframe Plugin
 
@@ -336,6 +428,9 @@ bun run src/server.ts
 
 # Run MCP server directly
 bun run src/mcp/server.ts
+
+# Run full dev environment (API + UI + Terminal)
+npm run dev
 
 # Run UI tests
 cd ui && npm run test:ci

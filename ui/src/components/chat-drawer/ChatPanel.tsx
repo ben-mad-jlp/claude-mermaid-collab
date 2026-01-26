@@ -60,9 +60,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ className }) => {
     clearMessages();
   };
 
-  // Display messages with newest first
-  const reversedMessages = [...messages].reverse();
-
   // Chat panel content
   const chatContent = (
     <div className="flex flex-col h-full">
@@ -72,6 +69,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ className }) => {
           onSend={handleSendMessage}
           onClear={handleClearMessages}
           disabled={!pendingBlockingMessage}
+          clearDisabled={messages.length === 0}
         />
       </div>
 
@@ -92,7 +90,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ className }) => {
             </div>
           </div>
         ) : (
-          <MessageArea messages={reversedMessages} onAction={createActionHandler} />
+          <MessageArea messages={messages} onAction={createActionHandler} />
         )}
       </div>
     </div>

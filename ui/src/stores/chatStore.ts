@@ -55,10 +55,19 @@ export const useChatStore = create<ChatState & ChatActions>((set, get) => ({
         return state;
       }
 
+      // If new message is blocking, cancel any existing unresponded blocking messages
+      // This handles the case where Claude Code sends a new message after timeout
+      let updatedMessages = state.messages;
+      if (msg.blocking) {
+        updatedMessages = state.messages.map((m) =>
+          m.blocking && !m.responded && !m.canceled ? { ...m, canceled: true } : m
+        );
+      }
+
       // Prepend new message and keep history (max 50 messages)
       const MAX_MESSAGES = 50;
       const newState = {
-        messages: [msg, ...state.messages].slice(0, MAX_MESSAGES),
+        messages: [msg, ...updatedMessages].slice(0, MAX_MESSAGES),
         unreadCount: state.unreadCount,
         isOpen: state.isOpen,
         currentBlockingId: state.currentBlockingId,

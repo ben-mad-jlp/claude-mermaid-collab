@@ -12,14 +12,17 @@ export interface InputControlsProps {
   onSend: (message: string) => void;
   /** Callback when clear button is clicked */
   onClear: () => void;
-  /** Whether the controls are disabled */
+  /** Whether the input/send controls are disabled */
   disabled?: boolean;
+  /** Whether the clear button is disabled (defaults to disabled prop) */
+  clearDisabled?: boolean;
 }
 
 export const InputControls: React.FC<InputControlsProps> = ({
   onSend,
   onClear,
   disabled = false,
+  clearDisabled,
 }) => {
   const [inputValue, setInputValue] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -57,7 +60,7 @@ export const InputControls: React.FC<InputControlsProps> = ({
       {/* Clear Button - Left */}
       <button
         onClick={handleClear}
-        disabled={disabled}
+        disabled={clearDisabled ?? disabled}
         aria-label="Clear message area"
         className="
           flex-shrink-0

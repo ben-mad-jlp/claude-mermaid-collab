@@ -54,13 +54,19 @@ export const MessageArea: React.FC<MessageAreaProps> = ({ messages, onAction }) 
         const hasArtifact = hasArtifactData(message);
         const artifactData = hasArtifact ? getArtifactData(message) : null;
 
+        // Messages that have been responded to are "logs" - darken them
+        const isLog = message.responded || message.canceled;
+
         return (
           <div
             key={message.id}
             data-testid={`message-${message.id}`}
             data-blocking={message.blocking}
             data-responded={message.responded}
-            className={index > 0 ? 'pt-4 border-t border-gray-200 dark:border-gray-700' : ''}
+            className={`
+              ${index > 0 ? 'pt-4 border-t border-gray-200 dark:border-gray-700' : ''}
+              ${isLog ? 'opacity-60' : ''}
+            `}
           >
             {/* Header with timestamp and badges */}
             <div className="flex items-center gap-2 mb-2 text-xs text-gray-500 dark:text-gray-400">
