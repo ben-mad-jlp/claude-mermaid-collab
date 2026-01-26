@@ -13,8 +13,8 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHttpTransport } from './http-transport.js';
 import { setupMCPServer } from './setup.js';
 
-// Session timeout - sessions expire after 5 minutes of inactivity
-const SESSION_TIMEOUT_MS = 5 * 60 * 1000;
+// Session timeout - sessions expire after 30 minutes of inactivity
+const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 
 // Cleanup interval
 const CLEANUP_INTERVAL_MS = 60 * 1000;
@@ -72,14 +72,26 @@ async function handlePost(req: Request, sessionId: string | null): Promise<Respo
   if (sessionId) {
     // Existing session
     const existing = sessions.get(sessionId);
-    if (!existing) {
-      return Response.json(
-        { error: 'session_not_found', message: 'Session not found. Please reinitialize.' },
-        { status: 404 }
-      );
+    if (existing) {
+      session = existing;
+      session.lastActivity = Date.now();
+    } else {
+      // Session expired or unknown - auto-create new session
+      console.log(`[MCP HTTP] Session expired, auto-reconnecting: ${sessionId}`);
+      const transport = new StreamableHttpTransport();
+      const server = await setupMCPServer();
+
+      session = {
+        transport,
+        server,
+        createdAt: Date.now(),
+        lastActivity: Date.now(),
+      };
+
+      await server.connect(transport);
+      sessions.set(transport.sessionId, session);
+      console.log(`[MCP HTTP] Auto-reconnected as: ${transport.sessionId} (total: ${sessions.size})`);
     }
-    session = existing;
-    session.lastActivity = Date.now();
   } else {
     // New session - this should be an Initialize request
     const transport = new StreamableHttpTransport();

@@ -10,6 +10,7 @@ allowed-tools:
   - AskUserQuestion
   - mcp__plugin_mermaid-collab_mermaid__kodex_create_topic
   - mcp__plugin_mermaid-collab_mermaid__kodex_list_topics
+  - mcp__plugin_mermaid-collab_mermaid__kodex_flag_topic
 ---
 
 # Kodex Init
@@ -148,9 +149,27 @@ Args: {
 }
 ```
 
+---
+
+## Step 5: Flag Topics as Incomplete
+
+After creating all topics, flag each one as incomplete so they appear in the fix queue:
+
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__kodex_flag_topic
+Args: {
+  "project": "<absolute-path-to-cwd>",
+  "name": "<topic-name>",
+  "type": "incomplete",
+  "description": "Stub topic needs detailed content based on actual codebase analysis"
+}
+```
+
+Call this for each topic created in Step 4.
+
 ### Summary
 
-After creating all topics, display:
+After creating and flagging all topics, display:
 
 ```
 Created N topics as drafts:
@@ -158,8 +177,8 @@ Created N topics as drafts:
 - topic-2: Title 2
 ...
 
-Topics require approval before going live.
-Use the Kodex dashboard to review and approve drafts.
+All topics flagged as incomplete for review.
+Use /kodex-fix to fill in detailed content, or review drafts in the Kodex UI.
 ```
 
 ---
@@ -181,6 +200,7 @@ Use the Kodex dashboard to review and approve drafts.
 |------|---------|
 | `kodex_create_topic` | Create a new topic as draft |
 | `kodex_list_topics` | Check existing topics before creating |
+| `kodex_flag_topic` | Flag topic as incomplete for review |
 
 ---
 
@@ -189,4 +209,5 @@ Use the Kodex dashboard to review and approve drafts.
 **Standalone skill** - Does not require an active collab session.
 
 **Related skills:**
+- `kodex-fix` - Fix flagged incomplete topics
 - `using-kodex` - Query and flag existing topics

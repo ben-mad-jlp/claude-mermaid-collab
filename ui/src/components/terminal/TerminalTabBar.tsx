@@ -207,7 +207,7 @@ export const TerminalTabBar: React.FC<TerminalTabBarProps> = ({
     }
   };
 
-  const canClose = tabs.length > 1;
+  const canClose = true;
 
   return (
     <div className="terminal-tab-bar" role="tablist">

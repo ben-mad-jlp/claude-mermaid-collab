@@ -13,9 +13,7 @@ import React, { useCallback, useState, useRef, useEffect } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useTheme } from '@/hooks/useTheme';
 import { useSession } from '@/hooks/useSession';
-import { useAgentStatus } from '@/hooks/useAgentStatus';
 import { useUIStore } from '@/stores/uiStore';
-import { StatusIndicator } from '@/components/StatusIndicator';
 import { Session } from '@/types';
 
 export interface HeaderProps {
@@ -52,7 +50,6 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const { theme, toggleTheme } = useTheme();
   const { currentSession } = useSession();
-  const { agentStatus, agentMessage, agentIsLoading } = useAgentStatus();
   const { editMode, toggleEditMode, chatPanelVisible, toggleChatPanel, terminalPanelVisible, toggleTerminalPanel } = useUIStore(
     useShallow((state) => ({
       editMode: state.editMode,
@@ -200,15 +197,6 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Agent Status Indicator */}
-        {!agentIsLoading && (
-          <StatusIndicator
-            status={agentStatus}
-            message={agentMessage}
-            className="ml-2"
-          />
-        )}
-
         {/* Right-side controls */}
         <div className="flex items-center gap-3">
           {/* Create Session Button */}
@@ -294,7 +282,7 @@ export const Header: React.FC<HeaderProps> = ({
                   transition-colors
                 "
               >
-                <span className="max-w-48 truncate">
+                <span className="max-w-96 truncate">
                   {currentSession ? formatSessionDisplay(currentSession) : 'Select Session'}
                 </span>
                 <svg
@@ -317,7 +305,7 @@ export const Header: React.FC<HeaderProps> = ({
                   data-testid="session-dropdown"
                   role="listbox"
                   className="
-                    absolute right-0 mt-2 w-80
+                    absolute right-0 mt-2 w-[640px]
                     bg-white dark:bg-gray-800
                     border border-gray-200 dark:border-gray-700
                     rounded-lg shadow-lg
