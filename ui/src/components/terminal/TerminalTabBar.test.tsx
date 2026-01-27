@@ -57,7 +57,7 @@ describe('TerminalTabBar', () => {
       expect(closeButtons.length).toBe(mockTabs.length);
     });
 
-    it('should not show close button when only one tab exists', () => {
+    it('should show close button even when only one tab exists', () => {
       const singleTab: TerminalTab[] = [mockTabs[0]];
       render(
         <TerminalTabBar
@@ -67,7 +67,7 @@ describe('TerminalTabBar', () => {
         />
       );
       const closeButtons = screen.queryAllByRole('button', { name: /close tab/i });
-      expect(closeButtons.length).toBe(0);
+      expect(closeButtons.length).toBe(1);
     });
 
     it('should render empty state when no tabs', () => {
@@ -127,7 +127,7 @@ describe('TerminalTabBar', () => {
       expect(onTabClose).toHaveBeenCalledWith('tab-1');
     });
 
-    it('should not show close button for single tab', () => {
+    it('should show close button for single tab', () => {
       const singleTab: TerminalTab[] = [mockTabs[0]];
       const onTabClose = vi.fn();
       render(
@@ -139,7 +139,7 @@ describe('TerminalTabBar', () => {
         />
       );
       const closeButtons = screen.queryAllByRole('button', { name: /close tab/i });
-      expect(closeButtons.length).toBe(0);
+      expect(closeButtons.length).toBe(1);
     });
   });
 
