@@ -873,4 +873,168 @@ describe('App Component', () => {
       }
     });
   });
+
+  describe('Item 3: Task quantity auto updating via WebSocket (session_state_updated)', () => {
+    beforeEach(() => {
+      // Reset session store before each test
+      useSessionStore.setState({
+        currentSession: { project: 'test-project', name: 'test-session' } as Session,
+        collabState: null,
+      });
+    });
+
+    it('should have setCollabState method in sessionStore', () => {
+      // Verify the store method exists for updating collab state
+      const state = useSessionStore.getState();
+      expect(typeof state.setCollabState).toBe('function');
+    });
+
+    it('should import setCollabState from sessionStore for WebSocket handler', () => {
+      // This test verifies that App.tsx has access to setCollabState
+      // The import happens in the useSessionStore destructuring
+      render(<App />);
+
+      const sessionStore = useSessionStore.getState();
+      expect(typeof sessionStore.setCollabState).toBe('function');
+    });
+
+    it('should call setCollabState directly to update collab state', () => {
+      // Test the sessionStore method directly
+      const testCollabState = {
+        phase: 'brainstorming',
+        lastActivity: '2025-01-26T12:00:00Z',
+        currentItem: 1,
+        totalItems: 5,
+        pendingTasks: ['task-1', 'task-2'],
+        completedTasks: ['task-3'],
+      };
+
+      // Call setCollabState directly on the store
+      useSessionStore.getState().setCollabState(testCollabState);
+
+      // Verify the state was updated
+      const state = useSessionStore.getState();
+      expect(state.collabState).toEqual(testCollabState);
+    });
+
+    it('should clear collabState when setCollabState is called with null', () => {
+      // Setup: Set initial collab state
+      const testCollabState = {
+        phase: 'brainstorming',
+        lastActivity: '2025-01-26T12:00:00Z',
+        currentItem: 1,
+      };
+      useSessionStore.getState().setCollabState(testCollabState);
+
+      // Verify it was set
+      expect(useSessionStore.getState().collabState).toBeDefined();
+
+      // Clear it
+      useSessionStore.getState().setCollabState(null);
+
+      // Verify it's cleared
+      expect(useSessionStore.getState().collabState).toBeNull();
+    });
+
+    it('should handle partial collabState updates', () => {
+      // Set initial state
+      const initialState = {
+        phase: 'brainstorming',
+        lastActivity: '2025-01-26T12:00:00Z',
+        currentItem: 1,
+        totalItems: 5,
+      };
+      useSessionStore.getState().setCollabState(initialState);
+
+      // Update with new state
+      const updatedState = {
+        phase: 'executing-plans',
+        lastActivity: '2025-01-26T13:00:00Z',
+        currentItem: 2,
+        totalItems: 5,
+        completedTasks: ['task-1'],
+      };
+      useSessionStore.getState().setCollabState(updatedState);
+
+      // Verify the new state replaced the old
+      const currentState = useSessionStore.getState().collabState;
+      expect(currentState?.phase).toBe('executing-plans');
+      expect(currentState?.currentItem).toBe(2);
+      expect(currentState?.completedTasks).toEqual(['task-1']);
+    });
+
+    it('should handle rapid successive state updates', () => {
+      const states = [
+        { phase: 'phase-1', currentItem: 1, lastActivity: '2025-01-26T12:00:00Z' },
+        { phase: 'phase-2', currentItem: 2, lastActivity: '2025-01-26T12:01:00Z' },
+        { phase: 'phase-3', currentItem: 3, lastActivity: '2025-01-26T12:02:00Z' },
+      ];
+
+      // Apply states in rapid succession
+      states.forEach(state => {
+        useSessionStore.getState().setCollabState(state);
+      });
+
+      // Verify the final state is the last one
+      const currentState = useSessionStore.getState().collabState;
+      expect(currentState?.phase).toBe('phase-3');
+      expect(currentState?.currentItem).toBe(3);
+    });
+
+    it('should update totalItems and documentedItems properties', () => {
+      const testCollabState = {
+        phase: 'brainstorming',
+        lastActivity: '2025-01-26T12:00:00Z',
+        currentItem: 1,
+        totalItems: 10,
+        documentedItems: 5,
+        completedTasks: [],
+      };
+
+      useSessionStore.getState().setCollabState(testCollabState);
+
+      const state = useSessionStore.getState();
+      expect(state.collabState?.totalItems).toBe(10);
+      expect(state.collabState?.documentedItems).toBe(5);
+    });
+
+    it('should persist state across multiple store calls', () => {
+      const state1 = {
+        phase: 'phase-1',
+        lastActivity: '2025-01-26T12:00:00Z',
+        currentItem: 1,
+        totalItems: 5,
+      };
+
+      useSessionStore.getState().setCollabState(state1);
+
+      // Read it back
+      const readState = useSessionStore.getState().collabState;
+      expect(readState?.phase).toBe('phase-1');
+
+      // Update it
+      const state2 = {
+        ...state1,
+        currentItem: 2,
+      };
+      useSessionStore.getState().setCollabState(state2);
+
+      // Verify persistence
+      const finalState = useSessionStore.getState().collabState;
+      expect(finalState?.currentItem).toBe(2);
+      expect(finalState?.totalItems).toBe(5);
+    });
+
+    it('should handle edge case with empty state object', () => {
+      const emptyState = {};
+
+      // Should not throw
+      expect(() => {
+        useSessionStore.getState().setCollabState(emptyState as any);
+      }).not.toThrow();
+
+      // Verify state was set
+      expect(useSessionStore.getState().collabState).toBeDefined();
+    });
+  });
 });

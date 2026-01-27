@@ -162,6 +162,7 @@ const App: React.FC = () => {
     removeDiagram,
     removeDocument,
     setPendingDiff,
+    setCollabState,
   } = useSessionStore(
     useShallow((state) => ({
       sessions: state.sessions,
@@ -178,6 +179,7 @@ const App: React.FC = () => {
       removeDiagram: state.removeDiagram,
       removeDocument: state.removeDocument,
       setPendingDiff: state.setPendingDiff,
+      setCollabState: state.setCollabState,
     }))
   );
 
@@ -358,6 +360,19 @@ const App: React.FC = () => {
           break;
         }
 
+        case 'session_state_updated': {
+          // Item 3: Handle task quantity auto updating via WebSocket
+          const { project, session, state } = message as any;
+
+          // Only process if message matches current session
+          if (currentSession &&
+              project === currentSession.project &&
+              session === currentSession.name) {
+            setCollabState(state);
+          }
+          break;
+        }
+
         case 'session_created': {
           // Handle session creation - only auto-select if no session currently active
           const { project, session } = message as any;
@@ -385,7 +400,7 @@ const App: React.FC = () => {
     return () => {
       subscription.unsubscribe();
     };
-  }, [isConnected, currentSession, updateDiagram, updateDocument, addDiagram, addDocument, removeDiagram, removeDocument, setPendingDiff, receiveQuestion, restoreUIState]);
+  }, [isConnected, currentSession, updateDiagram, updateDocument, addDiagram, addDocument, removeDiagram, removeDocument, setPendingDiff, setCollabState, receiveQuestion, restoreUIState]);
 
   // Compute selected item from diagrams/documents
   const selectedItem: Item | null = useMemo(() => {
