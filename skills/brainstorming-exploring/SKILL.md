@@ -130,3 +130,17 @@ graph LR
 - Formed initial list of items
 
 **Announce:** "I've gathered context. Now let me discuss each item with you one at a time."
+
+## Completion
+
+At the end of this skill's work, call complete_skill:
+
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__complete_skill
+Args: { "project": "<cwd>", "session": "<session>", "skill": "brainstorming-exploring" }
+```
+
+**Handle response:**
+- If `action == "clear"`: Invoke skill: collab-clear
+- If `next_skill` is not null: Invoke that skill
+- If `next_skill` is null: Workflow complete

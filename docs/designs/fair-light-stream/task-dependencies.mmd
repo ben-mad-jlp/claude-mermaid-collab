@@ -1,0 +1,30 @@
+graph TD
+    subgraph Wave1["Wave 1 - Parallel"]
+        item1[item-1-terminal-autoselect<br/>useTerminalTabs.ts]
+        item2[item-2-header-fix<br/>Header.tsx]
+        item3ws[item-3-ws-type<br/>handler.ts]
+        item4xterm[item-4-xterm-component<br/>XTermTerminal.tsx]
+        item5[item-5-tmux-unbind<br/>terminal-manager.ts]
+        item6[item-6-notification<br/>App.tsx]
+    end
+
+    subgraph Wave2["Wave 2 - Dependencies"]
+        item3mcp[item-3-mcp-broadcast<br/>setup.ts]
+        item3app[item-3-app-handler<br/>App.tsx]
+        item4embed[item-4-embedded-terminal<br/>EmbeddedTerminal.tsx]
+    end
+
+    item3ws --> item3mcp
+    item3ws --> item3app
+    item4xterm --> item4embed
+    item6 -.-> item3app
+
+    style item1 fill:#a5d6a7
+    style item2 fill:#a5d6a7
+    style item3ws fill:#a5d6a7
+    style item4xterm fill:#a5d6a7
+    style item5 fill:#a5d6a7
+    style item6 fill:#a5d6a7
+    style item3mcp fill:#a5d6a7
+    style item3app fill:#a5d6a7
+    style item4embed fill:#a5d6a7

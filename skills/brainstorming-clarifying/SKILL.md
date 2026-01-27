@@ -159,3 +159,17 @@ Args: {
 - User confirmed nothing else to discuss
 
 **Announce:** "All items clarified. Now let me present the design approach."
+
+## Completion
+
+At the end of this skill's work, call complete_skill:
+
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__complete_skill
+Args: { "project": "<cwd>", "session": "<session>", "skill": "brainstorming-clarifying" }
+```
+
+**Handle response:**
+- If `action == "clear"`: Invoke skill: collab-clear
+- If `next_skill` is not null: Invoke that skill
+- If `next_skill` is null: Workflow complete

@@ -46,6 +46,7 @@ export const Table: React.FC<TableProps> = ({
 
   // Sort data
   const sortedRows = useMemo(() => {
+    if (!rows || !Array.isArray(rows)) return [];
     if (!sortColumn || !sortDirection) return rows;
 
     const sorted = [...rows].sort((a, b) => {
@@ -169,7 +170,7 @@ export const Table: React.FC<TableProps> = ({
                   />
                 </th>
               )}
-              {columns.map((column) => (
+              {(columns || []).map((column) => (
                 <th
                   key={column.key}
                   style={{ width: column.width }}
@@ -220,7 +221,7 @@ export const Table: React.FC<TableProps> = ({
                       />
                     </td>
                   )}
-                  {columns.map((column) => (
+                  {(columns || []).map((column) => (
                     <td
                       key={`${actualIndex}-${column.key}`}
                       className="px-4 py-3 text-gray-900 dark:text-gray-100"

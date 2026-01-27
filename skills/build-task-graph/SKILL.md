@@ -116,11 +116,16 @@ tasks:
 - Max parallelism: P
 ```
 
-## On Completion
+## Completion
 
-Call complete_skill to transition to rough-draft-handoff:
+At the end of this skill's work, call complete_skill:
 
 ```
 Tool: mcp__plugin_mermaid-collab_mermaid__complete_skill
 Args: { "project": "<cwd>", "session": "<session>", "skill": "build-task-graph" }
 ```
+
+**Handle response:**
+- If `action == "clear"`: Invoke skill: collab-clear
+- If `next_skill` is not null: Invoke that skill
+- If `next_skill` is null: Workflow complete

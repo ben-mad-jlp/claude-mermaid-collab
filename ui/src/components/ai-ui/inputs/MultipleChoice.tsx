@@ -64,7 +64,7 @@ export const MultipleChoice: React.FC<MultipleChoiceProps> = ({
         "
       >
         <option value="">Select an option</option>
-        {options.map((option) => (
+        {(options || []).map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
           </option>

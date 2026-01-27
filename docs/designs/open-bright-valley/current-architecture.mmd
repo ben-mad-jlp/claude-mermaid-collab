@@ -1,0 +1,37 @@
+flowchart TB
+    subgraph Skills["Skill Layer (Markdown)"]
+        S1[collab]
+        S2[brainstorming]
+        S3[rough-draft]
+        S4[executing-plans]
+    end
+
+    subgraph MCP["MCP Server"]
+        ST[State Tools]
+        FS[File Storage]
+    end
+
+    subgraph State["State Files"]
+        CS[collab-state.json]
+        SS[context-snapshot.json]
+    end
+
+    S1 -->|"Invoke skill:"| S2
+    S2 -->|"Invoke skill:"| S3
+    S3 -->|"Invoke skill:"| S4
+
+    S1 -->|update_session_state| ST
+    S2 -->|update_session_state| ST
+    S3 -->|update_session_state| ST
+
+    ST -->|read/write| FS
+    FS --> CS
+    FS --> SS
+
+    style S1 fill:#bbdefb
+    style S2 fill:#bbdefb
+    style S3 fill:#bbdefb
+    style S4 fill:#bbdefb
+    style ST fill:#c8e6c9
+    style CS fill:#fff9c4
+    style SS fill:#fff9c4

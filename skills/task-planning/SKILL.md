@@ -234,3 +234,17 @@ When the collab session resumes after compaction:
 - `Read` - Read files to understand task context
 - `Glob` - Search for files related to the task
 - `Grep` - Search file contents for relevant information
+
+## Completion
+
+At the end of this skill's work, call complete_skill:
+
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__complete_skill
+Args: { "project": "<cwd>", "session": "<session>", "skill": "task-planning" }
+```
+
+**Handle response:**
+- If `action == "clear"`: Invoke skill: collab-clear
+- If `next_skill` is not null: Invoke that skill
+- If `next_skill` is null: Workflow complete

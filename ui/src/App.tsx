@@ -280,8 +280,11 @@ const App: React.FC = () => {
 
         case 'diagram_created': {
           // Item 2: Add new diagram without full refresh
-          const { id, name, content, lastModified } = message as any;
-          if (id && name && content !== undefined) {
+          const { id, name, content, lastModified, project, session } = message as any;
+          if (id && name && content !== undefined &&
+              currentSession &&
+              project === currentSession.project &&
+              session === currentSession.name) {
             addDiagram({
               id,
               name,
@@ -294,8 +297,11 @@ const App: React.FC = () => {
 
         case 'document_created': {
           // Item 2: Add new document without full refresh
-          const { id, name, content, lastModified } = message as any;
-          if (id && name && content !== undefined) {
+          const { id, name, content, lastModified, project, session } = message as any;
+          if (id && name && content !== undefined &&
+              currentSession &&
+              project === currentSession.project &&
+              session === currentSession.name) {
             addDocument({
               id,
               name,
@@ -308,8 +314,11 @@ const App: React.FC = () => {
 
         case 'diagram_deleted': {
           // Item 2: Remove diagram without full refresh
-          const { id } = message as any;
-          if (id) {
+          const { id, project, session } = message as any;
+          if (id &&
+              currentSession &&
+              project === currentSession.project &&
+              session === currentSession.name) {
             removeDiagram(id);
           }
           break;
@@ -317,8 +326,11 @@ const App: React.FC = () => {
 
         case 'document_deleted': {
           // Item 2: Remove document without full refresh
-          const { id } = message as any;
-          if (id) {
+          const { id, project, session } = message as any;
+          if (id &&
+              currentSession &&
+              project === currentSession.project &&
+              session === currentSession.name) {
             removeDocument(id);
           }
           break;

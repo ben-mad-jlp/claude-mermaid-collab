@@ -133,3 +133,17 @@ Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
 Args: { "project": "<cwd>", "session": "<name>", "phase": "rough-draft/skeleton" }
 ```
 Note: `lastActivity` is automatically updated by the MCP tool.
+
+## Completion
+
+At the end of this skill's work, call complete_skill:
+
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__complete_skill
+Args: { "project": "<cwd>", "session": "<session>", "skill": "rough-draft-pseudocode" }
+```
+
+**Handle response:**
+- If `action == "clear"`: Invoke skill: collab-clear
+- If `next_skill` is not null: Invoke that skill
+- If `next_skill` is null: Workflow complete

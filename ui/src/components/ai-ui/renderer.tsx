@@ -135,7 +135,10 @@ export const AIUIRenderer: React.FC<RendererProps> = ({
     return null;
   }
 
-  const { type, props = {}, children = [], actions = [] } = component;
+  // Extract known structural keys, treat everything else as props
+  const { type, props: explicitProps = {}, children = [], actions = [], ...topLevelProps } = component;
+  // Merge top-level props with explicit props (explicit props take precedence)
+  const props = { ...topLevelProps, ...explicitProps };
 
   // Validate component is registered
   if (!type) {

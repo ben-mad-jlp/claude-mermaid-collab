@@ -1,0 +1,65 @@
+stateDiagram-v2
+    [*] --> collab_start: user invokes /collab-start
+
+    collab_start --> gather_goals: server running
+
+    gather_goals --> clear_pre_item: goals collected
+
+    clear_pre_item --> work_item_router: context cleared
+
+    state work_item_router <<choice>>
+    work_item_router --> brainstorm_exploring: item_type = code
+    work_item_router --> brainstorm_exploring: item_type = task  
+    work_item_router --> systematic_debugging: item_type = bugfix
+    work_item_router --> ready_to_implement: no items remaining
+
+    state "Brainstorming (with clear)" as brainstorm {
+        brainstorm_exploring --> clear_bs1: exploring done
+        clear_bs1 --> brainstorm_clarifying
+        brainstorm_clarifying --> clear_bs2: clarifying done
+        clear_bs2 --> brainstorm_designing
+        brainstorm_designing --> clear_bs3: designing done
+        clear_bs3 --> brainstorm_validating
+    }
+
+    brainstorm_validating --> item_type_router: validation passed
+
+    state item_type_router <<choice>>
+    item_type_router --> clear_pre_rough: item_type = code
+    item_type_router --> task_planning: item_type = task
+
+    state "Rough Draft (with clear)" as rough_draft {
+        clear_pre_rough --> rough_draft_interface
+        rough_draft_interface --> clear_rd1: interface done
+        clear_rd1 --> rough_draft_pseudocode
+        rough_draft_pseudocode --> clear_rd2: pseudocode done
+        clear_rd2 --> rough_draft_skeleton
+        rough_draft_skeleton --> clear_rd3: skeleton done
+        clear_rd3 --> build_task_graph
+        build_task_graph --> clear_rd4: graph built
+        clear_rd4 --> rough_draft_handoff
+    }
+
+    rough_draft_handoff --> clear_post_item: item documented
+    clear_post_item --> work_item_router: next item
+
+    task_planning --> clear_post_item: item documented
+
+    systematic_debugging --> clear_post_item: item documented
+
+    ready_to_implement --> clear_pre_execute: all items ready
+
+    state "Execution (batched)" as execution {
+        clear_pre_execute --> batch_router
+        
+        state batch_router <<choice>>
+        batch_router --> execute_batch: batches remaining
+        batch_router --> workflow_complete: all batches done
+        
+        execute_batch --> log_batch_complete: batch done
+        log_batch_complete --> clear_post_batch
+        clear_post_batch --> batch_router: next batch
+    }
+
+    workflow_complete --> cleanup: implementation done
+    cleanup --> [*]

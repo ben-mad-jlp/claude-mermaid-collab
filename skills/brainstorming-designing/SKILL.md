@@ -181,3 +181,17 @@ Can return to CLARIFYING phase if:
 - User validated each section
 
 **Announce:** "Design sections complete. Let me run the completeness gate."
+
+## Completion
+
+At the end of this skill's work, call complete_skill:
+
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__complete_skill
+Args: { "project": "<cwd>", "session": "<session>", "skill": "brainstorming-designing" }
+```
+
+**Handle response:**
+- If `action == "clear"`: Invoke skill: collab-clear
+- If `next_skill` is not null: Invoke that skill
+- If `next_skill` is null: Workflow complete
