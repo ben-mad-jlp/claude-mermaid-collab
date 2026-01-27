@@ -84,13 +84,13 @@ export function handleTerminalConnection(
   console.log(`Using tmux at: ${tmuxPath}`);
 
   try {
-    // First, ensure session exists and disable mouse mode
+    // First, ensure session exists and enable mouse mode for scrolling
     // Use has-session to check, new-session to create if needed, then set-option
     Bun.spawnSync([tmuxPath, 'has-session', '-t', tmuxSession], { stdout: 'ignore', stderr: 'ignore' });
     // Create session if it doesn't exist (detached)
     Bun.spawnSync([tmuxPath, 'new-session', '-d', '-s', tmuxSession], { stdout: 'ignore', stderr: 'ignore' });
-    // Disable mouse mode on this session
-    Bun.spawnSync([tmuxPath, 'set-option', '-t', tmuxSession, 'mouse', 'off'], { stdout: 'ignore', stderr: 'ignore' });
+    // Enable mouse mode on this session for scroll support
+    Bun.spawnSync([tmuxPath, 'set-option', '-t', tmuxSession, 'mouse', 'on'], { stdout: 'ignore', stderr: 'ignore' });
 
     // Spawn tmux attach with PTY terminal using Bun's native terminal option
     const proc = Bun.spawn([tmuxPath, 'attach-session', '-t', tmuxSession], {

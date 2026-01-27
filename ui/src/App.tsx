@@ -22,7 +22,7 @@
  * - QuestionPanel overlay
  */
 
-import React, { useEffect, useCallback, useMemo, useState } from 'react';
+import React, { useEffect, useCallback, useMemo, useState, useRef } from 'react';
 import { useTheme } from '@/hooks/useTheme';
 import { useUIStore } from '@/stores/uiStore';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -501,9 +501,11 @@ const App: React.FC = () => {
     loadProjects();
   }, [loadSessions, loadProjects]);
 
-  // Auto-select first session when sessions load
+  // Auto-select first session only on initial load (not when user clears session)
+  const hasAutoSelectedRef = useRef(false);
   useEffect(() => {
-    if (sessions.length > 0 && !currentSession) {
+    if (sessions.length > 0 && !currentSession && !hasAutoSelectedRef.current) {
+      hasAutoSelectedRef.current = true;
       setCurrentSession(sessions[0]);
     }
   }, [sessions, currentSession, setCurrentSession]);

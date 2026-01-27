@@ -1,0 +1,98 @@
+/**
+ * Type definitions for the MCP workflow state machine.
+ */
+
+/** Unique identifier for each workflow state */
+export type StateId =
+  | 'collab-start'
+  | 'gather-goals'
+  | 'clear-pre-item'
+  | 'work-item-router'
+  // Brainstorming states
+  | 'brainstorm-exploring'
+  | 'clear-bs1'
+  | 'brainstorm-clarifying'
+  | 'clear-bs2'
+  | 'brainstorm-designing'
+  | 'clear-bs3'
+  | 'brainstorm-validating'
+  | 'item-type-router'
+  // Rough-draft states
+  | 'clear-pre-rough'
+  | 'rough-draft-interface'
+  | 'clear-rd1'
+  | 'rough-draft-pseudocode'
+  | 'clear-rd2'
+  | 'rough-draft-skeleton'
+  | 'clear-rd3'
+  | 'build-task-graph'
+  | 'clear-rd4'
+  | 'rough-draft-handoff'
+  // Other paths
+  | 'task-planning'
+  | 'systematic-debugging'
+  | 'ready-to-implement'
+  // Execution states
+  | 'clear-pre-execute'
+  | 'batch-router'
+  | 'execute-batch'
+  | 'log-batch-complete'
+  | 'clear-post-batch'
+  | 'clear-post-item'
+  // Terminal states
+  | 'workflow-complete'
+  | 'cleanup'
+  | 'done';
+
+/** Condition types for transition guards */
+export type TransitionCondition =
+  | { type: 'item_type'; value: 'code' | 'task' | 'bugfix' }
+  | { type: 'items_remaining' }
+  | { type: 'no_items_remaining' }
+  | { type: 'batches_remaining' }
+  | { type: 'no_batches_remaining' }
+  | { type: 'always' };
+
+/** A transition from one state to another */
+export interface Transition {
+  to: StateId;
+  condition?: TransitionCondition;
+}
+
+/** A state in the workflow */
+export interface WorkflowState {
+  id: StateId;
+  skill: string | null;
+  transitions: Transition[];
+}
+
+/** Input for complete_skill MCP tool */
+export interface CompleteSkillInput {
+  project: string;
+  session: string;
+  skill: string;
+}
+
+/** Output from complete_skill MCP tool */
+export interface CompleteSkillOutput {
+  next_skill: string | null;
+  params?: {
+    item_number?: number;
+    batch_index?: number;
+  };
+  action?: 'clear' | 'none';
+}
+
+/** Batch definition for execution phase */
+export interface TaskBatch {
+  id: string;
+  tasks: BatchTask[];
+  status: 'pending' | 'in_progress' | 'completed';
+}
+
+/** Task within a batch */
+export interface BatchTask {
+  id: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  dependsOn: string[];
+}

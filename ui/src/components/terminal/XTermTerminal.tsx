@@ -54,14 +54,31 @@ export const XTermTerminal = React.memo(function XTermTerminal({
     };
 
     // Safe fit function that also sends resize to server
+    // Uses refs instead of local variables to avoid stale closure issues
+    let rafId: number | null = null;
     const safeFit = () => {
-      if (isDisposedRef.current || !fitAddon || !term) return;
-      try {
-        fitAddon.fit();
-        sendResize(term.cols, term.rows);
-      } catch (e) {
-        // Silently ignore fit errors
+      const currentTerm = terminalInstanceRef.current;
+      const currentFitAddon = fitAddonRef.current;
+      if (isDisposedRef.current || !currentFitAddon || !currentTerm) {
+        return;
       }
+      // Cancel any pending fit to debounce rapid resize events
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+      // Use RAF to ensure DOM has updated before measuring
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        const t = terminalInstanceRef.current;
+        const f = fitAddonRef.current;
+        if (isDisposedRef.current || !f || !t) return;
+        try {
+          f.fit();
+          sendResize(t.cols, t.rows);
+        } catch (e) {
+          // Silently ignore fit errors
+        }
+      });
     };
 
     // Initialize terminal when container has dimensions
@@ -81,6 +98,10 @@ export const XTermTerminal = React.memo(function XTermTerminal({
         rows: 24,
         cursorBlink: true,
         cursorStyle: 'block',
+        scrollback: 10000,
+        smoothScrollDuration: 0,
+        fastScrollSensitivity: 5,
+        scrollSensitivity: 3,
         theme: {
           background: '#1e1e1e',
           foreground: '#d4d4d4',
@@ -201,6 +222,13 @@ export const XTermTerminal = React.memo(function XTermTerminal({
 
     container.addEventListener('contextmenu', handleContextMenu);
 
+    // Wheel event handler - prevent scroll events from bubbling to parent
+    const handleWheel = (event: WheelEvent) => {
+      // Stop propagation to prevent parent containers from scrolling
+      event.stopPropagation();
+    };
+    container.addEventListener('wheel', handleWheel, { passive: true });
+
     // Window resize handler
     const handleResize = () => safeFit();
     window.addEventListener('resize', handleResize);
@@ -209,9 +237,15 @@ export const XTermTerminal = React.memo(function XTermTerminal({
     return () => {
       isDisposedRef.current = true;
 
+      // Cancel pending RAF
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+
       resizeObserver?.disconnect();
       window.removeEventListener('resize', handleResize);
       container.removeEventListener('contextmenu', handleContextMenu);
+      container.removeEventListener('wheel', handleWheel);
 
       // Close WebSocket if it's connecting or open
       if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
@@ -236,9 +270,11 @@ export const XTermTerminal = React.memo(function XTermTerminal({
       data-testid="xterm-container"
       className={className}
       style={{
-        height: '100%',
+        flex: 1,
+        minHeight: 0,
         width: '100%',
         backgroundColor: '#1e1e1e',
+        overflow: 'hidden',
       }}
     />
   );

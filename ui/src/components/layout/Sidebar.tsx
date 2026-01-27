@@ -99,6 +99,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     [selectedDiagramId, selectedDocumentId]
   );
 
+  const isDisabled = !currentSession;
+
   return (
     <aside
       data-testid="sidebar"
@@ -111,13 +113,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       `.trim()}
     >
       {/* Search Input */}
-      <div className="p-2 border-b border-gray-200 dark:border-gray-700">
+      <div className={`p-2 border-b border-gray-200 dark:border-gray-700 ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`}>
         <input
           data-testid="sidebar-search"
           type="text"
           placeholder="Search items..."
           value={searchQuery}
           onChange={handleSearchChange}
+          disabled={isDisabled}
           className="
               w-full
               px-3 py-2
@@ -131,13 +134,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
               focus:ring-2 focus:ring-accent-500 dark:focus:ring-accent-400
               focus:border-transparent
               transition-colors
+              disabled:cursor-not-allowed
           "
         />
       </div>
 
       {/* Items List */}
-      <div className="flex-1 py-2 overflow-y-auto" role="navigation" aria-label="Sidebar items">
-        {filteredItems.length === 0 ? (
+      <div className={`flex-1 py-2 overflow-y-auto ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`} role="navigation" aria-label="Sidebar items">
+        {isDisabled ? (
+          <div
+            data-testid="sidebar-empty"
+            className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 text-center"
+          >
+            Select a session to view items
+          </div>
+        ) : filteredItems.length === 0 ? (
           <div
             data-testid="sidebar-empty"
             className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400"
@@ -159,9 +170,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Session Status Panel */}
-      <SessionStatusPanel />
+      <div className={isDisabled ? 'opacity-50 pointer-events-none' : ''}>
+        <SessionStatusPanel />
+      </div>
 
-      {/* Cross-link to Kodex */}
+      {/* Cross-link to Kodex - always enabled */}
       <div className="p-2 border-t border-gray-200 dark:border-gray-700">
         <Link
           to="/kodex"

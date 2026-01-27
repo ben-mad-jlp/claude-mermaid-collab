@@ -26,6 +26,7 @@ import {
   loadSnapshot,
   deleteSnapshot,
 } from './tools/collab-state.js';
+import { completeSkill } from './workflow/complete-skill.js';
 import {
   handleListProjects,
   handleRegisterProject,
@@ -867,6 +868,20 @@ export async function setupMCPServer(): Promise<Server> {
           required: ['project'],
         },
       },
+      // Workflow orchestration
+      {
+        name: 'complete_skill',
+        description: 'Report skill completion and get next skill to invoke. MCP handles all routing and state updates.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            session: { type: 'string', description: 'Session name' },
+            skill: { type: 'string', description: 'Name of the skill that just completed' },
+          },
+          required: ['project', 'session', 'skill'],
+        },
+      },
     ],
   }));
 
@@ -1258,6 +1273,13 @@ export async function setupMCPServer(): Promise<Server> {
             const kodex = getKodexManager(project);
             const flags = await kodex.listFlags(status);
             return JSON.stringify({ flags }, null, 2);
+          }
+
+          case 'complete_skill': {
+            const { project, session, skill } = args as { project: string; session: string; skill: string };
+            if (!project || !session || !skill) throw new Error('Missing required: project, session, skill');
+            const result = await completeSkill(project, session, skill);
+            return JSON.stringify(result, null, 2);
           }
 
           default:

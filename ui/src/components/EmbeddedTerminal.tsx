@@ -36,13 +36,13 @@ export const EmbeddedTerminal = React.memo(function EmbeddedTerminal({
       style={{
         display: 'flex',
         flexDirection: 'column',
-        height: '100%',
+        flex: 1,
+        minHeight: 0,
       }}
     >
       <XTermTerminal
         wsUrl={wsUrl}
         tmuxSession={tmuxSession}
-        className="flex-1"
       />
     </div>
   );

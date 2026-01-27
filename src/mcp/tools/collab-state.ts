@@ -8,14 +8,18 @@
 import { readFile, writeFile, mkdir, unlink, access } from 'fs/promises';
 import { join } from 'path';
 import type { WebSocketHandler } from '../../websocket/handler.js';
+import type { TaskBatch } from '../workflow/types.js';
 
 // ============= Type Definitions =============
 
 export interface CollabState {
+  state?: string; // Current state machine state ID
   phase: string;
   lastActivity: string;
   currentItem: number | null;
   hasSnapshot: boolean;
+  batches?: TaskBatch[]; // Execution batches
+  currentBatch?: number; // Index of current batch
   completedTasks?: string[];
   pendingTasks?: string[];
   totalItems?: number;
@@ -33,9 +37,12 @@ export interface ContextSnapshot {
 }
 
 export interface StateUpdateParams {
+  state?: string; // Current state machine state ID
   phase?: string;
   currentItem?: number | null;
   hasSnapshot?: boolean;
+  batches?: TaskBatch[]; // Execution batches
+  currentBatch?: number; // Index of current batch
   completedTasks?: string[];
   pendingTasks?: string[];
   totalItems?: number;
@@ -95,6 +102,14 @@ export async function updateSessionState(
     lastActivity: new Date().toISOString(),
     currentItem: updates.currentItem !== undefined ? updates.currentItem : (currentState.currentItem ?? null),
     hasSnapshot: updates.hasSnapshot ?? currentState.hasSnapshot ?? false,
+    // New state machine fields
+    ...(updates.state && { state: updates.state }),
+    ...(currentState.state && !updates.state && { state: currentState.state }),
+    ...(updates.batches && { batches: updates.batches }),
+    ...(currentState.batches && !updates.batches && { batches: currentState.batches }),
+    ...(updates.currentBatch !== undefined && { currentBatch: updates.currentBatch }),
+    ...(currentState.currentBatch !== undefined && updates.currentBatch === undefined && { currentBatch: currentState.currentBatch }),
+    // Existing fields
     ...(updates.completedTasks && { completedTasks: updates.completedTasks }),
     ...(updates.pendingTasks && { pendingTasks: updates.pendingTasks }),
     ...(currentState.completedTasks && !updates.completedTasks && { completedTasks: currentState.completedTasks }),
@@ -120,6 +135,9 @@ export async function updateSessionState(
         lastActivity: newState.lastActivity,
         currentItem: newState.currentItem,
         hasSnapshot: newState.hasSnapshot,
+        ...(newState.state && { state: newState.state }),
+        ...(newState.batches && { batches: newState.batches }),
+        ...(newState.currentBatch !== undefined && { currentBatch: newState.currentBatch }),
         ...(newState.completedTasks && { completedTasks: newState.completedTasks }),
         ...(newState.pendingTasks && { pendingTasks: newState.pendingTasks }),
         ...(newState.totalItems !== undefined && { totalItems: newState.totalItems }),

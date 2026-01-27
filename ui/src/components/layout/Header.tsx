@@ -92,19 +92,31 @@ export const Header: React.FC<HeaderProps> = ({
     return sessions.filter((s) => s.project === selectedProject);
   }, [sessions, selectedProject]);
 
-  // Sync selectedProject with currentSession
+  // Sync selectedProject with currentSession (only when currentSession changes)
   useEffect(() => {
-    if (currentSession?.project && currentSession.project !== selectedProject) {
+    console.log('[Header] Sync effect - currentSession?.project:', currentSession?.project, 'selectedProject:', selectedProject);
+    if (currentSession?.project) {
+      console.log('[Header] Sync effect - setting selectedProject to:', currentSession.project);
       setSelectedProject(currentSession.project);
     }
-  }, [currentSession?.project, selectedProject]);
+    // Only depend on currentSession.project, not selectedProject
+    // This allows user to manually select a different project without being reverted
+  }, [currentSession?.project]);
 
-  // Auto-select first project if none selected and currentSession exists
+  // Auto-select first project if none selected
   useEffect(() => {
-    if (!selectedProject && projects.length > 0 && currentSession) {
-      setSelectedProject(projects[0]);
+    console.log('[Header] Auto-select effect - selectedProject:', selectedProject, 'projects.length:', projects.length, 'currentSession?.project:', currentSession?.project);
+    if (!selectedProject && projects.length > 0) {
+      // Prefer current session's project, otherwise first project
+      if (currentSession?.project) {
+        console.log('[Header] Auto-select: using currentSession.project:', currentSession.project);
+        setSelectedProject(currentSession.project);
+      } else {
+        console.log('[Header] Auto-select: using first project:', projects[0]);
+        setSelectedProject(projects[0]);
+      }
     }
-  }, [projects, selectedProject, currentSession]);
+  }, [projects, selectedProject, currentSession?.project]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -139,14 +151,23 @@ export const Header: React.FC<HeaderProps> = ({
   }, []);
 
   const handleProjectSelect = useCallback((project: string) => {
+    console.log('[Header] handleProjectSelect called with:', project);
+    console.log('[Header] sessions in project:', sessions.filter((s) => s.project === project).length);
+    console.log('[Header] currentSession:', currentSession?.project, currentSession?.name);
     setSelectedProject(project);
     setIsProjectDropdownOpen(false);
     // If there's a session in this project, auto-select the first one
     const sessionsInProject = sessions.filter((s) => s.project === project);
     if (sessionsInProject.length > 0 && onSessionSelect) {
+      console.log('[Header] Auto-selecting first session:', sessionsInProject[0].name);
       onSessionSelect(sessionsInProject[0]);
+    } else if (currentSession && currentSession.project !== project) {
+      // Clear current session when switching to a project with no sessions
+      // This prevents the sync effect from reverting the selection
+      console.log('[Header] Clearing currentSession (switching to project with no sessions)');
+      onSessionSelect?.(null as unknown as Session);
     }
-  }, [sessions, onSessionSelect]);
+  }, [sessions, onSessionSelect, currentSession]);
 
   const handleSessionClick = useCallback(
     (session: Session) => {

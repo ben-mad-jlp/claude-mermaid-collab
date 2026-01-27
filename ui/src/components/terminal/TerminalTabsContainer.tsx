@@ -32,10 +32,21 @@ export const TerminalTabsContainer: React.FC<TerminalTabsContainerProps> = ({ cl
   // Memoize terminal config to prevent unnecessary iframe reloads
   const terminalConfig = useMemo(() => ({ wsUrl: '/terminal' }), []);
 
+  // Handle no session selected
+  if (!currentSession) {
+    return (
+      <div className={`terminal-tabs-container ${className}`} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666', padding: '20px', textAlign: 'center' }}>
+          Select a session to use the terminal
+        </div>
+      </div>
+    );
+  }
+
   // Handle loading state
   if (isLoading) {
     return (
-      <div className={`terminal-tabs-container ${className}`} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div className={`terminal-tabs-container ${className}`} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666' }}>
           Loading terminals...
         </div>
@@ -46,7 +57,7 @@ export const TerminalTabsContainer: React.FC<TerminalTabsContainerProps> = ({ cl
   // Handle error state
   if (error) {
     return (
-      <div className={`terminal-tabs-container ${className}`} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div className={`terminal-tabs-container ${className}`} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#d32f2f', padding: '20px' }}>
           <div style={{ textAlign: 'center' }}>
             <div style={{ marginBottom: '10px', fontWeight: 'bold' }}>Error loading terminals</div>
@@ -58,7 +69,7 @@ export const TerminalTabsContainer: React.FC<TerminalTabsContainerProps> = ({ cl
   }
 
   return (
-    <div className={`terminal-tabs-container ${className}`} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div className={`terminal-tabs-container ${className}`} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       {/* Tab Bar */}
       <TerminalTabBar
         tabs={tabs}
@@ -79,7 +90,8 @@ export const TerminalTabsContainer: React.FC<TerminalTabsContainerProps> = ({ cl
               <div
                 key={tab.id}
                 style={{
-                  display: tab.id === activeTabId ? 'block' : 'none',
+                  display: tab.id === activeTabId ? 'flex' : 'none',
+                  flexDirection: 'column',
                   flex: 1,
                   minHeight: 0,
                 }}
@@ -87,7 +99,6 @@ export const TerminalTabsContainer: React.FC<TerminalTabsContainerProps> = ({ cl
                 <EmbeddedTerminal
                   config={terminalConfig}
                   sessionName={tab.tmuxSession}
-                  className="h-full"
                 />
               </div>
             ))}

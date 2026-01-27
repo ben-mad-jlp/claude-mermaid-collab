@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useChatStore } from '../../stores/chatStore';
 import { useUIStore } from '../../stores/uiStore';
+import { useSessionStore } from '../../stores/sessionStore';
 import { AIUIRenderer } from '../ai-ui/renderer';
 import { MessageArea } from './MessageArea';
 import { InputControls } from './InputControls';
@@ -26,6 +27,7 @@ export interface ChatPanelProps {
 export const ChatPanel: React.FC<ChatPanelProps> = ({ className }) => {
   const { messages, respondToMessage, clearMessages } = useChatStore();
   const { chatPanelVisible: showChat, terminalPanelVisible: showTerminal } = useUIStore();
+  const currentSession = useSessionStore(state => state.currentSession);
 
   // Auto-scroll to top when new messages arrive (since newest is at top)
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -61,7 +63,15 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ className }) => {
   };
 
   // Chat panel content
-  const chatContent = (
+  const chatContent = !currentSession ? (
+    <div className="flex flex-col h-full">
+      <div className="flex-1 flex items-center justify-center text-center px-4">
+        <p className="text-gray-500 dark:text-gray-400 text-sm">
+          Select a session to view messages
+        </p>
+      </div>
+    </div>
+  ) : (
     <div className="flex flex-col h-full">
       {/* Chat Input - at top */}
       <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
