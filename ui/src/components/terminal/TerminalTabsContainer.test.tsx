@@ -40,9 +40,9 @@ vi.mock('./TerminalTabBar', () => ({
 }));
 
 vi.mock('../EmbeddedTerminal', () => ({
-  EmbeddedTerminal: ({ config, className }: any) => (
-    <div data-testid={`terminal-${config.wsUrl}`} className={className}>
-      Terminal: {config.wsUrl}
+  EmbeddedTerminal: ({ config, sessionName, className }: any) => (
+    <div data-testid={`terminal-${sessionName || 'default'}`} className={className}>
+      Terminal: {sessionName || config.wsUrl}
     </div>
   ),
 }));
@@ -76,10 +76,10 @@ describe('TerminalTabsContainer', () => {
       mockUseTerminalTabs.mockReturnValue(
         createMockReturn({
           tabs: [
-            { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
+            { id: 'tab1', name: 'Terminal 1', tmuxSession: 'tmux-session-1' },
           ],
           activeTabId: 'tab1',
-          activeTab: { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
+          activeTab: { id: 'tab1', name: 'Terminal 1', tmuxSession: 'tmux-session-1' },
         })
       );
 
@@ -89,7 +89,7 @@ describe('TerminalTabsContainer', () => {
     });
 
     it('should render the active terminal', () => {
-      const activeTab = { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' };
+      const activeTab = { id: 'tab1', name: 'Terminal 1', tmuxSession: 'tmux-session-1' };
       mockUseTerminalTabs.mockReturnValue(
         createMockReturn({
           tabs: [activeTab],
@@ -100,14 +100,14 @@ describe('TerminalTabsContainer', () => {
 
       render(<TerminalTabsContainer />);
 
-      expect(screen.getByTestId('terminal-ws://localhost:7681/ws')).toBeInTheDocument();
+      expect(screen.getByTestId('terminal-tmux-session-1')).toBeInTheDocument();
     });
 
     it('should render multiple tabs but show only the active one', () => {
       const tabs = [
-        { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
-        { id: 'tab2', name: 'Terminal 2', wsUrl: 'ws://localhost:7682/ws' },
-        { id: 'tab3', name: 'Terminal 3', wsUrl: 'ws://localhost:7683/ws' },
+        { id: 'tab1', name: 'Terminal 1', tmuxSession: 'tmux-session-1' },
+        { id: 'tab2', name: 'Terminal 2', tmuxSession: 'tmux-session-2' },
+        { id: 'tab3', name: 'Terminal 3', tmuxSession: 'tmux-session-3' },
       ];
 
       mockUseTerminalTabs.mockReturnValue(
@@ -121,14 +121,14 @@ describe('TerminalTabsContainer', () => {
       const { container } = render(<TerminalTabsContainer />);
 
       // All terminals should be in the DOM
-      expect(screen.getByTestId('terminal-ws://localhost:7681/ws')).toBeInTheDocument();
-      expect(screen.getByTestId('terminal-ws://localhost:7682/ws')).toBeInTheDocument();
-      expect(screen.getByTestId('terminal-ws://localhost:7683/ws')).toBeInTheDocument();
+      expect(screen.getByTestId('terminal-tmux-session-1')).toBeInTheDocument();
+      expect(screen.getByTestId('terminal-tmux-session-2')).toBeInTheDocument();
+      expect(screen.getByTestId('terminal-tmux-session-3')).toBeInTheDocument();
 
       // Check parent divs of each terminal for display style
-      const terminal1 = screen.getByTestId('terminal-ws://localhost:7681/ws');
-      const terminal2 = screen.getByTestId('terminal-ws://localhost:7682/ws');
-      const terminal3 = screen.getByTestId('terminal-ws://localhost:7683/ws');
+      const terminal1 = screen.getByTestId('terminal-tmux-session-1');
+      const terminal2 = screen.getByTestId('terminal-tmux-session-2');
+      const terminal3 = screen.getByTestId('terminal-tmux-session-3');
 
       const wrapper1 = terminal1.parentElement;
       const wrapper2 = terminal2.parentElement;
@@ -145,10 +145,10 @@ describe('TerminalTabsContainer', () => {
       mockUseTerminalTabs.mockReturnValue(
         createMockReturn({
           tabs: [
-            { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
+            { id: 'tab1', name: 'Terminal 1', tmuxSession: 'tmux-session-1' },
           ],
           activeTabId: 'tab1',
-          activeTab: { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
+          activeTab: { id: 'tab1', name: 'Terminal 1', tmuxSession: 'tmux-session-1' },
         })
       );
 
@@ -207,11 +207,11 @@ describe('TerminalTabsContainer', () => {
       mockUseTerminalTabs.mockReturnValue(
         createMockReturn({
           tabs: [
-            { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
-            { id: 'tab2', name: 'Terminal 2', wsUrl: 'ws://localhost:7682/ws' },
+            { id: 'tab1', name: 'Terminal 1', tmuxSession: 'tmux-session-1' },
+            { id: 'tab2', name: 'Terminal 2', tmuxSession: 'tmux-session-2' },
           ],
           activeTabId: 'tab1',
-          activeTab: { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
+          activeTab: { id: 'tab1', name: 'Terminal 1', tmuxSession: 'tmux-session-1' },
           setActiveTab: setActiveTabMock,
         })
       );
@@ -231,10 +231,10 @@ describe('TerminalTabsContainer', () => {
       mockUseTerminalTabs.mockReturnValue(
         createMockReturn({
           tabs: [
-            { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
+            { id: 'tab1', name: 'Terminal 1', tmuxSession: 'tmux-session-1' },
           ],
           activeTabId: 'tab1',
-          activeTab: { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
+          activeTab: { id: 'tab1', name: 'Terminal 1', tmuxSession: 'tmux-session-1' },
           addTab: addTabMock,
         })
       );
@@ -252,10 +252,10 @@ describe('TerminalTabsContainer', () => {
       mockUseTerminalTabs.mockReturnValue(
         createMockReturn({
           tabs: [
-            { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
+            { id: 'tab1', name: 'Terminal 1', tmuxSession: 'tmux-session-1' },
           ],
           activeTabId: 'tab1',
-          activeTab: { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
+          activeTab: { id: 'tab1', name: 'Terminal 1', tmuxSession: 'tmux-session-1' },
           removeTab: removeTabMock,
         })
       );
@@ -273,10 +273,10 @@ describe('TerminalTabsContainer', () => {
       mockUseTerminalTabs.mockReturnValue(
         createMockReturn({
           tabs: [
-            { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
+            { id: 'tab1', name: 'Terminal 1', tmuxSession: 'tmux-session-1' },
           ],
           activeTabId: 'tab1',
-          activeTab: { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
+          activeTab: { id: 'tab1', name: 'Terminal 1', tmuxSession: 'tmux-session-1' },
           renameTab: renameTabMock,
         })
       );
@@ -294,11 +294,11 @@ describe('TerminalTabsContainer', () => {
       mockUseTerminalTabs.mockReturnValue(
         createMockReturn({
           tabs: [
-            { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
-            { id: 'tab2', name: 'Terminal 2', wsUrl: 'ws://localhost:7682/ws' },
+            { id: 'tab1', name: 'Terminal 1', tmuxSession: 'tmux-session-1' },
+            { id: 'tab2', name: 'Terminal 2', tmuxSession: 'tmux-session-2' },
           ],
           activeTabId: 'tab1',
-          activeTab: { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
+          activeTab: { id: 'tab1', name: 'Terminal 1', tmuxSession: 'tmux-session-1' },
           reorderTabs: reorderTabsMock,
         })
       );
@@ -315,8 +315,8 @@ describe('TerminalTabsContainer', () => {
   describe('Terminal Display', () => {
     it('should keep inactive terminals mounted but hidden to preserve state', () => {
       const tabs = [
-        { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
-        { id: 'tab2', name: 'Terminal 2', wsUrl: 'ws://localhost:7682/ws' },
+        { id: 'tab1', name: 'Terminal 1', tmuxSession: 'tmux-session-1' },
+        { id: 'tab2', name: 'Terminal 2', tmuxSession: 'tmux-session-2' },
       ];
 
       mockUseTerminalTabs.mockReturnValue(
@@ -330,8 +330,8 @@ describe('TerminalTabsContainer', () => {
       render(<TerminalTabsContainer />);
 
       // Both terminals should be in the DOM
-      const terminal1 = screen.getByTestId('terminal-ws://localhost:7681/ws');
-      const terminal2 = screen.getByTestId('terminal-ws://localhost:7682/ws');
+      const terminal1 = screen.getByTestId('terminal-tmux-session-1');
+      const terminal2 = screen.getByTestId('terminal-tmux-session-2');
       expect(terminal1).toBeInTheDocument();
       expect(terminal2).toBeInTheDocument();
 
@@ -346,7 +346,7 @@ describe('TerminalTabsContainer', () => {
     });
 
     it('should pass correct config to EmbeddedTerminal', () => {
-      const activeTab = { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' };
+      const activeTab = { id: 'tab1', name: 'Terminal 1', tmuxSession: 'tmux-session-1' };
       mockUseTerminalTabs.mockReturnValue(
         createMockReturn({
           tabs: [activeTab],
@@ -357,14 +357,14 @@ describe('TerminalTabsContainer', () => {
 
       render(<TerminalTabsContainer />);
 
-      const terminal = screen.getByTestId('terminal-ws://localhost:7681/ws');
-      expect(terminal).toHaveTextContent('ws://localhost:7681/ws');
+      const terminal = screen.getByTestId('terminal-tmux-session-1');
+      expect(terminal).toHaveTextContent('tmux-session-1');
     });
 
     it('should update visible terminal when active tab changes', () => {
       const tabs = [
-        { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
-        { id: 'tab2', name: 'Terminal 2', wsUrl: 'ws://localhost:7682/ws' },
+        { id: 'tab1', name: 'Terminal 1', tmuxSession: 'tmux-session-1' },
+        { id: 'tab2', name: 'Terminal 2', tmuxSession: 'tmux-session-2' },
       ];
 
       // Start with tab1 active
@@ -378,8 +378,8 @@ describe('TerminalTabsContainer', () => {
 
       const { rerender } = render(<TerminalTabsContainer />);
 
-      let terminal1 = screen.getByTestId('terminal-ws://localhost:7681/ws');
-      let terminal2 = screen.getByTestId('terminal-ws://localhost:7682/ws');
+      let terminal1 = screen.getByTestId('terminal-tmux-session-1');
+      let terminal2 = screen.getByTestId('terminal-tmux-session-2');
       let wrapper1 = terminal1.parentElement;
       let wrapper2 = terminal2.parentElement;
 
@@ -397,8 +397,8 @@ describe('TerminalTabsContainer', () => {
 
       rerender(<TerminalTabsContainer />);
 
-      terminal1 = screen.getByTestId('terminal-ws://localhost:7681/ws');
-      terminal2 = screen.getByTestId('terminal-ws://localhost:7682/ws');
+      terminal1 = screen.getByTestId('terminal-tmux-session-1');
+      terminal2 = screen.getByTestId('terminal-tmux-session-2');
       wrapper1 = terminal1.parentElement;
       wrapper2 = terminal2.parentElement;
 
@@ -410,8 +410,8 @@ describe('TerminalTabsContainer', () => {
   describe('Tab Bar Props', () => {
     it('should pass all required props to TerminalTabBar', () => {
       const tabs = [
-        { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
-        { id: 'tab2', name: 'Terminal 2', wsUrl: 'ws://localhost:7682/ws' },
+        { id: 'tab1', name: 'Terminal 1', tmuxSession: 'tmux-session-1' },
+        { id: 'tab2', name: 'Terminal 2', tmuxSession: 'tmux-session-2' },
       ];
 
       const handlers = {
@@ -451,7 +451,7 @@ describe('TerminalTabsContainer', () => {
       mockUseTerminalTabs.mockReturnValue(
         createMockReturn({
           tabs: [
-            { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' },
+            { id: 'tab1', name: 'Terminal 1', tmuxSession: 'tmux-session-1' },
           ],
           activeTabId: 'tab2', // tab2 doesn't exist
           activeTab: null,
@@ -464,7 +464,7 @@ describe('TerminalTabsContainer', () => {
     });
 
     it('should handle single tab correctly', () => {
-      const tab = { id: 'tab1', name: 'Terminal 1', wsUrl: 'ws://localhost:7681/ws' };
+      const tab = { id: 'tab1', name: 'Terminal 1', tmuxSession: 'tmux-session-1' };
       mockUseTerminalTabs.mockReturnValue(
         createMockReturn({
           tabs: [tab],
@@ -475,8 +475,8 @@ describe('TerminalTabsContainer', () => {
 
       render(<TerminalTabsContainer />);
 
-      expect(screen.getByTestId('terminal-ws://localhost:7681/ws')).toBeInTheDocument();
-      expect(screen.getByTestId('terminal-ws://localhost:7681/ws')).toHaveStyle({ display: 'block' });
+      expect(screen.getByTestId('terminal-tmux-session-1')).toBeInTheDocument();
+      expect(screen.getByTestId('terminal-tmux-session-1')).toHaveStyle({ display: 'block' });
     });
   });
 });

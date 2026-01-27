@@ -14,14 +14,23 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, RenderOptions } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { BrowserRouter, MemoryRouter } from 'react-router-dom';
 import App from './App';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useQuestionStore } from '@/stores/questionStore';
 import { useNotificationStore } from '@/stores/notificationStore';
 import { useChatStore } from '@/stores/chatStore';
 import { getWebSocketClient } from '@/lib/websocket';
+
+// Custom render function that wraps App in required providers
+const renderApp = (ui: React.ReactElement = <App />, options?: Omit<RenderOptions, 'wrapper'>) => {
+  return render(ui, {
+    wrapper: ({ children }) => <MemoryRouter>{children}</MemoryRouter>,
+    ...options,
+  });
+};
 
 describe('App Component', () => {
   beforeEach(() => {
@@ -31,25 +40,25 @@ describe('App Component', () => {
 
   describe('Rendering', () => {
     it('should render without crashing', () => {
-      const { container } = render(<App />);
+      const { container } = renderApp();
       expect(container).toBeDefined();
     });
 
     it('should render the header', () => {
-      render(<App />);
+      renderApp();
       // Header should be rendered (check for a known header element)
       const main = screen.queryByRole('main');
       expect(main).toBeDefined();
     });
 
     it('should render the main content area', () => {
-      render(<App />);
+      renderApp();
       const main = screen.queryByRole('main');
       expect(main).toBeDefined();
     });
 
     it('should have the correct page structure', () => {
-      const { container } = render(<App />);
+      const { container } = renderApp();
       // Check for flex layout
       const appDiv = container.firstChild as HTMLElement;
       expect(appDiv.className).toContain('flex');
@@ -60,7 +69,7 @@ describe('App Component', () => {
 
   describe('Theme Management', () => {
     it('should apply theme class to document root', () => {
-      render(<App />);
+      renderApp();
       // Document should have either 'dark' class or not, depending on system preference
       const hasDark = document.documentElement.classList.contains('dark');
       expect(typeof hasDark).toBe('boolean');
@@ -69,7 +78,7 @@ describe('App Component', () => {
     it('should render with dark background on dark theme', () => {
       // Set dark theme preference
       document.documentElement.classList.add('dark');
-      const { container } = render(<App />);
+      const { container } = renderApp();
       const appDiv = container.firstChild as HTMLElement;
       expect(appDiv.className).toContain('dark:bg-gray-900');
     });
@@ -77,7 +86,7 @@ describe('App Component', () => {
     it('should render with light background on light theme', () => {
       // Ensure light theme
       document.documentElement.classList.remove('dark');
-      const { container } = render(<App />);
+      const { container } = renderApp();
       const appDiv = container.firstChild as HTMLElement;
       expect(appDiv.className).toContain('bg-white');
     });
@@ -85,14 +94,14 @@ describe('App Component', () => {
 
   describe('Unified Editor View', () => {
     it('should render editor toolbar by default', () => {
-      render(<App />);
+      renderApp();
       // Editor toolbar should render with its test ID
       const toolbar = screen.queryByTestId('editor-toolbar');
       expect(toolbar).toBeDefined();
     });
 
     it('should display unified editor on initial load', () => {
-      render(<App />);
+      renderApp();
       // Unified editor shows empty state when no item selected
       const emptyState = screen.queryByTestId('unified-editor-empty');
       expect(emptyState).toBeDefined();
@@ -101,19 +110,19 @@ describe('App Component', () => {
 
   describe('Sidebar Navigation', () => {
     it('should render sidebar component', () => {
-      render(<App />);
+      renderApp();
       const sidebar = screen.queryByTestId('sidebar');
       expect(sidebar).toBeDefined();
     });
 
     it('should have navigation items in sidebar', () => {
-      render(<App />);
+      renderApp();
       const sidebar = screen.queryByTestId('sidebar');
       expect(sidebar).toBeDefined();
     });
 
     it('should mark dashboard as active in initial view', () => {
-      render(<App />);
+      renderApp();
       // Dashboard should be the active view initially
       const sidebar = screen.queryByTestId('sidebar');
       expect(sidebar).toBeDefined();
@@ -122,13 +131,13 @@ describe('App Component', () => {
 
   describe('Provider Setup', () => {
     it('should have Zustand stores initialized', () => {
-      const { container } = render(<App />);
+      const { container } = renderApp();
       // Just verify the component renders - stores are initialized
       expect(container).toBeDefined();
     });
 
     it('should provide theme context', () => {
-      render(<App />);
+      renderApp();
       // Check that theme-related elements exist
       const appDiv = screen.getByRole('main')?.parentElement;
       expect(appDiv).toBeDefined();
@@ -146,7 +155,7 @@ describe('App Component', () => {
       };
 
       // Render the app without the error for this test
-      const { container } = render(<App />);
+      const { container } = renderApp();
       expect(container).toBeDefined();
 
       consoleSpy.mockRestore();
@@ -155,21 +164,21 @@ describe('App Component', () => {
     it('should show error boundary fallback when error occurs', () => {
       // This would require injecting an error into the component tree
       // For now, we verify the error boundary component exists
-      const { container } = render(<App />);
+      const { container } = renderApp();
       expect(container).toBeDefined();
     });
   });
 
   describe('Loading States', () => {
     it('should render loading overlay when isLoading is true', () => {
-      const { container } = render(<App />);
+      const { container } = renderApp();
       // Verify main content area exists
       const main = screen.queryByRole('main');
       expect(main).toBeDefined();
     });
 
     it('should show loading state initially while fetching data', async () => {
-      const { container } = render(<App />);
+      const { container } = renderApp();
       // App may show loading initially while fetching sessions
       // This is expected behavior - data loading happens on mount
       const main = screen.queryByRole('main');
@@ -179,13 +188,13 @@ describe('App Component', () => {
 
   describe('Question Panel', () => {
     it('should have question panel overlay available', () => {
-      const { container } = render(<App />);
+      const { container } = renderApp();
       // QuestionPanel is rendered conditionally but the component exists
       expect(container).toBeDefined();
     });
 
     it('should render question panel when question is available', () => {
-      const { container } = render(<App />);
+      const { container } = renderApp();
       // By default, no question, so panel should not be visible
       const panels = container.querySelectorAll('[data-testid*="question"]');
       // Panels may or may not exist depending on initialization
@@ -195,26 +204,26 @@ describe('App Component', () => {
 
   describe('Layout Structure', () => {
     it('should have correct flexbox layout', () => {
-      const { container } = render(<App />);
+      const { container } = renderApp();
       const appDiv = container.firstChild as HTMLElement;
       expect(appDiv.className).toContain('flex');
       expect(appDiv.className).toContain('flex-col');
     });
 
     it('should have header at top of layout', () => {
-      const { container } = render(<App />);
+      const { container } = renderApp();
       const children = (container.firstChild as HTMLElement).children;
       expect(children.length).toBeGreaterThan(0);
     });
 
     it('should have main content area below header', () => {
-      const { container } = render(<App />);
+      const { container } = renderApp();
       const main = screen.queryByRole('main');
       expect(main).toBeDefined();
     });
 
     it('should have sidebar on left side', () => {
-      render(<App />);
+      renderApp();
       const sidebar = screen.queryByTestId('sidebar');
       expect(sidebar).toBeDefined();
     });
@@ -222,13 +231,13 @@ describe('App Component', () => {
 
   describe('Responsive Design', () => {
     it('should have responsive classes applied', () => {
-      const { container } = render(<App />);
+      const { container } = renderApp();
       const appDiv = container.firstChild as HTMLElement;
       expect(appDiv.className).toMatch(/(?:bg-white|dark:bg-gray-900)/);
     });
 
     it('should support dark mode classes', () => {
-      const { container } = render(<App />);
+      const { container } = renderApp();
       const appDiv = container.firstChild as HTMLElement;
       expect(appDiv.className).toContain('dark:bg-gray-900');
       expect(appDiv.className).toContain('dark:text-gray-100');
@@ -237,13 +246,13 @@ describe('App Component', () => {
 
   describe('Accessibility', () => {
     it('should have semantic HTML structure', () => {
-      const { container } = render(<App />);
+      const { container } = renderApp();
       const main = screen.queryByRole('main');
       expect(main).toBeDefined();
     });
 
     it('should have proper heading hierarchy', () => {
-      render(<App />);
+      renderApp();
       // Dashboard content should have proper headings
       const headings = screen.queryAllByRole('heading');
       expect(headings.length).toBeGreaterThanOrEqual(0);
@@ -252,14 +261,14 @@ describe('App Component', () => {
 
   describe('Store Integration', () => {
     it('should initialize with default UI state', () => {
-      render(<App />);
+      renderApp();
       // Should render without errors
       const appDiv = screen.getByRole('main')?.parentElement;
       expect(appDiv).toBeDefined();
     });
 
     it('should manage session state', () => {
-      render(<App />);
+      renderApp();
       // Unified editor renders when no item is selected
       const emptyState = screen.queryByTestId('unified-editor-empty');
       expect(emptyState).toBeDefined();
@@ -268,13 +277,13 @@ describe('App Component', () => {
 
   describe('Content Rendering', () => {
     it('should render main content area', () => {
-      render(<App />);
+      renderApp();
       const main = screen.queryByRole('main');
       expect(main).toBeDefined();
     });
 
     it('should have proper spacing and layout', () => {
-      const { container } = render(<App />);
+      const { container } = renderApp();
       const appDiv = container.firstChild as HTMLElement;
       // Should have layout classes
       expect(appDiv.className).toContain('flex');
@@ -307,7 +316,7 @@ describe('App Component', () => {
     it('should use useMemo for effectiveContent to avoid race conditions', () => {
       // This test verifies that the App component uses a synchronous mechanism
       // to compute content when switching item types, preventing type mismatch errors
-      const { container } = render(<App />);
+      const { container } = renderApp();
 
       // The component should render without errors even with complex state changes
       expect(container).toBeDefined();
@@ -320,7 +329,7 @@ describe('App Component', () => {
 
   describe('Item 6: Rotate Button Callback', () => {
     it('should render EditorToolbar component', () => {
-      render(<App />);
+      renderApp();
 
       // Verify EditorToolbar is rendered
       const toolbar = screen.queryByTestId('editor-toolbar');
@@ -336,22 +345,22 @@ describe('App Component', () => {
     });
 
     it('should render ChatToggle button', () => {
-      render(<App />);
+      renderApp();
       // ChatToggle should be rendered as a button with fixed positioning
       const toggleButton = screen.queryByRole('button', { name: /chat/i });
       expect(toggleButton).toBeDefined();
     });
 
     it('should render ChatDrawer component', () => {
-      render(<App />);
+      renderApp();
       // ChatDrawer should be in the DOM (even if not visible)
-      const { container } = render(<App />);
+      const { container } = renderApp();
       const drawer = container.querySelector('[class*="fixed left-0 top-0"]');
       expect(drawer).toBeDefined();
     });
 
     it('should render ChatPanel with toggle buttons', async () => {
-      render(<App />);
+      renderApp();
 
       // ChatPanel should have toggle buttons for Chat and Terminal
       // The buttons have titles like "Show Chat" or "Hide Chat"
@@ -373,7 +382,7 @@ describe('App Component', () => {
         responded: false,
       });
 
-      render(<App />);
+      renderApp();
 
       // The store should show unread count > 0
       const updatedStore = useChatStore.getState();
@@ -392,7 +401,7 @@ describe('App Component', () => {
         responded: false,
       });
 
-      render(<App />);
+      renderApp();
 
       // Store should have isOpen=true
       const updatedStore = useChatStore.getState();
@@ -401,7 +410,7 @@ describe('App Component', () => {
     });
 
     it('should integrate with useChatStore for state management', () => {
-      render(<App />);
+      renderApp();
 
       // Verify the chat store is working
       const chatStore = useChatStore.getState();
@@ -413,7 +422,7 @@ describe('App Component', () => {
     });
 
     it('should render ChatPanel always visible in SplitPane', async () => {
-      const { container } = render(<App />);
+      const { container } = renderApp();
 
       // Verify ChatPanel exists within the SplitPane structure
       // ChatPanel should have border-l for left border (panel on right side)
@@ -426,7 +435,7 @@ describe('App Component', () => {
     });
 
     it('should render ChatPanel within SplitPane secondary panel', () => {
-      const { container } = render(<App />);
+      const { container } = renderApp();
 
       // Verify SplitPane secondary panel contains ChatPanel
       const secondaryPanel = container.querySelector('[data-testid="split-pane-secondary"]');
@@ -438,7 +447,7 @@ describe('App Component', () => {
     });
 
     it('should not break existing App functionality with chat integration', () => {
-      const { container } = render(<App />);
+      const { container } = renderApp();
 
       // Verify main app structure is still intact
       const appDiv = container.firstChild as HTMLElement;
@@ -463,7 +472,7 @@ describe('App Component', () => {
     });
 
     it('should render ToastContainer in App', () => {
-      const { container } = render(<App />);
+      const { container } = renderApp();
 
       // ToastContainer should be rendered with proper ARIA attributes
       const notificationRegion = container.querySelector('[role="region"][aria-live="polite"]');
@@ -471,7 +480,7 @@ describe('App Component', () => {
     });
 
     it('should display single notification toast', async () => {
-      render(<App />);
+      renderApp();
 
       // Add a toast to the notification store
       const toastId = useNotificationStore.getState().addToast({
@@ -489,7 +498,7 @@ describe('App Component', () => {
     });
 
     it('should display multiple toasts together', async () => {
-      render(<App />);
+      renderApp();
 
       const store = useNotificationStore.getState();
 
@@ -520,7 +529,7 @@ describe('App Component', () => {
     });
 
     it('should limit visible toasts to 5', async () => {
-      render(<App />);
+      renderApp();
 
       const store = useNotificationStore.getState();
       const toastIds: string[] = [];
@@ -550,7 +559,7 @@ describe('App Component', () => {
     });
 
     it('should have correct z-index positioning', () => {
-      const { container } = render(<App />);
+      const { container } = renderApp();
 
       const notificationContainer = container.querySelector('[role="region"][aria-live="polite"]') as HTMLElement;
       expect(notificationContainer).toBeDefined();
@@ -560,7 +569,7 @@ describe('App Component', () => {
     });
 
     it('should remove toast when dismiss button clicked', async () => {
-      render(<App />);
+      renderApp();
 
       const store = useNotificationStore.getState();
       const toastId = store.addToast({
@@ -585,7 +594,7 @@ describe('App Component', () => {
     });
 
     it('should support auto-dismiss with duration prop', async () => {
-      render(<App />);
+      renderApp();
 
       const store = useNotificationStore.getState();
       // Test that addToast accepts duration parameter
@@ -603,7 +612,7 @@ describe('App Component', () => {
     });
 
     it('should display different toast types in DOM', async () => {
-      render(<App />);
+      renderApp();
 
       const store = useNotificationStore.getState();
 
@@ -642,7 +651,7 @@ describe('App Component', () => {
     });
 
     it('should maintain accessibility with aria-live region', () => {
-      const { container } = render(<App />);
+      const { container } = renderApp();
 
       const notificationRegion = container.querySelector('[role="region"]');
       expect(notificationRegion).toBeDefined();
@@ -651,7 +660,7 @@ describe('App Component', () => {
     });
 
     it('should not break existing App functionality when ToastContainer is present', () => {
-      const { container } = render(<App />);
+      const { container } = renderApp();
 
       // App should still render all its main components
       expect(screen.queryByRole('main')).toBeDefined();
@@ -688,7 +697,7 @@ describe('App Component', () => {
     });
 
     it('should request notification permission on app mount', async () => {
-      render(<App />);
+      renderApp();
 
       // Wait for useEffect to run
       await waitFor(() => {
@@ -698,7 +707,7 @@ describe('App Component', () => {
     });
 
     it('should request notification permission only once on mount', async () => {
-      render(<App />);
+      renderApp();
 
       await waitFor(() => {
         // Should be called once, not multiple times
@@ -707,7 +716,7 @@ describe('App Component', () => {
     });
 
     it('should show notification when blocking ui_render message arrives', async () => {
-      render(<App />);
+      renderApp();
 
       // Wait for permission request
       await waitFor(() => {
@@ -743,7 +752,7 @@ describe('App Component', () => {
     });
 
     it('should not show notification for non-blocking messages', async () => {
-      render(<App />);
+      renderApp();
 
       await waitFor(() => {
         expect(mockRequestPermission).toHaveBeenCalled();
@@ -777,7 +786,7 @@ describe('App Component', () => {
 
       // Execute & Assert: Should not throw
       expect(() => {
-        render(<App />);
+        renderApp();
       }).not.toThrow();
 
       await waitFor(() => {
@@ -790,7 +799,7 @@ describe('App Component', () => {
       (window as any).Notification = undefined;
 
       // Execute & Assert: Should render App without errors
-      const { container } = render(<App />);
+      const { container } = renderApp();
       expect(container).toBeDefined();
 
       // App should still be functional
@@ -799,7 +808,7 @@ describe('App Component', () => {
     });
 
     it('should use unique tag to prevent duplicate notifications for same UI ID', async () => {
-      render(<App />);
+      renderApp();
 
       await waitFor(() => {
         expect(mockRequestPermission).toHaveBeenCalled();
@@ -836,7 +845,7 @@ describe('App Component', () => {
     });
 
     it('should not break existing App functionality when notification is shown', async () => {
-      render(<App />);
+      renderApp();
 
       await waitFor(() => {
         expect(mockRequestPermission).toHaveBeenCalled();
@@ -857,7 +866,7 @@ describe('App Component', () => {
     });
 
     it('should set requireInteraction to true for user input notifications', async () => {
-      render(<App />);
+      renderApp();
 
       await waitFor(() => {
         expect(mockRequestPermission).toHaveBeenCalled();
@@ -892,7 +901,7 @@ describe('App Component', () => {
     it('should import setCollabState from sessionStore for WebSocket handler', () => {
       // This test verifies that App.tsx has access to setCollabState
       // The import happens in the useSessionStore destructuring
-      render(<App />);
+      renderApp();
 
       const sessionStore = useSessionStore.getState();
       expect(typeof sessionStore.setCollabState).toBe('function');

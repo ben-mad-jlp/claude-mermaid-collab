@@ -64,7 +64,8 @@ export const XTermTerminal = React.memo(function XTermTerminal({
     }
 
     // Handle context menu for copying selected text
-    term.onContextMenu(async (event: MouseEvent) => {
+    const handleContextMenu = async (event: MouseEvent) => {
+      event.preventDefault();
       const selection = term.getSelection();
 
       if (selection && selection.trim()) {
@@ -75,7 +76,11 @@ export const XTermTerminal = React.memo(function XTermTerminal({
           console.error('Failed to copy to clipboard:', err);
         }
       }
-    });
+    };
+
+    // Attach to the terminal element (xterm creates .xterm element inside our container)
+    const termElement = terminalRef.current;
+    termElement?.addEventListener('contextmenu', handleContextMenu);
 
     // Handle window resize to fit terminal
     const handleResize = () => {
@@ -91,6 +96,7 @@ export const XTermTerminal = React.memo(function XTermTerminal({
     // Cleanup
     return () => {
       window.removeEventListener('resize', handleResize);
+      termElement?.removeEventListener('contextmenu', handleContextMenu);
       term.dispose();
       ws.close();
     };
