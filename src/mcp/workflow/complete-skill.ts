@@ -30,15 +30,23 @@ export async function completeSkill(
   // 1. Read current session state
   const sessionState = await getSessionState(project, session);
 
-  // 2. Map skill to state ID
-  const currentStateId = skillToState(completedSkill);
+  // 2. Determine current state ID
+  // Use session state if available (handles skills used by multiple states like collab-clear)
+  // Fall back to skill-to-state mapping for backwards compatibility or initial states
+  let currentStateId: StateId | null = null;
+  if (sessionState.state) {
+    currentStateId = sessionState.state as StateId;
+  } else {
+    currentStateId = skillToState(completedSkill);
+  }
+
   if (!currentStateId) {
     throw new Error(`Unknown skill: ${completedSkill}`);
   }
 
   // 3. Build transition context
-  // Try to get item type from session state or default context
-  const context = buildTransitionContext(sessionState);
+  // Pass currentItemType from session state for routing decisions
+  const context = buildTransitionContext(sessionState, sessionState.currentItemType);
 
   // 4. Get next state
   let nextStateId = getNextState(currentStateId, context);
