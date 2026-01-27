@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { AttachAddon } from '@xterm/addon-attach';
 import { FitAddon } from '@xterm/addon-fit';
@@ -27,70 +27,108 @@ export const XTermTerminal = React.memo(function XTermTerminal({
   const wsRef = useRef<WebSocket | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const isDisposedRef = useRef(false);
+  const isInitializedRef = useRef(false);
 
   useEffect(() => {
-    if (!terminalRef.current) return;
+    const container = terminalRef.current;
+    if (!container) return;
 
-    // Reset disposed flag
+    // Reset flags
     isDisposedRef.current = false;
+    isInitializedRef.current = false;
 
-    // Create terminal instance with rightClickSelectsWord disabled
-    const term = new Terminal({
-      rightClickSelectsWord: false,
-      cols: 80,
-      rows: 24,
-      cursorBlink: true,
-      cursorStyle: 'block',
-    });
+    let term: Terminal | null = null;
+    let ws: WebSocket | null = null;
+    let fitAddon: FitAddon | null = null;
+    let resizeObserver: ResizeObserver | null = null;
 
-    terminalInstanceRef.current = term;
-
-    // Create FitAddon early
-    const fitAddon = new FitAddon();
-    fitAddonRef.current = fitAddon;
-    term.loadAddon(fitAddon);
-
-    // Open terminal in DOM first
-    term.open(terminalRef.current);
-
-    // Fit terminal to container after opening
+    // Safe fit function
     const safeFit = () => {
-      if (isDisposedRef.current) return;
+      if (isDisposedRef.current || !fitAddon || !term) return;
       try {
         fitAddon.fit();
       } catch (e) {
-        // Silently ignore fit errors if terminal not ready
+        // Silently ignore fit errors
       }
     };
 
-    // Initial fit
-    safeFit();
+    // Initialize terminal when container has dimensions
+    const initializeTerminal = () => {
+      if (isInitializedRef.current || isDisposedRef.current) return;
 
-    // Create WebSocket connection to ttyd backend
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+      // Check if container has dimensions
+      const { width, height } = container.getBoundingClientRect();
+      if (width === 0 || height === 0) return;
 
-    // Only attach addon when WebSocket is open
-    ws.onopen = () => {
-      if (isDisposedRef.current) {
-        ws.close();
-        return;
-      }
-      const attachAddon = new AttachAddon(ws);
-      term.loadAddon(attachAddon);
-      // Fit again after connection established
+      isInitializedRef.current = true;
+
+      // Create terminal instance
+      term = new Terminal({
+        rightClickSelectsWord: false,
+        cols: 80,
+        rows: 24,
+        cursorBlink: true,
+        cursorStyle: 'block',
+      });
+
+      terminalInstanceRef.current = term;
+
+      // Create FitAddon
+      fitAddon = new FitAddon();
+      fitAddonRef.current = fitAddon;
+      term.loadAddon(fitAddon);
+
+      // Open terminal in DOM
+      term.open(container);
+
+      // Initial fit
       safeFit();
+
+      // Create WebSocket connection
+      ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        if (isDisposedRef.current || !term) {
+          ws?.close();
+          return;
+        }
+        const attachAddon = new AttachAddon(ws!);
+        term.loadAddon(attachAddon);
+        safeFit();
+      };
+
+      ws.onerror = () => {
+        // Silently ignore WebSocket errors (logged by browser)
+      };
     };
 
-    ws.onerror = (event) => {
-      if (!isDisposedRef.current) {
-        console.warn('WebSocket error:', event);
+    // Use ResizeObserver to detect when container has dimensions
+    resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width > 0 && height > 0) {
+          if (!isInitializedRef.current) {
+            initializeTerminal();
+          } else {
+            safeFit();
+          }
+        }
       }
-    };
+    });
 
-    // Handle context menu for copying selected text
+    resizeObserver.observe(container);
+
+    // Also try to initialize immediately if container already has dimensions
+    requestAnimationFrame(() => {
+      if (!isDisposedRef.current && !isInitializedRef.current) {
+        initializeTerminal();
+      }
+    });
+
+    // Context menu handler
     const handleContextMenu = async (event: MouseEvent) => {
-      if (isDisposedRef.current) return;
+      if (isDisposedRef.current || !term) return;
       event.preventDefault();
 
       try {
@@ -100,31 +138,32 @@ export const XTermTerminal = React.memo(function XTermTerminal({
         }
       } catch (err) {
         // Silently ignore clipboard errors
-        console.error('Failed to copy to clipboard:', err);
       }
     };
 
-    // Attach to the terminal element
-    const termElement = terminalRef.current;
-    termElement?.addEventListener('contextmenu', handleContextMenu);
+    container.addEventListener('contextmenu', handleContextMenu);
 
-    // Handle window resize to fit terminal
+    // Window resize handler
     const handleResize = () => safeFit();
     window.addEventListener('resize', handleResize);
 
     // Cleanup
     return () => {
       isDisposedRef.current = true;
-      window.removeEventListener('resize', handleResize);
-      termElement?.removeEventListener('contextmenu', handleContextMenu);
 
-      // Only close WebSocket if it's connecting or open
-      if (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN) {
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', handleResize);
+      container.removeEventListener('contextmenu', handleContextMenu);
+
+      // Close WebSocket if it's connecting or open
+      if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
         ws.close();
       }
 
       // Dispose terminal
-      term.dispose();
+      if (term) {
+        term.dispose();
+      }
 
       // Clear refs
       terminalInstanceRef.current = null;

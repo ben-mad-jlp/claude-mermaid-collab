@@ -1,14 +1,18 @@
 import { render } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { XTermTerminal } from './XTermTerminal';
 
 // Mock WebSocket
 class MockWebSocket {
   url: string;
   readyState = 1;
+  onopen: (() => void) | null = null;
+  onerror: ((event: any) => void) | null = null;
 
   constructor(url: string) {
     this.url = url;
+    // Simulate connection opening
+    setTimeout(() => this.onopen?.(), 0);
   }
 
   close = vi.fn();
@@ -18,6 +22,46 @@ class MockWebSocket {
 }
 
 global.WebSocket = MockWebSocket as any;
+
+// Mock ResizeObserver
+class MockResizeObserver {
+  callback: ResizeObserverCallback;
+
+  constructor(callback: ResizeObserverCallback) {
+    this.callback = callback;
+  }
+
+  observe = vi.fn((target: Element) => {
+    // Simulate immediate callback with dimensions
+    this.callback([{
+      target,
+      contentRect: { width: 800, height: 600 } as DOMRectReadOnly,
+      borderBoxSize: [],
+      contentBoxSize: [],
+      devicePixelContentBoxSize: [],
+    }], this);
+  });
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+}
+
+global.ResizeObserver = MockResizeObserver as any;
+
+// Mock getBoundingClientRect
+const mockGetBoundingClientRect = vi.fn(() => ({
+  width: 800,
+  height: 600,
+  top: 0,
+  left: 0,
+  right: 800,
+  bottom: 600,
+  x: 0,
+  y: 0,
+  toJSON: () => {},
+}));
+
+// Store original
+const originalGetBoundingClientRect = Element.prototype.getBoundingClientRect;
 
 // Mock the xterm library
 vi.mock('@xterm/xterm', () => {
@@ -65,6 +109,13 @@ vi.mock('@xterm/addon-fit', () => {
 describe('XTermTerminal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Mock getBoundingClientRect to return dimensions
+    Element.prototype.getBoundingClientRect = mockGetBoundingClientRect;
+  });
+
+  afterEach(() => {
+    // Restore original
+    Element.prototype.getBoundingClientRect = originalGetBoundingClientRect;
   });
 
   it('should render a terminal container div', () => {
