@@ -1017,13 +1017,13 @@ export async function setupMCPServer(): Promise<Server> {
           }
 
           case 'render_ui': {
-            const { project, session, ui, blocking, timeout } = args as { project: string; session: string; ui: any; blocking?: boolean; timeout?: number };
+            const { project, session, ui, blocking } = args as { project: string; session: string; ui: any; blocking?: boolean };
             if (!project || !session || !ui) throw new Error('Missing required: project, session, ui');
 
             const response = await fetch(buildUrl('/api/render-ui', project, session), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ ui, blocking, timeout }),
+              body: JSON.stringify({ ui, blocking }),
             });
 
             if (!response.ok) {

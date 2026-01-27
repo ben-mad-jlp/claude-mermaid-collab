@@ -58,7 +58,6 @@ describe('MCP Tool Schemas', () => {
           session: expect.any(Object),
           ui: expect.any(Object),
           blocking: expect.any(Object),
-          timeout: expect.any(Object),
         }),
         required: expect.any(Array),
       });
@@ -70,9 +69,8 @@ describe('MCP Tool Schemas', () => {
       expect(renderUISchema.required).toContain('ui');
     });
 
-    it('should not require blocking and timeout fields', () => {
+    it('should not require blocking field', () => {
       expect(renderUISchema.required).not.toContain('blocking');
-      expect(renderUISchema.required).not.toContain('timeout');
     });
 
     it('should have proper property descriptions', () => {
@@ -80,12 +78,10 @@ describe('MCP Tool Schemas', () => {
       expect(renderUISchema.properties.session.description).toContain('Session name');
       expect(renderUISchema.properties.ui.description).toContain('UI component');
       expect(renderUISchema.properties.blocking.description).toContain('user action');
-      expect(renderUISchema.properties.timeout.description).toContain('milliseconds');
     });
 
     it('should have correct default values', () => {
       expect(renderUISchema.properties.blocking.default).toBe(true);
-      expect(renderUISchema.properties.timeout.default).toBeUndefined();
     });
   });
 

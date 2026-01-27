@@ -91,7 +91,7 @@ describe('POST /api/render-ui', () => {
       expect(broadcastCall[0].blocking).toBe(false);
     });
 
-    test('should handle blocking render UI request with timeout', async () => {
+    test('should accept blocking render UI request without timeout', async () => {
       const ui = {
         type: 'confirmation',
         props: { message: 'Do you want to proceed?' },
@@ -102,11 +102,11 @@ describe('POST /api/render-ui', () => {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ui, blocking: true, timeout: 1000 }),
+          body: JSON.stringify({ ui, blocking: true }),
         }
       );
 
-      // Start the request (will timeout after 1000ms)
+      // Start the request without timeout
       const responsePromise = handleAPI(
         request,
         mockDiagramManager,
@@ -117,15 +117,15 @@ describe('POST /api/render-ui', () => {
         mockWSHandler
       );
 
-      // Wait for timeout
-      const response = await responsePromise;
+      // Let it start processing
+      await new Promise(resolve => setTimeout(resolve, 10));
 
-      expect(response.status).toBe(200);
-      const data = await response.json() as { completed: boolean; source: string; error: string };
-      expect(data.completed).toBe(false);
-      expect(data.source).toBe('timeout');
-      expect(data.error).toContain('Timeout after 1000ms');
-    }, { timeout: 10000 });
+      // Should broadcast the UI
+      expect(mockWSHandler.broadcast).toHaveBeenCalled();
+
+      // Don't wait for the full response (it would hang indefinitely in blocking mode)
+      // Just verify the broadcast happened
+    });
 
     test('should use default blocking=true when not specified', async () => {
       const ui = {
@@ -138,10 +138,11 @@ describe('POST /api/render-ui', () => {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ui, timeout: 1000 }),
+          body: JSON.stringify({ ui }),
         }
       );
 
+      // Start the request but don't await it - blocking mode would wait forever
       const responsePromise = handleAPI(
         request,
         mockDiagramManager,
@@ -152,16 +153,19 @@ describe('POST /api/render-ui', () => {
         mockWSHandler
       );
 
-      // Wait for timeout
-      const response = await responsePromise;
+      // Let it start processing
+      await new Promise(resolve => setTimeout(resolve, 50));
 
-      expect(response.status).toBe(200);
-      const data = await response.json() as { completed: boolean; source: string };
-      expect(data.completed).toBe(false);
-      expect(data.source).toBe('timeout');
+      // Should broadcast the UI (blocking=true is default)
+      expect(mockWSHandler.broadcast).toHaveBeenCalled();
+      const broadcastCall = (mockWSHandler.broadcast as any).mock.calls[0][0];
+      expect(broadcastCall.blocking).toBe(true);
+
+      // Cancel the pending request by dismissing the UI
+      uiManager.dismissUI('test-project:test-session');
     }, { timeout: 10000 });
 
-    test('should use default timeout=30000 when not specified', async () => {
+    test('should handle non-blocking request without timeout', async () => {
       const ui = {
         type: 'form',
         props: { fields: [] },
@@ -187,8 +191,9 @@ describe('POST /api/render-ui', () => {
       );
 
       expect(response.status).toBe(200);
-      const data = await response.json() as { success: boolean };
+      const data = await response.json() as { success?: boolean; uiId?: string };
       expect(data.success).toBe(true);
+      expect(data.uiId).toBeDefined();
     });
   });
 
@@ -297,7 +302,7 @@ describe('POST /api/render-ui', () => {
       expect(data.error).toContain('ui required');
     });
 
-    test('should return 400 when timeout is less than 1000ms', async () => {
+    test('should ignore timeout parameter if provided', async () => {
       const ui = { type: 'dialog', props: {} };
 
       const request = new Request(
@@ -305,7 +310,7 @@ describe('POST /api/render-ui', () => {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ui, blocking: true, timeout: 500 }),
+          body: JSON.stringify({ ui, blocking: false, timeout: 500 }),
         }
       );
 
@@ -319,36 +324,11 @@ describe('POST /api/render-ui', () => {
         mockWSHandler
       );
 
-      expect(response.status).toBe(400);
-      const data = await response.json() as { error: string };
-      expect(data.error).toContain('timeout must be at least 1000ms');
-    });
-
-    test('should return 400 when timeout exceeds 300000ms', async () => {
-      const ui = { type: 'dialog', props: {} };
-
-      const request = new Request(
-        'http://localhost:3737/api/render-ui?project=test-project&session=test-session',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ui, blocking: true, timeout: 400000 }),
-        }
-      );
-
-      const response = await handleAPI(
-        request,
-        mockDiagramManager,
-        mockDocumentManager,
-        mockMetadataManager,
-        mockValidator,
-        mockRenderer,
-        mockWSHandler
-      );
-
-      expect(response.status).toBe(400);
-      const data = await response.json() as { error: string };
-      expect(data.error).toContain('timeout must not exceed 300000ms');
+      // Should succeed even with timeout parameter (timeout is now ignored)
+      expect(response.status).toBe(200);
+      const data = await response.json() as { success?: boolean; uiId?: string };
+      expect(data.success).toBe(true);
+      expect(data.uiId).toBeDefined();
     });
 
     test('should return 400 when ui is not an object', async () => {
@@ -449,11 +429,11 @@ describe('POST /api/render-ui', () => {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ui, blocking: true, timeout: 1000 }),
+          body: JSON.stringify({ ui, blocking: true }),
         }
       );
 
-      // Start request with timeout to avoid hanging
+      // Start request without timeout
       const responsePromise = handleAPI(
         request,
         mockDiagramManager,
@@ -465,13 +445,13 @@ describe('POST /api/render-ui', () => {
       );
 
       // Let the request process but don't wait for it
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await new Promise(resolve => setTimeout(resolve, 50));
 
       const broadcastCall = (mockWSHandler.broadcast as any).mock.calls[0][0];
       expect(broadcastCall.blocking).toBe(true);
 
-      // Clean up
-      await responsePromise.catch(() => {});
+      // Clean up by dismissing the UI
+      uiManager.dismissUI('test-project:test-session');
     }, { timeout: 10000 });
   });
 
@@ -485,7 +465,7 @@ describe('POST /api/render-ui', () => {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ui, blocking: true, timeout: 1000 }),
+          body: JSON.stringify({ ui, blocking: true }),
         }
       );
 
@@ -505,8 +485,9 @@ describe('POST /api/render-ui', () => {
       expect(pending).toBeDefined();
       expect(pending?.blocking).toBe(true);
 
-      // Wait for timeout
-      await responsePromise;
-    }, { timeout: 10000 });
+      // Clean up - dismiss the UI
+      uiManager.dismissUI(sessionKey);
+      await responsePromise.catch(() => {});
+    });
   });
 });

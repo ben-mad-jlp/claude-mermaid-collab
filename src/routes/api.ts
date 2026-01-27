@@ -923,7 +923,7 @@ export async function handleAPI(
     }
 
     try {
-      const { ui, blocking, timeout } = await req.json() as { ui?: any; blocking?: boolean; timeout?: number };
+      const { ui, blocking } = await req.json() as { ui?: any; blocking?: boolean };
 
       if (!ui) {
         return Response.json({ error: 'ui required' }, { status: 400 });
@@ -954,26 +954,14 @@ export async function handleAPI(
       }
 
       // If blocking mode (default), await response via uiManager
-      try {
-        const response = await uiManager.renderUI({
-          project: params.project,
-          session: params.session,
-          ui,
-          blocking: blocking ?? true,
-          timeout,
-          uiId,  // Pass the same uiId that was sent to browsers
-        });
-        return Response.json(response);
-      } catch (error: any) {
-        if (error.message.includes('Timeout')) {
-          return Response.json({
-            completed: false,
-            source: 'timeout',
-            error: error.message,
-          }, { status: 200 });
-        }
-        throw error;
-      }
+      const response = await uiManager.renderUI({
+        project: params.project,
+        session: params.session,
+        ui,
+        blocking: blocking ?? true,
+        uiId,  // Pass the same uiId that was sent to browsers
+      });
+      return Response.json(response);
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
     }

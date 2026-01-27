@@ -8,7 +8,7 @@
  * Features:
  * - UI validation and schema checking
  * - WebSocket broadcast to browser clients
- * - Blocking mode with timeout support
+ * - Blocking mode (waits indefinitely for user response)
  * - Action tracking and form data collection
  * - Error handling with detailed feedback
  */
@@ -17,10 +17,8 @@ import { WebSocketHandler } from '../../websocket/handler.js';
 import type { UIComponent, UIResponse } from '../../ai-ui.js';
 
 // Configuration
-// Minimum timeout when one is specified (prevents accidental 0ms timeouts)
-const MIN_TIMEOUT = 1000; // 1 second
-// No default timeout - wait forever unless caller specifies
-// No max timeout - callers can use any value
+// No timeout - waits forever unless caller closes the connection
+// Promise only resolves when handleUIResponse is called
 
 /**
  * UI rendering response structure
@@ -40,7 +38,6 @@ interface PendingUI {
   uiId: string;
   resolve: (response: UIResponse) => void;
   reject: (error: Error) => void;
-  timeoutHandle: ReturnType<typeof setTimeout>;
 }
 
 /**
@@ -92,38 +89,15 @@ export function validateUIStructure(ui: any): asserts ui is UIComponent {
   }
 }
 
-/**
- * Validates timeout value
- * @param timeout - Timeout in milliseconds (undefined or 0 means no timeout)
- * @returns validated timeout or undefined (no timeout)
- */
-export function validateTimeout(timeout: number | undefined): number | undefined {
-  // If undefined or 0, return undefined (no timeout - wait forever)
-  if (timeout === undefined || timeout === 0) {
-    return undefined;
-  }
-
-  if (typeof timeout !== 'number' || !Number.isFinite(timeout)) {
-    throw new Error('Timeout must be a finite number');
-  }
-
-  if (timeout < MIN_TIMEOUT) {
-    throw new Error(`Timeout must be at least ${MIN_TIMEOUT}ms`);
-  }
-
-  // No max timeout check - allow any positive value
-  return timeout;
-}
 
 /**
  * Renders UI to browser and optionally waits for user interaction
- * Changed: timeout is now optional, defaults to no timeout
+ * In blocking mode, waits indefinitely until user responds (no timeout).
  *
  * @param project - Project path
  * @param session - Session name
  * @param ui - JSON UI definition
  * @param blocking - Whether to wait for user action (default: true)
- * @param timeout - Timeout in milliseconds (undefined or 0 means no timeout)
  * @param wsHandler - WebSocket handler instance
  * @returns Promise<RenderUIResponse>
  */
@@ -132,7 +106,6 @@ export async function renderUI(
   session: string,
   ui: any,
   blocking: boolean = true,
-  timeout: number | undefined = undefined,
   wsHandler: WebSocketHandler
 ): Promise<RenderUIResponse> {
   // Validate inputs
@@ -146,9 +119,6 @@ export async function renderUI(
 
   // Validate UI structure
   validateUIStructure(ui);
-
-  // Validate timeout if blocking
-  const finalTimeout = blocking ? validateTimeout(timeout) : undefined;
 
   // Generate unique UI ID for this render
   const uiId = `ui_${Date.now()}_${Math.random().toString(36).substring(7)}`;
@@ -175,28 +145,13 @@ export async function renderUI(
     };
   }
 
-  // Wait for user action - with optional timeout
+  // Wait for user action - no timeout, waits indefinitely
   return new Promise<RenderUIResponse>((resolve, reject) => {
     let isResolved = false;
-    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-
-    // Only setup timeout if finalTimeout is defined (not undefined)
-    if (finalTimeout !== undefined) {
-      timeoutHandle = setTimeout(() => {
-        if (!isResolved) {
-          isResolved = true;
-          reject(new Error(`Timeout after ${finalTimeout}ms`));
-        }
-      }, finalTimeout);
-    }
-    // If finalTimeout is undefined, no timeout - promise only resolves on user action
 
     const handleUIResponse = (response: UIResponse) => {
       if (!isResolved && response.componentId === uiId) {
         isResolved = true;
-        if (timeoutHandle) {
-          clearTimeout(timeoutHandle);
-        }
         resolve({
           completed: true,
           source: 'browser',
@@ -331,10 +286,6 @@ export const renderUISchema = {
       type: 'boolean',
       description: 'Whether to wait for user action (default: true)',
       default: true,
-    },
-    timeout: {
-      type: 'number',
-      description: 'Optional timeout in milliseconds. If omitted or 0, waits indefinitely.',
     },
   },
   required: ['project', 'session', 'ui'],

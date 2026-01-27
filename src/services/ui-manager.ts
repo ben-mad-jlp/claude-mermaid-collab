@@ -8,11 +8,9 @@ export interface PendingUI {
   project: string;
   session: string;
   blocking: boolean;
-  timeout: number;
   createdAt: number;
   resolve: (response: UIResponse) => void;
   reject: (error: Error) => void;
-  timeoutHandle: ReturnType<typeof setTimeout>;
 }
 
 export interface UIResponse {
@@ -42,7 +40,6 @@ export interface RenderUIRequest {
   session: string;
   ui: any;
   blocking?: boolean;
-  timeout?: number;
   uiId?: string;  // Optional external uiId to use instead of generating one
 }
 
@@ -65,7 +62,7 @@ export class UIManager {
    * or immediately (non-blocking mode).
    */
   async renderUI(request: RenderUIRequest): Promise<UIResponse> {
-    const { project, session, ui, blocking: rawBlocking, timeout: rawTimeout, uiId: externalUiId } = request;
+    const { project, session, ui, blocking: rawBlocking, uiId: externalUiId } = request;
 
     // 1. Validate inputs
     if (!project || !session) {
@@ -80,14 +77,6 @@ export class UIManager {
 
     // 2. Normalize options
     const blocking = rawBlocking ?? true;
-    const timeout = rawTimeout ?? 30000;
-
-    if (timeout < 1000) {
-      throw new Error('timeout must be at least 1000ms');
-    }
-    if (timeout > 300000) {
-      throw new Error('timeout must not exceed 300000ms');
-    }
 
     // 3. Use provided UI ID or generate one
     const uiId = externalUiId || generateUIId();
@@ -119,24 +108,15 @@ export class UIManager {
 
     // 7. If blocking mode, create Promise with resolve/reject handlers
     return new Promise<UIResponse>((resolve, reject) => {
-      // Set up timeout handler
-      const timeoutHandle = setTimeout(() => {
-        // Clean up the pending UI
-        this.pendingUIs.delete(sessionKey);
-        reject(new Error(`Timeout after ${timeout}ms`));
-      }, timeout);
-
       // Store pending UI
       const pendingUI: PendingUI = {
         uiId,
         project,
         session,
         blocking,
-        timeout,
         createdAt: Date.now(),
         resolve,
         reject,
-        timeoutHandle,
       };
 
       this.pendingUIs.set(sessionKey, pendingUI);
@@ -159,10 +139,7 @@ export class UIManager {
       return false; // Stale response ignored
     }
 
-    // 3. Clear timeout
-    clearTimeout(pending.timeoutHandle);
-
-    // 4. Build response object
+    // 3. Build response object
     const result: UIResponse = {
       completed: true,
       source: response.source || 'browser',
@@ -170,7 +147,7 @@ export class UIManager {
       data: response.data,
     };
 
-    // 5. Update cache status
+    // 4. Update cache status
     const cachedUI = this.currentUIBySession.get(sessionKey);
     if (cachedUI && cachedUI.uiId === uiId) {
       cachedUI.status = 'responded';
@@ -178,13 +155,13 @@ export class UIManager {
       cachedUI.response = response;
     }
 
-    // 6. Resolve the Promise
+    // 5. Resolve the Promise
     pending.resolve(result);
 
-    // 7. Cleanup
+    // 6. Cleanup
     this.pendingUIs.delete(sessionKey);
 
-    // 8. Return true (success)
+    // 7. Return true (success)
     return true;
   }
 
@@ -209,9 +186,6 @@ export class UIManager {
     if (cachedUI && cachedUI.uiId === pending.uiId) {
       cachedUI.status = 'canceled';
     }
-
-    // Clear timeout
-    clearTimeout(pending.timeoutHandle);
 
     // Reject the Promise
     pending.reject(new Error('UI dismissed'));

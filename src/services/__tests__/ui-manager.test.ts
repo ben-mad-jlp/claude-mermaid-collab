@@ -84,37 +84,6 @@ describe('UIManager', () => {
       }
     });
 
-    it('should throw when timeout is too short', async () => {
-      const request: RenderUIRequest = {
-        project: '/test/project',
-        session: 'test-session',
-        ui: { type: 'button' },
-        timeout: 500,
-      };
-
-      try {
-        await manager.renderUI(request);
-        expect.unreachable('Should have thrown');
-      } catch (error: any) {
-        expect(error.message).toContain('timeout must be at least 1000ms');
-      }
-    });
-
-    it('should throw when timeout is too long', async () => {
-      const request: RenderUIRequest = {
-        project: '/test/project',
-        session: 'test-session',
-        ui: { type: 'button' },
-        timeout: 400000,
-      };
-
-      try {
-        await manager.renderUI(request);
-        expect.unreachable('Should have thrown');
-      } catch (error: any) {
-        expect(error.message).toContain('timeout must not exceed 300000ms');
-      }
-    });
   });
 
   describe('renderUI - non-blocking mode', () => {
@@ -198,61 +167,6 @@ describe('UIManager', () => {
       renderPromise.catch(() => {}); // Suppress unhandled rejection
     });
 
-    it('should use default timeout=30000ms', async () => {
-      const request: RenderUIRequest = {
-        project: '/test/project',
-        session: 'test-session',
-        ui: { type: 'button' },
-        // timeout not specified
-      };
-
-      const renderPromise = manager.renderUI(request);
-
-      await new Promise(resolve => setTimeout(resolve, 10));
-
-      const sessionKey = '/test/project:test-session';
-      const pending = manager.getPendingUI(sessionKey);
-
-      expect(pending?.timeout).toBe(30000);
-
-      manager.dismissUI(sessionKey);
-      renderPromise.catch(() => {}); // Suppress unhandled rejection
-    });
-
-    it('should timeout after specified duration', async () => {
-      const request: RenderUIRequest = {
-        project: '/test/project',
-        session: 'test-session',
-        ui: { type: 'button' },
-        blocking: true,
-        timeout: 1100, // Short timeout for testing (minimum is 1000ms)
-      };
-
-      try {
-        await manager.renderUI(request);
-        expect.unreachable('Should have timed out');
-      } catch (error: any) {
-        expect(error.message).toContain('Timeout after 1100ms');
-      }
-    }, { timeout: 2000 });
-
-    it('should clean up pending UI after timeout', async () => {
-      const request: RenderUIRequest = {
-        project: '/test/project',
-        session: 'test-session',
-        ui: { type: 'button' },
-        timeout: 1100,
-      };
-
-      try {
-        await manager.renderUI(request);
-      } catch {
-        // Expected to throw
-      }
-
-      const sessionKey = '/test/project:test-session';
-      expect(manager.getPendingUI(sessionKey)).toBeNull();
-    }, { timeout: 2000 });
   });
 
   describe('receiveResponse', () => {
@@ -519,7 +433,6 @@ describe('UIManager', () => {
         project: '/test/project',
         session: 'test-session',
         ui: { type: 'button' },
-        timeout: 1100,
       };
 
       const render1 = manager.renderUI(request1);
@@ -535,7 +448,6 @@ describe('UIManager', () => {
         project: '/test/project',
         session: 'test-session',
         ui: { type: 'input' },
-        timeout: 1100,
       };
 
       const render2 = manager.renderUI(request2);
@@ -560,15 +472,16 @@ describe('UIManager', () => {
       });
       expect(newSuccess).toBe(true);
 
-      // First render will timeout, clean up after
+      // First render will never resolve, clean up after
+      manager.dismissUI(sessionKey);
       render1.catch(() => {
-        // Expected - first render times out
+        // Expected - first render was dismissed
       });
 
       // Second render completed successfully
       const response = await render2;
       expect(response.action).toBe('submit');
-    }, { timeout: 3000 });
+    });
 
     it('should handle empty props object', async () => {
       const request: RenderUIRequest = {
@@ -582,47 +495,6 @@ describe('UIManager', () => {
       expect(response.completed).toBe(true);
     });
 
-    it('should respect minimum timeout (1000ms)', async () => {
-      const request: RenderUIRequest = {
-        project: '/test/project',
-        session: 'test-session',
-        ui: { type: 'button' },
-        timeout: 1000, // Minimum allowed
-      };
-
-      const renderPromise = manager.renderUI(request);
-
-      await new Promise(resolve => setTimeout(resolve, 10));
-
-      const sessionKey = '/test/project:test-session';
-      const pending = manager.getPendingUI(sessionKey);
-
-      expect(pending?.timeout).toBe(1000);
-
-      manager.dismissUI(sessionKey);
-      renderPromise.catch(() => {}); // Suppress unhandled rejection
-    });
-
-    it('should respect maximum timeout (300000ms)', async () => {
-      const request: RenderUIRequest = {
-        project: '/test/project',
-        session: 'test-session',
-        ui: { type: 'button' },
-        timeout: 300000, // Maximum allowed
-      };
-
-      const renderPromise = manager.renderUI(request);
-
-      await new Promise(resolve => setTimeout(resolve, 10));
-
-      const sessionKey = '/test/project:test-session';
-      const pending = manager.getPendingUI(sessionKey);
-
-      expect(pending?.timeout).toBe(300000);
-
-      manager.dismissUI(sessionKey);
-      renderPromise.catch(() => {}); // Suppress unhandled rejection
-    });
   });
 
   describe('singleton instance', () => {
