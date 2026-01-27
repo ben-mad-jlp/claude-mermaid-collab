@@ -12,6 +12,7 @@ import { handleAPI } from './routes/api';
 import { handleKodexAPI } from './routes/kodex-api';
 import { sessionRegistry } from './services/session-registry';
 import { statusManager } from './services/status-manager';
+import { initializeWebSocketHandler } from './services/ws-handler-manager';
 import { handleMCPRequest, getActiveSessionCount } from './mcp/http-handler';
 
 // Scratch session - a default workspace for casual use
@@ -26,6 +27,9 @@ console.log(`📋 Scratch session: ${SCRATCH_PROJECT}/.collab/sessions/${SCRATCH
 const validator = new Validator();
 const renderer = new Renderer();
 const wsHandler = new WebSocketHandler();
+
+// Initialize WebSocket handler manager for global access
+initializeWebSocketHandler(wsHandler);
 
 // Initialize status manager with WebSocket handler
 statusManager.setWebSocketHandler(wsHandler);

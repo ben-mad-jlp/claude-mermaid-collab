@@ -7,6 +7,7 @@
 
 import { readFile, writeFile, mkdir, unlink, access } from 'fs/promises';
 import { join } from 'path';
+import type { WebSocketHandler } from '../../websocket/handler.js';
 
 // ============= Type Definitions =============
 
@@ -76,7 +77,8 @@ export async function getSessionState(project: string, session: string): Promise
 export async function updateSessionState(
   project: string,
   session: string,
-  updates: StateUpdateParams
+  updates: StateUpdateParams,
+  wsHandler?: WebSocketHandler
 ): Promise<{ success: boolean }> {
   const path = getStatePath(project, session);
 
@@ -108,6 +110,26 @@ export async function updateSessionState(
   await mkdir(dir, { recursive: true });
 
   await writeFile(path, JSON.stringify(newState, null, 2));
+
+  // Broadcast session state update via WebSocket if handler is provided
+  if (wsHandler) {
+    try {
+      wsHandler.broadcast({
+        type: 'session_state_updated',
+        phase: newState.phase,
+        lastActivity: newState.lastActivity,
+        currentItem: newState.currentItem,
+        hasSnapshot: newState.hasSnapshot,
+        ...(newState.completedTasks && { completedTasks: newState.completedTasks }),
+        ...(newState.pendingTasks && { pendingTasks: newState.pendingTasks }),
+        ...(newState.totalItems !== undefined && { totalItems: newState.totalItems }),
+        ...(newState.documentedItems !== undefined && { documentedItems: newState.documentedItems }),
+      });
+    } catch (error) {
+      console.error('Failed to broadcast session state update:', error);
+    }
+  }
+
   return { success: true };
 }
 

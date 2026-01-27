@@ -36,6 +36,7 @@ import {
 } from './tools/projects.js';
 import { getKodexManager } from '../services/kodex-manager.js';
 import type { FlagType, TopicContent } from '../services/kodex-manager.js';
+import { getWebSocketHandler } from '../services/ws-handler-manager.js';
 
 // Configuration
 const API_PORT = parseInt(process.env.PORT || '3737', 10);
@@ -1056,7 +1057,8 @@ export async function setupMCPServer(): Promise<Server> {
               documentedItems?: number;
             };
             if (!project || !session) throw new Error('Missing required: project, session');
-            const result = await updateSessionState(project, session, updates);
+            const wsHandler = getWebSocketHandler();
+            const result = await updateSessionState(project, session, updates, wsHandler || undefined);
             return JSON.stringify(result, null, 2);
           }
 
