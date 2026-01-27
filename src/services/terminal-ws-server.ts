@@ -92,6 +92,25 @@ export function handleTerminalConnection(
     // Enable mouse mode on this session for scroll support
     Bun.spawnSync([tmuxPath, 'set-option', '-t', tmuxSession, 'mouse', 'on'], { stdout: 'ignore', stderr: 'ignore' });
 
+    // Capture and send scrollback history to populate xterm.js buffer
+    // This enables native xterm.js scrollbar to work with tmux sessions
+    try {
+      const captureResult = Bun.spawnSync(
+        [tmuxPath, 'capture-pane', '-t', tmuxSession, '-p', '-S', '-10000'],
+        { stdout: 'pipe', stderr: 'ignore' }
+      );
+      if (captureResult.stdout && captureResult.stdout.length > 0) {
+        const scrollback = new TextDecoder().decode(captureResult.stdout);
+        // Send scrollback history first (before attaching)
+        if (scrollback.trim()) {
+          ws.send(scrollback);
+        }
+      }
+    } catch (scrollbackErr) {
+      // Scrollback capture is best-effort, continue without it
+      console.warn('Failed to capture scrollback:', scrollbackErr);
+    }
+
     // Spawn tmux attach with PTY terminal using Bun's native terminal option
     const proc = Bun.spawn([tmuxPath, 'attach-session', '-t', tmuxSession], {
       env: {
