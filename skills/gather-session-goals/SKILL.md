@@ -97,47 +97,77 @@ Does this list look correct?
 - **3 (Remove)** - Ask which item to remove, remove it, return to Step 4
 - **4 (Edit)** - Ask which item to edit, update it, return to Step 4
 
-### Step 5: Write to Design Doc
+### Step 5: Write Work Items
 
-**Before writing, output:** "Writing work items to design doc..."
+**Before writing, output:** "Writing work items..."
 
-1. Read current design doc:
-   Tool: mcp__plugin_mermaid-collab_mermaid__get_document
-   Args: { "project": "<cwd>", "session": "<session>", "id": "design" }
+#### 5a. Write to session state (source of truth for routing)
 
-2. Parse existing content and locate "## Work Items" section
+Build the workItems array and save to session state:
 
-3. Build new Work Items content:
-   FOR each work_item in confirmed_list:
-     ADD markdown block:
-       ### Item {N}: {title}
-       **Type:** {type}
-       **Status:** pending
-       **Problem/Goal:**
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
+Args: {
+  "project": "<cwd>",
+  "session": "<session>",
+  "workItems": [
+    { "number": 1, "title": "<title>", "type": "<code|bugfix|task>", "status": "pending" },
+    { "number": 2, "title": "<title>", "type": "<code|bugfix|task>", "status": "pending" },
+    ...
+  ]
+}
+```
 
-       **Approach:**
+#### 5b. Create design doc with work items
 
-       **Root Cause:** (only if type is bugfix)
+1. Build the design doc content with Work Items section:
 
-       **Success Criteria:**
+```markdown
+# Session: <session-name>
 
-       **Decisions:**
+## Session Context
+**Out of Scope:** (session-wide boundaries)
+**Shared Decisions:** (cross-cutting choices)
 
-       ---
+---
 
-4. Replace "## Work Items" section with new content
+## Work Items
 
-5. Write updated design doc:
-   Tool: mcp__plugin_mermaid-collab_mermaid__update_document
-   Args: { "project": "<cwd>", "session": "<session>", "id": "design", "content": "<updated-full-content>" }
+### Item 1: <title>
+**Type:** <type>
+**Status:** pending
 
-**Note:** Full update is appropriate here because we're writing an entire new Work Items section.
-For subsequent edits (e.g., updating a single item), prefer `patch_document` instead.
+**Problem/Goal:**
+
+**Approach:**
+
+**Root Cause:** (only if type is bugfix)
+
+**Success Criteria:**
+
+**Decisions:**
+
+---
+
+### Item 2: <title>
+...
+
+---
+
+## Diagrams
+(auto-synced)
+```
+
+2. Create the design doc:
+   Tool: mcp__plugin_mermaid-collab_mermaid__create_document
+   Args: { "project": "<cwd>", "session": "<session>", "name": "design", "content": "<full-content>" }
+
+   If document already exists, use update_document instead.
 
 After writing, display:
 
 ```
-Work items written to design doc. Returning to collab workflow.
+Work items saved. Returning to collab workflow.
 ```
 
 Return control to the collab skill.
@@ -152,17 +182,17 @@ Return control to the collab skill.
 
 **Preconditions:**
 - Collab session exists
-- Design doc exists (may be empty template)
 
 **Postconditions:**
-- Design doc contains `## Work Items` section
+- Session state contains `workItems` array (source of truth for routing)
+- Design doc contains `## Work Items` section (human-readable view)
 - At least one work item defined
-- All items have `Status: pending`
+- All items have `status: pending`
 - User has confirmed the list
 
 **Side effects:**
-- Writes to design doc
-- Does NOT modify collab-state.json (collab skill handles that)
+- Writes `workItems` to session state
+- Creates/updates design doc
 
 ## Browser-Based Questions
 

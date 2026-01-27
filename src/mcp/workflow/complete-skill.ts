@@ -2,12 +2,22 @@
  * Implementation of the complete_skill MCP tool.
  */
 
-import type { CompleteSkillOutput, StateId } from './types.js';
+import type { CompleteSkillOutput, StateId, WorkItem, WorkItemType } from './types.js';
 import { getState, skillToState, getSkillForState } from './state-machine.js';
 import { getNextState, buildTransitionContext, resolveToSkillState } from './transitions.js';
-import { getSessionState, updateSessionState } from '../tools/collab-state.js';
+import { getSessionState, updateSessionState, type CollabState } from '../tools/collab-state.js';
 import { syncTasksFromTaskGraph } from './task-sync.js';
 import { updateTaskDiagram } from './task-diagram.js';
+
+/**
+ * Find the next pending work item from workItems array
+ */
+function findNextPendingItem(workItems?: WorkItem[]): WorkItem | null {
+  if (!workItems || workItems.length === 0) {
+    return null;
+  }
+  return workItems.find((item) => item.status === 'pending') ?? null;
+}
 
 /**
  * Handle complete_skill MCP tool call
@@ -31,7 +41,7 @@ export async function completeSkill(
   const context = buildTransitionContext(sessionState);
 
   // 4. Get next state
-  const nextStateId = getNextState(currentStateId, context);
+  let nextStateId = getNextState(currentStateId, context);
   if (!nextStateId) {
     // No transition - workflow complete
     return {
@@ -40,8 +50,38 @@ export async function completeSkill(
     };
   }
 
+  // 4a. If entering work-item-router, select next pending item first
+  let updatedContext = context;
+  let itemUpdates: { currentItem?: number | null; currentItemType?: WorkItemType } = {};
+
+  if (nextStateId === 'work-item-router') {
+    const nextItem = findNextPendingItem(sessionState.workItems);
+    if (nextItem) {
+      // Found a pending item - set it as current
+      itemUpdates = {
+        currentItem: nextItem.number,
+        currentItemType: nextItem.type,
+      };
+      // Rebuild context with the item type for routing
+      updatedContext = buildTransitionContext(
+        { ...sessionState, currentItem: nextItem.number },
+        nextItem.type
+      );
+    } else {
+      // No pending items - clear currentItem
+      itemUpdates = {
+        currentItem: null,
+        currentItemType: undefined,
+      };
+      updatedContext = buildTransitionContext(
+        { ...sessionState, currentItem: null },
+        undefined
+      );
+    }
+  }
+
   // 5. Resolve routing nodes to find next skill-bearing state
-  const resolved = resolveToSkillState(nextStateId, context);
+  const resolved = resolveToSkillState(nextStateId, updatedContext);
   if (!resolved) {
     return {
       next_skill: null,
@@ -67,6 +107,8 @@ export async function completeSkill(
     state: resolved.stateId,
     // Update phase based on state category
     phase: getPhaseFromState(resolved.stateId),
+    // Include item updates if we selected a new work item
+    ...itemUpdates,
   });
 
   // 9. Auto-update diagram during execution phase
@@ -80,9 +122,14 @@ export async function completeSkill(
   }
 
   // 10. Return next skill and action
+  // Use updated item info if available, otherwise fall back to session state
+  const effectiveState = {
+    ...sessionState,
+    ...(itemUpdates.currentItem !== undefined && { currentItem: itemUpdates.currentItem }),
+  };
   return {
     next_skill: resolved.skill,
-    params: buildParams(resolved.stateId, sessionState),
+    params: buildParams(resolved.stateId, effectiveState),
     action: shouldClear ? 'clear' : 'none',
   };
 }

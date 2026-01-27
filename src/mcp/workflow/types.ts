@@ -96,3 +96,17 @@ export interface BatchTask {
   status: 'pending' | 'in_progress' | 'completed' | 'failed';
   dependsOn: string[];
 }
+
+/** Work item type */
+export type WorkItemType = 'code' | 'task' | 'bugfix';
+
+/** Work item status */
+export type WorkItemStatus = 'pending' | 'documented';
+
+/** Work item in session state */
+export interface WorkItem {
+  number: number;
+  title: string;
+  type: WorkItemType;
+  status: WorkItemStatus;
+}

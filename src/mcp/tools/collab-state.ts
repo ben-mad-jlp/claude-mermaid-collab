@@ -8,7 +8,7 @@
 import { readFile, writeFile, mkdir, unlink, access } from 'fs/promises';
 import { join } from 'path';
 import type { WebSocketHandler } from '../../websocket/handler.js';
-import type { TaskBatch } from '../workflow/types.js';
+import type { TaskBatch, WorkItem, WorkItemType } from '../workflow/types.js';
 
 // ============= Type Definitions =============
 
@@ -17,7 +17,9 @@ export interface CollabState {
   phase: string;
   lastActivity: string;
   currentItem: number | null;
+  currentItemType?: WorkItemType; // Type of current item for routing
   hasSnapshot: boolean;
+  workItems?: WorkItem[]; // Work items for the session
   batches?: TaskBatch[]; // Execution batches
   currentBatch?: number; // Index of current batch
   completedTasks?: string[];
@@ -40,7 +42,9 @@ export interface StateUpdateParams {
   state?: string; // Current state machine state ID
   phase?: string;
   currentItem?: number | null;
+  currentItemType?: WorkItemType; // Type of current item for routing
   hasSnapshot?: boolean;
+  workItems?: WorkItem[]; // Work items for the session
   batches?: TaskBatch[]; // Execution batches
   currentBatch?: number; // Index of current batch
   completedTasks?: string[];
@@ -105,6 +109,12 @@ export async function updateSessionState(
     // New state machine fields
     ...(updates.state && { state: updates.state }),
     ...(currentState.state && !updates.state && { state: currentState.state }),
+    // Work items
+    ...(updates.workItems && { workItems: updates.workItems }),
+    ...(currentState.workItems && !updates.workItems && { workItems: currentState.workItems }),
+    ...(updates.currentItemType && { currentItemType: updates.currentItemType }),
+    ...(currentState.currentItemType && !updates.currentItemType && { currentItemType: currentState.currentItemType }),
+    // Batches
     ...(updates.batches && { batches: updates.batches }),
     ...(currentState.batches && !updates.batches && { batches: currentState.batches }),
     ...(updates.currentBatch !== undefined && { currentBatch: updates.currentBatch }),
@@ -136,6 +146,8 @@ export async function updateSessionState(
         currentItem: newState.currentItem,
         hasSnapshot: newState.hasSnapshot,
         ...(newState.state && { state: newState.state }),
+        ...(newState.workItems && { workItems: newState.workItems }),
+        ...(newState.currentItemType && { currentItemType: newState.currentItemType }),
         ...(newState.batches && { batches: newState.batches }),
         ...(newState.currentBatch !== undefined && { currentBatch: newState.currentBatch }),
         ...(newState.completedTasks && { completedTasks: newState.completedTasks }),

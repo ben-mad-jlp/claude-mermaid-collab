@@ -237,7 +237,27 @@ When the collab session resumes after compaction:
 
 ## Completion
 
-At the end of this skill's work, call complete_skill:
+### Mark item as documented
+
+Before completing, update the item status in session state:
+
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__get_session_state
+Args: { "project": "<cwd>", "session": "<session>" }
+```
+
+Update the item's status in workItems array:
+
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
+Args: {
+  "project": "<cwd>",
+  "session": "<session>",
+  "workItems": [<updated array with item status changed to "documented">]
+}
+```
+
+### Call complete_skill
 
 ```
 Tool: mcp__plugin_mermaid-collab_mermaid__complete_skill

@@ -644,7 +644,22 @@ export async function setupMCPServer(): Promise<Server> {
             session: { type: 'string', description: 'Session name' },
             phase: { type: 'string', description: 'Current phase' },
             currentItem: { type: ['number', 'null'], description: 'Current work item number' },
+            currentItemType: { type: 'string', enum: ['code', 'task', 'bugfix'], description: 'Type of current work item' },
             hasSnapshot: { type: 'boolean', description: 'Whether snapshot exists' },
+            workItems: {
+              type: 'array',
+              description: 'Work items for the session',
+              items: {
+                type: 'object',
+                properties: {
+                  number: { type: 'number', description: 'Item number' },
+                  title: { type: 'string', description: 'Item title' },
+                  type: { type: 'string', enum: ['code', 'task', 'bugfix'], description: 'Item type' },
+                  status: { type: 'string', enum: ['pending', 'documented'], description: 'Item status' },
+                },
+                required: ['number', 'title', 'type', 'status'],
+              },
+            },
             completedTasks: { type: 'array', items: { type: 'string' }, description: 'Completed task IDs' },
             pendingTasks: { type: 'array', items: { type: 'string' }, description: 'Pending task IDs' },
             totalItems: { type: 'number', description: 'Total number of work items (for brainstorming/rough-draft phases)' },
@@ -1065,7 +1080,14 @@ export async function setupMCPServer(): Promise<Server> {
               session: string;
               phase?: string;
               currentItem?: number | null;
+              currentItemType?: 'code' | 'task' | 'bugfix';
               hasSnapshot?: boolean;
+              workItems?: Array<{
+                number: number;
+                title: string;
+                type: 'code' | 'task' | 'bugfix';
+                status: 'pending' | 'documented';
+              }>;
               completedTasks?: string[];
               pendingTasks?: string[];
               totalItems?: number;

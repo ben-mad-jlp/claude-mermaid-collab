@@ -48,7 +48,29 @@ The agent will:
 - Document findings
 - NOT implement any fixes
 
-## Step 3: Update Design Doc
+## Step 3: Mark Item as Documented
+
+### 3a. Update session state workItems
+
+Read current state and update the item's status:
+
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__get_session_state
+Args: { "project": "<cwd>", "session": "<session>" }
+```
+
+Update the item's status in workItems array:
+
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
+Args: {
+  "project": "<cwd>",
+  "session": "<session>",
+  "workItems": [<updated array with item status changed to "documented">]
+}
+```
+
+### 3b. Update design doc
 
 Take the agent's diagnostic report and add it to the work item in the design doc:
 
