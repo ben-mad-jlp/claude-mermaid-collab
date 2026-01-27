@@ -1,25 +1,29 @@
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Terminal } from '@xterm/xterm';
-import { AttachAddon } from '@xterm/addon-attach';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 
 export interface XTermTerminalProps {
+  /** WebSocket URL for terminal connection (e.g., ws://localhost:3737/terminal) */
   wsUrl: string;
+  /** tmux session name to attach to */
+  tmuxSession: string;
   className?: string;
 }
 
 /**
- * XTermTerminal - Renders an xterm.js terminal connected to ttyd backend
+ * XTermTerminal - Native xterm.js terminal connected to Bun PTY backend
  *
  * Features:
  * - Text selection without auto-copy
  * - Right-click copies selected text to clipboard
- * - Connects to tmux sessions via ttyd WebSocket backend
+ * - Connects to tmux sessions via WebSocket + Bun.Terminal
  * - Responsive sizing with FitAddon
+ * - JSON-based resize messages
  */
 export const XTermTerminal = React.memo(function XTermTerminal({
   wsUrl,
+  tmuxSession,
   className = '',
 }: XTermTerminalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
@@ -42,11 +46,19 @@ export const XTermTerminal = React.memo(function XTermTerminal({
     let fitAddon: FitAddon | null = null;
     let resizeObserver: ResizeObserver | null = null;
 
-    // Safe fit function
+    // Send resize message to server
+    const sendResize = (cols: number, rows: number) => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+      }
+    };
+
+    // Safe fit function that also sends resize to server
     const safeFit = () => {
       if (isDisposedRef.current || !fitAddon || !term) return;
       try {
         fitAddon.fit();
+        sendResize(term.cols, term.rows);
       } catch (e) {
         // Silently ignore fit errors
       }
@@ -69,6 +81,10 @@ export const XTermTerminal = React.memo(function XTermTerminal({
         rows: 24,
         cursorBlink: true,
         cursorStyle: 'block',
+        theme: {
+          background: '#1e1e1e',
+          foreground: '#d4d4d4',
+        },
       });
 
       terminalInstanceRef.current = term;
@@ -82,10 +98,18 @@ export const XTermTerminal = React.memo(function XTermTerminal({
       term.open(container);
 
       // Initial fit
-      safeFit();
+      try {
+        fitAddon.fit();
+      } catch (e) {
+        // Ignore initial fit errors
+      }
+
+      // Build WebSocket URL with tmux session
+      const url = new URL(wsUrl, window.location.origin);
+      url.searchParams.set('session', tmuxSession);
 
       // Create WebSocket connection
-      ws = new WebSocket(wsUrl);
+      ws = new WebSocket(url.toString());
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -93,14 +117,48 @@ export const XTermTerminal = React.memo(function XTermTerminal({
           ws?.close();
           return;
         }
-        const attachAddon = new AttachAddon(ws!);
-        term.loadAddon(attachAddon);
-        safeFit();
+
+        // Send initial resize
+        sendResize(term.cols, term.rows);
+      };
+
+      ws.onmessage = (event) => {
+        if (isDisposedRef.current || !term) return;
+
+        // Write incoming data to terminal
+        const data = event.data;
+        if (typeof data === 'string') {
+          term.write(data);
+        } else if (data instanceof Blob) {
+          data.text().then(text => {
+            if (!isDisposedRef.current && term) {
+              term.write(text);
+            }
+          });
+        }
       };
 
       ws.onerror = () => {
         // Silently ignore WebSocket errors (logged by browser)
       };
+
+      ws.onclose = () => {
+        if (!isDisposedRef.current && term) {
+          term.write('\r\n\x1b[31mConnection closed\x1b[0m\r\n');
+        }
+      };
+
+      // Forward terminal input to WebSocket
+      term.onData((data) => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'data', data }));
+        }
+      });
+
+      // Handle terminal resize
+      term.onResize(({ cols, rows }) => {
+        sendResize(cols, rows);
+      });
     };
 
     // Use ResizeObserver to detect when container has dimensions
@@ -126,7 +184,7 @@ export const XTermTerminal = React.memo(function XTermTerminal({
       }
     });
 
-    // Context menu handler
+    // Context menu handler - copy selected text
     const handleContextMenu = async (event: MouseEvent) => {
       if (isDisposedRef.current || !term) return;
       event.preventDefault();
@@ -170,7 +228,7 @@ export const XTermTerminal = React.memo(function XTermTerminal({
       wsRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [wsUrl]);
+  }, [wsUrl, tmuxSession]);
 
   return (
     <div
@@ -180,6 +238,7 @@ export const XTermTerminal = React.memo(function XTermTerminal({
       style={{
         height: '100%',
         width: '100%',
+        backgroundColor: '#1e1e1e',
       }}
     />
   );

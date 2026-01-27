@@ -1,35 +1,48 @@
 import React from 'react';
-import { XTermTerminal } from './terminal/XTermTerminal';
 import type { TerminalConfig } from '../types/terminal';
+import { XTermTerminal } from './terminal/XTermTerminal';
 
 export interface EmbeddedTerminalProps {
   config: TerminalConfig;
-  /** Unique tmux session name (kept for backward compatibility, no longer used) */
+  /** Unique tmux session name for persistence across refreshes */
   sessionName?: string;
   className?: string;
 }
 
 /**
- * EmbeddedTerminal - Renders an xterm.js terminal connected to ttyd backend
+ * EmbeddedTerminal - Renders a native xterm.js terminal
  *
- * Replaced iframe-based terminal with direct xterm.js component for:
- * - Full control over text selection behavior
- * - Right-click support for copying selected text
- * - Better integration with tmux sessions via WebSocket
+ * Features:
+ * - Text selection without auto-copy
+ * - Right-click copies selected text to clipboard
+ * - Connects to tmux sessions via WebSocket + Bun.Terminal
+ * - Responsive sizing
  */
-export const EmbeddedTerminal = React.memo(function EmbeddedTerminal({ config, sessionName, className = '' }: EmbeddedTerminalProps) {
+export const EmbeddedTerminal = React.memo(function EmbeddedTerminal({
+  config,
+  sessionName,
+  className = '',
+}: EmbeddedTerminalProps) {
+  // Build WebSocket URL from config
+  // The wsUrl should point to /terminal endpoint
+  const wsUrl = config.wsUrl;
+
+  // Use provided session name or 'default'
+  const tmuxSession = sessionName || 'default';
+
   return (
     <div
       className={`embedded-terminal ${className}`}
       style={{
         display: 'flex',
         flexDirection: 'column',
-        height: '100%'
+        height: '100%',
       }}
     >
       <XTermTerminal
-        wsUrl={config.wsUrl}
-        className={className}
+        wsUrl={wsUrl}
+        tmuxSession={tmuxSession}
+        className="flex-1"
       />
     </div>
   );

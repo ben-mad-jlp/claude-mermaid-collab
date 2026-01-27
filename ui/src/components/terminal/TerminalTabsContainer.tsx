@@ -30,7 +30,7 @@ export const TerminalTabsContainer: React.FC<TerminalTabsContainerProps> = ({ cl
   } = useTerminalTabs({ project, session });
 
   // Memoize terminal config to prevent unnecessary iframe reloads
-  const terminalConfig = useMemo(() => ({ wsUrl: 'ws://localhost:7681/ws' }), []);
+  const terminalConfig = useMemo(() => ({ wsUrl: '/terminal' }), []);
 
   // Handle loading state
   if (isLoading) {

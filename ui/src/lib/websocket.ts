@@ -311,6 +311,8 @@ export function getWebSocketClient(url: string = getDefaultWebSocketURL()): WebS
 /**
  * Get the default WebSocket URL based on current location
  * Works in browser environment
+ *
+ * In development, Vite proxies /ws to the API server (port 3737)
  */
 function getDefaultWebSocketURL(): string {
   if (typeof window === 'undefined') {

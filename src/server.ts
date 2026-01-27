@@ -14,6 +14,11 @@ import { sessionRegistry } from './services/session-registry';
 import { statusManager } from './services/status-manager';
 import { initializeWebSocketHandler } from './services/ws-handler-manager';
 import { handleMCPRequest, getActiveSessionCount } from './mcp/http-handler';
+import {
+  handleTerminalConnection,
+  handleTerminalMessage,
+  handleTerminalDisconnection,
+} from './services/terminal-ws-server';
 
 // Scratch session - a default workspace for casual use
 const SCRATCH_PROJECT = join(homedir(), '.mermaid-collab');
@@ -48,10 +53,21 @@ const server = Bun.serve({
   async fetch(req, server) {
     const url = new URL(req.url);
 
-    // WebSocket upgrade
+    // WebSocket upgrade for collaboration
     if (url.pathname === '/ws') {
       const upgraded = server.upgrade(req, {
-        data: { subscriptions: new Set<string>() },
+        data: { type: 'collab', subscriptions: new Set<string>() },
+      });
+
+      if (upgraded) return undefined;
+      return new Response('WebSocket upgrade failed', { status: 500 });
+    }
+
+    // WebSocket upgrade for terminal
+    if (url.pathname === '/terminal') {
+      const session = url.searchParams.get('session') || 'default';
+      const upgraded = server.upgrade(req, {
+        data: { type: 'terminal', tmuxSession: session },
       });
 
       if (upgraded) return undefined;
@@ -116,19 +132,39 @@ const server = Bun.serve({
 
   websocket: {
     open(ws) {
-      wsHandler.handleConnection(ws);
-      ws.send(JSON.stringify({
-        type: 'connected',
-        diagramCount: wsHandler.getConnectionCount(),
-      }));
+      const data = ws.data as { type: string; tmuxSession?: string };
+
+      if (data.type === 'terminal') {
+        // Terminal WebSocket connection
+        handleTerminalConnection(ws, data.tmuxSession || 'default');
+      } else {
+        // Collab WebSocket connection
+        wsHandler.handleConnection(ws);
+        ws.send(JSON.stringify({
+          type: 'connected',
+          diagramCount: wsHandler.getConnectionCount(),
+        }));
+      }
     },
 
     message(ws, message) {
-      wsHandler.handleMessage(ws, message.toString());
+      const data = ws.data as { type: string };
+
+      if (data.type === 'terminal') {
+        handleTerminalMessage(ws, message.toString());
+      } else {
+        wsHandler.handleMessage(ws, message.toString());
+      }
     },
 
     close(ws) {
-      wsHandler.handleDisconnection(ws);
+      const data = ws.data as { type: string };
+
+      if (data.type === 'terminal') {
+        handleTerminalDisconnection(ws);
+      } else {
+        wsHandler.handleDisconnection(ws);
+      }
     },
   },
 });

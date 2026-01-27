@@ -1,136 +1,95 @@
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { TerminalConfig } from '../../types/terminal';
 
-// Unmock EmbeddedTerminal for this test suite since we're testing it directly
+// Unmock the global EmbeddedTerminal mock so we can test it
 vi.unmock('@/components/EmbeddedTerminal');
 
-// Import after unmocking
-import { EmbeddedTerminal } from '../EmbeddedTerminal';
-
-// Mock the XTermTerminal component to avoid xterm initialization in tests
+// Mock XTermTerminal component to avoid xterm.js/ResizeObserver issues in jsdom
 vi.mock('../terminal/XTermTerminal', () => ({
-  XTermTerminal: ({ wsUrl, className }: { wsUrl: string; className?: string }) => (
-    <div data-testid="xterm-component" data-ws-url={wsUrl} className={className} />
-  ),
+  XTermTerminal: vi.fn(({ wsUrl, tmuxSession, className }) => (
+    <div
+      data-testid="xterm-terminal"
+      data-ws-url={wsUrl}
+      data-tmux-session={tmuxSession}
+      className={className}
+    />
+  )),
 }));
 
+// Import after mocks are set up
+import { EmbeddedTerminal } from '../EmbeddedTerminal';
+
 describe('EmbeddedTerminal', () => {
-  const mockConfig: TerminalConfig = {
-    wsUrl: 'ws://localhost:7681/ws',
+  const defaultConfig = {
+    wsUrl: '/terminal',
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  describe('Component Rendering', () => {
-    it('should render the XTermTerminal component', () => {
-      const { getByTestId } = render(
-        <EmbeddedTerminal config={mockConfig} sessionName="test-session" />
-      );
-      expect(getByTestId('xterm-component')).toBeInTheDocument();
-    });
+  it('should render XTermTerminal with correct props', () => {
+    render(
+      <EmbeddedTerminal
+        config={defaultConfig}
+        sessionName="test-session"
+      />
+    );
 
-    it('should pass WebSocket URL to XTermTerminal', () => {
-      const { getByTestId } = render(
-        <EmbeddedTerminal config={mockConfig} sessionName="test-session" />
-      );
-      const xtermComponent = getByTestId('xterm-component');
-      expect(xtermComponent).toHaveAttribute('data-ws-url', 'ws://localhost:7681/ws');
-    });
+    const terminal = screen.getByTestId('xterm-terminal');
+    expect(terminal).toBeInTheDocument();
+    expect(terminal).toHaveAttribute('data-ws-url', '/terminal');
+    expect(terminal).toHaveAttribute('data-tmux-session', 'test-session');
+  });
 
-    it('should apply className prop to XTermTerminal', () => {
-      const { getByTestId } = render(
-        <EmbeddedTerminal
-          config={mockConfig}
-          sessionName="test-session"
-          className="custom-terminal-class"
-        />
-      );
-      const xtermComponent = getByTestId('xterm-component');
-      expect(xtermComponent).toHaveClass('custom-terminal-class');
-    });
+  it('should use default session name when not provided', () => {
+    render(<EmbeddedTerminal config={defaultConfig} />);
 
-    it('should render container div with embedded-terminal class', () => {
-      const { container } = render(
-        <EmbeddedTerminal config={mockConfig} sessionName="test-session" />
-      );
-      const containerDiv = container.querySelector('.embedded-terminal');
-      expect(containerDiv).toBeInTheDocument();
-    });
+    const terminal = screen.getByTestId('xterm-terminal');
+    expect(terminal).toHaveAttribute('data-tmux-session', 'default');
+  });
 
-    it('should NOT render an iframe element', () => {
-      const { container } = render(
-        <EmbeddedTerminal config={mockConfig} sessionName="test-session" />
-      );
-      const iframe = container.querySelector('iframe');
-      expect(iframe).not.toBeInTheDocument();
+  it('should pass custom wsUrl to XTermTerminal', () => {
+    render(
+      <EmbeddedTerminal
+        config={{ wsUrl: 'ws://example.com/terminal' }}
+        sessionName="test"
+      />
+    );
+
+    const terminal = screen.getByTestId('xterm-terminal');
+    expect(terminal).toHaveAttribute('data-ws-url', 'ws://example.com/terminal');
+  });
+
+  it('should apply custom className to container', () => {
+    const { container } = render(
+      <EmbeddedTerminal
+        config={defaultConfig}
+        className="custom-class"
+      />
+    );
+
+    const terminalDiv = container.querySelector('.embedded-terminal');
+    expect(terminalDiv).toBeInTheDocument();
+    expect(terminalDiv).toHaveClass('custom-class');
+  });
+
+  it('should render container with flex layout', () => {
+    const { container } = render(<EmbeddedTerminal config={defaultConfig} />);
+
+    const terminalDiv = container.querySelector('.embedded-terminal');
+    expect(terminalDiv).toBeInTheDocument();
+    expect(terminalDiv).toHaveStyle({
+      display: 'flex',
+      flexDirection: 'column',
+      height: '100%',
     });
   });
 
-  describe('Props Handling', () => {
-    it('should handle missing sessionName prop', () => {
-      const { getByTestId } = render(
-        <EmbeddedTerminal config={mockConfig} />
-      );
-      expect(getByTestId('xterm-component')).toBeInTheDocument();
-    });
+  it('should pass className to XTermTerminal', () => {
+    render(<EmbeddedTerminal config={defaultConfig} />);
 
-    it('should handle empty className prop', () => {
-      const { getByTestId } = render(
-        <EmbeddedTerminal
-          config={mockConfig}
-          sessionName="test-session"
-          className=""
-        />
-      );
-      const xtermComponent = getByTestId('xterm-component');
-      expect(xtermComponent).toBeInTheDocument();
-    });
-
-    it('should pass config.wsUrl directly to XTermTerminal', () => {
-      const customWsUrl = 'ws://custom-host:8765/ws';
-      const customConfig: TerminalConfig = {
-        wsUrl: customWsUrl,
-      };
-      const { getByTestId } = render(
-        <EmbeddedTerminal config={customConfig} sessionName="test-session" />
-      );
-      const xtermComponent = getByTestId('xterm-component');
-      expect(xtermComponent).toHaveAttribute('data-ws-url', customWsUrl);
-    });
-  });
-
-  describe('Error Handling', () => {
-    it('should render without error when config is provided', () => {
-      expect(() => {
-        render(
-          <EmbeddedTerminal config={mockConfig} sessionName="test-session" />
-        );
-      }).not.toThrow();
-    });
-
-    it('should render without error with all props provided', () => {
-      expect(() => {
-        render(
-          <EmbeddedTerminal
-            config={mockConfig}
-            sessionName="test-session"
-            className="test-class"
-          />
-        );
-      }).not.toThrow();
-    });
-  });
-
-  describe('Imports and Dependencies', () => {
-    it('should use XTermTerminal component internally', () => {
-      const { getByTestId } = render(
-        <EmbeddedTerminal config={mockConfig} sessionName="test-session" />
-      );
-      // If XTermTerminal is used, the mocked component should be rendered
-      expect(getByTestId('xterm-component')).toBeInTheDocument();
-    });
+    const terminal = screen.getByTestId('xterm-terminal');
+    expect(terminal).toHaveClass('flex-1');
   });
 });

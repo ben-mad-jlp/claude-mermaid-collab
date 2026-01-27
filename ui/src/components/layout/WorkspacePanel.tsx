@@ -10,7 +10,7 @@ export interface WorkspacePanelProps {
 
 export function WorkspacePanel({
   messageContent,
-  terminalConfig = { wsUrl: 'ws://localhost:7681/ws' },
+  terminalConfig = { wsUrl: '/terminal' },
 }: WorkspacePanelProps) {
   return (
     <div
