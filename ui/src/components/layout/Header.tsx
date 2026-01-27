@@ -97,14 +97,14 @@ export const Header: React.FC<HeaderProps> = ({
     if (currentSession?.project && currentSession.project !== selectedProject) {
       setSelectedProject(currentSession.project);
     }
-  }, [currentSession?.project]);
+  }, [currentSession?.project, selectedProject]);
 
-  // Auto-select first project if none selected
+  // Auto-select first project if none selected and currentSession exists
   useEffect(() => {
-    if (!selectedProject && projects.length > 0) {
+    if (!selectedProject && projects.length > 0 && currentSession) {
       setSelectedProject(projects[0]);
     }
-  }, [projects, selectedProject]);
+  }, [projects, selectedProject, currentSession]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
