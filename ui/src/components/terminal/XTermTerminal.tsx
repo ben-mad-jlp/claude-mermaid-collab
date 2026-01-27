@@ -25,9 +25,14 @@ export const XTermTerminal = React.memo(function XTermTerminal({
   const terminalRef = useRef<HTMLDivElement>(null);
   const terminalInstanceRef = useRef<Terminal | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
+  const isDisposedRef = useRef(false);
 
   useEffect(() => {
     if (!terminalRef.current) return;
+
+    // Reset disposed flag
+    isDisposedRef.current = false;
 
     // Create terminal instance with rightClickSelectsWord disabled
     const term = new Terminal({
@@ -40,65 +45,91 @@ export const XTermTerminal = React.memo(function XTermTerminal({
 
     terminalInstanceRef.current = term;
 
-    // Create WebSocket connection to ttyd backend
-    const wsProtocol = wsUrl.startsWith('wss://') ? 'wss://' : 'ws://';
-    const wsUrl2 = wsUrl.replace('ws://', wsProtocol).replace('wss://', wsProtocol);
-    const ws = new WebSocket(wsUrl2);
-    wsRef.current = ws;
-
-    // Create and attach addons
-    const attachAddon = new AttachAddon(ws);
+    // Create FitAddon early
     const fitAddon = new FitAddon();
-
-    term.loadAddon(attachAddon);
+    fitAddonRef.current = fitAddon;
     term.loadAddon(fitAddon);
 
-    // Open terminal in DOM
+    // Open terminal in DOM first
     term.open(terminalRef.current);
 
-    // Fit terminal to container
-    try {
-      fitAddon.fit();
-    } catch (e) {
-      // Silently ignore fit errors if terminal not ready
-    }
-
-    // Handle context menu for copying selected text
-    const handleContextMenu = async (event: MouseEvent) => {
-      event.preventDefault();
-      const selection = term.getSelection();
-
-      if (selection && selection.trim()) {
-        try {
-          await navigator.clipboard.writeText(selection);
-        } catch (err) {
-          // Silently ignore clipboard errors
-          console.error('Failed to copy to clipboard:', err);
-        }
+    // Fit terminal to container after opening
+    const safeFit = () => {
+      if (isDisposedRef.current) return;
+      try {
+        fitAddon.fit();
+      } catch (e) {
+        // Silently ignore fit errors if terminal not ready
       }
     };
 
-    // Attach to the terminal element (xterm creates .xterm element inside our container)
+    // Initial fit
+    safeFit();
+
+    // Create WebSocket connection to ttyd backend
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    // Only attach addon when WebSocket is open
+    ws.onopen = () => {
+      if (isDisposedRef.current) {
+        ws.close();
+        return;
+      }
+      const attachAddon = new AttachAddon(ws);
+      term.loadAddon(attachAddon);
+      // Fit again after connection established
+      safeFit();
+    };
+
+    ws.onerror = (event) => {
+      if (!isDisposedRef.current) {
+        console.warn('WebSocket error:', event);
+      }
+    };
+
+    // Handle context menu for copying selected text
+    const handleContextMenu = async (event: MouseEvent) => {
+      if (isDisposedRef.current) return;
+      event.preventDefault();
+
+      try {
+        const selection = term.getSelection();
+        if (selection && selection.trim()) {
+          await navigator.clipboard.writeText(selection);
+        }
+      } catch (err) {
+        // Silently ignore clipboard errors
+        console.error('Failed to copy to clipboard:', err);
+      }
+    };
+
+    // Attach to the terminal element
     const termElement = terminalRef.current;
     termElement?.addEventListener('contextmenu', handleContextMenu);
 
     // Handle window resize to fit terminal
-    const handleResize = () => {
-      try {
-        fitAddon.fit();
-      } catch (e) {
-        // Silently ignore fit errors
-      }
-    };
-
+    const handleResize = () => safeFit();
     window.addEventListener('resize', handleResize);
 
     // Cleanup
     return () => {
+      isDisposedRef.current = true;
       window.removeEventListener('resize', handleResize);
       termElement?.removeEventListener('contextmenu', handleContextMenu);
+
+      // Only close WebSocket if it's connecting or open
+      if (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
+
+      // Dispose terminal
       term.dispose();
-      ws.close();
+
+      // Clear refs
+      terminalInstanceRef.current = null;
+      wsRef.current = null;
+      fitAddonRef.current = null;
     };
   }, [wsUrl]);
 
