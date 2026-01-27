@@ -108,16 +108,50 @@ export class TerminalManager {
   /**
    * Create tmux session via shell
    */
-  async createTmuxSession(tmuxSessionName: string): Promise<void> {
+  async createTmuxSession(tmuxSessionName: string, cwd?: string): Promise<void> {
     try {
-      // Run tmux new-session -d -s {tmuxSessionName}
-      await execAsync(`tmux new-session -d -s ${tmuxSessionName}`);
+      // Run tmux new-session -d -s {tmuxSessionName} [-c {cwd}]
+      if (cwd) {
+        await execAsync(`tmux new-session -d -s ${tmuxSessionName} -c ${cwd}`);
+      } else {
+        await execAsync(`tmux new-session -d -s ${tmuxSessionName}`);
+      }
+
+      // Enable mouse scrolling for the session
+      await execAsync(`tmux set-option -t ${tmuxSessionName} mouse on`);
+
+      // Disable terminal splitting by unbinding split keys
+      // Unbind horizontal split (Ctrl+B %)
+      try {
+        await execAsync(`tmux unbind-key -t ${tmuxSessionName} %`);
+      } catch (unbindError) {
+        // If unbind fails, it's not critical - the session is still created
+        // Log and continue
+      }
+      // Unbind vertical split (Ctrl+B ")
+      try {
+        await execAsync(`tmux unbind-key -t ${tmuxSessionName} '"'`);
+      } catch (unbindError) {
+        // If unbind fails, it's not critical - the session is still created
+        // Log and continue
+      }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
 
       // Check if session already exists (exit code 1 with "duplicate session")
       if (errorMsg.includes('duplicate session') || errorMsg.includes('already exists')) {
-        // If duplicate: That's OK, session exists
+        // If duplicate: That's OK, session exists - still enable mouse mode and attempt unbind keys
+        await execAsync(`tmux set-option -t ${tmuxSessionName} mouse on`);
+        try {
+          await execAsync(`tmux unbind-key -t ${tmuxSessionName} %`);
+        } catch {
+          // Not critical if unbind fails
+        }
+        try {
+          await execAsync(`tmux unbind-key -t ${tmuxSessionName} '"'`);
+        } catch {
+          // Not critical if unbind fails
+        }
         return;
       }
 

@@ -1,0 +1,23 @@
+flowchart TB
+    subgraph Skills["Existing Skills"]
+        US[using-kodex]
+    end
+    
+    subgraph KodexSystem["Kodex System"]
+        KM[KodexManager<br/>src/services/kodex-manager.ts]
+        MCP[MCP Tools<br/>kodex_create_topic<br/>kodex_query_topic<br/>kodex_list_topics]
+        DB[(kodex.db<br/>SQLite)]
+        Topics[/topics/<br/>markdown files/]
+    end
+    
+    subgraph NewSkill["NEW: kodex-init skill"]
+        KI[kodex-init<br/>skills/kodex-init/SKILL.md]
+    end
+    
+    US -->|queries| MCP
+    MCP --> KM
+    KM --> DB
+    KM --> Topics
+    
+    KI -.->|will use| MCP
+    KI -.->|creates topics via| MCP

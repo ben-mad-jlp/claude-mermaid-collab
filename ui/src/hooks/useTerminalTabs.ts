@@ -75,6 +75,9 @@ export function useTerminalTabs({ project, session }: UseTerminalTabsOptions): U
       const result = await api.createTerminalSession(project, session);
       // Refresh to get the updated list
       await refresh();
+      // Auto-select the new terminal and persist to localStorage
+      setActiveTabId(result.id);
+      localStorage.setItem(getStorageKey(project, session), result.id);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       setError(error);

@@ -40,6 +40,7 @@ export const EmbeddedTerminal = React.memo(function EmbeddedTerminal({ config, s
     >
       <iframe
         src={iframeUrl}
+        scrolling="yes"
         style={{
           flex: 1,
           border: 'none',

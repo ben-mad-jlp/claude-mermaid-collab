@@ -1,0 +1,45 @@
+flowchart TB
+    subgraph Skills["Current Skills"]
+        UK[using-kodex<br/>Query & flag topics]
+        KI[kodex-init<br/>Bootstrap topics from codebase]
+    end
+
+    subgraph MCP["MCP Tools"]
+        QT[kodex_query_topic]
+        LT[kodex_list_topics]
+        FT[kodex_flag_topic]
+        CT[kodex_create_topic]
+        UT[kodex_update_topic]
+        VT[kodex_verify_topic]
+        AD[kodex_approve_draft]
+        RD[kodex_reject_draft]
+        DB[kodex_dashboard]
+        LF[kodex_list_flags]
+    end
+
+    subgraph Manager["kodex-manager.ts"]
+        CRUD[Topic CRUD]
+        DM[Draft Management]
+        FM[Flag Management]
+        AN[Analytics]
+    end
+
+    subgraph UI["Kodex UI Pages"]
+        DASH[Dashboard]
+        TOPICS[Topics List]
+        DETAIL[Topic Detail]
+        DRAFTS[Drafts]
+        FLAGS[Flags]
+    end
+
+    UK --> QT & LT & FT
+    KI --> CT & LT
+    
+    MCP --> Manager
+    UI --> Manager
+
+    style UK fill:#90EE90
+    style KI fill:#90EE90
+    style FLAGS fill:#FFB6C1
+    
+    classDef missing fill:#FFB6C1,stroke:#FF0000

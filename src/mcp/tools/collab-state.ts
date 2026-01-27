@@ -17,6 +17,8 @@ export interface CollabState {
   hasSnapshot: boolean;
   completedTasks?: string[];
   pendingTasks?: string[];
+  totalItems?: number;
+  documentedItems?: number;
 }
 
 export interface ContextSnapshot {
@@ -35,6 +37,8 @@ export interface StateUpdateParams {
   hasSnapshot?: boolean;
   completedTasks?: string[];
   pendingTasks?: string[];
+  totalItems?: number;
+  documentedItems?: number;
 }
 
 // ============= Helper Functions =============
@@ -93,6 +97,10 @@ export async function updateSessionState(
     ...(updates.pendingTasks && { pendingTasks: updates.pendingTasks }),
     ...(currentState.completedTasks && !updates.completedTasks && { completedTasks: currentState.completedTasks }),
     ...(currentState.pendingTasks && !updates.pendingTasks && { pendingTasks: currentState.pendingTasks }),
+    ...(updates.totalItems !== undefined && { totalItems: updates.totalItems }),
+    ...(updates.documentedItems !== undefined && { documentedItems: updates.documentedItems }),
+    ...(currentState.totalItems !== undefined && updates.totalItems === undefined && { totalItems: currentState.totalItems }),
+    ...(currentState.documentedItems !== undefined && updates.documentedItems === undefined && { documentedItems: currentState.documentedItems }),
   };
 
   // Ensure directory exists

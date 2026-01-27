@@ -77,7 +77,7 @@ Ask user: "Compact context before starting rough-draft?"
 2. No
 ```
 
-- If **1 (Yes)**: Invoke skill: collab-compact, wait for completion, then invoke rough-draft
+- If **1 (Yes)**: Invoke skill: collab-clear, wait for completion, then invoke rough-draft
 - If **2 (No)**: Invoke rough-draft directly
 
 ### 4. Invoke Rough-Draft Skill

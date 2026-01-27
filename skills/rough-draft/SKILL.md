@@ -154,7 +154,7 @@ Check your current context usage and ask user: "Context is [X]% full. Ready to c
 2. No - continue without compaction
 ```
 
-- If **1 (Yes)**: Invoke skill: collab-compact, then continue to Pseudocode
+- If **1 (Yes)**: Invoke skill: collab-clear, then continue to Pseudocode
 - If **2 (No)**: Continue to Pseudocode without compaction
 
 ---
@@ -178,7 +178,7 @@ Check your current context usage and ask user: "Context is [X]% full. Ready to c
 2. No - continue without compaction
 ```
 
-- If **1 (Yes)**: Invoke skill: collab-compact, then continue to Skeleton
+- If **1 (Yes)**: Invoke skill: collab-clear, then continue to Skeleton
 - If **2 (No)**: Continue to Skeleton without compaction
 
 ---
@@ -202,7 +202,7 @@ Check your current context usage and ask user: "Context is [X]% full. Ready to c
 2. No - continue without compaction
 ```
 
-- If **1 (Yes)**: Invoke skill: collab-compact, then continue to Implementation Handoff
+- If **1 (Yes)**: Invoke skill: collab-clear, then continue to Implementation Handoff
 - If **2 (No)**: Continue to Implementation Handoff without compaction
 
 ---

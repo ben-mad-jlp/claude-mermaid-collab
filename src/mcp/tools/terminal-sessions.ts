@@ -37,8 +37,8 @@ export async function terminalCreateSession(
   // Generate tmux session name
   const tmuxSession = terminalManager.generateTmuxSessionName(session);
 
-  // Create tmux session
-  await terminalManager.createTmuxSession(tmuxSession);
+  // Create tmux session in project directory
+  await terminalManager.createTmuxSession(tmuxSession, project);
 
   // Create session record
   const id = randomUUID();

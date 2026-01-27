@@ -49,11 +49,13 @@ describe('useTerminalTabs', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     (api.getTerminalSessions as any).mockResolvedValue(mockSessions);
   });
 
   afterEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
   });
 
   describe('Initialization and Loading', () => {
@@ -608,6 +610,113 @@ describe('useTerminalTabs', () => {
       expect(result.current).toHaveProperty('setActiveTab');
       expect(result.current).toHaveProperty('reorderTabs');
       expect(result.current).toHaveProperty('refresh');
+    });
+  });
+
+  describe('addTab - Auto-select new terminal (bugfix)', () => {
+    it('should set new terminal as active after creation', async () => {
+      const newSession = createMockSession('session-3', 'Terminal 3', 2);
+      const updatedSessions = [...mockSessions, newSession];
+
+      // Reset mocks for clean test state
+      vi.clearAllMocks();
+      (api.getTerminalSessions as any)
+        .mockResolvedValueOnce(mockSessions)
+        .mockResolvedValueOnce(updatedSessions);
+      (api.createTerminalSession as any).mockResolvedValue({
+        id: newSession.id,
+        tmuxSession: newSession.tmuxSession,
+        wsUrl: 'ws://localhost:7681/ws',
+      });
+
+      const { result } = renderHook(() =>
+        useTerminalTabs({ project: mockProject, session: mockSession })
+      );
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      expect(result.current.activeTabId).toBe('session-1');
+
+      // Add new tab
+      await act(async () => {
+        await result.current.addTab();
+      });
+
+      // New terminal should be active
+      await waitFor(() => {
+        expect(result.current.activeTabId).toBe('session-3');
+      });
+    });
+
+    it('should persist new terminal ID to localStorage', async () => {
+      const newSession = createMockSession('session-4', 'Terminal 4', 2);
+      const updatedSessions = [...mockSessions, newSession];
+
+      vi.clearAllMocks();
+      (api.getTerminalSessions as any)
+        .mockResolvedValueOnce(mockSessions)
+        .mockResolvedValueOnce(updatedSessions);
+      (api.createTerminalSession as any).mockResolvedValue({
+        id: newSession.id,
+        tmuxSession: newSession.tmuxSession,
+        wsUrl: 'ws://localhost:7681/ws',
+      });
+
+      const storageKey = `terminal-active-tab:${mockProject}:${mockSession}`;
+
+      const { result } = renderHook(() =>
+        useTerminalTabs({ project: mockProject, session: mockSession })
+      );
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      // Add new tab
+      await act(async () => {
+        await result.current.addTab();
+      });
+
+      // Verify localStorage was updated
+      await waitFor(() => {
+        expect(localStorage.getItem(storageKey)).toBe('session-4');
+      });
+    });
+
+    it('should update activeTab property when new terminal is selected', async () => {
+      const newSession = createMockSession('session-5', 'Terminal 5', 2);
+      const updatedSessions = [...mockSessions, newSession];
+
+      vi.clearAllMocks();
+      (api.getTerminalSessions as any)
+        .mockResolvedValueOnce(mockSessions)
+        .mockResolvedValueOnce(updatedSessions);
+      (api.createTerminalSession as any).mockResolvedValue({
+        id: newSession.id,
+        tmuxSession: newSession.tmuxSession,
+        wsUrl: 'ws://localhost:7681/ws',
+      });
+
+      const { result } = renderHook(() =>
+        useTerminalTabs({ project: mockProject, session: mockSession })
+      );
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      // Add new tab
+      await act(async () => {
+        await result.current.addTab();
+      });
+
+      // Verify activeTab is updated to the new session
+      await waitFor(() => {
+        expect(result.current.activeTab?.id).toBe('session-5');
+        expect(result.current.activeTab?.name).toBe('Terminal 5');
+      });
     });
   });
 });

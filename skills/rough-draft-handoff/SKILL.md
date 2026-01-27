@@ -112,7 +112,7 @@ Ask user: "Compact context before starting implementation?"
 2. No
 ```
 
-- If **1 (Yes)**: Invoke skill: collab-compact, wait for completion, then invoke executing-plans
+- If **1 (Yes)**: Invoke skill: collab-clear, wait for completion, then invoke executing-plans
 - If **2 (No)**: Invoke executing-plans directly
 
 **Step 4: Invoke executing-plans**

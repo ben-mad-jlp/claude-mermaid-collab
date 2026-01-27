@@ -16,6 +16,10 @@ export interface CollabState {
   currentItem: number | null;
   pendingVerificationIssues?: VerificationIssue[];
   worktreePath?: string;
+  completedTasks?: string[];
+  pendingTasks?: string[];
+  totalItems?: number;
+  documentedItems?: number;
 }
 
 export interface VerificationIssue {

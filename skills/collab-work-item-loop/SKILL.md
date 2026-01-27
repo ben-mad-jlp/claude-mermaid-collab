@@ -69,7 +69,7 @@ Note: `lastActivity` is automatically updated by the MCP tool.
 Processing bugfix: <item-title>
 Invoking systematic-debugging for investigation...
 ```
-→ Invoke skill: collab-compact
+→ Invoke skill: collab-clear
 → Invoke **systematic-debugging** skill
 
 **If type is `task`:**
@@ -77,20 +77,20 @@ Invoking systematic-debugging for investigation...
 Processing task: <item-title>
 Invoking brainstorming for planning...
 ```
-→ Invoke skill: collab-compact
+→ Invoke skill: collab-clear
 → Invoke **brainstorming** skill
-→ After brainstorming completes, invoke skill: collab-compact
-→ After collab-compact completes, invoke **task-planning** skill
+→ After brainstorming completes, invoke skill: collab-clear
+→ After collab-clear completes, invoke **task-planning** skill
 
 **If type is `code`:**
 ```
 Processing code: <item-title>
 Invoking brainstorming for design...
 ```
-→ Invoke skill: collab-compact
+→ Invoke skill: collab-clear
 → Invoke **brainstorming** skill
-→ After brainstorming completes, invoke skill: collab-compact
-→ After collab-compact completes, invoke **rough-draft** skill (includes feature/refactor/spike work)
+→ After brainstorming completes, invoke skill: collab-clear
+→ After collab-clear completes, invoke **rough-draft** skill (includes feature/refactor/spike work)
 
 ### 4.6 Mark Item Documented
 

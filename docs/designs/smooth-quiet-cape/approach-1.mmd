@@ -1,0 +1,32 @@
+flowchart TB
+    subgraph Step1["Step 1: Explore Structure"]
+        A[Walk directory tree] --> B[Identify folders]
+        B --> C[Check config files]
+        C --> D[Note framework patterns]
+    end
+    
+    subgraph Step2["Step 2: Build Topic List"]
+        E[Map folders to topics] --> F[Apply standard topics]
+        F --> G[Merge small folders]
+        G --> H[Split complex areas]
+    end
+    
+    subgraph Step3["Step 3: Present for Approval"]
+        I[Show topic list] --> J{User approves?}
+        J -->|Edit| K[Modify list]
+        K --> I
+        J -->|Approve| L[Continue]
+    end
+    
+    subgraph Step4["Step 4: Create Topics"]
+        M[For each topic] --> N[Build stub content]
+        N --> O[Call kodex_create_topic]
+        O --> P[Next topic]
+        P --> M
+    end
+    
+    Step1 --> Step2
+    Step2 --> Step3
+    Step3 --> Step4
+    
+    Step4 --> Q[Summary: N topics created as drafts]

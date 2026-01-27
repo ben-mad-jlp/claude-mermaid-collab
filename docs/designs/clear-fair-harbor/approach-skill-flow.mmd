@@ -1,0 +1,41 @@
+flowchart TB
+    subgraph User["User Action"]
+        CMD["/kodex-fix"]
+    end
+
+    subgraph Parent["kodex-fix (Parent Skill)"]
+        LF[List open flags]
+        SELECT[User selects flag]
+        ROUTE{Route by type}
+    end
+
+    subgraph SubSkills["Sub-Skills"]
+        OUT[kodex-fix-outdated]
+        INC[kodex-fix-incorrect]
+        INCOMP[kodex-fix-incomplete]
+        MISS[kodex-fix-missing]
+    end
+
+    subgraph Analysis["Content Generation"]
+        READ[Read existing topic]
+        ANALYZE[Analyze codebase files]
+        GEN[Generate 4 sections]
+        VAL[Validate with user]
+    end
+
+    subgraph Output["Output"]
+        DRAFT[Create draft via MCP]
+        APPROVE[Human approves draft]
+        RESOLVE[Flag auto-resolved]
+    end
+
+    CMD --> LF --> SELECT --> ROUTE
+    ROUTE -->|outdated| OUT
+    ROUTE -->|incorrect| INC
+    ROUTE -->|incomplete| INCOMP
+    ROUTE -->|missing| MISS
+
+    OUT & INC & INCOMP --> READ
+    MISS --> ANALYZE
+    READ --> ANALYZE --> GEN --> VAL --> DRAFT
+    DRAFT --> APPROVE --> RESOLVE

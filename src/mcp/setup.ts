@@ -645,6 +645,8 @@ export async function setupMCPServer(): Promise<Server> {
             hasSnapshot: { type: 'boolean', description: 'Whether snapshot exists' },
             completedTasks: { type: 'array', items: { type: 'string' }, description: 'Completed task IDs' },
             pendingTasks: { type: 'array', items: { type: 'string' }, description: 'Pending task IDs' },
+            totalItems: { type: 'number', description: 'Total number of work items (for brainstorming/rough-draft phases)' },
+            documentedItems: { type: 'number', description: 'Number of documented items (for brainstorming/rough-draft phases)' },
           },
           required: ['project', 'session'],
         },
@@ -1050,6 +1052,8 @@ export async function setupMCPServer(): Promise<Server> {
               hasSnapshot?: boolean;
               completedTasks?: string[];
               pendingTasks?: string[];
+              totalItems?: number;
+              documentedItems?: number;
             };
             if (!project || !session) throw new Error('Missing required: project, session');
             const result = await updateSessionState(project, session, updates);
