@@ -22,7 +22,7 @@
  * - QuestionPanel overlay
  */
 
-import React, { useEffect, useCallback, useMemo } from 'react';
+import React, { useEffect, useCallback, useMemo, useState } from 'react';
 import { useTheme } from '@/hooks/useTheme';
 import { useUIStore } from '@/stores/uiStore';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -49,6 +49,7 @@ import UnifiedEditor from '@/components/editors/UnifiedEditor';
 
 // Import notification components
 import { ToastContainer } from '@/components/notifications';
+import { requestNotificationPermission, showUserInputNotification } from '@/services/notification-service';
 
 /**
  * Error Boundary Component
@@ -183,6 +184,22 @@ const App: React.FC = () => {
   // Data loading
   const { isLoading, error: dataError, loadSessions, loadSessionItems } = useDataLoader();
 
+  // Registered projects state (projects may exist without sessions)
+  const [registeredProjects, setRegisteredProjects] = useState<string[]>([]);
+
+  // Load registered projects from API
+  const loadProjects = useCallback(async () => {
+    try {
+      const response = await fetch('/api/projects');
+      if (response.ok) {
+        const data = await response.json();
+        setRegisteredProjects((data.projects || []).map((p: { path: string }) => p.path));
+      }
+    } catch (error) {
+      console.error('Failed to load projects:', error);
+    }
+  }, []);
+
   // Question state
   const { currentQuestion, receiveQuestion } = useQuestionStore(
     useShallow((state) => ({
@@ -193,6 +210,13 @@ const App: React.FC = () => {
 
   // WebSocket for real-time updates
   const { isConnected, isConnecting } = useWebSocket();
+
+  // Request notification permission on app mount (Item 6)
+  useEffect(() => {
+    requestNotificationPermission().catch(() => {
+      // Silently fail if permission request fails
+    });
+  }, []);
 
   // Chat store - no longer need drawer state, ChatPanel is always visible
 
@@ -325,6 +349,11 @@ const App: React.FC = () => {
               project,
               session,
             });
+
+            // Item 6: Show browser notification for blocking messages
+            if (blocking ?? true) {
+              showUserInputNotification(uiId);
+            }
           }
           break;
         }
@@ -451,10 +480,11 @@ const App: React.FC = () => {
     }
   }, [theme]);
 
-  // Load sessions on mount
+  // Load sessions and projects on mount
   useEffect(() => {
     loadSessions();
-  }, [loadSessions]);
+    loadProjects();
+  }, [loadSessions, loadProjects]);
 
   // Auto-select first session when sessions load
   useEffect(() => {
@@ -529,17 +559,19 @@ const App: React.FC = () => {
         return;
       }
 
-      // Refresh sessions list to pick up any sessions in the new project
+      // Refresh projects and sessions lists
+      await loadProjects();
       await loadSessions();
     } catch (error) {
       console.error('Failed to add project:', error);
       alert('Failed to add project');
     }
-  }, [loadSessions]);
+  }, [loadSessions, loadProjects]);
 
-  // Handle refreshing everything - sessions list and current session items
+  // Handle refreshing everything - projects, sessions list, and current session items
   const handleRefreshAll = useCallback(async () => {
-    // Refresh sessions list
+    // Refresh projects and sessions list
+    await loadProjects();
     await loadSessions();
 
     // Refresh current session items if a session is selected
@@ -547,7 +579,7 @@ const App: React.FC = () => {
       const project = currentSession.project || '';
       await loadSessionItems(project, currentSession.name);
     }
-  }, [loadSessions, loadSessionItems, currentSession]);
+  }, [loadProjects, loadSessions, loadSessionItems, currentSession]);
 
   // Handle deleting a session
   const handleDeleteSession = useCallback(async (session: Session) => {
@@ -716,6 +748,7 @@ const App: React.FC = () => {
         {/* Header */}
         <Header
           sessions={sessions}
+          registeredProjects={registeredProjects}
           onSessionSelect={handleSessionSelect}
           onRefreshSessions={handleRefreshAll}
           onCreateSession={handleCreateSession}
