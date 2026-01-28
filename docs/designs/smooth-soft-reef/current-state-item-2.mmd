@@ -1,0 +1,30 @@
+flowchart TD
+    subgraph MobileLayout
+        MH[MobileHeader]
+        BTB[BottomTabBar]
+        
+        subgraph Tabs["Tab Content Area"]
+            PT[PreviewTab]
+            CT[ChatTab]
+            TT[TerminalTab]
+        end
+    end
+    
+    subgraph PreviewTab_Detail["PreviewTab Structure"]
+        TopBar["Top Bar<br/>(only shows if item selected)"]
+        BrowseBtn["Browse Button"]
+        Preview["Preview Content"]
+        Drawer[ItemDrawer]
+        EmptyState["Empty State<br/>(no browse option)"]
+    end
+    
+    PT --> TopBar
+    TopBar --> BrowseBtn
+    PT --> Preview
+    PT --> EmptyState
+    PT --> Drawer
+    
+    BrowseBtn -.->|"Opens"| Drawer
+    
+    style EmptyState fill:#f99,stroke:#f00
+    style BrowseBtn fill:#9f9,stroke:#0f0

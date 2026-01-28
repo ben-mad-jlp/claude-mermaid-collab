@@ -1,0 +1,22 @@
+sequenceDiagram
+    participant MCP as MCP Tool
+    participant SM as StatusManager
+    participant WS as WebSocket Server
+    participant WSC as WebSocket Client
+    participant Bridge as Event Bridge
+    participant Hook as useAgentStatus
+
+    Note over MCP,Hook: CURRENT (broken)
+    MCP->>SM: updateStatus('working')
+    SM->>WS: broadcastStatus()
+    WS->>WSC: {type: 'status_changed', ...}
+    Note over WSC: Message received but<br/>not dispatched to window
+
+    Note over MCP,Hook: PROPOSED (fixed)
+    MCP->>SM: updateStatus('working')
+    SM->>WS: broadcastStatus()
+    WS->>WSC: {type: 'status_changed', ...}
+    WSC->>Bridge: onMessage handler
+    Bridge->>Bridge: window.dispatchEvent()
+    Bridge->>Hook: CustomEvent received
+    Hook->>Hook: setState() - UI updates!

@@ -1,0 +1,20 @@
+sequenceDiagram
+    participant C as Client (xterm.js)
+    participant S as Server (PTYManager)
+    participant P as PTY Process
+
+    Note over C,P: CURRENT (broken)
+    C->>S: WebSocket connect
+    S->>P: Create PTY at 80x24
+    S->>C: Replay buffer immediately
+    C->>S: resize(cols, rows)
+    Note right of C: Buffer already rendered<br/>at wrong size!
+
+    Note over C,P: PROPOSED (fixed)
+    C->>S: WebSocket connect
+    S->>P: Create PTY at 80x24
+    Note over S: Hold buffer, wait for resize
+    C->>S: resize(cols, rows)
+    S->>P: Resize PTY to cols x rows
+    S->>C: Replay buffer NOW
+    Note right of C: Buffer rendered at<br/>correct size ✓

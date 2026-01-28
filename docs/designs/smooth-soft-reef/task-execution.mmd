@@ -1,0 +1,65 @@
+graph TD
+    %% Batch 1 - No dependencies
+    item1-transport-types(["item1-transport-types"])
+    item2-preview-tab-button(["item2-preview-tab-button"])
+    item3-terminaltab-props(["item3-terminaltab-props"])
+    item4-pty-types(["item4-pty-types"])
+    item4-client-resize(["item4-client-resize"])
+    item5-dispatch-function(["item5-dispatch-function"])
+    item6-kodex-hasflag(["item6-kodex-hasflag"])
+    item7-display-names-const(["item7-display-names-const"])
+    item8-types-itemstatus(["item8-types-itemstatus"])
+
+    %% Batch 2 dependencies
+    item1-transport-types --> item1-transport-handlepost(["item1-transport-handlepost"])
+    item3-terminaltab-props --> item3-terminaltab-button(["item3-terminaltab-button"])
+    item3-terminaltab-props --> item3-mobilelayout-handler(["item3-mobilelayout-handler"])
+    item4-pty-types --> item4-pty-attach(["item4-pty-attach"])
+    item4-pty-types --> item4-pty-replay(["item4-pty-replay"])
+    item5-dispatch-function --> item5-message-handler(["item5-message-handler"])
+    item6-kodex-hasflag --> item6-kodex-createflag(["item6-kodex-createflag"])
+    item7-display-names-const --> item7-get-display-name(["item7-get-display-name"])
+    item8-types-itemstatus --> item8-transitions-conditions(["item8-transitions-conditions"])
+    item8-types-itemstatus --> item8-statemachine-helpers(["item8-statemachine-helpers"])
+    item8-types-itemstatus --> item8-migration(["item8-migration"])
+
+    %% Batch 3 dependencies
+    item1-transport-handlepost --> item1-api-route(["item1-api-route"])
+    item4-pty-replay --> item4-pty-resize(["item4-pty-resize"])
+    item4-pty-attach --> item4-ws-handler(["item4-ws-handler"])
+    item6-kodex-createflag --> item6-query-autoflag(["item6-query-autoflag"])
+    item7-get-display-name --> item7-session-manager(["item7-session-manager"])
+    item8-statemachine-helpers --> item8-statemachine-getnextstate(["item8-statemachine-getnextstate"])
+    item8-transitions-conditions --> item8-statemachine-getnextstate
+
+    %% Batch 4 dependencies
+    item7-session-manager --> item7-ui-update(["item7-ui-update"])
+
+    %% Styles - all waiting initially
+    style item1-transport-types fill:#c8e6c9,stroke:#2e7d32
+    style item2-preview-tab-button fill:#c8e6c9,stroke:#2e7d32
+    style item3-terminaltab-props fill:#c8e6c9,stroke:#2e7d32
+    style item4-pty-types fill:#c8e6c9,stroke:#2e7d32
+    style item4-client-resize fill:#c8e6c9,stroke:#2e7d32
+    style item5-dispatch-function fill:#c8e6c9,stroke:#2e7d32
+    style item6-kodex-hasflag fill:#c8e6c9,stroke:#2e7d32
+    style item7-display-names-const fill:#c8e6c9,stroke:#2e7d32
+    style item8-types-itemstatus fill:#c8e6c9,stroke:#2e7d32
+    style item1-transport-handlepost fill:#c8e6c9,stroke:#2e7d32
+    style item3-terminaltab-button fill:#c8e6c9,stroke:#2e7d32
+    style item3-mobilelayout-handler fill:#c8e6c9,stroke:#2e7d32
+    style item4-pty-attach fill:#c8e6c9,stroke:#2e7d32
+    style item4-pty-replay fill:#c8e6c9,stroke:#2e7d32
+    style item5-message-handler fill:#c8e6c9,stroke:#2e7d32
+    style item6-kodex-createflag fill:#c8e6c9,stroke:#2e7d32
+    style item7-get-display-name fill:#c8e6c9,stroke:#2e7d32
+    style item8-transitions-conditions fill:#c8e6c9,stroke:#2e7d32
+    style item8-statemachine-helpers fill:#c8e6c9,stroke:#2e7d32
+    style item8-migration fill:#c8e6c9,stroke:#2e7d32
+    style item1-api-route fill:#c8e6c9,stroke:#2e7d32
+    style item4-pty-resize fill:#c8e6c9,stroke:#2e7d32
+    style item4-ws-handler fill:#c8e6c9,stroke:#2e7d32
+    style item6-query-autoflag fill:#c8e6c9,stroke:#2e7d32
+    style item7-session-manager fill:#c8e6c9,stroke:#2e7d32
+    style item8-statemachine-getnextstate fill:#c8e6c9,stroke:#2e7d32
+    style item7-ui-update fill:#c8e6c9,stroke:#2e7d32

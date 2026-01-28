@@ -1,0 +1,34 @@
+---
+config:
+  layout: elk
+  look: handDrawn
+  theme: neutral
+---
+block-beta
+  columns 1
+  
+  block:mobile["Mobile Terminal Tab - No Session"]
+    columns 1
+    
+    block:header["Header"]
+      columns 3
+      space:1 title["smooth-soft-reef"] space:1
+    end
+    
+    block:content["Content Area"]
+      columns 1
+      space:2
+      icon["⬛"]
+      msg["No active terminal"]
+      space:1
+      btn["[ New Terminal ]"]
+      space:2
+    end
+    
+    block:tabs["Bottom Tab Bar"]
+      columns 3
+      t1["Preview"] t2["Chat"] t3["Terminal"]
+    end
+  end
+  
+  style btn fill:#4CAF50,stroke:#2E7D32,color:#fff
