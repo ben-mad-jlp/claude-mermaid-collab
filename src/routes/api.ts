@@ -10,6 +10,7 @@ import { questionManager } from '../services/question-manager';
 import { uiManager } from '../services/ui-manager';
 import { statusManager } from '../services/status-manager';
 import { projectRegistry } from '../services/project-registry';
+import { UpdateLogManager } from '../services/update-log-manager';
 import { join, isAbsolute } from 'path';
 import { getDisplayName } from '../mcp/workflow/state-machine';
 import { homedir } from 'os';
@@ -592,7 +593,7 @@ export async function handleAPI(
   }
 
   // GET /api/document/:id?project=...&session=...
-  if (path.startsWith('/api/document/') && !path.includes('/clean') && req.method === 'GET') {
+  if (path.startsWith('/api/document/') && !path.includes('/clean') && !path.includes('/history') && !path.includes('/version') && req.method === 'GET') {
     const params = getSessionParams(url);
     if (!params) {
       return Response.json({ error: 'project and session query params required' }, { status: 400 });
@@ -625,6 +626,63 @@ export async function handleAPI(
     }
 
     return Response.json({ content });
+  }
+
+  // GET /api/document/:id/history?project=...&session=...
+  if (path.match(/^\/api\/document\/[^/]+\/history$/) && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const id = path.split('/')[3];
+
+    try {
+      // Get session base path (parent of documents directory)
+      const documentsPath = sessionRegistry.resolvePath(params.project, params.session, 'documents');
+      const sessionPath = join(documentsPath, '..');
+      const updateLogManager = new UpdateLogManager(sessionPath);
+      const history = await updateLogManager.getHistory(id);
+
+      if (!history) {
+        return Response.json({ error: 'No history for document' }, { status: 404 });
+      }
+
+      return Response.json({ original: history.original, changes: history.changes });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // GET /api/document/:id/version?project=...&session=...&timestamp=...
+  if (path.match(/^\/api\/document\/[^/]+\/version$/) && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const timestamp = url.searchParams.get('timestamp');
+    if (!timestamp) {
+      return Response.json({ error: 'timestamp query param required' }, { status: 400 });
+    }
+
+    const id = path.split('/')[3];
+
+    try {
+      // Get session base path (parent of documents directory)
+      const documentsPath = sessionRegistry.resolvePath(params.project, params.session, 'documents');
+      const sessionPath = join(documentsPath, '..');
+      const updateLogManager = new UpdateLogManager(sessionPath);
+      const content = await updateLogManager.replayToTimestamp(id, timestamp);
+
+      return Response.json({ content, timestamp });
+    } catch (error: any) {
+      // Check if it's a "no history" error
+      if (error.message.includes('No history found')) {
+        return Response.json({ error: error.message }, { status: 404 });
+      }
+      return Response.json({ error: error.message }, { status: 500 });
+    }
   }
 
   // POST /api/document?project=...&session=... (create new)
