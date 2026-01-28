@@ -10,19 +10,16 @@
  * - Auto-opens drawer when no item is selected
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useShallow } from 'zustand/react/shallow';
+import { useSessionStore } from '@/stores/sessionStore';
+import { useDataLoader } from '@/hooks/useDataLoader';
 import { MermaidPreview } from '@/components/editors/MermaidPreview';
 import { MarkdownPreview } from '@/components/editors/MarkdownPreview';
 import { ItemDrawer } from './ItemDrawer';
 import type { Item } from '@/types';
 
 export interface PreviewTabProps {
-  /** Currently selected item (diagram or document) */
-  selectedItem: Item | null;
-  /** All available items for the drawer */
-  items: Item[];
-  /** Callback when an item is selected */
-  onItemSelect: (item: Item) => void;
   /** Optional custom class name */
   className?: string;
 }
@@ -31,12 +28,65 @@ export interface PreviewTabProps {
  * PreviewTab component - full-screen preview with item drawer
  */
 export const PreviewTab: React.FC<PreviewTabProps> = ({
-  selectedItem,
-  items,
-  onItemSelect,
   className = '',
 }) => {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+
+  // Store integration (same pattern as Sidebar.tsx)
+  const {
+    diagrams,
+    documents,
+    selectedDiagramId,
+    selectedDocumentId,
+    currentSession,
+  } = useSessionStore(
+    useShallow((state) => ({
+      diagrams: state.diagrams,
+      documents: state.documents,
+      selectedDiagramId: state.selectedDiagramId,
+      selectedDocumentId: state.selectedDocumentId,
+      currentSession: state.currentSession,
+    }))
+  );
+
+  const { selectDiagramWithContent, selectDocumentWithContent } = useDataLoader();
+
+  // Combine diagrams and documents into items array
+  const items: Item[] = useMemo(() => {
+    const combined: Item[] = [
+      ...diagrams.map((d) => ({ ...d, type: 'diagram' as const })),
+      ...documents.map((d) => ({ ...d, type: 'document' as const })),
+    ];
+    combined.sort((a, b) => b.lastModified - a.lastModified);
+    return combined;
+  }, [diagrams, documents]);
+
+  // Get currently selected item
+  const selectedItem: Item | null = useMemo(() => {
+    if (selectedDiagramId) {
+      const d = diagrams.find((d) => d.id === selectedDiagramId);
+      return d ? { ...d, type: 'diagram' as const } : null;
+    }
+    if (selectedDocumentId) {
+      const d = documents.find((d) => d.id === selectedDocumentId);
+      return d ? { ...d, type: 'document' as const } : null;
+    }
+    return null;
+  }, [diagrams, documents, selectedDiagramId, selectedDocumentId]);
+
+  // Handle item selection
+  const handleItemSelect = useCallback(
+    (item: Item) => {
+      if (!currentSession) return;
+      if (item.type === 'diagram') {
+        selectDiagramWithContent(currentSession.project, currentSession.name, item.id);
+      } else {
+        selectDocumentWithContent(currentSession.project, currentSession.name, item.id);
+      }
+      setIsDrawerOpen(false);
+    },
+    [currentSession, selectDiagramWithContent, selectDocumentWithContent]
+  );
 
   // Auto-open drawer if no item selected
   useEffect(() => {
@@ -45,11 +95,6 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
     }
   }, [selectedItem, items]);
 
-  // Handle item selection: call callback and close drawer
-  const handleItemSelect = (item: Item) => {
-    onItemSelect(item);
-    setIsDrawerOpen(false);
-  };
 
   // Get the appropriate icon for the item type
   const getItemTypeIcon = () => {

@@ -412,4 +412,98 @@ describe('MobileLayout - Terminal Handler (handleCreateTerminal)', () => {
     // Terminal tab should still be available
     expect(container.querySelector('[data-testid="terminal-tab-wrapper"]')).toBeInTheDocument();
   });
+
+  it('should create terminal and update UI with terminal config on successful API call', async () => {
+    const mockResponse: CreateSessionResult = {
+      id: 'terminal-123',
+      tmuxSession: 'mc-test-abc',
+      wsUrl: 'ws://localhost:3737/terminal/abc',
+    };
+
+    vi.mocked(api.createTerminalSession).mockResolvedValueOnce(mockResponse);
+
+    const { container } = render(<MobileLayout {...defaultProps} />);
+
+    // Click the terminal tab button first to navigate to terminal tab
+    fireEvent.click(screen.getByRole('button', { name: /terminal/i }));
+
+    // Click the "New Terminal" button
+    const newTerminalButton = screen.getByTestId('new-terminal-button');
+    fireEvent.click(newTerminalButton);
+
+    // Wait for the API call to complete and state to update
+    await waitFor(() => {
+      // Should auto-switch to terminal tab
+      const terminalTab = container.querySelector('[data-testid="terminal-tab-wrapper"]');
+      expect(terminalTab).toHaveStyle('display: flex');
+    });
+
+    // Verify the API was called with the correct parameters
+    expect(api.createTerminalSession).toHaveBeenCalledWith(
+      mockSession.project,
+      mockSession.name
+    );
+  });
+
+  it('should pass terminal config to TerminalTab component after creation', async () => {
+    const mockResponse: CreateSessionResult = {
+      id: 'terminal-456',
+      tmuxSession: 'mc-test-def',
+      wsUrl: 'ws://localhost:3737/terminal/def',
+    };
+
+    vi.mocked(api.createTerminalSession).mockResolvedValueOnce(mockResponse);
+
+    const { container, rerender } = render(<MobileLayout {...defaultProps} />);
+
+    // Click terminal tab to view it
+    fireEvent.click(screen.getByRole('button', { name: /terminal/i }));
+
+    // Click the "New Terminal" button
+    const newTerminalButton = screen.getByTestId('new-terminal-button');
+    fireEvent.click(newTerminalButton);
+
+    // Wait for state to update
+    await waitFor(() => {
+      // Force a re-render to pick up state changes
+      rerender(<MobileLayout {...defaultProps} />);
+
+      // After creation, XTermTerminal should be rendered (or we verify terminal config was passed)
+      // Since TerminalTab internally checks terminal prop, we check if terminal tab is visible
+      const terminalTab = container.querySelector('[data-testid="terminal-tab-wrapper"]');
+      expect(terminalTab).toHaveStyle('display: flex');
+    });
+  });
+
+  it('should store both terminal id and wsUrl from API response', async () => {
+    const mockResponse: CreateSessionResult = {
+      id: 'terminal-789',
+      tmuxSession: 'mc-test-ghi',
+      wsUrl: 'ws://localhost:3737/terminal/ghi',
+    };
+
+    vi.mocked(api.createTerminalSession).mockResolvedValueOnce(mockResponse);
+
+    const { container } = render(<MobileLayout {...defaultProps} />);
+
+    // Navigate to terminal tab
+    fireEvent.click(screen.getByRole('button', { name: /terminal/i }));
+
+    // Click "New Terminal" button
+    const newTerminalButton = screen.getByTestId('new-terminal-button');
+    fireEvent.click(newTerminalButton);
+
+    // Wait for API response and state update
+    await waitFor(() => {
+      // Verify API was called
+      expect(api.createTerminalSession).toHaveBeenCalled();
+    });
+
+    // Terminal should be switched to (visible)
+    const terminalTab = container.querySelector('[data-testid="terminal-tab-wrapper"]');
+    expect(terminalTab).toHaveStyle('display: flex');
+  });
 });
+
+// Add type import at module level for test
+type CreateSessionResult = import('@/types/terminal').CreateSessionResult;

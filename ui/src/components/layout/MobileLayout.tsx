@@ -10,7 +10,7 @@
  * Props match desktop layout (sessions, handlers, connection state)
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { MobileHeader } from './MobileHeader';
 import { BottomTabBar, MobileTab } from './BottomTabBar';
 import { PreviewTab } from '../mobile/PreviewTab';
@@ -65,6 +65,8 @@ export const MobileLayout: React.FC<MobileLayoutProps> = ({
   const [activeTab, setActiveTab] = useState<MobileTab>('preview');
   // Manage terminal ID for the current terminal session
   const [terminalId, setTerminalId] = useState<string | null>(null);
+  // Store WebSocket URL for the terminal
+  const [terminalWsUrl, setTerminalWsUrl] = useState<string | null>(null);
 
   // Handler for tab changes from BottomTabBar
   const handleTabChange = useCallback((tab: MobileTab) => {
@@ -91,8 +93,9 @@ export const MobileLayout: React.FC<MobileLayoutProps> = ({
       // Create a new terminal session via API
       const result = await api.createTerminalSession(session.project, session.name);
 
-      // Update the terminal ID state with the newly created terminal
+      // Update BOTH terminal ID and WebSocket URL
       setTerminalId(result.id);
+      setTerminalWsUrl(result.wsUrl);
 
       // Auto-switch to terminal tab to display the new terminal
       setActiveTab('terminal');
@@ -101,6 +104,14 @@ export const MobileLayout: React.FC<MobileLayoutProps> = ({
       // Could show error notification here
     }
   }, [sessions]);
+
+  // Compute terminal configuration for TerminalTab
+  const terminalConfig = useMemo(() => {
+    if (terminalId && terminalWsUrl) {
+      return { sessionId: terminalId, wsUrl: terminalWsUrl };
+    }
+    return null;
+  }, [terminalId, terminalWsUrl]);
 
   return (
     <div
@@ -134,11 +145,7 @@ export const MobileLayout: React.FC<MobileLayoutProps> = ({
             display: activeTab === 'preview' ? 'flex' : 'none',
           }}
         >
-          <PreviewTab
-            selectedItem={null}
-            items={[]}
-            onItemSelect={() => {}}
-          />
+          <PreviewTab />
         </div>
 
         {/* Chat Tab - ChatTab component renders the data-testid */}
@@ -164,8 +171,8 @@ export const MobileLayout: React.FC<MobileLayoutProps> = ({
           }}
         >
           <TerminalTab
-            terminal={null}
-            hasSession={false}
+            terminal={terminalConfig}
+            hasSession={terminalConfig !== null}
             onCreateTerminal={handleCreateTerminal}
           />
         </div>
