@@ -25,6 +25,7 @@ import {
   saveSnapshot,
   loadSnapshot,
   deleteSnapshot,
+  archiveSession,
 } from './tools/collab-state.js';
 import { completeSkill } from './workflow/complete-skill.js';
 import {
@@ -721,6 +722,20 @@ export async function setupMCPServer(): Promise<Server> {
           required: ['project', 'session'],
         },
       },
+      {
+        name: 'archive_session',
+        description: 'Archive a collab session by copying documents and diagrams to docs/designs/[session]/ and optionally deleting the session folder.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            session: { type: 'string', description: 'Session name to archive' },
+            delete_session: { type: 'boolean', description: 'Delete the session after archiving (default: true)' },
+            timestamp: { type: 'boolean', description: 'Add timestamp to archive folder name (default: false)' },
+          },
+          required: ['project', 'session'],
+        },
+      },
       terminalToolSchemas.terminal_create_session,
       terminalToolSchemas.terminal_list_sessions,
       terminalToolSchemas.terminal_kill_session,
@@ -1134,6 +1149,21 @@ export async function setupMCPServer(): Promise<Server> {
             const { project, session } = args as { project: string; session: string };
             if (!project || !session) throw new Error('Missing required: project, session');
             const result = await deleteSnapshot(project, session);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'archive_session': {
+            const { project, session, delete_session, timestamp } = args as {
+              project: string;
+              session: string;
+              delete_session?: boolean;
+              timestamp?: boolean;
+            };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            const result = await archiveSession(project, session, {
+              deleteSession: delete_session,
+              timestamp,
+            });
             return JSON.stringify(result, null, 2);
           }
 

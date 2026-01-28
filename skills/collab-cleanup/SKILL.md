@@ -100,15 +100,17 @@ What would you like to do with the design artifacts?
 ### Step 4: Execute Choice
 
 **If Archive:**
-1. Create `docs/designs/[session-name]/` directory
-2. Copy all documents including per-item documents:
-   - `.collab/[session]/documents/design.md`
-   - `.collab/[session]/documents/interface-item-*.md`
-   - `.collab/[session]/documents/pseudocode-item-*.md`
-   - `.collab/[session]/documents/skeleton-item-*.md`
-3. Copy `.collab/[session]/diagrams/*` to `docs/designs/[session-name]/`
-4. Delete `.collab/[session]/` folder
-5. Report what was archived (including count of per-item documents)
+1. Call the archive_session MCP tool:
+   ```
+   Tool: mcp__plugin_mermaid-collab_mermaid__archive_session
+   Args: { "project": "<cwd>", "session": "<session-name>" }
+   ```
+2. The tool will:
+   - Create `docs/designs/[session-name]/` directory
+   - Copy all documents from `.collab/sessions/[session]/documents/*`
+   - Copy all diagrams from `.collab/sessions/[session]/diagrams/*`
+   - Delete the `.collab/sessions/[session]/` folder
+3. Report what was archived based on the tool's response (archivedFiles.documents and archivedFiles.diagrams)
 
 **If Delete:**
 1. Confirm: "Delete session [name]? This cannot be undone."
@@ -124,14 +126,20 @@ What would you like to do with the design artifacts?
 2. Remind user: "Session kept open. Run `/collab-cleanup` when ready to close."
 
 **If Archive & Continue:**
-1. Generate timestamp: `[session-name]-[YYYY-MM-DD-HHmmss]`
-2. Create archive directory: `docs/designs/[session-name]-[timestamp]/`
-3. Copy `.collab/[session]/documents/*` to archive directory
-4. Copy `.collab/[session]/diagrams/*` to archive directory
-5. Clear Work Items section in `.collab/[session]/documents/design.md`:
+1. Call the archive_session MCP tool with timestamp option:
+   ```
+   Tool: mcp__plugin_mermaid-collab_mermaid__archive_session
+   Args: {
+     "project": "<cwd>",
+     "session": "<session-name>",
+     "delete_session": false,
+     "timestamp": true
+   }
+   ```
+2. Clear Work Items section in `.collab/sessions/[session]/documents/design.md`:
    - Keep "## Session Context" and its content intact
    - Replace "## Work Items" section with empty placeholder
-6. Reset collab state via MCP:
+3. Reset collab state via MCP:
    ```
    Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
    Args: {
@@ -142,8 +150,8 @@ What would you like to do with the design artifacts?
    }
    ```
    Note: `lastActivity` is automatically updated by the MCP tool.
-7. Report: "Session `[name]` archived to `docs/designs/[name]-[timestamp]/`. Session reset for new work."
-8. Loop back to `gather-session-goals` skill to start work on new items
+4. Report archive path from tool response: "Session `[name]` archived to `[archivePath]`. Session reset for new work."
+5. Loop back to `gather-session-goals` skill to start work on new items
 
 ### Step 5: Confirm
 

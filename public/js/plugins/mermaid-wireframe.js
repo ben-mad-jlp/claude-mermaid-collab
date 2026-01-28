@@ -894,6 +894,21 @@ let nodes = [];
 let tree = null;
 let viewport = 'default';
 let direction = 'LR';
+let theme = 'light';
+
+/**
+ * Set the theme for rendering
+ * @param {string} t - Theme name ('light' or 'dark')
+ */
+const setTheme = (t) => {
+  theme = t;
+};
+
+/**
+ * Get the current theme
+ * @returns {string} Current theme name
+ */
+const getTheme = () => theme;
 
 /**
  * Clear all stored data
@@ -903,6 +918,7 @@ const clear = () => {
   tree = null;
   viewport = 'default';
   direction = 'LR';
+  theme = 'light';
 };
 
 /**
@@ -962,7 +978,9 @@ var db = /*#__PURE__*/Object.freeze({
   __proto__: null,
   addNodes: addNodes,
   clear: clear,
-  getData: getData
+  getData: getData,
+  getTheme: getTheme,
+  setTheme: setTheme
 });
 
 /**
@@ -970,6 +988,112 @@ var db = /*#__PURE__*/Object.freeze({
  * Outputs SVG using d3
  */
 
+
+/**
+ * Theme color palettes for light and dark modes
+ */
+const themes = {
+  light: {
+    background: '#ffffff',
+    text: '#000000',
+    textMuted: '#666666',
+    textPlaceholder: '#999999',
+    border: '#cccccc',
+    borderLight: '#eeeeee',
+    inputBg: '#ffffff',
+    inputBorder: '#999999',
+    buttonDefault: '#eeeeee',
+    buttonPrimary: '#000000',
+    buttonPrimaryText: '#ffffff',
+    buttonSecondary: '#ffffff',
+    buttonSecondaryText: '#000000',
+    buttonDanger: '#dd0000',
+    buttonSuccess: '#00aa00',
+    buttonDisabled: '#f5f5f5',
+    buttonDisabledText: '#999999',
+    listAlt: '#f9f9f9',
+    navBg: '#f5f5f5',
+    appBarBg: '#666666',
+    appBarText: '#ffffff',
+    fabBg: '#000000',
+    fabIcon: '#ffffff',
+    avatarBg: '#cccccc',
+    avatarFg: '#ffffff',
+    imageBg: '#eeeeee',
+    imageLine: '#cccccc',
+    cardBg: '#ffffff',
+    gridHeaderBg: '#f5f5f5',
+    switchTrack: '#cccccc',
+    switchThumb: '#ffffff',
+    checkmark: '#666666',
+    screenBorder: '#999999',
+    screenLabel: '#666666',
+  },
+  dark: {
+    background: '#1a1a2e',
+    text: '#ffffff',
+    textMuted: '#a0a0a0',
+    textPlaceholder: '#888888',
+    border: '#444444',
+    borderLight: '#333333',
+    inputBg: '#2d3748',
+    inputBorder: '#555555',
+    buttonDefault: '#3d3d3d',
+    buttonPrimary: '#4a9eff',
+    buttonPrimaryText: '#ffffff',
+    buttonSecondary: '#2d3748',
+    buttonSecondaryText: '#ffffff',
+    buttonDanger: '#dc2626',
+    buttonSuccess: '#16a34a',
+    buttonDisabled: '#2d2d2d',
+    buttonDisabledText: '#666666',
+    listAlt: '#252538',
+    navBg: '#2d3748',
+    appBarBg: '#1e3a5f',
+    appBarText: '#ffffff',
+    fabBg: '#4a9eff',
+    fabIcon: '#ffffff',
+    avatarBg: '#4a5568',
+    avatarFg: '#e2e8f0',
+    imageBg: '#2d3748',
+    imageLine: '#4a5568',
+    cardBg: '#2d3748',
+    gridHeaderBg: '#374151',
+    switchTrack: '#4a5568',
+    switchThumb: '#e2e8f0',
+    checkmark: '#a0a0a0',
+    screenBorder: '#666666',
+    screenLabel: '#a0a0a0',
+  }
+};
+
+/**
+ * Detect current theme from DOM
+ */
+function detectTheme() {
+  // Check for dark class on html/body (Tailwind pattern)
+  if (typeof document !== 'undefined') {
+    if (document.documentElement.classList.contains('dark') ||
+        document.body.classList.contains('dark')) {
+      return 'dark';
+    }
+    // Check for data-theme attribute
+    const dataTheme = document.documentElement.getAttribute('data-theme') ||
+                      document.body.getAttribute('data-theme');
+    if (dataTheme === 'dark') {
+      return 'dark';
+    }
+    // Fallback to system preference
+    if (typeof window !== 'undefined' &&
+        window.matchMedia?.('(prefers-color-scheme: dark)').matches) {
+      return 'dark';
+    }
+  }
+  return 'light';
+}
+
+// Current colors (will be set based on theme)
+let colors = themes.light;
 
 const viewportWidths = {
   mobile: 375,
@@ -988,6 +1112,10 @@ const viewportWidths = {
 const draw = (text, id, _version, diagObj) => {
   const db = diagObj.db;
   const { viewport, direction, tree } = db.getData();
+
+  // Detect and apply theme
+  const themeName = db.getTheme?.() || detectTheme();
+  colors = themes[themeName] || themes.light;
 
   const container = d3.select(`#${id}`);
   container.selectAll('*').remove();
@@ -1041,7 +1169,7 @@ const draw = (text, id, _version, diagObj) => {
         .attr('width', viewportWidth + screenPadding * 2)
         .attr('height', viewportHeight + screenPadding * 2 + 32)
         .attr('fill', 'none')
-        .attr('stroke', '#999')
+        .attr('stroke', colors.screenBorder)
         .attr('stroke-width', 2)
         .attr('stroke-dasharray', '8 4')
         .attr('rx', 8);
@@ -1053,7 +1181,7 @@ const draw = (text, id, _version, diagObj) => {
           .attr('y', screenY - screenPadding - 8)
           .attr('font-size', 14)
           .attr('font-weight', 'bold')
-          .attr('fill', '#666')
+          .attr('fill', colors.screenLabel)
           .text(screen.label);
       }
 
@@ -1193,7 +1321,7 @@ function drawContainer(svg, bounds) {
     .attr('width', bounds.width)
     .attr('height', bounds.height)
     .attr('fill', 'none')
-    .attr('stroke', '#ccc')
+    .attr('stroke', colors.border)
     .attr('stroke-width', 1)
     .attr('stroke-dasharray', '4 2');
 }
@@ -1212,7 +1340,7 @@ function drawText(svg, label, bounds, style) {
     .attr('dominant-baseline', 'middle')
     .attr('font-size', fontSize)
     .attr('font-weight', fontWeight)
-    .attr('fill', '#000')
+    .attr('fill', colors.text)
     .text(label || '');
 }
 
@@ -1221,24 +1349,24 @@ function drawText(svg, label, bounds, style) {
  */
 function drawButton(svg, label, bounds, modifiers) {
   const variant = modifiers.variant || 'default';
-  let fill = '#eee';
-  let textColor = '#000';
+  let fill = colors.buttonDefault;
+  let textColor = colors.text;
 
   if (variant === 'primary') {
-    fill = '#000';
-    textColor = '#fff';
+    fill = colors.buttonPrimary;
+    textColor = colors.buttonPrimaryText;
   } else if (variant === 'secondary') {
-    fill = '#fff';
-    textColor = '#000';
+    fill = colors.buttonSecondary;
+    textColor = colors.buttonSecondaryText;
   } else if (variant === 'danger') {
-    fill = '#d00';
-    textColor = '#fff';
+    fill = colors.buttonDanger;
+    textColor = colors.buttonPrimaryText;
   } else if (variant === 'success') {
-    fill = '#0a0';
-    textColor = '#fff';
+    fill = colors.buttonSuccess;
+    textColor = colors.buttonPrimaryText;
   } else if (variant === 'disabled') {
-    fill = '#f5f5f5';
-    textColor = '#999';
+    fill = colors.buttonDisabled;
+    textColor = colors.buttonDisabledText;
   }
 
   // Button background
@@ -1249,7 +1377,7 @@ function drawButton(svg, label, bounds, modifiers) {
     .attr('height', bounds.height)
     .attr('rx', 4)
     .attr('fill', fill)
-    .attr('stroke', '#999')
+    .attr('stroke', colors.inputBorder)
     .attr('stroke-width', 1);
 
   // Button text
@@ -1275,8 +1403,8 @@ function drawInput(svg, label, bounds) {
     .attr('width', bounds.width)
     .attr('height', bounds.height)
     .attr('rx', 2)
-    .attr('fill', '#fff')
-    .attr('stroke', '#999')
+    .attr('fill', colors.inputBg)
+    .attr('stroke', colors.inputBorder)
     .attr('stroke-width', 1);
 
   // Placeholder text
@@ -1286,7 +1414,7 @@ function drawInput(svg, label, bounds) {
     .attr('text-anchor', 'start')
     .attr('dominant-baseline', 'middle')
     .attr('font-size', 14)
-    .attr('fill', '#999')
+    .attr('fill', colors.textPlaceholder)
     .text(label || 'Enter text...');
 }
 
@@ -1305,14 +1433,14 @@ function drawCheckbox(svg, label, bounds) {
     .attr('width', boxSize)
     .attr('height', boxSize)
     .attr('rx', 2)
-    .attr('fill', '#fff')
-    .attr('stroke', '#999')
+    .attr('fill', colors.inputBg)
+    .attr('stroke', colors.inputBorder)
     .attr('stroke-width', 1);
 
   // Checkmark
   svg.append('path')
     .attr('d', `M ${boxX + 3} ${boxY + 8} L ${boxX + 6} ${boxY + 11} L ${boxX + 13} ${boxY + 4}`)
-    .attr('stroke', '#666')
+    .attr('stroke', colors.checkmark)
     .attr('stroke-width', 2)
     .attr('fill', 'none');
 
@@ -1323,7 +1451,7 @@ function drawCheckbox(svg, label, bounds) {
     .attr('text-anchor', 'start')
     .attr('dominant-baseline', 'middle')
     .attr('font-size', 14)
-    .attr('fill', '#000')
+    .attr('fill', colors.text)
     .text(label || 'Checkbox');
 }
 
@@ -1340,8 +1468,8 @@ function drawRadio(svg, label, bounds) {
     .attr('cx', centerX)
     .attr('cy', centerY)
     .attr('r', radius)
-    .attr('fill', '#fff')
-    .attr('stroke', '#999')
+    .attr('fill', colors.inputBg)
+    .attr('stroke', colors.inputBorder)
     .attr('stroke-width', 1);
 
   // Radio inner dot
@@ -1349,7 +1477,7 @@ function drawRadio(svg, label, bounds) {
     .attr('cx', centerX)
     .attr('cy', centerY)
     .attr('r', 4)
-    .attr('fill', '#666');
+    .attr('fill', colors.checkmark);
 
   // Label
   svg.append('text')
@@ -1358,7 +1486,7 @@ function drawRadio(svg, label, bounds) {
     .attr('text-anchor', 'start')
     .attr('dominant-baseline', 'middle')
     .attr('font-size', 14)
-    .attr('fill', '#000')
+    .attr('fill', colors.text)
     .text(label || 'Radio');
 }
 
@@ -1378,8 +1506,8 @@ function drawSwitch(svg, label, bounds) {
     .attr('width', switchWidth)
     .attr('height', switchHeight)
     .attr('rx', switchHeight / 2)
-    .attr('fill', '#ccc')
-    .attr('stroke', '#999')
+    .attr('fill', colors.switchTrack)
+    .attr('stroke', colors.inputBorder)
     .attr('stroke-width', 1);
 
   // Switch thumb (on position)
@@ -1387,8 +1515,8 @@ function drawSwitch(svg, label, bounds) {
     .attr('cx', switchX + switchWidth - switchHeight / 2)
     .attr('cy', switchY + switchHeight / 2)
     .attr('r', switchHeight / 2 - 2)
-    .attr('fill', '#fff')
-    .attr('stroke', '#999')
+    .attr('fill', colors.switchThumb)
+    .attr('stroke', colors.inputBorder)
     .attr('stroke-width', 1);
 
   // Label
@@ -1398,7 +1526,7 @@ function drawSwitch(svg, label, bounds) {
     .attr('text-anchor', 'start')
     .attr('dominant-baseline', 'middle')
     .attr('font-size', 14)
-    .attr('fill', '#000')
+    .attr('fill', colors.text)
     .text(label || 'Switch');
 }
 
@@ -1413,8 +1541,8 @@ function drawDropdown(svg, label, bounds) {
     .attr('width', bounds.width)
     .attr('height', bounds.height)
     .attr('rx', 2)
-    .attr('fill', '#fff')
-    .attr('stroke', '#999')
+    .attr('fill', colors.inputBg)
+    .attr('stroke', colors.inputBorder)
     .attr('stroke-width', 1);
 
   // Label
@@ -1424,7 +1552,7 @@ function drawDropdown(svg, label, bounds) {
     .attr('text-anchor', 'start')
     .attr('dominant-baseline', 'middle')
     .attr('font-size', 14)
-    .attr('fill', '#000')
+    .attr('fill', colors.text)
     .text(label || 'Select...');
 
   // Dropdown arrow
@@ -1432,7 +1560,7 @@ function drawDropdown(svg, label, bounds) {
   const arrowY = bounds.y + bounds.height / 2;
   svg.append('path')
     .attr('d', `M ${arrowX} ${arrowY - 3} L ${arrowX + 5} ${arrowY + 3} L ${arrowX + 10} ${arrowY - 3}`)
-    .attr('stroke', '#666')
+    .attr('stroke', colors.textMuted)
     .attr('stroke-width', 2)
     .attr('fill', 'none');
 }
@@ -1453,8 +1581,8 @@ function drawList(svg, label, bounds) {
       .attr('y', itemY)
       .attr('width', bounds.width)
       .attr('height', itemHeight)
-      .attr('fill', i % 2 === 0 ? '#fff' : '#f9f9f9')
-      .attr('stroke', '#eee')
+      .attr('fill', i % 2 === 0 ? colors.background : colors.listAlt)
+      .attr('stroke', colors.borderLight)
       .attr('stroke-width', 1);
 
     // Item text
@@ -1464,7 +1592,7 @@ function drawList(svg, label, bounds) {
       .attr('text-anchor', 'start')
       .attr('dominant-baseline', 'middle')
       .attr('font-size', 14)
-      .attr('fill', '#000')
+      .attr('fill', colors.text)
       .text(item.trim());
   });
 }
@@ -1479,8 +1607,8 @@ function drawNavMenu(svg, label, bounds, isBottom) {
     .attr('y', bounds.y)
     .attr('width', bounds.width)
     .attr('height', bounds.height)
-    .attr('fill', '#f5f5f5')
-    .attr('stroke', '#ccc')
+    .attr('fill', colors.navBg)
+    .attr('stroke', colors.border)
     .attr('stroke-width', 1);
 
   const items = label ? label.split('|') : ['Home', 'About', 'Contact'];
@@ -1496,7 +1624,7 @@ function drawNavMenu(svg, label, bounds, isBottom) {
       .attr('text-anchor', 'middle')
       .attr('dominant-baseline', 'middle')
       .attr('font-size', 14)
-      .attr('fill', '#000')
+      .attr('fill', colors.text)
       .text(item.trim());
 
     // Divider (except last item)
@@ -1506,7 +1634,7 @@ function drawNavMenu(svg, label, bounds, isBottom) {
         .attr('y1', bounds.y + 8)
         .attr('x2', itemX + itemWidth)
         .attr('y2', bounds.y + bounds.height - 8)
-        .attr('stroke', '#ccc')
+        .attr('stroke', colors.border)
         .attr('stroke-width', 1);
     }
   });
@@ -1522,8 +1650,8 @@ function drawAppBar(svg, label, bounds) {
     .attr('y', bounds.y)
     .attr('width', bounds.width)
     .attr('height', bounds.height)
-    .attr('fill', '#666')
-    .attr('stroke', '#000')
+    .attr('fill', colors.appBarBg)
+    .attr('stroke', colors.border)
     .attr('stroke-width', 1);
 
   // Title
@@ -1534,7 +1662,7 @@ function drawAppBar(svg, label, bounds) {
     .attr('dominant-baseline', 'middle')
     .attr('font-size', 18)
     .attr('font-weight', 'bold')
-    .attr('fill', '#fff')
+    .attr('fill', colors.appBarText)
     .text(label || 'App Title');
 }
 
@@ -1551,8 +1679,8 @@ function drawFAB(svg, label, bounds) {
     .attr('cx', centerX)
     .attr('cy', centerY)
     .attr('r', radius)
-    .attr('fill', '#000')
-    .attr('stroke', '#666')
+    .attr('fill', colors.fabBg)
+    .attr('stroke', colors.textMuted)
     .attr('stroke-width', 2);
 
   // Plus icon
@@ -1562,7 +1690,7 @@ function drawFAB(svg, label, bounds) {
     .attr('y1', centerY)
     .attr('x2', centerX + iconSize / 2)
     .attr('y2', centerY)
-    .attr('stroke', '#fff')
+    .attr('stroke', colors.fabIcon)
     .attr('stroke-width', 3);
 
   svg.append('line')
@@ -1570,7 +1698,7 @@ function drawFAB(svg, label, bounds) {
     .attr('y1', centerY - iconSize / 2)
     .attr('x2', centerX)
     .attr('y2', centerY + iconSize / 2)
-    .attr('stroke', '#fff')
+    .attr('stroke', colors.fabIcon)
     .attr('stroke-width', 3);
 }
 
@@ -1587,8 +1715,8 @@ function drawAvatar(svg, bounds) {
     .attr('cx', centerX)
     .attr('cy', centerY)
     .attr('r', radius)
-    .attr('fill', '#ccc')
-    .attr('stroke', '#999')
+    .attr('fill', colors.avatarBg)
+    .attr('stroke', colors.inputBorder)
     .attr('stroke-width', 1);
 
   // Simple person icon (head)
@@ -1596,7 +1724,7 @@ function drawAvatar(svg, bounds) {
     .attr('cx', centerX)
     .attr('cy', centerY - radius / 4)
     .attr('r', radius / 3)
-    .attr('fill', '#fff');
+    .attr('fill', colors.avatarFg);
 
   // Simple person icon (body)
   svg.append('ellipse')
@@ -1604,7 +1732,7 @@ function drawAvatar(svg, bounds) {
     .attr('cy', centerY + radius / 2)
     .attr('rx', radius * 0.6)
     .attr('ry', radius * 0.5)
-    .attr('fill', '#fff');
+    .attr('fill', colors.avatarFg);
 }
 
 /**
@@ -1622,7 +1750,7 @@ function drawIcon(svg, label, bounds) {
     .attr('width', size)
     .attr('height', size)
     .attr('fill', 'none')
-    .attr('stroke', '#666')
+    .attr('stroke', colors.textMuted)
     .attr('stroke-width', 1);
 
   // Icon text
@@ -1632,7 +1760,7 @@ function drawIcon(svg, label, bounds) {
     .attr('text-anchor', 'middle')
     .attr('dominant-baseline', 'middle')
     .attr('font-size', 10)
-    .attr('fill', '#666')
+    .attr('fill', colors.textMuted)
     .text(`[${label || 'icon'}]`);
 }
 
@@ -1646,8 +1774,8 @@ function drawImage(svg, bounds) {
     .attr('y', bounds.y)
     .attr('width', bounds.width)
     .attr('height', bounds.height)
-    .attr('fill', '#eee')
-    .attr('stroke', '#999')
+    .attr('fill', colors.imageBg)
+    .attr('stroke', colors.inputBorder)
     .attr('stroke-width', 1);
 
   // X through image
@@ -1656,7 +1784,7 @@ function drawImage(svg, bounds) {
     .attr('y1', bounds.y)
     .attr('x2', bounds.x + bounds.width)
     .attr('y2', bounds.y + bounds.height)
-    .attr('stroke', '#ccc')
+    .attr('stroke', colors.imageLine)
     .attr('stroke-width', 2);
 
   svg.append('line')
@@ -1664,7 +1792,7 @@ function drawImage(svg, bounds) {
     .attr('y1', bounds.y)
     .attr('x2', bounds.x)
     .attr('y2', bounds.y + bounds.height)
-    .attr('stroke', '#ccc')
+    .attr('stroke', colors.imageLine)
     .attr('stroke-width', 2);
 }
 
@@ -1678,8 +1806,8 @@ function drawCard(svg, bounds) {
     .attr('width', bounds.width)
     .attr('height', bounds.height)
     .attr('rx', 8)
-    .attr('fill', '#fff')
-    .attr('stroke', '#ccc')
+    .attr('fill', colors.cardBg)
+    .attr('stroke', colors.border)
     .attr('stroke-width', 1);
 }
 
@@ -1693,8 +1821,8 @@ function drawGrid(svg, node, bounds) {
     .attr('y', bounds.y)
     .attr('width', bounds.width)
     .attr('height', bounds.height)
-    .attr('fill', '#fff')
-    .attr('stroke', '#999')
+    .attr('fill', colors.background)
+    .attr('stroke', colors.inputBorder)
     .attr('stroke-width', 1);
 
   // Find header and row children
@@ -1714,8 +1842,8 @@ function drawGrid(svg, node, bounds) {
       .attr('y', currentY)
       .attr('width', bounds.width)
       .attr('height', rowHeight)
-      .attr('fill', '#f5f5f5')
-      .attr('stroke', '#999')
+      .attr('fill', colors.gridHeaderBg)
+      .attr('stroke', colors.inputBorder)
       .attr('stroke-width', 1);
 
     const cols = headerChild.label ? headerChild.label.split('|') : [];
@@ -1729,7 +1857,7 @@ function drawGrid(svg, node, bounds) {
         .attr('dominant-baseline', 'middle')
         .attr('font-size', 12)
         .attr('font-weight', 'bold')
-        .attr('fill', '#000')
+        .attr('fill', colors.text)
         .text(col.trim());
     });
 
@@ -1748,8 +1876,8 @@ function drawGrid(svg, node, bounds) {
         .attr('y', currentY)
         .attr('width', colWidth)
         .attr('height', rowHeight)
-        .attr('fill', rowIndex % 2 === 0 ? '#fff' : '#f9f9f9')
-        .attr('stroke', '#eee')
+        .attr('fill', rowIndex % 2 === 0 ? colors.background : colors.listAlt)
+        .attr('stroke', colors.borderLight)
         .attr('stroke-width', 1);
 
       // Cell text
@@ -1759,7 +1887,7 @@ function drawGrid(svg, node, bounds) {
         .attr('text-anchor', 'middle')
         .attr('dominant-baseline', 'middle')
         .attr('font-size', 12)
-        .attr('fill', '#000')
+        .attr('fill', colors.text)
         .text(col.trim());
     });
 
@@ -1776,7 +1904,7 @@ function drawDivider(svg, bounds) {
     .attr('y1', bounds.y + bounds.height / 2)
     .attr('x2', bounds.x + bounds.width)
     .attr('y2', bounds.y + bounds.height / 2)
-    .attr('stroke', '#ccc')
+    .attr('stroke', colors.border)
     .attr('stroke-width', 1);
 }
 
@@ -1929,6 +2057,12 @@ const getStyles = () => `
   .wireframe-container text {
     user-select: none;
     -webkit-user-select: none;
+  }
+
+  /* Dark mode support */
+  .dark .wireframe-container,
+  [data-theme="dark"] .wireframe-container {
+    color-scheme: dark;
   }
 `;
 

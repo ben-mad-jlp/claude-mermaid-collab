@@ -1,0 +1,25 @@
+flowchart TD
+    subgraph MCP["MCP Layer"]
+        SCHEMA["renderUISchema<br/>(render-ui.ts:314-341)"]
+        SETUP["setup.ts:1019-1035<br/>case 'render_ui'"]
+    end
+
+    subgraph API["HTTP API Layer"]
+        ROUTE["api.ts:920-980<br/>POST /api/render-ui"]
+    end
+
+    subgraph Services["Service Layer"]
+        UIMGR["ui-manager.ts<br/>renderUI()"]
+        TIMEOUT_LOGIC["timeout validation<br/>+ setTimeout logic"]
+    end
+
+    SCHEMA -->|"timeout param"| SETUP
+    SETUP -->|"body: {timeout}"| ROUTE
+    ROUTE -->|"timeout"| UIMGR
+    UIMGR --> TIMEOUT_LOGIC
+
+    style SCHEMA fill:#ff9999
+    style SETUP fill:#ff9999
+    style ROUTE fill:#ff9999
+    style UIMGR fill:#ff9999
+    style TIMEOUT_LOGIC fill:#ff9999

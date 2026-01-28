@@ -21,6 +21,8 @@ export default defineConfig({
       '@stores': path.resolve(__dirname, './src/stores'),
       '@lib': path.resolve(__dirname, './src/lib'),
       '@types': path.resolve(__dirname, './src/types'),
+      // Use browser build of mermaid-wireframe (avoids Node.js fs/path requires)
+      'mermaid-wireframe': path.resolve(__dirname, '../plugins/wireframe/dist/mermaid-wireframe.browser.js'),
     },
   },
 });

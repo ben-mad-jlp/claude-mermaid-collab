@@ -291,9 +291,9 @@ export const api: ApiClient = {
    * Rename a terminal session
    */
   async renameTerminalSession(project: string, session: string, id: string, name: string): Promise<void> {
-    const url = `/api/terminal/sessions/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const url = `/api/terminal/sessions/${encodeURIComponent(id)}/rename?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
     const response = await fetch(url, {
-      method: 'PATCH',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
     });

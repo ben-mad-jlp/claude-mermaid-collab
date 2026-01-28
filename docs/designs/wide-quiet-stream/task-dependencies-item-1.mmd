@@ -1,0 +1,21 @@
+graph TD
+    ring-buffer[ring-buffer<br/>RingBuffer.ts]
+    pty-manager[pty-manager<br/>PTYManager.ts]
+    terminal-exports[terminal-exports<br/>index.ts]
+    websocket-integration[websocket-integration<br/>websocket.ts]
+    api-integration[api-integration<br/>api.ts]
+    server-integration[server-integration<br/>server.ts]
+
+    ring-buffer --> pty-manager
+    pty-manager --> terminal-exports
+    terminal-exports --> websocket-integration
+    terminal-exports --> api-integration
+    websocket-integration --> server-integration
+    api-integration --> server-integration
+
+    style ring-buffer fill:#c8e6c9
+    style pty-manager fill:#bbdefb
+    style terminal-exports fill:#bbdefb
+    style websocket-integration fill:#bbdefb
+    style api-integration fill:#bbdefb
+    style server-integration fill:#bbdefb

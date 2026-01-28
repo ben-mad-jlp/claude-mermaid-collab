@@ -58,9 +58,30 @@ export const Markdown: React.FC<MarkdownProps> = ({
         {...props}
       />
     ),
-    p: ({ node, ...props }: any) => (
-      <p className="mb-3 text-gray-700 dark:text-gray-300 leading-relaxed" {...props} />
-    ),
+    p: ({ node, children, ...props }: any) => {
+      // Check if children contain block-level elements (like code blocks wrapped in divs)
+      // If so, render as div instead of p to avoid invalid nesting
+      const hasBlockChildren = React.Children.toArray(children).some(
+        (child: any) =>
+          React.isValidElement(child) &&
+          (child.type === 'div' || child.type === 'pre' ||
+           (typeof child.type === 'object' && 'displayName' in child.type))
+      );
+
+      if (hasBlockChildren) {
+        return (
+          <div className="mb-3 text-gray-700 dark:text-gray-300 leading-relaxed" {...props}>
+            {children}
+          </div>
+        );
+      }
+
+      return (
+        <p className="mb-3 text-gray-700 dark:text-gray-300 leading-relaxed" {...props}>
+          {children}
+        </p>
+      );
+    },
     blockquote: ({ node, ...props }: any) => (
       <blockquote
         className="border-l-4 border-gray-300 dark:border-gray-600 pl-4 italic text-gray-600 dark:text-gray-400 my-3"

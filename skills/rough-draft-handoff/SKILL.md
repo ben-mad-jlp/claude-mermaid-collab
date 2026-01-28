@@ -101,11 +101,11 @@ Then invoke executing-plans skill.
 
 Ask what needs revision and return to appropriate phase.
 
-**Step 3: Pre-Implementation Compaction**
+**Step 3: Pre-Implementation Context Clear**
 
 Before transitioning to implementation:
 
-Ask user: "Compact context before starting implementation?"
+Ask user: "Clear context before starting implementation?"
 
 ```
 1. Yes

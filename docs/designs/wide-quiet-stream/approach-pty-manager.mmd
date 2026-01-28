@@ -1,0 +1,40 @@
+flowchart TB
+    subgraph Browser["Browser (React UI)"]
+        XT[XTermTerminal.tsx]
+    end
+    
+    subgraph Server["Bun Server"]
+        WS[WebSocket Handler]
+        PTYMgr[PTYManager]
+        
+        subgraph Sessions["In-Memory Sessions"]
+            S1[Session 1]
+            S2[Session 2]
+            SN[Session N]
+        end
+        
+        subgraph PTY["PTY Processes"]
+            P1[Bun.Terminal]
+            P2[Bun.Terminal]
+            PN[Bun.Terminal]
+        end
+        
+        RB1[Ring Buffer 10K lines]
+        RB2[Ring Buffer]
+        RBN[Ring Buffer]
+    end
+    
+    XT <-->|WebSocket| WS
+    WS --> PTYMgr
+    PTYMgr --> S1 & S2 & SN
+    S1 --> P1
+    S2 --> P2
+    SN --> PN
+    P1 --> RB1
+    P2 --> RB2
+    PN --> RBN
+    
+    style PTYMgr fill:#e1f5fe
+    style RB1 fill:#fff3e0
+    style RB2 fill:#fff3e0
+    style RBN fill:#fff3e0

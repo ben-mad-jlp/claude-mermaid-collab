@@ -1,0 +1,15 @@
+graph TD
+    ui-manager-types["ui-manager-types<br/>Remove timeout from interfaces"]
+    render-ui-schema["render-ui-schema<br/>Remove from MCP schema"]
+    api-handler["api-handler<br/>Remove from HTTP API"]
+    mcp-handler["mcp-handler<br/>Remove from MCP handler"]
+
+    ui-manager-types --> render-ui-schema
+    ui-manager-types --> api-handler
+    render-ui-schema --> mcp-handler
+    api-handler --> mcp-handler
+
+    style ui-manager-types fill:#c8e6c9
+    style render-ui-schema fill:#bbdefb
+    style api-handler fill:#bbdefb
+    style mcp-handler fill:#fff59d

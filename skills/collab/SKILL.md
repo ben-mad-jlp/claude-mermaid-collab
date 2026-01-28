@@ -37,7 +37,7 @@ Args: {}
 3. Initialize state:
    ```
    Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
-   Args: { "project": "<cwd>", "session": "<name>", "phase": "brainstorming", "currentItem": null }
+   Args: { "project": "<cwd>", "session": "<name>", "phase": "initialize", "currentItem": null }
    ```
 4. Get first skill from state machine:
    ```

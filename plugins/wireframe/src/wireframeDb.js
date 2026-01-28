@@ -7,6 +7,21 @@ let nodes = [];
 let tree = null;
 let viewport = 'default';
 let direction = 'LR';
+let theme = 'light';
+
+/**
+ * Set the theme for rendering
+ * @param {string} t - Theme name ('light' or 'dark')
+ */
+export const setTheme = (t) => {
+  theme = t;
+};
+
+/**
+ * Get the current theme
+ * @returns {string} Current theme name
+ */
+export const getTheme = () => theme;
 
 /**
  * Clear all stored data
@@ -16,6 +31,7 @@ export const clear = () => {
   tree = null;
   viewport = 'default';
   direction = 'LR';
+  theme = 'light';
 };
 
 /**

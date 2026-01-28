@@ -1,0 +1,21 @@
+graph TD
+    ring-buffer(["ring-buffer"])
+    pty-manager(["pty-manager"])
+    terminal-exports(["terminal-exports"])
+    websocket-integration(["websocket-integration"])
+    api-integration(["api-integration"])
+    server-integration(["server-integration"])
+
+    ring-buffer --> pty-manager
+    pty-manager --> terminal-exports
+    terminal-exports --> websocket-integration
+    terminal-exports --> api-integration
+    websocket-integration --> server-integration
+    api-integration --> server-integration
+
+    style ring-buffer fill:#c8e6c9,stroke:#2e7d32
+    style pty-manager fill:#c8e6c9,stroke:#2e7d32
+    style terminal-exports fill:#c8e6c9,stroke:#2e7d32
+    style websocket-integration fill:#c8e6c9,stroke:#2e7d32
+    style api-integration fill:#c8e6c9,stroke:#2e7d32
+    style server-integration fill:#c8e6c9,stroke:#2e7d32

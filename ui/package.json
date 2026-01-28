@@ -4,7 +4,7 @@
   "type": "module",
   "description": "Browser UI for mermaid-collab with AI-powered interactions",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest",
@@ -29,6 +29,7 @@
     "@xterm/xterm": "^5.5.0",
     "js-yaml": "^4.1.1",
     "mermaid": "^10.6.1",
+    "mermaid-wireframe": "file:../plugins/wireframe",
     "react": "^18.2.0",
     "react-diff-viewer-continued": "^3.3.0",
     "react-dom": "^18.2.0",

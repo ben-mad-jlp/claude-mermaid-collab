@@ -16,11 +16,11 @@
  * and Markdown documents, reducing code duplication and simplifying the UI.
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useRef } from 'react';
 import { EditorView } from '@codemirror/view';
 import { SplitPane } from '@/components/layout/SplitPane';
 import { CodeMirrorWrapper } from '@/components/editors/CodeMirrorWrapper';
-import { MermaidPreview } from '@/components/editors/MermaidPreview';
+import { MermaidPreview, MermaidPreviewRef } from '@/components/editors/MermaidPreview';
 import { MarkdownPreview } from '@/components/editors/MarkdownPreview';
 import { Item } from '@/types';
 import { useUIStore } from '@/stores/uiStore';
@@ -45,6 +45,10 @@ export interface UnifiedEditorProps {
   onZoomIn?: () => void;
   /** Callback for zoom out */
   onZoomOut?: () => void;
+  /** Callback for setting zoom to specific level */
+  onSetZoom?: (level: number) => void;
+  /** Ref to access MermaidPreview methods (center, fitToView) */
+  previewRef?: React.RefObject<MermaidPreviewRef>;
 }
 
 /**
@@ -85,6 +89,8 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
   zoomLevel = 100,
   onZoomIn,
   onZoomOut,
+  onSetZoom,
+  previewRef,
 }) => {
   const { editorSplitPosition, setEditorSplitPosition } = useUIStore();
 
@@ -164,7 +170,9 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
       zoomLevel={zoomLevel}
       onZoomIn={onZoomIn}
       onZoomOut={onZoomOut}
+      onSetZoom={onSetZoom}
       onContainerRef={svgContainerRef}
+      previewRef={previewRef}
     />
   ) : (
     <MarkdownPreview

@@ -1,0 +1,31 @@
+flowchart TD
+    subgraph Before["Current State (with timeout)"]
+        B1["MCP Schema<br/>timeout param"] --> B2["MCP Handler<br/>extract timeout"]
+        B2 --> B3["HTTP API<br/>pass timeout"]
+        B3 --> B4["UI Manager<br/>setTimeout()"]
+        B4 --> B5{"30s timeout?"}
+        B5 -->|Yes| B6["Reject with error"]
+        B5 -->|No| B7["Return response"]
+    end
+
+    subgraph After["Target State (no timeout)"]
+        A1["MCP Schema<br/>NO timeout param"] --> A2["MCP Handler<br/>NO timeout"]
+        A2 --> A3["HTTP API<br/>NO timeout"]
+        A3 --> A4["UI Manager<br/>wait forever"]
+        A4 --> A5["Return response<br/>when user acts"]
+    end
+
+    Before -.->|"Remove"| After
+
+    style B1 fill:#ff9999
+    style B2 fill:#ff9999
+    style B3 fill:#ff9999
+    style B4 fill:#ff9999
+    style B5 fill:#ff9999
+    style B6 fill:#ff9999
+
+    style A1 fill:#99ff99
+    style A2 fill:#99ff99
+    style A3 fill:#99ff99
+    style A4 fill:#99ff99
+    style A5 fill:#99ff99

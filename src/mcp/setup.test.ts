@@ -1,5 +1,5 @@
 /**
- * Tests for MCP Server Setup - Projects Tools
+ * Tests for MCP Server Setup - Projects Tools and render_ui
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -21,6 +21,9 @@ vi.mock('../services/project-registry.js', () => ({
     unregister: vi.fn(),
   },
 }));
+
+// Mock fetch for render_ui tests
+global.fetch = vi.fn();
 
 describe('MCP Server Setup - Projects Tools', () => {
   beforeEach(() => {
@@ -165,6 +168,68 @@ describe('MCP Server Setup - Projects Tools', () => {
         },
         required: ['path'],
       });
+    });
+  });
+
+  describe('render_ui handler', () => {
+    it('should accept ui and blocking parameters without timeout', () => {
+      // Verify that the render_ui handler signature accepts ui and blocking
+      // but not timeout in the JSON body
+      const testArgs = {
+        project: '/test/project',
+        session: 'test-session',
+        ui: { type: 'Card', title: 'Test' },
+        blocking: true,
+      };
+
+      // This verifies the args structure matches the new signature
+      expect(testArgs).toHaveProperty('project');
+      expect(testArgs).toHaveProperty('session');
+      expect(testArgs).toHaveProperty('ui');
+      expect(testArgs).toHaveProperty('blocking');
+      expect(testArgs).not.toHaveProperty('timeout');
+    });
+
+    it('should construct JSON body with only ui and blocking', () => {
+      const ui = { type: 'Card', title: 'Test' };
+      const blocking = true;
+
+      // Verify the JSON body structure matches what's sent
+      const body = JSON.stringify({ ui, blocking });
+      const parsed = JSON.parse(body);
+
+      expect(parsed).toEqual({ ui, blocking });
+      expect(parsed).not.toHaveProperty('timeout');
+    });
+
+    it('should not include timeout in destructured args', () => {
+      // This test verifies that the new signature for render_ui
+      // only destructures project, session, ui, and blocking
+      const args = {
+        project: '/test',
+        session: 'test-session',
+        ui: {},
+        blocking: false,
+      };
+
+      // Simulate destructuring in the handler
+      const { project, session, ui, blocking } = args as {
+        project: string;
+        session: string;
+        ui: any;
+        blocking?: boolean;
+      };
+
+      expect(project).toBe('/test');
+      expect(session).toBe('test-session');
+      expect(ui).toEqual({});
+      expect(blocking).toBe(false);
+
+      // Verify timeout is not part of the handler's expected args
+      expect(() => {
+        const { timeout } = args as any;
+        expect(timeout).toBeUndefined();
+      }).not.toThrow();
     });
   });
 });

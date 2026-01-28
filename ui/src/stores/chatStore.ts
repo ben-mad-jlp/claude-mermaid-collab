@@ -39,7 +39,7 @@ interface ChatActions {
   markAsRead: (id: string) => void;
   setOpen: (open: boolean) => void;
   clearMessages: () => void;
-  restoreUIFromCache: (cachedUI: CachedUIState) => void;
+  restoreUIFromCache: (cachedUI: CachedUIState, project?: string, session?: string) => void;
 }
 
 export const useChatStore = create<ChatState & ChatActions>((set, get) => ({
@@ -175,18 +175,20 @@ export const useChatStore = create<ChatState & ChatActions>((set, get) => ({
     });
   },
 
-  restoreUIFromCache: (cachedUI: CachedUIState) => {
+  restoreUIFromCache: (cachedUI: CachedUIState, project?: string, session?: string) => {
     set((state) => {
       // Check if message with this uiId already exists
       const existingIndex = state.messages.findIndex((m) => m.id === cachedUI.uiId);
 
       if (existingIndex !== -1) {
-        // Update existing message status
+        // Update existing message status (also add project/session if missing)
         const updatedMessages = [...state.messages];
         updatedMessages[existingIndex] = {
           ...updatedMessages[existingIndex],
           canceled: cachedUI.status === 'canceled',
           responded: cachedUI.status === 'responded',
+          project: updatedMessages[existingIndex].project || project,
+          session: updatedMessages[existingIndex].session || session,
         };
         return { messages: updatedMessages };
       }
@@ -200,6 +202,8 @@ export const useChatStore = create<ChatState & ChatActions>((set, get) => ({
         timestamp: cachedUI.createdAt,
         responded: cachedUI.status === 'responded',
         canceled: cachedUI.status === 'canceled',
+        project,
+        session,
       };
 
       const newState = {

@@ -62,6 +62,10 @@ export interface EditorToolbarProps {
   canRotate?: boolean;
   /** Whether to show zoom controls (default true, false for documents) */
   showZoom?: boolean;
+  /** Callback for center diagram action */
+  onCenter?: () => void;
+  /** Callback for fit-to-view action */
+  onFitToView?: () => void;
 }
 
 /**
@@ -92,6 +96,8 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   onRotate,
   canRotate,
   showZoom = true,
+  onCenter,
+  onFitToView,
 }) => {
   const [isOverflowOpen, setIsOverflowOpen] = useState(false);
   const overflowRef = useRef<HTMLDivElement>(null);
@@ -490,6 +496,72 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
               <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
           </button>
+
+          {/* Center Button */}
+          {onCenter && (
+            <button
+              data-testid="editor-toolbar-center"
+              onClick={onCenter}
+              aria-label="Center diagram"
+              title="Center diagram (reset pan and zoom)"
+              className="
+                p-1.5
+                text-gray-600 dark:text-gray-300
+                hover:text-gray-900 dark:hover:text-white
+                hover:bg-gray-100 dark:hover:bg-gray-700
+                rounded
+                transition-colors
+              "
+            >
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="3" />
+                <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+              </svg>
+            </button>
+          )}
+
+          {/* Fit to View Button */}
+          {onFitToView && (
+            <button
+              data-testid="editor-toolbar-fit"
+              onClick={onFitToView}
+              aria-label="Fit to view"
+              title="Fit diagram to container"
+              className="
+                p-1.5
+                text-gray-600 dark:text-gray-300
+                hover:text-gray-900 dark:hover:text-white
+                hover:bg-gray-100 dark:hover:bg-gray-700
+                rounded
+                transition-colors
+              "
+            >
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+                <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
+                <path d="M3 16v3a2 2 0 0 0 2 2h3" />
+                <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+              </svg>
+            </button>
+          )}
 
           {/* Divider */}
           <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />

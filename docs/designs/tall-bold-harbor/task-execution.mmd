@@ -1,0 +1,19 @@
+graph TD
+    %% Node Definitions
+    ui-manager-timeout-removal(["ui-manager-timeout-removal"])
+    render-ui-timeout-removal(["render-ui-timeout-removal"])
+    setup-timeout-removal(["setup-timeout-removal"])
+    api-timeout-removal(["api-timeout-removal"])
+
+    %% Dependencies
+    ui-manager-timeout-removal --> render-ui-timeout-removal
+    ui-manager-timeout-removal --> setup-timeout-removal
+    ui-manager-timeout-removal --> api-timeout-removal
+
+    %% Styles
+    style ui-manager-timeout-removal fill:#c8e6c9,stroke:#2e7d32
+    style render-ui-timeout-removal fill:#c8e6c9,stroke:#2e7d32
+    style setup-timeout-removal fill:#c8e6c9,stroke:#2e7d32
+    style api-timeout-removal fill:#c8e6c9,stroke:#2e7d32
+
+    style node-all fill:#90ee90,stroke:#228B22,stroke-width:2px

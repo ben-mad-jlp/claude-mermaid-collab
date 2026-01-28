@@ -1,0 +1,32 @@
+flowchart TB
+    subgraph UI["React Frontend"]
+        XTerm["XTermTerminal.tsx<br/>xterm.js + FitAddon"]
+        Tabs["TerminalTabsContainer.tsx"]
+        Hook["useTerminalTabs hook"]
+    end
+
+    subgraph Backend["Bun Server"]
+        WS["terminal-ws-server.ts<br/>WebSocket Handler"]
+        API["api.ts<br/>REST Routes"]
+        MCP["terminal-sessions.ts<br/>MCP Tools"]
+        TM["terminal-manager.ts<br/>tmux exec wrapper"]
+    end
+
+    subgraph External["External Dependencies"]
+        tmux["tmux<br/>(system process)"]
+        pty["Bun.Terminal<br/>(PTY interface)"]
+    end
+
+    subgraph Storage["Storage"]
+        json["terminal-sessions.json"]
+    end
+
+    XTerm -->|"WebSocket"| WS
+    Tabs --> Hook
+    Hook -->|"REST API"| API
+    API --> MCP
+    MCP --> TM
+    WS -->|"Bun.spawn terminal"| pty
+    pty -->|"attach-session"| tmux
+    TM -->|"exec: new/kill session"| tmux
+    TM --> json

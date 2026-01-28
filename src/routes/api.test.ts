@@ -437,21 +437,40 @@ describe('API Projects Endpoints', () => {
     });
 
     describe('GET /api/terminal/sessions', () => {
-      it('should return empty list when no sessions exist', async () => {
+      it('should require project and session query params', async () => {
         const req = new Request('http://localhost/api/terminal/sessions', { method: 'GET' });
+        const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler2);
+
+        expect(response.status).toBe(400);
+        const data = await response.json();
+        expect(data.error).toContain('project and session');
+      });
+
+      it('should return empty list when no sessions exist', async () => {
+        const req = new Request('http://localhost/api/terminal/sessions?project=/tmp/test&session=test-session', { method: 'GET' });
         const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler2);
 
         expect(response.status).toBe(200);
         const data = await response.json();
-        expect(Array.isArray(data)).toBe(true);
-        // Should be empty or contain only sessions from other tests
-        expect(data).toBeDefined();
+        expect(data.sessions).toBeDefined();
+        expect(Array.isArray(data.sessions)).toBe(true);
       });
     });
 
     describe('DELETE /api/terminal/sessions/:id', () => {
-      it('should return 404 if session does not exist', async () => {
+      it('should require project and session query params', async () => {
         const deleteReq = new Request('http://localhost/api/terminal/sessions/nonexistent', {
+          method: 'DELETE',
+        });
+        const response = await handleAPI(deleteReq, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler2);
+
+        expect(response.status).toBe(400);
+        const data = await response.json();
+        expect(data.error).toContain('project and session');
+      });
+
+      it('should return 404 if session does not exist', async () => {
+        const deleteReq = new Request('http://localhost/api/terminal/sessions/nonexistent?project=/tmp/test&session=test-session', {
           method: 'DELETE',
         });
         const response = await handleAPI(deleteReq, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler2);
@@ -463,8 +482,20 @@ describe('API Projects Endpoints', () => {
     });
 
     describe('POST /api/terminal/sessions/:id/rename', () => {
-      it('should return 404 if session does not exist', async () => {
+      it('should require project and session query params', async () => {
         const renameReq = new Request('http://localhost/api/terminal/sessions/nonexistent/rename', {
+          method: 'POST',
+          body: JSON.stringify({ name: 'new-name' }),
+        });
+        const response = await handleAPI(renameReq, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler2);
+
+        expect(response.status).toBe(400);
+        const data = await response.json();
+        expect(data.error).toContain('project and session');
+      });
+
+      it('should return 404 if session does not exist', async () => {
+        const renameReq = new Request('http://localhost/api/terminal/sessions/nonexistent/rename?project=/tmp/test&session=test-session', {
           method: 'POST',
           body: JSON.stringify({ name: 'new-name' }),
         });

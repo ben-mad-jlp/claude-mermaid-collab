@@ -7,6 +7,7 @@ vi.mock('mermaid', () => ({
   default: {
     initialize: vi.fn(),
     render: vi.fn(),
+    registerExternalDiagrams: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -17,7 +18,13 @@ vi.mock('@/hooks/useTheme', () => ({
   }),
 }));
 
+// Mock mermaidConfig
+vi.mock('@/lib/mermaidConfig', () => ({
+  initializeMermaid: vi.fn().mockResolvedValue(undefined),
+}));
+
 import mermaid from 'mermaid';
+import { initializeMermaid } from '@/lib/mermaidConfig';
 
 describe('MermaidPreview', () => {
   beforeEach(() => {
@@ -125,29 +132,16 @@ describe('MermaidPreview', () => {
   });
 
   describe('mermaid initialization', () => {
-    it('should initialize mermaid', () => {
+    it('should initialize mermaid via initializeMermaid', () => {
       render(<MermaidPreview content="graph TD; A-->B" />);
 
-      expect(mermaid.initialize).toHaveBeenCalled();
+      expect(initializeMermaid).toHaveBeenCalled();
     });
 
-    it('should pass security and config options to mermaid', () => {
+    it('should pass theme to initializeMermaid', () => {
       render(<MermaidPreview content="graph TD; A-->B" />);
 
-      expect(mermaid.initialize).toHaveBeenCalledWith(
-        expect.objectContaining({
-          startOnLoad: false,
-          securityLevel: 'loose',
-        })
-      );
-    });
-
-    it('should set theme in mermaid config', () => {
-      render(<MermaidPreview content="graph TD; A-->B" />);
-
-      const callArgs = (mermaid.initialize as any).mock.calls[0][0];
-      expect(callArgs).toHaveProperty('theme');
-      expect(['default', 'dark']).toContain(callArgs.theme);
+      expect(initializeMermaid).toHaveBeenCalledWith('light');
     });
   });
 
@@ -296,6 +290,11 @@ describe('MermaidPreview', () => {
         <MermaidPreview content="graph TD; A-->B" />
       );
 
+      // Wait for mermaid to be called
+      await vi.waitFor(() => {
+        expect((mermaid.render as any).mock.calls.length).toBeGreaterThan(0);
+      });
+
       const firstCallArgs = (mermaid.render as any).mock.calls[0];
       const firstRenderId = firstCallArgs[0];
 
@@ -304,6 +303,11 @@ describe('MermaidPreview', () => {
 
       // Rerender with new content
       rerender(<MermaidPreview content="graph TD; C-->D" />);
+
+      // Wait for second render
+      await vi.waitFor(() => {
+        expect((mermaid.render as any).mock.calls.length).toBeGreaterThan(1);
+      });
 
       const secondCallArgs = (mermaid.render as any).mock.calls[1];
       const secondRenderId = secondCallArgs[0];
@@ -314,8 +318,13 @@ describe('MermaidPreview', () => {
       expect(secondRenderId).toMatch(/^mermaid-.*-\d+$/);
     });
 
-    it('should pass unique render ID to mermaid.render', () => {
+    it('should pass unique render ID to mermaid.render', async () => {
       render(<MermaidPreview content="graph TD; A-->B" />);
+
+      // Wait for mermaid to be called
+      await vi.waitFor(() => {
+        expect((mermaid.render as any).mock.calls.length).toBeGreaterThan(0);
+      });
 
       const callArgs = (mermaid.render as any).mock.calls[0];
       const renderId = callArgs[0];

@@ -46,6 +46,7 @@ import { ChatPanel } from '@/components/chat-drawer';
 
 // Import unified editor component
 import UnifiedEditor from '@/components/editors/UnifiedEditor';
+import type { MermaidPreviewRef } from '@/components/editors/MermaidPreview';
 
 // Import notification components
 import { ToastContainer } from '@/components/notifications';
@@ -130,6 +131,7 @@ const App: React.FC = () => {
     zoomLevel,
     zoomIn,
     zoomOut,
+    setZoomLevel,
     chatPanelVisible,
     terminalPanelVisible,
   } = useUIStore(
@@ -138,6 +140,7 @@ const App: React.FC = () => {
       zoomLevel: state.zoomLevel,
       zoomIn: state.zoomIn,
       zoomOut: state.zoomOut,
+      setZoomLevel: state.setZoomLevel,
       chatPanelVisible: state.chatPanelVisible,
       terminalPanelVisible: state.terminalPanelVisible,
     }))
@@ -186,6 +189,18 @@ const App: React.FC = () => {
   // Data loading
   const { isLoading, error: dataError, loadSessions, loadSessionItems } = useDataLoader();
 
+  // Ref for MermaidPreview imperative methods
+  const mermaidPreviewRef = useRef<MermaidPreviewRef>(null);
+
+  // Center and fit callbacks
+  const handleCenter = useCallback(() => {
+    mermaidPreviewRef.current?.center();
+  }, []);
+
+  const handleFitToView = useCallback(() => {
+    mermaidPreviewRef.current?.fitToView();
+  }, []);
+
   // Registered projects state (projects may exist without sessions)
   const [registeredProjects, setRegisteredProjects] = useState<string[]>([]);
 
@@ -229,7 +244,7 @@ const App: React.FC = () => {
     try {
       const cachedUI = await api.getUIState(currentSession.project, currentSession.name);
       if (cachedUI) {
-        useChatStore.getState().restoreUIFromCache(cachedUI);
+        useChatStore.getState().restoreUIFromCache(cachedUI, currentSession.project, currentSession.name);
       }
     } catch (error) {
       console.error('Failed to restore UI state:', error);
@@ -747,6 +762,8 @@ const App: React.FC = () => {
           onZoomOut={zoomOut}
           overflowActions={overflowActions}
           showZoom={selectedItem?.type !== 'document'}
+          onCenter={selectedItem?.type === 'diagram' ? handleCenter : undefined}
+          onFitToView={selectedItem?.type === 'diagram' ? handleFitToView : undefined}
         />
 
         {/* Unified Editor */}
@@ -758,6 +775,8 @@ const App: React.FC = () => {
             zoomLevel={zoomLevel}
             onZoomIn={zoomIn}
             onZoomOut={zoomOut}
+            onSetZoom={setZoomLevel}
+            previewRef={mermaidPreviewRef}
           />
         </div>
       </div>

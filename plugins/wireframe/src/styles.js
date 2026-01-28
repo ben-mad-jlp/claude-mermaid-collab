@@ -15,6 +15,12 @@ const getStyles = () => `
     user-select: none;
     -webkit-user-select: none;
   }
+
+  /* Dark mode support */
+  .dark .wireframe-container,
+  [data-theme="dark"] .wireframe-container {
+    color-scheme: dark;
+  }
 `;
 
 export default getStyles;

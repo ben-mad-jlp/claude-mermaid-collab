@@ -474,4 +474,108 @@ describe('EditorToolbar', () => {
       });
     });
   });
+
+  describe('Center and Fit buttons', () => {
+    it('should render center button when onCenter is provided', () => {
+      const onCenter = vi.fn();
+      render(
+        <EditorToolbar
+          {...defaultProps}
+          onUndo={mockCallbacks.onUndo}
+          onRedo={mockCallbacks.onRedo}
+          onZoomIn={mockCallbacks.onZoomIn}
+          onZoomOut={mockCallbacks.onZoomOut}
+          onCenter={onCenter}
+        />
+      );
+
+      const centerButton = screen.getByTestId('editor-toolbar-center');
+      expect(centerButton).toBeDefined();
+    });
+
+    it('should not render center button when onCenter is not provided', () => {
+      render(
+        <EditorToolbar
+          {...defaultProps}
+          onUndo={mockCallbacks.onUndo}
+          onRedo={mockCallbacks.onRedo}
+          onZoomIn={mockCallbacks.onZoomIn}
+          onZoomOut={mockCallbacks.onZoomOut}
+        />
+      );
+
+      const centerButton = screen.queryByTestId('editor-toolbar-center');
+      expect(centerButton).toBeNull();
+    });
+
+    it('should call onCenter when center button is clicked', () => {
+      const onCenter = vi.fn();
+      render(
+        <EditorToolbar
+          {...defaultProps}
+          onUndo={mockCallbacks.onUndo}
+          onRedo={mockCallbacks.onRedo}
+          onZoomIn={mockCallbacks.onZoomIn}
+          onZoomOut={mockCallbacks.onZoomOut}
+          onCenter={onCenter}
+        />
+      );
+
+      const centerButton = screen.getByTestId('editor-toolbar-center');
+      fireEvent.click(centerButton);
+
+      expect(onCenter).toHaveBeenCalledOnce();
+    });
+
+    it('should render fit-to-view button when onFitToView is provided', () => {
+      const onFitToView = vi.fn();
+      render(
+        <EditorToolbar
+          {...defaultProps}
+          onUndo={mockCallbacks.onUndo}
+          onRedo={mockCallbacks.onRedo}
+          onZoomIn={mockCallbacks.onZoomIn}
+          onZoomOut={mockCallbacks.onZoomOut}
+          onFitToView={onFitToView}
+        />
+      );
+
+      const fitButton = screen.getByTestId('editor-toolbar-fit');
+      expect(fitButton).toBeDefined();
+    });
+
+    it('should not render fit-to-view button when onFitToView is not provided', () => {
+      render(
+        <EditorToolbar
+          {...defaultProps}
+          onUndo={mockCallbacks.onUndo}
+          onRedo={mockCallbacks.onRedo}
+          onZoomIn={mockCallbacks.onZoomIn}
+          onZoomOut={mockCallbacks.onZoomOut}
+        />
+      );
+
+      const fitButton = screen.queryByTestId('editor-toolbar-fit');
+      expect(fitButton).toBeNull();
+    });
+
+    it('should call onFitToView when fit button is clicked', () => {
+      const onFitToView = vi.fn();
+      render(
+        <EditorToolbar
+          {...defaultProps}
+          onUndo={mockCallbacks.onUndo}
+          onRedo={mockCallbacks.onRedo}
+          onZoomIn={mockCallbacks.onZoomIn}
+          onZoomOut={mockCallbacks.onZoomOut}
+          onFitToView={onFitToView}
+        />
+      );
+
+      const fitButton = screen.getByTestId('editor-toolbar-fit');
+      fireEvent.click(fitButton);
+
+      expect(onFitToView).toHaveBeenCalledOnce();
+    });
+  });
 });

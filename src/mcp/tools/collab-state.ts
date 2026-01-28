@@ -5,7 +5,7 @@
  * Skills use these tools instead of direct file I/O.
  */
 
-import { readFile, writeFile, mkdir, unlink, access } from 'fs/promises';
+import { readFile, writeFile, mkdir, unlink, access, readdir, rm, cp } from 'fs/promises';
 import { join } from 'path';
 import type { WebSocketHandler } from '../../websocket/handler.js';
 import type { TaskBatch, WorkItem, WorkItemType } from '../workflow/types.js';
@@ -234,4 +234,88 @@ export async function deleteSnapshot(project: string, session: string): Promise<
   }
 
   return { success: true };
+}
+
+// ============= Archive Session Functions =============
+
+export interface ArchiveOptions {
+  deleteSession?: boolean; // Whether to delete the session after archiving (default: true)
+  timestamp?: boolean;     // Whether to add timestamp to archive folder name (default: false)
+}
+
+export interface ArchiveResult {
+  success: boolean;
+  archivePath: string;
+  archivedFiles: {
+    documents: string[];
+    diagrams: string[];
+  };
+}
+
+export async function archiveSession(
+  project: string,
+  session: string,
+  options: ArchiveOptions = {}
+): Promise<ArchiveResult> {
+  const { deleteSession = true, timestamp = false } = options;
+
+  const sessionDir = join(project, '.collab', 'sessions', session);
+  const documentsDir = join(sessionDir, 'documents');
+  const diagramsDir = join(sessionDir, 'diagrams');
+
+  // Build archive folder name with optional timestamp
+  let archiveFolderName = session;
+  if (timestamp) {
+    const now = new Date();
+    const ts = now.toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
+    archiveFolderName = `${session}-${ts}`;
+  }
+  const archiveDir = join(project, 'docs', 'designs', archiveFolderName);
+
+  // Check if session exists
+  if (!(await fileExists(sessionDir))) {
+    throw new Error(`Session not found: ${session}`);
+  }
+
+  // Check if archive already exists
+  if (await fileExists(archiveDir)) {
+    throw new Error(`Archive already exists: ${archiveDir}`);
+  }
+
+  // Create archive directory
+  await mkdir(archiveDir, { recursive: true });
+
+  const archivedFiles: { documents: string[]; diagrams: string[] } = {
+    documents: [],
+    diagrams: [],
+  };
+
+  // Copy documents
+  if (await fileExists(documentsDir)) {
+    const docFiles = await readdir(documentsDir);
+    for (const file of docFiles) {
+      await cp(join(documentsDir, file), join(archiveDir, file));
+      archivedFiles.documents.push(file);
+    }
+  }
+
+  // Copy diagrams
+  if (await fileExists(diagramsDir)) {
+    const diagramFiles = await readdir(diagramsDir);
+    for (const file of diagramFiles) {
+      await cp(join(diagramsDir, file), join(archiveDir, file));
+      archivedFiles.diagrams.push(file);
+    }
+  }
+
+  // Delete session directory if requested
+  if (deleteSession) {
+    await rm(sessionDir, { recursive: true, force: true });
+  }
+
+  return {
+    success: true,
+    archivePath: archiveDir,
+    archivedFiles,
+  };
 }

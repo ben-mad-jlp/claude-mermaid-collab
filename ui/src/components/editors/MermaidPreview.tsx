@@ -10,10 +10,11 @@
  * - Pan via middle-click drag
  */
 
-import React, { useEffect, useRef, useState, useCallback, useId } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useId, useImperativeHandle } from 'react';
 import mermaid from 'mermaid';
 import { useTheme } from '@/hooks/useTheme';
 import { extractNodeId, extractEdgeInfo } from '@/lib/diagramUtils';
+import { initializeMermaid } from '@/lib/mermaidConfig';
 
 export interface MermaidPreviewProps {
   /** The Mermaid diagram syntax content to render */
@@ -30,6 +31,8 @@ export interface MermaidPreviewProps {
   onZoomIn?: () => void;
   /** Callback for zoom out (triggered by scroll wheel) */
   onZoomOut?: () => void;
+  /** Callback for setting zoom to specific level */
+  onSetZoom?: (level: number) => void;
   /** Optional callback to receive SVG container ref when mounted */
   onContainerRef?: (ref: HTMLDivElement | null) => void;
   /** Whether to enable edit mode for visual diagram editing */
@@ -42,6 +45,16 @@ export interface MermaidPreviewProps {
   onNodeClickWithPosition?: (nodeId: string, event: MouseEvent) => void;
   /** Callback when edge is clicked with click position */
   onEdgeClickWithPosition?: (source: string, target: string, event: MouseEvent) => void;
+  /** Ref to expose imperative methods */
+  previewRef?: React.RefObject<MermaidPreviewRef>;
+}
+
+/** Imperative methods exposed by MermaidPreview */
+export interface MermaidPreviewRef {
+  /** Center the diagram (reset pan and zoom to 100%) */
+  center: () => void;
+  /** Fit the diagram to fill the container */
+  fitToView: () => void;
 }
 
 export interface MermaidPreviewState {
@@ -72,12 +85,14 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
   zoomLevel = 100,
   onZoomIn,
   onZoomOut,
+  onSetZoom,
   onContainerRef,
   editMode = false,
   onNodeClick,
   onEdgeClick,
   onNodeClickWithPosition,
   onEdgeClickWithPosition,
+  previewRef,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -95,6 +110,52 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
   const [isPanning, setIsPanning] = useState(false);
   const isPanningRef = useRef(false);
   const panStartRef = useRef({ x: 0, y: 0, offsetX: 0, offsetY: 0 });
+
+  // Center the diagram (reset pan and zoom to 100%)
+  const center = useCallback(() => {
+    setPanOffset({ x: 0, y: 0 });
+    onSetZoom?.(100);
+  }, [onSetZoom]);
+
+  // Fit the diagram to fill the container
+  const fitToView = useCallback(() => {
+    if (!wrapperRef.current || !containerRef.current) return;
+
+    const svg = containerRef.current.querySelector('svg');
+    if (!svg) return;
+
+    const wrapperRect = wrapperRef.current.getBoundingClientRect();
+    const svgRect = svg.getBoundingClientRect();
+
+    // Get actual SVG dimensions (at current zoom)
+    const currentZoom = zoomLevel / 100;
+    const svgWidth = svgRect.width / currentZoom;
+    const svgHeight = svgRect.height / currentZoom;
+
+    if (svgWidth === 0 || svgHeight === 0) return;
+
+    // Calculate zoom to fit with some padding
+    const padding = 32; // 16px on each side
+    const availableWidth = wrapperRect.width - padding;
+    const availableHeight = wrapperRect.height - padding;
+
+    const scaleX = availableWidth / svgWidth;
+    const scaleY = availableHeight / svgHeight;
+    const scale = Math.min(scaleX, scaleY);
+
+    // Clamp to reasonable zoom levels (25% - 400%)
+    const newZoom = Math.max(25, Math.min(400, Math.round(scale * 100)));
+
+    // Reset pan and set new zoom
+    setPanOffset({ x: 0, y: 0 });
+    onSetZoom?.(newZoom);
+  }, [zoomLevel, onSetZoom]);
+
+  // Expose methods via ref
+  useImperativeHandle(previewRef, () => ({
+    center,
+    fitToView,
+  }), [center, fitToView]);
 
   // Notify parent of container ref when mounted
   useEffect(() => {
@@ -314,33 +375,14 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
     return () => container.removeEventListener('click', handleClick);
   }, [onNodeClickWithPosition, onEdgeClickWithPosition]);
 
-  // Initialize mermaid with theme
+  // Track if mermaid is initialized
+  const [mermaidReady, setMermaidReady] = useState(false);
+
+  // Initialize mermaid with theme and wireframe plugin
   useEffect(() => {
-    const config = {
-      startOnLoad: false,
-      theme: theme === 'dark' ? 'dark' : 'default',
-      securityLevel: 'loose',
-    } as any;
-
-    // Apply dark mode theme variables for better contrast
-    if (theme === 'dark') {
-      config.themeVariables = {
-        primaryColor: '#4a9eff',
-        primaryTextColor: '#ffffff',
-        primaryBorderColor: '#3a7bd5',
-        lineColor: '#888888',
-        secondaryColor: '#2d5a8c',
-        tertiaryColor: '#1e3a5f',
-        background: '#1a1a2e',
-        mainBkg: '#1a1a2e',
-        nodeBorder: '#4a9eff',
-        clusterBkg: '#2d3748',
-        titleColor: '#ffffff',
-        edgeLabelBackground: '#1a1a2e',
-      };
-    }
-
-    mermaid.initialize(config);
+    initializeMermaid(theme as 'light' | 'dark').then(() => {
+      setMermaidReady(true);
+    });
   }, [theme]);
 
   // Render the diagram
@@ -372,10 +414,12 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
     }
   }, [content, uniqueId, onRender, onError]);
 
-  // Re-render when content or theme changes
+  // Re-render when content, theme changes, or mermaid becomes ready
   useEffect(() => {
-    renderDiagram();
-  }, [renderDiagram]);
+    if (mermaidReady) {
+      renderDiagram();
+    }
+  }, [renderDiagram, mermaidReady]);
 
   // Reset pan when content changes
   useEffect(() => {

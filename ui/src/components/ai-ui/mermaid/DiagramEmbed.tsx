@@ -12,6 +12,7 @@
 import React, { useEffect, useRef, useState, useCallback, useId } from 'react';
 import mermaid from 'mermaid';
 import { useTheme } from '@/hooks/useTheme';
+import { initializeMermaid } from '@/lib/mermaidConfig';
 
 export interface DiagramEmbedProps {
   /** The Mermaid diagram syntax content to render */
@@ -75,33 +76,14 @@ export const DiagramEmbed: React.FC<DiagramEmbedProps> = (props) => {
     }
   }, []);
 
-  // Initialize mermaid with theme
+  // Track if mermaid is initialized
+  const [mermaidReady, setMermaidReady] = useState(false);
+
+  // Initialize mermaid with theme and wireframe plugin
   useEffect(() => {
-    const config = {
-      startOnLoad: false,
-      theme: theme === 'dark' ? 'dark' : 'default',
-      securityLevel: 'loose',
-    } as any;
-
-    // Apply dark mode theme variables for better contrast
-    if (theme === 'dark') {
-      config.themeVariables = {
-        primaryColor: '#4a9eff',
-        primaryTextColor: '#ffffff',
-        primaryBorderColor: '#3a7bd5',
-        lineColor: '#888888',
-        secondaryColor: '#2d5a8c',
-        tertiaryColor: '#1e3a5f',
-        background: '#1a1a2e',
-        mainBkg: '#1a1a2e',
-        nodeBorder: '#4a9eff',
-        clusterBkg: '#2d3748',
-        titleColor: '#ffffff',
-        edgeLabelBackground: '#1a1a2e',
-      };
-    }
-
-    mermaid.initialize(config);
+    initializeMermaid(theme as 'light' | 'dark').then(() => {
+      setMermaidReady(true);
+    });
   }, [theme]);
 
   // Render the diagram
@@ -137,12 +119,12 @@ export const DiagramEmbed: React.FC<DiagramEmbedProps> = (props) => {
     }
   }, [content, mermaidId, onRender, onError]);
 
-  // Re-render when content, theme, or ref changes
+  // Re-render when content, theme, ref changes, or mermaid becomes ready
   useEffect(() => {
-    if (refReady) {
+    if (refReady && mermaidReady) {
       renderDiagram();
     }
-  }, [renderDiagram, refReady]);
+  }, [renderDiagram, refReady, mermaidReady]);
 
   const heightStyle = height
     ? typeof height === 'string'

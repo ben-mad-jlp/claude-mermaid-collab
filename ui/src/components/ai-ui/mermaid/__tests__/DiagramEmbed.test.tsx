@@ -22,6 +22,7 @@ vi.mock('mermaid', () => ({
   default: {
     initialize: vi.fn(),
     render: vi.fn(),
+    registerExternalDiagrams: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -32,7 +33,13 @@ vi.mock('@/hooks/useTheme', () => ({
   }),
 }));
 
+// Mock mermaidConfig
+vi.mock('@/lib/mermaidConfig', () => ({
+  initializeMermaid: vi.fn().mockResolvedValue(undefined),
+}));
+
 import mermaid from 'mermaid';
+import { initializeMermaid } from '@/lib/mermaidConfig';
 
 describe('DiagramEmbed', () => {
   beforeEach(() => {
@@ -175,46 +182,16 @@ describe('DiagramEmbed', () => {
   });
 
   describe('mermaid initialization', () => {
-    it('should initialize mermaid', () => {
+    it('should initialize mermaid via initializeMermaid', () => {
       render(<DiagramEmbed content="graph TD; A-->B" />);
 
-      expect(mermaid.initialize).toHaveBeenCalled();
+      expect(initializeMermaid).toHaveBeenCalled();
     });
 
-    it('should pass security and config options to mermaid', () => {
+    it('should pass theme to initializeMermaid', () => {
       render(<DiagramEmbed content="graph TD; A-->B" />);
 
-      expect(mermaid.initialize).toHaveBeenCalledWith(
-        expect.objectContaining({
-          startOnLoad: false,
-          securityLevel: 'loose',
-        })
-      );
-    });
-
-    it('should set theme in mermaid config', () => {
-      render(<DiagramEmbed content="graph TD; A-->B" />);
-
-      const callArgs = (mermaid.initialize as any).mock.calls[0][0];
-      expect(callArgs).toHaveProperty('theme');
-      expect(['default', 'dark']).toContain(callArgs.theme);
-    });
-
-    it('should use default theme for light mode', () => {
-      render(<DiagramEmbed content="graph TD; A-->B" />);
-
-      const callArgs = (mermaid.initialize as any).mock.calls[0][0];
-      expect(callArgs.theme).toBe('default');
-    });
-
-    it('should apply dark theme variables in dark mode', () => {
-      // This test would require mocking useTheme to return dark theme
-      // For now, we verify the structure supports theme variables
-      render(<DiagramEmbed content="graph TD; A-->B" />);
-
-      const callArgs = (mermaid.initialize as any).mock.calls[0][0];
-      // In dark mode, should have themeVariables or dark theme
-      expect(['default', 'dark']).toContain(callArgs.theme);
+      expect(initializeMermaid).toHaveBeenCalledWith('light');
     });
   });
 
