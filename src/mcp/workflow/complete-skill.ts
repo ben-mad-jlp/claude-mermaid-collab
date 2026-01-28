@@ -31,11 +31,23 @@ export async function completeSkill(
   const sessionState = await getSessionState(project, session);
 
   // 2. Determine current state ID
-  // Use session state if available (handles skills used by multiple states like collab-clear)
-  // Fall back to skill-to-state mapping for backwards compatibility or initial states
+  // Validate that session state matches the completed skill before using it for routing
+  // This prevents stale state from causing incorrect routing when skills are manually invoked
   let currentStateId: StateId | null = null;
+
   if (sessionState.state) {
-    currentStateId = sessionState.state as StateId;
+    // Verify the state's skill matches completedSkill
+    const stateSkill = getSkillForState(sessionState.state as StateId);
+    if (stateSkill === completedSkill) {
+      currentStateId = sessionState.state as StateId;
+    } else {
+      // State doesn't match skill - log warning and fallback
+      console.warn(
+        `State mismatch: session.state="${sessionState.state}" has skill "${stateSkill}" ` +
+          `but completedSkill="${completedSkill}". Using skillToState fallback.`
+      );
+      currentStateId = skillToState(completedSkill);
+    }
   } else {
     currentStateId = skillToState(completedSkill);
   }
