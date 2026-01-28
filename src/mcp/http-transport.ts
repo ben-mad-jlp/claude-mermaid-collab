@@ -15,12 +15,20 @@ import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 import { JSONRPCMessageSchema } from '@modelcontextprotocol/sdk/types.js';
 
 /**
+ * Options for handlePost
+ */
+interface HandlePostOptions {
+  /** Timeout in ms. 0 or undefined = use default (60000). -1 = no timeout */
+  timeout?: number;
+}
+
+/**
  * Pending response that we're building up
  */
 interface PendingResponse {
   resolve: (messages: JSONRPCMessage[]) => void;
   messages: JSONRPCMessage[];
-  timeout: ReturnType<typeof setTimeout>;
+  timeout: ReturnType<typeof setTimeout> | null;
 }
 
 export class StreamableHttpTransport implements Transport {
@@ -48,8 +56,10 @@ export class StreamableHttpTransport implements Transport {
   /**
    * Handle incoming POST request from client.
    * Parses the message, delivers to MCP server, and waits for response.
+   * @param req - The incoming request
+   * @param options - Optional configuration including timeout
    */
-  async handlePost(req: Request): Promise<Response> {
+  async handlePost(req: Request, options?: HandlePostOptions): Promise<Response> {
     if (this._closed) {
       return Response.json(
         { jsonrpc: '2.0', error: { code: -32000, message: 'Session closed' } },
