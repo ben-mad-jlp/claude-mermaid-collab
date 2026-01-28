@@ -19,6 +19,8 @@ export interface SessionState {
 export interface TransitionContext {
   currentItemType?: 'code' | 'task' | 'bugfix';
   itemsRemaining: boolean;
+  pendingBrainstormItems: boolean;
+  pendingRoughDraftItems: boolean;
   batchesRemaining: boolean;
 }
 
@@ -46,6 +48,18 @@ export function evaluateCondition(
 
     case 'no_items_remaining':
       return !context.itemsRemaining;
+
+    case 'pending_brainstorm_items':
+      return context.pendingBrainstormItems;
+
+    case 'no_pending_brainstorm_items':
+      return !context.pendingBrainstormItems;
+
+    case 'pending_rough_draft_items':
+      return context.pendingRoughDraftItems;
+
+    case 'no_pending_rough_draft_items':
+      return !context.pendingRoughDraftItems;
 
     case 'batches_remaining':
       return context.batchesRemaining;
@@ -89,6 +103,7 @@ export function getNextState(
 export function buildTransitionContext(
   sessionState: {
     currentItem?: number | null;
+    workItems?: WorkItem[];
     batches?: unknown[];
     currentBatch?: number;
     pendingTasks?: string[];
@@ -98,6 +113,18 @@ export function buildTransitionContext(
   // Determine if items remaining - check if currentItem is set
   // This is a simplified check; in practice the skill may pass more info
   const itemsRemaining = sessionState.currentItem !== null && sessionState.currentItem !== undefined;
+
+  // Determine if there are items still needing brainstorming (status === 'pending')
+  const pendingBrainstormItems = sessionState.workItems
+    ? sessionState.workItems.some((item) => item.status === 'pending')
+    : false;
+
+  // Determine if there are code items needing rough-draft (status === 'brainstormed', type === 'code')
+  const pendingRoughDraftItems = sessionState.workItems
+    ? sessionState.workItems.some(
+        (item) => item.type === 'code' && item.status === 'brainstormed'
+      )
+    : false;
 
   // Determine if batches remaining
   let batchesRemaining = false;
@@ -110,6 +137,8 @@ export function buildTransitionContext(
   return {
     currentItemType,
     itemsRemaining,
+    pendingBrainstormItems,
+    pendingRoughDraftItems,
     batchesRemaining,
   };
 }
@@ -238,102 +267,122 @@ function updateItemStatusInSession(item: WorkItem, newStatus: string): WorkItem 
 }
 
 /**
- * Get next state for per-item pipeline flow.
- * Implements the workflow: each item goes through full pipeline before next item starts.
+ * Get next state for phase batching flow.
+ * Implements the workflow: all items brainstorm first, then all code items go through rough-draft.
  * Updates item status based on current state and returns next state.
  *
- * Flow:
- * 1. After brainstorm-validating: Mark item as 'brainstormed', go to rough-draft-interface
- * 2. After rough-draft-interface: Mark item as 'interface', go to rough-draft-pseudocode
- * 3. After rough-draft-pseudocode: Mark item as 'pseudocode', go to rough-draft-skeleton
- * 4. After rough-draft-skeleton: Mark item as 'skeleton', go to build-task-graph
- * 5. After build-task-graph: Mark item as 'complete', find next item or go to ready-to-implement
+ * Phase Batching Flow:
+ * 1. Brainstorm Phase: Items are processed one at a time
+ *    - Bugfixes: systematic-debugging → mark complete → back to router
+ *    - Tasks: brainstorm → task-planning → mark complete → back to router
+ *    - Code: brainstorm → mark as 'brainstormed' → back to router
+ * 2. Rough-Draft Phase (only code items):
+ *    - interface → pseudocode → skeleton → build-task-graph → mark complete → back to router
  */
-export function getNextStateForPerItemPipeline(
+export function getNextStateForPhaseBatching(
   currentStateId: StateId,
   sessionState: SessionState
 ): StateId | null {
   // Get current item
   const currentItem = getCurrentWorkItem(sessionState);
 
-  // If no current item, find next pending item
-  if (!currentItem) {
-    const nextItem = findNextPendingItemInSession(sessionState.workItems);
-    if (!nextItem) {
-      // All items complete
-      return 'ready-to-implement';
-    }
-    // Start next item's brainstorming
-    return 'brainstorm-exploring';
-  }
-
   // Route based on current state and update item status
   switch (currentStateId) {
+    // ========== Brainstorm Phase Completion ==========
     case 'brainstorm-validating': {
-      // Mark item as brainstormed and route to rough-draft
+      if (!currentItem) return null;
+      // Mark code/task items as brainstormed
+      // (brainstorm-validating is only reached by code/task items, not bugfixes)
       const updatedItem = updateItemStatusInSession(currentItem, 'brainstormed');
-      // Update in session
       const updatedWorkItems = sessionState.workItems.map((item) =>
         item.number === currentItem.number ? updatedItem : item
       );
       sessionState.workItems = updatedWorkItems;
-      return 'rough-draft-interface';
+      // Route to item-type-router (tasks go to task-planning, code goes back to router)
+      return 'item-type-router';
     }
 
+    case 'task-planning': {
+      if (!currentItem) return null;
+      // Tasks are complete after task-planning (they skip rough-draft)
+      // Mark as complete directly
+      const updatedWorkItems = sessionState.workItems.map((item) =>
+        item.number === currentItem.number ? { ...item, status: 'complete' as const } : item
+      );
+      sessionState.workItems = updatedWorkItems;
+      // Go back to brainstorm router to pick up next item
+      return 'clear-post-brainstorm';
+    }
+
+    case 'systematic-debugging': {
+      if (!currentItem) return null;
+      // Bugfixes are complete after systematic-debugging
+      const updatedWorkItems = sessionState.workItems.map((item) =>
+        item.number === currentItem.number ? { ...item, status: 'complete' as const } : item
+      );
+      sessionState.workItems = updatedWorkItems;
+      // Go back to brainstorm router to pick up next item
+      return 'clear-post-brainstorm';
+    }
+
+    // ========== Rough-Draft Phase Status Updates ==========
     case 'rough-draft-interface': {
-      // Mark item as interface doc created and go to pseudocode
+      if (!currentItem) return null;
+      // Mark item as interface doc created
       const updatedItem = updateItemStatusInSession(currentItem, 'interface');
       const updatedWorkItems = sessionState.workItems.map((item) =>
         item.number === currentItem.number ? updatedItem : item
       );
       sessionState.workItems = updatedWorkItems;
-      return 'rough-draft-pseudocode';
+      return 'clear-rd1';
     }
 
     case 'rough-draft-pseudocode': {
-      // Mark item as pseudocode doc created and go to skeleton
+      if (!currentItem) return null;
+      // Mark item as pseudocode doc created
       const updatedItem = updateItemStatusInSession(currentItem, 'pseudocode');
       const updatedWorkItems = sessionState.workItems.map((item) =>
         item.number === currentItem.number ? updatedItem : item
       );
       sessionState.workItems = updatedWorkItems;
-      return 'rough-draft-skeleton';
+      return 'clear-rd2';
     }
 
     case 'rough-draft-skeleton': {
-      // Mark item as skeleton complete and go to task graph
+      if (!currentItem) return null;
+      // Mark item as skeleton complete
       const updatedItem = updateItemStatusInSession(currentItem, 'skeleton');
       const updatedWorkItems = sessionState.workItems.map((item) =>
         item.number === currentItem.number ? updatedItem : item
       );
       sessionState.workItems = updatedWorkItems;
-      return 'build-task-graph';
+      return 'clear-rd3';
     }
 
-    case 'build-task-graph': {
-      // Mark item as complete
-      const updatedItem = updateItemStatusInSession(currentItem, 'complete');
+    case 'rough-draft-handoff': {
+      if (!currentItem) return null;
+      // Mark item as complete after rough-draft-handoff
       const updatedWorkItems = sessionState.workItems.map((item) =>
-        item.number === currentItem.number ? updatedItem : item
+        item.number === currentItem.number ? { ...item, status: 'complete' as const } : item
       );
       sessionState.workItems = updatedWorkItems;
-
-      // Check if more items remain
-      const nextItem = findNextPendingItemInSession(updatedWorkItems);
-      if (nextItem) {
-        // Set current item to next pending item
-        sessionState.currentItem = nextItem.number;
-        // Start next item from brainstorming
-        return 'brainstorm-exploring';
-      } else {
-        // All items done - clear current item
-        sessionState.currentItem = null;
-        return 'ready-to-implement';
-      }
+      // Go back to rough-draft router to pick up next code item
+      return 'clear-post-rough';
     }
 
     default:
-      // For other states, use standard transition logic
+      // For other states, use standard transition logic (routing handled by state machine)
       return null;
   }
+}
+
+/**
+ * Legacy function for backwards compatibility.
+ * @deprecated Use getNextStateForPhaseBatching instead
+ */
+export function getNextStateForPerItemPipeline(
+  currentStateId: StateId,
+  sessionState: SessionState
+): StateId | null {
+  return getNextStateForPhaseBatching(currentStateId, sessionState);
 }

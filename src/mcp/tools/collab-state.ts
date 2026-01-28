@@ -28,6 +28,7 @@ export interface CollabState {
   pendingTasks?: string[];
   totalItems?: number;
   documentedItems?: number;
+  autoAllowRoughDraft?: boolean; // User preference for auto-allowing rough-draft proposals
 }
 
 export interface ContextSnapshot {
@@ -53,6 +54,7 @@ export interface StateUpdateParams {
   pendingTasks?: string[];
   totalItems?: number;
   documentedItems?: number;
+  autoAllowRoughDraft?: boolean; // User preference for auto-allowing rough-draft proposals
 }
 
 // ============= Helper Functions =============
@@ -171,6 +173,9 @@ export async function updateSessionState(
     ...(updates.documentedItems !== undefined && { documentedItems: updates.documentedItems }),
     ...(currentState.totalItems !== undefined && updates.totalItems === undefined && { totalItems: currentState.totalItems }),
     ...(currentState.documentedItems !== undefined && updates.documentedItems === undefined && { documentedItems: currentState.documentedItems }),
+    // Auto-allow rough-draft preference
+    ...(updates.autoAllowRoughDraft !== undefined && { autoAllowRoughDraft: updates.autoAllowRoughDraft }),
+    ...(currentState.autoAllowRoughDraft !== undefined && updates.autoAllowRoughDraft === undefined && { autoAllowRoughDraft: currentState.autoAllowRoughDraft }),
   };
 
   // Ensure directory exists

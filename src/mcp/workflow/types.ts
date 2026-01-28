@@ -7,7 +7,8 @@ export type StateId =
   | 'collab-start'
   | 'gather-goals'
   | 'clear-pre-item'
-  | 'work-item-router'
+  // Brainstorm phase routing
+  | 'brainstorm-item-router'
   // Brainstorming states
   | 'brainstorm-exploring'
   | 'clear-bs1'
@@ -17,6 +18,11 @@ export type StateId =
   | 'clear-bs3'
   | 'brainstorm-validating'
   | 'item-type-router'
+  | 'clear-post-brainstorm'
+  // Rough-draft phase transition
+  | 'rough-draft-confirm'
+  | 'clear-pre-rough-batch'
+  | 'rough-draft-item-router'
   // Rough-draft states
   | 'clear-pre-rough'
   | 'rough-draft-interface'
@@ -28,6 +34,7 @@ export type StateId =
   | 'build-task-graph'
   | 'clear-rd4'
   | 'rough-draft-handoff'
+  | 'clear-post-rough'
   // Other paths
   | 'task-planning'
   | 'systematic-debugging'
@@ -38,6 +45,8 @@ export type StateId =
   | 'execute-batch'
   | 'log-batch-complete'
   | 'clear-post-batch'
+  // Legacy (kept for backwards compatibility)
+  | 'work-item-router'
   | 'clear-post-item'
   // Terminal states
   | 'workflow-complete'
@@ -49,6 +58,10 @@ export type TransitionCondition =
   | { type: 'item_type'; value: 'code' | 'task' | 'bugfix' }
   | { type: 'items_remaining' }
   | { type: 'no_items_remaining' }
+  | { type: 'pending_brainstorm_items' }
+  | { type: 'no_pending_brainstorm_items' }
+  | { type: 'pending_rough_draft_items' }
+  | { type: 'no_pending_rough_draft_items' }
   | { type: 'batches_remaining' }
   | { type: 'no_batches_remaining' }
   | { type: 'always' };

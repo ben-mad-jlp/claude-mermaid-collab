@@ -4,7 +4,7 @@
  */
 
 import type { StateId, WorkflowState, WorkItem, ItemStatus } from './types.js';
-import { getNextStateForPerItemPipeline, type SessionState as TransitionSessionState } from './transitions.js';
+import { getNextStateForPhaseBatching, type SessionState as TransitionSessionState } from './transitions.js';
 
 /**
  * Mapping of internal state names to user-friendly display names
@@ -24,6 +24,9 @@ export const STATE_DISPLAY_NAMES: Record<string, string> = {
   'systematic-debugging': 'Investigating',
   'task-planning': 'Planning Task',
 
+  // Phase transition
+  'rough-draft-confirm': 'Confirming',
+
   // Rough-draft
   'rough-draft-interface': 'Defining Interfaces',
   'rough-draft-pseudocode': 'Writing Pseudocode',
@@ -42,7 +45,9 @@ export const STATE_DISPLAY_NAMES: Record<string, string> = {
 
   // Routing nodes
   'work-item-router': 'Routing',
+  'brainstorm-item-router': 'Routing',
   'item-type-router': 'Routing',
+  'rough-draft-item-router': 'Routing',
   'batch-router': 'Routing',
   'log-batch-complete': 'Logging',
 };
@@ -84,22 +89,24 @@ export const WORKFLOW_STATES: WorkflowState[] = [
     transitions: [{ to: 'clear-pre-item' }],
   },
 
-  // ========== Pre-item clear ==========
+  // ========== Pre-brainstorm clear ==========
   {
     id: 'clear-pre-item',
     skill: 'collab-clear',
-    transitions: [{ to: 'work-item-router' }],
+    transitions: [{ to: 'brainstorm-item-router' }],
   },
 
-  // ========== Work item router (routing node) ==========
+  // ========== Brainstorm item router (routes by type) ==========
+  // Routes bugfixes to systematic-debugging, code/task to brainstorm
+  // When no pending items, goes to rough-draft-confirm
   {
-    id: 'work-item-router',
+    id: 'brainstorm-item-router',
     skill: null,
     transitions: [
+      { to: 'systematic-debugging', condition: { type: 'item_type', value: 'bugfix' } },
       { to: 'brainstorm-exploring', condition: { type: 'item_type', value: 'code' } },
       { to: 'brainstorm-exploring', condition: { type: 'item_type', value: 'task' } },
-      { to: 'systematic-debugging', condition: { type: 'item_type', value: 'bugfix' } },
-      { to: 'ready-to-implement', condition: { type: 'no_items_remaining' } },
+      { to: 'rough-draft-confirm', condition: { type: 'no_pending_brainstorm_items' } },
     ],
   },
 
@@ -140,13 +147,60 @@ export const WORKFLOW_STATES: WorkflowState[] = [
     transitions: [{ to: 'item-type-router' }],
   },
 
-  // ========== Item type router (routing node) ==========
+  // ========== Item type router (routes after brainstorm completion) ==========
+  // Tasks go to task-planning then complete
+  // Code items go back to brainstorm-item-router (to pick up next item)
   {
     id: 'item-type-router',
     skill: null,
     transitions: [
-      { to: 'clear-pre-rough', condition: { type: 'item_type', value: 'code' } },
       { to: 'task-planning', condition: { type: 'item_type', value: 'task' } },
+      { to: 'clear-post-brainstorm', condition: { type: 'item_type', value: 'code' } },
+    ],
+  },
+
+  // ========== Clear after brainstorm, loop back ==========
+  {
+    id: 'clear-post-brainstorm',
+    skill: 'collab-clear',
+    transitions: [{ to: 'brainstorm-item-router' }],
+  },
+
+  // ========== Task planning (completes after brainstorm) ==========
+  {
+    id: 'task-planning',
+    skill: 'task-planning',
+    transitions: [{ to: 'clear-post-brainstorm' }],
+  },
+
+  // ========== Systematic debugging (bugfixes skip brainstorm) ==========
+  {
+    id: 'systematic-debugging',
+    skill: 'systematic-debugging',
+    transitions: [{ to: 'clear-post-brainstorm' }],
+  },
+
+  // ========== Rough-draft confirm (asks about auto-allow) ==========
+  {
+    id: 'rough-draft-confirm',
+    skill: 'rough-draft-confirm',
+    transitions: [{ to: 'clear-pre-rough-batch' }],
+  },
+
+  // ========== Clear before rough-draft batch ==========
+  {
+    id: 'clear-pre-rough-batch',
+    skill: 'collab-clear',
+    transitions: [{ to: 'rough-draft-item-router' }],
+  },
+
+  // ========== Rough-draft item router (only code items) ==========
+  {
+    id: 'rough-draft-item-router',
+    skill: null,
+    transitions: [
+      { to: 'clear-pre-rough', condition: { type: 'pending_rough_draft_items' } },
+      { to: 'ready-to-implement', condition: { type: 'no_pending_rough_draft_items' } },
     ],
   },
 
@@ -199,26 +253,14 @@ export const WORKFLOW_STATES: WorkflowState[] = [
   {
     id: 'rough-draft-handoff',
     skill: 'rough-draft-handoff',
-    transitions: [{ to: 'clear-post-item' }],
+    transitions: [{ to: 'clear-post-rough' }],
   },
 
-  // ========== Other paths ==========
+  // ========== Clear after rough-draft, loop back ==========
   {
-    id: 'task-planning',
-    skill: 'task-planning',
-    transitions: [{ to: 'clear-post-item' }],
-  },
-  {
-    id: 'systematic-debugging',
-    skill: 'systematic-debugging',
-    transitions: [{ to: 'clear-post-item' }],
-  },
-
-  // ========== Post-item clear and loop back ==========
-  {
-    id: 'clear-post-item',
+    id: 'clear-post-rough',
     skill: 'collab-clear',
-    transitions: [{ to: 'work-item-router' }],
+    transitions: [{ to: 'rough-draft-item-router' }],
   },
 
   // ========== Ready to implement (all items documented) ==========
@@ -274,6 +316,23 @@ export const WORKFLOW_STATES: WorkflowState[] = [
     skill: null,
     transitions: [],
   },
+
+  // ========== Legacy states (kept for backwards compatibility) ==========
+  {
+    id: 'work-item-router',
+    skill: null,
+    transitions: [
+      { to: 'brainstorm-exploring', condition: { type: 'item_type', value: 'code' } },
+      { to: 'brainstorm-exploring', condition: { type: 'item_type', value: 'task' } },
+      { to: 'systematic-debugging', condition: { type: 'item_type', value: 'bugfix' } },
+      { to: 'ready-to-implement', condition: { type: 'no_items_remaining' } },
+    ],
+  },
+  {
+    id: 'clear-post-item',
+    skill: 'collab-clear',
+    transitions: [{ to: 'brainstorm-item-router' }],
+  },
 ];
 
 /**
@@ -312,6 +371,26 @@ export function skillToState(skill: string): StateId | null {
  */
 export function findNextPendingItem(workItems: WorkItem[]): WorkItem | undefined {
   return workItems.find((item) => item.status !== 'complete');
+}
+
+/**
+ * Find the next item that needs brainstorming.
+ * Returns items with status === 'pending' (bugfixes, code, or task that haven't started).
+ * Excludes items that have already been brainstormed or are complete.
+ */
+export function findNextPendingBrainstormItem(workItems: WorkItem[]): WorkItem | undefined {
+  return workItems.find((item) => item.status === 'pending');
+}
+
+/**
+ * Find the next code item that needs rough-draft processing.
+ * Only returns code items with status === 'brainstormed'.
+ * Tasks and bugfixes don't go through rough-draft.
+ */
+export function findNextPendingRoughDraftItem(workItems: WorkItem[]): WorkItem | undefined {
+  return workItems.find(
+    (item) => item.type === 'code' && item.status === 'brainstormed'
+  );
 }
 
 /**
@@ -387,19 +466,22 @@ export function migrateWorkItems(items: WorkItem[]): WorkItem[] {
 }
 
 /**
- * Session state interface for per-item pipeline routing
+ * Session state interface for phase batching routing
  * Re-export from transitions for convenience
  */
 export type SessionState = TransitionSessionState;
 
 /**
  * Get the next state based on current state and work item status.
- * Implements per-item pipeline instead of per-phase batching.
+ * Implements phase batching: all items brainstorm first, then all code items go through rough-draft.
  *
- * Coordinates the flow of items through the full pipeline:
- * 1. Each item goes: brainstorm-validating → rough-draft-interface → rough-draft-pseudocode → rough-draft-skeleton → build-task-graph
- * 2. Item status updates: pending → brainstormed → interface → pseudocode → skeleton → complete
- * 3. When item completes, moves to next pending item or workflow completion
+ * Phase batching flow:
+ * 1. Brainstorm phase: All items (code, task, bugfix) go through brainstorming
+ *    - Bugfixes skip brainstorm, go directly to systematic-debugging
+ *    - Tasks complete after brainstorm + task-planning
+ *    - Code items mark as 'brainstormed' and wait for rough-draft phase
+ * 2. Rough-draft phase: Only code items go through rough-draft
+ *    - Code items: brainstormed → interface → pseudocode → skeleton → complete
  *
  * @param currentState - Current state ID
  * @param sessionState - Current session state with work items
@@ -409,6 +491,6 @@ export function getNextState(
   currentState: string,
   sessionState: SessionState
 ): string | null {
-  // Use the per-item pipeline routing logic from transitions
-  return getNextStateForPerItemPipeline(currentState as StateId, sessionState);
+  // Use the phase batching routing logic from transitions
+  return getNextStateForPhaseBatching(currentState as StateId, sessionState);
 }

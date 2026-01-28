@@ -10,13 +10,37 @@ import { syncTasksFromTaskGraph } from './task-sync.js';
 import { updateTaskDiagram } from './task-diagram.js';
 
 /**
- * Find the next pending work item from workItems array
+ * Find the next pending work item from workItems array (status === 'pending')
  */
 function findNextPendingItem(workItems?: WorkItem[]): WorkItem | null {
   if (!workItems || workItems.length === 0) {
     return null;
   }
   return workItems.find((item) => item.status === 'pending') ?? null;
+}
+
+/**
+ * Find the next item that needs brainstorming (status === 'pending').
+ * Used by brainstorm-item-router.
+ */
+function findNextPendingBrainstormItem(workItems?: WorkItem[]): WorkItem | null {
+  if (!workItems || workItems.length === 0) {
+    return null;
+  }
+  return workItems.find((item) => item.status === 'pending') ?? null;
+}
+
+/**
+ * Find the next code item that needs rough-draft (type === 'code', status === 'brainstormed').
+ * Used by rough-draft-item-router.
+ */
+function findNextPendingRoughDraftItem(workItems?: WorkItem[]): WorkItem | null {
+  if (!workItems || workItems.length === 0) {
+    return null;
+  }
+  return workItems.find(
+    (item) => item.type === 'code' && item.status === 'brainstormed'
+  ) ?? null;
 }
 
 /**
@@ -70,12 +94,13 @@ export async function completeSkill(
     };
   }
 
-  // 4a. If entering work-item-router, select next pending item first
+  // 4a. If entering a router, select next appropriate item first
   let updatedContext = context;
   let itemUpdates: { currentItem?: number | null; currentItemType?: WorkItemType } = {};
 
-  if (nextStateId === 'work-item-router') {
-    const nextItem = findNextPendingItem(sessionState.workItems);
+  if (nextStateId === 'brainstorm-item-router' || nextStateId === 'work-item-router') {
+    // Brainstorm router: find next item needing brainstorming (status === 'pending')
+    const nextItem = findNextPendingBrainstormItem(sessionState.workItems);
     if (nextItem) {
       // Found a pending item - set it as current
       itemUpdates = {
@@ -84,17 +109,42 @@ export async function completeSkill(
       };
       // Rebuild context with the item type for routing
       updatedContext = buildTransitionContext(
-        { ...sessionState, currentItem: nextItem.number },
+        { ...sessionState, currentItem: nextItem.number, workItems: sessionState.workItems },
         nextItem.type
       );
     } else {
-      // No pending items - clear currentItem
+      // No pending items - clear currentItem (will route to rough-draft-confirm)
       itemUpdates = {
         currentItem: null,
         currentItemType: undefined,
       };
       updatedContext = buildTransitionContext(
-        { ...sessionState, currentItem: null },
+        { ...sessionState, currentItem: null, workItems: sessionState.workItems },
+        undefined
+      );
+    }
+  } else if (nextStateId === 'rough-draft-item-router') {
+    // Rough-draft router: find next code item needing rough-draft (type === 'code', status === 'brainstormed')
+    const nextItem = findNextPendingRoughDraftItem(sessionState.workItems);
+    if (nextItem) {
+      // Found a code item needing rough-draft
+      itemUpdates = {
+        currentItem: nextItem.number,
+        currentItemType: nextItem.type,
+      };
+      // Rebuild context with the item info
+      updatedContext = buildTransitionContext(
+        { ...sessionState, currentItem: nextItem.number, workItems: sessionState.workItems },
+        nextItem.type
+      );
+    } else {
+      // No code items need rough-draft - will route to ready-to-implement
+      itemUpdates = {
+        currentItem: null,
+        currentItemType: undefined,
+      };
+      updatedContext = buildTransitionContext(
+        { ...sessionState, currentItem: null, workItems: sessionState.workItems },
         undefined
       );
     }
@@ -158,24 +208,52 @@ export async function completeSkill(
  * Get phase string from state ID
  */
 function getPhaseFromState(stateId: StateId): string {
-  if (stateId.startsWith('brainstorm')) {
+  // Brainstorming phase states
+  if (
+    stateId.startsWith('brainstorm') ||
+    stateId === 'systematic-debugging' ||
+    stateId === 'task-planning' ||
+    stateId === 'item-type-router' ||
+    stateId === 'clear-post-brainstorm' ||
+    stateId === 'work-item-router' ||
+    stateId === 'clear-post-item'
+  ) {
     return 'brainstorming';
   }
-  if (stateId.startsWith('rough-draft') || stateId === 'build-task-graph') {
+
+  // Rough-draft confirm (transition between phases)
+  if (stateId === 'rough-draft-confirm' || stateId === 'clear-pre-rough-batch') {
+    return 'rough-draft/confirm';
+  }
+
+  // Rough-draft phase states
+  if (
+    stateId.startsWith('rough-draft') ||
+    stateId === 'build-task-graph' ||
+    stateId === 'clear-pre-rough' ||
+    stateId === 'clear-post-rough' ||
+    stateId.startsWith('clear-rd')
+  ) {
     return `rough-draft/${stateId.replace('rough-draft-', '')}`;
   }
+
+  // Implementation phase states
   if (
     stateId === 'execute-batch' ||
     stateId === 'batch-router' ||
     stateId === 'clear-pre-execute' ||
     stateId === 'clear-post-batch' ||
-    stateId === 'log-batch-complete'
+    stateId === 'log-batch-complete' ||
+    stateId === 'ready-to-implement'
   ) {
     return 'implementation';
   }
+
+  // Completion phase states
   if (stateId === 'workflow-complete' || stateId === 'cleanup' || stateId === 'done') {
     return 'complete';
   }
+
   return 'brainstorming';
 }
 
