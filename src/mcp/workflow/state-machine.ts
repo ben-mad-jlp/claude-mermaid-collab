@@ -5,6 +5,70 @@
 
 import type { StateId, WorkflowState } from './types.js';
 
+/**
+ * Mapping of internal state names to user-friendly display names
+ */
+export const STATE_DISPLAY_NAMES: Record<string, string> = {
+  // Entry
+  'collab-start': 'Starting',
+  'gather-goals': 'Gathering Goals',
+
+  // Brainstorming
+  'brainstorm-exploring': 'Exploring',
+  'brainstorm-clarifying': 'Clarifying',
+  'brainstorm-designing': 'Designing',
+  'brainstorm-validating': 'Validating',
+
+  // Item-specific paths
+  'systematic-debugging': 'Investigating',
+  'task-planning': 'Planning Task',
+
+  // Rough-draft
+  'rough-draft-interface': 'Defining Interfaces',
+  'rough-draft-pseudocode': 'Writing Pseudocode',
+  'rough-draft-skeleton': 'Building Skeleton',
+  'build-task-graph': 'Building Tasks',
+  'rough-draft-handoff': 'Preparing Handoff',
+
+  // Execution
+  'ready-to-implement': 'Ready',
+  'execute-batch': 'Executing',
+
+  // Terminal
+  'workflow-complete': 'Finishing',
+  'cleanup': 'Cleaning Up',
+  'done': 'Done',
+
+  // Routing nodes
+  'work-item-router': 'Routing',
+  'item-type-router': 'Routing',
+  'batch-router': 'Routing',
+  'log-batch-complete': 'Logging',
+};
+
+/**
+ * Get user-friendly display name for a state.
+ * For clear-* states, returns "Context Check".
+ * For unknown states, returns the state as-is.
+ * @param state - Internal state name
+ * @param previousState - Optional previous state (for future use)
+ * @returns User-friendly display name
+ */
+export function getDisplayName(state: string, previousState?: string): string {
+  // Check for direct mapping in STATE_DISPLAY_NAMES
+  if (state in STATE_DISPLAY_NAMES) {
+    return STATE_DISPLAY_NAMES[state];
+  }
+
+  // Handle clear-* states
+  if (state.startsWith('clear-')) {
+    return 'Context Check';
+  }
+
+  // Unknown state - return as-is (fallback)
+  return state;
+}
+
 /** All workflow states */
 export const WORKFLOW_STATES: WorkflowState[] = [
   // ========== Entry ==========
