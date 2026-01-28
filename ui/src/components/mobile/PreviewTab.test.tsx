@@ -252,6 +252,31 @@ describe('PreviewTab', () => {
       render(<PreviewTab {...mockProps} selectedItem={null} />);
       expect(screen.queryByTestId('preview-top-bar')).not.toBeInTheDocument();
     });
+
+    it('should display Browse Items button in empty state', () => {
+      render(<PreviewTab {...mockProps} selectedItem={null} />);
+      expect(screen.getByTestId('preview-browse-items-button')).toBeInTheDocument();
+      expect(screen.getByTestId('preview-browse-items-button')).toHaveTextContent('Browse Items');
+    });
+
+    it('should open drawer when Browse Items button is clicked', async () => {
+      render(<PreviewTab {...mockProps} selectedItem={null} />);
+
+      // Close the auto-opened drawer first
+      fireEvent.click(screen.getByTestId('drawer-close-btn'));
+      await waitFor(() => {
+        expect(screen.queryByTestId('drawer-close-btn')).not.toBeInTheDocument();
+      });
+
+      // Click Browse Items button
+      const browseItemsButton = screen.getByTestId('preview-browse-items-button');
+      fireEvent.click(browseItemsButton);
+
+      // Drawer should open again
+      await waitFor(() => {
+        expect(screen.getByTestId('drawer-close-btn')).toBeInTheDocument();
+      });
+    });
   });
 
   describe('Item Selection', () => {

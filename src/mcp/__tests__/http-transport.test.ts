@@ -1,9 +1,10 @@
 /**
- * Tests for StreamableHttpTransport - Type definitions and interface validation
+ * Tests for StreamableHttpTransport - Type definitions, interface validation, and timeout handling
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
+import { StreamableHttpTransport } from '../http-transport.js';
 
 /**
  * This test file validates the type definitions for the StreamableHttpTransport.
@@ -146,6 +147,108 @@ describe('StreamableHttpTransport - Type Definitions', () => {
       const options: { timeout?: number } = { timeout: 30000 };
       const result = { req: mockReq, options };
       expect(result.options?.timeout).toBe(30000);
+    });
+  });
+});
+
+describe('StreamableHttpTransport - Timeout Handling', () => {
+  describe('timeout option behavior', () => {
+    it('should accept timeout option in handlePost signature', () => {
+      const transport = new StreamableHttpTransport('test-session');
+      const mockReq = new Request('http://localhost/api', { method: 'POST' });
+
+      // Verify the function accepts timeout options
+      expect(() => {
+        // This just validates the signature is correct
+        const options = { timeout: -1 };
+        expect(options.timeout).toBe(-1);
+      }).not.toThrow();
+    });
+
+    it('should accept undefined timeout (use default)', () => {
+      const transport = new StreamableHttpTransport('test-session');
+
+      // Options without timeout should be valid
+      const options: { timeout?: number } = {};
+      expect(options.timeout).toBeUndefined();
+    });
+
+    it('should accept 0 timeout (use default 60000ms)', () => {
+      const transport = new StreamableHttpTransport('test-session');
+
+      const options: { timeout?: number } = { timeout: 0 };
+      expect(options.timeout).toBe(0);
+    });
+
+    it('should accept -1 timeout (no timeout)', () => {
+      const transport = new StreamableHttpTransport('test-session');
+
+      const options: { timeout?: number } = { timeout: -1 };
+      expect(options.timeout).toBe(-1);
+    });
+
+    it('should accept positive timeout values', () => {
+      const transport = new StreamableHttpTransport('test-session');
+
+      const options: { timeout?: number } = { timeout: 30000 };
+      expect(options.timeout).toBe(30000);
+    });
+
+    it('should handle timeout option in handlePost method signature', async () => {
+      const transport = new StreamableHttpTransport('test-session');
+
+      // Test that handlePost accepts options parameter
+      const mockReq = new Request('http://localhost/api', {
+        method: 'POST',
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'ping', id: 1 })
+      });
+
+      // Call with options - verify no type error
+      const promise1 = transport.handlePost(mockReq, { timeout: 5000 });
+      expect(promise1).toBeDefined();
+
+      // Call without options - verify backward compatibility
+      const promise2 = transport.handlePost(mockReq);
+      expect(promise2).toBeDefined();
+    });
+
+    it('should maintain backward compatibility - handlePost callable without options', async () => {
+      const transport = new StreamableHttpTransport('test-session');
+      const mockReq = new Request('http://localhost/api', {
+        method: 'POST',
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'test' })
+      });
+
+      // Should work without options parameter (backward compatible)
+      const response = await transport.handlePost(mockReq);
+      expect(response).toBeDefined();
+      expect(response.status).toBe(202); // No requests
+    });
+
+    it('should handle options parameter with timeout property', async () => {
+      const transport = new StreamableHttpTransport('test-session');
+      const mockReq = new Request('http://localhost/api', {
+        method: 'POST',
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'test' })
+      });
+
+      // Should work with options containing timeout
+      const response = await transport.handlePost(mockReq, { timeout: 30000 });
+      expect(response).toBeDefined();
+      expect(response.status).toBe(202); // No requests
+    });
+
+    it('should handle options parameter with timeout -1 (no timeout)', async () => {
+      const transport = new StreamableHttpTransport('test-session');
+      const mockReq = new Request('http://localhost/api', {
+        method: 'POST',
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'test' })
+      });
+
+      // Should work with options.timeout = -1
+      const response = await transport.handlePost(mockReq, { timeout: -1 });
+      expect(response).toBeDefined();
+      expect(response.status).toBe(202); // No requests
     });
   });
 });

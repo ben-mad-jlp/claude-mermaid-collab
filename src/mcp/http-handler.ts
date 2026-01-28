@@ -114,20 +114,66 @@ async function handlePost(req: Request, sessionId: string | null): Promise<Respo
   }
 
   // Handle the POST request
-  const response = await session.transport.handlePost(req);
+  // Check if this is a blocking render_ui call and pass timeout: -1 to disable timeout
+  let handlePostOptions: { timeout?: number } = {};
 
-  // Add session ID to response if not already present
-  if (!response.headers.has('mcp-session-id')) {
-    const newHeaders = new Headers(response.headers);
-    newHeaders.set('Mcp-Session-Id', session.transport.sessionId);
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: newHeaders,
-    });
+  try {
+    // Peek at request body to check for blocking render_ui calls
+    const reqBodyText = await req.text();
+    const requestBody = JSON.parse(reqBodyText);
+
+    // Check if this is a render_ui tool call with blocking: true
+    // render_ui is called through MCP, which wraps it in a call_tool request
+    if (requestBody && typeof requestBody === 'object') {
+      // Single message or array of messages
+      const messages = Array.isArray(requestBody) ? requestBody : [requestBody];
+
+      for (const msg of messages) {
+        // Look for tool calls to render_ui with blocking=true
+        if (msg.method === 'tools/call' && msg.params?.name === 'render_ui') {
+          const blockingValue = msg.params?.arguments?.blocking;
+          // blocking defaults to true if not specified
+          if (blockingValue !== false) {
+            handlePostOptions.timeout = -1;
+            break;
+          }
+        }
+      }
+    }
+
+    // Re-create request with the body we just read
+    const newReq = new Request(req, { body: reqBodyText });
+    const response = await session.transport.handlePost(newReq, handlePostOptions);
+
+    // Add session ID to response if not already present
+    if (!response.headers.has('mcp-session-id')) {
+      const newHeaders = new Headers(response.headers);
+      newHeaders.set('Mcp-Session-Id', session.transport.sessionId);
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: newHeaders,
+      });
+    }
+
+    return response;
+  } catch (error) {
+    // If we can't parse or inspect the request, just call handlePost normally
+    const response = await session.transport.handlePost(req, handlePostOptions);
+
+    // Add session ID to response if not already present
+    if (!response.headers.has('mcp-session-id')) {
+      const newHeaders = new Headers(response.headers);
+      newHeaders.set('Mcp-Session-Id', session.transport.sessionId);
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: newHeaders,
+      });
+    }
+
+    return response;
   }
-
-  return response;
 }
 
 /**

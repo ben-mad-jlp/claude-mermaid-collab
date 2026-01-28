@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TerminalTab } from './TerminalTab';
 
@@ -169,5 +170,78 @@ describe('TerminalTab', () => {
     expect(wrapper).toHaveStyle('width: 100%');
     expect(wrapper).toHaveStyle('height: 100%');
     expect(wrapper).toHaveStyle('overflow: hidden');
+  });
+
+  it('should render New Terminal button when hasSession is false and onCreateTerminal is provided', () => {
+    const onCreateTerminal = vi.fn();
+    render(
+      <TerminalTab
+        terminal={null}
+        hasSession={false}
+        onCreateTerminal={onCreateTerminal}
+      />
+    );
+
+    const button = screen.getByTestId('new-terminal-button');
+    expect(button).toBeInTheDocument();
+    expect(button).toHaveTextContent('New Terminal');
+  });
+
+  it('should not render New Terminal button when onCreateTerminal is not provided', () => {
+    const { queryByTestId } = render(
+      <TerminalTab
+        terminal={null}
+        hasSession={false}
+      />
+    );
+
+    expect(queryByTestId('new-terminal-button')).not.toBeInTheDocument();
+  });
+
+  it('should call onCreateTerminal when button is clicked', async () => {
+    const user = userEvent.setup();
+    const onCreateTerminal = vi.fn();
+    render(
+      <TerminalTab
+        terminal={null}
+        hasSession={false}
+        onCreateTerminal={onCreateTerminal}
+      />
+    );
+
+    const button = screen.getByTestId('new-terminal-button');
+    await user.click(button);
+
+    expect(onCreateTerminal).toHaveBeenCalledTimes(1);
+  });
+
+  it('should not render New Terminal button when hasSession is true', () => {
+    const onCreateTerminal = vi.fn();
+    const { queryByTestId } = render(
+      <TerminalTab
+        terminal={{ sessionId: 'test-session', wsUrl: 'ws://localhost:3737/terminal' }}
+        hasSession={true}
+        onCreateTerminal={onCreateTerminal}
+      />
+    );
+
+    expect(queryByTestId('new-terminal-button')).not.toBeInTheDocument();
+  });
+
+  it('should apply accent button styling to New Terminal button', () => {
+    const onCreateTerminal = vi.fn();
+    render(
+      <TerminalTab
+        terminal={null}
+        hasSession={false}
+        onCreateTerminal={onCreateTerminal}
+      />
+    );
+
+    const button = screen.getByTestId('new-terminal-button');
+    expect(button).toHaveClass('bg-accent-500');
+    expect(button).toHaveClass('hover:bg-accent-600');
+    expect(button).toHaveClass('text-white');
+    expect(button).toHaveClass('rounded-lg');
   });
 });

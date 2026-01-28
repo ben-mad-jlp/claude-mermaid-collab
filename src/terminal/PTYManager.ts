@@ -12,6 +12,8 @@ export interface PTYSession {
   cwd: string;
   createdAt: Date;
   lastActivity: Date;
+  hasReceivedResize: boolean;
+  deferReplay: boolean;
 }
 
 export interface PTYSessionInfo {
@@ -28,6 +30,12 @@ export interface CreateOptions {
   cwd?: string;        // Default: process.cwd()
   cols?: number;       // Default: 80
   rows?: number;       // Default: 24
+}
+
+export interface AttachOptions {
+  cols?: number;
+  rows?: number;
+  deferReplay?: boolean;  // If true, don't replay buffer until resize received
 }
 
 /**
@@ -96,6 +104,8 @@ export class PTYManager {
       cwd,
       createdAt: new Date(),
       lastActivity: new Date(),
+      hasReceivedResize: false,
+      deferReplay: false,
     };
 
     try {
@@ -116,9 +126,12 @@ export class PTYManager {
             session.lastActivity = new Date();
 
             // Broadcast to all connected websockets
+            // Only send if we've received initial resize OR if not deferring replay
             for (const ws of session.websockets) {
               try {
-                ws.send(JSON.stringify({ type: 'output', data: text }));
+                if (session.hasReceivedResize || !session.deferReplay) {
+                  ws.send(JSON.stringify({ type: 'output', data: text }));
+                }
               } catch (error) {
                 // WebSocket may have been closed, ignore
               }
@@ -191,12 +204,12 @@ export class PTYManager {
   }
 
   /**
-   * Resize a PTY session.
+   * Resize PTY and mark session as having received resize.
    */
   resize(sessionId: string, cols: number, rows: number): void {
     const session = this.sessions.get(sessionId);
     if (!session) {
-      throw new Error(`Session not found: ${sessionId}`);
+      return;
     }
 
     try {
@@ -205,14 +218,28 @@ export class PTYManager {
       console.warn(`Failed to resize session ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
     }
 
+    // Track if this was the first resize (for deferred replay)
+    const wasFirst = !session.hasReceivedResize;
+    session.hasReceivedResize = true;
+
+    // If this was the first resize and we were deferring, replay now
+    if (wasFirst && session.deferReplay && session.websockets.size > 0) {
+      for (const ws of session.websockets) {
+        this.replayBuffer(sessionId, ws);
+      }
+    }
+
     session.lastActivity = new Date();
   }
 
   /**
    * Attach a WebSocket to receive output and replay buffer.
    * Auto-creates session if it doesn't exist.
+   * @param sessionId - Terminal session ID
+   * @param ws - WebSocket connection
+   * @param options - Attach options including deferReplay
    */
-  attach(sessionId: string, ws: ServerWebSocket): void {
+  attach(sessionId: string, ws: ServerWebSocket, options?: AttachOptions): void {
     let session = this.sessions.get(sessionId);
 
     // Auto-create session if it doesn't exist
@@ -230,6 +257,8 @@ export class PTYManager {
         cwd,
         createdAt: new Date(),
         lastActivity: new Date(),
+        hasReceivedResize: false,
+        deferReplay: false,
       };
 
       try {
@@ -247,9 +276,12 @@ export class PTYManager {
               session!.buffer.write(text);
               session!.lastActivity = new Date();
 
+              // Only send if we've received initial resize OR if not deferring replay
               for (const connectedWs of session!.websockets) {
                 try {
-                  connectedWs.send(JSON.stringify({ type: 'output', data: text }));
+                  if (session!.hasReceivedResize || !session!.deferReplay) {
+                    connectedWs.send(JSON.stringify({ type: 'output', data: text }));
+                  }
                 } catch (error) {
                   // WebSocket closed, ignore
                 }
@@ -291,7 +323,36 @@ export class PTYManager {
     // Add WebSocket to session
     session.websockets.add(ws);
 
-    // Replay buffer contents to this ws
+    // Store defer flag
+    session.deferReplay = options?.deferReplay ?? false;
+    session.hasReceivedResize = false;
+
+    // Replay buffer contents to this ws only if NOT deferring
+    if (!session.deferReplay) {
+      try {
+        const bufferContents = session.buffer.getContents();
+        if (bufferContents) {
+          ws.send(JSON.stringify({ type: 'output', data: bufferContents }));
+        }
+      } catch (error) {
+        console.warn(`Failed to replay buffer for session ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    session.lastActivity = new Date();
+  }
+
+  /**
+   * Replay buffered output to WebSocket.
+   * Called after first resize when deferReplay was true.
+   */
+  replayBuffer(sessionId: string, ws: ServerWebSocket): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return;
+    }
+
+    // Send all buffered output
     try {
       const bufferContents = session.buffer.getContents();
       if (bufferContents) {
@@ -300,8 +361,6 @@ export class PTYManager {
     } catch (error) {
       console.warn(`Failed to replay buffer for session ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
     }
-
-    session.lastActivity = new Date();
   }
 
   /**

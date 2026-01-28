@@ -198,10 +198,10 @@ export const SessionPanel: React.FC<SessionPanelProps> = ({
           <h2 className="text-sm font-semibold text-gray-900 dark:text-white truncate">
             {session.name}
           </h2>
-          {session.phase && (
+          {session.displayName && (
             <div className="flex items-center gap-2 mt-1">
               <span className="text-xs text-gray-500 dark:text-gray-400">
-                Phase:
+                Status:
               </span>
               <span
                 className="
@@ -212,7 +212,7 @@ export const SessionPanel: React.FC<SessionPanelProps> = ({
                   rounded
                 "
               >
-                {session.phase}
+                {session.displayName}
               </span>
             </div>
           )}

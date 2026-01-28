@@ -96,17 +96,29 @@ export class StreamableHttpTransport implements Transport {
       }
 
       // Has requests - need to wait for responses
+      // Parse timeout option - use default 60000ms if undefined or 0
+      let timeoutMs = options?.timeout;
+      if (timeoutMs === undefined || timeoutMs === 0) {
+        timeoutMs = 60000;
+      }
+
       const responsePromise = new Promise<JSONRPCMessage[]>((resolve) => {
-        this._currentResponse = {
-          resolve,
-          messages: [],
-          timeout: setTimeout(() => {
+        // Create timeout handle only if timeout_ms !== -1
+        let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+        if (timeoutMs !== -1) {
+          timeoutHandle = setTimeout(() => {
             // Timeout - resolve with what we have
             if (this._currentResponse) {
               resolve(this._currentResponse.messages);
               this._currentResponse = null;
             }
-          }, 60000)
+          }, timeoutMs);
+        }
+
+        this._currentResponse = {
+          resolve,
+          messages: [],
+          timeout: timeoutHandle
         };
       });
 
@@ -192,7 +204,9 @@ export class StreamableHttpTransport implements Transport {
 
       // If this is a response (has result or error), we're done
       if ('result' in message || 'error' in message) {
-        clearTimeout(this._currentResponse.timeout);
+        if (this._currentResponse.timeout !== null) {
+          clearTimeout(this._currentResponse.timeout);
+        }
         this._currentResponse.resolve(this._currentResponse.messages);
         this._currentResponse = null;
       }
@@ -222,7 +236,9 @@ export class StreamableHttpTransport implements Transport {
 
       // Resolve any pending response
       if (this._currentResponse) {
-        clearTimeout(this._currentResponse.timeout);
+        if (this._currentResponse.timeout !== null) {
+          clearTimeout(this._currentResponse.timeout);
+        }
         this._currentResponse.resolve(this._currentResponse.messages);
         this._currentResponse = null;
       }

@@ -142,11 +142,11 @@ export const SessionCard: React.FC<SessionCardProps> = ({
 
       {/* Card Content */}
       <div className="space-y-2">
-        {/* Phase Badge */}
-        {session.phase && (
+        {/* Status Badge */}
+        {session.displayName && (
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-600 dark:text-gray-400 font-medium">
-              Phase:
+              Status:
             </span>
             <span
               className={`
@@ -161,7 +161,7 @@ export const SessionCard: React.FC<SessionCardProps> = ({
                 }
               `}
             >
-              {session.phase}
+              {session.displayName}
             </span>
           </div>
         )}

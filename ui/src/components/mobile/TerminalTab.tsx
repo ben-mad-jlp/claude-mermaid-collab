@@ -13,6 +13,8 @@ export interface TerminalTabProps {
   hasSession: boolean;
   /** Optional CSS class name */
   className?: string;
+  /** Optional callback to create a new terminal session */
+  onCreateTerminal?: () => void;
 }
 
 /**
@@ -31,6 +33,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
   terminal,
   hasSession,
   className = '',
+  onCreateTerminal,
 }) => {
   return (
     <div
@@ -55,6 +58,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
         <div
           style={{
             display: 'flex',
+            flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
             flex: 1,
@@ -62,7 +66,17 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
             fontSize: '1rem',
           }}
         >
-          No active terminal
+          <p>No active terminal</p>
+          {onCreateTerminal && (
+            <button
+              onClick={onCreateTerminal}
+              disabled={!onCreateTerminal}
+              className="mt-4 px-4 py-2 text-sm font-medium text-white bg-accent-500 hover:bg-accent-600 dark:bg-accent-600 dark:hover:bg-accent-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              data-testid="new-terminal-button"
+            >
+              New Terminal
+            </button>
+          )}
         </div>
       )}
     </div>

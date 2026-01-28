@@ -1,0 +1,23 @@
+graph TD
+    App["App.tsx<br/>Root Layout"] --> Header["Header.tsx<br/>Fixed top bar"]
+    App --> Main["Main Content Area"]
+    Main --> Sidebar["Sidebar.tsx<br/>Fixed w-72 (288px)<br/>Never collapses"]
+    Main --> Editor["UnifiedEditor.tsx<br/>Split pane: code + preview"]
+    Editor --> Toolbar["EditorToolbar.tsx<br/>Desktop-sized controls"]
+    Editor --> SplitPane["SplitPane.tsx<br/>Resizable panels"]
+    
+    Header --> Logo["Logo + Theme Toggle"]
+    Header --> Dropdowns["Project/Session Selectors"]
+    Header --> Toggles["Panel Toggles"]
+    
+    Sidebar --> Search["Search Input"]
+    Sidebar --> ItemList["Item Cards List"]
+    Sidebar --> Status["Session Status"]
+
+    style Sidebar fill:#f87171,stroke:#dc2626,color:#fff
+    style Header fill:#f87171,stroke:#dc2626,color:#fff
+    style Toolbar fill:#f87171,stroke:#dc2626,color:#fff
+    style SplitPane fill:#fbbf24,stroke:#d97706,color:#000
+
+    classDef problem fill:#f87171,stroke:#dc2626,color:#fff
+    classDef warning fill:#fbbf24,stroke:#d97706,color:#000

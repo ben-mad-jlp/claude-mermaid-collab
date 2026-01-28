@@ -4,6 +4,7 @@
  */
 
 import type { StateId, WorkflowState, WorkItem, ItemStatus } from './types.js';
+import { getNextStateForPerItemPipeline, type SessionState as TransitionSessionState } from './transitions.js';
 
 /**
  * Mapping of internal state names to user-friendly display names
@@ -383,4 +384,31 @@ export function migrateWorkItems(items: WorkItem[]): WorkItem[] {
     // Return item unchanged if status is already in new format
     return item;
   });
+}
+
+/**
+ * Session state interface for per-item pipeline routing
+ * Re-export from transitions for convenience
+ */
+export type SessionState = TransitionSessionState;
+
+/**
+ * Get the next state based on current state and work item status.
+ * Implements per-item pipeline instead of per-phase batching.
+ *
+ * Coordinates the flow of items through the full pipeline:
+ * 1. Each item goes: brainstorm-validating → rough-draft-interface → rough-draft-pseudocode → rough-draft-skeleton → build-task-graph
+ * 2. Item status updates: pending → brainstormed → interface → pseudocode → skeleton → complete
+ * 3. When item completes, moves to next pending item or workflow completion
+ *
+ * @param currentState - Current state ID
+ * @param sessionState - Current session state with work items
+ * @returns Next state ID or null if no valid transition
+ */
+export function getNextState(
+  currentState: string,
+  sessionState: SessionState
+): string | null {
+  // Use the per-item pipeline routing logic from transitions
+  return getNextStateForPerItemPipeline(currentState as StateId, sessionState);
 }

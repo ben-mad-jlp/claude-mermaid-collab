@@ -162,6 +162,14 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
               <p className="text-gray-400 dark:text-gray-500 text-xs mt-1">
                 Browse items from the drawer below
               </p>
+              {/* Browse Items button */}
+              <button
+                data-testid="preview-browse-items-button"
+                onClick={() => setIsDrawerOpen(true)}
+                className="mt-4 px-4 py-2 text-sm font-medium text-white bg-accent-500 hover:bg-accent-600 dark:bg-accent-600 dark:hover:bg-accent-700 rounded-lg transition-colors"
+              >
+                Browse Items
+              </button>
             </div>
           </div>
         )}

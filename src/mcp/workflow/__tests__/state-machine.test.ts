@@ -9,6 +9,8 @@ import {
   updateItemStatus,
   getCurrentWorkItem,
   migrateWorkItems,
+  getNextState,
+  type SessionState,
 } from '../state-machine';
 import type { WorkItem } from '../types';
 
@@ -578,6 +580,216 @@ describe('Work Item Helper Functions', () => {
       expect(result[0].type).toBe('code');
       expect(result[1].type).toBe('task');
       expect(result[2].type).toBe('bugfix');
+    });
+  });
+});
+
+describe('Per-Item Pipeline State Routing', () => {
+  const createWorkItem = (
+    number: number,
+    title: string,
+    status: 'pending' | 'brainstormed' | 'interface' | 'pseudocode' | 'skeleton' | 'complete' = 'pending'
+  ): WorkItem => ({
+    number,
+    title,
+    type: 'code',
+    status,
+  });
+
+  describe('getNextState', () => {
+    it('should route to brainstorm-exploring when no current item', () => {
+      const state: SessionState = {
+        state: 'test',
+        currentItem: null,
+        workItems: [createWorkItem(1, 'Item 1')],
+      };
+      const result = getNextState('work-item-router', state);
+      expect(result).toBe('brainstorm-exploring');
+    });
+
+    it('should route to ready-to-implement when all items complete', () => {
+      const state: SessionState = {
+        state: 'test',
+        currentItem: null,
+        workItems: [createWorkItem(1, 'Item 1', 'complete')],
+      };
+      const result = getNextState('work-item-router', state);
+      expect(result).toBe('ready-to-implement');
+    });
+
+    it('should mark item brainstormed after brainstorm-validating', () => {
+      const state: SessionState = {
+        state: 'test',
+        currentItem: 1,
+        workItems: [createWorkItem(1, 'Item 1', 'pending')],
+      };
+      const result = getNextState('brainstorm-validating', state);
+      expect(result).toBe('rough-draft-interface');
+      expect(state.workItems[0].status).toBe('brainstormed');
+    });
+
+    it('should mark item interface after rough-draft-interface', () => {
+      const state: SessionState = {
+        state: 'test',
+        currentItem: 1,
+        workItems: [createWorkItem(1, 'Item 1', 'brainstormed')],
+      };
+      const result = getNextState('rough-draft-interface', state);
+      expect(result).toBe('rough-draft-pseudocode');
+      expect(state.workItems[0].status).toBe('interface');
+    });
+
+    it('should mark item pseudocode after rough-draft-pseudocode', () => {
+      const state: SessionState = {
+        state: 'test',
+        currentItem: 1,
+        workItems: [createWorkItem(1, 'Item 1', 'interface')],
+      };
+      const result = getNextState('rough-draft-pseudocode', state);
+      expect(result).toBe('rough-draft-skeleton');
+      expect(state.workItems[0].status).toBe('pseudocode');
+    });
+
+    it('should mark item skeleton after rough-draft-skeleton', () => {
+      const state: SessionState = {
+        state: 'test',
+        currentItem: 1,
+        workItems: [createWorkItem(1, 'Item 1', 'pseudocode')],
+      };
+      const result = getNextState('rough-draft-skeleton', state);
+      expect(result).toBe('build-task-graph');
+      expect(state.workItems[0].status).toBe('skeleton');
+    });
+
+    it('should complete item and move to next after build-task-graph', () => {
+      const state: SessionState = {
+        state: 'test',
+        currentItem: 1,
+        workItems: [
+          createWorkItem(1, 'Item 1', 'skeleton'),
+          createWorkItem(2, 'Item 2', 'pending'),
+        ],
+      };
+      const result = getNextState('build-task-graph', state);
+      expect(result).toBe('brainstorm-exploring');
+      expect(state.workItems[0].status).toBe('complete');
+      expect(state.currentItem).toBe(2);
+    });
+
+    it('should route to ready-to-implement when last item completes', () => {
+      const state: SessionState = {
+        state: 'test',
+        currentItem: 1,
+        workItems: [createWorkItem(1, 'Item 1', 'skeleton')],
+      };
+      const result = getNextState('build-task-graph', state);
+      expect(result).toBe('ready-to-implement');
+      expect(state.workItems[0].status).toBe('complete');
+      expect(state.currentItem).toBeNull();
+    });
+
+    it('should handle full pipeline for single item', () => {
+      const state: SessionState = {
+        state: 'test',
+        currentItem: 1,
+        workItems: [createWorkItem(1, 'Single Item', 'pending')],
+      };
+
+      // Brainstorm complete
+      let result = getNextState('brainstorm-validating', state);
+      expect(result).toBe('rough-draft-interface');
+      expect(state.workItems[0].status).toBe('brainstormed');
+
+      // Interface complete
+      result = getNextState('rough-draft-interface', state);
+      expect(result).toBe('rough-draft-pseudocode');
+      expect(state.workItems[0].status).toBe('interface');
+
+      // Pseudocode complete
+      result = getNextState('rough-draft-pseudocode', state);
+      expect(result).toBe('rough-draft-skeleton');
+      expect(state.workItems[0].status).toBe('pseudocode');
+
+      // Skeleton complete
+      result = getNextState('rough-draft-skeleton', state);
+      expect(result).toBe('build-task-graph');
+      expect(state.workItems[0].status).toBe('skeleton');
+
+      // Task graph complete
+      result = getNextState('build-task-graph', state);
+      expect(result).toBe('ready-to-implement');
+      expect(state.workItems[0].status).toBe('complete');
+      expect(state.currentItem).toBeNull();
+    });
+
+    it('should handle pipeline for multiple items sequentially', () => {
+      const state: SessionState = {
+        state: 'test',
+        currentItem: 1,
+        workItems: [
+          createWorkItem(1, 'Item 1', 'pending'),
+          createWorkItem(2, 'Item 2', 'pending'),
+          createWorkItem(3, 'Item 3', 'pending'),
+        ],
+      };
+
+      // Process item 1
+      getNextState('brainstorm-validating', state);
+      state.workItems[0].status = 'brainstormed';
+      getNextState('rough-draft-interface', state);
+      state.workItems[0].status = 'interface';
+      getNextState('rough-draft-pseudocode', state);
+      state.workItems[0].status = 'pseudocode';
+      getNextState('rough-draft-skeleton', state);
+      state.workItems[0].status = 'skeleton';
+
+      // Item 1 complete, move to item 2
+      let result = getNextState('build-task-graph', state);
+      expect(result).toBe('brainstorm-exploring');
+      expect(state.currentItem).toBe(2);
+
+      // Process item 2
+      state.workItems[1].status = 'pending'; // Reset for next brainstorm
+      getNextState('brainstorm-validating', state);
+      state.workItems[1].status = 'brainstormed';
+      getNextState('rough-draft-interface', state);
+      state.workItems[1].status = 'interface';
+      getNextState('rough-draft-pseudocode', state);
+      state.workItems[1].status = 'pseudocode';
+      getNextState('rough-draft-skeleton', state);
+      state.workItems[1].status = 'skeleton';
+
+      // Item 2 complete, move to item 3
+      result = getNextState('build-task-graph', state);
+      expect(result).toBe('brainstorm-exploring');
+      expect(state.currentItem).toBe(3);
+
+      // Process item 3
+      state.workItems[2].status = 'pending'; // Reset for next brainstorm
+      getNextState('brainstorm-validating', state);
+      state.workItems[2].status = 'brainstormed';
+      getNextState('rough-draft-interface', state);
+      state.workItems[2].status = 'interface';
+      getNextState('rough-draft-pseudocode', state);
+      state.workItems[2].status = 'pseudocode';
+      getNextState('rough-draft-skeleton', state);
+      state.workItems[2].status = 'skeleton';
+
+      // Item 3 complete, all done
+      result = getNextState('build-task-graph', state);
+      expect(result).toBe('ready-to-implement');
+      expect(state.currentItem).toBeNull();
+      expect(state.workItems.every((item) => item.status === 'complete')).toBe(true);
+    });
+
+    it('should return null for unknown states', () => {
+      const state: SessionState = {
+        state: 'test',
+        currentItem: 1,
+        workItems: [createWorkItem(1, 'Item 1', 'pending')],
+      };
+      const result = getNextState('unknown-state', state);
+      expect(result).toBeNull();
     });
   });
 });

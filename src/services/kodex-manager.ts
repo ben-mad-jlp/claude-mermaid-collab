@@ -61,6 +61,13 @@ export interface Flag {
   resolvedAt: string | null;
 }
 
+export interface CreateFlagOptions {
+  /** Context about why/where the flag was created */
+  context?: string;
+  /** Skip if duplicate flag exists */
+  dedupe?: boolean;
+}
+
 export interface AccessLogEntry {
   id: number;
   topicName: string;
@@ -247,6 +254,17 @@ export class KodexManager {
       VALUES (?, ?, ?, ?, 1)
       ON CONFLICT(name) DO UPDATE SET has_draft = 1, updated_at = ?
     `, name, title, now, now, now);
+
+    // Clean up missing topic references now that the topic is being created
+    // 1. Remove from missing_topics table
+    db.run('DELETE FROM missing_topics WHERE topic_name = ?', name);
+
+    // 2. Auto-resolve open 'missing' flags for this topic
+    db.run(`
+      UPDATE flags
+      SET status = 'resolved', resolved_at = ?
+      WHERE topic_name = ? AND type = 'missing' AND status = 'open'
+    `, now, name);
 
     return {
       topicName: name,
@@ -441,24 +459,48 @@ export class KodexManager {
     return rows.map(this.rowToFlag);
   }
 
-  async createFlag(topicName: string, type: FlagType, description: string): Promise<Flag> {
+  async hasFlag(topicName: string, type: FlagType): Promise<boolean> {
+    const flags = await this.listFlags('open');
+
+    for (const flag of flags) {
+      if (flag.topicName === topicName && flag.type === type) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  async createFlag(
+    topicName: string,
+    type: FlagType,
+    description: string,
+    options?: CreateFlagOptions
+  ): Promise<{ created: boolean; reason?: string }> {
     const db = this.ensureInitialized();
     const now = this.isoTimestamp();
 
+    // Check for duplicates if dedupe enabled
+    if (options?.dedupe) {
+      const exists = await this.hasFlag(topicName, type);
+      if (exists) {
+        return { created: false, reason: 'Duplicate flag exists' };
+      }
+    }
+
+    // Build description with context
+    let fullDescription = description;
+    if (options?.context) {
+      fullDescription = `${description} (Context: ${options.context})`;
+    }
+
+    // Create the flag
     const result = db.run(`
       INSERT INTO flags (topic_name, type, description, created_at)
       VALUES (?, ?, ?, ?)
-    `, topicName, type, description, now);
+    `, topicName, type, fullDescription, now);
 
-    return {
-      id: Number(result.lastInsertRowid),
-      topicName,
-      type,
-      description,
-      status: 'open',
-      createdAt: now,
-      resolvedAt: null
-    };
+    return { created: true };
   }
 
   async updateFlagStatus(id: number, status: FlagStatus): Promise<void> {

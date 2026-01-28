@@ -1,0 +1,27 @@
+graph TD
+    subgraph "Screen Width Check"
+        A["App.tsx"] --> B{"width < 640px?"}
+        B -->|Yes| C["MobileLayout"]
+        B -->|No| D["Desktop Layout<br/>(unchanged)"]
+    end
+
+    subgraph "Mobile Layout"
+        C --> H["MobileHeader<br/>Project | Session | Refresh | Theme | Status"]
+        C --> BODY["Active Tab Content<br/>(full screen)"]
+        C --> TAB["BottomTabBar<br/>Preview | Chat | Terminal"]
+        
+        BODY --> P["PreviewTab<br/>+ Item Drawer"]
+        BODY --> CH["ChatTab<br/>+ Inline AI UI"]
+        BODY --> T["TerminalTab"]
+    end
+
+    subgraph "Preview Tab Detail"
+        P --> PV["Full-screen Preview<br/>MermaidPreview / MarkdownPreview"]
+        P --> DR["Item Drawer<br/>(slide-up sheet)"]
+        DR --> IL["Item List<br/>(diagrams + documents)"]
+    end
+
+    style C fill:#22c55e,stroke:#16a34a,color:#fff
+    style TAB fill:#3b82f6,stroke:#2563eb,color:#fff
+    style H fill:#3b82f6,stroke:#2563eb,color:#fff
+    style DR fill:#8b5cf6,stroke:#7c3aed,color:#fff

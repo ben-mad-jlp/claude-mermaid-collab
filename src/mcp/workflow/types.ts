@@ -100,7 +100,19 @@ export interface BatchTask {
 /** Work item type */
 export type WorkItemType = 'code' | 'task' | 'bugfix';
 
-/** Work item status */
+/**
+ * Unified pipeline status for work items.
+ * Each item progresses: pending → brainstormed → interface → pseudocode → skeleton → complete
+ */
+export type ItemStatus =
+  | 'pending'      // Not started
+  | 'brainstormed' // Design spec complete, ready for rough-draft
+  | 'interface'    // Interface doc created
+  | 'pseudocode'   // Pseudocode doc created
+  | 'skeleton'     // Skeleton doc created (rough-draft complete)
+  | 'complete';    // Ready for implementation
+
+/** Work item status (deprecated, kept for backwards compatibility) */
 export type WorkItemStatus = 'pending' | 'documented';
 
 /** Work item in session state */
@@ -108,5 +120,5 @@ export interface WorkItem {
   number: number;
   title: string;
   type: WorkItemType;
-  status: WorkItemStatus;
+  status: ItemStatus;
 }

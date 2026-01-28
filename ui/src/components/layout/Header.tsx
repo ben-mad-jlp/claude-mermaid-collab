@@ -483,9 +483,9 @@ export const Header: React.FC<HeaderProps> = ({
                             `}
                           >
                             <div className="font-medium truncate">{session.name}</div>
-                            {session.phase && (
+                            {session.displayName && (
                               <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                                Phase: {session.phase}
+                                Status: {session.displayName}
                               </div>
                             )}
                           </button>

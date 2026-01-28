@@ -192,3 +192,148 @@ export function itemReadyForSkeleton(state: SessionState): boolean {
 export function readyForHandoff(state: SessionState): boolean {
   return state.workItems.every((item) => item.status === 'complete');
 }
+
+/**
+ * Find next non-complete item from work items array.
+ * Returns the first item with status !== 'complete', or null if all complete.
+ */
+export function findNextPendingItemInSession(workItems: WorkItem[]): WorkItem | null {
+  if (!workItems || workItems.length === 0) {
+    return null;
+  }
+  const pending = workItems.find((item) => item.status !== 'complete');
+  return pending ?? null;
+}
+
+/**
+ * Import updateItemStatus from state-machine module to avoid circular dependency
+ * This would be: import { updateItemStatus } from './state-machine.js';
+ * But we need to handle it carefully to avoid circular imports.
+ * For now, we'll inline the validation logic here.
+ */
+const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
+  'pending': ['brainstormed'],
+  'brainstormed': ['interface'],
+  'interface': ['pseudocode'],
+  'pseudocode': ['skeleton'],
+  'skeleton': ['complete'],
+  'complete': [],
+};
+
+/**
+ * Update item status with validation (mirrors updateItemStatus from state-machine.ts)
+ * Returns updated item, throws on invalid transition
+ */
+function updateItemStatusInSession(item: WorkItem, newStatus: string): WorkItem {
+  const validTransitions = VALID_STATUS_TRANSITIONS[item.status];
+  if (!validTransitions || !validTransitions.includes(newStatus)) {
+    throw new Error(
+      `Invalid status transition from '${item.status}' to '${newStatus}' for item ${item.number}`
+    );
+  }
+  return {
+    ...item,
+    status: newStatus as any,
+  };
+}
+
+/**
+ * Get next state for per-item pipeline flow.
+ * Implements the workflow: each item goes through full pipeline before next item starts.
+ * Updates item status based on current state and returns next state.
+ *
+ * Flow:
+ * 1. After brainstorm-validating: Mark item as 'brainstormed', go to rough-draft-interface
+ * 2. After rough-draft-interface: Mark item as 'interface', go to rough-draft-pseudocode
+ * 3. After rough-draft-pseudocode: Mark item as 'pseudocode', go to rough-draft-skeleton
+ * 4. After rough-draft-skeleton: Mark item as 'skeleton', go to build-task-graph
+ * 5. After build-task-graph: Mark item as 'complete', find next item or go to ready-to-implement
+ */
+export function getNextStateForPerItemPipeline(
+  currentStateId: StateId,
+  sessionState: SessionState
+): StateId | null {
+  // Get current item
+  const currentItem = getCurrentWorkItem(sessionState);
+
+  // If no current item, find next pending item
+  if (!currentItem) {
+    const nextItem = findNextPendingItemInSession(sessionState.workItems);
+    if (!nextItem) {
+      // All items complete
+      return 'ready-to-implement';
+    }
+    // Start next item's brainstorming
+    return 'brainstorm-exploring';
+  }
+
+  // Route based on current state and update item status
+  switch (currentStateId) {
+    case 'brainstorm-validating': {
+      // Mark item as brainstormed and route to rough-draft
+      const updatedItem = updateItemStatusInSession(currentItem, 'brainstormed');
+      // Update in session
+      const updatedWorkItems = sessionState.workItems.map((item) =>
+        item.number === currentItem.number ? updatedItem : item
+      );
+      sessionState.workItems = updatedWorkItems;
+      return 'rough-draft-interface';
+    }
+
+    case 'rough-draft-interface': {
+      // Mark item as interface doc created and go to pseudocode
+      const updatedItem = updateItemStatusInSession(currentItem, 'interface');
+      const updatedWorkItems = sessionState.workItems.map((item) =>
+        item.number === currentItem.number ? updatedItem : item
+      );
+      sessionState.workItems = updatedWorkItems;
+      return 'rough-draft-pseudocode';
+    }
+
+    case 'rough-draft-pseudocode': {
+      // Mark item as pseudocode doc created and go to skeleton
+      const updatedItem = updateItemStatusInSession(currentItem, 'pseudocode');
+      const updatedWorkItems = sessionState.workItems.map((item) =>
+        item.number === currentItem.number ? updatedItem : item
+      );
+      sessionState.workItems = updatedWorkItems;
+      return 'rough-draft-skeleton';
+    }
+
+    case 'rough-draft-skeleton': {
+      // Mark item as skeleton complete and go to task graph
+      const updatedItem = updateItemStatusInSession(currentItem, 'skeleton');
+      const updatedWorkItems = sessionState.workItems.map((item) =>
+        item.number === currentItem.number ? updatedItem : item
+      );
+      sessionState.workItems = updatedWorkItems;
+      return 'build-task-graph';
+    }
+
+    case 'build-task-graph': {
+      // Mark item as complete
+      const updatedItem = updateItemStatusInSession(currentItem, 'complete');
+      const updatedWorkItems = sessionState.workItems.map((item) =>
+        item.number === currentItem.number ? updatedItem : item
+      );
+      sessionState.workItems = updatedWorkItems;
+
+      // Check if more items remain
+      const nextItem = findNextPendingItemInSession(updatedWorkItems);
+      if (nextItem) {
+        // Set current item to next pending item
+        sessionState.currentItem = nextItem.number;
+        // Start next item from brainstorming
+        return 'brainstorm-exploring';
+      } else {
+        // All items done - clear current item
+        sessionState.currentItem = null;
+        return 'ready-to-implement';
+      }
+    }
+
+    default:
+      // For other states, use standard transition logic
+      return null;
+  }
+}

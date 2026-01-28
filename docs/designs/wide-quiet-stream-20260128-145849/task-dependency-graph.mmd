@@ -1,0 +1,37 @@
+graph TD
+    subgraph "Wave 1 - Parallel"
+        hook[useIsMobile hook]
+        tabbar[BottomTabBar]
+        mheader[MobileHeader]
+        drawer[ItemDrawer]
+        chat[ChatTab]
+        term[TerminalTab]
+    end
+
+    subgraph "Wave 2"
+        layout[MobileLayout]
+        preview[PreviewTab]
+    end
+
+    subgraph "Wave 3"
+        app[App.tsx integration]
+    end
+
+    hook --> app
+    tabbar --> layout
+    mheader --> layout
+    drawer --> preview
+    layout --> app
+    preview --> layout
+    chat --> layout
+    term --> layout
+
+    style hook fill:#c8e6c9
+    style tabbar fill:#c8e6c9
+    style mheader fill:#c8e6c9
+    style drawer fill:#c8e6c9
+    style chat fill:#c8e6c9
+    style term fill:#c8e6c9
+    style layout fill:#bbdefb
+    style preview fill:#bbdefb
+    style app fill:#fff9c4

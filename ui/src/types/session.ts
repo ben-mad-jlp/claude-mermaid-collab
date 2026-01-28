@@ -6,6 +6,7 @@ export interface Session {
   project: string;
   name: string;
   phase?: string;
+  displayName?: string;
   lastActivity?: string;
   itemCount?: number;
 }

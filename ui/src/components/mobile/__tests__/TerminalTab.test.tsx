@@ -164,4 +164,29 @@ describe('TerminalTab (__tests__ variant)', () => {
 
     expect(parent).toHaveStyle('color: #999');
   });
+
+  it('should accept optional onCreateTerminal callback prop', () => {
+    const handleCreateTerminal = vi.fn();
+
+    render(
+      <TerminalTab
+        terminal={null}
+        hasSession={false}
+        onCreateTerminal={handleCreateTerminal}
+      />
+    );
+
+    expect(screen.getByText('No active terminal')).toBeInTheDocument();
+  });
+
+  it('should work without onCreateTerminal prop', () => {
+    render(
+      <TerminalTab
+        terminal={null}
+        hasSession={false}
+      />
+    );
+
+    expect(screen.getByText('No active terminal')).toBeInTheDocument();
+  });
 });
