@@ -50,9 +50,9 @@ export const XTermTerminal = React.memo(function XTermTerminal({
     let intersectionObserver: IntersectionObserver | null = null;
 
     // Send resize message to server
-    const sendResize = (cols: number, rows: number) => {
+    const sendResize = (cols: number, rows: number, isInitial = false) => {
       if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+        ws.send(JSON.stringify({ type: 'resize', cols, rows, isInitial }));
       }
     };
 
@@ -141,8 +141,9 @@ export const XTermTerminal = React.memo(function XTermTerminal({
           return;
         }
 
-        // Send initial resize
-        sendResize(term.cols, term.rows);
+        // IMPORTANT: Send resize FIRST before expecting any output
+        // This ensures PTY dimensions are set before buffer replay
+        sendResize(term.cols, term.rows, true);
       };
 
       ws.onmessage = (event) => {
@@ -199,7 +200,7 @@ export const XTermTerminal = React.memo(function XTermTerminal({
 
       // Handle terminal resize
       term.onResize(({ cols, rows }) => {
-        sendResize(cols, rows);
+        sendResize(cols, rows, false);
       });
     };
 
