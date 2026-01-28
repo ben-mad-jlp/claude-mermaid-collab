@@ -15,7 +15,6 @@ import { useShallow } from 'zustand/react/shallow';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useDataLoader } from '@/hooks/useDataLoader';
 import { ItemCard } from '@/components/layout/ItemCard';
-import { SessionStatusPanel } from '@/components/SessionStatusPanel';
 import { Item } from '@/types';
 
 export interface SidebarProps {
@@ -167,11 +166,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             ))}
           </div>
         )}
-      </div>
-
-      {/* Session Status Panel */}
-      <div className={isDisabled ? 'opacity-50 pointer-events-none' : ''}>
-        <SessionStatusPanel />
       </div>
 
       {/* Cross-link to Kodex - always enabled */}

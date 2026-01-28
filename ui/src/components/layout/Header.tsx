@@ -15,6 +15,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useTheme } from '@/hooks/useTheme';
 import { useSession } from '@/hooks/useSession';
 import { useUIStore } from '@/stores/uiStore';
+import { SessionStatusPanel } from '@/components/SessionStatusPanel';
 import { Session } from '@/types';
 
 export interface HeaderProps {
@@ -277,6 +278,7 @@ export const Header: React.FC<HeaderProps> = ({
             </span>
           </div>
 
+          <SessionStatusPanel variant="inline" />
         </div>
 
         {/* Right-side controls */}

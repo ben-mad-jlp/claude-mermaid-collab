@@ -6,9 +6,24 @@
  * - Current item being processed
  * - Last activity (relative time)
  * - Task progress bar (if tasks exist)
+ *
+ * Supports two layout variants:
+ * - 'default': Stacked vertical layout (sidebar)
+ * - 'inline': Horizontal layout (header)
  */
 
 import { useSessionStore } from '@/stores/sessionStore';
+
+/** Variant for SessionStatusPanel layout */
+export type SessionStatusPanelVariant = 'default' | 'inline';
+
+/** Props for SessionStatusPanel component */
+export interface SessionStatusPanelProps {
+  /** Layout variant - 'default' for sidebar (stacked), 'inline' for header (horizontal) */
+  variant?: SessionStatusPanelVariant;
+  /** Optional custom class name */
+  className?: string;
+}
 
 /**
  * Formats ISO timestamp to relative time string
@@ -85,7 +100,7 @@ function getPhaseColor(state: string | undefined, displayName: string | undefine
  * Session status panel showing collab state info
  * Displays phase, current item, last activity
  */
-export function SessionStatusPanel() {
+export function SessionStatusPanel({ variant = 'default', className }: SessionStatusPanelProps = {}) {
   const collabState = useSessionStore((state) => state.collabState);
 
   // Don't render if no collab state
@@ -124,8 +139,52 @@ export function SessionStatusPanel() {
   const showProgress = progressMax > 0;
   const progressPercentage = showProgress ? Math.round((progressValue / progressMax) * 100) : 0;
 
+  // Inline variant: horizontal layout for header
+  if (variant === 'inline') {
+    return (
+      <div className={`flex items-center gap-2 text-xs ${className || ''}`}>
+        {/* Phase badge */}
+        <span
+          className={`px-2 py-0.5 rounded font-medium ${getPhaseColor(state, displayName)}`}
+        >
+          {displayName || 'Unknown'}
+        </span>
+
+        {/* Timestamp */}
+        {lastActivity && (
+          <span className="text-gray-400 dark:text-gray-500">
+            {formatRelativeTime(lastActivity)}
+          </span>
+        )}
+
+        {/* Current item indicator */}
+        {currentItem !== null && (
+          <span className="text-gray-500 dark:text-gray-400">
+            · Item {currentItem}
+          </span>
+        )}
+
+        {/* Inline progress bar (fixed width) */}
+        {showProgress && (
+          <div className="flex items-center gap-1 ml-1">
+            <div className="w-20 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+              <div
+                className={`h-full ${progressColorClass} transition-all duration-300`}
+                style={{ width: `${progressPercentage}%` }}
+              />
+            </div>
+            <span className="text-gray-600 dark:text-gray-300 font-medium whitespace-nowrap">
+              {progressValue}/{progressMax}
+            </span>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Default variant: stacked layout for sidebar
   return (
-    <div className="px-3 py-2 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+    <div className={`px-3 py-2 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 ${className || ''}`}>
       {/* Row 1: Phase badge + timestamp + current item */}
       <div className="flex items-center gap-2 text-xs">
         <span
