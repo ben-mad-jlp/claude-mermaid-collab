@@ -16,6 +16,7 @@ import { BottomTabBar, MobileTab } from './BottomTabBar';
 import { PreviewTab } from '../mobile/PreviewTab';
 import { ChatTab } from '../mobile/ChatTab';
 import { TerminalTab } from '../mobile/TerminalTab';
+import { api } from '@/lib/api';
 import type { Session } from '@/types';
 
 export interface MobileLayoutHandlers {
@@ -62,6 +63,8 @@ export const MobileLayout: React.FC<MobileLayoutProps> = ({
 }) => {
   // Manage active tab state internally
   const [activeTab, setActiveTab] = useState<MobileTab>('preview');
+  // Manage terminal ID for the current terminal session
+  const [terminalId, setTerminalId] = useState<string | null>(null);
 
   // Handler for tab changes from BottomTabBar
   const handleTabChange = useCallback((tab: MobileTab) => {
@@ -72,6 +75,32 @@ export const MobileLayout: React.FC<MobileLayoutProps> = ({
   const handleAutoSwitchToChat = useCallback(() => {
     setActiveTab('chat');
   }, []);
+
+  // Handler for creating a new terminal session
+  const handleCreateTerminal = useCallback(async () => {
+    // Get the current session from the sessions array or use a default
+    // For now, use the first available session or create in a general project context
+    const session = sessions.length > 0 ? sessions[0] : null;
+
+    if (!session) {
+      console.error('No active session available to create terminal');
+      return;
+    }
+
+    try {
+      // Create a new terminal session via API
+      const result = await api.createTerminalSession(session.project, session.name);
+
+      // Update the terminal ID state with the newly created terminal
+      setTerminalId(result.id);
+
+      // Auto-switch to terminal tab to display the new terminal
+      setActiveTab('terminal');
+    } catch (error) {
+      console.error('Failed to create terminal:', error);
+      // Could show error notification here
+    }
+  }, [sessions]);
 
   return (
     <div
@@ -137,6 +166,7 @@ export const MobileLayout: React.FC<MobileLayoutProps> = ({
           <TerminalTab
             terminal={null}
             hasSession={false}
+            onCreateTerminal={handleCreateTerminal}
           />
         </div>
       </div>

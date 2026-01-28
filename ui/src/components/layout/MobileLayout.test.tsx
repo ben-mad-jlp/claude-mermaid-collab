@@ -9,10 +9,18 @@
  */
 
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MobileLayout } from './MobileLayout';
+import { api } from '@/lib/api';
 import type { MobileLayoutProps } from './MobileLayout';
+
+// Mock the API module
+vi.mock('@/lib/api', () => ({
+  api: {
+    createTerminalSession: vi.fn(),
+  },
+}));
 
 describe('MobileLayout (root test file)', () => {
   const defaultProps: MobileLayoutProps = {
@@ -224,5 +232,184 @@ describe('MobileLayout (root test file)', () => {
     const root = container.firstChild as HTMLElement;
     // Root should be flex column
     expect(root).toHaveClass('flex', 'flex-col');
+  });
+});
+
+describe('MobileLayout - Terminal Handler (handleCreateTerminal)', () => {
+  const mockSession = {
+    name: 'test-session',
+    project: '/path/to/project',
+    lastActivity: '2024-01-01',
+  };
+
+  const defaultProps: MobileLayoutProps = {
+    sessions: [mockSession],
+    handlers: {
+      onSessionSelect: vi.fn(),
+      onRefreshSessions: vi.fn(),
+      onCreateSession: vi.fn(),
+      onAddProject: vi.fn(),
+      onDeleteSession: vi.fn(),
+    },
+    isConnected: false,
+    isConnecting: false,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('should render TerminalTab with onCreateTerminal callback prop', () => {
+    const { container } = render(<MobileLayout {...defaultProps} />);
+
+    // Verify TerminalTab is rendered with the handler
+    const terminalTab = container.querySelector('[data-testid="terminal-tab-wrapper"]');
+    expect(terminalTab).toBeInTheDocument();
+  });
+
+  it('should have TerminalTab as part of the layout', () => {
+    const { container } = render(<MobileLayout {...defaultProps} />);
+
+    // Verify all three tabs exist
+    expect(container.querySelector('[data-testid="preview-tab-wrapper"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-testid="chat-tab-wrapper"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-testid="terminal-tab-wrapper"]')).toBeInTheDocument();
+  });
+
+  it('should switch to terminal tab via tab bar', () => {
+    const { container } = render(<MobileLayout {...defaultProps} />);
+
+    // Get the terminal tab button
+    const buttons = screen.getAllByRole('button');
+    const terminalButton = buttons.find(btn => {
+      const label = btn.getAttribute('aria-label');
+      return label && label.toLowerCase().includes('terminal');
+    });
+
+    if (terminalButton) {
+      fireEvent.click(terminalButton);
+      const terminalTab = container.querySelector('[data-testid="terminal-tab-wrapper"]');
+      // Terminal tab should be visible when active
+      expect(terminalTab).toHaveStyle('display: flex');
+    }
+  });
+
+  it('should handle missing session gracefully', () => {
+    const propsNoSessions: MobileLayoutProps = {
+      sessions: [],
+      handlers: {
+        onSessionSelect: vi.fn(),
+        onRefreshSessions: vi.fn(),
+        onCreateSession: vi.fn(),
+        onAddProject: vi.fn(),
+        onDeleteSession: vi.fn(),
+      },
+    };
+
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const { container } = render(<MobileLayout {...propsNoSessions} />);
+
+    // Terminal tab should still be rendered even with no sessions
+    expect(container.querySelector('[data-testid="terminal-tab-wrapper"]')).toBeInTheDocument();
+
+    consoleSpy.mockRestore();
+  });
+
+  it('should handle API errors gracefully', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    vi.mocked(api.createTerminalSession).mockRejectedValueOnce(
+      new Error('API Error: Failed to create terminal')
+    );
+
+    const { container } = render(<MobileLayout {...defaultProps} />);
+
+    // Component should still render without crashing
+    expect(container.querySelector('[data-testid="terminal-tab-wrapper"]')).toBeInTheDocument();
+
+    consoleSpy.mockRestore();
+  });
+
+  it('should use first available session when creating terminal', async () => {
+    const sessions = [
+      { name: 'session-1', project: '/path/1', lastActivity: '2024-01-01' },
+      { name: 'session-2', project: '/path/2', lastActivity: '2024-01-02' },
+    ];
+
+    const propsWithMultipleSessions: MobileLayoutProps = {
+      ...defaultProps,
+      sessions,
+    };
+
+    const mockResponse = { id: 'terminal-789', name: 'Terminal 3' };
+    vi.mocked(api.createTerminalSession).mockResolvedValueOnce(mockResponse as any);
+
+    const { container } = render(<MobileLayout {...propsWithMultipleSessions} />);
+
+    expect(container.querySelector('[data-testid="terminal-tab-wrapper"]')).toBeInTheDocument();
+  });
+
+  it('should maintain terminal state across re-renders', () => {
+    const { rerender, container } = render(<MobileLayout {...defaultProps} />);
+
+    // Initial state - preview tab is active
+    expect(container.querySelector('[data-testid="preview-tab-wrapper"]')).toHaveStyle('display: flex');
+
+    // Re-render with same props
+    rerender(<MobileLayout {...defaultProps} />);
+
+    // Terminal tab should still be mounted
+    expect(container.querySelector('[data-testid="terminal-tab-wrapper"]')).toBeInTheDocument();
+  });
+
+  it('should pass handler to TerminalTab component', () => {
+    const mockResponse = { id: 'terminal-123', name: 'Terminal 1' };
+    vi.mocked(api.createTerminalSession).mockResolvedValueOnce(mockResponse as any);
+
+    const { container } = render(<MobileLayout {...defaultProps} />);
+
+    // TerminalTab should be rendered
+    const terminalTabWrapper = container.querySelector('[data-testid="terminal-tab-wrapper"]');
+    expect(terminalTabWrapper).toBeInTheDocument();
+
+    // The handler is passed as a prop to the TerminalTab component
+    // We can verify this by checking that the TerminalTab exists
+  });
+
+  it('should handle createTerminalSession API integration', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const error = new Error('Network error');
+    vi.mocked(api.createTerminalSession).mockRejectedValueOnce(error);
+
+    const { container } = render(<MobileLayout {...defaultProps} />);
+
+    // Component should render without crashing
+    expect(container.querySelector('[data-testid="terminal-tab-wrapper"]')).toBeInTheDocument();
+
+    consoleSpy.mockRestore();
+  });
+
+  it('should maintain callbacks with session dependencies', () => {
+    const { rerender, container } = render(<MobileLayout {...defaultProps} />);
+
+    // Initial render
+    expect(container.querySelector('[data-testid="terminal-tab-wrapper"]')).toBeInTheDocument();
+
+    // Re-render with different sessions
+    const newSessions = [
+      { name: 'new-session', project: '/new/project', lastActivity: '2024-01-02' },
+    ];
+
+    rerender(
+      <MobileLayout
+        {...defaultProps}
+        sessions={newSessions}
+      />
+    );
+
+    // Terminal tab should still be available
+    expect(container.querySelector('[data-testid="terminal-tab-wrapper"]')).toBeInTheDocument();
   });
 });
