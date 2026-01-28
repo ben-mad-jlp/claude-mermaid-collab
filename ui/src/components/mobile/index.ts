@@ -11,6 +11,9 @@
 export { ItemDrawer } from './ItemDrawer';
 export type { ItemDrawerProps } from './ItemDrawer';
 
+export { PreviewTab } from './PreviewTab';
+export type { PreviewTabProps } from './PreviewTab';
+
 export { ChatTab } from './ChatTab';
 export type { ChatTabProps } from './ChatTab';
 
