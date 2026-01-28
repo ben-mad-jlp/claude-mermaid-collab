@@ -151,14 +151,15 @@ describe('HistoryToolbar', () => {
       });
     });
 
-    it('enables prev button when history exists', async () => {
+    it('enables prev button when history exists (at least 2 entries)', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () =>
           Promise.resolve({
             original: 'original content',
             changes: [
-              { timestamp: '2024-01-15T10:00:00Z', content: 'v1' },
+              { timestamp: '2024-01-15T09:00:00Z', content: 'v1' },
+              { timestamp: '2024-01-15T10:00:00Z', content: 'v2' },
             ],
           }),
       });
@@ -170,7 +171,7 @@ describe('HistoryToolbar', () => {
       });
     });
 
-    it('navigates to previous version when prev clicked', async () => {
+    it('navigates to previous version when prev clicked (skips most recent)', async () => {
       const onVersionSelect = vi.fn();
       mockFetch
         .mockResolvedValueOnce({
@@ -179,7 +180,8 @@ describe('HistoryToolbar', () => {
             Promise.resolve({
               original: 'original content',
               changes: [
-                { timestamp: '2024-01-15T10:00:00Z', content: 'v1' },
+                { timestamp: '2024-01-15T09:00:00Z', content: 'v1' },
+                { timestamp: '2024-01-15T10:00:00Z', content: 'v2' },
               ],
             }),
         })
@@ -196,11 +198,13 @@ describe('HistoryToolbar', () => {
 
       fireEvent.click(screen.getByTestId('history-prev-btn'));
 
+      // Clicking prev from Current should go to index 1 (skip index 0 which is most recent)
+      // Index 1 = second newest = oldest in this case = 2024-01-15T09:00:00Z
       await waitFor(() => {
         expect(onVersionSelect).toHaveBeenCalledWith(
-          '2024-01-15T10:00:00Z',
+          '2024-01-15T09:00:00Z',
           'version 1 content',
-          undefined // No previous version exists
+          undefined // No previous version before this
         );
       });
     });
@@ -214,7 +218,8 @@ describe('HistoryToolbar', () => {
           Promise.resolve({
             original: 'original content',
             changes: [
-              { timestamp: '2024-01-15T10:00:00Z', content: 'v1' },
+              { timestamp: '2024-01-15T09:00:00Z', content: 'v1' },
+              { timestamp: '2024-01-15T10:00:00Z', content: 'v2' },
             ],
           }),
       });
@@ -308,7 +313,8 @@ describe('HistoryToolbar', () => {
           Promise.resolve({
             original: 'original content',
             changes: [
-              { timestamp: '2024-01-15T10:00:00Z', content: 'v1' },
+              { timestamp: '2024-01-15T09:00:00Z', content: 'v1' },
+              { timestamp: '2024-01-15T10:00:00Z', content: 'v2' },
             ],
           }),
       });

@@ -125,14 +125,19 @@ export const HistoryToolbar: React.FC<HistoryToolbarProps> = ({
   );
 
   const changes = history?.changes ?? [];
-  const hasHistory = changes.length > 0;
-  const totalVersions = changes.length + 1; // +1 for current version
+  // We need at least 2 history entries to show any historical versions
+  // (index 0 is skipped because it's represented by "Current")
+  const hasHistory = changes.length > 1;
+  const totalVersions = changes.length; // Most recent is "Current", so effective versions = changes.length
 
   // Navigate to previous version (older)
+  // Skip index 0 since "Current" represents the most recent history entry
   const handlePrev = async () => {
     if (!hasHistory || currentIndex >= changes.length - 1) return;
 
-    const newIndex = currentIndex + 1;
+    // From Current (-1), go to index 1 (skip index 0)
+    // From index N, go to index N+1
+    const newIndex = currentIndex === -1 ? 1 : currentIndex + 1;
     const change = changes[changes.length - 1 - newIndex];
     if (change) {
       setLoadingVersion(change.timestamp);
@@ -155,11 +160,12 @@ export const HistoryToolbar: React.FC<HistoryToolbarProps> = ({
   };
 
   // Navigate to next version (newer)
+  // Skip index 0 - from index 1, go directly to Current (-1)
   const handleNext = async () => {
     if (!hasHistory || currentIndex <= -1) return;
 
-    if (currentIndex === 0) {
-      // Go back to current version
+    if (currentIndex === 1) {
+      // From index 1, go directly to Current (skip index 0)
       setCurrentIndex(-1);
       onVersionSelect('current', currentContent);
     } else {
