@@ -33,12 +33,10 @@
     "react": "^18.2.0",
     "react-diff-viewer-continued": "^3.3.0",
     "react-dom": "^18.2.0",
-    "react-json-view-lite": "^1.2.0",
     "react-markdown": "^9.0.1",
     "react-resizable-panels": "^0.0.56",
     "react-router-dom": "^7.13.0",
     "react-syntax-highlighter": "^15.5.0",
-    "react-xtermjs": "^1.0.10",
     "remark-gfm": "^4.0.0",
     "zustand": "^4.4.1"
   },

@@ -32,12 +32,10 @@
     "isomorphic-dompurify": "^2.35.0",
     "js-yaml": "^4.1.0",
     "jsdom": "^23.0.0",
-    "marked": "^17.0.1",
     "mermaid": "^10.6.1",
     "mermaid-wireframe": "file:./plugins/wireframe"
   },
   "devDependencies": {
-    "@types/dompurify": "^3.2.0",
     "bun-types": "^1.0.0",
     "concurrently": "^9.2.1"
   }
