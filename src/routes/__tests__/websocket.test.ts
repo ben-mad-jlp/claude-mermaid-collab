@@ -41,12 +41,12 @@ describe('Terminal WebSocket Handler', () => {
   });
 
   describe('handleTerminalOpen()', () => {
-    it('should use session ID from ws.data and attach to PTYManager', () => {
+    it('should use session ID from ws.data and attach to PTYManager with deferReplay', () => {
       mockWs.data.sessionId = 'my-session-123';
 
       handleTerminalOpen(mockWs);
 
-      expect(ptyManager.attach).toHaveBeenCalledWith('my-session-123', mockWs);
+      expect(ptyManager.attach).toHaveBeenCalledWith('my-session-123', mockWs, { deferReplay: true });
     });
 
     it('should handle session ID with special characters', () => {
@@ -54,7 +54,7 @@ describe('Terminal WebSocket Handler', () => {
 
       handleTerminalOpen(mockWs);
 
-      expect(ptyManager.attach).toHaveBeenCalledWith('session-with-dash_and_underscore', mockWs);
+      expect(ptyManager.attach).toHaveBeenCalledWith('session-with-dash_and_underscore', mockWs, { deferReplay: true });
     });
 
     it('should reject missing session ID', () => {
@@ -117,12 +117,28 @@ describe('Terminal WebSocket Handler', () => {
       expect(ptyManager.write).toHaveBeenCalledWith('test-session', 'ls -la\n');
     });
 
-    it('should handle resize message', () => {
+    it('should handle resize message without isInitial flag', () => {
       const message = JSON.stringify({ type: 'resize', cols: 120, rows: 40 });
 
       handleTerminalMessage(mockWs, message);
 
       expect(ptyManager.resize).toHaveBeenCalledWith('test-session', 120, 40);
+    });
+
+    it('should handle resize message with isInitial flag set to true', () => {
+      const message = JSON.stringify({ type: 'resize', cols: 120, rows: 40, isInitial: true });
+
+      handleTerminalMessage(mockWs, message);
+
+      expect(ptyManager.resize).toHaveBeenCalledWith('test-session', 120, 40);
+    });
+
+    it('should handle resize message with isInitial flag set to false', () => {
+      const message = JSON.stringify({ type: 'resize', cols: 100, rows: 30, isInitial: false });
+
+      handleTerminalMessage(mockWs, message);
+
+      expect(ptyManager.resize).toHaveBeenCalledWith('test-session', 100, 30);
     });
 
     it('should handle input as Buffer', () => {

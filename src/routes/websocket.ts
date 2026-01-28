@@ -18,7 +18,7 @@ import { ptyManager } from '../terminal/index';
 /** Client to Server messages */
 type ClientMessage =
   | { type: 'input'; data: string }
-  | { type: 'resize'; cols: number; rows: number };
+  | { type: 'resize'; cols: number; rows: number; isInitial?: boolean };
 
 /** Server to Client messages */
 type ServerMessage =
@@ -64,8 +64,9 @@ export function handleTerminalOpen(ws: ServerWebSocket<TerminalWebSocketData>): 
   }
 
   try {
-    // Attach WebSocket to session (creates session if needed, replays buffer)
-    ptyManager.attach(sessionId, ws);
+    // Attach WebSocket to session (creates session if needed)
+    // Pass deferReplay: true to defer buffer replay until first resize
+    ptyManager.attach(sessionId, ws, { deferReplay: true });
     console.log(`Terminal WebSocket connected: session=${sessionId}`);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
