@@ -119,9 +119,10 @@ export class SessionRegistry {
     // Create session files if they don't exist
     const collabStatePath = join(sessionPath, 'collab-state.json');
     const collabStateContent = JSON.stringify({
-      phase: 'brainstorming',
+      state: 'collab-start',
       lastActivity: now,
-      currentItem: null
+      currentItem: null,
+      hasSnapshot: false
     }, null, 2);
     await this.createFileIfNotExists(collabStatePath, collabStateContent);
 

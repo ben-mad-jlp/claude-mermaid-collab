@@ -1,5 +1,6 @@
 import { readdir, readFile, writeFile, mkdir, access, stat } from 'fs/promises';
 import { join } from 'path';
+import { derivePhase } from '../mcp/tools/collab-state.js';
 
 // Word lists for name generation (embedded to avoid cross-dependencies)
 const ADJECTIVES = [
@@ -41,10 +42,13 @@ export interface CollabMetadata {
 }
 
 export interface CollabState {
-  phase: CollabPhase;
-  template: CollabTemplate;
+  state?: string;
+  phase?: CollabPhase;
+  template?: CollabTemplate;
   lastActivity: string;
-  pendingVerificationIssues: VerificationIssue[];
+  currentItem?: number | null;
+  hasSnapshot?: boolean;
+  pendingVerificationIssues?: VerificationIssue[];
 }
 
 export interface VerificationIssue {
@@ -181,7 +185,7 @@ export async function listCollabSessions(baseDir: string): Promise<CollabSession
           sessions.push({
             name: entry.name,
             template,
-            phase: state.phase,
+            phase: state.phase || (state.state ? derivePhase(state.state) : 'brainstorming'),
             lastActivity: state.lastActivity,
             pendingIssueCount: state.pendingVerificationIssues?.length || 0,
             path: sessionPath,
@@ -266,9 +270,11 @@ export async function createCollabSession(
 
   // Create collab-state.json
   const state: CollabState = {
-    phase: 'brainstorming',
+    state: 'collab-start',
     template,
     lastActivity: now,
+    currentItem: null,
+    hasSnapshot: false,
     pendingVerificationIssues: [],
   };
   await writeFile(

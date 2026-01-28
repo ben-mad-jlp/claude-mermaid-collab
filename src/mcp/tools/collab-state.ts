@@ -15,7 +15,7 @@ import type { TaskBatch, WorkItem, WorkItemType } from '../workflow/types.js';
 
 export interface CollabState {
   state?: string; // Current state machine state ID
-  phase: string;
+  phase?: string; // Optional, derived from state via derivePhase()
   lastActivity: string;
   currentItem: number | null;
   currentItemType?: WorkItemType; // Type of current item for routing
@@ -80,7 +80,7 @@ async function fileExists(path: string): Promise<boolean> {
  * @param state - The state identifier
  * @returns The derived phase name
  */
-function derivePhase(state: string): string {
+export function derivePhase(state: string): string {
   if (state.startsWith('brainstorm')) {
     return 'brainstorming';
   }
@@ -142,11 +142,14 @@ export async function updateSessionState(
 
   // Merge updates
   const newState: CollabState = {
-    phase: updates.phase ?? currentState.phase ?? 'brainstorming',
+    // Only include phase if explicitly set or exists in current state (for backwards compat)
+    // New sessions should use state instead, with phase derived via derivePhase()
+    ...(updates.phase && { phase: updates.phase }),
+    ...(currentState.phase && !updates.phase && { phase: currentState.phase }),
     lastActivity: new Date().toISOString(),
     currentItem: updates.currentItem !== undefined ? updates.currentItem : (currentState.currentItem ?? null),
     hasSnapshot: updates.hasSnapshot ?? currentState.hasSnapshot ?? false,
-    // New state machine fields
+    // State machine field - primary control mechanism
     ...(updates.state && { state: updates.state }),
     ...(currentState.state && !updates.state && { state: currentState.state }),
     // Work items
