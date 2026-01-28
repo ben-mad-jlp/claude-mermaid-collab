@@ -57,6 +57,44 @@ vi.mock('@/hooks/useTheme', () => ({
   })),
 }));
 
+// Mock history components
+const mockHistoryDropdownOnVersionSelect = vi.fn();
+vi.mock('../HistoryDropdown', () => ({
+  HistoryDropdown: ({ documentId, currentContent, onVersionSelect }: any) => {
+    // Store the onVersionSelect callback for tests to use
+    mockHistoryDropdownOnVersionSelect.mockImplementation(onVersionSelect);
+    return (
+      <button
+        data-testid="history-dropdown"
+        data-document-id={documentId}
+        data-current-content={currentContent}
+        onClick={() => onVersionSelect('2024-01-15T10:00:00Z', '# Historical Content')}
+      >
+        History
+      </button>
+    );
+  },
+}));
+
+vi.mock('../HistoryModal', () => ({
+  HistoryModal: ({ isOpen, onClose, historicalContent, currentContent, timestamp, documentName }: any) => {
+    if (!isOpen) return null;
+    return (
+      <div
+        data-testid="history-modal"
+        data-historical-content={historicalContent}
+        data-current-content={currentContent}
+        data-timestamp={timestamp}
+        data-document-name={documentName}
+      >
+        <button data-testid="history-modal-close" onClick={onClose}>
+          Close
+        </button>
+      </div>
+    );
+  },
+}));
+
 // Mock document hook - data and state defined inside vi.hoisted() so it runs first
 const { mockUseDocument, defaultDoc1, defaultDoc2, defaultDocs, resetMockUseDocument } = vi.hoisted(() => {
   const defaultDoc1 = {
@@ -568,6 +606,104 @@ describe('DocumentEditor', () => {
 
       const heading = container.querySelector('h2');
       expect(heading).toBeInTheDocument();
+    });
+  });
+
+  describe('History Integration', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
+    it('should render HistoryDropdown in the secondary toolbar when document is selected', () => {
+      render(<DocumentEditor showButtons={true} />);
+
+      const historyDropdown = screen.getByTestId('history-dropdown');
+      expect(historyDropdown).toBeInTheDocument();
+    });
+
+    it('should not render HistoryDropdown when no document is selected', () => {
+      mockUseDocument.selectedDocument = undefined;
+      render(<DocumentEditor showButtons={true} />);
+
+      // When no document, the empty state is shown, not the editor
+      expect(screen.queryByTestId('history-dropdown')).not.toBeInTheDocument();
+    });
+
+    it('should pass correct props to HistoryDropdown', () => {
+      render(<DocumentEditor showButtons={true} />);
+
+      const historyDropdown = screen.getByTestId('history-dropdown');
+      expect(historyDropdown).toHaveAttribute('data-document-id', 'doc1');
+      expect(historyDropdown).toHaveAttribute('data-current-content', '# Hello\n\nThis is test content');
+    });
+
+    it('should open HistoryModal when a version is selected from HistoryDropdown', () => {
+      render(<DocumentEditor showButtons={true} />);
+
+      // Modal should not be open initially
+      expect(screen.queryByTestId('history-modal')).not.toBeInTheDocument();
+
+      // Click the history dropdown to select a version
+      const historyDropdown = screen.getByTestId('history-dropdown');
+      fireEvent.click(historyDropdown);
+
+      // Modal should now be open
+      const historyModal = screen.getByTestId('history-modal');
+      expect(historyModal).toBeInTheDocument();
+    });
+
+    it('should pass correct props to HistoryModal when opened', () => {
+      render(<DocumentEditor showButtons={true} />);
+
+      // Click the history dropdown to select a version
+      const historyDropdown = screen.getByTestId('history-dropdown');
+      fireEvent.click(historyDropdown);
+
+      const historyModal = screen.getByTestId('history-modal');
+      expect(historyModal).toHaveAttribute('data-historical-content', '# Historical Content');
+      expect(historyModal).toHaveAttribute('data-current-content', '# Hello\n\nThis is test content');
+      expect(historyModal).toHaveAttribute('data-timestamp', '2024-01-15T10:00:00Z');
+      expect(historyModal).toHaveAttribute('data-document-name', 'Test Document');
+    });
+
+    it('should close HistoryModal when close button is clicked', () => {
+      render(<DocumentEditor showButtons={true} />);
+
+      // Open the modal
+      const historyDropdown = screen.getByTestId('history-dropdown');
+      fireEvent.click(historyDropdown);
+
+      // Modal should be open
+      expect(screen.getByTestId('history-modal')).toBeInTheDocument();
+
+      // Click close
+      const closeButton = screen.getByTestId('history-modal-close');
+      fireEvent.click(closeButton);
+
+      // Modal should be closed
+      expect(screen.queryByTestId('history-modal')).not.toBeInTheDocument();
+    });
+
+    it('should update HistoryDropdown currentContent when document content changes', () => {
+      render(<DocumentEditor showButtons={true} />);
+
+      // Initial content
+      let historyDropdown = screen.getByTestId('history-dropdown');
+      expect(historyDropdown).toHaveAttribute('data-current-content', '# Hello\n\nThis is test content');
+
+      // Change content
+      const editor = screen.getByTestId('codemirror-editor');
+      fireEvent.change(editor, { target: { value: '# New Content' } });
+
+      // HistoryDropdown should have updated content
+      historyDropdown = screen.getByTestId('history-dropdown');
+      expect(historyDropdown).toHaveAttribute('data-current-content', '# New Content');
+    });
+
+    it('should not render HistoryDropdown when showButtons is false', () => {
+      render(<DocumentEditor showButtons={false} />);
+
+      expect(screen.queryByTestId('history-dropdown')).not.toBeInTheDocument();
     });
   });
 });

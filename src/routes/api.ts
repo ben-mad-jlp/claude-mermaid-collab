@@ -740,8 +740,42 @@ export async function handleAPI(
 
     try {
       const { documentManager } = await createManagers(params.project, params.session);
+
+      // Get old content before saving (for history logging)
+      const oldDocument = await documentManager.getDocument(id);
+      const oldContent = oldDocument?.content ?? '';
+
+      // Save the document
       await documentManager.saveDocument(id, content);
 
+      // Log the update (don't fail the request if logging fails)
+      try {
+        // Get session base path (parent of documents directory)
+        const documentsPath = sessionRegistry.resolvePath(params.project, params.session, 'documents');
+        const sessionPath = join(documentsPath, '..');
+        const updateLogManager = new UpdateLogManager(sessionPath);
+        await updateLogManager.logUpdate(id, oldContent, content, patch);
+
+        // Get updated change count for broadcast
+        const history = await updateLogManager.getHistory(id);
+        const changeCount = history?.changes.length ?? 0;
+
+        // Only broadcast if there's history (content actually changed)
+        if (changeCount > 0) {
+          wsHandler.broadcast({
+            type: 'document_history_updated',
+            id,
+            project: params.project,
+            session: params.session,
+            changeCount,
+          });
+        }
+      } catch (logError) {
+        // Log error but don't fail the request - history is supplementary
+        console.warn('Failed to log document update:', logError);
+      }
+
+      // Broadcast document update (existing behavior)
       const document = await documentManager.getDocument(id);
       if (document) {
         wsHandler.broadcast({

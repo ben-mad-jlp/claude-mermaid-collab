@@ -3,273 +3,330 @@
  *
  * Tests verify:
  * - Hook initialization with correct default state
- * - Recording changes between old and new content
- * - Clearing diff state
- * - Proper diff detection
+ * - Fetching document history from API
+ * - Loading and error states
+ * - Handling 404 (no history) gracefully
+ * - Refetching on document ID change
+ * - getVersionAt function for specific timestamps
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { renderHook, waitFor, act } from '@testing-library/react';
 import { useDocumentHistory } from '../useDocumentHistory';
+import { useSessionStore } from '../../stores/sessionStore';
 
 describe('useDocumentHistory', () => {
+  const mockHistoryResponse = {
+    original: 'Initial content',
+    changes: [
+      {
+        timestamp: '2024-01-15T10:00:00Z',
+        diff: { oldString: 'Initial', newString: 'Updated' },
+      },
+      {
+        timestamp: '2024-01-15T11:00:00Z',
+        diff: { oldString: 'Updated', newString: 'Final' },
+      },
+    ],
+  };
+
   beforeEach(() => {
-    // Clear any state before each test
+    vi.clearAllMocks();
+    useSessionStore.getState().reset();
+    // Set up a session
+    useSessionStore.getState().setCurrentSession({
+      project: '/test/project',
+      name: 'test-session',
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   describe('Initialization', () => {
-    it('should initialize with default state', () => {
-      const { result } = renderHook(() => useDocumentHistory('test-doc-1'));
+    it('should initialize with null history and not loading when documentId is null', () => {
+      const { result } = renderHook(() => useDocumentHistory(null));
 
-      expect(result.current.history).toEqual({
-        previous: null,
-        current: '',
-        hasDiff: false,
-      });
+      expect(result.current.history).toBeNull();
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.error).toBeNull();
     });
 
-    it('should have recordChange function', () => {
-      const { result } = renderHook(() => useDocumentHistory('test-doc-1'));
+    it('should start loading when documentId is provided', async () => {
+      global.fetch = vi.fn(() => new Promise(() => {})); // Never resolves
 
-      expect(typeof result.current.recordChange).toBe('function');
+      const { result } = renderHook(() => useDocumentHistory('doc-1'));
+
+      expect(result.current.isLoading).toBe(true);
     });
 
-    it('should have clearDiff function', () => {
-      const { result } = renderHook(() => useDocumentHistory('test-doc-1'));
+    it('should have refetch function', () => {
+      const { result } = renderHook(() => useDocumentHistory(null));
 
-      expect(typeof result.current.clearDiff).toBe('function');
-    });
-  });
-
-  describe('Recording Changes', () => {
-    it('should record a change from empty to content', () => {
-      const { result } = renderHook(() => useDocumentHistory('test-doc-1'));
-
-      act(() => {
-        result.current.recordChange('', 'new content');
-      });
-
-      expect(result.current.history.previous).toBe('');
-      expect(result.current.history.current).toBe('new content');
-      expect(result.current.history.hasDiff).toBe(true);
+      expect(typeof result.current.refetch).toBe('function');
     });
 
-    it('should record a change from content to different content', () => {
-      const { result } = renderHook(() => useDocumentHistory('test-doc-1'));
+    it('should have getVersionAt function', () => {
+      const { result } = renderHook(() => useDocumentHistory(null));
 
-      act(() => {
-        result.current.recordChange('old content', 'new content');
-      });
-
-      expect(result.current.history.previous).toBe('old content');
-      expect(result.current.history.current).toBe('new content');
-      expect(result.current.history.hasDiff).toBe(true);
-    });
-
-    it('should detect no diff when old and new content are the same', () => {
-      const { result } = renderHook(() => useDocumentHistory('test-doc-1'));
-
-      act(() => {
-        result.current.recordChange('same content', 'same content');
-      });
-
-      expect(result.current.history.previous).toBe('same content');
-      expect(result.current.history.current).toBe('same content');
-      expect(result.current.history.hasDiff).toBe(false);
-    });
-
-    it('should handle multiline content', () => {
-      const { result } = renderHook(() => useDocumentHistory('test-doc-1'));
-      const oldContent = 'line 1\nline 2\nline 3';
-      const newContent = 'line 1\nmodified line 2\nline 3';
-
-      act(() => {
-        result.current.recordChange(oldContent, newContent);
-      });
-
-      expect(result.current.history.previous).toBe(oldContent);
-      expect(result.current.history.current).toBe(newContent);
-      expect(result.current.history.hasDiff).toBe(true);
-    });
-
-    it('should handle empty old content', () => {
-      const { result } = renderHook(() => useDocumentHistory('test-doc-1'));
-
-      act(() => {
-        result.current.recordChange('', 'new content');
-      });
-
-      expect(result.current.history.previous).toBe('');
-      expect(result.current.history.current).toBe('new content');
-      expect(result.current.history.hasDiff).toBe(true);
-    });
-
-    it('should handle empty new content', () => {
-      const { result } = renderHook(() => useDocumentHistory('test-doc-1'));
-
-      act(() => {
-        result.current.recordChange('old content', '');
-      });
-
-      expect(result.current.history.previous).toBe('old content');
-      expect(result.current.history.current).toBe('');
-      expect(result.current.history.hasDiff).toBe(true);
+      expect(typeof result.current.getVersionAt).toBe('function');
     });
   });
 
-  describe('Clearing Diff', () => {
-    it('should clear the diff state', () => {
-      const { result } = renderHook(() => useDocumentHistory('test-doc-1'));
-
-      act(() => {
-        result.current.recordChange('old content', 'new content');
-      });
-
-      expect(result.current.history.hasDiff).toBe(true);
-
-      act(() => {
-        result.current.clearDiff();
-      });
-
-      expect(result.current.history.previous).toBe(null);
-      expect(result.current.history.hasDiff).toBe(false);
-    });
-
-    it('should maintain current content when clearing diff', () => {
-      const { result } = renderHook(() => useDocumentHistory('test-doc-1'));
-
-      act(() => {
-        result.current.recordChange('old content', 'new content');
-      });
-
-      act(() => {
-        result.current.clearDiff();
-      });
-
-      expect(result.current.history.current).toBe('new content');
-    });
-
-    it('should be idempotent', () => {
-      const { result } = renderHook(() => useDocumentHistory('test-doc-1'));
-
-      act(() => {
-        result.current.recordChange('old content', 'new content');
-      });
-
-      act(() => {
-        result.current.clearDiff();
-        result.current.clearDiff();
-      });
-
-      expect(result.current.history.previous).toBe(null);
-      expect(result.current.history.hasDiff).toBe(false);
-      expect(result.current.history.current).toBe('new content');
-    });
-  });
-
-  describe('Sequential Changes', () => {
-    it('should handle multiple recordChange calls', () => {
-      const { result } = renderHook(() => useDocumentHistory('test-doc-1'));
-
-      act(() => {
-        result.current.recordChange('initial', 'version 1');
-      });
-
-      expect(result.current.history.current).toBe('version 1');
-
-      act(() => {
-        result.current.recordChange('version 1', 'version 2');
-      });
-
-      expect(result.current.history.previous).toBe('version 1');
-      expect(result.current.history.current).toBe('version 2');
-      expect(result.current.history.hasDiff).toBe(true);
-    });
-
-    it('should handle record -> clear -> record sequence', () => {
-      const { result } = renderHook(() => useDocumentHistory('test-doc-1'));
-
-      act(() => {
-        result.current.recordChange('old', 'new');
-      });
-
-      expect(result.current.history.hasDiff).toBe(true);
-
-      act(() => {
-        result.current.clearDiff();
-      });
-
-      expect(result.current.history.hasDiff).toBe(false);
-
-      act(() => {
-        result.current.recordChange('new', 'updated');
-      });
-
-      expect(result.current.history.hasDiff).toBe(true);
-      expect(result.current.history.previous).toBe('new');
-      expect(result.current.history.current).toBe('updated');
-    });
-  });
-
-  describe('Different Document IDs', () => {
-    it('should maintain separate state for different document IDs', () => {
-      const { result: result1 } = renderHook(() =>
-        useDocumentHistory('doc-1')
-      );
-      const { result: result2 } = renderHook(() =>
-        useDocumentHistory('doc-2')
+  describe('Fetching History', () => {
+    it('should fetch history from correct API endpoint', async () => {
+      global.fetch = vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify(mockHistoryResponse), { status: 200 })
+        )
       );
 
-      act(() => {
-        result1.current.recordChange('old1', 'new1');
-      });
+      renderHook(() => useDocumentHistory('doc-1'));
 
-      act(() => {
-        result2.current.recordChange('old2', 'new2');
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalledWith(
+          '/api/document/doc-1/history?project=%2Ftest%2Fproject&session=test-session'
+        );
       });
+    });
 
-      expect(result1.current.history.current).toBe('new1');
-      expect(result2.current.history.current).toBe('new2');
+    it('should set history data on successful fetch', async () => {
+      global.fetch = vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify(mockHistoryResponse), { status: 200 })
+        )
+      );
+
+      const { result } = renderHook(() => useDocumentHistory('doc-1'));
+
+      await waitFor(() => {
+        expect(result.current.history).toEqual(mockHistoryResponse);
+      });
+    });
+
+    it('should set isLoading to false after fetch completes', async () => {
+      global.fetch = vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify(mockHistoryResponse), { status: 200 })
+        )
+      );
+
+      const { result } = renderHook(() => useDocumentHistory('doc-1'));
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+    });
+
+    it('should not fetch when project is not set', async () => {
+      useSessionStore.getState().setCurrentSession(null);
+      global.fetch = vi.fn();
+
+      renderHook(() => useDocumentHistory('doc-1'));
+
+      // Wait a bit to ensure no fetch happens
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(global.fetch).not.toHaveBeenCalled();
     });
   });
 
-  describe('Edge Cases', () => {
-    it('should handle whitespace-only content changes', () => {
-      const { result } = renderHook(() => useDocumentHistory('test-doc-1'));
+  describe('Error Handling', () => {
+    it('should set error on non-ok response', async () => {
+      global.fetch = vi.fn(() =>
+        Promise.resolve(new Response('Server error', { status: 500 }))
+      );
 
-      act(() => {
-        result.current.recordChange('   ', '    ');
+      const { result } = renderHook(() => useDocumentHistory('doc-1'));
+
+      await waitFor(() => {
+        expect(result.current.error).toBe('Failed to load history');
+        expect(result.current.isLoading).toBe(false);
       });
-
-      expect(result.current.history.hasDiff).toBe(true);
     });
 
-    it('should handle special characters', () => {
-      const { result } = renderHook(() => useDocumentHistory('test-doc-1'));
-      const oldContent = 'content with\n\ttabs\nand special!@#$%chars';
-      const newContent = 'content with\n\ttabs\nand modified special!@#$%chars';
+    it('should set error on network failure', async () => {
+      global.fetch = vi.fn(() => Promise.reject(new Error('Network error')));
 
-      act(() => {
-        result.current.recordChange(oldContent, newContent);
+      const { result } = renderHook(() => useDocumentHistory('doc-1'));
+
+      await waitFor(() => {
+        expect(result.current.error).toBe('Network error');
+        expect(result.current.isLoading).toBe(false);
       });
-
-      expect(result.current.history.previous).toBe(oldContent);
-      expect(result.current.history.current).toBe(newContent);
-      expect(result.current.history.hasDiff).toBe(true);
     });
 
-    it('should handle very long content', () => {
-      const { result } = renderHook(() => useDocumentHistory('test-doc-1'));
-      const longContent = 'x'.repeat(10000);
-      const longContentModified = longContent + 'y';
+    it('should set history to null on 404 (no history yet)', async () => {
+      global.fetch = vi.fn(() =>
+        Promise.resolve(new Response('Not found', { status: 404 }))
+      );
 
-      act(() => {
-        result.current.recordChange(longContent, longContentModified);
+      const { result } = renderHook(() => useDocumentHistory('doc-1'));
+
+      await waitFor(() => {
+        expect(result.current.history).toBeNull();
+        expect(result.current.error).toBeNull();
+        expect(result.current.isLoading).toBe(false);
+      });
+    });
+  });
+
+  describe('Refetch', () => {
+    it('should refetch when refetch is called', async () => {
+      global.fetch = vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify(mockHistoryResponse), { status: 200 })
+        )
+      );
+
+      const { result } = renderHook(() => useDocumentHistory('doc-1'));
+
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalledTimes(1);
       });
 
-      expect(result.current.history.previous).toBe(longContent);
-      expect(result.current.history.current).toBe(longContentModified);
-      expect(result.current.history.hasDiff).toBe(true);
+      await act(async () => {
+        await result.current.refetch();
+      });
+
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('should refetch when documentId changes', async () => {
+      global.fetch = vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify(mockHistoryResponse), { status: 200 })
+        )
+      );
+
+      const { result, rerender } = renderHook(
+        ({ docId }) => useDocumentHistory(docId),
+        { initialProps: { docId: 'doc-1' } }
+      );
+
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+      });
+
+      rerender({ docId: 'doc-2' });
+
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalledTimes(2);
+        expect(global.fetch).toHaveBeenLastCalledWith(
+          '/api/document/doc-2/history?project=%2Ftest%2Fproject&session=test-session'
+        );
+      });
+    });
+  });
+
+  describe('getVersionAt', () => {
+    it('should fetch version at specific timestamp', async () => {
+      const versionResponse = {
+        content: 'Content at timestamp',
+        timestamp: '2024-01-15T10:00:00Z',
+      };
+
+      global.fetch = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify(mockHistoryResponse), { status: 200 })
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify(versionResponse), { status: 200 })
+        );
+
+      const { result } = renderHook(() => useDocumentHistory('doc-1'));
+
+      await waitFor(() => {
+        expect(result.current.history).not.toBeNull();
+      });
+
+      let content: string | null = null;
+      await act(async () => {
+        content = await result.current.getVersionAt('2024-01-15T10:00:00Z');
+      });
+
+      expect(content).toBe('Content at timestamp');
+      expect(global.fetch).toHaveBeenLastCalledWith(
+        '/api/document/doc-1/version?project=%2Ftest%2Fproject&session=test-session&timestamp=2024-01-15T10%3A00%3A00Z'
+      );
+    });
+
+    it('should return null when version fetch fails', async () => {
+      global.fetch = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify(mockHistoryResponse), { status: 200 })
+        )
+        .mockRejectedValueOnce(new Error('Network error'));
+
+      const { result } = renderHook(() => useDocumentHistory('doc-1'));
+
+      await waitFor(() => {
+        expect(result.current.history).not.toBeNull();
+      });
+
+      let content: string | null = 'not-null';
+      await act(async () => {
+        content = await result.current.getVersionAt('2024-01-15T10:00:00Z');
+      });
+
+      expect(content).toBeNull();
+    });
+
+    it('should return null when documentId is null', async () => {
+      const { result } = renderHook(() => useDocumentHistory(null));
+
+      let content: string | null = 'not-null';
+      await act(async () => {
+        content = await result.current.getVersionAt('2024-01-15T10:00:00Z');
+      });
+
+      expect(content).toBeNull();
+    });
+
+    it('should return null when session is not set', async () => {
+      useSessionStore.getState().setCurrentSession(null);
+
+      const { result } = renderHook(() => useDocumentHistory('doc-1'));
+
+      let content: string | null = 'not-null';
+      await act(async () => {
+        content = await result.current.getVersionAt('2024-01-15T10:00:00Z');
+      });
+
+      expect(content).toBeNull();
+    });
+  });
+
+  describe('Session Changes', () => {
+    it('should clear history when session changes', async () => {
+      global.fetch = vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify(mockHistoryResponse), { status: 200 })
+        )
+      );
+
+      const { result } = renderHook(() => useDocumentHistory('doc-1'));
+
+      await waitFor(() => {
+        expect(result.current.history).toEqual(mockHistoryResponse);
+      });
+
+      // Change session - this clears history
+      act(() => {
+        useSessionStore.getState().setCurrentSession({
+          project: '/different/project',
+          name: 'different-session',
+        });
+      });
+
+      // History should be refetched for the new session
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalledWith(
+          '/api/document/doc-1/history?project=%2Fdifferent%2Fproject&session=different-session'
+        );
+      });
     });
   });
 });

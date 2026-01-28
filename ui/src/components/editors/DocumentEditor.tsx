@@ -26,6 +26,8 @@ import { Minimap } from './Minimap';
 import { useSyncScroll } from '@/hooks/useSyncScroll';
 import { downloadCleanMarkdown } from '@/lib/annotationUtils';
 import { EditorView } from '@codemirror/view';
+import { HistoryDropdown } from './HistoryDropdown';
+import { HistoryModal } from './HistoryModal';
 
 /**
  * Props for the DocumentEditor component
@@ -107,6 +109,11 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   const [editorView, setEditorView] = useState<EditorView | null>(null);
   const [showDiff, setShowDiff] = useState(false);
   const [previousContent, setPreviousContent] = useState<string>('');
+
+  // History modal state
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
+  const [selectedHistoryTimestamp, setSelectedHistoryTimestamp] = useState('');
+  const [selectedHistoryContent, setSelectedHistoryContent] = useState('');
 
   // Refs for scroll synchronization
   const editorScrollRef = useRef<HTMLDivElement>(null);
@@ -225,6 +232,18 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   const handleClearDiff = useCallback(() => {
     setShowDiff(false);
     setPreviousContent('');
+  }, []);
+
+  // Handle history version selection
+  const handleHistoryVersionSelect = useCallback((timestamp: string, content: string) => {
+    setSelectedHistoryTimestamp(timestamp);
+    setSelectedHistoryContent(content);
+    setHistoryModalOpen(true);
+  }, []);
+
+  // Handle history modal close
+  const handleHistoryModalClose = useCallback(() => {
+    setHistoryModalOpen(false);
   }, []);
 
   // Handle minimap scroll navigation
@@ -427,6 +446,13 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
               >
                 Export Clean
               </button>
+              {document && (
+                <HistoryDropdown
+                  documentId={document.id}
+                  currentContent={content}
+                  onVersionSelect={handleHistoryVersionSelect}
+                />
+              )}
             </div>
           </div>
         </div>
@@ -498,6 +524,16 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
           {hasChanges && <span className="ml-4">Escape to cancel</span>}
         </div>
       )}
+
+      {/* History Modal */}
+      <HistoryModal
+        isOpen={historyModalOpen}
+        onClose={handleHistoryModalClose}
+        historicalContent={selectedHistoryContent}
+        currentContent={content}
+        timestamp={selectedHistoryTimestamp}
+        documentName={document?.name}
+      />
     </div>
   );
 };
