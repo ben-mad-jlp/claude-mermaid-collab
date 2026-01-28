@@ -240,22 +240,22 @@ describe('MobileHeader', () => {
       expect(badge).toBeInTheDocument();
     });
 
-    it('should show connected status', () => {
+    it('should show connected status via title', () => {
       render(<MobileHeader {...defaultProps} isConnected={true} isConnecting={false} />);
       const badge = screen.getByTestId('mobile-connection-badge');
-      expect(badge).toHaveTextContent('Connected');
+      expect(badge).toHaveAttribute('title', 'Connected');
     });
 
-    it('should show connecting status', () => {
+    it('should show connecting status via title', () => {
       render(<MobileHeader {...defaultProps} isConnected={false} isConnecting={true} />);
       const badge = screen.getByTestId('mobile-connection-badge');
-      expect(badge).toHaveTextContent('Connecting');
+      expect(badge).toHaveAttribute('title', 'Connecting');
     });
 
-    it('should show disconnected status', () => {
+    it('should show disconnected status via title', () => {
       render(<MobileHeader {...defaultProps} isConnected={false} isConnecting={false} />);
       const badge = screen.getByTestId('mobile-connection-badge');
-      expect(badge).toHaveTextContent('Disconnected');
+      expect(badge).toHaveAttribute('title', 'Disconnected');
     });
 
     it('should display status dot with appropriate color', () => {
@@ -263,12 +263,14 @@ describe('MobileHeader', () => {
       const badge = container.querySelector('[data-testid="mobile-connection-badge"]') as HTMLElement;
       const dot = badge.querySelector('.rounded-full');
       expect(dot).toBeInTheDocument();
+      expect(dot).toHaveClass('bg-green-500');
     });
 
-    it('should be compact size for mobile', () => {
+    it('should be a compact dot for mobile', () => {
       const { container } = render(<MobileHeader {...defaultProps} />);
       const badge = container.querySelector('[data-testid="mobile-connection-badge"]') as HTMLElement;
-      expect(badge).toHaveClass('text-xs');
+      const dot = badge.querySelector('.rounded-full');
+      expect(dot).toHaveClass('w-2', 'h-2');
     });
   });
 

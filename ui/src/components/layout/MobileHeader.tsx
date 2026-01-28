@@ -457,24 +457,6 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
           )}
         </div>
 
-        {/* Session Status Badge - Compact */}
-        {collabState?.displayName && (
-          <div
-            data-testid="mobile-status-badge"
-            className={`
-              px-1.5 py-0.5
-              text-[10px] font-medium
-              rounded
-              truncate max-w-[80px]
-              flex-shrink-0
-              ${getPhaseColor(collabState.state, collabState.displayName)}
-            `}
-            title={collabState.displayName}
-          >
-            {collabState.displayName}
-          </div>
-        )}
-
         {/* Refresh Button */}
         {onRefreshSessions && (
           <button
@@ -549,27 +531,33 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
           )}
         </button>
 
-        {/* Connection Status Badge - Compact */}
+        {/* Session Status Badge */}
+        {collabState?.displayName && (
+          <div
+            data-testid="mobile-status-badge"
+            className={`
+              ml-auto px-1.5 py-0.5
+              text-[10px] font-medium
+              rounded
+              truncate max-w-[100px]
+              flex-shrink-0
+              ${getPhaseColor(collabState.state, collabState.displayName)}
+            `}
+            title={collabState.displayName}
+          >
+            {collabState.displayName}
+          </div>
+        )}
+
+        {/* Connection Status Dot */}
         <div
           data-testid="mobile-connection-badge"
-          className={`
-            flex items-center gap-1
-            px-1.5 py-0.5 ml-auto
-            text-xs font-medium
-            rounded-full
-            flex-shrink-0
-            ${
-              isConnected
-                ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300'
-                : isConnecting
-                ? 'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300'
-                : 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300'
-            }
-          `}
+          className={`flex-shrink-0 ${!collabState?.displayName ? 'ml-auto' : ''}`}
+          title={isConnected ? 'Connected' : isConnecting ? 'Connecting' : 'Disconnected'}
         >
           <span
             className={`
-              w-1.5 h-1.5 rounded-full
+              block w-2 h-2 rounded-full
               ${
                 isConnected
                   ? 'bg-green-500'
@@ -579,9 +567,6 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
               }
             `}
           />
-          <span>
-            {isConnected ? 'Connected' : isConnecting ? 'Connecting' : 'Disconnected'}
-          </span>
         </div>
       </div>
     </header>
