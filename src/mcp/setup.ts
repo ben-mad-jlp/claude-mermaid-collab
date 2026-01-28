@@ -1214,9 +1214,29 @@ export async function setupMCPServer(): Promise<Server> {
             const kodex = getKodexManager(project);
             const topic = await kodex.getTopic(topicName, include_content !== false);
             if (!topic) {
-              return JSON.stringify({ found: false, error: 'Topic not found' }, null, 2);
+              // Auto-flag missing topics
+              const flagResult = await kodex.createFlag(
+                topicName,
+                'missing',
+                'Topic not found when queried',
+                { dedupe: true }
+              );
+
+              return JSON.stringify({
+                found: false,
+                error: 'Topic not found',
+                flagged: flagResult.created,
+                message: flagResult.created
+                  ? 'Auto-flagged as missing'
+                  : 'Already flagged as missing'
+              }, null, 2);
             }
-            return JSON.stringify({ found: true, topic }, null, 2);
+            // Topic found - include hint about flagging
+            return JSON.stringify({
+              found: true,
+              topic,
+              hint: 'If this topic is outdated, incorrect, or incomplete, use kodex_flag_topic to report it.'
+            }, null, 2);
           }
 
           case 'kodex_list_topics': {
