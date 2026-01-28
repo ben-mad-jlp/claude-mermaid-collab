@@ -26,6 +26,7 @@ export const XTermTerminal = React.memo(function XTermTerminal({
   sessionId,
   className = '',
 }: XTermTerminalProps) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<HTMLDivElement>(null);
   const terminalInstanceRef = useRef<Terminal | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -34,8 +35,9 @@ export const XTermTerminal = React.memo(function XTermTerminal({
   const isInitializedRef = useRef(false);
 
   useEffect(() => {
+    const wrapper = wrapperRef.current;
     const container = terminalRef.current;
-    if (!container) return;
+    if (!wrapper || !container) return;
 
     // Reset flags
     isDisposedRef.current = false;
@@ -45,6 +47,7 @@ export const XTermTerminal = React.memo(function XTermTerminal({
     let ws: WebSocket | null = null;
     let fitAddon: FitAddon | null = null;
     let resizeObserver: ResizeObserver | null = null;
+    let intersectionObserver: IntersectionObserver | null = null;
 
     // Send resize message to server
     const sendResize = (cols: number, rows: number) => {
@@ -81,12 +84,12 @@ export const XTermTerminal = React.memo(function XTermTerminal({
       });
     };
 
-    // Initialize terminal when container has dimensions
+    // Initialize terminal when wrapper has dimensions
     const initializeTerminal = () => {
       if (isInitializedRef.current || isDisposedRef.current) return;
 
-      // Check if container has dimensions
-      const { width, height } = container.getBoundingClientRect();
+      // Check if wrapper has dimensions (container will match via absolute positioning)
+      const { width, height } = wrapper.getBoundingClientRect();
       if (width === 0 || height === 0) return;
 
       isInitializedRef.current = true;
@@ -200,7 +203,8 @@ export const XTermTerminal = React.memo(function XTermTerminal({
       });
     };
 
-    // Use ResizeObserver to detect when container has dimensions
+    // Use ResizeObserver on wrapper to detect size changes
+    // The wrapper is in the flex layout, so it gets size changes first
     resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
@@ -214,7 +218,23 @@ export const XTermTerminal = React.memo(function XTermTerminal({
       }
     });
 
-    resizeObserver.observe(container);
+    resizeObserver.observe(wrapper);
+
+    // Use IntersectionObserver to detect visibility changes
+    // This handles the case when a hidden terminal becomes visible again
+    intersectionObserver = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting && isInitializedRef.current && !isDisposedRef.current) {
+            // Terminal became visible, trigger a fit
+            safeFit();
+          }
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    intersectionObserver.observe(wrapper);
 
     // Also try to initialize immediately if container already has dimensions
     requestAnimationFrame(() => {
@@ -238,14 +258,14 @@ export const XTermTerminal = React.memo(function XTermTerminal({
       }
     };
 
-    container.addEventListener('contextmenu', handleContextMenu);
+    wrapper.addEventListener('contextmenu', handleContextMenu);
 
     // Wheel event handler - prevent scroll events from bubbling to parent
     const handleWheel = (event: WheelEvent) => {
       // Stop propagation to prevent parent containers from scrolling
       event.stopPropagation();
     };
-    container.addEventListener('wheel', handleWheel, { passive: true });
+    wrapper.addEventListener('wheel', handleWheel, { passive: true });
 
     // Window resize handler
     const handleResize = () => safeFit();
@@ -261,9 +281,10 @@ export const XTermTerminal = React.memo(function XTermTerminal({
       }
 
       resizeObserver?.disconnect();
+      intersectionObserver?.disconnect();
       window.removeEventListener('resize', handleResize);
-      container.removeEventListener('contextmenu', handleContextMenu);
-      container.removeEventListener('wheel', handleWheel);
+      wrapper.removeEventListener('contextmenu', handleContextMenu);
+      wrapper.removeEventListener('wheel', handleWheel);
 
       // Close WebSocket if it's connecting or open
       if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
@@ -284,17 +305,30 @@ export const XTermTerminal = React.memo(function XTermTerminal({
 
   return (
     <div
-      ref={terminalRef}
-      data-testid="xterm-container"
+      ref={wrapperRef}
+      data-testid="xterm-wrapper"
       className={className}
       style={{
+        position: 'relative',
         flex: 1,
         minHeight: 0,
         width: '100%',
-        backgroundColor: '#1e1e1e',
-        overflow: 'hidden',
       }}
-    />
+    >
+      <div
+        ref={terminalRef}
+        data-testid="xterm-container"
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: '#1e1e1e',
+          overflow: 'hidden',
+        }}
+      />
+    </div>
   );
 });
 

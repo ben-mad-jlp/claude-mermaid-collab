@@ -9,7 +9,6 @@ import {
   DragEndEvent,
 } from '@dnd-kit/core';
 import {
-  arrayMove,
   SortableContext,
   sortableKeyboardCoordinates,
   horizontalListSortingStrategy,
@@ -32,22 +31,18 @@ interface SortableTabProps {
   tab: TerminalSession;
   isActive: boolean;
   canClose: boolean;
-  isCopied: boolean;
   onSelect: () => void;
   onClose: () => void;
   onRename: (name: string) => void;
-  onCopy: () => void;
 }
 
 const SortableTab: React.FC<SortableTabProps> = ({
   tab,
   isActive,
   canClose,
-  isCopied,
   onSelect,
   onClose,
   onRename,
-  onCopy,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(tab.name);
@@ -128,27 +123,6 @@ const SortableTab: React.FC<SortableTabProps> = ({
         <span onDoubleClick={handleDoubleClick} className="text-sm truncate max-w-[120px]">{tab.name}</span>
       )}
 
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onCopy();
-        }}
-        className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-gray-600 focus:outline-none transition-opacity"
-        aria-label="Copy tmux attach command"
-        title="Copy tmux attach command"
-      >
-        {isCopied ? (
-          <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-          </svg>
-        ) : (
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-          </svg>
-        )}
-      </button>
-
       {canClose && (
         <button
           type="button"
@@ -175,19 +149,6 @@ export const TerminalTabBar: React.FC<TerminalTabBarProps> = ({
   onTabAdd,
   onTabReorder,
 }) => {
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-
-  const handleCopy = async (tabId: string, sessionName: string) => {
-    try {
-      const command = `tmux attach -t ${sessionName}`;
-      await navigator.clipboard.writeText(command);
-      setCopiedId(tabId);
-      setTimeout(() => setCopiedId(null), 2000);
-    } catch (err) {
-      console.error('Failed to copy tmux command:', err);
-    }
-  };
-
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, {
@@ -227,11 +188,9 @@ export const TerminalTabBar: React.FC<TerminalTabBarProps> = ({
                 tab={tab}
                 isActive={tab.id === activeTabId}
                 canClose={canClose}
-                isCopied={copiedId === tab.id}
                 onSelect={() => onTabSelect(tab.id)}
                 onClose={() => onTabClose(tab.id)}
                 onRename={(name) => onTabRename(tab.id, name)}
-                onCopy={() => handleCopy(tab.id, tab.tmuxSession)}
               />
             ))}
             <button
