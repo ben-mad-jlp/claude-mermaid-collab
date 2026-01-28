@@ -7,6 +7,7 @@
 
 import { readFile, writeFile, mkdir, unlink, access, readdir, rm, cp } from 'fs/promises';
 import { join } from 'path';
+import { getDisplayName } from '../workflow/state-machine.js';
 import type { WebSocketHandler } from '../../websocket/handler.js';
 import type { TaskBatch, WorkItem, WorkItemType } from '../workflow/types.js';
 
@@ -19,6 +20,7 @@ export interface CollabState {
   currentItem: number | null;
   currentItemType?: WorkItemType; // Type of current item for routing
   hasSnapshot: boolean;
+  displayName?: string; // User-friendly display name for current state
   workItems?: WorkItem[]; // Work items for the session
   batches?: TaskBatch[]; // Execution batches
   currentBatch?: number; // Index of current batch
@@ -72,6 +74,32 @@ async function fileExists(path: string): Promise<boolean> {
   }
 }
 
+/**
+ * Derive phase from state for backwards compatibility.
+ * Extracts the base phase from the state identifier.
+ * @param state - The state identifier
+ * @returns The derived phase name
+ */
+function derivePhase(state: string): string {
+  if (state.startsWith('brainstorm')) {
+    return 'brainstorming';
+  }
+  if (state.startsWith('rough-draft')) {
+    return 'rough-draft';
+  }
+  if (state.startsWith('clear')) {
+    return 'transition';
+  }
+  if (state === 'ready-to-implement') {
+    return 'ready';
+  }
+  if (state === 'execute-batch') {
+    return 'executing';
+  }
+  // Return state as-is as fallback
+  return state;
+}
+
 // ============= State Management Functions =============
 
 export async function getSessionState(project: string, session: string): Promise<CollabState> {
@@ -82,7 +110,19 @@ export async function getSessionState(project: string, session: string): Promise
   }
 
   const content = await readFile(path, 'utf-8');
-  return JSON.parse(content) as CollabState;
+  const rawState = JSON.parse(content) as CollabState;
+
+  // Compute display name from state if available
+  if (rawState.state) {
+    rawState.displayName = getDisplayName(rawState.state);
+  }
+
+  // Derive phase from state for backwards compatibility if not already set
+  if (rawState.state && !rawState.phase) {
+    rawState.phase = derivePhase(rawState.state);
+  }
+
+  return rawState;
 }
 
 export async function updateSessionState(
