@@ -12,20 +12,28 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { ToolbarAction } from '@/types';
+import { HistoryToolbar } from '@/components/editors/HistoryToolbar';
+import { HistoryDiffSettingsDropdown } from '@/components/editors/HistoryDiffSettingsDropdown';
 
 export interface EditorToolbarProps {
   /** Name of the item being edited */
   itemName: string;
   /** Whether the item has unsaved changes */
   hasUnsavedChanges: boolean;
-  /** Callback for undo action */
-  onUndo: () => void;
-  /** Callback for redo action */
-  onRedo: () => void;
+  /** Callback for undo action (diagrams only) */
+  onUndo?: () => void;
+  /** Callback for redo action (diagrams only) */
+  onRedo?: () => void;
   /** Whether undo is available */
-  canUndo: boolean;
+  canUndo?: boolean;
   /** Whether redo is available */
-  canRedo: boolean;
+  canRedo?: boolean;
+  /** Document ID for history (documents only) */
+  documentId?: string;
+  /** Current document content (documents only) */
+  documentContent?: string;
+  /** Callback when history version is selected */
+  onHistoryVersionSelect?: (timestamp: string, content: string, previousContent?: string) => void;
   /** Current zoom level (percentage) */
   zoom: number;
   /** Callback for zoom in action */
@@ -66,6 +74,18 @@ export interface EditorToolbarProps {
   onCenter?: () => void;
   /** Callback for fit-to-view action */
   onFitToView?: () => void;
+  /** History diff info for inline display banner (documents only) */
+  historyDiff?: {
+    timestamp: string;
+    historicalContent: string;
+    viewMode: 'inline' | 'side-by-side';
+    compareMode: 'vs-current' | 'vs-previous';
+    previousContent?: string;
+  } | null;
+  /** Callback to clear history diff and return to current version */
+  onClearHistoryDiff?: () => void;
+  /** Callback when history diff settings change */
+  onHistorySettingsChange?: (viewMode: 'inline' | 'side-by-side', compareMode: 'vs-current' | 'vs-previous') => void;
 }
 
 /**
@@ -78,6 +98,9 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   onRedo,
   canUndo,
   canRedo,
+  documentId,
+  documentContent,
+  onHistoryVersionSelect,
   zoom,
   onZoomIn,
   onZoomOut,
@@ -98,6 +121,9 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   showZoom = true,
   onCenter,
   onFitToView,
+  historyDiff,
+  onClearHistoryDiff,
+  onHistorySettingsChange,
 }) => {
   const [isOverflowOpen, setIsOverflowOpen] = useState(false);
   const overflowRef = useRef<HTMLDivElement>(null);
@@ -137,6 +163,23 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   const handleActionClick = useCallback((action: ToolbarAction) => {
     action.onClick();
     setIsOverflowOpen(false);
+  }, []);
+
+  // Format timestamp to relative time for history banner
+  const formatRelativeTime = useCallback((timestamp: string): string => {
+    const now = Date.now();
+    const then = new Date(timestamp).getTime();
+    const diffMs = now - then;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 2) return 'Yesterday';
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return new Date(timestamp).toLocaleDateString();
   }, []);
 
   // Build combined actions list with new buttons
@@ -318,15 +361,132 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   const finalActions = allActions();
 
   return (
-    <div
-      data-testid="editor-toolbar"
-      className="
-        flex items-center gap-2
-        h-10 px-3
-        bg-white dark:bg-gray-800
-        border-b border-gray-200 dark:border-gray-700
-      "
-    >
+    <div className="flex flex-col">
+      {/* History Viewing Banner */}
+      {historyDiff && (
+        <div
+          data-testid="history-viewing-banner"
+          className="flex items-center justify-between gap-2 px-3 py-1.5 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800"
+        >
+          <div className="flex items-center gap-2">
+            <svg
+              className="w-4 h-4 text-amber-600 dark:text-amber-400"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            <span className="text-sm text-amber-800 dark:text-amber-200">
+              Viewing version from {formatRelativeTime(historyDiff.timestamp)}
+            </span>
+          </div>
+          {onHistorySettingsChange && (
+            <HistoryDiffSettingsDropdown
+              viewMode={historyDiff.viewMode}
+              compareMode={historyDiff.compareMode}
+              onSettingsChange={onHistorySettingsChange}
+              hasPreviousVersion={!!historyDiff.previousContent}
+            />
+          )}
+        </div>
+      )}
+
+      {/* Main Toolbar */}
+      <div
+        data-testid="editor-toolbar"
+        className="
+          flex items-center gap-2
+          h-10 px-3
+          bg-white dark:bg-gray-800
+          border-b border-gray-200 dark:border-gray-700
+        "
+      >
+      {/* History Controls (documents) or Undo/Redo (diagrams) - positioned first on far left */}
+      {itemType === 'document' && documentId && onHistoryVersionSelect ? (
+        <HistoryToolbar
+          documentId={documentId}
+          currentContent={documentContent || ''}
+          onVersionSelect={onHistoryVersionSelect}
+        />
+      ) : (
+        <>
+          {/* Undo Button */}
+          <button
+            data-testid="editor-toolbar-undo"
+            onClick={onUndo}
+            disabled={!canUndo}
+            aria-label="Undo"
+            className="
+              p-1.5
+              text-gray-600 dark:text-gray-300
+              hover:text-gray-900 dark:hover:text-white
+              hover:bg-gray-100 dark:hover:bg-gray-700
+              rounded
+              transition-colors
+              disabled:opacity-40
+              disabled:cursor-not-allowed
+              disabled:hover:bg-transparent dark:disabled:hover:bg-transparent
+            "
+          >
+            <svg
+              className="w-4 h-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M3 7v6h6" />
+              <path d="M21 17a9 9 0 00-9-9 9 9 0 00-6 2.3L3 13" />
+            </svg>
+          </button>
+
+          {/* Redo Button */}
+          <button
+            data-testid="editor-toolbar-redo"
+            onClick={onRedo}
+            disabled={!canRedo}
+            aria-label="Redo"
+            className="
+              p-1.5
+              text-gray-600 dark:text-gray-300
+              hover:text-gray-900 dark:hover:text-white
+              hover:bg-gray-100 dark:hover:bg-gray-700
+              rounded
+              transition-colors
+              disabled:opacity-40
+              disabled:cursor-not-allowed
+              disabled:hover:bg-transparent dark:disabled:hover:bg-transparent
+            "
+          >
+            <svg
+              className="w-4 h-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M21 7v6h-6" />
+              <path d="M3 17a9 9 0 019-9 9 9 0 016 2.3L21 13" />
+            </svg>
+          </button>
+        </>
+      )}
+
+      {/* Divider after history/undo-redo controls */}
+      <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
+
       {/* Item Name + Unsaved Indicator */}
       <div className="flex items-center gap-2 min-w-0" data-testid="editor-toolbar-title">
         <span
@@ -356,73 +516,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Undo Button */}
-      <button
-        data-testid="editor-toolbar-undo"
-        onClick={onUndo}
-        disabled={!canUndo}
-        aria-label="Undo"
-        className="
-          p-1.5
-          text-gray-600 dark:text-gray-300
-          hover:text-gray-900 dark:hover:text-white
-          hover:bg-gray-100 dark:hover:bg-gray-700
-          rounded
-          transition-colors
-          disabled:opacity-40
-          disabled:cursor-not-allowed
-          disabled:hover:bg-transparent dark:disabled:hover:bg-transparent
-        "
-      >
-        <svg
-          className="w-4 h-4"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <path d="M3 7v6h6" />
-          <path d="M21 17a9 9 0 00-9-9 9 9 0 00-6 2.3L3 13" />
-        </svg>
-      </button>
-
-      {/* Redo Button */}
-      <button
-        data-testid="editor-toolbar-redo"
-        onClick={onRedo}
-        disabled={!canRedo}
-        aria-label="Redo"
-        className="
-          p-1.5
-          text-gray-600 dark:text-gray-300
-          hover:text-gray-900 dark:hover:text-white
-          hover:bg-gray-100 dark:hover:bg-gray-700
-          rounded
-          transition-colors
-          disabled:opacity-40
-          disabled:cursor-not-allowed
-          disabled:hover:bg-transparent dark:disabled:hover:bg-transparent
-        "
-      >
-        <svg
-          className="w-4 h-4"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <path d="M21 7v6h-6" />
-          <path d="M3 17a9 9 0 019-9 9 9 0 016 2.3L21 13" />
-        </svg>
-      </button>
-
-      {/* Divider */}
+      {/* Divider before zoom controls */}
       {showZoom && <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />}
 
       {/* Zoom Controls (hidden for documents) */}
@@ -682,6 +776,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             </ul>
           </div>
         )}
+      </div>
       </div>
     </div>
   );

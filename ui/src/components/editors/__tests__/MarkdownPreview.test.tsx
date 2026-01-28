@@ -425,8 +425,8 @@ lines with markdown
       expect(h1?.textContent).toContain('Hello');
     });
 
-    it('should render "Clear Diff" button when diff is provided', () => {
-      render(
+    it('should render diff content without Clear Diff button (button moved to toolbar)', () => {
+      const { container } = render(
         <MarkdownPreview
           content="# Hello\n\nThis is new content"
           diff={{
@@ -436,14 +436,19 @@ lines with markdown
         />
       );
 
-      const clearButton = screen.getByRole('button', { name: /clear diff/i });
-      expect(clearButton).toBeDefined();
+      // Clear Diff button was removed from MarkdownPreview (now in toolbar)
+      const clearButton = screen.queryByRole('button', { name: /clear diff/i });
+      expect(clearButton).toBeNull();
+
+      // But diff highlighting should still work
+      const diffElements = container.querySelectorAll('[class*="diff-"]');
+      expect(diffElements.length).toBeGreaterThan(0);
     });
 
-    it('should call onClearDiff when Clear Diff button is clicked', () => {
+    it('should render diff content even when onClearDiff is provided', () => {
       const onClearDiff = vi.fn();
 
-      const { rerender } = render(
+      const { container } = render(
         <MarkdownPreview
           content="# Hello\n\nThis is new content"
           diff={{
@@ -454,10 +459,13 @@ lines with markdown
         />
       );
 
-      const clearButton = screen.getByRole('button', { name: /clear diff/i });
-      clearButton.click();
+      // Clear Diff button was removed from MarkdownPreview
+      const clearButton = screen.queryByRole('button', { name: /clear diff/i });
+      expect(clearButton).toBeNull();
 
-      expect(onClearDiff).toHaveBeenCalledOnce();
+      // But diff highlighting should still work
+      const diffElements = container.querySelectorAll('[class*="diff-"]');
+      expect(diffElements.length).toBeGreaterThan(0);
     });
 
     it('should highlight added text with green background', () => {
@@ -574,8 +582,8 @@ Line 4`;
       expect(elements.length).toBeGreaterThan(0);
     });
 
-    it('should still show Clear Diff button even when onClearDiff is not provided', () => {
-      render(
+    it('should render diff without buttons (Clear Diff button moved to EditorToolbar)', () => {
+      const { container } = render(
         <MarkdownPreview
           content="# Hello\n\nThis is new content"
           diff={{
@@ -585,8 +593,12 @@ Line 4`;
         />
       );
 
-      const clearButton = screen.getByRole('button', { name: /clear diff/i });
-      expect(clearButton).toBeDefined();
+      // No Clear Diff button (moved to EditorToolbar)
+      const clearButton = screen.queryByRole('button', { name: /clear diff/i });
+      expect(clearButton).toBeNull();
+
+      // Diff content should still be rendered
+      expect(container.querySelector('[class*="diff-"]')).toBeDefined();
     });
 
     it('should render diff and normal content together seamlessly', () => {

@@ -361,18 +361,6 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       className={`markdown-preview-container w-full h-full flex flex-col ${className}`}
       data-testid="markdown-preview"
     >
-      {/* Clear Diff Button */}
-      {diff && (
-        <div className="flex justify-end p-2 border-b border-gray-200 dark:border-gray-700">
-          <button
-            onClick={onClearDiff}
-            className="px-3 py-1 text-sm bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded border border-gray-300 dark:border-gray-600"
-          >
-            Clear Diff
-          </button>
-        </div>
-      )}
-
       {/* Content Area */}
       {content?.trim() ? (
         <div

@@ -22,6 +22,7 @@ import { SplitPane } from '@/components/layout/SplitPane';
 import { CodeMirrorWrapper } from '@/components/editors/CodeMirrorWrapper';
 import { MermaidPreview, MermaidPreviewRef } from '@/components/editors/MermaidPreview';
 import { MarkdownPreview } from '@/components/editors/MarkdownPreview';
+import { DiffView } from '@/components/ai-ui/display/DiffView';
 import { Item } from '@/types';
 import { useUIStore } from '@/stores/uiStore';
 import { useEditorHistory } from '@/hooks/useEditorHistory';
@@ -49,6 +50,16 @@ export interface UnifiedEditorProps {
   onSetZoom?: (level: number) => void;
   /** Ref to access MermaidPreview methods (center, fitToView) */
   previewRef?: React.RefObject<MermaidPreviewRef>;
+  /** History diff for inline document comparison (documents only) */
+  historyDiff?: {
+    timestamp: string;
+    historicalContent: string;
+    viewMode: 'inline' | 'side-by-side';
+    compareMode: 'vs-current' | 'vs-previous';
+    previousContent?: string;
+  } | null;
+  /** Callback to clear the history diff view */
+  onClearHistoryDiff?: () => void;
 }
 
 /**
@@ -91,6 +102,8 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
   onZoomOut,
   onSetZoom,
   previewRef,
+  historyDiff,
+  onClearHistoryDiff,
 }) => {
   const { editorSplitPosition, setEditorSplitPosition } = useUIStore();
 
@@ -158,9 +171,31 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
       : 'Enter Markdown content...';
 
   /**
+   * Computes the before/after content for diff based on compare mode
+   */
+  const getDiffContents = () => {
+    if (!historyDiff) return null;
+
+    if (historyDiff.compareMode === 'vs-current') {
+      // Selected (old) vs Current (new)
+      return {
+        before: historyDiff.historicalContent,
+        after: item.content,
+      };
+    } else {
+      // Previous (old) vs Selected (new)
+      return {
+        before: historyDiff.previousContent || '',
+        after: historyDiff.historicalContent,
+      };
+    }
+  };
+
+  /**
    * Renders the appropriate preview component based on item type
    * Uses key={item.id} to maintain instance across editMode toggles
    * For diagrams, wires the SVG container ref callback for export functionality
+   * For documents, passes historyDiff for inline diff display
    */
   const previewComponent = item.type === 'diagram' ? (
     <MermaidPreview
@@ -174,12 +209,46 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
       onContainerRef={svgContainerRef}
       previewRef={previewRef}
     />
+  ) : historyDiff?.viewMode === 'side-by-side' ? (
+    // Side-by-side diff view using DiffView component
+    (() => {
+      const diffContents = getDiffContents();
+      return diffContents ? (
+        <div className="h-full" key={`${item.id}-diff`}>
+          <DiffView
+            before={diffContents.before}
+            after={diffContents.after}
+            fileName={item.name}
+            mode="split"
+            language="markdown"
+            fullHeight={true}
+          />
+        </div>
+      ) : (
+        <MarkdownPreview
+          key={item.id}
+          content={item.content}
+          className="h-full"
+        />
+      );
+    })()
   ) : (
-    <MarkdownPreview
-      key={item.id}
-      content={item.content}
-      className="h-full"
-    />
+    // Inline diff view using MarkdownPreview
+    (() => {
+      const diffContents = getDiffContents();
+      return (
+        <MarkdownPreview
+          key={item.id}
+          content={item.content}
+          className="h-full"
+          diff={diffContents ? {
+            oldContent: diffContents.before,
+            newContent: diffContents.after,
+          } : null}
+          onClearDiff={onClearHistoryDiff}
+        />
+      );
+    })()
   );
 
   // Preview-only mode (editMode is false)

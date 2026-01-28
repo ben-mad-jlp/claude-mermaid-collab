@@ -10,6 +10,10 @@ export interface DiffViewProps {
   language?: string;
   collapseLargeLines?: boolean;
   ariaLabel?: string;
+  /** When true, component fills available height instead of using max-h-96 */
+  fullHeight?: boolean;
+  /** Optional className for the container */
+  className?: string;
 }
 
 export const DiffView: React.FC<DiffViewProps> = ({
@@ -21,6 +25,8 @@ export const DiffView: React.FC<DiffViewProps> = ({
   language = 'text',
   collapseLargeLines = true,
   ariaLabel,
+  fullHeight = false,
+  className = '',
 }) => {
   const [currentMode, setCurrentMode] = useState<'unified' | 'split'>(mode);
 
@@ -44,7 +50,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
 
   return (
     <div
-      className="w-full rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden"
+      className={`w-full rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden ${fullHeight ? 'h-full flex flex-col' : ''} ${className}`}
       role="region"
       aria-label={ariaLabel || `Diff view for ${fileName || 'file'}`}
     >
@@ -93,7 +99,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
       </div>
 
       {/* Diff content */}
-      <div className="overflow-auto max-h-96 bg-white dark:bg-gray-900">
+      <div className={`overflow-auto bg-white dark:bg-gray-900 ${fullHeight ? 'flex-1 min-h-0' : 'max-h-96'}`}>
         <DiffViewer
           oldValue={before}
           newValue={after}

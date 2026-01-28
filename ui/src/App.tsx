@@ -206,6 +206,47 @@ const App: React.FC = () => {
     mermaidPreviewRef.current?.fitToView();
   }, []);
 
+  // Inline diff state for document history viewing (replaces modal)
+  const [historyDiff, setHistoryDiff] = useState<{
+    timestamp: string;
+    historicalContent: string;
+    viewMode: 'inline' | 'side-by-side';
+    compareMode: 'vs-current' | 'vs-previous';
+    previousContent?: string; // Content of version before selected
+  } | null>(null);
+
+  // Handle history version selection from EditorToolbar
+  const handleHistoryVersionSelect = useCallback((
+    timestamp: string,
+    content: string,
+    previousContent?: string
+  ) => {
+    if (timestamp === 'current') {
+      setHistoryDiff(null);
+      return;
+    }
+    setHistoryDiff(prev => ({
+      timestamp,
+      historicalContent: content,
+      viewMode: prev?.viewMode ?? 'inline',
+      compareMode: prev?.compareMode ?? 'vs-current',
+      previousContent,
+    }));
+  }, []);
+
+  // Handle history settings changes
+  const handleHistorySettingsChange = useCallback((
+    viewMode: 'inline' | 'side-by-side',
+    compareMode: 'vs-current' | 'vs-previous'
+  ) => {
+    setHistoryDiff(prev => prev ? { ...prev, viewMode, compareMode } : null);
+  }, []);
+
+  // Clear history diff when selected item changes
+  const handleClearHistoryDiff = useCallback(() => {
+    setHistoryDiff(null);
+  }, []);
+
   // Registered projects state (projects may exist without sessions)
   const [registeredProjects, setRegisteredProjects] = useState<string[]>([]);
 
@@ -479,6 +520,11 @@ const App: React.FC = () => {
       setLocalContent(selectedItem.content);
     }
   }, [selectedItem?.id, selectedItem?.content]);
+
+  // Clear history diff when selected item changes
+  useEffect(() => {
+    setHistoryDiff(null);
+  }, [selectedItem?.id]);
 
   // Auto-save handler - uses WebSocket to persist changes
   const handleSave = useCallback(
@@ -769,6 +815,13 @@ const App: React.FC = () => {
           showZoom={selectedItem?.type !== 'document'}
           onCenter={selectedItem?.type === 'diagram' ? handleCenter : undefined}
           onFitToView={selectedItem?.type === 'diagram' ? handleFitToView : undefined}
+          itemType={selectedItem?.type}
+          documentId={selectedItem?.type === 'document' ? selectedItem.id : undefined}
+          documentContent={selectedItem?.type === 'document' ? effectiveContent : undefined}
+          onHistoryVersionSelect={selectedItem?.type === 'document' ? handleHistoryVersionSelect : undefined}
+          historyDiff={selectedItem?.type === 'document' ? historyDiff : null}
+          onClearHistoryDiff={handleClearHistoryDiff}
+          onHistorySettingsChange={selectedItem?.type === 'document' ? handleHistorySettingsChange : undefined}
         />
 
         {/* Unified Editor */}
@@ -782,6 +835,8 @@ const App: React.FC = () => {
             onZoomOut={zoomOut}
             onSetZoom={setZoomLevel}
             previewRef={mermaidPreviewRef}
+            historyDiff={selectedItem?.type === 'document' ? historyDiff : null}
+            onClearHistoryDiff={handleClearHistoryDiff}
           />
         </div>
       </div>
