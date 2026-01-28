@@ -1,11 +1,11 @@
-import type { ServerWebSocket } from 'bun';
-import type { Subprocess } from 'bun';
+import type { ServerWebSocket, Subprocess, Terminal } from 'bun';
 import { RingBuffer } from './RingBuffer';
 import { existsSync } from 'fs';
 
 export interface PTYSession {
   id: string;
-  pty: Subprocess;
+  process: Subprocess<'ignore', 'ignore', 'ignore'>;
+  terminal: Terminal;
   buffer: RingBuffer;
   websockets: Set<ServerWebSocket>;
   shell: string;
@@ -31,7 +31,7 @@ export interface CreateOptions {
 }
 
 /**
- * Manages PTY sessions in-memory, replacing tmux.
+ * Manages PTY sessions in-memory using Bun's native terminal API.
  * Singleton instance initialized at server startup.
  */
 export class PTYManager {
@@ -42,80 +42,54 @@ export class PTYManager {
   }
 
   /**
+   * Determine shell to use
+   */
+  private getShell(requestedShell?: string): string {
+    if (requestedShell) {
+      if (!existsSync(requestedShell)) {
+        throw new Error(`Shell not found: ${requestedShell}`);
+      }
+      return requestedShell;
+    }
+
+    const envShell = process.env.SHELL;
+    if (envShell && existsSync(envShell)) {
+      return envShell;
+    }
+
+    // Try fallback chain: zsh -> bash -> sh
+    const fallbacks = ['/bin/zsh', '/bin/bash', '/bin/sh'];
+    for (const fallback of fallbacks) {
+      if (existsSync(fallback)) {
+        return fallback;
+      }
+    }
+
+    throw new Error('No shell available');
+  }
+
+  /**
    * Create a new PTY session with the given ID.
-   *
-   * Errors:
-   * - Throws if sessionId already exists
-   * - Throws if no valid shell available
-   * - Throws on spawn failure
    */
   async create(sessionId: string, options?: CreateOptions): Promise<PTYSessionInfo> {
-    // 1. Check if sessionId already exists
     if (this.sessions.has(sessionId)) {
       throw new Error(`Session already exists: ${sessionId}`);
     }
 
-    // Validate sessionId is not empty/whitespace
     if (!sessionId || !sessionId.trim()) {
       throw new Error('Invalid session ID');
     }
 
-    // 2. Determine shell
-    let shell: string;
-    if (options?.shell) {
-      shell = options.shell;
-    } else {
-      const envShell = process.env.SHELL;
-      if (envShell && existsSync(envShell)) {
-        shell = envShell;
-      } else {
-        // Try fallback chain: zsh -> bash -> sh
-        const fallbacks = ['/bin/zsh', '/bin/bash', '/bin/sh'];
-        let found = false;
-        for (const fallback of fallbacks) {
-          if (existsSync(fallback)) {
-            shell = fallback;
-            found = true;
-            break;
-          }
-        }
-        if (!found) {
-          throw new Error('No shell available');
-        }
-      }
-    }
-
-    // 3. Verify shell exists
-    if (!existsSync(shell)) {
-      throw new Error(`Shell not found: ${shell}`);
-    }
-
-    // 4. Spawn PTY subprocess
+    const shell = this.getShell(options?.shell);
     const cwd = options?.cwd || process.cwd();
     const cols = options?.cols || 80;
     const rows = options?.rows || 24;
 
-    let pty: Subprocess;
-    try {
-      pty = Bun.spawn([shell], {
-        cwd,
-        env: process.env,
-        stdin: 'pipe',
-        stdout: 'pipe',
-        stderr: 'pipe',
-        pty: {
-          cols,
-          rows,
-        },
-      });
-    } catch (error) {
-      throw new Error(`Failed to spawn PTY: ${error instanceof Error ? error.message : String(error)}`);
-    }
-
-    // 5. Create PTYSession object
+    // Create session object first so callbacks can reference it
     const session: PTYSession = {
       id: sessionId,
-      pty,
+      process: null as any,
+      terminal: null as any,
       buffer: new RingBuffer(),
       websockets: new Set(),
       shell,
@@ -124,53 +98,70 @@ export class PTYManager {
       lastActivity: new Date(),
     };
 
-    // 6. Set up PTY output handler
-    const handleOutput = async (data: Buffer) => {
-      const text = data.toString('utf8');
-      session.buffer.write(text);
-      session.lastActivity = new Date();
+    try {
+      // Spawn shell with Bun's native terminal option (callback-based API)
+      const proc = Bun.spawn([shell], {
+        cwd,
+        env: {
+          ...process.env,
+          TERM: 'xterm-256color',
+        },
+        terminal: {
+          cols,
+          rows,
+          // Called when data is received from the terminal
+          data: (terminal, data) => {
+            const text = new TextDecoder().decode(data);
+            session.buffer.write(text);
+            session.lastActivity = new Date();
 
-      // Broadcast to all websockets
-      for (const ws of session.websockets) {
-        try {
-          ws.send(JSON.stringify({ type: 'output', data: text }));
-        } catch (error) {
-          // WebSocket may have been closed, ignore
+            // Broadcast to all connected websockets
+            for (const ws of session.websockets) {
+              try {
+                ws.send(JSON.stringify({ type: 'output', data: text }));
+              } catch (error) {
+                // WebSocket may have been closed, ignore
+              }
+            }
+          },
+          // Called when PTY stream closes
+          exit: (terminal, exitCode, signal) => {
+            console.log(`PTY session ${sessionId} exited: code=${exitCode}, signal=${signal}`);
+            session.lastActivity = new Date();
+
+            // Broadcast exit message
+            for (const ws of session.websockets) {
+              try {
+                ws.send(JSON.stringify({ type: 'exit', code: exitCode }));
+              } catch (error) {
+                // WebSocket already closed, ignore
+              }
+            }
+
+            // Clean up session
+            this.sessions.delete(sessionId);
+          },
+        },
+      });
+
+      session.process = proc as Subprocess<'ignore', 'ignore', 'ignore'>;
+      session.terminal = proc.terminal!;
+
+      // Handle process exit (backup cleanup)
+      proc.exited.then((exitCode) => {
+        if (this.sessions.has(sessionId)) {
+          console.log(`PTY process exited for ${sessionId}: code=${exitCode}`);
+          this.sessions.delete(sessionId);
         }
-      }
-    };
+      });
 
-    // 7. Set up PTY exit handler
-    const handleExit = async () => {
-      session.lastActivity = new Date();
+    } catch (error) {
+      throw new Error(`Failed to spawn PTY: ${error instanceof Error ? error.message : String(error)}`);
+    }
 
-      // Broadcast exit message
-      for (const ws of session.websockets) {
-        try {
-          ws.send(JSON.stringify({ type: 'exit', code: -1 }));
-        } catch (error) {
-          // WebSocket may have been closed, ignore
-        }
-      }
-
-      // Clean up session
-      this.sessions.delete(sessionId);
-    };
-
-    // Attach handlers to the output stream
-    (async () => {
-      for await (const chunk of pty.stdout) {
-        await handleOutput(chunk);
-      }
-      await handleExit();
-    })().catch((error) => {
-      console.error(`PTY output handler error for session ${sessionId}:`, error);
-    });
-
-    // 8. Store session in Map
+    // Store session
     this.sessions.set(sessionId, session);
 
-    // 9. Return session info
     return {
       id: session.id,
       shell: session.shell,
@@ -183,47 +174,37 @@ export class PTYManager {
 
   /**
    * Send input data to a PTY session.
-   * Throws if session not found.
    */
   write(sessionId: string, data: string): void {
-    // 1. Get session from Map
     const session = this.sessions.get(sessionId);
     if (!session) {
       throw new Error(`Session not found: ${sessionId}`);
     }
 
-    // 2. Write data to session.pty.stdin
     try {
-      session.pty.stdin?.write(data);
+      session.terminal.write(data);
     } catch (error) {
       console.warn(`Failed to write to session ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
     }
 
-    // 3. Update session.lastActivity
     session.lastActivity = new Date();
   }
 
   /**
    * Resize a PTY session.
-   * Throws if session not found.
    */
   resize(sessionId: string, cols: number, rows: number): void {
-    // 1. Get session from Map
     const session = this.sessions.get(sessionId);
     if (!session) {
       throw new Error(`Session not found: ${sessionId}`);
     }
 
-    // 2. Call pty.resize if supported by Bun
     try {
-      if (typeof (session.pty as any).resize === 'function') {
-        (session.pty as any).resize(cols, rows);
-      }
+      session.terminal.resize(cols, rows);
     } catch (error) {
       console.warn(`Failed to resize session ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
     }
 
-    // 3. Update session.lastActivity
     session.lastActivity = new Date();
   }
 
@@ -232,92 +213,72 @@ export class PTYManager {
    * Auto-creates session if it doesn't exist.
    */
   attach(sessionId: string, ws: ServerWebSocket): void {
-    // 1. Get session from Map
     let session = this.sessions.get(sessionId);
 
-    // If not found: auto-create session with default options
+    // Auto-create session if it doesn't exist
     if (!session) {
-      // This is sync but create is async - we need to create synchronously
-      // For now, we'll create a placeholder and handle the async creation
-      // Actually, attach should not be async per the interface, so we need to rethink this
-      // Looking at pseudocode: "Auto-create session with default options"
-      // But we can't await in a sync function. We need to handle this differently.
+      const shell = this.getShell();
+      const cwd = process.cwd();
 
-      // Option: Make attach async (but interface says it's sync)
-      // Option: Pre-create session synchronously without async handlers
-      // Looking at the pseudocode more carefully, it says "auto-create" but the interface is sync
-
-      // Let me check if there's a pattern in the codebase...
-      // For now, I'll create a minimal session synchronously and set up async handlers
+      session = {
+        id: sessionId,
+        process: null as any,
+        terminal: null as any,
+        buffer: new RingBuffer(),
+        websockets: new Set(),
+        shell,
+        cwd,
+        createdAt: new Date(),
+        lastActivity: new Date(),
+      };
 
       try {
-        // Create minimal session synchronously
-        const shell = process.env.SHELL || '/bin/zsh';
-        const cwd = process.cwd();
-
-        if (!existsSync(shell)) {
-          throw new Error(`Shell not found: ${shell}`);
-        }
-
-        const pty = Bun.spawn([shell], {
+        const proc = Bun.spawn([shell], {
           cwd,
-          env: process.env,
-          stdin: 'pipe',
-          stdout: 'pipe',
-          stderr: 'pipe',
-          pty: {
+          env: {
+            ...process.env,
+            TERM: 'xterm-256color',
+          },
+          terminal: {
             cols: 80,
             rows: 24,
+            data: (terminal, data) => {
+              const text = new TextDecoder().decode(data);
+              session!.buffer.write(text);
+              session!.lastActivity = new Date();
+
+              for (const connectedWs of session!.websockets) {
+                try {
+                  connectedWs.send(JSON.stringify({ type: 'output', data: text }));
+                } catch (error) {
+                  // WebSocket closed, ignore
+                }
+              }
+            },
+            exit: (terminal, exitCode, signal) => {
+              console.log(`PTY session ${sessionId} exited: code=${exitCode}, signal=${signal}`);
+              session!.lastActivity = new Date();
+
+              for (const connectedWs of session!.websockets) {
+                try {
+                  connectedWs.send(JSON.stringify({ type: 'exit', code: exitCode }));
+                } catch (error) {
+                  // WebSocket closed, ignore
+                }
+              }
+
+              this.sessions.delete(sessionId);
+            },
           },
         });
 
-        session = {
-          id: sessionId,
-          pty,
-          buffer: new RingBuffer(),
-          websockets: new Set(),
-          shell,
-          cwd,
-          createdAt: new Date(),
-          lastActivity: new Date(),
-        };
+        session.process = proc as Subprocess<'ignore', 'ignore', 'ignore'>;
+        session.terminal = proc.terminal!;
 
-        // Set up async handlers in background
-        const handleOutput = async (data: Buffer) => {
-          const text = data.toString('utf8');
-          session.buffer.write(text);
-          session.lastActivity = new Date();
-
-          for (const connectedWs of session.websockets) {
-            try {
-              connectedWs.send(JSON.stringify({ type: 'output', data: text }));
-            } catch (error) {
-              // WebSocket closed, ignore
-            }
+        proc.exited.then((exitCode) => {
+          if (this.sessions.has(sessionId)) {
+            this.sessions.delete(sessionId);
           }
-        };
-
-        const handleExit = async () => {
-          session.lastActivity = new Date();
-
-          for (const connectedWs of session.websockets) {
-            try {
-              connectedWs.send(JSON.stringify({ type: 'exit', code: -1 }));
-            } catch (error) {
-              // WebSocket closed, ignore
-            }
-          }
-
-          this.sessions.delete(sessionId);
-        };
-
-        (async () => {
-          for await (const chunk of pty.stdout) {
-            await handleOutput(chunk);
-          }
-          await handleExit();
-        })().catch((error) => {
-          console.error(`PTY output handler error for session ${sessionId}:`, error);
         });
 
         this.sessions.set(sessionId, session);
@@ -327,10 +288,10 @@ export class PTYManager {
       }
     }
 
-    // 2. Add ws to session.websockets Set
+    // Add WebSocket to session
     session.websockets.add(ws);
 
-    // 3. Replay buffer contents to this ws
+    // Replay buffer contents to this ws
     try {
       const bufferContents = session.buffer.getContents();
       if (bufferContents) {
@@ -340,7 +301,6 @@ export class PTYManager {
       console.warn(`Failed to replay buffer for session ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
     }
 
-    // 4. Update session.lastActivity
     session.lastActivity = new Date();
   }
 
@@ -348,31 +308,24 @@ export class PTYManager {
    * Detach a WebSocket (PTY continues running).
    */
   detach(sessionId: string, ws: ServerWebSocket): void {
-    // 1. Get session from Map
     const session = this.sessions.get(sessionId);
     if (!session) {
-      // No-op if session not found
       return;
     }
 
-    // 2. Remove ws from session.websockets Set
     session.websockets.delete(ws);
-
-    // 3. PTY continues running (no cleanup on detach)
   }
 
   /**
    * Kill a PTY session and cleanup.
    */
   kill(sessionId: string): void {
-    // 1. Get session from Map
     const session = this.sessions.get(sessionId);
     if (!session) {
-      // Already killed, no-op
       return;
     }
 
-    // 2. Broadcast exit message to all websockets
+    // Broadcast exit message
     for (const ws of session.websockets) {
       try {
         ws.send(JSON.stringify({ type: 'exit', code: -1 }));
@@ -381,7 +334,7 @@ export class PTYManager {
       }
     }
 
-    // 3. Close all websockets in session.websockets
+    // Close all websockets
     for (const ws of session.websockets) {
       try {
         ws.close();
@@ -390,17 +343,21 @@ export class PTYManager {
       }
     }
 
-    // 4. Kill PTY process
+    // Close terminal and kill process
     try {
-      session.pty.kill();
+      session.terminal.close();
+    } catch (error) {
+      // Already closed, ignore
+    }
+
+    try {
+      session.process.kill();
     } catch (error) {
       // Already dead, ignore
     }
 
-    // 5. Clear buffer
+    // Clear buffer and remove session
     session.buffer.clear();
-
-    // 6. Remove session from Map
     this.sessions.delete(sessionId);
   }
 

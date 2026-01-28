@@ -15,10 +15,11 @@ import { statusManager } from './services/status-manager';
 import { initializeWebSocketHandler } from './services/ws-handler-manager';
 import { handleMCPRequest, getActiveSessionCount } from './mcp/http-handler';
 import {
-  handleTerminalConnection,
+  handleTerminalOpen,
   handleTerminalMessage,
-  handleTerminalDisconnection,
-} from './services/terminal-ws-server';
+  handleTerminalClose,
+  handleTerminalError,
+} from './routes/websocket';
 
 // Scratch session - a default workspace for casual use
 const SCRATCH_PROJECT = join(homedir(), '.mermaid-collab');
@@ -63,11 +64,18 @@ const server = Bun.serve({
       return new Response('WebSocket upgrade failed', { status: 500 });
     }
 
-    // WebSocket upgrade for terminal
-    if (url.pathname === '/terminal') {
-      const session = url.searchParams.get('session') || 'default';
+    // WebSocket upgrade for terminal (PTY-based)
+    // Supports: /terminal/:sessionId
+    if (url.pathname.startsWith('/terminal/')) {
+      // Extract session ID from path: /terminal/:sessionId
+      const sessionId = url.pathname.slice('/terminal/'.length).split('/')[0] || null;
+
+      if (!sessionId) {
+        return new Response('Missing session ID in path', { status: 400 });
+      }
+
       const upgraded = server.upgrade(req, {
-        data: { type: 'terminal', tmuxSession: session },
+        data: { type: 'terminal', sessionId },
       });
 
       if (upgraded) return undefined;
@@ -132,11 +140,11 @@ const server = Bun.serve({
 
   websocket: {
     open(ws) {
-      const data = ws.data as { type: string; tmuxSession?: string };
+      const data = ws.data as { type: string; sessionId?: string };
 
       if (data.type === 'terminal') {
-        // Terminal WebSocket connection
-        handleTerminalConnection(ws, data.tmuxSession || 'default');
+        // Terminal WebSocket connection - PTY-based handler extracts sessionId from ws.data
+        handleTerminalOpen(ws as any);
       } else {
         // Collab WebSocket connection
         wsHandler.handleConnection(ws);
@@ -151,7 +159,7 @@ const server = Bun.serve({
       const data = ws.data as { type: string };
 
       if (data.type === 'terminal') {
-        handleTerminalMessage(ws, message.toString());
+        handleTerminalMessage(ws as any, message);
       } else {
         wsHandler.handleMessage(ws, message.toString());
       }
@@ -161,16 +169,42 @@ const server = Bun.serve({
       const data = ws.data as { type: string };
 
       if (data.type === 'terminal') {
-        handleTerminalDisconnection(ws);
+        handleTerminalClose(ws as any);
       } else {
         wsHandler.handleDisconnection(ws);
       }
     },
+
+    error(ws, error) {
+      const data = ws.data as { type: string };
+
+      if (data.type === 'terminal') {
+        handleTerminalError(ws as any, error);
+      }
+      // Collab errors are handled elsewhere
+    },
   },
+});
+
+// Initialize PTY manager and register shutdown handlers
+import { ptyManager } from './terminal/index';
+
+// Handle graceful shutdown - kill all PTY sessions
+process.on('SIGINT', () => {
+  console.log('\n🛑 SIGINT received, shutting down gracefully...');
+  ptyManager.killAll();
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log('\n🛑 SIGTERM received, shutting down gracefully...');
+  ptyManager.killAll();
+  process.exit(0);
 });
 
 console.log(`🚀 Mermaid Collaboration Server running on http://${config.HOST}:${config.PORT}`);
 console.log(`🌐 Public directory: ${config.PUBLIC_DIR}`);
 console.log(`🎨 UI dist directory: ${config.UI_DIST_DIR} (exists: ${existsSync(config.UI_DIST_DIR)})`);
 console.log(`🔌 WebSocket: ws://${config.HOST}:${config.PORT}/ws`);
+console.log(`🔌 Terminal: ws://${config.HOST}:${config.PORT}/terminal/:sessionId`);
 console.log(`🤖 MCP HTTP: http://${config.HOST}:${config.PORT}/mcp`);

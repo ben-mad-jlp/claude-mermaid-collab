@@ -13,7 +13,6 @@ import { projectRegistry } from '../services/project-registry';
 import { join, isAbsolute } from 'path';
 import { homedir } from 'os';
 import { existsSync } from 'fs';
-import crypto from 'crypto';
 
 /**
  * Expand ~ to home directory in paths
@@ -1006,66 +1005,101 @@ export async function handleAPI(
   }
 
   // ============================================
-  // Terminal Session Management (PTYManager-backed)
+  // Terminal Session Management (PTY-backed, project/session scoped)
   // ============================================
 
   // POST /api/terminal/sessions - Create new terminal session
   if (path === '/api/terminal/sessions' && req.method === 'POST') {
     try {
-      const { id: sessionId, shell, cwd } = await req.json() as { id?: string; shell?: string; cwd?: string };
+      const { project: rawProject, session, name } = await req.json() as { project?: string; session?: string; name?: string };
 
-      // Generate sessionId if not provided
-      let finalSessionId = sessionId;
-      if (!finalSessionId) {
-        finalSessionId = crypto.randomUUID();
+      if (!rawProject || !session) {
+        return Response.json({ error: 'project and session required' }, { status: 400 });
       }
 
-      // Import PTYManager
-      const { ptyManager } = await import('../terminal/index.js');
+      // Expand ~ to home directory
+      const project = expandPath(rawProject);
 
-      // Create the PTY session
-      const sessionInfo = await ptyManager.create(finalSessionId, { shell, cwd });
+      // Import managers
+      const { terminalManager } = await import('../services/terminal-manager.js');
+      const { ptyManager } = await import('../terminal/index.js');
+      const { randomUUID } = await import('crypto');
+
+      // Read current sessions for naming
+      const state = await terminalManager.readSessions(project, session);
+
+      // Determine display name
+      let displayName = name;
+      if (!displayName || typeof displayName !== 'string') {
+        displayName = `Terminal ${state.sessions.length + 1}`;
+      }
+
+      // Generate unique session ID
+      const id = randomUUID();
+
+      // Create PTY session via ptyManager with project as cwd
+      await ptyManager.create(id, { cwd: project });
+
+      // Create session record for persistence
+      const newSession = {
+        id,
+        name: displayName,
+        tmuxSession: id, // Use same ID (no tmux, but keep field for compatibility)
+        created: new Date().toISOString(),
+        order: state.sessions.length,
+      };
+
+      // Add to sessions array and persist
+      state.sessions.push(newSession);
+      await terminalManager.writeSessions(project, session, state);
 
       // Return session info with 201 Created status
       return Response.json({
-        id: sessionInfo.id,
-        shell: sessionInfo.shell,
-        cwd: sessionInfo.cwd,
-        createdAt: sessionInfo.createdAt.toISOString(),
-        lastActivity: sessionInfo.lastActivity.toISOString(),
+        id,
+        tmuxSession: id,
+        wsUrl: `ws://localhost:3737/terminal/${id}`,
       }, { status: 201 });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
     }
   }
 
-  // GET /api/terminal/sessions - List active terminal sessions
+  // GET /api/terminal/sessions?project=...&session=... - List terminal sessions
   if (path === '/api/terminal/sessions' && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
     try {
-      // Import PTYManager
+      // Import managers
+      const { terminalManager } = await import('../services/terminal-manager.js');
       const { ptyManager } = await import('../terminal/index.js');
 
-      // Get list of active sessions
-      const sessions = ptyManager.list();
+      // Read sessions from storage
+      const state = await terminalManager.readSessions(params.project, params.session);
 
-      // Convert Date objects to ISO strings for JSON serialization
-      const result = sessions.map(session => ({
-        id: session.id,
-        shell: session.shell,
-        cwd: session.cwd,
-        createdAt: session.createdAt.toISOString(),
-        lastActivity: session.lastActivity.toISOString(),
-        connectedClients: session.connectedClients,
-      }));
+      // Sort sessions by order field and augment with live status
+      const sortedSessions = state.sessions
+        .sort((a, b) => a.order - b.order)
+        .map(s => ({
+          ...s,
+          alive: ptyManager.has(s.id),
+        }));
 
-      return Response.json(result, { status: 200 });
+      return Response.json({ sessions: sortedSessions }, { status: 200 });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 500 });
     }
   }
 
-  // DELETE /api/terminal/sessions/:id - Kill a terminal session
+  // DELETE /api/terminal/sessions/:id?project=...&session=... - Kill a terminal session
   if (path.match(/^\/api\/terminal\/sessions\/[^/]+$/) && req.method === 'DELETE') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
     try {
       const id = path.split('/').pop()!;
 
@@ -1073,26 +1107,50 @@ export async function handleAPI(
         return Response.json({ error: 'Session ID required' }, { status: 400 });
       }
 
-      // Import PTYManager
+      // Import managers
+      const { terminalManager } = await import('../services/terminal-manager.js');
       const { ptyManager } = await import('../terminal/index.js');
 
-      // Check if session exists
-      if (!ptyManager.has(id)) {
+      // Read current sessions
+      const state = await terminalManager.readSessions(params.project, params.session);
+
+      // Find session by id
+      const sessionIndex = state.sessions.findIndex(s => s.id === id);
+      if (sessionIndex === -1) {
         return Response.json({ error: 'Session not found' }, { status: 404 });
       }
 
-      // Kill the session
+      // Kill PTY session
       ptyManager.kill(id);
 
-      // Return 204 No Content on success (idempotent)
+      // Remove from sessions array
+      state.sessions.splice(sessionIndex, 1);
+
+      // Recompute order for remaining sessions
+      for (let i = 0; i < state.sessions.length; i++) {
+        state.sessions[i].order = i;
+      }
+
+      // Write updated sessions
+      await terminalManager.writeSessions(params.project, params.session, state);
+
+      // Return 204 No Content on success
       return new Response(null, { status: 204 });
     } catch (error: any) {
+      if (error.message === 'Session not found') {
+        return Response.json({ error: 'Session not found' }, { status: 404 });
+      }
       return Response.json({ error: error.message }, { status: 500 });
     }
   }
 
-  // POST /api/terminal/sessions/:id/rename - Rename/update a terminal session
+  // POST /api/terminal/sessions/:id/rename?project=...&session=... - Rename a terminal session
   if (path.match(/^\/api\/terminal\/sessions\/[^/]+\/rename$/) && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
     try {
       const sessionId = path.split('/')[4];
       const { name } = await req.json() as { name?: string };
@@ -1101,19 +1159,103 @@ export async function handleAPI(
         return Response.json({ error: 'Session ID required' }, { status: 400 });
       }
 
-      // Import PTYManager
-      const { ptyManager } = await import('../terminal/index.js');
+      if (!name) {
+        return Response.json({ error: 'name required' }, { status: 400 });
+      }
 
-      // Check if session exists
-      if (!ptyManager.has(sessionId)) {
+      // Import terminal manager
+      const { terminalManager } = await import('../services/terminal-manager.js');
+
+      // Read current sessions
+      const state = await terminalManager.readSessions(params.project, params.session);
+
+      // Find session by id
+      const sessionToRename = state.sessions.find(s => s.id === sessionId);
+      if (!sessionToRename) {
         return Response.json({ error: 'Session not found' }, { status: 404 });
       }
 
-      // Note: Session ID is immutable, but we return success for API compatibility
-      // If display names need to be tracked separately, this can be extended
-      return Response.json({ success: true, id: sessionId }, { status: 200 });
+      // Update name field
+      let trimmedName = name.trim();
+      if (!trimmedName) {
+        trimmedName = 'Terminal';
+      }
+      sessionToRename.name = trimmedName;
+
+      // Write updated sessions
+      await terminalManager.writeSessions(params.project, params.session, state);
+
+      return Response.json({ success: true }, { status: 200 });
     } catch (error: any) {
+      if (error.message === 'Session not found') {
+        return Response.json({ error: 'Session not found' }, { status: 404 });
+      }
       return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // PUT /api/terminal/sessions/reorder?project=...&session=... - Reorder terminal sessions
+  if (path === '/api/terminal/sessions/reorder' && req.method === 'PUT') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    try {
+      const { orderedIds } = await req.json() as { orderedIds?: string[] };
+
+      if (!orderedIds || !Array.isArray(orderedIds)) {
+        return Response.json({ error: 'orderedIds array required' }, { status: 400 });
+      }
+
+      // Import terminal manager
+      const { terminalManager } = await import('../services/terminal-manager.js');
+
+      // Read current sessions
+      const state = await terminalManager.readSessions(params.project, params.session);
+
+      // Validate orderedIds - must contain all session IDs (no missing, no extras)
+      const sessionIds = new Set(state.sessions.map(s => s.id));
+      const orderedIdSet = new Set(orderedIds);
+
+      // Check for duplicates
+      if (orderedIds.length !== orderedIdSet.size) {
+        return Response.json({ error: 'orderedIds contains duplicate IDs' }, { status: 400 });
+      }
+
+      // Check for missing sessions
+      for (const id of sessionIds) {
+        if (!orderedIdSet.has(id)) {
+          return Response.json({ error: 'orderedIds is missing a session ID' }, { status: 400 });
+        }
+      }
+
+      // Check for unknown IDs
+      for (const id of orderedIds) {
+        if (!sessionIds.has(id)) {
+          return Response.json({ error: 'orderedIds contains unknown session ID' }, { status: 400 });
+        }
+      }
+
+      // Reorder sessions array and update order fields
+      const newSessions: typeof state.sessions = [];
+      for (let i = 0; i < orderedIds.length; i++) {
+        const id = orderedIds[i];
+        const foundSession = state.sessions.find(s => s.id === id);
+        if (foundSession) {
+          foundSession.order = i;
+          newSessions.push(foundSession);
+        }
+      }
+
+      state.sessions = newSessions;
+
+      // Write updated sessions
+      await terminalManager.writeSessions(params.project, params.session, state);
+
+      return Response.json({ success: true }, { status: 200 });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
     }
   }
 

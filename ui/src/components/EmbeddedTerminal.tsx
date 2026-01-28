@@ -4,8 +4,8 @@ import { XTermTerminal } from './terminal/XTermTerminal';
 
 export interface EmbeddedTerminalProps {
   config: TerminalConfig;
-  /** Unique tmux session name for persistence across refreshes */
-  sessionName?: string;
+  /** Unique session ID for PTY session */
+  sessionId?: string;
   className?: string;
 }
 
@@ -15,20 +15,20 @@ export interface EmbeddedTerminalProps {
  * Features:
  * - Text selection without auto-copy
  * - Right-click copies selected text to clipboard
- * - Connects to tmux sessions via WebSocket + Bun.Terminal
+ * - Connects to PTY sessions via WebSocket + Bun native PTY
  * - Responsive sizing
  */
 export const EmbeddedTerminal = React.memo(function EmbeddedTerminal({
   config,
-  sessionName,
+  sessionId,
   className = '',
 }: EmbeddedTerminalProps) {
   // Build WebSocket URL from config
-  // The wsUrl should point to /terminal endpoint
+  // The wsUrl should point to /terminal endpoint base
   const wsUrl = config.wsUrl;
 
-  // Use provided session name or 'default'
-  const tmuxSession = sessionName || 'default';
+  // Use provided session ID or 'default'
+  const terminalSessionId = sessionId || 'default';
 
   return (
     <div
@@ -42,7 +42,7 @@ export const EmbeddedTerminal = React.memo(function EmbeddedTerminal({
     >
       <XTermTerminal
         wsUrl={wsUrl}
-        tmuxSession={tmuxSession}
+        sessionId={terminalSessionId}
       />
     </div>
   );

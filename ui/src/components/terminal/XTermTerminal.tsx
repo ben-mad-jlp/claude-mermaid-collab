@@ -4,10 +4,10 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 
 export interface XTermTerminalProps {
-  /** WebSocket URL for terminal connection (e.g., ws://localhost:3737/terminal) */
+  /** WebSocket URL base for terminal connection (e.g., ws://localhost:3737/terminal) */
   wsUrl: string;
-  /** tmux session name to attach to */
-  tmuxSession: string;
+  /** Session ID to attach to (used in path: /terminal/:sessionId) */
+  sessionId: string;
   className?: string;
 }
 
@@ -17,13 +17,13 @@ export interface XTermTerminalProps {
  * Features:
  * - Text selection without auto-copy
  * - Right-click copies selected text to clipboard
- * - Connects to tmux sessions via WebSocket + Bun.Terminal
+ * - Connects to PTY sessions via WebSocket + Bun native PTY
  * - Responsive sizing with FitAddon
- * - JSON-based resize messages
+ * - JSON-based input/resize messages
  */
 export const XTermTerminal = React.memo(function XTermTerminal({
   wsUrl,
-  tmuxSession,
+  sessionId,
   className = '',
 }: XTermTerminalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
@@ -125,9 +125,8 @@ export const XTermTerminal = React.memo(function XTermTerminal({
         // Ignore initial fit errors
       }
 
-      // Build WebSocket URL with tmux session
-      const url = new URL(wsUrl, window.location.origin);
-      url.searchParams.set('session', tmuxSession);
+      // Build WebSocket URL with session ID in path: /terminal/:sessionId
+      const url = new URL(`${wsUrl}/${encodeURIComponent(sessionId)}`, window.location.origin);
 
       // Create WebSocket connection
       ws = new WebSocket(url.toString());
@@ -146,14 +145,33 @@ export const XTermTerminal = React.memo(function XTermTerminal({
       ws.onmessage = (event) => {
         if (isDisposedRef.current || !term) return;
 
-        // Write incoming data to terminal
+        // Parse JSON message from PTY backend
         const data = event.data;
         if (typeof data === 'string') {
-          term.write(data);
+          try {
+            const msg = JSON.parse(data);
+            if (msg.type === 'output' && typeof msg.data === 'string') {
+              term.write(msg.data);
+            } else if (msg.type === 'exit') {
+              term.write('\r\n\x1b[33mSession exited\x1b[0m\r\n');
+            } else if (msg.type === 'error' && msg.message) {
+              term.write(`\r\n\x1b[31mError: ${msg.message}\x1b[0m\r\n`);
+            }
+          } catch {
+            // If not JSON, write directly (fallback for raw output)
+            term.write(data);
+          }
         } else if (data instanceof Blob) {
           data.text().then(text => {
             if (!isDisposedRef.current && term) {
-              term.write(text);
+              try {
+                const msg = JSON.parse(text);
+                if (msg.type === 'output' && typeof msg.data === 'string') {
+                  term.write(msg.data);
+                }
+              } catch {
+                term.write(text);
+              }
             }
           });
         }
@@ -169,10 +187,10 @@ export const XTermTerminal = React.memo(function XTermTerminal({
         }
       };
 
-      // Forward terminal input to WebSocket
+      // Forward terminal input to WebSocket using PTY protocol
       term.onData((data) => {
         if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'data', data }));
+          ws.send(JSON.stringify({ type: 'input', data }));
         }
       });
 
@@ -262,7 +280,7 @@ export const XTermTerminal = React.memo(function XTermTerminal({
       wsRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [wsUrl, tmuxSession]);
+  }, [wsUrl, sessionId]);
 
   return (
     <div

@@ -126,7 +126,7 @@ describe('XTermTerminal', () => {
 
   it('should render a terminal container div', () => {
     const { container } = render(
-      <XTermTerminal wsUrl="/terminal" tmuxSession="test-session" />
+      <XTermTerminal wsUrl="/terminal" sessionId="test-session" />
     );
 
     const terminalDiv = container.querySelector('[data-testid="xterm-container"]');
@@ -135,7 +135,7 @@ describe('XTermTerminal', () => {
 
   it('should accept wsUrl prop for WebSocket connection', () => {
     const { container } = render(
-      <XTermTerminal wsUrl="/terminal" tmuxSession="test-session" />
+      <XTermTerminal wsUrl="/terminal" sessionId="test-session" />
     );
 
     const terminalDiv = container.querySelector('[data-testid="xterm-container"]');
@@ -143,7 +143,7 @@ describe('XTermTerminal', () => {
   });
 
   it('should disable rightClickSelectsWord option', () => {
-    render(<XTermTerminal wsUrl="/terminal" tmuxSession="test-session" />);
+    render(<XTermTerminal wsUrl="/terminal" sessionId="test-session" />);
 
     // The component should render a terminal container with disabled rightClickSelectsWord
     // This is tested through the component's functionality
@@ -153,7 +153,7 @@ describe('XTermTerminal', () => {
 
   it('should handle context menu for copying selected text', () => {
     const { container } = render(
-      <XTermTerminal wsUrl="/terminal" tmuxSession="test-session" />
+      <XTermTerminal wsUrl="/terminal" sessionId="test-session" />
     );
 
     const terminalDiv = container.querySelector('[data-testid="xterm-container"]');
@@ -168,7 +168,7 @@ describe('XTermTerminal', () => {
       },
     });
 
-    render(<XTermTerminal wsUrl="/terminal" tmuxSession="test-session" />);
+    render(<XTermTerminal wsUrl="/terminal" sessionId="test-session" />);
 
     // Wait for component to mount and set up event handlers
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -184,7 +184,7 @@ describe('XTermTerminal', () => {
       },
     });
 
-    render(<XTermTerminal wsUrl="/terminal" tmuxSession="test-session" />);
+    render(<XTermTerminal wsUrl="/terminal" sessionId="test-session" />);
 
     // Component should render without errors even with empty selection
     const container = document.querySelector('[data-testid="xterm-container"]');
@@ -192,7 +192,7 @@ describe('XTermTerminal', () => {
   });
 
   it('should use WebSocket to connect to terminal backend', () => {
-    render(<XTermTerminal wsUrl="/terminal" tmuxSession="test-session" />);
+    render(<XTermTerminal wsUrl="/terminal" sessionId="test-session" />);
 
     // The component should render and have connected to WebSocket
     const container = document.querySelector('[data-testid="xterm-container"]');
@@ -200,17 +200,17 @@ describe('XTermTerminal', () => {
   });
 
   it('should use FitAddon to size terminal correctly', () => {
-    render(<XTermTerminal wsUrl="/terminal" tmuxSession="test-session" />);
+    render(<XTermTerminal wsUrl="/terminal" sessionId="test-session" />);
 
     // The component should render with proper sizing applied
     const container = document.querySelector('[data-testid="xterm-container"]');
-    expect(container).toHaveStyle('height: 100%');
     expect(container).toHaveStyle('width: 100%');
+    expect(container).toHaveStyle('flex: 1');
   });
 
   it('should dispose terminal on unmount', () => {
     const { unmount, container } = render(
-      <XTermTerminal wsUrl="/terminal" tmuxSession="test-session" />
+      <XTermTerminal wsUrl="/terminal" sessionId="test-session" />
     );
 
     // Component should be mounted
@@ -227,7 +227,7 @@ describe('XTermTerminal', () => {
     const { container } = render(
       <XTermTerminal
         wsUrl="/terminal"
-        tmuxSession="test-session"
+        sessionId="test-session"
         className="custom-class"
       />
     );

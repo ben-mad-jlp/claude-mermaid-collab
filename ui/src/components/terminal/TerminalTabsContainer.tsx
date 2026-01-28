@@ -98,7 +98,7 @@ export const TerminalTabsContainer: React.FC<TerminalTabsContainerProps> = ({ cl
               >
                 <EmbeddedTerminal
                   config={terminalConfig}
-                  sessionName={tab.tmuxSession}
+                  sessionId={tab.id}
                 />
               </div>
             ))}

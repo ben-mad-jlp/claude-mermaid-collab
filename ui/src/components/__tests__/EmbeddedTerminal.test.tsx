@@ -6,11 +6,11 @@ vi.unmock('@/components/EmbeddedTerminal');
 
 // Mock XTermTerminal component to avoid xterm.js/ResizeObserver issues in jsdom
 vi.mock('../terminal/XTermTerminal', () => ({
-  XTermTerminal: vi.fn(({ wsUrl, tmuxSession, className }) => (
+  XTermTerminal: vi.fn(({ wsUrl, sessionId, className }) => (
     <div
       data-testid="xterm-terminal"
       data-ws-url={wsUrl}
-      data-tmux-session={tmuxSession}
+      data-session-id={sessionId}
       className={className}
     />
   )),
@@ -32,28 +32,28 @@ describe('EmbeddedTerminal', () => {
     render(
       <EmbeddedTerminal
         config={defaultConfig}
-        sessionName="test-session"
+        sessionId="test-session"
       />
     );
 
     const terminal = screen.getByTestId('xterm-terminal');
     expect(terminal).toBeInTheDocument();
     expect(terminal).toHaveAttribute('data-ws-url', '/terminal');
-    expect(terminal).toHaveAttribute('data-tmux-session', 'test-session');
+    expect(terminal).toHaveAttribute('data-session-id', 'test-session');
   });
 
-  it('should use default session name when not provided', () => {
+  it('should use default session ID when not provided', () => {
     render(<EmbeddedTerminal config={defaultConfig} />);
 
     const terminal = screen.getByTestId('xterm-terminal');
-    expect(terminal).toHaveAttribute('data-tmux-session', 'default');
+    expect(terminal).toHaveAttribute('data-session-id', 'default');
   });
 
   it('should pass custom wsUrl to XTermTerminal', () => {
     render(
       <EmbeddedTerminal
         config={{ wsUrl: 'ws://example.com/terminal' }}
-        sessionName="test"
+        sessionId="test"
       />
     );
 
@@ -82,14 +82,14 @@ describe('EmbeddedTerminal', () => {
     expect(terminalDiv).toHaveStyle({
       display: 'flex',
       flexDirection: 'column',
-      height: '100%',
+      flex: '1',
     });
   });
 
-  it('should pass className to XTermTerminal', () => {
+  it('should render XTermTerminal inside the container', () => {
     render(<EmbeddedTerminal config={defaultConfig} />);
 
     const terminal = screen.getByTestId('xterm-terminal');
-    expect(terminal).toHaveClass('flex-1');
+    expect(terminal).toBeInTheDocument();
   });
 });
