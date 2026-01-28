@@ -10,6 +10,7 @@ import { TerminalTabsContainer } from '../terminal/TerminalTabsContainer';
 
 export interface ChatPanelProps {
   className?: string;
+  onAutoSwitch?: () => void;
 }
 
 /**
@@ -24,7 +25,7 @@ export interface ChatPanelProps {
  * - Removed slide animation
  * - Removed isOpen/onClose props
  */
-export const ChatPanel: React.FC<ChatPanelProps> = ({ className }) => {
+export const ChatPanel: React.FC<ChatPanelProps> = ({ className, onAutoSwitch }) => {
   const { messages, respondToMessage, clearMessages } = useChatStore();
   const { chatPanelVisible: showChat, terminalPanelVisible: showTerminal } = useUIStore();
   const currentSession = useSessionStore(state => state.currentSession);
