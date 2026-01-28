@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { WebSocketClient, getWebSocketClient, resetWebSocketClient, type WebSocketMessage } from '../websocket';
+import { WebSocketClient, getWebSocketClient, resetWebSocketClient, dispatchWebSocketEvent, type WebSocketMessage } from '../websocket';
 
 // Mock WebSocket
 class MockWebSocket {
@@ -658,6 +658,326 @@ describe('WebSocketClient', () => {
 
       vi.useRealTimers();
       consoleSpy.mockRestore();
+    });
+  });
+
+  describe('dispatchWebSocketEvent', () => {
+    it('should create and dispatch CustomEvent with status_changed type', () => {
+      const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+      const detail = { project: 'test-project', session: 'test-session', status: 'running' };
+
+      dispatchWebSocketEvent('status_changed', detail);
+
+      expect(dispatchSpy).toHaveBeenCalledOnce();
+      const event = dispatchSpy.mock.calls[0][0] as CustomEvent;
+      expect(event.type).toBe('status_changed');
+      expect(event.detail).toEqual(detail);
+
+      dispatchSpy.mockRestore();
+    });
+
+    it('should create and dispatch CustomEvent with session_state_updated type', () => {
+      const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+      const detail = { project: 'test-project', session: 'test-session', state: { phase: 'executing' } };
+
+      dispatchWebSocketEvent('session_state_updated', detail);
+
+      expect(dispatchSpy).toHaveBeenCalledOnce();
+      const event = dispatchSpy.mock.calls[0][0] as CustomEvent;
+      expect(event.type).toBe('session_state_updated');
+      expect(event.detail).toEqual(detail);
+
+      dispatchSpy.mockRestore();
+    });
+
+    it('should allow listening to dispatched events', () => {
+      return new Promise<void>((resolve) => {
+        const detail = { project: 'proj1', session: 'sess1', status: 'completed' };
+        const listener = vi.fn((event: CustomEvent) => {
+          expect(event.detail).toEqual(detail);
+          expect(event.type).toBe('status_changed');
+          window.removeEventListener('status_changed', listener);
+          resolve();
+        });
+
+        window.addEventListener('status_changed', listener);
+        dispatchWebSocketEvent('status_changed', detail);
+      });
+    });
+
+    it('should dispatch multiple events without errors', () => {
+      const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+      const details = [
+        { project: 'p1', session: 's1', status: 'running' },
+        { project: 'p2', session: 's2', status: 'paused' },
+        { project: 'p3', session: 's3', status: 'completed' },
+      ];
+
+      details.forEach((detail) => {
+        dispatchWebSocketEvent('status_changed', detail);
+      });
+
+      expect(dispatchSpy).toHaveBeenCalledTimes(3);
+
+      dispatchSpy.mockRestore();
+    });
+
+    it('should accept any detail value', () => {
+      const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+
+      // Test with object
+      dispatchWebSocketEvent('status_changed', { data: 'test' });
+      expect(dispatchSpy).toHaveBeenLastCalledWith(expect.objectContaining({ detail: { data: 'test' } }));
+
+      // Test with string
+      dispatchWebSocketEvent('status_changed', 'simple string');
+      expect(dispatchSpy).toHaveBeenLastCalledWith(expect.objectContaining({ detail: 'simple string' }));
+
+      // Test with number
+      dispatchWebSocketEvent('status_changed', 42);
+      expect(dispatchSpy).toHaveBeenLastCalledWith(expect.objectContaining({ detail: 42 }));
+
+      // Test with null
+      dispatchWebSocketEvent('status_changed', null);
+      expect(dispatchSpy).toHaveBeenLastCalledWith(expect.objectContaining({ detail: null }));
+
+      dispatchSpy.mockRestore();
+    });
+
+    it('should create CustomEvent instances correctly', () => {
+      const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+      const detail = { project: 'test', session: 'test', status: 'active' };
+
+      dispatchWebSocketEvent('status_changed', detail);
+
+      const event = dispatchSpy.mock.calls[0][0];
+      expect(event).toBeInstanceOf(CustomEvent);
+      expect(event.bubbles).toBe(false); // CustomEvent default
+      expect(event.cancelable).toBe(false); // CustomEvent default
+
+      dispatchSpy.mockRestore();
+    });
+
+    it('should work with multiple listeners on same event', () => {
+      const listener1 = vi.fn();
+      const listener2 = vi.fn();
+      const listener3 = vi.fn();
+      const detail = { project: 'p', session: 's', status: 'running' };
+
+      window.addEventListener('status_changed', listener1);
+      window.addEventListener('status_changed', listener2);
+      window.addEventListener('status_changed', listener3);
+
+      dispatchWebSocketEvent('status_changed', detail);
+
+      expect(listener1).toHaveBeenCalledOnce();
+      expect(listener2).toHaveBeenCalledOnce();
+      expect(listener3).toHaveBeenCalledOnce();
+
+      window.removeEventListener('status_changed', listener1);
+      window.removeEventListener('status_changed', listener2);
+      window.removeEventListener('status_changed', listener3);
+    });
+  });
+
+  describe('Message Handler Dispatching CustomEvents', () => {
+    it('should dispatch status_changed event when receiving status_changed message', async () => {
+      const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+      const client = new WebSocketClient('ws://localhost:3737/ws');
+
+      const connectPromise = client.connect();
+      mockWebSocketInstance!.simulateOpen();
+      await connectPromise;
+
+      const statusMessage: WebSocketMessage = {
+        type: 'status_changed',
+        project: 'test-project',
+        session: 'test-session',
+        status: 'running',
+      };
+
+      mockWebSocketInstance!.simulateMessage(statusMessage);
+
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'status_changed',
+          detail: {
+            project: 'test-project',
+            session: 'test-session',
+            status: 'running',
+          },
+        })
+      );
+
+      dispatchSpy.mockRestore();
+    });
+
+    it('should dispatch session_state_updated event when receiving session_state_updated message', async () => {
+      const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+      const client = new WebSocketClient('ws://localhost:3737/ws');
+
+      const connectPromise = client.connect();
+      mockWebSocketInstance!.simulateOpen();
+      await connectPromise;
+
+      const sessionStateMessage: WebSocketMessage = {
+        type: 'session_state_updated',
+        project: 'test-project',
+        session: 'test-session',
+        state: { phase: 'executing', completedItems: 5 },
+      };
+
+      mockWebSocketInstance!.simulateMessage(sessionStateMessage);
+
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'session_state_updated',
+          detail: {
+            project: 'test-project',
+            session: 'test-session',
+            state: { phase: 'executing', completedItems: 5 },
+          },
+        })
+      );
+
+      dispatchSpy.mockRestore();
+    });
+
+    it('should dispatch both status_changed and session_state_updated events', async () => {
+      const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+      const client = new WebSocketClient('ws://localhost:3737/ws');
+
+      const connectPromise = client.connect();
+      mockWebSocketInstance!.simulateOpen();
+      await connectPromise;
+
+      const statusMessage: WebSocketMessage = {
+        type: 'status_changed',
+        project: 'proj1',
+        session: 'sess1',
+        status: 'paused',
+      };
+
+      const stateMessage: WebSocketMessage = {
+        type: 'session_state_updated',
+        project: 'proj1',
+        session: 'sess1',
+        state: { phase: 'brainstorming' },
+      };
+
+      mockWebSocketInstance!.simulateMessage(statusMessage);
+      mockWebSocketInstance!.simulateMessage(stateMessage);
+
+      expect(dispatchSpy).toHaveBeenCalledTimes(2);
+      expect(dispatchSpy.mock.calls[0][0]).toEqual(
+        expect.objectContaining({
+          type: 'status_changed',
+        })
+      );
+      expect(dispatchSpy.mock.calls[1][0]).toEqual(
+        expect.objectContaining({
+          type: 'session_state_updated',
+        })
+      );
+
+      dispatchSpy.mockRestore();
+    });
+
+    it('should not dispatch event for non-broadcast message types', async () => {
+      const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+      const client = new WebSocketClient('ws://localhost:3737/ws');
+
+      const connectPromise = client.connect();
+      mockWebSocketInstance!.simulateOpen();
+      await connectPromise;
+
+      const diagamUpdateMessage: WebSocketMessage = {
+        type: 'diagram_updated',
+        id: 'diag-1',
+        content: 'graph LR',
+      };
+
+      mockWebSocketInstance!.simulateMessage(diagamUpdateMessage);
+
+      // dispatchEvent should not be called for non-broadcast messages
+      expect(dispatchSpy).not.toHaveBeenCalled();
+
+      dispatchSpy.mockRestore();
+    });
+
+    it('should still call message handlers after dispatching event', async () => {
+      const client = new WebSocketClient('ws://localhost:3737/ws');
+      const handlerSpy = vi.fn();
+
+      client.onMessage(handlerSpy);
+
+      const connectPromise = client.connect();
+      mockWebSocketInstance!.simulateOpen();
+      await connectPromise;
+
+      const statusMessage: WebSocketMessage = {
+        type: 'status_changed',
+        project: 'test',
+        session: 'test',
+        status: 'completed',
+      };
+
+      mockWebSocketInstance!.simulateMessage(statusMessage);
+
+      // Handler should still be called for all messages including broadcast messages
+      expect(handlerSpy).toHaveBeenCalledWith(statusMessage);
+    });
+
+    it('should allow listening to status_changed events from WebSocket', async () => {
+      const client = new WebSocketClient('ws://localhost:3737/ws');
+      const listener = vi.fn();
+
+      window.addEventListener('status_changed', listener);
+
+      const connectPromise = client.connect();
+      mockWebSocketInstance!.simulateOpen();
+      await connectPromise;
+
+      const statusMessage: WebSocketMessage = {
+        type: 'status_changed',
+        project: 'proj',
+        session: 'sess',
+        status: 'active',
+      };
+
+      mockWebSocketInstance!.simulateMessage(statusMessage);
+
+      expect(listener).toHaveBeenCalledOnce();
+      const event = listener.mock.calls[0][0] as CustomEvent;
+      expect(event.detail.status).toBe('active');
+
+      window.removeEventListener('status_changed', listener);
+    });
+
+    it('should allow listening to session_state_updated events from WebSocket', async () => {
+      const client = new WebSocketClient('ws://localhost:3737/ws');
+      const listener = vi.fn();
+
+      window.addEventListener('session_state_updated', listener);
+
+      const connectPromise = client.connect();
+      mockWebSocketInstance!.simulateOpen();
+      await connectPromise;
+
+      const stateMessage: WebSocketMessage = {
+        type: 'session_state_updated',
+        project: 'proj',
+        session: 'sess',
+        state: { phase: 'designing' },
+      };
+
+      mockWebSocketInstance!.simulateMessage(stateMessage);
+
+      expect(listener).toHaveBeenCalledOnce();
+      const event = listener.mock.calls[0][0] as CustomEvent;
+      expect(event.detail.state.phase).toBe('designing');
+
+      window.removeEventListener('session_state_updated', listener);
     });
   });
 });

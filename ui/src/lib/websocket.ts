@@ -22,6 +22,42 @@ export interface WebSocketMessage {
 }
 
 /**
+ * WebSocket message types that should dispatch CustomEvents
+ */
+const BROADCAST_MESSAGE_TYPES = ['status_changed', 'session_state_updated'] as const;
+type BroadcastMessageType = typeof BROADCAST_MESSAGE_TYPES[number];
+
+/**
+ * Status changed event detail
+ */
+export interface StatusChangedDetail {
+  project: string;
+  session: string;
+  status: unknown;
+}
+
+/**
+ * Session state updated event detail
+ */
+export interface SessionStateUpdatedDetail {
+  project: string;
+  session: string;
+  state: unknown;
+}
+
+/**
+ * Dispatch a CustomEvent to window for a WebSocket message.
+ * Allows React hooks to subscribe without direct WebSocket access.
+ *
+ * @param type - The broadcast message type (status_changed or session_state_updated)
+ * @param detail - The event detail data
+ */
+export function dispatchWebSocketEvent(type: BroadcastMessageType, detail: unknown): void {
+  const event = new CustomEvent(type, { detail });
+  window.dispatchEvent(event);
+}
+
+/**
  * Handler function for WebSocket messages
  */
 export type MessageHandler = (message: WebSocketMessage) => void;
@@ -112,6 +148,22 @@ export class WebSocketClient {
         this.socket.onmessage = (event) => {
           try {
             const message: WebSocketMessage = JSON.parse(event.data);
+
+            // Bridge broadcast messages to CustomEvents
+            if (message.type === 'status_changed') {
+              dispatchWebSocketEvent('status_changed', {
+                project: message.project,
+                session: message.session,
+                status: message.status,
+              });
+            } else if (message.type === 'session_state_updated') {
+              dispatchWebSocketEvent('session_state_updated', {
+                project: message.project,
+                session: message.session,
+                state: message.state,
+              });
+            }
+
             this.messageHandlers.forEach((handler) => handler(message));
           } catch (error) {
             console.error('Failed to parse WebSocket message:', error);
