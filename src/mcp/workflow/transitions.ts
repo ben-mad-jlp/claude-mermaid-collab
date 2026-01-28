@@ -2,8 +2,18 @@
  * Transition logic for the workflow state machine.
  */
 
-import type { StateId, TransitionCondition } from './types.js';
+import type { StateId, TransitionCondition, WorkItem, ItemStatus } from './types.js';
 import { getState } from './state-machine.js';
+
+/**
+ * Session state for workflow
+ */
+export interface SessionState {
+  state: string;
+  currentItem: number | null;
+  workItems: WorkItem[];
+  [key: string]: unknown;
+}
 
 /** Context for evaluating transitions */
 export interface TransitionContext {
@@ -140,4 +150,45 @@ export function resolveToSkillState(
 
   // Max iterations reached - likely a bug in state machine
   throw new Error(`Max iterations reached resolving from ${startStateId}`);
+}
+
+/**
+ * Get the current work item from session state
+ */
+export function getCurrentWorkItem(state: SessionState): WorkItem | null {
+  if (state.currentItem === null || state.currentItem === undefined) {
+    return null;
+  }
+  return state.workItems.find((item) => item.number === state.currentItem) ?? null;
+}
+
+/**
+ * Condition: current item is brainstormed and ready for interface
+ */
+export function itemReadyForInterface(state: SessionState): boolean {
+  const item = getCurrentWorkItem(state);
+  return item !== null && item.status === 'brainstormed';
+}
+
+/**
+ * Condition: current item has interface doc, ready for pseudocode
+ */
+export function itemReadyForPseudocode(state: SessionState): boolean {
+  const item = getCurrentWorkItem(state);
+  return item !== null && item.status === 'interface';
+}
+
+/**
+ * Condition: current item has pseudocode doc, ready for skeleton
+ */
+export function itemReadyForSkeleton(state: SessionState): boolean {
+  const item = getCurrentWorkItem(state);
+  return item !== null && item.status === 'pseudocode';
+}
+
+/**
+ * Condition: all items complete, ready for handoff
+ */
+export function readyForHandoff(state: SessionState): boolean {
+  return state.workItems.every((item) => item.status === 'complete');
 }
