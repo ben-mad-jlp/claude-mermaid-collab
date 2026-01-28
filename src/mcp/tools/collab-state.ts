@@ -182,6 +182,9 @@ export async function updateSessionState(
   // Broadcast session state update via WebSocket if handler is provided
   if (wsHandler) {
     try {
+      // Compute displayName for broadcast
+      const displayName = newState.state ? getDisplayName(newState.state) : undefined;
+
       wsHandler.broadcast({
         type: 'session_state_updated',
         phase: newState.phase,
@@ -189,6 +192,7 @@ export async function updateSessionState(
         currentItem: newState.currentItem,
         hasSnapshot: newState.hasSnapshot,
         ...(newState.state && { state: newState.state }),
+        ...(displayName && { displayName }),
         ...(newState.workItems && { workItems: newState.workItems }),
         ...(newState.currentItemType && { currentItemType: newState.currentItemType }),
         ...(newState.batches && { batches: newState.batches }),

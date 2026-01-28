@@ -12,7 +12,9 @@ export interface Session {
 }
 
 export interface CollabState {
-  phase: string;
+  phase?: string;
+  displayName?: string;
+  state?: string;
   lastActivity: string;
   currentItem: number | null;
   pendingVerificationIssues?: VerificationIssue[];

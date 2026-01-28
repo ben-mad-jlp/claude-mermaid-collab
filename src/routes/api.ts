@@ -11,6 +11,7 @@ import { uiManager } from '../services/ui-manager';
 import { statusManager } from '../services/status-manager';
 import { projectRegistry } from '../services/project-registry';
 import { join, isAbsolute } from 'path';
+import { getDisplayName } from '../mcp/workflow/state-machine';
 import { homedir } from 'os';
 import { existsSync } from 'fs';
 
@@ -285,6 +286,17 @@ export async function handleAPI(
 
       const content = await stateFile.text();
       const state = JSON.parse(content);
+
+      // Compute displayName from state if available
+      if (state.state && !state.displayName) {
+        state.displayName = getDisplayName(state.state);
+      }
+      // Fallback: use phase as displayName for older sessions without state
+      else if (!state.state && state.phase && !state.displayName) {
+        // Capitalize first letter of phase
+        state.displayName = state.phase.charAt(0).toUpperCase() + state.phase.slice(1);
+      }
+
       return Response.json(state);
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 500 });

@@ -35,34 +35,50 @@ function formatRelativeTime(isoString: string): string {
 }
 
 /**
- * Get display-friendly phase name
+ * Get phase badge color classes based on state or displayName
  */
-function formatPhase(phase: string): string {
-  const phaseMap: Record<string, string> = {
-    'brainstorming': 'Brainstorming',
-    'rough-draft/interface': 'Interface',
-    'rough-draft/pseudocode': 'Pseudocode',
-    'rough-draft/skeleton': 'Skeleton',
-    'implementation': 'Implementation',
-  };
-  return phaseMap[phase] || phase;
-}
-
-/**
- * Get phase badge color classes
- */
-function getPhaseColor(phase: string): string {
-  if (phase.startsWith('rough-draft')) {
-    return 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300';
-  }
-  switch (phase) {
-    case 'brainstorming':
+function getPhaseColor(state: string | undefined, displayName: string | undefined): string {
+  // Color based on state pattern (most reliable)
+  if (state) {
+    if (state.startsWith('brainstorm')) {
       return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300';
-    case 'implementation':
+    }
+    if (state.startsWith('rough-draft') || state === 'build-task-graph') {
+      return 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300';
+    }
+    if (state === 'execute-batch' || state === 'ready-to-implement') {
       return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300';
-    default:
-      return 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400';
+    }
+    if (state === 'systematic-debugging') {
+      return 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300';
+    }
+    if (state.startsWith('clear-') || state.endsWith('-router')) {
+      return 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300';
+    }
+    if (state === 'done' || state === 'workflow-complete' || state === 'cleanup') {
+      return 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300';
+    }
   }
+
+  // Fallback: color based on displayName keywords
+  if (displayName) {
+    const lower = displayName.toLowerCase();
+    if (lower.includes('exploring') || lower.includes('clarifying') || lower.includes('designing') || lower.includes('validating')) {
+      return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300';
+    }
+    if (lower.includes('interface') || lower.includes('pseudocode') || lower.includes('skeleton') || lower.includes('task')) {
+      return 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300';
+    }
+    if (lower.includes('executing') || lower.includes('ready')) {
+      return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300';
+    }
+    if (lower.includes('investigating')) {
+      return 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300';
+    }
+  }
+
+  // Default gray
+  return 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400';
 }
 
 /**
@@ -77,23 +93,23 @@ export function SessionStatusPanel() {
     return null;
   }
 
-  const { phase, currentItem, lastActivity, completedTasks, pendingTasks, totalItems, documentedItems } = collabState;
+  const { state, displayName, currentItem, lastActivity, completedTasks, pendingTasks, totalItems, documentedItems } = collabState;
 
-  // Calculate progress for task-based (implementation) or item-based (brainstorming/rough-draft)
-  const isImplementation = phase === 'implementation';
+  // Calculate progress for task-based (execution) or item-based (brainstorming/rough-draft)
+  const isExecution = state === 'execute-batch' || state === 'ready-to-implement';
   // Treat undefined arrays as empty - either array existing with items counts as having task data
   const completed = completedTasks || [];
   const pending = pendingTasks || [];
   const hasTaskData = completed.length > 0 || pending.length > 0;
   const hasItemData = totalItems !== undefined && totalItems > 0 && documentedItems !== undefined;
-  const isBrainstormingOrRoughDraft = phase === 'brainstorming' || phase?.startsWith('rough-draft');
+  const isBrainstormingOrRoughDraft = state?.startsWith('brainstorm') || state?.startsWith('rough-draft');
 
   let progressValue = 0;
   let progressMax = 0;
   let progressLabel = '';
   let progressColorClass = '';
 
-  if (isImplementation && hasTaskData) {
+  if (isExecution && hasTaskData) {
     progressValue = completed.length;
     progressMax = completed.length + pending.length;
     progressLabel = 'Tasks';
@@ -113,9 +129,9 @@ export function SessionStatusPanel() {
       {/* Row 1: Phase badge + timestamp + current item */}
       <div className="flex items-center gap-2 text-xs">
         <span
-          className={`px-2 py-0.5 rounded font-medium ${getPhaseColor(phase)}`}
+          className={`px-2 py-0.5 rounded font-medium ${getPhaseColor(state, displayName)}`}
         >
-          {formatPhase(phase)}
+          {displayName || 'Unknown'}
         </span>
         {lastActivity && (
           <span className="text-gray-400 dark:text-gray-500">
