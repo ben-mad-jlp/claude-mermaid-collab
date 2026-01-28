@@ -24,6 +24,7 @@
 
 import React, { useEffect, useCallback, useMemo, useState, useRef } from 'react';
 import { useTheme } from '@/hooks/useTheme';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import { useUIStore } from '@/stores/uiStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useQuestionStore } from '@/stores/questionStore';
@@ -41,6 +42,7 @@ import Header from '@/components/layout/Header';
 import Sidebar from '@/components/layout/Sidebar';
 import EditorToolbar from '@/components/layout/EditorToolbar';
 import { SplitPane } from '@/components/layout/SplitPane';
+import { MobileLayout } from '@/components/layout/MobileLayout';
 import QuestionPanel from '@/components/question-panel/QuestionPanel';
 import { ChatPanel } from '@/components/chat-drawer';
 
@@ -122,6 +124,9 @@ const LoadingOverlay: React.FC<{ show: boolean }> = ({ show }) => {
  * Main App Component
  */
 const App: React.FC = () => {
+  // Mobile detection
+  const isMobile = useIsMobile();
+
   // Theme state and effect
   const { theme } = useTheme();
 
@@ -783,6 +788,34 @@ const App: React.FC = () => {
     );
   };
 
+  // Render mobile layout for mobile viewports, desktop layout for desktop viewports
+  if (isMobile) {
+    return (
+      <ErrorBoundary>
+        <MobileLayout
+          sessions={sessions}
+          registeredProjects={registeredProjects}
+          handlers={{
+            onSessionSelect: handleSessionSelect,
+            onRefreshSessions: handleRefreshAll,
+            onCreateSession: handleCreateSession,
+            onAddProject: handleAddProject,
+            onDeleteSession: handleDeleteSession,
+          }}
+          isConnected={isConnected}
+          isConnecting={isConnecting}
+        />
+
+        {/* Question Panel Overlay - renders on top of mobile layout */}
+        {currentQuestion && <QuestionPanel />}
+
+        {/* Notification Toast Container */}
+        <ToastContainer />
+      </ErrorBoundary>
+    );
+  }
+
+  // Desktop layout
   return (
     <ErrorBoundary>
       <div
