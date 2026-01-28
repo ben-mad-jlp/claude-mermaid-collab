@@ -3,7 +3,7 @@
  * Contains all states and their transitions.
  */
 
-import type { StateId, WorkflowState } from './types.js';
+import type { StateId, WorkflowState, WorkItem, ItemStatus } from './types.js';
 
 /**
  * Mapping of internal state names to user-friendly display names
@@ -303,4 +303,84 @@ export function getSkillForState(id: StateId): string | null {
 export function skillToState(skill: string): StateId | null {
   const state = WORKFLOW_STATES.find((s) => s.skill === skill);
   return state?.id ?? null;
+}
+
+/**
+ * Find the next non-complete work item from the array.
+ * Returns the first item with status !== 'complete', or undefined if all complete.
+ */
+export function findNextPendingItem(workItems: WorkItem[]): WorkItem | undefined {
+  return workItems.find((item) => item.status !== 'complete');
+}
+
+/**
+ * Valid transitions for each ItemStatus
+ */
+const VALID_STATUS_TRANSITIONS: Record<ItemStatus, ItemStatus[]> = {
+  'pending': ['brainstormed'],
+  'brainstormed': ['interface'],
+  'interface': ['pseudocode'],
+  'pseudocode': ['skeleton'],
+  'skeleton': ['complete'],
+  'complete': [],
+};
+
+/**
+ * Update a work item's status with validation.
+ * Returns a new WorkItem object (immutable) with the updated status.
+ * Throws an error if the transition is invalid.
+ */
+export function updateItemStatus(
+  item: WorkItem,
+  newStatus: ItemStatus
+): WorkItem {
+  const validTransitions = VALID_STATUS_TRANSITIONS[item.status];
+
+  if (!validTransitions.includes(newStatus)) {
+    throw new Error(
+      `Invalid status transition from '${item.status}' to '${newStatus}' for item ${item.number}`
+    );
+  }
+
+  return {
+    ...item,
+    status: newStatus,
+  };
+}
+
+/**
+ * Get the current work item by item number from a list of work items.
+ * Returns undefined if no matching item found or if currentItemNumber is not provided.
+ */
+export function getCurrentWorkItem(
+  workItems: WorkItem[],
+  currentItemNumber?: number
+): WorkItem | undefined {
+  if (currentItemNumber === undefined) {
+    return undefined;
+  }
+  return workItems.find((item) => item.number === currentItemNumber);
+}
+
+/**
+ * Migrate work items from old status naming to new unified pipeline status.
+ * Converts 'documented' status to 'brainstormed' for backwards compatibility.
+ * Returns a new array (non-mutating).
+ * This handles sessions that were created before the status type change.
+ */
+export function migrateWorkItems(items: WorkItem[]): WorkItem[] {
+  return items.map((item) => {
+    // Type assertion needed because item.status could be 'documented' from old data
+    const currentStatus = item.status as string;
+
+    if (currentStatus === 'documented') {
+      return {
+        ...item,
+        status: 'brainstormed',
+      };
+    }
+
+    // Return item unchanged if status is already in new format
+    return item;
+  });
 }

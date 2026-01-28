@@ -5,7 +5,12 @@ import {
   getState,
   getSkillForState,
   skillToState,
+  findNextPendingItem,
+  updateItemStatus,
+  getCurrentWorkItem,
+  migrateWorkItems,
 } from '../state-machine';
+import type { WorkItem } from '../types';
 
 describe('State Machine Display Names', () => {
   describe('STATE_DISPLAY_NAMES constant', () => {
@@ -202,6 +207,377 @@ describe('State Machine Display Names', () => {
         const displayName = getDisplayName(state.id);
         expect(displayName).toBeDefined();
       });
+    });
+  });
+});
+
+describe('Work Item Helper Functions', () => {
+  const createWorkItem = (
+    number: number,
+    title: string,
+    status: 'pending' | 'brainstormed' | 'interface' | 'pseudocode' | 'skeleton' | 'complete' = 'pending'
+  ): WorkItem => ({
+    number,
+    title,
+    type: 'code',
+    status,
+  });
+
+  describe('findNextPendingItem', () => {
+    it('should return undefined for empty array', () => {
+      expect(findNextPendingItem([])).toBeUndefined();
+    });
+
+    it('should return the first non-complete item', () => {
+      const items = [
+        createWorkItem(1, 'Item 1', 'complete'),
+        createWorkItem(2, 'Item 2', 'pending'),
+        createWorkItem(3, 'Item 3', 'brainstormed'),
+      ];
+      const result = findNextPendingItem(items);
+      expect(result).toEqual(items[1]);
+      expect(result?.number).toBe(2);
+    });
+
+    it('should return first non-complete item in array order', () => {
+      const items = [
+        createWorkItem(1, 'Item 1', 'interface'),
+        createWorkItem(2, 'Item 2', 'pending'),
+      ];
+      const result = findNextPendingItem(items);
+      expect(result?.number).toBe(1);
+      expect(result?.status).toBe('interface');
+    });
+
+    it('should return undefined if all items are complete', () => {
+      const items = [
+        createWorkItem(1, 'Item 1', 'complete'),
+        createWorkItem(2, 'Item 2', 'complete'),
+      ];
+      expect(findNextPendingItem(items)).toBeUndefined();
+    });
+
+    it('should return the first item if all are non-complete', () => {
+      const items = [
+        createWorkItem(1, 'Item 1', 'pending'),
+        createWorkItem(2, 'Item 2', 'brainstormed'),
+      ];
+      const result = findNextPendingItem(items);
+      expect(result?.number).toBe(1);
+    });
+
+    it('should find brainstormed items as non-complete', () => {
+      const items = [
+        createWorkItem(1, 'Item 1', 'complete'),
+        createWorkItem(2, 'Item 2', 'brainstormed'),
+      ];
+      const result = findNextPendingItem(items);
+      expect(result?.number).toBe(2);
+    });
+
+    it('should find skeleton status items as non-complete', () => {
+      const items = [
+        createWorkItem(1, 'Item 1', 'complete'),
+        createWorkItem(2, 'Item 2', 'skeleton'),
+      ];
+      const result = findNextPendingItem(items);
+      expect(result?.number).toBe(2);
+    });
+  });
+
+  describe('updateItemStatus', () => {
+    it('should update pending to brainstormed', () => {
+      const item = createWorkItem(1, 'Item 1', 'pending');
+      const updated = updateItemStatus(item, 'brainstormed');
+      expect(updated.status).toBe('brainstormed');
+      expect(updated.number).toBe(1);
+      expect(updated.title).toBe('Item 1');
+    });
+
+    it('should update brainstormed to interface', () => {
+      const item = createWorkItem(1, 'Item 1', 'brainstormed');
+      const updated = updateItemStatus(item, 'interface');
+      expect(updated.status).toBe('interface');
+    });
+
+    it('should update interface to pseudocode', () => {
+      const item = createWorkItem(1, 'Item 1', 'interface');
+      const updated = updateItemStatus(item, 'pseudocode');
+      expect(updated.status).toBe('pseudocode');
+    });
+
+    it('should update pseudocode to skeleton', () => {
+      const item = createWorkItem(1, 'Item 1', 'pseudocode');
+      const updated = updateItemStatus(item, 'skeleton');
+      expect(updated.status).toBe('skeleton');
+    });
+
+    it('should update skeleton to complete', () => {
+      const item = createWorkItem(1, 'Item 1', 'skeleton');
+      const updated = updateItemStatus(item, 'complete');
+      expect(updated.status).toBe('complete');
+    });
+
+    it('should be immutable (not mutate original)', () => {
+      const item = createWorkItem(1, 'Item 1', 'pending');
+      const updated = updateItemStatus(item, 'brainstormed');
+      expect(item.status).toBe('pending');
+      expect(updated.status).toBe('brainstormed');
+      expect(item).not.toBe(updated);
+    });
+
+    it('should throw on invalid transition from pending to interface', () => {
+      const item = createWorkItem(1, 'Item 1', 'pending');
+      expect(() => updateItemStatus(item, 'interface')).toThrow(
+        /Invalid status transition from 'pending' to 'interface'/
+      );
+    });
+
+    it('should throw on invalid transition from brainstormed to skeleton', () => {
+      const item = createWorkItem(1, 'Item 1', 'brainstormed');
+      expect(() => updateItemStatus(item, 'skeleton')).toThrow(
+        /Invalid status transition/
+      );
+    });
+
+    it('should throw on invalid transition from complete to anything', () => {
+      const item = createWorkItem(1, 'Item 1', 'complete');
+      expect(() => updateItemStatus(item, 'pending')).toThrow(
+        /Invalid status transition/
+      );
+    });
+
+    it('should include item number in error message', () => {
+      const item = createWorkItem(5, 'Item 5', 'pending');
+      expect(() => updateItemStatus(item, 'skeleton')).toThrow(/item 5/);
+    });
+
+    it('should preserve all other item properties', () => {
+      const item: WorkItem = {
+        number: 3,
+        title: 'Complex Item',
+        type: 'task',
+        status: 'brainstormed',
+      };
+      const updated = updateItemStatus(item, 'interface');
+      expect(updated.number).toBe(3);
+      expect(updated.title).toBe('Complex Item');
+      expect(updated.type).toBe('task');
+      expect(updated.status).toBe('interface');
+    });
+  });
+
+  describe('getCurrentWorkItem', () => {
+    it('should return undefined if no currentItemNumber provided', () => {
+      const items = [createWorkItem(1, 'Item 1')];
+      expect(getCurrentWorkItem(items)).toBeUndefined();
+      expect(getCurrentWorkItem(items, undefined)).toBeUndefined();
+    });
+
+    it('should return the matching work item', () => {
+      const items = [
+        createWorkItem(1, 'Item 1'),
+        createWorkItem(2, 'Item 2'),
+        createWorkItem(3, 'Item 3'),
+      ];
+      const result = getCurrentWorkItem(items, 2);
+      expect(result).toEqual(items[1]);
+      expect(result?.title).toBe('Item 2');
+    });
+
+    it('should return undefined if item not found', () => {
+      const items = [
+        createWorkItem(1, 'Item 1'),
+        createWorkItem(2, 'Item 2'),
+      ];
+      expect(getCurrentWorkItem(items, 5)).toBeUndefined();
+    });
+
+    it('should return undefined for empty array', () => {
+      expect(getCurrentWorkItem([], 1)).toBeUndefined();
+    });
+
+    it('should return the first item when currentItemNumber is 1', () => {
+      const items = [
+        createWorkItem(1, 'First Item'),
+        createWorkItem(2, 'Second Item'),
+      ];
+      const result = getCurrentWorkItem(items, 1);
+      expect(result?.title).toBe('First Item');
+    });
+
+    it('should find items regardless of order in array', () => {
+      const items = [
+        createWorkItem(3, 'Item 3'),
+        createWorkItem(1, 'Item 1'),
+        createWorkItem(2, 'Item 2'),
+      ];
+      const result = getCurrentWorkItem(items, 1);
+      expect(result?.title).toBe('Item 1');
+    });
+
+    it('should work with different item statuses', () => {
+      const items: WorkItem[] = [
+        { number: 1, title: 'Item 1', type: 'code', status: 'pending' },
+        { number: 2, title: 'Item 2', type: 'task', status: 'complete' },
+        { number: 3, title: 'Item 3', type: 'bugfix', status: 'brainstormed' },
+      ];
+      const result = getCurrentWorkItem(items, 2);
+      expect(result?.status).toBe('complete');
+      expect(result?.type).toBe('task');
+    });
+  });
+
+  describe('migrateWorkItems', () => {
+    it('should return empty array for empty input', () => {
+      const result = migrateWorkItems([]);
+      expect(result).toEqual([]);
+    });
+
+    it('should convert documented status to brainstormed', () => {
+      const items = [
+        { number: 1, title: 'Item 1', type: 'code', status: 'documented' as any },
+      ];
+      const result = migrateWorkItems(items);
+      expect(result[0].status).toBe('brainstormed');
+      expect(result[0].number).toBe(1);
+      expect(result[0].title).toBe('Item 1');
+    });
+
+    it('should leave brainstormed status unchanged', () => {
+      const items = [
+        createWorkItem(1, 'Item 1', 'brainstormed'),
+      ];
+      const result = migrateWorkItems(items);
+      expect(result[0].status).toBe('brainstormed');
+    });
+
+    it('should leave pending status unchanged', () => {
+      const items = [
+        createWorkItem(1, 'Item 1', 'pending'),
+      ];
+      const result = migrateWorkItems(items);
+      expect(result[0].status).toBe('pending');
+    });
+
+    it('should leave complete status unchanged', () => {
+      const items = [
+        createWorkItem(1, 'Item 1', 'complete'),
+      ];
+      const result = migrateWorkItems(items);
+      expect(result[0].status).toBe('complete');
+    });
+
+    it('should leave interface status unchanged', () => {
+      const items = [
+        createWorkItem(1, 'Item 1', 'interface'),
+      ];
+      const result = migrateWorkItems(items);
+      expect(result[0].status).toBe('interface');
+    });
+
+    it('should leave pseudocode status unchanged', () => {
+      const items = [
+        createWorkItem(1, 'Item 1', 'pseudocode'),
+      ];
+      const result = migrateWorkItems(items);
+      expect(result[0].status).toBe('pseudocode');
+    });
+
+    it('should leave skeleton status unchanged', () => {
+      const items = [
+        createWorkItem(1, 'Item 1', 'skeleton'),
+      ];
+      const result = migrateWorkItems(items);
+      expect(result[0].status).toBe('skeleton');
+    });
+
+    it('should handle mixed documented and new statuses', () => {
+      const items: any[] = [
+        { number: 1, title: 'Item 1', type: 'code', status: 'documented' },
+        createWorkItem(2, 'Item 2', 'brainstormed'),
+        createWorkItem(3, 'Item 3', 'pending'),
+        { number: 4, title: 'Item 4', type: 'task', status: 'documented' },
+        createWorkItem(5, 'Item 5', 'complete'),
+      ];
+      const result = migrateWorkItems(items);
+
+      expect(result[0].status).toBe('brainstormed');
+      expect(result[1].status).toBe('brainstormed');
+      expect(result[2].status).toBe('pending');
+      expect(result[3].status).toBe('brainstormed');
+      expect(result[4].status).toBe('complete');
+    });
+
+    it('should return new array (non-mutating)', () => {
+      const items = [
+        { number: 1, title: 'Item 1', type: 'code', status: 'documented' as any },
+      ];
+      const result = migrateWorkItems(items);
+
+      expect(result).not.toBe(items);
+      expect(result[0]).not.toBe(items[0]);
+      expect(items[0].status).toBe('documented');
+      expect(result[0].status).toBe('brainstormed');
+    });
+
+    it('should preserve all item properties when migrating', () => {
+      const items = [
+        { number: 5, title: 'Complex Item', type: 'task', status: 'documented' as any },
+      ];
+      const result = migrateWorkItems(items);
+
+      expect(result[0].number).toBe(5);
+      expect(result[0].title).toBe('Complex Item');
+      expect(result[0].type).toBe('task');
+      expect(result[0].status).toBe('brainstormed');
+    });
+
+    it('should preserve all item properties when not migrating', () => {
+      const items = [
+        { number: 3, title: 'Another Item', type: 'bugfix', status: 'complete' as const },
+      ];
+      const result = migrateWorkItems(items);
+
+      expect(result[0].number).toBe(3);
+      expect(result[0].title).toBe('Another Item');
+      expect(result[0].type).toBe('bugfix');
+      expect(result[0].status).toBe('complete');
+    });
+
+    it('should work with large arrays', () => {
+      const items: any[] = Array.from({ length: 100 }, (_, i) => ({
+        number: i + 1,
+        title: `Item ${i + 1}`,
+        type: 'code',
+        status: i % 2 === 0 ? 'documented' : 'brainstormed',
+      }));
+
+      const result = migrateWorkItems(items);
+
+      expect(result).toHaveLength(100);
+      result.forEach((item, i) => {
+        expect(item.number).toBe(i + 1);
+        // All documented should be converted to brainstormed
+        expect(item.status).toBe('brainstormed');
+      });
+    });
+
+    it('should handle items with various type combinations', () => {
+      const items: any[] = [
+        { number: 1, title: 'Code Item', type: 'code', status: 'documented' },
+        { number: 2, title: 'Task Item', type: 'task', status: 'documented' },
+        { number: 3, title: 'Bugfix Item', type: 'bugfix', status: 'documented' },
+      ];
+
+      const result = migrateWorkItems(items);
+
+      result.forEach((item) => {
+        expect(item.status).toBe('brainstormed');
+      });
+      expect(result[0].type).toBe('code');
+      expect(result[1].type).toBe('task');
+      expect(result[2].type).toBe('bugfix');
     });
   });
 });
