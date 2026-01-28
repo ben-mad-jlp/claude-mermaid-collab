@@ -61,12 +61,25 @@ export const Markdown: React.FC<MarkdownProps> = ({
     p: ({ node, children, ...props }: any) => {
       // Check if children contain block-level elements (like code blocks wrapped in divs)
       // If so, render as div instead of p to avoid invalid nesting
-      const hasBlockChildren = React.Children.toArray(children).some(
-        (child: any) =>
-          React.isValidElement(child) &&
-          (child.type === 'div' || child.type === 'pre' ||
-           (typeof child.type === 'object' && 'displayName' in child.type))
-      );
+      const hasBlockChildren = React.Children.toArray(children).some((child: any) => {
+        if (!React.isValidElement(child)) return false;
+
+        // Check for block-level native elements
+        if (child.type === 'div' || child.type === 'pre') return true;
+
+        // Check for custom components (functions) that might render blocks
+        if (typeof child.type === 'function') {
+          const childProps = child.props as any;
+          // Code elements render as block when inline is explicitly false or has language class
+          if (childProps?.inline === false) return true;
+          if (childProps?.className && /language-/.test(childProps.className)) return true;
+        }
+
+        // Check for class components with displayName
+        if (typeof child.type === 'object' && 'displayName' in (child.type as any)) return true;
+
+        return false;
+      });
 
       if (hasBlockChildren) {
         return (
@@ -132,7 +145,11 @@ export const Markdown: React.FC<MarkdownProps> = ({
       const match = /language-(\w+)/.exec(className || '');
       const language = match ? match[1] : 'text';
 
-      if (!inline && codeHighlight) {
+      // Only render as block if explicitly not inline AND has a language class (fenced code block)
+      // This prevents inline code from accidentally rendering as block when inline is undefined
+      const isCodeBlock = inline === false || (match && inline !== true);
+
+      if (isCodeBlock && codeHighlight) {
         const code = String(children).replace(/\n$/, '');
         return (
           <div className="mb-3 rounded-lg overflow-hidden">
