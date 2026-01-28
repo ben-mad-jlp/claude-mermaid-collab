@@ -231,6 +231,7 @@ export function detectCycles(tasks: TaskGraphTask[]): string[] | null {
 
 /**
  * Sync tasks from task-graph.md to collab-state.json
+ * Preserves existing completedTasks and calculates pendingTasks as the difference
  */
 export async function syncTasksFromTaskGraph(
   project: string,
@@ -252,7 +253,23 @@ export async function syncTasksFromTaskGraph(
   const taskGraph = parseTaskGraph(doc.content);
   const batches = buildBatches(taskGraph.tasks);
 
-  // Update session state with batches
+  // Get current state to preserve completedTasks
+  const currentStateResponse = await fetch(
+    `${apiBaseUrl}/api/projects/${encodeURIComponent(project)}/sessions/${encodeURIComponent(session)}/state`
+  );
+
+  let existingCompleted: string[] = [];
+  if (currentStateResponse.ok) {
+    const currentState = (await currentStateResponse.json()) as { completedTasks?: string[] };
+    existingCompleted = currentState.completedTasks || [];
+  }
+
+  // Calculate pending = all tasks minus completed
+  const allTaskIds = taskGraph.tasks.map((t) => t.id);
+  const completedSet = new Set(existingCompleted);
+  const pendingTasks = allTaskIds.filter((id) => !completedSet.has(id));
+
+  // Update session state with batches, preserving completed tasks
   const stateResponse = await fetch(
     `${apiBaseUrl}/api/projects/${encodeURIComponent(project)}/sessions/${encodeURIComponent(session)}/state`,
     {
@@ -261,8 +278,8 @@ export async function syncTasksFromTaskGraph(
       body: JSON.stringify({
         batches,
         currentBatch: 0,
-        pendingTasks: taskGraph.tasks.map((t) => t.id),
-        completedTasks: [],
+        pendingTasks,
+        completedTasks: existingCompleted,
       }),
     }
   );

@@ -81,7 +81,10 @@ export function SessionStatusPanel() {
 
   // Calculate progress for task-based (implementation) or item-based (brainstorming/rough-draft)
   const isImplementation = phase === 'implementation';
-  const hasTaskData = completedTasks && pendingTasks && (completedTasks.length > 0 || pendingTasks.length > 0);
+  // Treat undefined arrays as empty - either array existing with items counts as having task data
+  const completed = completedTasks || [];
+  const pending = pendingTasks || [];
+  const hasTaskData = completed.length > 0 || pending.length > 0;
   const hasItemData = totalItems !== undefined && totalItems > 0 && documentedItems !== undefined;
   const isBrainstormingOrRoughDraft = phase === 'brainstorming' || phase?.startsWith('rough-draft');
 
@@ -91,8 +94,8 @@ export function SessionStatusPanel() {
   let progressColorClass = '';
 
   if (isImplementation && hasTaskData) {
-    progressValue = completedTasks.length;
-    progressMax = completedTasks.length + pendingTasks.length;
+    progressValue = completed.length;
+    progressMax = completed.length + pending.length;
     progressLabel = 'Tasks';
     progressColorClass = 'bg-green-500 dark:bg-green-400';
   } else if (isBrainstormingOrRoughDraft && hasItemData) {
