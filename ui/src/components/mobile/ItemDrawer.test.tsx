@@ -80,7 +80,7 @@ describe('ItemDrawer', () => {
     });
 
     it('should not close drawer when sheet content is clicked', async () => {
-      const onClose = jest.fn();
+      const onClose = vi.fn();
       render(<ItemDrawer {...mockProps} onClose={onClose} />);
 
       const sheet = screen.getByTestId('item-drawer-sheet');
@@ -186,7 +186,7 @@ describe('ItemDrawer', () => {
 
   describe('Item Selection', () => {
     it('should call onItemSelect when item is clicked', async () => {
-      const onItemSelect = jest.fn();
+      const onItemSelect = vi.fn();
       render(<ItemDrawer {...mockProps} onItemSelect={onItemSelect} />);
 
       const itemButton = screen.getByTestId('item-drawer-item-item-2');
@@ -197,8 +197,8 @@ describe('ItemDrawer', () => {
     });
 
     it('should call onClose after item selection', async () => {
-      const onClose = jest.fn();
-      const onItemSelect = jest.fn();
+      const onClose = vi.fn();
+      const onItemSelect = vi.fn();
       render(
         <ItemDrawer
           {...mockProps}
@@ -221,39 +221,35 @@ describe('ItemDrawer', () => {
     });
 
     it('should close drawer when dragged down more than 100px', async () => {
-      const onClose = jest.fn();
+      const onClose = vi.fn();
       render(<ItemDrawer {...mockProps} onClose={onClose} />);
 
       const handle = screen.getByTestId('item-drawer-handle');
 
       fireEvent.touchStart(handle, {
-        touches: [{ clientY: 0 }],
+        touches: [{ clientY: 0 }] as any,
       });
 
-      fireEvent.touchMove(handle, {
-        touches: [{ clientY: 150 }],
+      fireEvent.touchEnd(handle, {
+        changedTouches: [{ clientY: 150 }] as any,
       });
-
-      fireEvent.touchEnd(handle);
 
       expect(onClose).toHaveBeenCalledTimes(1);
     });
 
     it('should not close drawer when dragged down less than 100px', async () => {
-      const onClose = jest.fn();
+      const onClose = vi.fn();
       render(<ItemDrawer {...mockProps} onClose={onClose} />);
 
       const handle = screen.getByTestId('item-drawer-handle');
 
       fireEvent.touchStart(handle, {
-        touches: [{ clientY: 0 }],
+        touches: [{ clientY: 0 }] as any,
       });
 
-      fireEvent.touchMove(handle, {
-        touches: [{ clientY: 50 }],
+      fireEvent.touchEnd(handle, {
+        changedTouches: [{ clientY: 50 }] as any,
       });
-
-      fireEvent.touchEnd(handle);
 
       expect(onClose).not.toHaveBeenCalled();
     });

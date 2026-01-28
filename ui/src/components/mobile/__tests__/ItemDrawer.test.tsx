@@ -4,6 +4,7 @@
  * Integration and snapshot tests for the mobile bottom sheet drawer.
  */
 
+import { describe, it, expect, vi } from 'vitest';
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -38,8 +39,8 @@ describe('ItemDrawer Integration Tests', () => {
   describe('Full Workflow', () => {
     it('should handle complete search and selection workflow', async () => {
       const user = userEvent.setup();
-      const onItemSelect = jest.fn();
-      const onClose = jest.fn();
+      const onItemSelect = vi.fn();
+      const onClose = vi.fn();
 
       render(
         <ItemDrawer
@@ -75,23 +76,22 @@ describe('ItemDrawer Integration Tests', () => {
     });
 
     it('should handle backdrop and gesture dismissal together', async () => {
-      const onClose = jest.fn();
+      const onClose = vi.fn();
 
       const { rerender } = render(
         <ItemDrawer
           isOpen={true}
           items={mockItems}
           selectedItemId={null}
-          onItemSelect={jest.fn()}
+          onItemSelect={vi.fn()}
           onClose={onClose}
         />
       );
 
       // First, try gesture (drag down)
       const handle = screen.getByTestId('item-drawer-handle');
-      fireEvent.touchStart(handle, { touches: [{ clientY: 0 }] });
-      fireEvent.touchMove(handle, { touches: [{ clientY: 120 }] });
-      fireEvent.touchEnd(handle);
+      fireEvent.touchStart(handle, { touches: [{ clientY: 0 }] as any });
+      fireEvent.touchEnd(handle, { changedTouches: [{ clientY: 120 }] as any });
 
       expect(onClose).toHaveBeenCalledTimes(1);
 
@@ -101,7 +101,7 @@ describe('ItemDrawer Integration Tests', () => {
           isOpen={true}
           items={mockItems}
           selectedItemId={null}
-          onItemSelect={jest.fn()}
+          onItemSelect={vi.fn()}
           onClose={onClose}
         />
       );
@@ -121,8 +121,8 @@ describe('ItemDrawer Integration Tests', () => {
           isOpen={true}
           items={mockItems}
           selectedItemId={null}
-          onItemSelect={jest.fn()}
-          onClose={jest.fn()}
+          onItemSelect={vi.fn()}
+          onClose={vi.fn()}
         />
       );
 
@@ -143,8 +143,8 @@ describe('ItemDrawer Integration Tests', () => {
           isOpen={true}
           items={mockItems}
           selectedItemId="doc-design"
-          onItemSelect={jest.fn()}
-          onClose={jest.fn()}
+          onItemSelect={vi.fn()}
+          onClose={vi.fn()}
         />
       );
 
@@ -169,8 +169,8 @@ describe('ItemDrawer Integration Tests', () => {
           isOpen={true}
           items={mockItems}
           selectedItemId={null}
-          onItemSelect={jest.fn()}
-          onClose={jest.fn()}
+          onItemSelect={vi.fn()}
+          onClose={vi.fn()}
         />
       );
 
@@ -189,8 +189,8 @@ describe('ItemDrawer Integration Tests', () => {
           isOpen={true}
           items={[]}
           selectedItemId={null}
-          onItemSelect={jest.fn()}
-          onClose={jest.fn()}
+          onItemSelect={vi.fn()}
+          onClose={vi.fn()}
         />
       );
 
@@ -213,8 +213,8 @@ describe('ItemDrawer Integration Tests', () => {
           isOpen={true}
           items={longNameItems}
           selectedItemId={null}
-          onItemSelect={jest.fn()}
-          onClose={jest.fn()}
+          onItemSelect={vi.fn()}
+          onClose={vi.fn()}
         />
       );
 
@@ -222,13 +222,13 @@ describe('ItemDrawer Integration Tests', () => {
     });
 
     it('should handle rapid open/close cycles', async () => {
-      const onClose = jest.fn();
+      const onClose = vi.fn();
       const { rerender } = render(
         <ItemDrawer
           isOpen={true}
           items={mockItems}
           selectedItemId={null}
-          onItemSelect={jest.fn()}
+          onItemSelect={vi.fn()}
           onClose={onClose}
         />
       );
@@ -238,7 +238,7 @@ describe('ItemDrawer Integration Tests', () => {
           isOpen={false}
           items={mockItems}
           selectedItemId={null}
-          onItemSelect={jest.fn()}
+          onItemSelect={vi.fn()}
           onClose={onClose}
         />
       );
@@ -248,7 +248,7 @@ describe('ItemDrawer Integration Tests', () => {
           isOpen={true}
           items={mockItems}
           selectedItemId={null}
-          onItemSelect={jest.fn()}
+          onItemSelect={vi.fn()}
           onClose={onClose}
         />
       );
@@ -264,8 +264,8 @@ describe('ItemDrawer Integration Tests', () => {
           isOpen={true}
           items={mockItems}
           selectedItemId={null}
-          onItemSelect={jest.fn()}
-          onClose={jest.fn()}
+          onItemSelect={vi.fn()}
+          onClose={vi.fn()}
         />
       );
 
@@ -283,8 +283,8 @@ describe('ItemDrawer Integration Tests', () => {
           isOpen={true}
           items={mockItems}
           selectedItemId={null}
-          onItemSelect={jest.fn()}
-          onClose={jest.fn()}
+          onItemSelect={vi.fn()}
+          onClose={vi.fn()}
         />
       );
 
@@ -299,8 +299,8 @@ describe('ItemDrawer Integration Tests', () => {
           isOpen={true}
           items={mockItems}
           selectedItemId={null}
-          onItemSelect={jest.fn()}
-          onClose={jest.fn()}
+          onItemSelect={vi.fn()}
+          onClose={vi.fn()}
         />
       );
 
