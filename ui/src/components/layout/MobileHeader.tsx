@@ -17,7 +17,52 @@ import { useShallow } from 'zustand/react/shallow';
 import { useTheme } from '@/hooks/useTheme';
 import { useSession } from '@/hooks/useSession';
 import { useUIStore } from '@/stores/uiStore';
+import { useSessionStore } from '@/stores/sessionStore';
 import { Session } from '@/types';
+
+/**
+ * Get phase badge color classes based on state or displayName
+ */
+function getPhaseColor(state: string | undefined, displayName: string | undefined): string {
+  if (state) {
+    if (state.startsWith('brainstorm')) {
+      return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300';
+    }
+    if (state.startsWith('rough-draft') || state === 'build-task-graph') {
+      return 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300';
+    }
+    if (state === 'execute-batch' || state === 'ready-to-implement') {
+      return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300';
+    }
+    if (state === 'systematic-debugging') {
+      return 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300';
+    }
+    if (state.startsWith('clear-') || state.endsWith('-router')) {
+      return 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300';
+    }
+    if (state === 'done' || state === 'workflow-complete' || state === 'cleanup') {
+      return 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300';
+    }
+  }
+
+  if (displayName) {
+    const lower = displayName.toLowerCase();
+    if (lower.includes('exploring') || lower.includes('clarifying') || lower.includes('designing') || lower.includes('validating')) {
+      return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300';
+    }
+    if (lower.includes('interface') || lower.includes('pseudocode') || lower.includes('skeleton') || lower.includes('task')) {
+      return 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300';
+    }
+    if (lower.includes('executing') || lower.includes('ready')) {
+      return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300';
+    }
+    if (lower.includes('investigating')) {
+      return 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300';
+    }
+  }
+
+  return 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400';
+}
 
 export interface MobileHeaderProps {
   /** Available sessions to select from */
@@ -59,6 +104,7 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
 }) => {
   const { theme, toggleTheme } = useTheme();
   const { currentSession } = useSession();
+  const collabState = useSessionStore((state) => state.collabState);
 
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
   const [isSessionDropdownOpen, setIsSessionDropdownOpen] = useState(false);
@@ -410,6 +456,24 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
             </div>
           )}
         </div>
+
+        {/* Session Status Badge - Compact */}
+        {collabState?.displayName && (
+          <div
+            data-testid="mobile-status-badge"
+            className={`
+              px-1.5 py-0.5
+              text-[10px] font-medium
+              rounded
+              truncate max-w-[80px]
+              flex-shrink-0
+              ${getPhaseColor(collabState.state, collabState.displayName)}
+            `}
+            title={collabState.displayName}
+          >
+            {collabState.displayName}
+          </div>
+        )}
 
         {/* Refresh Button */}
         {onRefreshSessions && (
