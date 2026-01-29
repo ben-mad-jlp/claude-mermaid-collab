@@ -22,6 +22,7 @@ import { Topics } from './pages/kodex/Topics';
 import { TopicDetail } from './pages/kodex/TopicDetail';
 import { Drafts } from './pages/kodex/Drafts';
 import { Flags } from './pages/kodex/Flags';
+import { Graph } from './pages/kodex/Graph';
 import './index.css';
 import './styles/diagram.css';
 
@@ -44,6 +45,7 @@ ReactDOM.createRoot(root).render(
           <Route index element={<Dashboard />} />
           <Route path="topics" element={<Topics />} />
           <Route path="topics/:name" element={<TopicDetail />} />
+          <Route path="graph" element={<Graph />} />
           <Route path="drafts" element={<Drafts />} />
           <Route path="flags" element={<Flags />} />
         </Route>
