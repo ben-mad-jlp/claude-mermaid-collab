@@ -9,7 +9,7 @@
  * - Navigation on node click
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
@@ -44,21 +44,29 @@ vi.mock('@/components/ai-ui/mermaid', () => ({
   ),
 }));
 
+// Mock the kodexStore
+vi.mock('@/stores/kodexStore', () => ({
+  useKodexStore: vi.fn(),
+}));
+
 describe('Graph Page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('should show loading spinner on mount', async () => {
     // Mock the API to never resolve
-    vi.spyOn(kodexApiModule, 'kodexApi', 'get').mockReturnValue({
-      listTopicsWithContent: vi.fn(() => new Promise(() => {})),
-    } as any);
+    vi.mocked(useKodexStore).mockImplementation(
+      (selector: any) => selector({ selectedProject: 'test-project' })
+    );
 
-    // Mock store to have a selected project
-    vi.spyOn(useKodexStore, 'getState', 'get').mockReturnValue({
-      selectedProject: 'test-project',
-    } as any);
+    vi.spyOn(kodexApiModule.kodexApi, 'listTopicsWithContent').mockImplementation(
+      () => new Promise(() => {})
+    );
 
     render(
       <BrowserRouter>
@@ -66,20 +74,22 @@ describe('Graph Page', () => {
       </BrowserRouter>
     );
 
-    // Look for loading indicator
-    expect(screen.getByText(/loading|rendering/i)).toBeInTheDocument();
+    // Look for loading spinner (div with border-blue-600 class)
+    const loadingDiv = document.querySelector(
+      '.animate-spin.rounded-full.h-8.w-8.border-b-2.border-blue-600'
+    );
+    expect(loadingDiv).toBeInTheDocument();
   });
 
   it('should fetch topics with content on mount', async () => {
-    const mockListTopicsWithContent = vi.fn().mockResolvedValue([]);
+    vi.mocked(useKodexStore).mockImplementation(
+      (selector: any) => selector({ selectedProject: 'test-project' })
+    );
 
-    vi.spyOn(kodexApiModule, 'kodexApi', 'get').mockReturnValue({
-      listTopicsWithContent: mockListTopicsWithContent,
-    } as any);
-
-    vi.spyOn(useKodexStore, 'getState', 'get').mockReturnValue({
-      selectedProject: 'test-project',
-    } as any);
+    const mockListTopicsWithContent = vi.spyOn(
+      kodexApiModule.kodexApi,
+      'listTopicsWithContent'
+    ).mockResolvedValue([]);
 
     render(
       <BrowserRouter>
@@ -93,14 +103,14 @@ describe('Graph Page', () => {
   });
 
   it('should display error message on fetch failure', async () => {
-    const mockError = new Error('Network error');
-    vi.spyOn(kodexApiModule, 'kodexApi', 'get').mockReturnValue({
-      listTopicsWithContent: vi.fn().mockRejectedValue(mockError),
-    } as any);
+    vi.mocked(useKodexStore).mockImplementation(
+      (selector: any) => selector({ selectedProject: 'test-project' })
+    );
 
-    vi.spyOn(useKodexStore, 'getState', 'get').mockReturnValue({
-      selectedProject: 'test-project',
-    } as any);
+    const mockError = new Error('Network error');
+    vi.spyOn(kodexApiModule.kodexApi, 'listTopicsWithContent').mockRejectedValue(
+      mockError
+    );
 
     render(
       <BrowserRouter>
@@ -109,7 +119,7 @@ describe('Graph Page', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/error|failed/i)).toBeInTheDocument();
+      expect(screen.getByText('Network error')).toBeInTheDocument();
     });
   });
 
@@ -131,13 +141,13 @@ describe('Graph Page', () => {
       },
     ];
 
-    vi.spyOn(kodexApiModule, 'kodexApi', 'get').mockReturnValue({
-      listTopicsWithContent: vi.fn().mockResolvedValue(mockTopics),
-    } as any);
+    vi.mocked(useKodexStore).mockImplementation(
+      (selector: any) => selector({ selectedProject: 'test-project' })
+    );
 
-    vi.spyOn(useKodexStore, 'getState', 'get').mockReturnValue({
-      selectedProject: 'test-project',
-    } as any);
+    vi.spyOn(kodexApiModule.kodexApi, 'listTopicsWithContent').mockResolvedValue(
+      mockTopics as any
+    );
 
     render(
       <BrowserRouter>
@@ -175,13 +185,13 @@ describe('Graph Page', () => {
       },
     ];
 
-    vi.spyOn(kodexApiModule, 'kodexApi', 'get').mockReturnValue({
-      listTopicsWithContent: vi.fn().mockResolvedValue(mockTopics),
-    } as any);
+    vi.mocked(useKodexStore).mockImplementation(
+      (selector: any) => selector({ selectedProject: 'test-project' })
+    );
 
-    vi.spyOn(useKodexStore, 'getState', 'get').mockReturnValue({
-      selectedProject: 'test-project',
-    } as any);
+    vi.spyOn(kodexApiModule.kodexApi, 'listTopicsWithContent').mockResolvedValue(
+      mockTopics as any
+    );
 
     render(
       <BrowserRouter>
@@ -212,13 +222,13 @@ describe('Graph Page', () => {
       },
     ];
 
-    vi.spyOn(kodexApiModule, 'kodexApi', 'get').mockReturnValue({
-      listTopicsWithContent: vi.fn().mockResolvedValue(mockTopics),
-    } as any);
+    vi.mocked(useKodexStore).mockImplementation(
+      (selector: any) => selector({ selectedProject: 'test-project' })
+    );
 
-    vi.spyOn(useKodexStore, 'getState', 'get').mockReturnValue({
-      selectedProject: 'test-project',
-    } as any);
+    vi.spyOn(kodexApiModule.kodexApi, 'listTopicsWithContent').mockResolvedValue(
+      mockTopics as any
+    );
 
     render(
       <BrowserRouter>
@@ -247,13 +257,13 @@ describe('Graph Page', () => {
       },
     ];
 
-    vi.spyOn(kodexApiModule, 'kodexApi', 'get').mockReturnValue({
-      listTopicsWithContent: vi.fn().mockResolvedValue(mockTopics),
-    } as any);
+    vi.mocked(useKodexStore).mockImplementation(
+      (selector: any) => selector({ selectedProject: 'test-project' })
+    );
 
-    vi.spyOn(useKodexStore, 'getState', 'get').mockReturnValue({
-      selectedProject: 'test-project',
-    } as any);
+    vi.spyOn(kodexApiModule.kodexApi, 'listTopicsWithContent').mockResolvedValue(
+      mockTopics as any
+    );
 
     render(
       <BrowserRouter>
@@ -271,15 +281,14 @@ describe('Graph Page', () => {
   });
 
   it('should not fetch if no project is selected', async () => {
-    const mockListTopicsWithContent = vi.fn();
+    vi.mocked(useKodexStore).mockImplementation(
+      (selector: any) => selector({ selectedProject: null })
+    );
 
-    vi.spyOn(kodexApiModule, 'kodexApi', 'get').mockReturnValue({
-      listTopicsWithContent: mockListTopicsWithContent,
-    } as any);
-
-    vi.spyOn(useKodexStore, 'getState', 'get').mockReturnValue({
-      selectedProject: null,
-    } as any);
+    const mockListTopicsWithContent = vi.spyOn(
+      kodexApiModule.kodexApi,
+      'listTopicsWithContent'
+    );
 
     render(
       <BrowserRouter>
@@ -296,13 +305,13 @@ describe('Graph Page', () => {
   it('should display page title', async () => {
     const mockTopics: any[] = [];
 
-    vi.spyOn(kodexApiModule, 'kodexApi', 'get').mockReturnValue({
-      listTopicsWithContent: vi.fn().mockResolvedValue(mockTopics),
-    } as any);
+    vi.mocked(useKodexStore).mockImplementation(
+      (selector: any) => selector({ selectedProject: 'test-project' })
+    );
 
-    vi.spyOn(useKodexStore, 'getState', 'get').mockReturnValue({
-      selectedProject: 'test-project',
-    } as any);
+    vi.spyOn(kodexApiModule.kodexApi, 'listTopicsWithContent').mockResolvedValue(
+      mockTopics
+    );
 
     render(
       <BrowserRouter>
@@ -310,6 +319,6 @@ describe('Graph Page', () => {
       </BrowserRouter>
     );
 
-    expect(screen.getByText(/topic.*graph/i)).toBeInTheDocument();
+    expect(screen.getByText('Topic Graph')).toBeInTheDocument();
   });
 });

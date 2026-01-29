@@ -25,6 +25,8 @@ export interface DiagramEmbedProps {
   onError?: (error: Error) => void;
   /** Optional custom height (default: auto with max-height) */
   height?: string | number;
+  /** Optional callback when a diagram node is clicked (receives node ID) */
+  onNodeClick?: (nodeId: string) => void;
 }
 
 export interface DiagramEmbedState {
@@ -46,6 +48,7 @@ export interface DiagramEmbedState {
  *   height="300px"
  *   onRender={() => console.log('rendered')}
  *   onError={(err) => console.error(err)}
+ *   onNodeClick={(nodeId) => console.log(`Clicked node: ${nodeId}`)}
  * />
  * ```
  */
@@ -56,6 +59,7 @@ export const DiagramEmbed: React.FC<DiagramEmbedProps> = (props) => {
     onRender,
     onError,
     height,
+    onNodeClick,
   } = props;
 
   const uniqueId = useId();
@@ -107,6 +111,25 @@ export const DiagramEmbed: React.FC<DiagramEmbedProps> = (props) => {
       // Check ref still exists after async operation
       if (containerRef.current) {
         containerRef.current.innerHTML = svg;
+
+        // Add click handlers to diagram nodes if callback provided
+        if (onNodeClick) {
+          const nodes = containerRef.current.querySelectorAll(
+            '[id^="flowchart-"], [id^="state-"], [id^="classDef-"], [id*="-node"]'
+          );
+          nodes.forEach((node) => {
+            const htmlElement = node as HTMLElement;
+            const nodeId = htmlElement.id
+              ?.replace(/^flowchart-/, '')
+              ?.replace(/^state-/, '')
+              ?.replace(/-node$/, '')
+              ?.replace(/"/g, '');
+            if (nodeId) {
+              htmlElement.style.cursor = 'pointer';
+              htmlElement.addEventListener('click', () => onNodeClick(nodeId));
+            }
+          });
+        }
       }
 
       setState({ isLoading: false, error: null });
