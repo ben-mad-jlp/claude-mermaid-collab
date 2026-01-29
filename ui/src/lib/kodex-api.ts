@@ -84,6 +84,14 @@ export const kodexApi = {
     return response.json();
   },
 
+  async listTopicsWithContent(project: string): Promise<Topic[]> {
+    let url = buildUrl('/topics', project);
+    url += '&includeContent=true';
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('Failed to list topics with content');
+    return response.json();
+  },
+
   async getTopic(project: string, name: string): Promise<Topic> {
     const response = await fetch(buildUrl(`/topics/${name}`, project));
     if (!response.ok) throw new Error('Topic not found');
