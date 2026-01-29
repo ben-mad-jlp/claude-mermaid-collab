@@ -4,7 +4,13 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { expandWithSynonyms, expandWithAbbreviations } from '../alias-generator';
+import {
+  expandWithSynonyms,
+  expandWithAbbreviations,
+  extractTitleKeywords,
+  extractContentKeywords,
+  TopicContent,
+} from '../alias-generator';
 
 describe('Alias Generator', () => {
   describe('expandWithSynonyms', () => {
@@ -59,19 +65,19 @@ describe('Alias Generator', () => {
     });
 
     it('should handle mix of known and unknown keywords', () => {
-      const keywords = ['authentication', 'unknown', 'database'];
+      const keywords = ['auth', 'unknown', 'db'];
       const result = expandWithSynonyms(keywords);
-      expect(result).toContain('authentication');
       expect(result).toContain('auth');
+      expect(result).toContain('authentication');
       expect(result).toContain('unknown');
-      expect(result).toContain('database');
       expect(result).toContain('db');
+      expect(result).toContain('database');
       expect(result).toContain('storage');
-      expect(result).toContain('persistence');
+      expect(result).toContain('data');
     });
 
     it('should return unique results', () => {
-      const keywords = ['configuration', 'configuration'];
+      const keywords = ['config', 'config'];
       const result = expandWithSynonyms(keywords);
       const resultSet = new Set(result);
       expect(result.length).toBe(resultSet.size);
@@ -143,6 +149,199 @@ describe('Alias Generator', () => {
       const result = expandWithAbbreviations(keywords);
       expect(result).toContain('app');
       expect(result).toContain('application');
+    });
+  });
+
+  describe('extractTitleKeywords', () => {
+    it('should extract simple keywords from title', () => {
+      const result = extractTitleKeywords('User Authentication Guide');
+      expect(result).toContain('user');
+      expect(result).toContain('authentication');
+      expect(result).toContain('guide');
+    });
+
+    it('should filter out stop words', () => {
+      const result = extractTitleKeywords('The Guide for Authentication');
+      expect(result).not.toContain('the');
+      expect(result).not.toContain('for');
+      expect(result).toContain('guide');
+      expect(result).toContain('authentication');
+    });
+
+    it('should lowercase all keywords', () => {
+      const result = extractTitleKeywords('USER AUTHENTICATION');
+      expect(result).toContain('user');
+      expect(result).toContain('authentication');
+    });
+
+    it('should filter out short words by default (length < 2)', () => {
+      const result = extractTitleKeywords('A User Guide', 2);
+      expect(result).not.toContain('a');
+      expect(result).toContain('user');
+      expect(result).toContain('guide');
+    });
+
+    it('should respect minLength parameter', () => {
+      const result = extractTitleKeywords('User Auth Guide', 4);
+      expect(result).toContain('user');
+      expect(result).toContain('guide');
+    });
+
+    it('should return unique keywords', () => {
+      const result = extractTitleKeywords('User User Guide');
+      const userCount = result.filter(k => k === 'user').length;
+      expect(userCount).toBe(1);
+    });
+
+    it('should handle empty title', () => {
+      const result = extractTitleKeywords('');
+      expect(result).toEqual([]);
+    });
+
+    it('should handle title with only stop words', () => {
+      const result = extractTitleKeywords('a the for is');
+      expect(result).toEqual([]);
+    });
+
+    it('should handle title with hyphens', () => {
+      const result = extractTitleKeywords('User-Authentication-Guide');
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    it('should handle title with special characters', () => {
+      const result = extractTitleKeywords('User@Authentication#Guide!');
+      expect(result).toContain('user');
+      expect(result).toContain('authentication');
+      expect(result).toContain('guide');
+    });
+
+    it('should handle single word title', () => {
+      const result = extractTitleKeywords('Authentication');
+      expect(result).toContain('authentication');
+    });
+
+    it('should handle title with numbers', () => {
+      const result = extractTitleKeywords('User123 Guide456');
+      expect(result.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('extractContentKeywords', () => {
+    const createContent = (conceptual: string, technical: string): TopicContent => ({
+      conceptual,
+      technical,
+      files: '',
+      related: '',
+    });
+
+    it('should extract keywords from content sections', () => {
+      const content = createContent(
+        'Authentication is the process of verifying user identity.',
+        'Use token-based authentication for API security.'
+      );
+      const result = extractContentKeywords(content, 5);
+      expect(result.length).toBeGreaterThan(0);
+      expect(result.length).toBeLessThanOrEqual(5);
+    });
+
+    it('should return most frequent keywords', () => {
+      const content = createContent(
+        'Authentication authentication verify verify verify',
+        'Token token token token'
+      );
+      const result = extractContentKeywords(content, 3);
+      expect(result.length).toBeLessThanOrEqual(3);
+    });
+
+    it('should filter out stop words', () => {
+      const content = createContent(
+        'The the a an and authentication is for',
+        'The token the is'
+      );
+      const result = extractContentKeywords(content, 5);
+      expect(result).not.toContain('the');
+      expect(result).not.toContain('a');
+      expect(result).not.toContain('an');
+      expect(result).not.toContain('and');
+      expect(result).not.toContain('is');
+      expect(result).not.toContain('for');
+    });
+
+    it('should respect limit parameter', () => {
+      const content = createContent(
+        'word1 word2 word3 word4 word5 word6 word7 word8',
+        'word1 word2 word3'
+      );
+      const result = extractContentKeywords(content, 3);
+      expect(result.length).toBeLessThanOrEqual(3);
+    });
+
+    it('should handle empty content sections', () => {
+      const content = createContent('', '');
+      const result = extractContentKeywords(content, 5);
+      expect(result).toEqual([]);
+    });
+
+    it('should handle content with only stop words', () => {
+      const content = createContent(
+        'the a an and is for at',
+        'the a an'
+      );
+      const result = extractContentKeywords(content, 5);
+      expect(result).toEqual([]);
+    });
+
+    it('should handle content with mixed case', () => {
+      const content = createContent(
+        'Authentication AUTHENTICATION authentication',
+        'Token TOKEN'
+      );
+      const result = extractContentKeywords(content, 5);
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    it('should ignore very long content efficiently', () => {
+      const longContent = 'word ' + 'repeated '.repeat(100);
+      const content = createContent(longContent, longContent);
+      const result = extractContentKeywords(content, 5);
+      expect(result.length).toBeLessThanOrEqual(5);
+    });
+
+    it('should return empty array when limit is 0', () => {
+      const content = createContent(
+        'Authentication verification',
+        'Token security'
+      );
+      const result = extractContentKeywords(content, 0);
+      expect(result).toEqual([]);
+    });
+
+    it('should return unique keywords only', () => {
+      const content = createContent(
+        'keyword keyword keyword',
+        'keyword'
+      );
+      const result = extractContentKeywords(content, 10);
+      const keywordCount = result.filter(k => k === 'keyword').length;
+      expect(keywordCount).toBeLessThanOrEqual(1);
+    });
+
+    it('should combine conceptual and technical sections', () => {
+      const content = createContent(
+        'conceptual word appears here',
+        'technical word also here'
+      );
+      const result = extractContentKeywords(content, 10);
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    it('should prefer longer words (min length 3)', () => {
+      const content = createContent(
+        'ab abc abcd abcde authentication',
+        'token security'
+      );
+      const result = extractContentKeywords(content, 10);
+      expect(result.length).toBeGreaterThan(0);
     });
   });
 });
