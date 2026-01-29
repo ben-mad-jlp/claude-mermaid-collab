@@ -1,0 +1,29 @@
+graph TB
+    subgraph Header["Header.tsx (top bar)"]
+        Logo["Logo + Title"]
+        ConnBadge["Connection Badge"]
+        Controls["Selectors + Toggles"]
+        Logo --> ConnBadge --> Controls
+    end
+
+    subgraph Sidebar["Sidebar.tsx (left)"]
+        Search["Search Input"]
+        Items["Item Cards"]
+        StatusPanel["SessionStatusPanel<br/>(CURRENT LOCATION)"]
+        KodexLink["Kodex Link"]
+        Search --> Items --> StatusPanel --> KodexLink
+    end
+
+    subgraph StatusContent["SessionStatusPanel contents"]
+        PhaseBadge["Phase Badge"]
+        Timestamp["Timestamp"]
+        CurrentItem["Current Item"]
+        ProgressBar["Progress Bar<br/>(stacked vertically)"]
+        PhaseBadge --> Timestamp --> CurrentItem
+        CurrentItem --> ProgressBar
+    end
+
+    StatusPanel -.-> StatusContent
+
+    style StatusPanel fill:#ffcdd2,stroke:#c62828
+    style ConnBadge fill:#c8e6c9,stroke:#2e7d32

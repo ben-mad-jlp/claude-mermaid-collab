@@ -1,0 +1,31 @@
+graph LR
+    subgraph Header["Header Bar (h-14)"]
+        direction LR
+        subgraph Left["Left Section"]
+            Logo["🔷 Logo"]
+            Title["Mermaid Collab"]
+            ConnBadge["🟢 Connected"]
+            PhaseBadge["Exploring"]
+            Time["5m ago"]
+            ItemNum["Item 1"]
+            Progress["▓▓▓░░ 3/5"]
+        end
+        
+        subgraph Right["Right Section"]
+            Refresh["↻"]
+            Project["📁 Project ▼"]
+            Session["📋 Session ▼"]
+            Chat["💬 Chat"]
+            Term["⌨ Terminal"]
+            Edit["✏ Edit"]
+            Theme["🌙"]
+        end
+    end
+    
+    Logo --> Title --> ConnBadge --> PhaseBadge --> Time --> ItemNum --> Progress
+    Progress -.-> |gap| Refresh
+    Refresh --> Project --> Session --> Chat --> Term --> Edit --> Theme
+
+    style PhaseBadge fill:#bbdefb,stroke:#1976d2
+    style Progress fill:#c8e6c9,stroke:#2e7d32
+    style ConnBadge fill:#c8e6c9,stroke:#2e7d32

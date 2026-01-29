@@ -10,13 +10,14 @@
  * Props match desktop layout (sessions, handlers, connection state)
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback } from 'react';
 import { MobileHeader } from './MobileHeader';
 import { BottomTabBar, MobileTab } from './BottomTabBar';
 import { PreviewTab } from '../mobile/PreviewTab';
 import { ChatTab } from '../mobile/ChatTab';
 import { TerminalTab } from '../mobile/TerminalTab';
-import { api } from '@/lib/api';
+import { useSessionStore } from '../../stores/sessionStore';
+import { useTerminalTabs } from '../../hooks/useTerminalTabs';
 import type { Session } from '@/types';
 
 export interface MobileLayoutHandlers {
@@ -63,10 +64,23 @@ export const MobileLayout: React.FC<MobileLayoutProps> = ({
 }) => {
   // Manage active tab state internally
   const [activeTab, setActiveTab] = useState<MobileTab>('preview');
-  // Manage terminal ID for the current terminal session
-  const [terminalId, setTerminalId] = useState<string | null>(null);
-  // Store WebSocket URL for the terminal
-  const [terminalWsUrl, setTerminalWsUrl] = useState<string | null>(null);
+
+  // Get current session from store (like desktop does)
+  const currentSession = useSessionStore(state => state.currentSession);
+  const project = currentSession?.project || '';
+  const sessionName = currentSession?.name || '';
+
+  // Use the terminal tabs hook (same as desktop)
+  const {
+    tabs,
+    activeTabId,
+    activeTab: activeTerminalTab,
+    isLoading,
+    error,
+    addTab,
+    removeTab,
+    setActiveTab: setActiveTerminalTab,
+  } = useTerminalTabs({ project, session: sessionName });
 
   // Handler for tab changes from BottomTabBar
   const handleTabChange = useCallback((tab: MobileTab) => {
@@ -78,40 +92,25 @@ export const MobileLayout: React.FC<MobileLayoutProps> = ({
     setActiveTab('chat');
   }, []);
 
-  // Handler for creating a new terminal session
-  const handleCreateTerminal = useCallback(async () => {
-    // Get the current session from the sessions array or use a default
-    // For now, use the first available session or create in a general project context
-    const session = sessions.length > 0 ? sessions[0] : null;
-
-    if (!session) {
-      console.error('No active session available to create terminal');
-      return;
-    }
-
+  // Handler for adding a new terminal tab
+  const handleAddTerminal = useCallback(async () => {
     try {
-      // Create a new terminal session via API
-      const result = await api.createTerminalSession(session.project, session.name);
-
-      // Update BOTH terminal ID and WebSocket URL
-      setTerminalId(result.id);
-      setTerminalWsUrl(result.wsUrl);
-
-      // Auto-switch to terminal tab to display the new terminal
+      await addTab();
+      // Auto-switch to terminal tab when creating a new terminal
       setActiveTab('terminal');
-    } catch (error) {
-      console.error('Failed to create terminal:', error);
-      // Could show error notification here
+    } catch (err) {
+      console.error('Failed to create terminal:', err);
     }
-  }, [sessions]);
+  }, [addTab]);
 
-  // Compute terminal configuration for TerminalTab
-  const terminalConfig = useMemo(() => {
-    if (terminalId && terminalWsUrl) {
-      return { sessionId: terminalId, wsUrl: terminalWsUrl };
+  // Handler for closing a terminal tab
+  const handleCloseTerminal = useCallback(async (id: string) => {
+    try {
+      await removeTab(id);
+    } catch (err) {
+      console.error('Failed to close terminal:', err);
     }
-    return null;
-  }, [terminalId, terminalWsUrl]);
+  }, [removeTab]);
 
   return (
     <div
@@ -171,9 +170,14 @@ export const MobileLayout: React.FC<MobileLayoutProps> = ({
           }}
         >
           <TerminalTab
-            terminal={terminalConfig}
-            hasSession={terminalConfig !== null}
-            onCreateTerminal={handleCreateTerminal}
+            tabs={tabs}
+            activeTabId={activeTabId}
+            activeTab={activeTerminalTab}
+            isLoading={isLoading}
+            error={error}
+            onTabSelect={setActiveTerminalTab}
+            onTabClose={handleCloseTerminal}
+            onTabAdd={handleAddTerminal}
           />
         </div>
       </div>

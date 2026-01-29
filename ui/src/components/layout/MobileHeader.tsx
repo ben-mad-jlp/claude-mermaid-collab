@@ -539,8 +539,7 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
               ml-auto px-1.5 py-0.5
               text-[10px] font-medium
               rounded
-              truncate max-w-[100px]
-              flex-shrink-0
+              whitespace-nowrap
               ${getPhaseColor(collabState.state, collabState.displayName)}
             `}
             title={collabState.displayName}

@@ -1,0 +1,21 @@
+flowchart TB
+    subgraph Browser ["Browser"]
+        WIN[Window Resize Event]
+        CONT[Container Resize]
+        FIT[FitAddon.fit]
+        TERM[xterm.js Terminal]
+    end
+    
+    subgraph Backend ["Backend PTY"]
+        WS[WebSocket Handler]
+        PTY[PTY Process]
+    end
+    
+    WIN --> FIT
+    CONT --> FIT
+    FIT -->|"Calculate cols/rows"| TERM
+    TERM -->|"onResize callback"| WS
+    WS -->|"resize(cols, rows)"| PTY
+    
+    style FIT fill:#9f9,stroke:#333
+    style PTY fill:#99f,stroke:#333

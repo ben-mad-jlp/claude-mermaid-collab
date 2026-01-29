@@ -1,0 +1,20 @@
+graph TD
+    subgraph EditorToolbar["Editor Toolbar"]
+        direction LR
+        undoBtn["Undo"]
+        redoBtn["Redo"]
+        historyBtn["📋 History ▼"]
+        exportBtn["Export"]
+    end
+
+    subgraph HistoryDropdown["History Dropdown (on click)"]
+        entry1["5m ago"]
+        entry2["12m ago"]
+        entry3["1h ago"]
+        entry4["2h ago"]
+    end
+
+    historyBtn --> HistoryDropdown
+
+    style historyBtn fill:#bbdefb,stroke:#1976d2
+    style HistoryDropdown fill:#fff9c4,stroke:#f9a825

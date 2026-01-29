@@ -26,7 +26,6 @@ import { Minimap } from './Minimap';
 import { useSyncScroll } from '@/hooks/useSyncScroll';
 import { downloadCleanMarkdown } from '@/lib/annotationUtils';
 import { EditorView } from '@codemirror/view';
-import { HistoryDropdown } from './HistoryDropdown';
 import { HistoryModal } from './HistoryModal';
 
 /**
@@ -235,9 +234,14 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   }, []);
 
   // Handle history version selection
-  const handleHistoryVersionSelect = useCallback((timestamp: string, content: string) => {
+  const handleHistoryVersionSelect = useCallback((timestamp: string, versionContent: string) => {
+    // If navigating back to "current", close the modal
+    if (timestamp === 'current') {
+      setHistoryModalOpen(false);
+      return;
+    }
     setSelectedHistoryTimestamp(timestamp);
-    setSelectedHistoryContent(content);
+    setSelectedHistoryContent(versionContent);
     setHistoryModalOpen(true);
   }, []);
 
@@ -446,13 +450,6 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
               >
                 Export Clean
               </button>
-              {document && (
-                <HistoryDropdown
-                  documentId={document.id}
-                  currentContent={content}
-                  onVersionSelect={handleHistoryVersionSelect}
-                />
-              )}
             </div>
           </div>
         </div>

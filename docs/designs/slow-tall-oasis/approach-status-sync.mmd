@@ -1,0 +1,29 @@
+flowchart TB
+    subgraph Backend ["Backend"]
+        CS[complete_skill]
+        USS[updateSessionState]
+        WSB[WebSocket Broadcast]
+        API[GET /api/session-state]
+    end
+    
+    subgraph Frontend ["Frontend"]
+        WSR[WebSocket Receiver]
+        POLL[useSessionPolling hook]
+        STORE[sessionStore]
+        UI[SessionPanel]
+    end
+    
+    CS --> USS
+    USS --> WSB
+    WSB -.->|"Primary: Real-time"| WSR
+    
+    POLL -->|"Fallback: Every 5s"| API
+    API -->|"Response"| POLL
+    
+    WSR --> STORE
+    POLL -->|"If changed"| STORE
+    STORE --> UI
+    
+    style WSB fill:#9f9,stroke:#333
+    style POLL fill:#ff9,stroke:#333
+    style STORE fill:#99f,stroke:#333

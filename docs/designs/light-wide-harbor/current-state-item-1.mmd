@@ -1,0 +1,36 @@
+flowchart TD
+    subgraph MCP["MCP Tools"]
+        update_document["update_document"]
+        patch_document["patch_document"]
+    end
+
+    subgraph API["API Routes (api.ts)"]
+        postDoc["POST /api/document/:id"]
+    end
+
+    subgraph Services["Services"]
+        docManager["DocumentManager.saveDocument()"]
+    end
+
+    subgraph WebSocket["WebSocket Handler"]
+        broadcast["broadcast()"]
+        docUpdated["document_updated message"]
+    end
+
+    subgraph UI["React UI"]
+        sessionStore["sessionStore.updateDocument()"]
+        editor["UnifiedEditor"]
+    end
+
+    update_document --> postDoc
+    patch_document --> postDoc
+    postDoc --> docManager
+    postDoc --> broadcast
+    broadcast --> docUpdated
+    docUpdated --> sessionStore
+    sessionStore --> editor
+
+    style update_document fill:#bbdefb
+    style patch_document fill:#bbdefb
+    style docUpdated fill:#c8e6c9
+    style sessionStore fill:#fff9c4

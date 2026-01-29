@@ -1,0 +1,28 @@
+flowchart TD
+    subgraph API["API Layer"]
+        postDoc["POST /api/document/:id"]
+    end
+
+    subgraph Services["Services"]
+        docManager["DocumentManager"]
+        logManager["UpdateLogManager (NEW)"]
+    end
+
+    subgraph Storage["Storage"]
+        docFile["documents/*.md"]
+        logFile["update-log.json (NEW)"]
+    end
+
+    subgraph LogStructure["Log Structure"]
+        logJson["{ documents: {<br/>  'design': {<br/>    original: '...',<br/>    changes: [<br/>      { timestamp, diff }<br/>    ]<br/>  }<br/>}}"]
+    end
+
+    postDoc --> docManager
+    postDoc --> logManager
+    docManager --> docFile
+    logManager --> logFile
+    logFile -.-> logJson
+
+    style logManager fill:#c8e6c9,stroke:#2e7d32
+    style logFile fill:#c8e6c9,stroke:#2e7d32
+    style logJson fill:#fff9c4,stroke:#f9a825

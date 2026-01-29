@@ -1,0 +1,41 @@
+graph TD
+    subgraph Item1["Item 1: Backend - Update Log System"]
+        update-log-types[update-log-types]
+        update-log-manager[update-log-manager]
+        api-history-endpoints[api-history-endpoints]
+        api-logging-integration[api-logging-integration]
+    end
+
+    subgraph Item2["Item 2: Frontend - History UI"]
+        history-types[history-types]
+        use-document-history-hook[use-document-history-hook]
+        history-dropdown[history-dropdown]
+        history-modal[history-modal]
+        document-editor-integration[document-editor-integration]
+    end
+
+    %% Item 1 dependencies
+    update-log-types --> update-log-manager
+    update-log-manager --> api-history-endpoints
+    api-history-endpoints --> api-logging-integration
+
+    %% Item 2 dependencies
+    history-types --> use-document-history-hook
+    history-types --> history-modal
+    use-document-history-hook --> history-dropdown
+    history-dropdown --> document-editor-integration
+    history-modal --> document-editor-integration
+
+    %% Cross-item dependency: Frontend needs backend API
+    api-history-endpoints -.-> use-document-history-hook
+
+    %% Styling
+    style update-log-types fill:#c8e6c9
+    style history-types fill:#c8e6c9
+    style update-log-manager fill:#bbdefb
+    style api-history-endpoints fill:#bbdefb
+    style api-logging-integration fill:#bbdefb
+    style use-document-history-hook fill:#bbdefb
+    style history-dropdown fill:#bbdefb
+    style history-modal fill:#bbdefb
+    style document-editor-integration fill:#e1bee7

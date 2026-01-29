@@ -1,0 +1,41 @@
+graph TD
+    subgraph Item1["Item 1: Backend"]
+        update-log-types(["update-log-types"])
+        update-log-manager(["update-log-manager"])
+        api-history-endpoints(["api-history-endpoints"])
+        api-logging-integration(["api-logging-integration"])
+    end
+
+    subgraph Item2["Item 2: Frontend"]
+        history-types(["history-types"])
+        use-document-history-hook(["use-document-history-hook"])
+        history-dropdown(["history-dropdown"])
+        history-modal(["history-modal"])
+        document-editor-integration(["document-editor-integration"])
+    end
+
+    %% Item 1 dependencies
+    update-log-types --> update-log-manager
+    update-log-manager --> api-history-endpoints
+    api-history-endpoints --> api-logging-integration
+
+    %% Item 2 dependencies
+    history-types --> use-document-history-hook
+    history-types --> history-modal
+    use-document-history-hook --> history-dropdown
+    history-dropdown --> document-editor-integration
+    history-modal --> document-editor-integration
+
+    %% Cross-item: Frontend needs backend API
+    api-history-endpoints -.->|needed by| use-document-history-hook
+
+    %% Initial styles - all waiting
+    style update-log-types fill:#c8e6c9,stroke:#2e7d32
+    style update-log-manager fill:#c8e6c9,stroke:#2e7d32
+    style api-history-endpoints fill:#c8e6c9,stroke:#2e7d32
+    style api-logging-integration fill:#c8e6c9,stroke:#2e7d32
+    style history-types fill:#c8e6c9,stroke:#2e7d32
+    style use-document-history-hook fill:#c8e6c9,stroke:#2e7d32
+    style history-dropdown fill:#c8e6c9,stroke:#2e7d32
+    style history-modal fill:#c8e6c9,stroke:#2e7d32
+    style document-editor-integration fill:#c8e6c9,stroke:#2e7d32

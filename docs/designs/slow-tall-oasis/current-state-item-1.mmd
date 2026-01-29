@@ -1,0 +1,28 @@
+flowchart TB
+    subgraph Backend ["Backend (MCP Server)"]
+        CS[complete_skill tool]
+        USS[updateSessionState]
+        WSH[WebSocket Handler]
+        DISK[(collab-state.json)]
+    end
+    
+    subgraph Frontend ["Frontend (React)"]
+        WSC[WebSocket Client]
+        EVT[CustomEvent Dispatch]
+        APP[App.tsx Handler]
+        STORE[sessionStore]
+        SP[SessionPanel]
+    end
+    
+    CS -->|"1. Skill completes"| USS
+    USS -->|"2. Write state"| DISK
+    USS -->|"3. Broadcast"| WSH
+    WSH -->|"4. WS message"| WSC
+    WSC -->|"5. Dispatch event"| EVT
+    EVT -->|"6. session_state_updated"| APP
+    APP -->|"7. setCollabState"| STORE
+    STORE -->|"8. Re-render"| SP
+    
+    style CS fill:#f9f,stroke:#333
+    style SP fill:#bbf,stroke:#333
+    style WSH fill:#fbb,stroke:#333

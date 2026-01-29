@@ -1,0 +1,17 @@
+flowchart LR
+    subgraph Files ["Files to Create/Modify"]
+        HOOK["ui/src/hooks/useSessionPolling.ts<br/>(NEW)"]
+        APP["ui/src/App.tsx<br/>(ADD hook call)"]
+    end
+    
+    subgraph Existing ["Existing Infrastructure"]
+        API["/api/session-state endpoint"]
+        STORE["sessionStore"]
+    end
+    
+    HOOK -->|"fetch every 5s"| API
+    HOOK -->|"setCollabState"| STORE
+    APP -->|"uses"| HOOK
+    
+    style HOOK fill:#9f9,stroke:#333
+    style APP fill:#ff9,stroke:#333
