@@ -1,25 +1,25 @@
 /**
  * Collab State Management Tools
  *
- * Provides MCP tools for managing collab session state and context snapshots.
+ * Provides MCP tools for managing collab session state.
  * Skills use these tools instead of direct file I/O.
  */
 
-import { readFile, writeFile, mkdir, unlink, access, readdir, rm, cp } from 'fs/promises';
+import { readFile, writeFile, mkdir, access, readdir, rm, cp } from 'fs/promises';
 import { join } from 'path';
 import { getDisplayName } from '../workflow/state-machine.js';
 import type { WebSocketHandler } from '../../websocket/handler.js';
-import type { TaskBatch, WorkItem, WorkItemType } from '../workflow/types.js';
+import type { TaskBatch, WorkItem, WorkItemType, SessionType } from '../workflow/types.js';
 
 // ============= Type Definitions =============
 
 export interface CollabState {
   state?: string; // Current state machine state ID
+  sessionType?: SessionType; // Session type: 'structured' (guided) or 'vibe' (freeform)
   phase?: string; // Optional, derived from state via derivePhase()
   lastActivity: string;
   currentItem: number | null;
   currentItemType?: WorkItemType; // Type of current item for routing
-  hasSnapshot: boolean;
   displayName?: string; // User-friendly display name for current state
   workItems?: WorkItem[]; // Work items for the session
   batches?: TaskBatch[]; // Execution batches
@@ -31,22 +31,12 @@ export interface CollabState {
   autoAllowRoughDraft?: boolean; // User preference for auto-allowing rough-draft proposals
 }
 
-export interface ContextSnapshot {
-  version: number;
-  timestamp: string;
-  activeSkill: string;
-  currentStep: string;
-  pendingQuestion: string | null;
-  inProgressItem: number | null;
-  recentContext: Array<{ type: string; content: string }>;
-}
-
 export interface StateUpdateParams {
   state?: string; // Current state machine state ID
+  sessionType?: SessionType; // Session type: 'structured' (guided) or 'vibe' (freeform)
   phase?: string;
   currentItem?: number | null;
   currentItemType?: WorkItemType; // Type of current item for routing
-  hasSnapshot?: boolean;
   workItems?: WorkItem[]; // Work items for the session
   batches?: TaskBatch[]; // Execution batches
   currentBatch?: number; // Index of current batch
@@ -61,10 +51,6 @@ export interface StateUpdateParams {
 
 function getStatePath(project: string, session: string): string {
   return join(project, '.collab', 'sessions', session, 'collab-state.json');
-}
-
-function getSnapshotPath(project: string, session: string): string {
-  return join(project, '.collab', 'sessions', session, 'context-snapshot.json');
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -150,10 +136,12 @@ export async function updateSessionState(
     ...(currentState.phase && !updates.phase && { phase: currentState.phase }),
     lastActivity: new Date().toISOString(),
     currentItem: updates.currentItem !== undefined ? updates.currentItem : (currentState.currentItem ?? null),
-    hasSnapshot: updates.hasSnapshot ?? currentState.hasSnapshot ?? false,
     // State machine field - primary control mechanism
     ...(updates.state && { state: updates.state }),
     ...(currentState.state && !updates.state && { state: currentState.state }),
+    // Session type
+    ...(updates.sessionType && { sessionType: updates.sessionType }),
+    ...(currentState.sessionType && !updates.sessionType && { sessionType: currentState.sessionType }),
     // Work items
     ...(updates.workItems && { workItems: updates.workItems }),
     ...(currentState.workItems && !updates.workItems && { workItems: currentState.workItems }),
@@ -195,9 +183,9 @@ export async function updateSessionState(
         phase: newState.phase,
         lastActivity: newState.lastActivity,
         currentItem: newState.currentItem,
-        hasSnapshot: newState.hasSnapshot,
         ...(newState.state && { state: newState.state }),
         ...(displayName && { displayName }),
+        ...(newState.sessionType && { sessionType: newState.sessionType }),
         ...(newState.workItems && { workItems: newState.workItems }),
         ...(newState.currentItemType && { currentItemType: newState.currentItemType }),
         ...(newState.batches && { batches: newState.batches }),
@@ -210,79 +198,6 @@ export async function updateSessionState(
     } catch (error) {
       console.error('Failed to broadcast session state update:', error);
     }
-  }
-
-  return { success: true };
-}
-
-// ============= Snapshot Management Functions =============
-
-export async function hasSnapshot(project: string, session: string): Promise<boolean> {
-  const path = getSnapshotPath(project, session);
-  return fileExists(path);
-}
-
-export async function saveSnapshot(
-  project: string,
-  session: string,
-  activeSkill: string,
-  currentStep: string,
-  inProgressItem: number | null,
-  pendingQuestion?: string | null,
-  recentContext?: Array<{ type: string; content: string }>
-): Promise<{ success: boolean }> {
-  const path = getSnapshotPath(project, session);
-
-  const snapshot: ContextSnapshot = {
-    version: 1,
-    timestamp: new Date().toISOString(),
-    activeSkill,
-    currentStep,
-    pendingQuestion: pendingQuestion ?? null,
-    inProgressItem,
-    recentContext: recentContext ?? [],
-  };
-
-  // Ensure directory exists
-  const dir = join(project, '.collab', 'sessions', session);
-  await mkdir(dir, { recursive: true });
-
-  await writeFile(path, JSON.stringify(snapshot, null, 2));
-
-  // Also update hasSnapshot in state
-  await updateSessionState(project, session, { hasSnapshot: true });
-
-  return { success: true };
-}
-
-export async function loadSnapshot(project: string, session: string): Promise<ContextSnapshot | null> {
-  const path = getSnapshotPath(project, session);
-
-  if (!(await fileExists(path))) {
-    return null;
-  }
-
-  const content = await readFile(path, 'utf-8');
-  return JSON.parse(content) as ContextSnapshot;
-}
-
-export async function deleteSnapshot(project: string, session: string): Promise<{ success: boolean }> {
-  const path = getSnapshotPath(project, session);
-
-  try {
-    await unlink(path);
-  } catch (error: any) {
-    // Idempotent - ignore if file doesn't exist
-    if (error.code !== 'ENOENT') {
-      throw error;
-    }
-  }
-
-  // Also update hasSnapshot in state
-  try {
-    await updateSessionState(project, session, { hasSnapshot: false });
-  } catch {
-    // State file might not exist, that's ok
   }
 
   return { success: true };
