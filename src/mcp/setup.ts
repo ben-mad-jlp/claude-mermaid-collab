@@ -39,6 +39,7 @@ import {
 import { getKodexManager } from '../services/kodex-manager.js';
 import type { FlagType, TopicContent } from '../services/kodex-manager.js';
 import { getWebSocketHandler } from '../services/ws-handler-manager.js';
+import { updateTaskStatus, getTaskGraph } from './workflow/task-status.js';
 
 // Configuration
 const API_PORT = parseInt(process.env.PORT || '3737', 10);
@@ -938,6 +939,37 @@ export async function setupMCPServer(): Promise<Server> {
           required: ['project', 'session', 'skill'],
         },
       },
+      // Task management tools
+      {
+        name: 'update_task_status',
+        description: 'Update a task\'s status and regenerate the task graph. Broadcasts updates via WebSocket.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            session: { type: 'string', description: 'Session name' },
+            taskId: { type: 'string', description: 'Task ID to update' },
+            status: {
+              type: 'string',
+              enum: ['pending', 'in_progress', 'completed', 'failed'],
+              description: 'New status for the task',
+            },
+          },
+          required: ['project', 'session', 'taskId', 'status'],
+        },
+      },
+      {
+        name: 'get_task_graph',
+        description: 'Get the current task graph state without modifications.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            session: { type: 'string', description: 'Session name' },
+          },
+          required: ['project', 'session'],
+        },
+      },
     ],
   }));
 
@@ -1393,6 +1425,26 @@ export async function setupMCPServer(): Promise<Server> {
             const { project, session, skill } = args as { project: string; session: string; skill: string };
             if (!project || !session || !skill) throw new Error('Missing required: project, session, skill');
             const result = await completeSkill(project, session, skill);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'update_task_status': {
+            const { project, session, taskId, status } = args as {
+              project: string;
+              session: string;
+              taskId: string;
+              status: 'pending' | 'in_progress' | 'completed' | 'failed';
+            };
+            if (!project || !session || !taskId || !status) throw new Error('Missing required: project, session, taskId, status');
+            const wsHandler = getWebSocketHandler();
+            const result = await updateTaskStatus({ project, session, taskId, status }, wsHandler || undefined);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'get_task_graph': {
+            const { project, session } = args as { project: string; session: string };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            const result = await getTaskGraph({ project, session });
             return JSON.stringify(result, null, 2);
           }
 
