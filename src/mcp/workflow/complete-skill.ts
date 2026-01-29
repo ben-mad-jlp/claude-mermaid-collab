@@ -3,7 +3,7 @@
  */
 
 import type { CompleteSkillOutput, StateId, WorkItem, WorkItemType } from './types.js';
-import { getState, skillToState, getSkillForState } from './state-machine.js';
+import { getState, skillToState, getSkillForState, migrateWorkItems } from './state-machine.js';
 import { getNextState, buildTransitionContext, resolveToSkillState } from './transitions.js';
 import { getSessionState, updateSessionState, type CollabState } from '../tools/collab-state.js';
 import { syncTasksFromTaskGraph } from './task-sync.js';
@@ -53,6 +53,11 @@ export async function completeSkill(
 ): Promise<CompleteSkillOutput> {
   // 1. Read current session state
   const sessionState = await getSessionState(project, session);
+
+  // 1a. Migrate work items to handle legacy status values ('documented' → 'brainstormed')
+  if (sessionState.workItems) {
+    sessionState.workItems = migrateWorkItems(sessionState.workItems);
+  }
 
   // 2. Determine current state ID
   // Validate that session state matches the completed skill before using it for routing
@@ -150,23 +155,30 @@ export async function completeSkill(
     }
   }
 
-  // 5. Resolve routing nodes to find next skill-bearing state
+  // 5a. Special handling for execution phase entry - sync tasks BEFORE resolution
+  // Check if we're about to enter execution phase (batch-router or clear-pre-execute)
+  // This must happen before resolution because batch-router is a routing node
+  if (nextStateId === 'clear-pre-execute' || nextStateId === 'batch-router') {
+    try {
+      console.log('Syncing tasks from task-graph/blueprints...');
+      await syncTasksFromTaskGraph(project, session);
+      console.log('Task sync complete');
+      // Rebuild context after sync to get updated batches
+      const freshState = await getSessionState(project, session);
+      updatedContext = buildTransitionContext(freshState, updatedContext.currentItemType);
+    } catch (error) {
+      console.error('Failed to sync tasks from task-graph:', error);
+      // Continue anyway - may not have a task graph
+    }
+  }
+
+  // 5b. Resolve routing nodes to find next skill-bearing state
   const resolved = resolveToSkillState(nextStateId, updatedContext);
   if (!resolved) {
     return {
       next_skill: null,
       action: 'none',
     };
-  }
-
-  // 6. Special handling for execution phase entry
-  if (resolved.stateId === 'clear-pre-execute' || resolved.stateId === 'batch-router') {
-    try {
-      await syncTasksFromTaskGraph(project, session);
-    } catch (error) {
-      console.error('Failed to sync tasks from task-graph:', error);
-      // Continue anyway - may not have a task graph
-    }
   }
 
   // 7. Determine if we should clear
@@ -179,6 +191,8 @@ export async function completeSkill(
     phase: getPhaseFromState(resolved.stateId),
     // Include item updates if we selected a new work item
     ...itemUpdates,
+    // Persist migrated workItems (documented → brainstormed)
+    workItems: sessionState.workItems,
   });
 
   // 9. Auto-update diagram during execution phase

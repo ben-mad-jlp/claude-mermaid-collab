@@ -32,6 +32,7 @@ import { useChatStore } from '@/stores/chatStore';
 import { useDataLoader } from '@/hooks/useDataLoader';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { useSessionPolling } from '@/hooks/useSessionPolling';
 import { getWebSocketClient } from '@/lib/websocket';
 import { useShallow } from 'zustand/react/shallow';
 import { api, generateSessionName, type CachedUIState } from '@/lib/api';
@@ -273,6 +274,13 @@ const App: React.FC = () => {
 
   // WebSocket for real-time updates
   const { isConnected, isConnecting } = useWebSocket();
+
+  // Session polling for fallback status sync (dual-channel with WebSocket)
+  useSessionPolling(
+    currentSession?.project ?? null,
+    currentSession?.name ?? null,
+    5000
+  );
 
   // Request notification permission on app mount (Item 6)
   useEffect(() => {

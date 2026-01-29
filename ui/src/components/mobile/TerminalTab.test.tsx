@@ -1,13 +1,34 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TerminalTab } from './TerminalTab';
+import type { TerminalSession } from '../../types/terminal';
 
 // Mock XTermTerminal component
 vi.mock('../terminal/XTermTerminal', () => ({
   XTermTerminal: vi.fn(({ sessionId, wsUrl, className }) => (
     <div data-testid="xterm-terminal" data-session-id={sessionId} data-ws-url={wsUrl} className={className}>
       Terminal Component
+    </div>
+  )),
+}));
+
+// Mock MobileTerminalTabBar component
+vi.mock('./MobileTerminalTabBar', () => ({
+  MobileTerminalTabBar: vi.fn(({ tabs, activeTabId, onTabSelect, onTabClose, onTabAdd }) => (
+    <div data-testid="mobile-terminal-tab-bar">
+      {tabs.map((tab: TerminalSession) => (
+        <button
+          key={tab.id}
+          data-testid={`tab-${tab.id}`}
+          data-active={tab.id === activeTabId}
+          onClick={() => onTabSelect(tab.id)}
+        >
+          {tab.name}
+          <span data-testid={`close-${tab.id}`} onClick={(e) => { e.stopPropagation(); onTabClose(tab.id); }}>X</span>
+        </button>
+      ))}
+      <button data-testid="add-tab-button" onClick={onTabAdd}>+</button>
     </div>
   )),
 }));
@@ -27,221 +48,252 @@ class MockResizeObserver {
 
 global.ResizeObserver = MockResizeObserver as any;
 
+const createMockTab = (id: string, name: string): TerminalSession => ({
+  id,
+  name,
+  tmuxSession: `tmux-${id}`,
+  created: new Date().toISOString(),
+  order: 0,
+});
+
 describe('TerminalTab', () => {
+  const defaultProps = {
+    tabs: [] as TerminalSession[],
+    activeTabId: null as string | null,
+    activeTab: null as TerminalSession | null,
+    isLoading: false,
+    error: null as Error | null,
+    onTabSelect: vi.fn(),
+    onTabClose: vi.fn(),
+    onTabAdd: vi.fn(),
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('should render a full-screen terminal when hasSession is true', () => {
-    const { container } = render(
-      <TerminalTab
-        terminal={{ sessionId: 'test-session', wsUrl: 'ws://localhost:3737/terminal' }}
-        hasSession={true}
-      />
-    );
+  describe('Loading state', () => {
+    it('should render loading message when isLoading is true', () => {
+      render(<TerminalTab {...defaultProps} isLoading={true} />);
+      expect(screen.getByText('Loading terminals...')).toBeInTheDocument();
+    });
 
-    const terminalDiv = screen.getByTestId('xterm-terminal');
-    expect(terminalDiv).toBeInTheDocument();
+    it('should not render tab bar when loading', () => {
+      render(<TerminalTab {...defaultProps} isLoading={true} />);
+      expect(screen.queryByTestId('mobile-terminal-tab-bar')).not.toBeInTheDocument();
+    });
   });
 
-  it('should render placeholder when hasSession is false', () => {
-    const { container } = render(
-      <TerminalTab
-        terminal={{ sessionId: 'test-session', wsUrl: 'ws://localhost:3737/terminal' }}
-        hasSession={false}
-      />
-    );
+  describe('Error state', () => {
+    it('should render error message when error exists', () => {
+      const error = new Error('Failed to load terminals');
+      render(<TerminalTab {...defaultProps} error={error} />);
+      expect(screen.getByText('Error loading terminals')).toBeInTheDocument();
+      expect(screen.getByText('Failed to load terminals')).toBeInTheDocument();
+    });
 
-    expect(screen.getByText('No active terminal')).toBeInTheDocument();
+    it('should render retry button when error exists', () => {
+      const error = new Error('Failed to load terminals');
+      render(<TerminalTab {...defaultProps} error={error} />);
+      expect(screen.getByTestId('retry-terminal-button')).toBeInTheDocument();
+    });
+
+    it('should call onTabAdd when retry button is clicked', async () => {
+      const user = userEvent.setup();
+      const error = new Error('Failed to load terminals');
+      const onTabAdd = vi.fn();
+      render(<TerminalTab {...defaultProps} error={error} onTabAdd={onTabAdd} />);
+
+      await user.click(screen.getByTestId('retry-terminal-button'));
+      expect(onTabAdd).toHaveBeenCalledTimes(1);
+    });
   });
 
-  it('should render placeholder when terminal is null and hasSession is false', () => {
-    const { container } = render(
-      <TerminalTab
-        terminal={null}
-        hasSession={false}
-      />
-    );
+  describe('No tabs state', () => {
+    it('should render "No active terminal" when tabs array is empty', () => {
+      render(<TerminalTab {...defaultProps} tabs={[]} />);
+      expect(screen.getByText('No active terminal')).toBeInTheDocument();
+    });
 
-    expect(screen.getByText('No active terminal')).toBeInTheDocument();
+    it('should render New Terminal button when no tabs', () => {
+      render(<TerminalTab {...defaultProps} tabs={[]} />);
+      expect(screen.getByTestId('new-terminal-button')).toBeInTheDocument();
+    });
+
+    it('should call onTabAdd when New Terminal button is clicked', async () => {
+      const user = userEvent.setup();
+      const onTabAdd = vi.fn();
+      render(<TerminalTab {...defaultProps} tabs={[]} onTabAdd={onTabAdd} />);
+
+      await user.click(screen.getByTestId('new-terminal-button'));
+      expect(onTabAdd).toHaveBeenCalledTimes(1);
+    });
+
+    it('should apply accent button styling to New Terminal button', () => {
+      render(<TerminalTab {...defaultProps} tabs={[]} />);
+      const button = screen.getByTestId('new-terminal-button');
+      expect(button).toHaveClass('bg-accent-500');
+      expect(button).toHaveClass('hover:bg-accent-600');
+      expect(button).toHaveClass('text-white');
+      expect(button).toHaveClass('rounded-lg');
+    });
   });
 
-  it('should render XTermTerminal with correct props when hasSession is true', () => {
-    const terminalConfig = {
-      sessionId: 'test-session',
-      wsUrl: 'ws://localhost:3737/terminal',
-    };
+  describe('With tabs', () => {
+    const tab1 = createMockTab('tab-1', 'Terminal 1');
+    const tab2 = createMockTab('tab-2', 'Terminal 2');
 
-    render(
-      <TerminalTab
-        terminal={terminalConfig}
-        hasSession={true}
-      />
-    );
+    it('should render tab bar when tabs exist', () => {
+      render(
+        <TerminalTab
+          {...defaultProps}
+          tabs={[tab1]}
+          activeTabId={tab1.id}
+          activeTab={tab1}
+        />
+      );
+      expect(screen.getByTestId('mobile-terminal-tab-bar')).toBeInTheDocument();
+    });
 
-    const terminalDiv = screen.getByTestId('xterm-terminal');
-    expect(terminalDiv).toHaveAttribute('data-session-id', 'test-session');
-    expect(terminalDiv).toHaveAttribute('data-ws-url', 'ws://localhost:3737/terminal');
+    it('should render XTermTerminal for active tab', () => {
+      render(
+        <TerminalTab
+          {...defaultProps}
+          tabs={[tab1]}
+          activeTabId={tab1.id}
+          activeTab={tab1}
+        />
+      );
+      expect(screen.getByTestId('xterm-terminal')).toBeInTheDocument();
+    });
+
+    it('should pass correct sessionId to XTermTerminal', () => {
+      render(
+        <TerminalTab
+          {...defaultProps}
+          tabs={[tab1]}
+          activeTabId={tab1.id}
+          activeTab={tab1}
+        />
+      );
+      const terminal = screen.getByTestId('xterm-terminal');
+      expect(terminal).toHaveAttribute('data-session-id', 'tab-1');
+    });
+
+    it('should pass /terminal as wsUrl to XTermTerminal', () => {
+      render(
+        <TerminalTab
+          {...defaultProps}
+          tabs={[tab1]}
+          activeTabId={tab1.id}
+          activeTab={tab1}
+        />
+      );
+      const terminal = screen.getByTestId('xterm-terminal');
+      expect(terminal).toHaveAttribute('data-ws-url', '/terminal');
+    });
+
+    it('should render all tabs but only show active one', () => {
+      const { container } = render(
+        <TerminalTab
+          {...defaultProps}
+          tabs={[tab1, tab2]}
+          activeTabId={tab1.id}
+          activeTab={tab1}
+        />
+      );
+
+      // All terminals should be in DOM
+      const terminals = container.querySelectorAll('[data-testid="xterm-terminal"]');
+      expect(terminals.length).toBe(2);
+    });
+
+    it('should call onTabSelect when a tab is selected', async () => {
+      const user = userEvent.setup();
+      const onTabSelect = vi.fn();
+
+      render(
+        <TerminalTab
+          {...defaultProps}
+          tabs={[tab1, tab2]}
+          activeTabId={tab1.id}
+          activeTab={tab1}
+          onTabSelect={onTabSelect}
+        />
+      );
+
+      await user.click(screen.getByTestId(`tab-${tab2.id}`));
+      expect(onTabSelect).toHaveBeenCalledWith(tab2.id);
+    });
+
+    it('should call onTabClose when close button is clicked', async () => {
+      const user = userEvent.setup();
+      const onTabClose = vi.fn();
+
+      render(
+        <TerminalTab
+          {...defaultProps}
+          tabs={[tab1]}
+          activeTabId={tab1.id}
+          activeTab={tab1}
+          onTabClose={onTabClose}
+        />
+      );
+
+      await user.click(screen.getByTestId(`close-${tab1.id}`));
+      expect(onTabClose).toHaveBeenCalledWith(tab1.id);
+    });
+
+    it('should call onTabAdd when add button is clicked', async () => {
+      const user = userEvent.setup();
+      const onTabAdd = vi.fn();
+
+      render(
+        <TerminalTab
+          {...defaultProps}
+          tabs={[tab1]}
+          activeTabId={tab1.id}
+          activeTab={tab1}
+          onTabAdd={onTabAdd}
+        />
+      );
+
+      await user.click(screen.getByTestId('add-tab-button'));
+      expect(onTabAdd).toHaveBeenCalledTimes(1);
+    });
+
+    it('should show "No terminal selected" when tabs exist but no activeTab', () => {
+      render(
+        <TerminalTab
+          {...defaultProps}
+          tabs={[tab1]}
+          activeTabId={null}
+          activeTab={null}
+        />
+      );
+      expect(screen.getByText('No terminal selected')).toBeInTheDocument();
+    });
   });
 
-  it('should fill available height with full-screen layout', () => {
-    const { container } = render(
-      <TerminalTab
-        terminal={{ sessionId: 'test-session', wsUrl: 'ws://localhost:3737/terminal' }}
-        hasSession={true}
-      />
-    );
+  describe('Layout', () => {
+    it('should have full-screen flex layout', () => {
+      const { container } = render(<TerminalTab {...defaultProps} tabs={[]} />);
+      const wrapper = container.firstChild as HTMLElement;
 
-    const wrapper = container.firstChild as HTMLElement;
-    const styles = window.getComputedStyle(wrapper);
+      expect(wrapper).toHaveStyle('display: flex');
+      expect(wrapper).toHaveStyle('flex: 1');
+      expect(wrapper).toHaveStyle('min-height: 0');
+      expect(wrapper).toHaveStyle('width: 100%');
+      expect(wrapper).toHaveStyle('height: 100%');
+      expect(wrapper).toHaveStyle('overflow: hidden');
+    });
 
-    // Check for full-screen flex layout
-    expect(wrapper).toHaveStyle('display: flex');
-    expect(wrapper).toHaveStyle('flex: 1');
-    expect(wrapper).toHaveStyle('min-height: 0');
-    expect(wrapper).toHaveStyle('width: 100%');
-  });
-
-  it('should handle placeholder styling correctly', () => {
-    const { container } = render(
-      <TerminalTab
-        terminal={null}
-        hasSession={false}
-      />
-    );
-
-    const placeholder = screen.getByText('No active terminal');
-    expect(placeholder).toBeInTheDocument();
-
-    // Verify placeholder styling through its container
-    const placeholderContainer = placeholder.parentElement;
-    const computedStyle = window.getComputedStyle(placeholderContainer!);
-
-    expect(computedStyle.display).toBe('flex');
-    expect(computedStyle.flex).toContain('1');
-  });
-
-  it('should pass terminal sessionId to XTermTerminal component', () => {
-    render(
-      <TerminalTab
-        terminal={{ sessionId: 'my-session-123', wsUrl: 'ws://localhost:3737/terminal' }}
-        hasSession={true}
-      />
-    );
-
-    const terminalDiv = screen.getByTestId('xterm-terminal');
-    expect(terminalDiv).toHaveAttribute('data-session-id', 'my-session-123');
-  });
-
-  it('should pass terminal wsUrl to XTermTerminal component', () => {
-    render(
-      <TerminalTab
-        terminal={{ sessionId: 'test-session', wsUrl: 'ws://custom.host:9999/ws' }}
-        hasSession={true}
-      />
-    );
-
-    const terminalDiv = screen.getByTestId('xterm-terminal');
-    expect(terminalDiv).toHaveAttribute('data-ws-url', 'ws://custom.host:9999/ws');
-  });
-
-  it('should not render terminal when hasSession is false even if terminal prop exists', () => {
-    const { container, queryByTestId } = render(
-      <TerminalTab
-        terminal={{ sessionId: 'test-session', wsUrl: 'ws://localhost:3737/terminal' }}
-        hasSession={false}
-      />
-    );
-
-    expect(queryByTestId('xterm-terminal')).not.toBeInTheDocument();
-    expect(screen.getByText('No active terminal')).toBeInTheDocument();
-  });
-
-  it('should apply full-screen container styles to wrapper', () => {
-    const { container } = render(
-      <TerminalTab
-        terminal={{ sessionId: 'test-session', wsUrl: 'ws://localhost:3737/terminal' }}
-        hasSession={true}
-      />
-    );
-
-    const wrapper = container.firstChild as HTMLElement;
-    expect(wrapper).toHaveStyle('flex-direction: column');
-    expect(wrapper).toHaveStyle('width: 100%');
-    expect(wrapper).toHaveStyle('height: 100%');
-    expect(wrapper).toHaveStyle('overflow: hidden');
-  });
-
-  it('should render New Terminal button when hasSession is false and onCreateTerminal is provided', () => {
-    const onCreateTerminal = vi.fn();
-    render(
-      <TerminalTab
-        terminal={null}
-        hasSession={false}
-        onCreateTerminal={onCreateTerminal}
-      />
-    );
-
-    const button = screen.getByTestId('new-terminal-button');
-    expect(button).toBeInTheDocument();
-    expect(button).toHaveTextContent('New Terminal');
-  });
-
-  it('should not render New Terminal button when onCreateTerminal is not provided', () => {
-    const { queryByTestId } = render(
-      <TerminalTab
-        terminal={null}
-        hasSession={false}
-      />
-    );
-
-    expect(queryByTestId('new-terminal-button')).not.toBeInTheDocument();
-  });
-
-  it('should call onCreateTerminal when button is clicked', async () => {
-    const user = userEvent.setup();
-    const onCreateTerminal = vi.fn();
-    render(
-      <TerminalTab
-        terminal={null}
-        hasSession={false}
-        onCreateTerminal={onCreateTerminal}
-      />
-    );
-
-    const button = screen.getByTestId('new-terminal-button');
-    await user.click(button);
-
-    expect(onCreateTerminal).toHaveBeenCalledTimes(1);
-  });
-
-  it('should not render New Terminal button when hasSession is true', () => {
-    const onCreateTerminal = vi.fn();
-    const { queryByTestId } = render(
-      <TerminalTab
-        terminal={{ sessionId: 'test-session', wsUrl: 'ws://localhost:3737/terminal' }}
-        hasSession={true}
-        onCreateTerminal={onCreateTerminal}
-      />
-    );
-
-    expect(queryByTestId('new-terminal-button')).not.toBeInTheDocument();
-  });
-
-  it('should apply accent button styling to New Terminal button', () => {
-    const onCreateTerminal = vi.fn();
-    render(
-      <TerminalTab
-        terminal={null}
-        hasSession={false}
-        onCreateTerminal={onCreateTerminal}
-      />
-    );
-
-    const button = screen.getByTestId('new-terminal-button');
-    expect(button).toHaveClass('bg-accent-500');
-    expect(button).toHaveClass('hover:bg-accent-600');
-    expect(button).toHaveClass('text-white');
-    expect(button).toHaveClass('rounded-lg');
+    it('should apply custom className', () => {
+      const { container } = render(
+        <TerminalTab {...defaultProps} tabs={[]} className="custom-class" />
+      );
+      const wrapper = container.firstChild as HTMLElement;
+      expect(wrapper).toHaveClass('custom-class');
+    });
   });
 });

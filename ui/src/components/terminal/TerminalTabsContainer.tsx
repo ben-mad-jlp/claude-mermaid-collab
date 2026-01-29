@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef, useEffect } from 'react';
 import { useTerminalTabs } from '../../hooks/useTerminalTabs';
 import { TerminalTabBar } from './TerminalTabBar';
 import { EmbeddedTerminal } from '../EmbeddedTerminal';
@@ -31,6 +31,27 @@ export const TerminalTabsContainer: React.FC<TerminalTabsContainerProps> = ({ cl
 
   // Memoize terminal config to prevent unnecessary iframe reloads
   const terminalConfig = useMemo(() => ({ wsUrl: '/terminal' }), []);
+
+  // Store refs to terminal wrapper elements for explicit resize triggering
+  const terminalRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  // Trigger resize when active tab changes
+  useEffect(() => {
+    if (!activeTabId) return;
+
+    const terminalWrapper = terminalRefs.current.get(activeTabId);
+    if (!terminalWrapper) return;
+
+    // Trigger resize event on the wrapper to notify ResizeObserver
+    // Use double RAF to ensure DOM has settled after visibility change
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        // Dispatch a resize event which triggers the ResizeObserver
+        const resizeEvent = new Event('resize', { bubbles: true });
+        terminalWrapper.dispatchEvent(resizeEvent);
+      });
+    });
+  }, [activeTabId]);
 
   // Handle no session selected
   if (!currentSession) {
@@ -89,6 +110,13 @@ export const TerminalTabsContainer: React.FC<TerminalTabsContainerProps> = ({ cl
             {tabs.map((tab) => (
               <div
                 key={tab.id}
+                ref={(el) => {
+                  if (el) {
+                    terminalRefs.current.set(tab.id, el);
+                  } else {
+                    terminalRefs.current.delete(tab.id);
+                  }
+                }}
                 style={{
                   display: tab.id === activeTabId ? 'flex' : 'none',
                   flexDirection: 'column',
