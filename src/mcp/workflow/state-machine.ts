@@ -39,6 +39,9 @@ export const STATE_DISPLAY_NAMES: Record<string, string> = {
   'cleanup': 'Cleaning Up',
   'done': 'Done',
 
+  // Vibe mode
+  'vibe-active': 'Vibe Mode',
+
   // Routing nodes
   'work-item-router': 'Routing',
   'brainstorm-item-router': 'Routing',
@@ -271,6 +274,15 @@ export const WORKFLOW_STATES: WorkflowState[] = [
     id: 'done',
     skill: null,
     transitions: [],
+  },
+
+  // ========== Vibe mode ==========
+  {
+    id: 'vibe-active',
+    skill: null,
+    transitions: [
+      { to: 'cleanup', condition: { type: 'cleanup_requested' } }
+    ],
   },
 
   // ========== Legacy states (kept for backwards compatibility) ==========

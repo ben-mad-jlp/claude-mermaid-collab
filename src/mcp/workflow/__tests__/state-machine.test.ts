@@ -96,6 +96,12 @@ describe('State Machine Display Names', () => {
       });
     });
 
+    describe('Vibe mode states', () => {
+      it('should have display name for vibe-active', () => {
+        expect(STATE_DISPLAY_NAMES['vibe-active']).toBe('Vibe Mode');
+      });
+    });
+
     describe('Routing nodes', () => {
       it('should have display name for work-item-router', () => {
         expect(STATE_DISPLAY_NAMES['work-item-router']).toBe('Routing');
@@ -200,6 +206,61 @@ describe('State Machine Display Names', () => {
         const displayName = getDisplayName(state.id);
         expect(displayName).toBeDefined();
       });
+    });
+  });
+});
+
+describe('Vibe Mode State', () => {
+  describe('vibe-active state definition', () => {
+    it('should exist in WORKFLOW_STATES', () => {
+      const vibeActiveState = getState('vibe-active');
+      expect(vibeActiveState).toBeDefined();
+    });
+
+    it('should have no skill (user drives vibe mode)', () => {
+      const vibeActiveState = getState('vibe-active');
+      expect(vibeActiveState?.skill).toBeNull();
+    });
+
+    it('should have correct id', () => {
+      const vibeActiveState = getState('vibe-active');
+      expect(vibeActiveState?.id).toBe('vibe-active');
+    });
+
+    it('should have transition to cleanup on cleanup_requested condition', () => {
+      const vibeActiveState = getState('vibe-active');
+      expect(vibeActiveState?.transitions).toBeDefined();
+      expect(vibeActiveState?.transitions.length).toBeGreaterThan(0);
+
+      const cleanupTransition = vibeActiveState?.transitions.find(
+        (t) => t.to === 'cleanup' && t.condition?.type === 'cleanup_requested'
+      );
+      expect(cleanupTransition).toBeDefined();
+    });
+
+    it('should have exactly one transition', () => {
+      const vibeActiveState = getState('vibe-active');
+      expect(vibeActiveState?.transitions.length).toBe(1);
+    });
+  });
+
+  describe('getDisplayName for vibe-active', () => {
+    it('should return Vibe Mode', () => {
+      expect(getDisplayName('vibe-active')).toBe('Vibe Mode');
+    });
+  });
+
+  describe('vibe-active state integration', () => {
+    it('should be accessible via getState', () => {
+      const state = getState('vibe-active');
+      expect(state).toBeDefined();
+      expect(state?.id).toBe('vibe-active');
+    });
+
+    it('should not have a skill mapping', () => {
+      const skillId = skillToState('vibe-active');
+      // vibe-active has no skill, so skillToState should not find it
+      expect(skillId).not.toBe('vibe-active');
     });
   });
 });
