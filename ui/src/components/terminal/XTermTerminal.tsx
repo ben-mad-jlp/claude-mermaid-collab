@@ -65,22 +65,37 @@ export const XTermTerminal = React.memo(function XTermTerminal({
       if (isDisposedRef.current || !currentFitAddon || !currentTerm) {
         return;
       }
+
+      // Validate container dimensions
+      const container = terminalRef.current;
+      if (container) {
+        const { width, height } = container.getBoundingClientRect();
+        if (width === 0 || height === 0) {
+          return;
+        }
+      }
+
       // Cancel any pending fit to debounce rapid resize events
       if (rafId !== null) {
         cancelAnimationFrame(rafId);
       }
-      // Use RAF to ensure DOM has updated before measuring
+
+      // Use double RAF for proper timing
+      // First RAF: wait for browser to render
       rafId = requestAnimationFrame(() => {
-        rafId = null;
-        const t = terminalInstanceRef.current;
-        const f = fitAddonRef.current;
-        if (isDisposedRef.current || !f || !t) return;
-        try {
-          f.fit();
-          sendResize(t.cols, t.rows);
-        } catch (e) {
-          // Silently ignore fit errors
-        }
+        // Second RAF: wait for paint to complete before measuring
+        rafId = requestAnimationFrame(() => {
+          rafId = null;
+          const t = terminalInstanceRef.current;
+          const f = fitAddonRef.current;
+          if (isDisposedRef.current || !f || !t) return;
+          try {
+            f.fit();
+            sendResize(t.cols, t.rows);
+          } catch (e) {
+            // Silently ignore fit errors
+          }
+        });
       });
     };
 
