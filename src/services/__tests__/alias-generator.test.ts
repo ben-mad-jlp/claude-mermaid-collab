@@ -16,19 +16,19 @@ describe('Alias Generator', () => {
     });
 
     it('should expand single keyword with synonyms', () => {
-      const keywords = ['auth'];
+      const keywords = ['authentication'];
       const result = expandWithSynonyms(keywords);
-      expect(result).toContain('auth');
       expect(result).toContain('authentication');
+      expect(result).toContain('auth');
       expect(result).toContain('login');
       expect(result).toContain('signin');
     });
 
     it('should expand multiple keywords with synonyms', () => {
-      const keywords = ['auth', 'ui'];
+      const keywords = ['authentication', 'ui'];
       const result = expandWithSynonyms(keywords);
-      expect(result).toContain('auth');
       expect(result).toContain('authentication');
+      expect(result).toContain('auth');
       expect(result).toContain('login');
       expect(result).toContain('ui');
       expect(result).toContain('interface');
@@ -37,9 +37,9 @@ describe('Alias Generator', () => {
     });
 
     it('should deduplicate expanded keywords', () => {
-      const keywords = ['auth', 'auth'];
+      const keywords = ['authentication', 'authentication'];
       const result = expandWithSynonyms(keywords);
-      const authCount = result.filter(k => k === 'auth').length;
+      const authCount = result.filter(k => k === 'authentication').length;
       expect(authCount).toBe(1);
     });
 
@@ -59,19 +59,19 @@ describe('Alias Generator', () => {
     });
 
     it('should handle mix of known and unknown keywords', () => {
-      const keywords = ['auth', 'unknown', 'db'];
+      const keywords = ['authentication', 'unknown', 'database'];
       const result = expandWithSynonyms(keywords);
-      expect(result).toContain('auth');
       expect(result).toContain('authentication');
+      expect(result).toContain('auth');
       expect(result).toContain('unknown');
-      expect(result).toContain('db');
       expect(result).toContain('database');
+      expect(result).toContain('db');
       expect(result).toContain('storage');
-      expect(result).toContain('data');
+      expect(result).toContain('persistence');
     });
 
     it('should return unique results', () => {
-      const keywords = ['config', 'config'];
+      const keywords = ['configuration', 'configuration'];
       const result = expandWithSynonyms(keywords);
       const resultSet = new Set(result);
       expect(result.length).toBe(resultSet.size);
