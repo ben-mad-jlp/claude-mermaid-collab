@@ -6,6 +6,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { kodexApi, type Topic, type Flag, type Draft } from '@/lib/kodex-api';
 import { useKodexStore } from '@/stores/kodexStore';
+import { AliasEditor } from '@/components/kodex/AliasEditor';
 
 const ConfidenceBadge: React.FC<{ confidence: Topic['confidence'] }> = ({ confidence }) => {
   const colors = {
@@ -79,6 +80,7 @@ export const TopicDetail: React.FC = () => {
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [draft, setDraft] = useState<Draft | null>(null);
   const [loadingDraft, setLoadingDraft] = useState(false);
+  const [aliasError, setAliasError] = useState<string | null>(null);
   const selectedProject = useKodexStore((s) => s.selectedProject);
 
   useEffect(() => {
@@ -192,6 +194,36 @@ export const TopicDetail: React.FC = () => {
     }
   };
 
+  const handleAddAlias = async (alias: string) => {
+    if (!selectedProject || !name) return;
+    try {
+      setAliasError(null);
+      await kodexApi.addAlias(selectedProject, name, alias);
+      // Reload topic to get updated aliases
+      const data = await kodexApi.getTopic(selectedProject, name);
+      setTopic(data);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to add alias';
+      setAliasError(errorMsg);
+      alert(errorMsg);
+    }
+  };
+
+  const handleRemoveAlias = async (alias: string) => {
+    if (!selectedProject || !name) return;
+    try {
+      setAliasError(null);
+      await kodexApi.removeAlias(selectedProject, name, alias);
+      // Reload topic to get updated aliases
+      const data = await kodexApi.getTopic(selectedProject, name);
+      setTopic(data);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to remove alias';
+      setAliasError(errorMsg);
+      alert(errorMsg);
+    }
+  };
+
   if (!selectedProject) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -236,12 +268,25 @@ export const TopicDetail: React.FC = () => {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-start justify-between">
-        <div>
+        <div className="flex-1">
           <Link to="/kodex/topics" className="text-blue-600 hover:underline text-sm">
             &larr; Back to Topics
           </Link>
           <h1 className="text-2xl font-bold mt-2">{topic.title}</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">{topic.name}</p>
+
+          {/* Aliases Section */}
+          <div className="mt-4">
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Aliases</p>
+            <AliasEditor
+              aliases={topic.aliases || []}
+              onAdd={handleAddAlias}
+              onRemove={handleRemoveAlias}
+            />
+            {aliasError && (
+              <p className="text-sm text-red-600 dark:text-red-400 mt-2">{aliasError}</p>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <ConfidenceBadge confidence={topic.confidence} />

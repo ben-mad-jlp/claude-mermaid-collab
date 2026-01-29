@@ -898,6 +898,32 @@ export async function setupMCPServer(): Promise<Server> {
           required: ['project'],
         },
       },
+      {
+        name: 'kodex_add_alias',
+        description: 'Add an alias to a topic',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            topicName: { type: 'string', description: 'Topic name' },
+            alias: { type: 'string', description: 'Alias to add' },
+          },
+          required: ['project', 'topicName', 'alias'],
+        },
+      },
+      {
+        name: 'kodex_remove_alias',
+        description: 'Remove an alias from a topic',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            topicName: { type: 'string', description: 'Topic name' },
+            alias: { type: 'string', description: 'Alias to remove' },
+          },
+          required: ['project', 'topicName', 'alias'],
+        },
+      },
       // Workflow orchestration
       {
         name: 'complete_skill',
@@ -1345,6 +1371,22 @@ export async function setupMCPServer(): Promise<Server> {
             const kodex = getKodexManager(project);
             const flags = await kodex.listFlags(status);
             return JSON.stringify({ flags }, null, 2);
+          }
+
+          case 'kodex_add_alias': {
+            const { project, topicName, alias } = args as { project: string; topicName: string; alias: string };
+            if (!project || !topicName || !alias) throw new Error('Missing required: project, topicName, alias');
+            const kodex = getKodexManager(project);
+            kodex.addAlias(topicName, alias);
+            return JSON.stringify({ success: true, message: `Alias '${alias}' added to topic '${topicName}' successfully` }, null, 2);
+          }
+
+          case 'kodex_remove_alias': {
+            const { project, topicName, alias } = args as { project: string; topicName: string; alias: string };
+            if (!project || !topicName || !alias) throw new Error('Missing required: project, topicName, alias');
+            const kodex = getKodexManager(project);
+            kodex.removeAlias(topicName, alias);
+            return JSON.stringify({ success: true, message: `Alias '${alias}' removed from topic '${topicName}' successfully` }, null, 2);
           }
 
           case 'complete_skill': {

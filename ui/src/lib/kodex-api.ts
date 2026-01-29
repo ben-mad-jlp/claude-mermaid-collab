@@ -14,6 +14,7 @@ export interface TopicMetadata {
   createdAt: string;
   updatedAt: string;
   hasDraft: boolean;
+  aliases?: string[];
 }
 
 export interface TopicContent {
