@@ -1,16 +1,19 @@
 /**
- * Unit tests for task-status type definitions.
- * Verifies that the exported interfaces match the expected structure
- * and can be instantiated correctly.
+ * Unit tests for task-status implementation.
+ * Tests both type definitions and function implementations.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type {
   UpdateTaskStatusParams,
   GetTaskGraphParams,
   TaskGraphResponse,
   TaskGraphUpdatedPayload,
 } from '../task-status.js';
+import { updateTaskStatus, getTaskGraph } from '../task-status.js';
+import * as collabState from '../../tools/collab-state.js';
+import * as taskDiagram from '../task-diagram.js';
+import type { TaskBatch } from '../types.js';
 
 describe('task-status types', () => {
   describe('UpdateTaskStatusParams', () => {
@@ -220,5 +223,562 @@ describe('task-status types', () => {
       expect(payload.diagram).toBe(response.diagram);
       expect(payload.batches).toBe(response.batches);
     });
+  });
+});
+
+// ============= Function Implementation Tests =============
+
+describe('updateTaskStatus function', () => {
+  const mockProject = '/test/project';
+  const mockSession = 'test-session';
+  const mockBatches: TaskBatch[] = [
+    {
+      id: 'batch-1',
+      status: 'pending',
+      tasks: [
+        {
+          id: 'task-1',
+          status: 'pending',
+          dependsOn: [],
+        },
+        {
+          id: 'task-2',
+          status: 'pending',
+          dependsOn: ['task-1'],
+        },
+      ],
+    },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('should validate required parameters', async () => {
+    const invalidParams = {
+      project: '',
+      session: mockSession,
+      taskId: 'task-1',
+      status: 'completed' as const,
+    };
+
+    const response = await updateTaskStatus(invalidParams);
+    expect(response.success).toBe(false);
+    expect(response.error).toBeDefined();
+  });
+
+  it('should reject invalid status values', async () => {
+    vi.spyOn(collabState, 'getSessionState').mockResolvedValue({
+      batches: mockBatches,
+      lastActivity: new Date().toISOString(),
+      currentItem: null,
+      hasSnapshot: false,
+    });
+
+    const params: UpdateTaskStatusParams = {
+      project: mockProject,
+      session: mockSession,
+      taskId: 'task-1',
+      status: 'invalid' as any,
+    };
+
+    const response = await updateTaskStatus(params);
+    expect(response.success).toBe(false);
+    expect(response.error).toContain('Invalid status');
+  });
+
+  it('should return error when session not found', async () => {
+    vi.spyOn(collabState, 'getSessionState').mockRejectedValue(
+      new Error('Session not found')
+    );
+
+    const params: UpdateTaskStatusParams = {
+      project: mockProject,
+      session: 'nonexistent',
+      taskId: 'task-1',
+      status: 'completed',
+    };
+
+    const response = await updateTaskStatus(params);
+    expect(response.success).toBe(false);
+    expect(response.error).toContain('Session not found');
+  });
+
+  it('should return error when task not found', async () => {
+    vi.spyOn(collabState, 'getSessionState').mockResolvedValue({
+      batches: mockBatches,
+      lastActivity: new Date().toISOString(),
+      currentItem: null,
+      hasSnapshot: false,
+    });
+
+    const params: UpdateTaskStatusParams = {
+      project: mockProject,
+      session: mockSession,
+      taskId: 'nonexistent-task',
+      status: 'completed',
+    };
+
+    const response = await updateTaskStatus(params);
+    expect(response.success).toBe(false);
+    expect(response.error).toContain('Task not found');
+  });
+
+  it('should update task status from pending to in_progress', async () => {
+    const batches: TaskBatch[] = [
+      {
+        id: 'batch-1',
+        status: 'pending',
+        tasks: [
+          {
+            id: 'task-1',
+            status: 'pending',
+            dependsOn: [],
+          },
+        ],
+      },
+    ];
+
+    vi.spyOn(collabState, 'getSessionState').mockResolvedValue({
+      batches,
+      lastActivity: new Date().toISOString(),
+      currentItem: null,
+      hasSnapshot: false,
+    });
+
+    vi.spyOn(collabState, 'updateSessionState').mockResolvedValue({
+      success: true,
+    });
+
+    vi.spyOn(taskDiagram, 'generateTaskDiagram').mockReturnValue(
+      'graph TD\n  task_1["task-1: in_progress"]'
+    );
+
+    const params: UpdateTaskStatusParams = {
+      project: mockProject,
+      session: mockSession,
+      taskId: 'task-1',
+      status: 'in_progress',
+    };
+
+    const response = await updateTaskStatus(params);
+
+    expect(response.success).toBe(true);
+    expect(response.pendingTasks).toContain('task-1');
+    expect(response.completedTasks).not.toContain('task-1');
+  });
+
+  it('should update task status from in_progress to completed', async () => {
+    const batches: TaskBatch[] = [
+      {
+        id: 'batch-1',
+        status: 'in_progress',
+        tasks: [
+          {
+            id: 'task-1',
+            status: 'in_progress',
+            dependsOn: [],
+          },
+          {
+            id: 'task-2',
+            status: 'pending',
+            dependsOn: ['task-1'],
+          },
+        ],
+      },
+    ];
+
+    vi.spyOn(collabState, 'getSessionState').mockResolvedValue({
+      batches,
+      lastActivity: new Date().toISOString(),
+      currentItem: null,
+      hasSnapshot: false,
+    });
+
+    vi.spyOn(collabState, 'updateSessionState').mockResolvedValue({
+      success: true,
+    });
+
+    vi.spyOn(taskDiagram, 'generateTaskDiagram').mockReturnValue(
+      'graph TD\n  task_1["task-1: completed"]'
+    );
+
+    const params: UpdateTaskStatusParams = {
+      project: mockProject,
+      session: mockSession,
+      taskId: 'task-1',
+      status: 'completed',
+    };
+
+    const response = await updateTaskStatus(params);
+
+    expect(response.success).toBe(true);
+    expect(response.completedTasks).toContain('task-1');
+    expect(response.pendingTasks).not.toContain('task-1');
+  });
+
+  it('should detect batch completion when all tasks are completed', async () => {
+    const batches: TaskBatch[] = [
+      {
+        id: 'batch-1',
+        status: 'in_progress',
+        tasks: [
+          {
+            id: 'task-1',
+            status: 'completed',
+            dependsOn: [],
+          },
+          {
+            id: 'task-2',
+            status: 'in_progress',
+            dependsOn: ['task-1'],
+          },
+        ],
+      },
+    ];
+
+    vi.spyOn(collabState, 'getSessionState').mockResolvedValue({
+      batches,
+      lastActivity: new Date().toISOString(),
+      currentItem: null,
+      hasSnapshot: false,
+    });
+
+    vi.spyOn(collabState, 'updateSessionState').mockResolvedValue({
+      success: true,
+    });
+
+    vi.spyOn(taskDiagram, 'generateTaskDiagram').mockReturnValue(
+      'graph TD'
+    );
+
+    const params: UpdateTaskStatusParams = {
+      project: mockProject,
+      session: mockSession,
+      taskId: 'task-2',
+      status: 'completed',
+    };
+
+    const response = await updateTaskStatus(params);
+
+    expect(response.success).toBe(true);
+    expect(response.batches[0].status).toBe('completed');
+  });
+
+  it('should recalculate completedTasks and pendingTasks arrays', async () => {
+    const batches: TaskBatch[] = [
+      {
+        id: 'batch-1',
+        status: 'in_progress',
+        tasks: [
+          {
+            id: 'task-1',
+            status: 'completed',
+            dependsOn: [],
+          },
+          {
+            id: 'task-2',
+            status: 'in_progress',
+            dependsOn: ['task-1'],
+          },
+          {
+            id: 'task-3',
+            status: 'pending',
+            dependsOn: ['task-2'],
+          },
+        ],
+      },
+    ];
+
+    vi.spyOn(collabState, 'getSessionState').mockResolvedValue({
+      batches,
+      lastActivity: new Date().toISOString(),
+      currentItem: null,
+      hasSnapshot: false,
+    });
+
+    vi.spyOn(collabState, 'updateSessionState').mockResolvedValue({
+      success: true,
+    });
+
+    vi.spyOn(taskDiagram, 'generateTaskDiagram').mockReturnValue(
+      'graph TD'
+    );
+
+    const params: UpdateTaskStatusParams = {
+      project: mockProject,
+      session: mockSession,
+      taskId: 'task-3',
+      status: 'in_progress',
+    };
+
+    const response = await updateTaskStatus(params);
+
+    expect(response.success).toBe(true);
+    expect(response.completedTasks).toEqual(['task-1']);
+    expect(response.pendingTasks).toContain('task-2');
+    expect(response.pendingTasks).toContain('task-3');
+  });
+
+  it('should call updateSessionState with new state', async () => {
+    const batches: TaskBatch[] = [
+      {
+        id: 'batch-1',
+        status: 'pending',
+        tasks: [
+          {
+            id: 'task-1',
+            status: 'pending',
+            dependsOn: [],
+          },
+        ],
+      },
+    ];
+
+    vi.spyOn(collabState, 'getSessionState').mockResolvedValue({
+      batches,
+      lastActivity: new Date().toISOString(),
+      currentItem: null,
+      hasSnapshot: false,
+    });
+
+    const updateSpy = vi.spyOn(collabState, 'updateSessionState')
+      .mockResolvedValue({ success: true });
+
+    vi.spyOn(taskDiagram, 'generateTaskDiagram').mockReturnValue(
+      'graph TD'
+    );
+
+    const params: UpdateTaskStatusParams = {
+      project: mockProject,
+      session: mockSession,
+      taskId: 'task-1',
+      status: 'in_progress',
+    };
+
+    await updateTaskStatus(params);
+
+    expect(updateSpy).toHaveBeenCalledWith(
+      mockProject,
+      mockSession,
+      expect.objectContaining({
+        batches: expect.any(Array),
+        completedTasks: expect.any(Array),
+        pendingTasks: expect.any(Array),
+      })
+    );
+  });
+
+  it('should broadcast task_graph_updated via WebSocket handler', async () => {
+    const batches: TaskBatch[] = [
+      {
+        id: 'batch-1',
+        status: 'pending',
+        tasks: [
+          {
+            id: 'task-1',
+            status: 'pending',
+            dependsOn: [],
+          },
+        ],
+      },
+    ];
+
+    vi.spyOn(collabState, 'getSessionState').mockResolvedValue({
+      batches,
+      lastActivity: new Date().toISOString(),
+      currentItem: null,
+      hasSnapshot: false,
+    });
+
+    vi.spyOn(collabState, 'updateSessionState').mockResolvedValue({
+      success: true,
+    });
+
+    vi.spyOn(taskDiagram, 'generateTaskDiagram').mockReturnValue(
+      'graph TD'
+    );
+
+    const mockBroadcast = vi.fn();
+    const wsHandler = { broadcast: mockBroadcast };
+
+    const params: UpdateTaskStatusParams = {
+      project: mockProject,
+      session: mockSession,
+      taskId: 'task-1',
+      status: 'in_progress',
+    };
+
+    await updateTaskStatus(params, wsHandler);
+
+    expect(mockBroadcast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'task_graph_updated',
+        project: mockProject,
+        session: mockSession,
+        payload: expect.objectContaining({
+          updatedTaskId: 'task-1',
+          updatedStatus: 'in_progress',
+          diagram: expect.any(String),
+          batches: expect.any(Array),
+          completedTasks: expect.any(Array),
+          pendingTasks: expect.any(Array),
+        }),
+      })
+    );
+  });
+});
+
+describe('getTaskGraph function', () => {
+  const mockProject = '/test/project';
+  const mockSession = 'test-session';
+  const mockBatches: TaskBatch[] = [
+    {
+      id: 'batch-1',
+      status: 'pending',
+      tasks: [
+        {
+          id: 'task-1',
+          status: 'pending',
+          dependsOn: [],
+        },
+      ],
+    },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('should validate required parameters', async () => {
+    const invalidParams = {
+      project: '',
+      session: mockSession,
+    };
+
+    const response = await getTaskGraph(invalidParams as any);
+    expect(response.success).toBe(false);
+    expect(response.error).toBeDefined();
+  });
+
+  it('should return error when session not found', async () => {
+    vi.spyOn(collabState, 'getSessionState').mockRejectedValue(
+      new Error('Session not found')
+    );
+
+    const params: GetTaskGraphParams = {
+      project: mockProject,
+      session: 'nonexistent',
+    };
+
+    const response = await getTaskGraph(params);
+    expect(response.success).toBe(false);
+    expect(response.error).toContain('Session not found');
+  });
+
+  it('should return current state without modifications', async () => {
+    vi.spyOn(collabState, 'getSessionState').mockResolvedValue({
+      batches: mockBatches,
+      completedTasks: [],
+      pendingTasks: ['task-1'],
+      lastActivity: new Date().toISOString(),
+      currentItem: null,
+      hasSnapshot: false,
+    });
+
+    vi.spyOn(taskDiagram, 'generateTaskDiagram').mockReturnValue(
+      'graph TD'
+    );
+
+    const params: GetTaskGraphParams = {
+      project: mockProject,
+      session: mockSession,
+    };
+
+    const response = await getTaskGraph(params);
+
+    expect(response.success).toBe(true);
+    expect(response.batches).toEqual(mockBatches);
+    expect(response.pendingTasks).toEqual(['task-1']);
+    expect(response.completedTasks).toEqual([]);
+  });
+
+  it('should generate diagram from current state', async () => {
+    const mockDiagram = 'graph TD\n  A --> B';
+
+    vi.spyOn(collabState, 'getSessionState').mockResolvedValue({
+      batches: mockBatches,
+      completedTasks: [],
+      pendingTasks: ['task-1'],
+      lastActivity: new Date().toISOString(),
+      currentItem: null,
+      hasSnapshot: false,
+    });
+
+    const diagramSpy = vi.spyOn(taskDiagram, 'generateTaskDiagram')
+      .mockReturnValue(mockDiagram);
+
+    const params: GetTaskGraphParams = {
+      project: mockProject,
+      session: mockSession,
+    };
+
+    const response = await getTaskGraph(params);
+
+    expect(diagramSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ batches: mockBatches })
+    );
+    expect(response.diagram).toBe(mockDiagram);
+  });
+
+  it('should handle empty batches', async () => {
+    vi.spyOn(collabState, 'getSessionState').mockResolvedValue({
+      batches: [],
+      completedTasks: [],
+      pendingTasks: [],
+      lastActivity: new Date().toISOString(),
+      currentItem: null,
+      hasSnapshot: false,
+    });
+
+    vi.spyOn(taskDiagram, 'generateTaskDiagram').mockReturnValue(
+      'graph TD\n    empty["No tasks defined"]'
+    );
+
+    const params: GetTaskGraphParams = {
+      project: mockProject,
+      session: mockSession,
+    };
+
+    const response = await getTaskGraph(params);
+
+    expect(response.success).toBe(true);
+    expect(response.batches).toEqual([]);
+    expect(response.completedTasks).toEqual([]);
+    expect(response.pendingTasks).toEqual([]);
+  });
+
+  it('should provide default empty arrays for missing state fields', async () => {
+    vi.spyOn(collabState, 'getSessionState').mockResolvedValue({
+      batches: mockBatches,
+      lastActivity: new Date().toISOString(),
+      currentItem: null,
+      hasSnapshot: false,
+    } as any);
+
+    vi.spyOn(taskDiagram, 'generateTaskDiagram').mockReturnValue(
+      'graph TD'
+    );
+
+    const params: GetTaskGraphParams = {
+      project: mockProject,
+      session: mockSession,
+    };
+
+    const response = await getTaskGraph(params);
+
+    expect(response.success).toBe(true);
+    expect(response.completedTasks).toEqual([]);
+    expect(response.pendingTasks).toEqual([]);
   });
 });
