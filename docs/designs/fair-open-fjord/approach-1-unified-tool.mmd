@@ -1,0 +1,24 @@
+sequenceDiagram
+    participant AI as AI Agent
+    participant MCP as update_task_status MCP Tool
+    participant State as collab-state.json
+    participant Diagram as task-diagram.ts
+    participant WS as WebSocket
+    participant UI as React UI
+
+    Note over AI,UI: Task starts or completes
+    AI->>MCP: update_task_status(taskId, "in_progress")
+    MCP->>State: Update batches[].tasks[].status
+    MCP->>Diagram: generateTaskDiagram(state)
+    Diagram-->>MCP: Mermaid content
+    MCP->>WS: broadcast({type: "task_graph_updated", diagram, batches, completedTasks})
+    WS->>UI: WebSocket message
+    UI->>UI: Update progress bar
+    UI->>UI: Re-render diagram
+
+    Note over UI: User clicks "View Task Graph"
+    UI->>MCP: get_task_graph()
+    MCP->>State: Read current state
+    MCP->>Diagram: generateTaskDiagram(state)
+    Diagram-->>MCP: Mermaid content
+    MCP-->>UI: {diagram, batches, completedTasks}

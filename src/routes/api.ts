@@ -1052,8 +1052,16 @@ export async function handleAPI(
       // Broadcast to browsers
       wsHandler.broadcast(message);
 
-      // If non-blocking mode, return immediately
+      // If non-blocking mode, cache UI and return immediately
       if (blocking === false) {
+        // Still call renderUI to cache the UI for polling, but don't await
+        uiManager.renderUI({
+          project: params.project,
+          session: params.session,
+          ui,
+          blocking: false,
+          uiId,
+        });
         return Response.json({ success: true, uiId });
       }
 
@@ -1068,6 +1076,22 @@ export async function handleAPI(
       return Response.json(response);
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // GET /api/ui-response?project=...&session=...&uiId=... - Poll for UI response status
+  if (path === '/api/ui-response' && req.method === 'GET') {
+    const params = getSessionParams(url);
+    const uiId = url.searchParams.get('uiId');
+    if (!params || !uiId) {
+      return Response.json({ error: 'project, session, and uiId required' }, { status: 400 });
+    }
+
+    try {
+      const status = uiManager.getUIStatus(params.project, params.session, uiId);
+      return Response.json(status);
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
     }
   }
 

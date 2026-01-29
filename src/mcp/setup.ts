@@ -616,6 +616,19 @@ export async function setupMCPServer(): Promise<Server> {
         inputSchema: dismissUISchema,
       },
       {
+        name: 'get_ui_response',
+        description: 'Poll for UI response status. Use after render_ui with blocking=false to check if user has responded.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to the project root directory' },
+            session: { type: 'string', description: 'Session name (e.g., "bright-calm-river")' },
+            uiId: { type: 'string', description: 'UI ID returned from render_ui' },
+          },
+          required: ['project', 'session', 'uiId'],
+        },
+      },
+      {
         name: 'check_server_health',
         description: 'Check if MCP server, HTTP/API backend, and React UI are running',
         inputSchema: {
@@ -1117,6 +1130,22 @@ export async function setupMCPServer(): Promise<Server> {
             const { project, session } = args as { project: string; session: string };
             if (!project || !session) throw new Error('Missing required: project, session');
             return await dismissUI(project, session);
+          }
+
+          case 'get_ui_response': {
+            const { project, session, uiId } = args as { project: string; session: string; uiId: string };
+            if (!project || !session || !uiId) throw new Error('Missing required: project, session, uiId');
+
+            const response = await fetch(
+              `${API_BASE_URL}/api/ui-response?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}&uiId=${encodeURIComponent(uiId)}`
+            );
+
+            if (!response.ok) {
+              const error = await response.json();
+              throw new Error(`Failed to get UI response: ${error.error || response.statusText}`);
+            }
+
+            return await response.text();
           }
 
           case 'check_server_health': {

@@ -124,44 +124,35 @@ export class UIManager {
   }
 
   /**
-   * Receive a response from browser/terminal for a pending UI.
-   * Resolves the Promise and cleans up state.
+   * Receive a response from browser/terminal for a pending or non-blocking UI.
+   * For blocking mode: resolves the Promise and cleans up state.
+   * For non-blocking mode: updates the cached UI status for polling.
    */
   receiveResponse(sessionKey: string, uiId: string, response: Partial<UIResponse>): boolean {
-    // 1. Get pending UI for session
-    const pending = this.pendingUIs.get(sessionKey);
-    if (!pending) {
-      return false;
-    }
-
-    // 2. Validate uiId matches
-    if (pending.uiId !== uiId) {
-      return false; // Stale response ignored
-    }
-
-    // 3. Build response object
-    const result: UIResponse = {
-      completed: true,
-      source: response.source || 'browser',
-      action: response.action,
-      data: response.data,
-    };
-
-    // 4. Update cache status
+    // 1. Check for cached UI (required for both blocking and non-blocking modes)
     const cachedUI = this.currentUIBySession.get(sessionKey);
-    if (cachedUI && cachedUI.uiId === uiId) {
-      cachedUI.status = 'responded';
-      cachedUI.respondedAt = Date.now();
-      cachedUI.response = response;
+    if (!cachedUI || cachedUI.uiId !== uiId) {
+      return false; // No cached UI or stale response
     }
 
-    // 5. Resolve the Promise
-    pending.resolve(result);
+    // 2. Update cache status (for both blocking and non-blocking modes)
+    cachedUI.status = 'responded';
+    cachedUI.respondedAt = Date.now();
+    cachedUI.response = response;
 
-    // 6. Cleanup
-    this.pendingUIs.delete(sessionKey);
+    // 3. For blocking mode, also resolve the pending Promise
+    const pending = this.pendingUIs.get(sessionKey);
+    if (pending && pending.uiId === uiId) {
+      const result: UIResponse = {
+        completed: true,
+        source: response.source || 'browser',
+        action: response.action,
+        data: response.data,
+      };
+      pending.resolve(result);
+      this.pendingUIs.delete(sessionKey);
+    }
 
-    // 7. Return true (success)
     return true;
   }
 
@@ -201,6 +192,37 @@ export class UIManager {
    */
   getCurrentUI(sessionKey: string): CachedUI | null {
     return this.currentUIBySession.get(sessionKey) || null;
+  }
+
+  /**
+   * Get UI response status for polling pattern.
+   * Used when render_ui is called with blocking=false.
+   */
+  getUIStatus(project: string, session: string, uiId: string): {
+    status: 'pending' | 'responded' | 'stale' | 'not_found';
+    action?: string;
+    data?: Record<string, any>;
+  } {
+    const sessionKey = `${project}:${session}`;
+    const cachedUI = this.currentUIBySession.get(sessionKey);
+
+    if (!cachedUI) {
+      return { status: 'not_found' };
+    }
+
+    if (cachedUI.uiId !== uiId) {
+      return { status: 'stale' };
+    }
+
+    if (cachedUI.status === 'responded') {
+      return {
+        status: 'responded',
+        action: cachedUI.response?.action,
+        data: cachedUI.response?.data,
+      };
+    }
+
+    return { status: 'pending' };
   }
 }
 

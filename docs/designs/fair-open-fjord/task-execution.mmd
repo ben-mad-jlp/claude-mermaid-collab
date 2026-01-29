@@ -1,0 +1,25 @@
+graph TD
+    task_status_types(["task-status-types"])
+    task_status_impl(["task-status-impl"])
+    mcp_tool_registration(["mcp-tool-registration"])
+    websocket_broadcast_type(["websocket-broadcast-type"])
+    use_task_graph_hook(["use-task-graph-hook"])
+    task_graph_card(["task-graph-card"])
+    work_items_button(["work-items-button"])
+    skill_integration(["skill-integration"])
+
+    task_status_types --> task_status_impl
+    task_status_impl --> mcp_tool_registration
+    mcp_tool_registration --> skill_integration
+    websocket_broadcast_type --> use_task_graph_hook
+    use_task_graph_hook --> task_graph_card
+    task_graph_card --> work_items_button
+
+    style task_status_types fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style task_status_impl fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style mcp_tool_registration fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style websocket_broadcast_type fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style use_task_graph_hook fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style task_graph_card fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style work_items_button fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style skill_integration fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px

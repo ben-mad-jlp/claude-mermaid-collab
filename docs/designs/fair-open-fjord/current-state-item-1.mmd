@@ -1,0 +1,42 @@
+graph TD
+    subgraph MCP["MCP Layer"]
+        CS[complete_skill.ts]
+        TD[task-diagram.ts]
+        TS[task-sync.ts]
+        USS[updateSessionState]
+    end
+
+    subgraph Storage["Storage Layer"]
+        CSJ[collab-state.json<br/>batches, completedTasks]
+        TGM[task-graph.md<br/>YAML task definitions]
+        TEM[task-execution.mmd<br/>Mermaid diagram]
+    end
+
+    subgraph API["API Layer"]
+        HTTP[HTTP API<br/>PUT /api/diagram]
+        WS[WebSocket<br/>session_state_updated]
+    end
+
+    subgraph UI["React UI"]
+        DE[DiagramEmbed]
+        WH[useWebSocket]
+        SP[SessionPanel]
+    end
+
+    CS -->|"calls"| TS
+    CS -->|"calls"| TD
+    TS -->|"parses"| TGM
+    TS -->|"writes batches"| USS
+    TD -->|"generates Mermaid"| HTTP
+    HTTP -->|"writes"| TEM
+    USS -->|"writes"| CSJ
+    USS -->|"broadcasts"| WS
+    WS -->|"session_state_updated"| WH
+    WH -->|"CustomEvent"| SP
+    HTTP -->|"diagram_updated"| DE
+
+    style CS fill:#eab308
+    style TD fill:#eab308
+    style USS fill:#eab308
+    style WS fill:#22c55e
+    style DE fill:#64748b

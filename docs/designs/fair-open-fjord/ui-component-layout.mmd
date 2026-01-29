@@ -1,0 +1,26 @@
+graph TD
+    subgraph WorkItemsPanel["Work Items Panel"]
+        BTN["🔲 View Task Graph Button"]
+        BTN --> TGC
+        
+        subgraph TGC["Task Graph Card (when visible)"]
+            DG["DiagramEmbed<br/>Mermaid task graph"]
+        end
+        
+        WI1["Work Item 1 Card"]
+        WI2["Work Item 2 Card"]
+    end
+    
+    subgraph DataFlow["Data Flow"]
+        WS["WebSocket<br/>task_graph_updated"]
+        HOOK["useTaskGraph hook"]
+        STATE["Local state:<br/>diagram, batches"]
+    end
+    
+    WS -->|"CustomEvent"| HOOK
+    HOOK -->|"updates"| STATE
+    STATE -->|"props"| DG
+    
+    style BTN fill:#3b82f6,color:#fff
+    style TGC fill:#f0fdf4,stroke:#22c55e
+    style DG fill:#dcfce7
