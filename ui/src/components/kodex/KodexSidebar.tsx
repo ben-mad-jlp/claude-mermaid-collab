@@ -31,6 +31,15 @@ const navItems: NavItem[] = [
     ),
   },
   {
+    path: '/kodex/graph',
+    label: 'Graph',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 11-8 0 4 4 0 018 0zM21 21a4 4 0 11-8 0 4 4 0 018 0zM3.712 18.405c.803-.447 1.529-1.106 2.039-1.952m11.556 0c.51.846 1.236 1.505 2.039 1.952M12 12a1 1 0 100-2 1 1 0 000 2z" />
+      </svg>
+    ),
+  },
+  {
     path: '/kodex/drafts',
     label: 'Drafts',
     icon: (
