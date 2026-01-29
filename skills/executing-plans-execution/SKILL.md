@@ -11,6 +11,7 @@ allowed-tools:
   - Write
   - Task
   - AskUserQuestion
+  - update_task_status
   - mcp__plugin_mermaid-collab_mermaid__*
 ---
 
@@ -25,10 +26,10 @@ This document contains detailed execution logic for the executing-plans skill.
 ### Standard Execution (No Dependency Graph)
 
 For each task:
-1. Mark as in_progress
+1. Call `update_task_status` with `status: "in_progress"` to mark task start
 2. Follow each step exactly (plan has bite-sized steps)
 3. Run verifications as specified
-4. Mark as completed
+4. Call `update_task_status` with `status: "completed"` to mark task completion (or `status: "failed"` if verification fails)
 
 ### Step 2.1: Per-Task Execution with Item Type Routing
 
@@ -44,19 +45,28 @@ Before executing each task, determine its item type and follow the appropriate e
 
 ```
 FUNCTION executeTask(task, itemType):
+  CALL update_task_status(project, session, task.id, "in_progress")
+
   IF itemType == "task":
     # Skip TDD for operational tasks
     EXECUTE task steps directly (from task-planning Prerequisites/Steps/Verification)
     RUN verification checks
-    MARK task as complete if verification passes
+    IF verification passes:
+      CALL update_task_status(project, session, task.id, "completed")
+    ELSE:
+      CALL update_task_status(project, session, task.id, "failed")
   ELSE IF itemType IN ["code", "bugfix"]:
     # Normal TDD flow
     INVOKE test-driven-development skill
     WRITE failing test
     IMPLEMENT code per design spec
     VERIFY test passes
-    MARK task as complete
+    IF verification passes:
+      CALL update_task_status(project, session, task.id, "completed")
+    ELSE:
+      CALL update_task_status(project, session, task.id, "failed")
   ELSE:
+    CALL update_task_status(project, session, task.id, "failed")
     STOP - unknown item type, ask user
 ```
 
@@ -87,15 +97,15 @@ ready_tasks = tasks where:
    - Tasks explicitly marked `parallel: true`
    - OR tasks with no file overlap and no shared dependencies
 2. If multiple parallel-safe tasks exist:
-   - Update task diagram: set all parallel tasks to "executing"
+   - For each task, call `update_task_status` with `status: "in_progress"`
    - **REQUIRED:** Spawn Task agents in parallel (single message, multiple tool calls)
    - Each Task agent MUST invoke `mermaid-collab:subagent-driven-development:implementer-prompt` skill
+   - Each Task agent MUST call `update_task_status` with `status: "completed"` or `status: "failed"` when done
    - Task prompt includes: task ID, files, description, relevant pseudocode
    - Wait for all agents to complete
-   - Update task diagram: completed → "completed", failed → "failed"
 3. If only sequential tasks remain:
    - Execute one at a time in topological order
-   - Update diagram before/after each task
+   - For each task: call `update_task_status` with `status: "in_progress"` at start, then `status: "completed"` or `status: "failed"` at end
 
 **RED FLAG - INLINE IMPLEMENTATION:**
 If you find yourself using Edit/Write tools directly on source files instead of spawning Task agents, you are violating the subagent requirement. STOP and use Task tool instead.
@@ -156,10 +166,52 @@ Command: npm run test:ci -- {tests joined by space}
 Do NOT run the full test suite during TDD cycles.
 ```
 
+### Task Status Management
+
+Use the `update_task_status` tool to track task progress. This enables real-time task graph visualization and WebSocket broadcasts.
+
+**When task starts:**
+```
+Tool: update_task_status
+Args: {
+  project: <project-path>,
+  session: <session-name>,
+  taskId: <task-id>,
+  status: "in_progress"
+}
+```
+
+**When task completes successfully:**
+```
+Tool: update_task_status
+Args: {
+  project: <project-path>,
+  session: <session-name>,
+  taskId: <task-id>,
+  status: "completed"
+}
+```
+
+**When task fails:**
+```
+Tool: update_task_status
+Args: {
+  project: <project-path>,
+  session: <session-name>,
+  taskId: <task-id>,
+  status: "failed"
+}
+```
+
+**Benefits:**
+- Each status change triggers diagram regeneration
+- WebSocket broadcast keeps UI in sync in real-time
+- No more batch-only updates - status changes are immediate and granular
+
 ### Task Completion Handling
 
 When a task completes:
-1. Move task from `in_progress` to `completed`
+1. Call `update_task_status` with `status: "completed"` to record completion
 2. Check what tasks are now unblocked (their `depends-on` all satisfied)
 3. Add newly unblocked tasks to the ready queue
 4. Repeat until all tasks done
