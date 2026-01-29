@@ -15,6 +15,12 @@ import { join, isAbsolute } from 'path';
 import { getDisplayName } from '../mcp/workflow/state-machine';
 import { homedir } from 'os';
 import { existsSync } from 'fs';
+import {
+  listWireframesHandler,
+  createWireframeHandler,
+  getWireframeHandler,
+  updateWireframeHandler,
+} from '../api/wireframe-routes';
 
 /**
  * Expand ~ to home directory in paths
@@ -490,6 +496,151 @@ export async function handleAPI(
       });
 
       return Response.json({ success: true });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 404 });
+    }
+  }
+
+  // ============================================
+  // Wireframe Routes
+  // ============================================
+
+  // GET /api/wireframes?project=...&session=...
+  if (path === '/api/wireframes' && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    try {
+      const mockRes = {
+        json: (data: any) => Response.json(data),
+      };
+      return await listWireframesHandler({ query: params }, mockRes);
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // POST /api/wireframe?project=...&session=... (create new)
+  if (path === '/api/wireframe' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    try {
+      const { name, content } = await req.json();
+
+      if (!name || !content) {
+        return Response.json({ error: 'Name and content required' }, { status: 400 });
+      }
+
+      // Register session if not already registered
+      const result = await sessionRegistry.register(params.project, params.session);
+      if (result.created) {
+        wsHandler.broadcast({ type: 'session_created', project: params.project, session: params.session });
+      }
+
+      let capturedData: any = null;
+      const mockRes = {
+        json: (data: any) => {
+          capturedData = data;
+          return Response.json(data);
+        },
+      };
+      // Create a mock request with pre-parsed JSON
+      const mockReq = {
+        query: params,
+        json: async () => ({ name, content }),
+      };
+      const response = await createWireframeHandler(mockReq, mockRes);
+
+      // Broadcast wireframe creation if successful
+      if (capturedData && capturedData.success && capturedData.id) {
+        wsHandler.broadcast({
+          type: 'wireframe_created',
+          id: capturedData.id,
+          project: params.project,
+          session: params.session,
+        });
+      }
+
+      return response;
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // GET /api/wireframe/:id?project=...&session=...
+  if (path.startsWith('/api/wireframe/') && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const id = path.split('/').pop()!;
+
+    try {
+      const mockRes = {
+        status: (code: number) => ({
+          json: (data: any) => Response.json(data, { status: code }),
+        }),
+        json: (data: any) => Response.json(data),
+      };
+      return await getWireframeHandler({ query: { ...params, id } }, mockRes);
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 404 });
+    }
+  }
+
+  // POST /api/wireframe/:id?project=...&session=... (update)
+  if (path.startsWith('/api/wireframe/') && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const id = path.split('/').pop()!;
+
+    try {
+      const { content } = await req.json();
+
+      if (!content) {
+        return Response.json({ error: 'Content required' }, { status: 400 });
+      }
+
+      let capturedData: any = null;
+      const mockRes = {
+        status: (code: number) => ({
+          json: (data: any) => {
+            capturedData = data;
+            return Response.json(data, { status: code });
+          },
+        }),
+        json: (data: any) => {
+          capturedData = data;
+          return Response.json(data);
+        },
+      };
+      // Create a mock request with pre-parsed JSON
+      const mockReq = {
+        query: { ...params, id },
+        json: async () => ({ content }),
+      };
+      const response = await updateWireframeHandler(mockReq, mockRes);
+
+      // Broadcast wireframe update if successful
+      if (capturedData && capturedData.success) {
+        wsHandler.broadcast({
+          type: 'wireframe_updated',
+          id,
+          project: params.project,
+          session: params.session,
+        });
+      }
+
+      return response;
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 404 });
     }
