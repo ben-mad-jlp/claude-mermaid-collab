@@ -32,3 +32,15 @@ export interface VerificationIssue {
   file: string;
   detectedAt: string;
 }
+
+export interface BatchTask {
+  id: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  dependsOn: string[];
+}
+
+export interface TaskBatch {
+  id: string;
+  tasks: BatchTask[];
+  status: 'pending' | 'in_progress' | 'completed';
+}

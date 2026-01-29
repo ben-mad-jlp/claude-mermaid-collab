@@ -11,3 +11,6 @@ export * from './item';
 export * from './proposal';
 export * from './status';
 export * from './artifacts';
+
+// Re-export WebSocket types from websocket module
+export type { TaskGraphUpdatedDetail } from '../lib/websocket';
