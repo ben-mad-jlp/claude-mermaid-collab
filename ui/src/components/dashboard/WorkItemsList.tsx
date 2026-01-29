@@ -43,14 +43,15 @@ export const WorkItemsList: React.FC<WorkItemsListProps> = ({
 }) => {
   const [showTaskGraph, setShowTaskGraph] = useState(false);
 
-  // Get phase from session store
+  // Get phase and current session from store
   const collabState = useSessionStore((state) => state.collabState);
+  const currentSessionData = useSessionStore((state) => state.currentSession);
   const phase = collabState?.state;
   const isImplementationPhase = phase === 'execute-batch' || phase === 'ready-to-implement';
 
   // Use provided project/session or fall back to current session from store
-  const currentProject = project || collabState?.project;
-  const currentSession = session || collabState?.session;
+  const currentProject = project || currentSessionData?.project;
+  const currentSession = session || currentSessionData?.name;
 
   // Only show button if we have both project and session
   const canShowGraph = isImplementationPhase && currentProject && currentSession;

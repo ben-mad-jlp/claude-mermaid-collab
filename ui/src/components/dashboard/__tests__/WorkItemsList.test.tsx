@@ -52,8 +52,12 @@ describe('WorkItemsList', () => {
           return selector({
             collabState: {
               state: 'brainstorm',
+              lastActivity: new Date().toISOString(),
+              currentItem: null,
+            },
+            currentSession: {
               project: mockProject,
-              session: mockSession,
+              name: mockSession,
             },
           } as any);
         }
@@ -73,8 +77,12 @@ describe('WorkItemsList', () => {
           return selector({
             collabState: {
               state: 'brainstorm',
+              lastActivity: new Date().toISOString(),
+              currentItem: null,
+            },
+            currentSession: {
               project: mockProject,
-              session: mockSession,
+              name: mockSession,
             },
           } as any);
         }
@@ -92,8 +100,12 @@ describe('WorkItemsList', () => {
           return selector({
             collabState: {
               state: 'brainstorm',
+              lastActivity: new Date().toISOString(),
+              currentItem: null,
+            },
+            currentSession: {
               project: mockProject,
-              session: mockSession,
+              name: mockSession,
             },
           } as any);
         }
@@ -114,8 +126,12 @@ describe('WorkItemsList', () => {
           return selector({
             collabState: {
               state: 'brainstorm',
+              lastActivity: new Date().toISOString(),
+              currentItem: null,
+            },
+            currentSession: {
               project: mockProject,
-              session: mockSession,
+              name: mockSession,
             },
           } as any);
         }
@@ -133,8 +149,12 @@ describe('WorkItemsList', () => {
           return selector({
             collabState: {
               state: 'execute-batch',
+              lastActivity: new Date().toISOString(),
+              currentItem: null,
+            },
+            currentSession: {
               project: mockProject,
-              session: mockSession,
+              name: mockSession,
             },
           } as any);
         }
@@ -152,8 +172,12 @@ describe('WorkItemsList', () => {
           return selector({
             collabState: {
               state: 'ready-to-implement',
+              lastActivity: new Date().toISOString(),
+              currentItem: null,
+            },
+            currentSession: {
               project: mockProject,
-              session: mockSession,
+              name: mockSession,
             },
           } as any);
         }
@@ -171,9 +195,10 @@ describe('WorkItemsList', () => {
           return selector({
             collabState: {
               state: 'execute-batch',
-              project: undefined,
-              session: mockSession,
+              lastActivity: new Date().toISOString(),
+              currentItem: null,
             },
+            currentSession: null,
           } as any);
         }
         return null;
@@ -190,9 +215,10 @@ describe('WorkItemsList', () => {
           return selector({
             collabState: {
               state: 'execute-batch',
-              project: mockProject,
-              session: undefined,
+              lastActivity: new Date().toISOString(),
+              currentItem: null,
             },
+            currentSession: null,
           } as any);
         }
         return null;
@@ -212,8 +238,12 @@ describe('WorkItemsList', () => {
           return selector({
             collabState: {
               state: 'execute-batch',
+              lastActivity: new Date().toISOString(),
+              currentItem: null,
+            },
+            currentSession: {
               project: mockProject,
-              session: mockSession,
+              name: mockSession,
             },
           } as any);
         }
@@ -248,8 +278,12 @@ describe('WorkItemsList', () => {
           return selector({
             collabState: {
               state: 'execute-batch',
+              lastActivity: new Date().toISOString(),
+              currentItem: null,
+            },
+            currentSession: {
               project: mockProject,
-              session: mockSession,
+              name: mockSession,
             },
           } as any);
         }
@@ -274,8 +308,12 @@ describe('WorkItemsList', () => {
           return selector({
             collabState: {
               state: 'execute-batch',
+              lastActivity: new Date().toISOString(),
+              currentItem: null,
+            },
+            currentSession: {
               project: mockProject,
-              session: mockSession,
+              name: mockSession,
             },
           } as any);
         }
@@ -306,8 +344,12 @@ describe('WorkItemsList', () => {
           return selector({
             collabState: {
               state: 'execute-batch',
+              lastActivity: new Date().toISOString(),
+              currentItem: null,
+            },
+            currentSession: {
               project: 'store-project',
-              session: 'store-session',
+              name: 'store-session',
             },
           } as any);
         }
@@ -332,8 +374,12 @@ describe('WorkItemsList', () => {
           return selector({
             collabState: {
               state: 'execute-batch',
+              lastActivity: new Date().toISOString(),
+              currentItem: null,
+            },
+            currentSession: {
               project: mockProject,
-              session: mockSession,
+              name: mockSession,
             },
           } as any);
         }
@@ -354,8 +400,12 @@ describe('WorkItemsList', () => {
           return selector({
             collabState: {
               state: 'execute-batch',
+              lastActivity: new Date().toISOString(),
+              currentItem: null,
+            },
+            currentSession: {
               project: mockProject,
-              session: mockSession,
+              name: mockSession,
             },
           } as any);
         }
@@ -375,8 +425,12 @@ describe('WorkItemsList', () => {
           return selector({
             collabState: {
               state: 'execute-batch',
+              lastActivity: new Date().toISOString(),
+              currentItem: null,
+            },
+            currentSession: {
               project: mockProject,
-              session: mockSession,
+              name: mockSession,
             },
           } as any);
         }
