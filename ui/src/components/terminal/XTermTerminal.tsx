@@ -241,13 +241,13 @@ export const XTermTerminal = React.memo(function XTermTerminal({
     intersectionObserver = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          if (entry.isIntersecting && isInitializedRef.current && !isDisposedRef.current) {
-            // Terminal became visible, trigger a fit
+          if (entry.intersectionRatio >= 1.0 && isInitializedRef.current && !isDisposedRef.current) {
+            // Terminal became fully visible, trigger a fit
             safeFit();
           }
         }
       },
-      { threshold: 0.1 }
+      { threshold: 1.0 }
     );
 
     intersectionObserver.observe(wrapper);
