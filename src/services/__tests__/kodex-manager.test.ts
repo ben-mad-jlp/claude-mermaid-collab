@@ -333,6 +333,124 @@ describe('KodexManager.approveDraft()', () => {
   });
 });
 
+describe('KodexManager.aliases', () => {
+  let manager: KodexManager;
+  let testProjectPath: string;
+
+  beforeEach(() => {
+    testProjectPath = join(tmpdir(), `test-kodex-aliases-${Date.now()}`);
+    mkdirSync(testProjectPath, { recursive: true });
+    manager = new KodexManager(testProjectPath);
+  });
+
+  afterEach(() => {
+    manager.close();
+    try {
+      rmSync(testProjectPath, { recursive: true, force: true });
+    } catch (e) {
+      // Ignore cleanup errors
+    }
+  });
+
+  describe('topic object includes aliases array', () => {
+    it('should include aliases property on TopicMetadata', async () => {
+      const topicName = 'test-topic-with-aliases';
+      const content: TopicContent = {
+        conceptual: '# Conceptual',
+        technical: '# Technical',
+        files: '# Files',
+        related: '# Related',
+      };
+
+      await manager.createTopic(topicName, 'Test Topic', content, 'test-user');
+      const topic = await manager.getTopic(topicName);
+
+      expect(topic).toBeDefined();
+      expect(topic?.aliases).toBeDefined();
+      expect(Array.isArray(topic?.aliases)).toBe(true);
+    });
+
+    it('should return empty aliases array on new topics', async () => {
+      const topicName = 'brand-new-topic-with-aliases';
+      const content: TopicContent = {
+        conceptual: '# Conceptual',
+        technical: '# Technical',
+        files: '# Files',
+        related: '# Related',
+      };
+
+      await manager.createTopic(topicName, 'Brand New Topic', content, 'test-user');
+      const topic = await manager.getTopic(topicName);
+
+      expect(topic?.aliases).toEqual([]);
+    });
+
+    it('should have aliases in listTopics results', async () => {
+      const topicName = 'list-topic-with-aliases';
+      const content: TopicContent = {
+        conceptual: '# Conceptual',
+        technical: '# Technical',
+        files: '# Files',
+        related: '# Related',
+      };
+
+      await manager.createTopic(topicName, 'List Topic', content, 'test-user');
+      const topics = await manager.listTopics();
+      const topic = topics.find(t => t.name === topicName);
+
+      expect(topic?.aliases).toBeDefined();
+      expect(Array.isArray(topic?.aliases)).toBe(true);
+    });
+  });
+
+  describe('aliases persist through database operations', () => {
+    it('should persist aliases through a full create-update cycle', async () => {
+      const topicName = 'persisted-topic';
+      const content: TopicContent = {
+        conceptual: '# Conceptual',
+        technical: '# Technical',
+        files: '# Files',
+        related: '# Related',
+      };
+
+      // Create topic
+      await manager.createTopic(topicName, 'Persisted Topic', content, 'test-user');
+
+      // Verify initial empty aliases
+      let topic = await manager.getTopic(topicName);
+      expect(topic?.aliases).toEqual([]);
+
+      // Close and reopen manager to simulate persistence
+      manager.close();
+      const manager2 = new KodexManager(testProjectPath);
+
+      // Verify aliases still exist after reopening
+      topic = await manager2.getTopic(topicName);
+      expect(topic?.aliases).toEqual([]);
+
+      manager2.close();
+    });
+
+    it('should maintain empty aliases array through approveD draft', async () => {
+      const topicName = 'draft-alias-topic';
+      const content: TopicContent = {
+        conceptual: '# Conceptual',
+        technical: '# Technical',
+        files: '# Files',
+        related: '# Related',
+      };
+
+      // Create topic with draft
+      await manager.createTopic(topicName, 'Draft Topic', content, 'test-user');
+
+      // Approve draft
+      const approved = await manager.approveDraft(topicName);
+
+      expect(approved.aliases).toEqual([]);
+    });
+  });
+});
+
 describe('KodexManager.createFlag()', () => {
   let manager: KodexManager;
   let testProjectPath: string;

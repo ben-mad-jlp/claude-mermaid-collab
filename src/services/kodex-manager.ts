@@ -37,6 +37,7 @@ export interface TopicMetadata {
   createdAt: string;
   updatedAt: string;
   hasDraft: boolean;
+  aliases: string[];
 }
 
 export interface Topic extends TopicMetadata {
@@ -108,7 +109,8 @@ CREATE TABLE IF NOT EXISTS topics (
   verified_by TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  has_draft INTEGER DEFAULT 0
+  has_draft INTEGER DEFAULT 0,
+  aliases TEXT DEFAULT '[]'
 );
 
 -- Access log (per-access)
@@ -627,6 +629,7 @@ export class KodexManager {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     hasDraft: Boolean(row.has_draft),
+    aliases: row.aliases ? JSON.parse(row.aliases) : [],
   });
 
   private rowToFlag = (row: any): Flag => ({
