@@ -185,4 +185,23 @@ export const kodexApi = {
     if (!response.ok) throw new Error('Failed to list missing topics');
     return response.json();
   },
+
+  // Aliases
+  async addAlias(project: string, topicId: string, alias: string): Promise<void> {
+    const response = await fetch(buildUrl(`/topics/${topicId}/alias`, project), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alias }),
+    });
+    if (!response.ok) throw new Error('Failed to add alias');
+  },
+
+  async removeAlias(project: string, topicId: string, alias: string): Promise<void> {
+    const response = await fetch(buildUrl(`/topics/${topicId}/alias`, project), {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alias }),
+    });
+    if (!response.ok) throw new Error('Failed to remove alias');
+  },
 };
