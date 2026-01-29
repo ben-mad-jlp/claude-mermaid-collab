@@ -25,7 +25,8 @@ export async function handleKodexAPI(req: Request): Promise<Response> {
     // Route by path and method
     // Topics
     if (path === '/topics' && req.method === 'GET') {
-      return handleListTopics(kodex);
+      const includeContent = url.searchParams.get('includeContent')?.toLowerCase() === 'true';
+      return handleListTopics(kodex, includeContent);
     }
     if (path.match(/^\/topics\/[^/]+$/) && req.method === 'GET') {
       const name = path.split('/')[2];
@@ -96,9 +97,23 @@ export async function handleKodexAPI(req: Request): Promise<Response> {
 // Handlers
 // ============================================================================
 
-async function handleListTopics(kodex: ReturnType<typeof getKodexManager>): Promise<Response> {
+async function handleListTopics(kodex: ReturnType<typeof getKodexManager>, includeContent = false): Promise<Response> {
   const topics = await kodex.listTopics();
-  return Response.json(topics);
+
+  // If includeContent is false, return metadata only
+  if (!includeContent) {
+    return Response.json(topics);
+  }
+
+  // If includeContent is true, fetch full topic content for each topic
+  const topicsWithContent = await Promise.all(
+    topics.map(async (topic) => {
+      const fullTopic = await kodex.getTopic(topic.name, true);
+      return fullTopic || topic;
+    })
+  );
+
+  return Response.json(topicsWithContent);
 }
 
 async function handleGetTopic(kodex: ReturnType<typeof getKodexManager>, name: string): Promise<Response> {
