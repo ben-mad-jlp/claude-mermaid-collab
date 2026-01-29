@@ -1,0 +1,26 @@
+flowchart TD
+    subgraph "Query Flow with Aliases"
+        A[kodex_query_topic name='auth'] --> B{Exact match?}
+        B -->|Yes| C[Return topic]
+        B -->|No| D{Check aliases}
+        D -->|Found| E[Return topic + hint]
+        D -->|Not found| F[Log missing + return error]
+        
+        E --> G["Response includes:
+        • topic content
+        • matchedVia: 'alias'
+        • queriedName: 'auth'
+        • canonicalName: 'authentication'"]
+    end
+
+    subgraph "Storage"
+        H[topics table] --> I["name: 'authentication'
+        title: 'Authentication'
+        aliases: JSON ['auth', 'login', 'signin']"]
+    end
+
+    subgraph "MCP Tools"
+        J[kodex_add_alias] --> K["Add alias to JSON array"]
+        L[kodex_remove_alias] --> M["Remove from JSON array"]
+        N[kodex_query_topic] --> O["Check name OR aliases"]
+    end

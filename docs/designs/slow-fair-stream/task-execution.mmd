@@ -1,0 +1,64 @@
+graph TD
+    %% Node Definitions
+    alias_chip(["alias-chip"])
+    api_methods(["api-methods"])
+    alias_schema(["alias-schema"])
+    graph_utils(["graph-utils"])
+    api_method(["api-method"])
+    sidebar_nav(["sidebar-nav"])
+    backend_support(["backend-support"])
+    alias_constants(["alias-constants"])
+    keyword_extraction(["keyword-extraction"])
+    alias_expansion(["alias-expansion"])
+    alias_editor(["alias-editor"])
+    alias_query(["alias-query"])
+    alias_manage(["alias-manage"])
+    graph_page(["graph-page"])
+    generator_core(["generator-core"])
+    topic_detail_integration(["topic-detail-integration"])
+    mcp_tools(["mcp-tools"])
+    routing(["routing"])
+    generator_tests(["generator-tests"])
+    skill_definition(["skill-definition"])
+
+    %% Dependencies
+    alias_chip --> alias_editor
+    api_methods --> topic_detail_integration
+    alias_schema --> alias_query
+    alias_schema --> alias_manage
+    graph_utils --> graph_page
+    api_method --> graph_page
+    graph_page --> routing
+    alias_editor --> topic_detail_integration
+    alias_manage --> mcp_tools
+    alias_constants --> generator_core
+    keyword_extraction --> generator_core
+    alias_expansion --> generator_core
+    generator_core --> generator_tests
+    generator_core --> skill_definition
+
+    %% Styles - Wave 1 (waiting)
+    style alias_chip fill:#c8e6c9,stroke:#2e7d32
+    style api_methods fill:#c8e6c9,stroke:#2e7d32
+    style alias_schema fill:#c8e6c9,stroke:#2e7d32
+    style graph_utils fill:#c8e6c9,stroke:#2e7d32
+    style api_method fill:#c8e6c9,stroke:#2e7d32
+    style sidebar_nav fill:#c8e6c9,stroke:#2e7d32
+    style backend_support fill:#c8e6c9,stroke:#2e7d32
+    style alias_constants fill:#c8e6c9,stroke:#2e7d32
+    style keyword_extraction fill:#c8e6c9,stroke:#2e7d32
+    style alias_expansion fill:#c8e6c9,stroke:#2e7d32
+    
+    %% Styles - Wave 2 (completed)
+    style alias_editor fill:#c8e6c9,stroke:#2e7d32
+    style alias_query fill:#c8e6c9,stroke:#2e7d32
+    style alias_manage fill:#c8e6c9,stroke:#2e7d32
+    style graph_page fill:#c8e6c9,stroke:#2e7d32
+    style generator_core fill:#c8e6c9,stroke:#2e7d32
+    
+    %% Styles - Wave 3 (completed)
+    style topic_detail_integration fill:#c8e6c9,stroke:#2e7d32
+    style mcp_tools fill:#c8e6c9,stroke:#2e7d32
+    style routing fill:#c8e6c9,stroke:#2e7d32
+    style generator_tests fill:#c8e6c9,stroke:#2e7d32
+    style skill_definition fill:#c8e6c9,stroke:#2e7d32

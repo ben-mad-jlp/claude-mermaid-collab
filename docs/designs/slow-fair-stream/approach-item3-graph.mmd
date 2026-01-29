@@ -1,0 +1,30 @@
+graph TB
+    subgraph "Data Flow"
+        API["/api/kodex/topics<br/>+ includeContent=true"]
+        Parse["Parse 'related' field<br/>Extract topic links"]
+        BuildGraph["Build graph data<br/>{nodes, edges}"]
+        GenMermaid["Generate Mermaid<br/>flowchart syntax"]
+    end
+    
+    subgraph "UI Components"
+        GraphPage["Graph.tsx<br/>/kodex/graph"]
+        MermaidRenderer["Mermaid Renderer<br/>(existing)"]
+        ClickHandler["Click Handler<br/>→ navigate to topic"]
+    end
+    
+    subgraph "Files to Modify"
+        Sidebar["KodexSidebar.tsx<br/>Add 'Graph' nav item"]
+        Routes["App.tsx routes<br/>Add /kodex/graph"]
+        KodexAPI["kodex-api.ts<br/>Add listTopicsWithContent()"]
+    end
+    
+    API --> Parse
+    Parse --> BuildGraph
+    BuildGraph --> GenMermaid
+    GenMermaid --> MermaidRenderer
+    MermaidRenderer --> ClickHandler
+    ClickHandler -->|"useNavigate()"| TopicDetail["TopicDetail.tsx"]
+    
+    GraphPage --> API
+    Sidebar -.->|"link"| GraphPage
+    Routes -.->|"route"| GraphPage

@@ -1,0 +1,26 @@
+flowchart TD
+    subgraph "Current TopicDetail.tsx Structure"
+        A[TopicDetail Page] --> B[Header: title, name, badges]
+        A --> C[Actions: Verify, Flag, Delete]
+        A --> D[Metadata: dates, verified info]
+        A --> E[Draft Comparison if hasDraft]
+        A --> F[Content Sections]
+        
+        F --> G[Conceptual Overview]
+        F --> H[Technical Details]
+        F --> I[Related Files]
+        F --> J[Related Topics]
+    end
+
+    subgraph "Missing: Aliases Section"
+        K[Aliases Display] --> L["Show list of aliases"]
+        K --> M["Add alias input"]
+        K --> N["Remove alias button per item"]
+    end
+
+    subgraph "API Changes Needed"
+        O[kodex-api.ts] --> P["addAlias(project, name, alias)"]
+        O --> Q["removeAlias(project, name, alias)"]
+        
+        R[TopicMetadata] --> S["+ aliases: string[]"]
+    end

@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { WebSocketClient, getWebSocketClient, resetWebSocketClient, dispatchWebSocketEvent, type WebSocketMessage } from '../websocket';
+import { WebSocketClient, getWebSocketClient, resetWebSocketClient, dispatchWebSocketEvent, type WebSocketMessage, type TaskGraphUpdatedDetail } from '../websocket';
 
 // Mock WebSocket
 class MockWebSocket {
@@ -979,5 +979,212 @@ describe('WebSocketClient', () => {
 
       window.removeEventListener('session_state_updated', listener);
     });
+
+    it('should dispatch task_graph_updated event when receiving task_graph_updated message', async () => {
+      const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+      const client = new WebSocketClient('ws://localhost:3737/ws');
+
+      const connectPromise = client.connect();
+      mockWebSocketInstance!.simulateOpen();
+      await connectPromise;
+
+      const taskGraphMessage: WebSocketMessage = {
+        type: 'task_graph_updated',
+        project: 'test-project',
+        session: 'test-session',
+        payload: {
+          diagram: 'graph LR\n  A --> B',
+          batches: [{ id: 'batch-1', name: 'Wave 1' }],
+          completedTasks: ['task-1', 'task-2'],
+          pendingTasks: ['task-3'],
+          updatedTaskId: 'task-2',
+          updatedStatus: 'completed',
+        },
+      };
+
+      mockWebSocketInstance!.simulateMessage(taskGraphMessage);
+
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'task_graph_updated',
+          detail: {
+            project: 'test-project',
+            session: 'test-session',
+            payload: {
+              diagram: 'graph LR\n  A --> B',
+              batches: [{ id: 'batch-1', name: 'Wave 1' }],
+              completedTasks: ['task-1', 'task-2'],
+              pendingTasks: ['task-3'],
+              updatedTaskId: 'task-2',
+              updatedStatus: 'completed',
+            },
+          },
+        })
+      );
+
+      dispatchSpy.mockRestore();
+    });
+
+    it('should allow listening to task_graph_updated events from WebSocket', async () => {
+      const client = new WebSocketClient('ws://localhost:3737/ws');
+      const listener = vi.fn();
+
+      window.addEventListener('task_graph_updated', listener);
+
+      const connectPromise = client.connect();
+      mockWebSocketInstance!.simulateOpen();
+      await connectPromise;
+
+      const taskGraphMessage: WebSocketMessage = {
+        type: 'task_graph_updated',
+        project: 'my-project',
+        session: 'my-session',
+        payload: {
+          diagram: 'graph TB\n  Start[Start]',
+          batches: [],
+          completedTasks: ['task-1'],
+          pendingTasks: ['task-2', 'task-3'],
+          updatedTaskId: 'task-1',
+          updatedStatus: 'completed',
+        },
+      };
+
+      mockWebSocketInstance!.simulateMessage(taskGraphMessage);
+
+      expect(listener).toHaveBeenCalledOnce();
+      const event = listener.mock.calls[0][0] as CustomEvent;
+      const detail = event.detail as TaskGraphUpdatedDetail;
+      expect(detail.project).toBe('my-project');
+      expect(detail.session).toBe('my-session');
+      expect(detail.payload.updatedTaskId).toBe('task-1');
+      expect(detail.payload.updatedStatus).toBe('completed');
+      expect(detail.payload.completedTasks).toContain('task-1');
+
+      window.removeEventListener('task_graph_updated', listener);
+    });
+
+    it('should dispatch task_graph_updated with correct detail structure', async () => {
+      const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+      const client = new WebSocketClient('ws://localhost:3737/ws');
+
+      const connectPromise = client.connect();
+      mockWebSocketInstance!.simulateOpen();
+      await connectPromise;
+
+      const completedTasks = ['task-a', 'task-b', 'task-c'];
+      const pendingTasks = ['task-d', 'task-e'];
+      const taskGraphMessage: WebSocketMessage = {
+        type: 'task_graph_updated',
+        project: 'proj1',
+        session: 'sess1',
+        payload: {
+          diagram: 'graph LR',
+          batches: [{ wave: 1 }],
+          completedTasks,
+          pendingTasks,
+          updatedTaskId: 'task-c',
+          updatedStatus: 'completed',
+        },
+      };
+
+      mockWebSocketInstance!.simulateMessage(taskGraphMessage);
+
+      const call = dispatchSpy.mock.calls[0][0] as CustomEvent;
+      const detail = call.detail as TaskGraphUpdatedDetail;
+
+      expect(detail.project).toBe('proj1');
+      expect(detail.session).toBe('sess1');
+      expect(detail.payload.completedTasks).toEqual(completedTasks);
+      expect(detail.payload.pendingTasks).toEqual(pendingTasks);
+      expect(detail.payload.updatedTaskId).toBe('task-c');
+
+      dispatchSpy.mockRestore();
+    });
+
+    it('should dispatch all three broadcast event types', async () => {
+      const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+      const client = new WebSocketClient('ws://localhost:3737/ws');
+
+      const connectPromise = client.connect();
+      mockWebSocketInstance!.simulateOpen();
+      await connectPromise;
+
+      const statusMessage: WebSocketMessage = {
+        type: 'status_changed',
+        project: 'proj1',
+        session: 'sess1',
+        status: 'running',
+      };
+
+      const stateMessage: WebSocketMessage = {
+        type: 'session_state_updated',
+        project: 'proj1',
+        session: 'sess1',
+        state: { phase: 'executing' },
+      };
+
+      const taskGraphMessage: WebSocketMessage = {
+        type: 'task_graph_updated',
+        project: 'proj1',
+        session: 'sess1',
+        payload: {
+          diagram: 'graph LR',
+          batches: [],
+          completedTasks: ['task-1'],
+          pendingTasks: [],
+          updatedTaskId: 'task-1',
+          updatedStatus: 'completed',
+        },
+      };
+
+      mockWebSocketInstance!.simulateMessage(statusMessage);
+      mockWebSocketInstance!.simulateMessage(stateMessage);
+      mockWebSocketInstance!.simulateMessage(taskGraphMessage);
+
+      expect(dispatchSpy).toHaveBeenCalledTimes(3);
+      expect(dispatchSpy.mock.calls[0][0]).toEqual(
+        expect.objectContaining({
+          type: 'status_changed',
+        })
+      );
+      expect(dispatchSpy.mock.calls[1][0]).toEqual(
+        expect.objectContaining({
+          type: 'session_state_updated',
+        })
+      );
+      expect(dispatchSpy.mock.calls[2][0]).toEqual(
+        expect.objectContaining({
+          type: 'task_graph_updated',
+        })
+      );
+
+      dispatchSpy.mockRestore();
+    });
+
+    it('should create CustomEvent with task_graph_updated type', () => {
+      const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+      const detail: TaskGraphUpdatedDetail = {
+        project: 'test-project',
+        session: 'test-session',
+        payload: {
+          diagram: 'test-diagram',
+          batches: [],
+          completedTasks: [],
+          pendingTasks: [],
+          updatedTaskId: 'task-1',
+          updatedStatus: 'pending',
+        },
+      };
+
+      dispatchWebSocketEvent('task_graph_updated', detail);
+
+      expect(dispatchSpy).toHaveBeenCalledOnce();
+      const event = dispatchSpy.mock.calls[0][0] as CustomEvent;
+      expect(event.type).toBe('task_graph_updated');
+      expect(event.detail).toEqual(detail);
+
+      dispatchSpy.mockRestore();
+    });
   });
 });
+

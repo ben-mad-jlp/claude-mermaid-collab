@@ -1,0 +1,39 @@
+graph TB
+    subgraph "Current Kodex UI"
+        KodexLayout[KodexLayout.tsx]
+        KodexSidebar[KodexSidebar.tsx]
+        
+        subgraph "Pages"
+            Dashboard[Dashboard.tsx]
+            Topics[Topics.tsx - Grid View]
+            TopicDetail[TopicDetail.tsx]
+            Drafts[Drafts.tsx]
+            Flags[Flags.tsx]
+        end
+    end
+    
+    KodexLayout --> KodexSidebar
+    KodexLayout --> Dashboard
+    KodexLayout --> Topics
+    KodexLayout --> TopicDetail
+    KodexLayout --> Drafts
+    KodexLayout --> Flags
+    
+    subgraph "Topic Data Structure"
+        Topic[Topic]
+        Content[TopicContent]
+        Related["related: string<br/>(Markdown text)"]
+    end
+    
+    Topic --> Content
+    Content --> Related
+    
+    subgraph "Missing: Graph View"
+        GraphPage["? Graph.tsx"]
+        GraphViz["? Force-directed graph"]
+        Edges["? Parse 'related' → edges"]
+    end
+    
+    style GraphPage stroke-dasharray: 5 5
+    style GraphViz stroke-dasharray: 5 5
+    style Edges stroke-dasharray: 5 5

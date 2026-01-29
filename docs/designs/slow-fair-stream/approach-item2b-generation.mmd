@@ -1,0 +1,27 @@
+flowchart TD
+    subgraph "Alias Generation Pipeline"
+        A[Topic Input] --> B[Extract title words]
+        A --> C[Parse content keywords]
+        
+        B --> D[Synonym Lookup]
+        C --> D
+        
+        D --> E[Abbreviation Generator]
+        E --> F[Dedupe & Filter]
+        F --> G[Return alias list]
+    end
+
+    subgraph "Synonym Map (hardcoded)"
+        H["auth ↔ authentication ↔ login"]
+        I["ui ↔ interface ↔ frontend"]
+        J["api ↔ endpoints ↔ routes"]
+        K["db ↔ database ↔ storage"]
+        L["config ↔ configuration ↔ settings"]
+    end
+
+    subgraph "Abbreviation Rules"
+        M["authentication → auth"]
+        N["configuration → config"]
+        O["development → dev"]
+        P["application → app"]
+    end

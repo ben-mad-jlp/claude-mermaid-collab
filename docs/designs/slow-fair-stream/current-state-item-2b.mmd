@@ -1,0 +1,26 @@
+flowchart TD
+    subgraph "New Skill: kodex-generate-aliases"
+        A["/kodex-generate-aliases"] --> B{Scope?}
+        B -->|Single topic| C["Generate for specified topic"]
+        B -->|All topics| D["Generate for all topics"]
+        
+        C --> E["Analyze topic content"]
+        D --> E
+        
+        E --> F["Extract keywords from title"]
+        E --> G["Find synonyms for common terms"]
+        E --> H["AI suggests context-specific aliases"]
+        
+        F --> I["Combine and dedupe"]
+        G --> I
+        H --> I
+        
+        I --> J["Present to user for approval"]
+        J --> K["Call kodex_add_alias for each"]
+    end
+
+    subgraph "Auto-generate on creation"
+        L["kodex_create_topic called"] --> M["After draft created"]
+        M --> N["Generate aliases automatically"]
+        N --> O["Add to topic aliases column"]
+    end

@@ -24,7 +24,7 @@ export interface WebSocketMessage {
 /**
  * WebSocket message types that should dispatch CustomEvents
  */
-const BROADCAST_MESSAGE_TYPES = ['status_changed', 'session_state_updated'] as const;
+const BROADCAST_MESSAGE_TYPES = ['status_changed', 'session_state_updated', 'task_graph_updated'] as const;
 type BroadcastMessageType = typeof BROADCAST_MESSAGE_TYPES[number];
 
 /**
@@ -43,6 +43,22 @@ export interface SessionStateUpdatedDetail {
   project: string;
   session: string;
   state: unknown;
+}
+
+/**
+ * Task graph updated event detail
+ */
+export interface TaskGraphUpdatedDetail {
+  project: string;
+  session: string;
+  payload: {
+    diagram: string;
+    batches: unknown[];
+    completedTasks: string[];
+    pendingTasks: string[];
+    updatedTaskId: string;
+    updatedStatus: string;
+  };
 }
 
 /**
@@ -161,6 +177,12 @@ export class WebSocketClient {
                 project: message.project,
                 session: message.session,
                 state: message.state,
+              });
+            } else if (message.type === 'task_graph_updated') {
+              dispatchWebSocketEvent('task_graph_updated', {
+                project: message.project,
+                session: message.session,
+                payload: message.payload,
               });
             }
 

@@ -1,0 +1,27 @@
+flowchart TD
+    subgraph "Current Topic Query Flow"
+        A[Claude queries topic] --> B[kodex_query_topic MCP tool]
+        B --> C{Exact name match?}
+        C -->|Yes| D[Return topic content]
+        C -->|No| E[Log as missing]
+        E --> F[Auto-flag as missing]
+        F --> G[Return 'Topic not found']
+    end
+
+    subgraph "Storage Structure"
+        H[".collab/kodex/kodex.db"] --> I[topics table]
+        I --> J["name TEXT PRIMARY KEY"]
+        I --> K["title TEXT"]
+        
+        L[".collab/kodex/topics/"] --> M["topic-name/"]
+        M --> N["conceptual.md"]
+        M --> O["technical.md"]
+    end
+
+    subgraph "Problem: No Aliases"
+        P["Query: 'auth'"] --> Q{Lookup}
+        Q -->|Fails| R["'authentication' exists but not found"]
+        
+        S["Query: 'ui-components'"] --> T{Lookup}
+        T -->|Fails| U["'react-components' exists but not found"]
+    end

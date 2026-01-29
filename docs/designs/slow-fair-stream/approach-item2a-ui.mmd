@@ -1,0 +1,24 @@
+flowchart TD
+    subgraph "TopicDetail Header - Updated"
+        A["← Back to Topics"]
+        B["authentication"]
+        C["Authentication"]
+        D["Aliases: auth × | login × | signin × | + Add"]
+        E["[low] [✓ Verified] [Has Draft]"]
+        
+        A --> C
+        C --> B
+        B --> D
+        D --> E
+    end
+
+    subgraph "Alias Chip Component"
+        F["auth ×"] --> G["Click × removes alias"]
+        H["+ Add"] --> I["Shows input field"]
+        I --> J["Type alias + Enter to add"]
+    end
+
+    subgraph "Topic List - Updated"
+        K["authentication"] --> L["Authentication"]
+        L --> M["3 aliases"]
+    end
