@@ -89,25 +89,35 @@ export function extractContentKeywords(
 
 /**
  * Expand keyword set with synonyms
- * Modifies the input array in-place (returns array for convenience)
+ * Iterative bidirectional expansion until convergence
  */
 export function expandWithSynonyms(keywords: string[]): string[] {
   const result = new Set(keywords);
+  let changed = true;
 
-  // For each key in SYNONYMS, if it's in keywords, add all its synonyms
-  for (const [key, synonyms] of Object.entries(SYNONYMS)) {
-    if (result.has(key)) {
-      synonyms.forEach(s => result.add(s));
-    }
-  }
+  // Keep expanding until no new keywords are added
+  while (changed) {
+    changed = false;
+    const sizeBefore = result.size;
 
-  // For each keyword, check if it matches any synonym value and add the key
-  for (const keyword of keywords) {
+    // For each key in SYNONYMS, if it's in result, add all its synonyms
     for (const [key, synonyms] of Object.entries(SYNONYMS)) {
-      if (synonyms.includes(keyword)) {
-        result.add(key);
+      if (result.has(key)) {
+        synonyms.forEach(s => result.add(s));
       }
     }
+
+    // For each keyword in result, check if it matches any synonym value and add the key
+    for (const keyword of result) {
+      for (const [key, synonyms] of Object.entries(SYNONYMS)) {
+        if (synonyms.includes(keyword)) {
+          result.add(key);
+        }
+      }
+    }
+
+    // Check if we added new keywords
+    changed = result.size > sizeBefore;
   }
 
   return Array.from(result).sort();
