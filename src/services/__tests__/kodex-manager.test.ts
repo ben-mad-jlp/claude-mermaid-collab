@@ -774,6 +774,10 @@ describe('KodexManager.getTopic()', () => {
       await manager.createTopic(topic1Name, 'Auth', topic1Content, 'test-user');
       await manager.createTopic(topic2Name, 'Authentication', topic2Content, 'test-user');
 
+      // Approve the drafts to move content to live
+      await manager.approveDraft(topic1Name);
+      await manager.approveDraft(topic2Name);
+
       // Add "auth" as alias to topic2
       const db = (manager as any).ensureInitialized();
       db.run(
