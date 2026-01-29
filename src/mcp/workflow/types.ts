@@ -2,6 +2,9 @@
  * Type definitions for the MCP workflow state machine.
  */
 
+/** Session type: structured (guided workflow) or vibe (freeform) */
+export type SessionType = 'structured' | 'vibe';
+
 /** Unique identifier for each workflow state */
 export type StateId =
   | 'collab-start'
@@ -42,6 +45,7 @@ export type StateId =
   | 'clear-post-item'
   // Terminal states
   | 'workflow-complete'
+  | 'vibe-active'
   | 'cleanup'
   | 'done';
 
