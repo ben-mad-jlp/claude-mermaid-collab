@@ -9,6 +9,7 @@ import {
   expandWithAbbreviations,
   extractTitleKeywords,
   extractContentKeywords,
+  generateAliases,
   TopicContent,
 } from '../alias-generator';
 
@@ -341,6 +342,187 @@ describe('Alias Generator', () => {
         'token security'
       );
       const result = extractContentKeywords(content, 10);
+      expect(result.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('generateAliases', () => {
+    const createContent = (conceptual: string, technical: string): TopicContent => ({
+      conceptual,
+      technical,
+      files: '',
+      related: '',
+    });
+
+    it('should generate aliases from topic title only', () => {
+      const result = require('../alias-generator').generateAliases(
+        'authentication',
+        'User Authentication',
+        undefined
+      );
+      expect(Array.isArray(result)).toBe(true);
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    it('should generate aliases from topic with title and content', () => {
+      const content = createContent(
+        'Authentication is the process of verifying user identity.',
+        'Use token-based authentication for API security.'
+      );
+      const result = require('../alias-generator').generateAliases(
+        'authentication',
+        'User Authentication Guide',
+        content
+      );
+      expect(Array.isArray(result)).toBe(true);
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    it('should extract and deduplicate title keywords', () => {
+      const result = require('../alias-generator').generateAliases(
+        'api-endpoints',
+        'API REST Endpoints',
+        undefined
+      );
+      // Should include api, rest, endpoints
+      expect(result).toContain('api');
+      expect(result).toContain('rest');
+      expect(result).toContain('endpoints');
+    });
+
+    it('should expand keywords with synonyms', () => {
+      const result = require('../alias-generator').generateAliases(
+        'authentication',
+        'Authentication',
+        undefined,
+        { includeSynonyms: true }
+      );
+      // Should include authentication and expand to auth, login, signin
+      expect(result.length).toBeGreaterThan(1);
+    });
+
+    it('should expand keywords with abbreviations', () => {
+      const result = require('../alias-generator').generateAliases(
+        'authentication',
+        'Authentication System',
+        undefined,
+        { includeAbbreviations: true }
+      );
+      // Should include authentication and auth abbreviation
+      expect(result).toContain('auth');
+    });
+
+    it('should include content keywords when enabled', () => {
+      const content = createContent(
+        'Authentication is crucial for security.',
+        'Use token-based authentication with jwt.'
+      );
+      const result = require('../alias-generator').generateAliases(
+        'authentication',
+        'User Auth',
+        content,
+        { includeContentKeywords: true }
+      );
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    it('should not include canonical name in aliases', () => {
+      const result = require('../alias-generator').generateAliases(
+        'authentication',
+        'User Authentication',
+        undefined
+      );
+      expect(result).not.toContain('authentication');
+    });
+
+    it('should respect maxAliases limit', () => {
+      const result = require('../alias-generator').generateAliases(
+        'config',
+        'Configuration Settings Options Preferences Environment Variables',
+        undefined,
+        { maxAliases: 3 }
+      );
+      expect(result.length).toBeLessThanOrEqual(3);
+    });
+
+    it('should respect minAliasLength filter', () => {
+      const result = require('../alias-generator').generateAliases(
+        'auth',
+        'Authentication API',
+        undefined,
+        { minAliasLength: 4 }
+      );
+      // All results should have length >= 4
+      result.forEach((alias: string) => {
+        expect(alias.length).toBeGreaterThanOrEqual(4);
+      });
+    });
+
+    it('should return empty array for empty title', () => {
+      const result = require('../alias-generator').generateAliases(
+        'test',
+        '',
+        undefined
+      );
+      expect(result).toEqual([]);
+    });
+
+    it('should return empty array for title with only stop words', () => {
+      const result = require('../alias-generator').generateAliases(
+        'test',
+        'the a an for is',
+        undefined
+      );
+      expect(result).toEqual([]);
+    });
+
+    it('should handle topic name with hyphens', () => {
+      const result = require('../alias-generator').generateAliases(
+        'rest-api',
+        'REST API Documentation',
+        undefined
+      );
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    it('should return sorted unique aliases', () => {
+      const result = require('../alias-generator').generateAliases(
+        'test',
+        'Authentication Configuration',
+        undefined
+      );
+      const set = new Set(result);
+      expect(result.length).toBe(set.size); // All unique
+      expect(result).toEqual([...result].sort()); // Sorted
+    });
+
+    it('should combine synonyms and abbreviations', () => {
+      const result = require('../alias-generator').generateAliases(
+        'authentication',
+        'Authentication',
+        undefined,
+        { includeSynonyms: true, includeAbbreviations: true }
+      );
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    it('should skip synonyms when disabled', () => {
+      const result = require('../alias-generator').generateAliases(
+        'authentication',
+        'Authentication',
+        undefined,
+        { includeSynonyms: false, includeAbbreviations: false }
+      );
+      // Should only have 'authentication' which gets removed as canonical name
+      expect(result.length).toBe(0);
+    });
+
+    it('should handle complex title with numbers and special characters', () => {
+      const result = require('../alias-generator').generateAliases(
+        'oauth2',
+        'OAuth2.0 Authentication Protocol',
+        undefined
+      );
       expect(result.length).toBeGreaterThan(0);
     });
   });

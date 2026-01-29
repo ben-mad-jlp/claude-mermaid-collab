@@ -8,3 +8,10 @@ vi.mock('mermaid-wireframe', () => ({
 vi.mock('mermaid', () => ({
   default: {},
 }));
+
+// Mock bun:sqlite
+vi.mock('bun:sqlite', () => {
+  // Import better-sqlite3 as a fallback for testing
+  const Database = require('better-sqlite3');
+  return { default: Database };
+});

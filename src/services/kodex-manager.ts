@@ -217,14 +217,33 @@ export class KodexManager {
 
   async getTopic(name: string, includeContent = true): Promise<Topic | null> {
     const db = this.ensureInitialized();
-    const row = db.query('SELECT * FROM topics WHERE name = ?').get(name) as any;
 
+    // First, search for exact match on topic name
+    let row = db.query('SELECT * FROM topics WHERE name = ?').get(name) as any;
+    let foundTopicName = name;
+
+    // If not found, search through all topics' aliases
+    if (!row) {
+      const allRows = db.query('SELECT * FROM topics').all() as any[];
+
+      for (const candidate of allRows) {
+        const aliases = candidate.aliases ? JSON.parse(candidate.aliases) : [];
+        if (aliases.includes(name)) {
+          row = candidate;
+          foundTopicName = candidate.name;
+          break;
+        }
+      }
+    }
+
+    // Return null if not found by name or alias
     if (!row) {
       await this.logMissing(name, 'getTopic');
       return null;
     }
 
-    await this.logAccess(name, 'api');
+    // Log access using the actual topic name (not the alias used to find it)
+    await this.logAccess(foundTopicName, 'api');
 
     const metadata = this.rowToTopicMetadata(row);
 
@@ -232,7 +251,7 @@ export class KodexManager {
       return { ...metadata, content: { conceptual: '', technical: '', files: '', related: '' } };
     }
 
-    const content = this.readTopicContent(name);
+    const content = this.readTopicContent(foundTopicName);
     return { ...metadata, content };
   }
 

@@ -139,6 +139,12 @@ export function expandWithAbbreviations(keywords: string[]): string[] {
 
 /**
  * Main alias generation function
+ * Orchestrates the entire alias generation pipeline:
+ * 1. Extract keywords from title
+ * 2. Expand with synonyms and abbreviations
+ * 3. Extract keywords from content (optional)
+ * 4. Remove canonical name and apply filters
+ * 5. Return sorted unique aliases
  */
 export function generateAliases(
   name: string,
@@ -154,14 +160,39 @@ export function generateAliases(
     includeContentKeywords: options?.includeContentKeywords ?? false,
   };
 
-  // TODO: Step 1 - Initialize Set for aliases
-  // TODO: Step 2 - Extract keywords from title
-  // TODO: Step 3 - Expand with synonyms if enabled
-  // TODO: Step 4 - Expand with abbreviations if enabled
-  // TODO: Step 5 - Extract keywords from content if enabled
-  // TODO: Step 6 - Remove canonical name
-  // TODO: Step 7 - Slice to max limit
-  // TODO: Step 8 - Return sorted array
+  // Step 1 - Initialize Set for aliases
+  const aliases = new Set<string>();
 
-  throw new Error('Not implemented');
+  // Step 2 - Extract keywords from title
+  const titleKeywords = extractTitleKeywords(title, opts.minAliasLength);
+  titleKeywords.forEach(kw => aliases.add(kw));
+
+  // Step 3 - Expand with synonyms if enabled
+  if (opts.includeSynonyms) {
+    const expanded = expandWithSynonyms(Array.from(aliases));
+    aliases.clear();
+    expanded.forEach(kw => aliases.add(kw));
+  }
+
+  // Step 4 - Expand with abbreviations if enabled
+  if (opts.includeAbbreviations) {
+    const expanded = expandWithAbbreviations(Array.from(aliases));
+    aliases.clear();
+    expanded.forEach(kw => aliases.add(kw));
+  }
+
+  // Step 5 - Extract keywords from content if enabled
+  if (opts.includeContentKeywords && content) {
+    const contentKeywords = extractContentKeywords(content, CONTENT_KEYWORD_LIMIT);
+    contentKeywords.forEach(kw => aliases.add(kw));
+  }
+
+  // Step 6 - Remove canonical name from set
+  aliases.delete(name.toLowerCase());
+
+  // Step 7 - Filter by minAliasLength and convert to array
+  const filtered = Array.from(aliases).filter(alias => alias.length >= opts.minAliasLength);
+
+  // Step 8 - Slice to max limit and sort
+  return filtered.slice(0, opts.maxAliases).sort();
 }
