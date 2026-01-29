@@ -359,6 +359,58 @@ export class KodexManager {
   }
 
   // --------------------------------------------------------------------------
+  // Alias Management
+  // --------------------------------------------------------------------------
+
+  addAlias(topicName: string, alias: string): void {
+    const db = this.ensureInitialized();
+
+    // Check if topic exists
+    const row = db.query('SELECT * FROM topics WHERE name = ?').get(topicName) as any;
+    if (!row) {
+      throw new Error(`Topic not found: ${topicName}`);
+    }
+
+    // Parse current aliases
+    const currentAliases = row.aliases ? JSON.parse(row.aliases) : [];
+
+    // Check if alias already exists
+    if (currentAliases.includes(alias)) {
+      throw new Error(`Alias already exists: ${alias}`);
+    }
+
+    // Add new alias
+    const updatedAliases = [...currentAliases, alias];
+
+    // Update database
+    db.run('UPDATE topics SET aliases = ? WHERE name = ?', JSON.stringify(updatedAliases), topicName);
+  }
+
+  removeAlias(topicName: string, alias: string): void {
+    const db = this.ensureInitialized();
+
+    // Check if topic exists
+    const row = db.query('SELECT * FROM topics WHERE name = ?').get(topicName) as any;
+    if (!row) {
+      throw new Error(`Topic not found: ${topicName}`);
+    }
+
+    // Parse current aliases
+    const currentAliases = row.aliases ? JSON.parse(row.aliases) : [];
+
+    // Check if alias exists
+    if (!currentAliases.includes(alias)) {
+      throw new Error(`Alias not found: ${alias}`);
+    }
+
+    // Remove alias
+    const updatedAliases = currentAliases.filter((a: string) => a !== alias);
+
+    // Update database
+    db.run('UPDATE topics SET aliases = ? WHERE name = ?', JSON.stringify(updatedAliases), topicName);
+  }
+
+  // --------------------------------------------------------------------------
   // Draft Management
   // --------------------------------------------------------------------------
 
