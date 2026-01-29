@@ -28,11 +28,7 @@ export const STATE_DISPLAY_NAMES: Record<string, string> = {
   'rough-draft-confirm': 'Confirming',
 
   // Rough-draft
-  'rough-draft-interface': 'Defining Interfaces',
-  'rough-draft-pseudocode': 'Writing Pseudocode',
-  'rough-draft-skeleton': 'Building Skeleton',
-  'build-task-graph': 'Building Tasks',
-  'rough-draft-handoff': 'Preparing Handoff',
+  'rough-draft-blueprint': 'Creating Blueprint',
 
   // Execution
   'ready-to-implement': 'Ready',
@@ -208,51 +204,11 @@ export const WORKFLOW_STATES: WorkflowState[] = [
   {
     id: 'clear-pre-rough',
     skill: 'collab-clear',
-    transitions: [{ to: 'rough-draft-interface' }],
+    transitions: [{ to: 'rough-draft-blueprint' }],
   },
   {
-    id: 'rough-draft-interface',
-    skill: 'rough-draft-interface',
-    transitions: [{ to: 'clear-rd1' }],
-  },
-  {
-    id: 'clear-rd1',
-    skill: 'collab-clear',
-    transitions: [{ to: 'rough-draft-pseudocode' }],
-  },
-  {
-    id: 'rough-draft-pseudocode',
-    skill: 'rough-draft-pseudocode',
-    transitions: [{ to: 'clear-rd2' }],
-  },
-  {
-    id: 'clear-rd2',
-    skill: 'collab-clear',
-    transitions: [{ to: 'rough-draft-skeleton' }],
-  },
-  {
-    id: 'rough-draft-skeleton',
-    skill: 'rough-draft-skeleton',
-    transitions: [{ to: 'clear-rd3' }],
-  },
-  {
-    id: 'clear-rd3',
-    skill: 'collab-clear',
-    transitions: [{ to: 'build-task-graph' }],
-  },
-  {
-    id: 'build-task-graph',
-    skill: 'build-task-graph',
-    transitions: [{ to: 'clear-rd4' }],
-  },
-  {
-    id: 'clear-rd4',
-    skill: 'collab-clear',
-    transitions: [{ to: 'rough-draft-handoff' }],
-  },
-  {
-    id: 'rough-draft-handoff',
-    skill: 'rough-draft-handoff',
+    id: 'rough-draft-blueprint',
+    skill: 'rough-draft-blueprint',
     transitions: [{ to: 'clear-post-rough' }],
   },
 
@@ -398,10 +354,7 @@ export function findNextPendingRoughDraftItem(workItems: WorkItem[]): WorkItem |
  */
 const VALID_STATUS_TRANSITIONS: Record<ItemStatus, ItemStatus[]> = {
   'pending': ['brainstormed'],
-  'brainstormed': ['interface'],
-  'interface': ['pseudocode'],
-  'pseudocode': ['skeleton'],
-  'skeleton': ['complete'],
+  'brainstormed': ['complete'],
   'complete': [],
 };
 
@@ -444,19 +397,29 @@ export function getCurrentWorkItem(
 
 /**
  * Migrate work items from old status naming to new unified pipeline status.
- * Converts 'documented' status to 'brainstormed' for backwards compatibility.
+ * - Converts 'documented' status to 'brainstormed' for backwards compatibility.
+ * - Converts old intermediate statuses ('interface', 'pseudocode', 'skeleton') to 'complete'.
  * Returns a new array (non-mutating).
  * This handles sessions that were created before the status type change.
  */
 export function migrateWorkItems(items: WorkItem[]): WorkItem[] {
   return items.map((item) => {
-    // Type assertion needed because item.status could be 'documented' from old data
+    // Type assertion needed because item.status could be old values from legacy data
     const currentStatus = item.status as string;
 
     if (currentStatus === 'documented') {
       return {
         ...item,
         status: 'brainstormed',
+      };
+    }
+
+    // Migrate old intermediate statuses to 'complete'
+    // If they got past brainstorming, consider them ready for implementation
+    if (['interface', 'pseudocode', 'skeleton'].includes(currentStatus)) {
+      return {
+        ...item,
+        status: 'complete',
       };
     }
 

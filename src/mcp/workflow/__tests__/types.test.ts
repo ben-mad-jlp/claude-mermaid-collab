@@ -5,12 +5,9 @@ describe('ItemStatus type', () => {
     const statuses: ItemStatus[] = [
       'pending',
       'brainstormed',
-      'interface',
-      'pseudocode',
-      'skeleton',
       'complete',
     ];
-    expect(statuses).toHaveLength(6);
+    expect(statuses).toHaveLength(3);
   });
 
   it('should allow creating a WorkItem with pending status', () => {
@@ -31,36 +28,6 @@ describe('ItemStatus type', () => {
       status: 'brainstormed' as ItemStatus,
     };
     expect(item.status).toBe('brainstormed');
-  });
-
-  it('should allow creating a WorkItem with interface status', () => {
-    const item: WorkItem = {
-      number: 1,
-      title: 'Test Item',
-      type: 'code' as WorkItemType,
-      status: 'interface' as ItemStatus,
-    };
-    expect(item.status).toBe('interface');
-  });
-
-  it('should allow creating a WorkItem with pseudocode status', () => {
-    const item: WorkItem = {
-      number: 1,
-      title: 'Test Item',
-      type: 'code' as WorkItemType,
-      status: 'pseudocode' as ItemStatus,
-    };
-    expect(item.status).toBe('pseudocode');
-  });
-
-  it('should allow creating a WorkItem with skeleton status', () => {
-    const item: WorkItem = {
-      number: 1,
-      title: 'Test Item',
-      type: 'code' as WorkItemType,
-      status: 'skeleton' as ItemStatus,
-    };
-    expect(item.status).toBe('skeleton');
   });
 
   it('should allow creating a WorkItem with complete status', () => {
@@ -103,18 +70,12 @@ describe('ItemStatus type', () => {
     const workItems: WorkItem[] = [
       { number: 1, title: 'Item 1', type: 'code', status: 'pending' },
       { number: 2, title: 'Item 2', type: 'code', status: 'brainstormed' },
-      { number: 3, title: 'Item 3', type: 'code', status: 'interface' },
-      { number: 4, title: 'Item 4', type: 'code', status: 'pseudocode' },
-      { number: 5, title: 'Item 5', type: 'code', status: 'skeleton' },
-      { number: 6, title: 'Item 6', type: 'code', status: 'complete' },
+      { number: 3, title: 'Item 3', type: 'code', status: 'complete' },
     ];
-    expect(workItems).toHaveLength(6);
+    expect(workItems).toHaveLength(3);
     expect(workItems.map((i) => i.status)).toEqual([
       'pending',
       'brainstormed',
-      'interface',
-      'pseudocode',
-      'skeleton',
       'complete',
     ]);
   });

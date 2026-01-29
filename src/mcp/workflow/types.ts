@@ -25,15 +25,7 @@ export type StateId =
   | 'rough-draft-item-router'
   // Rough-draft states
   | 'clear-pre-rough'
-  | 'rough-draft-interface'
-  | 'clear-rd1'
-  | 'rough-draft-pseudocode'
-  | 'clear-rd2'
-  | 'rough-draft-skeleton'
-  | 'clear-rd3'
-  | 'build-task-graph'
-  | 'clear-rd4'
-  | 'rough-draft-handoff'
+  | 'rough-draft-blueprint'
   | 'clear-post-rough'
   // Other paths
   | 'task-planning'
@@ -115,15 +107,13 @@ export type WorkItemType = 'code' | 'task' | 'bugfix';
 
 /**
  * Unified pipeline status for work items.
- * Each item progresses: pending → brainstormed → interface → pseudocode → skeleton → complete
+ * Each item progresses: pending → brainstormed → complete
+ * (The blueprint skill handles all rough-draft work in a single step)
  */
 export type ItemStatus =
   | 'pending'      // Not started
   | 'brainstormed' // Design spec complete, ready for rough-draft
-  | 'interface'    // Interface doc created
-  | 'pseudocode'   // Pseudocode doc created
-  | 'skeleton'     // Skeleton doc created (rough-draft complete)
-  | 'complete';    // Ready for implementation
+  | 'complete';    // Blueprint complete, ready for implementation
 
 /** Work item status (deprecated, kept for backwards compatibility) */
 export type WorkItemStatus = 'pending' | 'documented';

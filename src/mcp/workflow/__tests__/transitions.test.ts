@@ -1,9 +1,7 @@
 import {
   getCurrentWorkItem,
-  itemReadyForInterface,
-  itemReadyForPseudocode,
-  itemReadyForSkeleton,
-  readyForHandoff,
+  itemReadyForBlueprint,
+  readyForImplementation,
   SessionState,
   findNextPendingItemInSession,
   getNextStateForPhaseBatching,
@@ -84,7 +82,7 @@ describe('Transition condition functions', () => {
     });
   });
 
-  describe('itemReadyForInterface', () => {
+  describe('itemReadyForBlueprint', () => {
     it('should return true when current item status is brainstormed', () => {
       const state: SessionState = {
         state: 'test',
@@ -98,7 +96,7 @@ describe('Transition condition functions', () => {
           },
         ],
       };
-      expect(itemReadyForInterface(state)).toBe(true);
+      expect(itemReadyForBlueprint(state)).toBe(true);
     });
 
     it('should return false when current item status is not brainstormed', () => {
@@ -114,7 +112,7 @@ describe('Transition condition functions', () => {
           },
         ],
       };
-      expect(itemReadyForInterface(state)).toBe(false);
+      expect(itemReadyForBlueprint(state)).toBe(false);
     });
 
     it('should return false when current item is null', () => {
@@ -130,11 +128,11 @@ describe('Transition condition functions', () => {
           },
         ],
       };
-      expect(itemReadyForInterface(state)).toBe(false);
+      expect(itemReadyForBlueprint(state)).toBe(false);
     });
 
     it('should return false for other statuses', () => {
-      const statuses = ['pending', 'interface', 'pseudocode', 'skeleton', 'complete'] as const;
+      const statuses = ['pending', 'complete'] as const;
       statuses.forEach((status) => {
         const state: SessionState = {
           state: 'test',
@@ -148,150 +146,12 @@ describe('Transition condition functions', () => {
             },
           ],
         };
-        expect(itemReadyForInterface(state)).toBe(false);
+        expect(itemReadyForBlueprint(state)).toBe(false);
       });
     });
   });
 
-  describe('itemReadyForPseudocode', () => {
-    it('should return true when current item status is interface', () => {
-      const state: SessionState = {
-        state: 'test',
-        currentItem: 1,
-        workItems: [
-          {
-            number: 1,
-            title: 'Item 1',
-            type: 'code',
-            status: 'interface',
-          },
-        ],
-      };
-      expect(itemReadyForPseudocode(state)).toBe(true);
-    });
-
-    it('should return false when current item status is not interface', () => {
-      const state: SessionState = {
-        state: 'test',
-        currentItem: 1,
-        workItems: [
-          {
-            number: 1,
-            title: 'Item 1',
-            type: 'code',
-            status: 'brainstormed',
-          },
-        ],
-      };
-      expect(itemReadyForPseudocode(state)).toBe(false);
-    });
-
-    it('should return false when current item is null', () => {
-      const state: SessionState = {
-        state: 'test',
-        currentItem: null,
-        workItems: [
-          {
-            number: 1,
-            title: 'Item 1',
-            type: 'code',
-            status: 'interface',
-          },
-        ],
-      };
-      expect(itemReadyForPseudocode(state)).toBe(false);
-    });
-
-    it('should return false for other statuses', () => {
-      const statuses = ['pending', 'brainstormed', 'pseudocode', 'skeleton', 'complete'] as const;
-      statuses.forEach((status) => {
-        const state: SessionState = {
-          state: 'test',
-          currentItem: 1,
-          workItems: [
-            {
-              number: 1,
-              title: 'Item 1',
-              type: 'code',
-              status,
-            },
-          ],
-        };
-        expect(itemReadyForPseudocode(state)).toBe(false);
-      });
-    });
-  });
-
-  describe('itemReadyForSkeleton', () => {
-    it('should return true when current item status is pseudocode', () => {
-      const state: SessionState = {
-        state: 'test',
-        currentItem: 1,
-        workItems: [
-          {
-            number: 1,
-            title: 'Item 1',
-            type: 'code',
-            status: 'pseudocode',
-          },
-        ],
-      };
-      expect(itemReadyForSkeleton(state)).toBe(true);
-    });
-
-    it('should return false when current item status is not pseudocode', () => {
-      const state: SessionState = {
-        state: 'test',
-        currentItem: 1,
-        workItems: [
-          {
-            number: 1,
-            title: 'Item 1',
-            type: 'code',
-            status: 'interface',
-          },
-        ],
-      };
-      expect(itemReadyForSkeleton(state)).toBe(false);
-    });
-
-    it('should return false when current item is null', () => {
-      const state: SessionState = {
-        state: 'test',
-        currentItem: null,
-        workItems: [
-          {
-            number: 1,
-            title: 'Item 1',
-            type: 'code',
-            status: 'pseudocode',
-          },
-        ],
-      };
-      expect(itemReadyForSkeleton(state)).toBe(false);
-    });
-
-    it('should return false for other statuses', () => {
-      const statuses = ['pending', 'brainstormed', 'interface', 'skeleton', 'complete'] as const;
-      statuses.forEach((status) => {
-        const state: SessionState = {
-          state: 'test',
-          currentItem: 1,
-          workItems: [
-            {
-              number: 1,
-              title: 'Item 1',
-              type: 'code',
-              status,
-            },
-          ],
-        };
-        expect(itemReadyForSkeleton(state)).toBe(false);
-      });
-    });
-  });
-
-  describe('readyForHandoff', () => {
+  describe('readyForImplementation', () => {
     it('should return true when all items are complete', () => {
       const state: SessionState = {
         state: 'test',
@@ -311,7 +171,7 @@ describe('Transition condition functions', () => {
           },
         ],
       };
-      expect(readyForHandoff(state)).toBe(true);
+      expect(readyForImplementation(state)).toBe(true);
     });
 
     it('should return true with single complete item', () => {
@@ -327,7 +187,7 @@ describe('Transition condition functions', () => {
           },
         ],
       };
-      expect(readyForHandoff(state)).toBe(true);
+      expect(readyForImplementation(state)).toBe(true);
     });
 
     it('should return false when not all items are complete', () => {
@@ -349,7 +209,7 @@ describe('Transition condition functions', () => {
           },
         ],
       };
-      expect(readyForHandoff(state)).toBe(false);
+      expect(readyForImplementation(state)).toBe(false);
     });
 
     it('should return false when one item is incomplete', () => {
@@ -371,11 +231,11 @@ describe('Transition condition functions', () => {
           },
         ],
       };
-      expect(readyForHandoff(state)).toBe(false);
+      expect(readyForImplementation(state)).toBe(false);
     });
 
-    it('should return false when items are in intermediate statuses', () => {
-      const statuses = ['pending', 'brainstormed', 'interface', 'pseudocode', 'skeleton'] as const;
+    it('should return false when items are in non-complete statuses', () => {
+      const statuses = ['pending', 'brainstormed'] as const;
       statuses.forEach((status) => {
         const state: SessionState = {
           state: 'test',
@@ -389,7 +249,7 @@ describe('Transition condition functions', () => {
             },
           ],
         };
-        expect(readyForHandoff(state)).toBe(false);
+        expect(readyForImplementation(state)).toBe(false);
       });
     });
 
@@ -399,7 +259,7 @@ describe('Transition condition functions', () => {
         currentItem: null,
         workItems: [],
       };
-      expect(readyForHandoff(state)).toBe(true);
+      expect(readyForImplementation(state)).toBe(true);
     });
   });
 
@@ -436,7 +296,7 @@ describe('Transition condition functions', () => {
     });
 
     it('should find items in any status except complete', () => {
-      const statuses: WorkItem['status'][] = ['pending', 'brainstormed', 'interface', 'pseudocode', 'skeleton'];
+      const statuses: WorkItem['status'][] = ['pending', 'brainstormed'];
       statuses.forEach((status) => {
         const items: WorkItem[] = [
           { number: 1, title: 'Item 1', type: 'code', status: 'complete' },
@@ -448,8 +308,7 @@ describe('Transition condition functions', () => {
   });
 
   describe('getNextStateForPhaseBatching', () => {
-    // Phase batching: all items brainstorm first, then code items go through rough-draft
-    // Routing is handled by the state machine, this function only handles status updates
+    // Phase batching: all items brainstorm first, then code items go through rough-draft-blueprint
 
     it('should mark item brainstormed and go to item-type-router after brainstorm-validating', () => {
       const state: SessionState = {
@@ -490,7 +349,7 @@ describe('Transition condition functions', () => {
       expect(state.workItems[0].status).toBe('complete');
     });
 
-    it('should mark item interface and go to clear-rd1 after rough-draft-interface', () => {
+    it('should mark item complete and go to clear-post-rough after rough-draft-blueprint', () => {
       const state: SessionState = {
         state: 'test',
         currentItem: 1,
@@ -498,46 +357,7 @@ describe('Transition condition functions', () => {
           { number: 1, title: 'Item 1', type: 'code', status: 'brainstormed' },
         ],
       };
-      const result = getNextStateForPhaseBatching('rough-draft-interface', state);
-      expect(result).toBe('clear-rd1');
-      expect(state.workItems[0].status).toBe('interface');
-    });
-
-    it('should mark item pseudocode and go to clear-rd2 after rough-draft-pseudocode', () => {
-      const state: SessionState = {
-        state: 'test',
-        currentItem: 1,
-        workItems: [
-          { number: 1, title: 'Item 1', type: 'code', status: 'interface' },
-        ],
-      };
-      const result = getNextStateForPhaseBatching('rough-draft-pseudocode', state);
-      expect(result).toBe('clear-rd2');
-      expect(state.workItems[0].status).toBe('pseudocode');
-    });
-
-    it('should mark item skeleton and go to clear-rd3 after rough-draft-skeleton', () => {
-      const state: SessionState = {
-        state: 'test',
-        currentItem: 1,
-        workItems: [
-          { number: 1, title: 'Item 1', type: 'code', status: 'pseudocode' },
-        ],
-      };
-      const result = getNextStateForPhaseBatching('rough-draft-skeleton', state);
-      expect(result).toBe('clear-rd3');
-      expect(state.workItems[0].status).toBe('skeleton');
-    });
-
-    it('should mark item complete and go to clear-post-rough after rough-draft-handoff', () => {
-      const state: SessionState = {
-        state: 'test',
-        currentItem: 1,
-        workItems: [
-          { number: 1, title: 'Item 1', type: 'code', status: 'skeleton' },
-        ],
-      };
-      const result = getNextStateForPhaseBatching('rough-draft-handoff', state);
+      const result = getNextStateForPhaseBatching('rough-draft-blueprint', state);
       expect(result).toBe('clear-post-rough');
       expect(state.workItems[0].status).toBe('complete');
     });
@@ -578,7 +398,7 @@ describe('Transition condition functions', () => {
       };
       // Status updates require a current item
       expect(getNextStateForPhaseBatching('brainstorm-validating', state)).toBeNull();
-      expect(getNextStateForPhaseBatching('rough-draft-interface', state)).toBeNull();
+      expect(getNextStateForPhaseBatching('rough-draft-blueprint', state)).toBeNull();
     });
 
     it('should handle full brainstorm phase for mixed items', () => {
@@ -619,9 +439,23 @@ describe('Transition condition functions', () => {
       expect(state.workItems[2].status).toBe('complete');
 
       // At this point:
-      // - Code item: brainstormed (needs rough-draft)
+      // - Code item: brainstormed (needs rough-draft-blueprint)
       // - Task item: complete
       // - Bugfix item: complete
+    });
+
+    it('should complete code item after rough-draft-blueprint', () => {
+      const state: SessionState = {
+        state: 'test',
+        currentItem: 1,
+        workItems: [
+          { number: 1, title: 'Code 1', type: 'code', status: 'brainstormed' },
+        ],
+      };
+
+      const result = getNextStateForPhaseBatching('rough-draft-blueprint', state);
+      expect(result).toBe('clear-post-rough');
+      expect(state.workItems[0].status).toBe('complete');
     });
   });
 });

@@ -229,10 +229,8 @@ function getPhaseFromState(stateId: StateId): string {
   // Rough-draft phase states
   if (
     stateId.startsWith('rough-draft') ||
-    stateId === 'build-task-graph' ||
     stateId === 'clear-pre-rough' ||
-    stateId === 'clear-post-rough' ||
-    stateId.startsWith('clear-rd')
+    stateId === 'clear-post-rough'
   ) {
     return `rough-draft/${stateId.replace('rough-draft-', '')}`;
   }

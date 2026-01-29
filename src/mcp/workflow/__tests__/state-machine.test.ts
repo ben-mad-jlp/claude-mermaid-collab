@@ -65,31 +65,9 @@ describe('State Machine Display Names', () => {
     });
 
     describe('Rough-draft states', () => {
-      it('should have display name for rough-draft-interface', () => {
-        expect(STATE_DISPLAY_NAMES['rough-draft-interface']).toBe(
-          'Defining Interfaces'
-        );
-      });
-
-      it('should have display name for rough-draft-pseudocode', () => {
-        expect(STATE_DISPLAY_NAMES['rough-draft-pseudocode']).toBe(
-          'Writing Pseudocode'
-        );
-      });
-
-      it('should have display name for rough-draft-skeleton', () => {
-        expect(STATE_DISPLAY_NAMES['rough-draft-skeleton']).toBe(
-          'Building Skeleton'
-        );
-      });
-
-      it('should have display name for build-task-graph', () => {
-        expect(STATE_DISPLAY_NAMES['build-task-graph']).toBe('Building Tasks');
-      });
-
-      it('should have display name for rough-draft-handoff', () => {
-        expect(STATE_DISPLAY_NAMES['rough-draft-handoff']).toBe(
-          'Preparing Handoff'
+      it('should have display name for rough-draft-blueprint', () => {
+        expect(STATE_DISPLAY_NAMES['rough-draft-blueprint']).toBe(
+          'Creating Blueprint'
         );
       });
     });
@@ -161,7 +139,7 @@ describe('State Machine Display Names', () => {
   describe('getDisplayName function', () => {
     it('should return direct mapping for known states', () => {
       expect(getDisplayName('brainstorm-exploring')).toBe('Exploring');
-      expect(getDisplayName('rough-draft-interface')).toBe('Defining Interfaces');
+      expect(getDisplayName('rough-draft-blueprint')).toBe('Creating Blueprint');
       expect(getDisplayName('done')).toBe('Done');
     });
 
@@ -173,10 +151,6 @@ describe('State Machine Display Names', () => {
       expect(getDisplayName('clear-post-brainstorm')).toBe('Context Check');
       expect(getDisplayName('clear-pre-rough-batch')).toBe('Context Check');
       expect(getDisplayName('clear-pre-rough')).toBe('Context Check');
-      expect(getDisplayName('clear-rd1')).toBe('Context Check');
-      expect(getDisplayName('clear-rd2')).toBe('Context Check');
-      expect(getDisplayName('clear-rd3')).toBe('Context Check');
-      expect(getDisplayName('clear-rd4')).toBe('Context Check');
       expect(getDisplayName('clear-post-rough')).toBe('Context Check');
       expect(getDisplayName('clear-post-item')).toBe('Context Check');
       expect(getDisplayName('clear-pre-execute')).toBe('Context Check');
@@ -234,7 +208,7 @@ describe('Work Item Helper Functions', () => {
   const createWorkItem = (
     number: number,
     title: string,
-    status: 'pending' | 'brainstormed' | 'interface' | 'pseudocode' | 'skeleton' | 'complete' = 'pending'
+    status: 'pending' | 'brainstormed' | 'complete' = 'pending'
   ): WorkItem => ({
     number,
     title,
@@ -260,12 +234,12 @@ describe('Work Item Helper Functions', () => {
 
     it('should return first non-complete item in array order', () => {
       const items = [
-        createWorkItem(1, 'Item 1', 'interface'),
+        createWorkItem(1, 'Item 1', 'brainstormed'),
         createWorkItem(2, 'Item 2', 'pending'),
       ];
       const result = findNextPendingItem(items);
       expect(result?.number).toBe(1);
-      expect(result?.status).toBe('interface');
+      expect(result?.status).toBe('brainstormed');
     });
 
     it('should return undefined if all items are complete', () => {
@@ -293,15 +267,6 @@ describe('Work Item Helper Functions', () => {
       const result = findNextPendingItem(items);
       expect(result?.number).toBe(2);
     });
-
-    it('should find skeleton status items as non-complete', () => {
-      const items = [
-        createWorkItem(1, 'Item 1', 'complete'),
-        createWorkItem(2, 'Item 2', 'skeleton'),
-      ];
-      const result = findNextPendingItem(items);
-      expect(result?.number).toBe(2);
-    });
   });
 
   describe('updateItemStatus', () => {
@@ -313,26 +278,8 @@ describe('Work Item Helper Functions', () => {
       expect(updated.title).toBe('Item 1');
     });
 
-    it('should update brainstormed to interface', () => {
+    it('should update brainstormed to complete', () => {
       const item = createWorkItem(1, 'Item 1', 'brainstormed');
-      const updated = updateItemStatus(item, 'interface');
-      expect(updated.status).toBe('interface');
-    });
-
-    it('should update interface to pseudocode', () => {
-      const item = createWorkItem(1, 'Item 1', 'interface');
-      const updated = updateItemStatus(item, 'pseudocode');
-      expect(updated.status).toBe('pseudocode');
-    });
-
-    it('should update pseudocode to skeleton', () => {
-      const item = createWorkItem(1, 'Item 1', 'pseudocode');
-      const updated = updateItemStatus(item, 'skeleton');
-      expect(updated.status).toBe('skeleton');
-    });
-
-    it('should update skeleton to complete', () => {
-      const item = createWorkItem(1, 'Item 1', 'skeleton');
       const updated = updateItemStatus(item, 'complete');
       expect(updated.status).toBe('complete');
     });
@@ -345,17 +292,10 @@ describe('Work Item Helper Functions', () => {
       expect(item).not.toBe(updated);
     });
 
-    it('should throw on invalid transition from pending to interface', () => {
+    it('should throw on invalid transition from pending to complete', () => {
       const item = createWorkItem(1, 'Item 1', 'pending');
-      expect(() => updateItemStatus(item, 'interface')).toThrow(
-        /Invalid status transition from 'pending' to 'interface'/
-      );
-    });
-
-    it('should throw on invalid transition from brainstormed to skeleton', () => {
-      const item = createWorkItem(1, 'Item 1', 'brainstormed');
-      expect(() => updateItemStatus(item, 'skeleton')).toThrow(
-        /Invalid status transition/
+      expect(() => updateItemStatus(item, 'complete')).toThrow(
+        /Invalid status transition from 'pending' to 'complete'/
       );
     });
 
@@ -368,7 +308,7 @@ describe('Work Item Helper Functions', () => {
 
     it('should include item number in error message', () => {
       const item = createWorkItem(5, 'Item 5', 'pending');
-      expect(() => updateItemStatus(item, 'skeleton')).toThrow(/item 5/);
+      expect(() => updateItemStatus(item, 'complete')).toThrow(/item 5/);
     });
 
     it('should preserve all other item properties', () => {
@@ -378,11 +318,11 @@ describe('Work Item Helper Functions', () => {
         type: 'task',
         status: 'brainstormed',
       };
-      const updated = updateItemStatus(item, 'interface');
+      const updated = updateItemStatus(item, 'complete');
       expect(updated.number).toBe(3);
       expect(updated.title).toBe('Complex Item');
       expect(updated.type).toBe('task');
-      expect(updated.status).toBe('interface');
+      expect(updated.status).toBe('complete');
     });
   });
 
@@ -463,6 +403,30 @@ describe('Work Item Helper Functions', () => {
       expect(result[0].title).toBe('Item 1');
     });
 
+    it('should convert interface status to complete', () => {
+      const items = [
+        { number: 1, title: 'Item 1', type: 'code', status: 'interface' as any },
+      ];
+      const result = migrateWorkItems(items);
+      expect(result[0].status).toBe('complete');
+    });
+
+    it('should convert pseudocode status to complete', () => {
+      const items = [
+        { number: 1, title: 'Item 1', type: 'code', status: 'pseudocode' as any },
+      ];
+      const result = migrateWorkItems(items);
+      expect(result[0].status).toBe('complete');
+    });
+
+    it('should convert skeleton status to complete', () => {
+      const items = [
+        { number: 1, title: 'Item 1', type: 'code', status: 'skeleton' as any },
+      ];
+      const result = migrateWorkItems(items);
+      expect(result[0].status).toBe('complete');
+    });
+
     it('should leave brainstormed status unchanged', () => {
       const items = [
         createWorkItem(1, 'Item 1', 'brainstormed'),
@@ -487,36 +451,12 @@ describe('Work Item Helper Functions', () => {
       expect(result[0].status).toBe('complete');
     });
 
-    it('should leave interface status unchanged', () => {
-      const items = [
-        createWorkItem(1, 'Item 1', 'interface'),
-      ];
-      const result = migrateWorkItems(items);
-      expect(result[0].status).toBe('interface');
-    });
-
-    it('should leave pseudocode status unchanged', () => {
-      const items = [
-        createWorkItem(1, 'Item 1', 'pseudocode'),
-      ];
-      const result = migrateWorkItems(items);
-      expect(result[0].status).toBe('pseudocode');
-    });
-
-    it('should leave skeleton status unchanged', () => {
-      const items = [
-        createWorkItem(1, 'Item 1', 'skeleton'),
-      ];
-      const result = migrateWorkItems(items);
-      expect(result[0].status).toBe('skeleton');
-    });
-
-    it('should handle mixed documented and new statuses', () => {
+    it('should handle mixed documented and old statuses', () => {
       const items: any[] = [
         { number: 1, title: 'Item 1', type: 'code', status: 'documented' },
         createWorkItem(2, 'Item 2', 'brainstormed'),
         createWorkItem(3, 'Item 3', 'pending'),
-        { number: 4, title: 'Item 4', type: 'task', status: 'documented' },
+        { number: 4, title: 'Item 4', type: 'task', status: 'interface' },
         createWorkItem(5, 'Item 5', 'complete'),
       ];
       const result = migrateWorkItems(items);
@@ -524,7 +464,7 @@ describe('Work Item Helper Functions', () => {
       expect(result[0].status).toBe('brainstormed');
       expect(result[1].status).toBe('brainstormed');
       expect(result[2].status).toBe('pending');
-      expect(result[3].status).toBe('brainstormed');
+      expect(result[3].status).toBe('complete'); // interface -> complete
       expect(result[4].status).toBe('complete');
     });
 
@@ -564,36 +504,18 @@ describe('Work Item Helper Functions', () => {
       expect(result[0].status).toBe('complete');
     });
 
-    it('should work with large arrays', () => {
-      const items: any[] = Array.from({ length: 100 }, (_, i) => ({
-        number: i + 1,
-        title: `Item ${i + 1}`,
-        type: 'code',
-        status: i % 2 === 0 ? 'documented' : 'brainstormed',
-      }));
-
-      const result = migrateWorkItems(items);
-
-      expect(result).toHaveLength(100);
-      result.forEach((item, i) => {
-        expect(item.number).toBe(i + 1);
-        // All documented should be converted to brainstormed
-        expect(item.status).toBe('brainstormed');
-      });
-    });
-
     it('should handle items with various type combinations', () => {
       const items: any[] = [
         { number: 1, title: 'Code Item', type: 'code', status: 'documented' },
-        { number: 2, title: 'Task Item', type: 'task', status: 'documented' },
-        { number: 3, title: 'Bugfix Item', type: 'bugfix', status: 'documented' },
+        { number: 2, title: 'Task Item', type: 'task', status: 'skeleton' },
+        { number: 3, title: 'Bugfix Item', type: 'bugfix', status: 'pseudocode' },
       ];
 
       const result = migrateWorkItems(items);
 
-      result.forEach((item) => {
-        expect(item.status).toBe('brainstormed');
-      });
+      expect(result[0].status).toBe('brainstormed'); // documented -> brainstormed
+      expect(result[1].status).toBe('complete'); // skeleton -> complete
+      expect(result[2].status).toBe('complete'); // pseudocode -> complete
       expect(result[0].type).toBe('code');
       expect(result[1].type).toBe('task');
       expect(result[2].type).toBe('bugfix');
@@ -606,7 +528,7 @@ describe('Phase Batching State Routing', () => {
     number: number,
     title: string,
     type: 'code' | 'task' | 'bugfix' = 'code',
-    status: 'pending' | 'brainstormed' | 'interface' | 'pseudocode' | 'skeleton' | 'complete' = 'pending'
+    status: 'pending' | 'brainstormed' | 'complete' = 'pending'
   ): WorkItem => ({
     number,
     title,
@@ -615,8 +537,7 @@ describe('Phase Batching State Routing', () => {
   });
 
   describe('getNextState', () => {
-    // Phase batching: all items brainstorm first, then code items go through rough-draft
-    // Routing is handled by the state machine, getNextState only handles status updates
+    // Phase batching: all items brainstorm first, then code items go through rough-draft-blueprint
 
     it('should mark item brainstormed and go to item-type-router after brainstorm-validating', () => {
       const state: SessionState = {
@@ -629,46 +550,13 @@ describe('Phase Batching State Routing', () => {
       expect(state.workItems[0].status).toBe('brainstormed');
     });
 
-    it('should mark item interface after rough-draft-interface', () => {
+    it('should mark item complete after rough-draft-blueprint', () => {
       const state: SessionState = {
         state: 'test',
         currentItem: 1,
         workItems: [createWorkItem(1, 'Item 1', 'code', 'brainstormed')],
       };
-      const result = getNextState('rough-draft-interface', state);
-      expect(result).toBe('clear-rd1');
-      expect(state.workItems[0].status).toBe('interface');
-    });
-
-    it('should mark item pseudocode after rough-draft-pseudocode', () => {
-      const state: SessionState = {
-        state: 'test',
-        currentItem: 1,
-        workItems: [createWorkItem(1, 'Item 1', 'code', 'interface')],
-      };
-      const result = getNextState('rough-draft-pseudocode', state);
-      expect(result).toBe('clear-rd2');
-      expect(state.workItems[0].status).toBe('pseudocode');
-    });
-
-    it('should mark item skeleton after rough-draft-skeleton', () => {
-      const state: SessionState = {
-        state: 'test',
-        currentItem: 1,
-        workItems: [createWorkItem(1, 'Item 1', 'code', 'pseudocode')],
-      };
-      const result = getNextState('rough-draft-skeleton', state);
-      expect(result).toBe('clear-rd3');
-      expect(state.workItems[0].status).toBe('skeleton');
-    });
-
-    it('should complete item after rough-draft-handoff', () => {
-      const state: SessionState = {
-        state: 'test',
-        currentItem: 1,
-        workItems: [createWorkItem(1, 'Item 1', 'code', 'skeleton')],
-      };
-      const result = getNextState('rough-draft-handoff', state);
+      const result = getNextState('rough-draft-blueprint', state);
       expect(result).toBe('clear-post-rough');
       expect(state.workItems[0].status).toBe('complete');
     });
@@ -695,30 +583,15 @@ describe('Phase Batching State Routing', () => {
       expect(state.workItems[0].status).toBe('complete');
     });
 
-    it('should handle full rough-draft phase for single code item', () => {
+    it('should handle single code item through blueprint', () => {
       const state: SessionState = {
         state: 'test',
         currentItem: 1,
         workItems: [createWorkItem(1, 'Code Item', 'code', 'brainstormed')],
       };
 
-      // Interface complete
-      let result = getNextState('rough-draft-interface', state);
-      expect(result).toBe('clear-rd1');
-      expect(state.workItems[0].status).toBe('interface');
-
-      // Pseudocode complete
-      result = getNextState('rough-draft-pseudocode', state);
-      expect(result).toBe('clear-rd2');
-      expect(state.workItems[0].status).toBe('pseudocode');
-
-      // Skeleton complete
-      result = getNextState('rough-draft-skeleton', state);
-      expect(result).toBe('clear-rd3');
-      expect(state.workItems[0].status).toBe('skeleton');
-
-      // Handoff complete - item is done
-      result = getNextState('rough-draft-handoff', state);
+      // Blueprint complete - item is done
+      const result = getNextState('rough-draft-blueprint', state);
       expect(result).toBe('clear-post-rough');
       expect(state.workItems[0].status).toBe('complete');
     });
@@ -746,7 +619,7 @@ describe('Phase Batching State Routing', () => {
     });
 
     it('should handle phase batching for mixed items', () => {
-      // Phase batching: all brainstorm first, then rough-draft for code items only
+      // Phase batching: all brainstorm first, then rough-draft-blueprint for code items only
       const state: SessionState = {
         state: 'test',
         currentItem: 1,
@@ -781,21 +654,9 @@ describe('Phase Batching State Routing', () => {
       expect(state.workItems[2].status).toBe('complete');
 
       // Rough-Draft Phase:
-      // Only code item goes through rough-draft (simulated: currentItem = 1)
+      // Only code item goes through rough-draft-blueprint (simulated: currentItem = 1)
       state.currentItem = 1;
-      result = getNextState('rough-draft-interface', state);
-      expect(result).toBe('clear-rd1');
-      expect(state.workItems[0].status).toBe('interface');
-
-      result = getNextState('rough-draft-pseudocode', state);
-      expect(result).toBe('clear-rd2');
-      expect(state.workItems[0].status).toBe('pseudocode');
-
-      result = getNextState('rough-draft-skeleton', state);
-      expect(result).toBe('clear-rd3');
-      expect(state.workItems[0].status).toBe('skeleton');
-
-      result = getNextState('rough-draft-handoff', state);
+      result = getNextState('rough-draft-blueprint', state);
       expect(result).toBe('clear-post-rough');
       expect(state.workItems[0].status).toBe('complete');
 

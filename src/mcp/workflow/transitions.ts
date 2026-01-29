@@ -192,33 +192,17 @@ export function getCurrentWorkItem(state: SessionState): WorkItem | null {
 }
 
 /**
- * Condition: current item is brainstormed and ready for interface
+ * Condition: current item is brainstormed and ready for blueprint
  */
-export function itemReadyForInterface(state: SessionState): boolean {
+export function itemReadyForBlueprint(state: SessionState): boolean {
   const item = getCurrentWorkItem(state);
   return item !== null && item.status === 'brainstormed';
 }
 
 /**
- * Condition: current item has interface doc, ready for pseudocode
+ * Condition: all items complete, ready for implementation
  */
-export function itemReadyForPseudocode(state: SessionState): boolean {
-  const item = getCurrentWorkItem(state);
-  return item !== null && item.status === 'interface';
-}
-
-/**
- * Condition: current item has pseudocode doc, ready for skeleton
- */
-export function itemReadyForSkeleton(state: SessionState): boolean {
-  const item = getCurrentWorkItem(state);
-  return item !== null && item.status === 'pseudocode';
-}
-
-/**
- * Condition: all items complete, ready for handoff
- */
-export function readyForHandoff(state: SessionState): boolean {
+export function readyForImplementation(state: SessionState): boolean {
   return state.workItems.every((item) => item.status === 'complete');
 }
 
@@ -242,10 +226,7 @@ export function findNextPendingItemInSession(workItems: WorkItem[]): WorkItem | 
  */
 const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
   'pending': ['brainstormed'],
-  'brainstormed': ['interface'],
-  'interface': ['pseudocode'],
-  'pseudocode': ['skeleton'],
-  'skeleton': ['complete'],
+  'brainstormed': ['complete'],
   'complete': [],
 };
 
@@ -326,42 +307,9 @@ export function getNextStateForPhaseBatching(
     }
 
     // ========== Rough-Draft Phase Status Updates ==========
-    case 'rough-draft-interface': {
+    case 'rough-draft-blueprint': {
       if (!currentItem) return null;
-      // Mark item as interface doc created
-      const updatedItem = updateItemStatusInSession(currentItem, 'interface');
-      const updatedWorkItems = sessionState.workItems.map((item) =>
-        item.number === currentItem.number ? updatedItem : item
-      );
-      sessionState.workItems = updatedWorkItems;
-      return 'clear-rd1';
-    }
-
-    case 'rough-draft-pseudocode': {
-      if (!currentItem) return null;
-      // Mark item as pseudocode doc created
-      const updatedItem = updateItemStatusInSession(currentItem, 'pseudocode');
-      const updatedWorkItems = sessionState.workItems.map((item) =>
-        item.number === currentItem.number ? updatedItem : item
-      );
-      sessionState.workItems = updatedWorkItems;
-      return 'clear-rd2';
-    }
-
-    case 'rough-draft-skeleton': {
-      if (!currentItem) return null;
-      // Mark item as skeleton complete
-      const updatedItem = updateItemStatusInSession(currentItem, 'skeleton');
-      const updatedWorkItems = sessionState.workItems.map((item) =>
-        item.number === currentItem.number ? updatedItem : item
-      );
-      sessionState.workItems = updatedWorkItems;
-      return 'clear-rd3';
-    }
-
-    case 'rough-draft-handoff': {
-      if (!currentItem) return null;
-      // Mark item as complete after rough-draft-handoff
+      // Mark item as complete after blueprint is done
       const updatedWorkItems = sessionState.workItems.map((item) =>
         item.number === currentItem.number ? { ...item, status: 'complete' as const } : item
       );
