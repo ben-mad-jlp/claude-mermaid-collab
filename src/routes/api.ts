@@ -15,6 +15,7 @@ import { join, isAbsolute } from 'path';
 import { getDisplayName } from '../mcp/workflow/state-machine';
 import { homedir } from 'os';
 import { existsSync } from 'fs';
+import { archiveSession, type ArchiveOptions } from '../mcp/tools/collab-state';
 import {
   listWireframesHandler,
   createWireframeHandler,
@@ -191,6 +192,42 @@ export async function handleAPI(
 
       const removed = await sessionRegistry.unregister(project, session);
       return Response.json({ success: removed });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // POST /api/sessions/archive - Archive a session
+  if (path === '/api/sessions/archive' && req.method === 'POST') {
+    try {
+      const { project: rawProject, session, deleteSession, timestamp } = await req.json() as {
+        project?: string;
+        session?: string;
+        deleteSession?: boolean;
+        timestamp?: boolean;
+      };
+
+      if (!rawProject || !session) {
+        return Response.json({ error: 'project and session required' }, { status: 400 });
+      }
+
+      // Expand ~ to home directory
+      const project = expandPath(rawProject);
+
+      const options: ArchiveOptions = {
+        deleteSession: deleteSession ?? true,
+        timestamp: timestamp ?? false,
+      };
+
+      const result = await archiveSession(project, session, options);
+
+      // Unregister from session registry if deleted
+      if (options.deleteSession) {
+        await sessionRegistry.unregister(project, session);
+        wsHandler.broadcast({ type: 'session_deleted', project, session });
+      }
+
+      return Response.json(result);
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
     }

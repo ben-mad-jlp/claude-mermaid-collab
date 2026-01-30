@@ -58,6 +58,9 @@ import { TaskGraphView } from '@/components/task-graph';
 import { ToastContainer } from '@/components/notifications';
 import { requestNotificationPermission, showUserInputNotification } from '@/services/notification-service';
 
+// Import dialogs
+import { SessionCleanupDialog, type CleanupAction } from '@/components/dialogs';
+
 /**
  * Error Boundary Component
  * Catches errors in child components and displays fallback UI
@@ -265,6 +268,10 @@ const App: React.FC = () => {
 
   // Registered projects state (projects may exist without sessions)
   const [registeredProjects, setRegisteredProjects] = useState<string[]>([]);
+
+  // Session cleanup dialog state
+  const [cleanupSession, setCleanupSession] = useState<Session | null>(null);
+  const [isCleanupProcessing, setIsCleanupProcessing] = useState(false);
 
   // Load registered projects from API
   const loadProjects = useCallback(async () => {
@@ -752,20 +759,69 @@ const App: React.FC = () => {
     }
   }, [loadProjects, loadSessions, loadSessionItems, currentSession]);
 
-  // Handle deleting a session
-  const handleDeleteSession = useCallback(async (session: Session) => {
+  // Handle opening the session cleanup dialog
+  const handleDeleteSession = useCallback((session: Session) => {
+    setCleanupSession(session);
+  }, []);
+
+  // Handle cleanup action from dialog
+  const handleCleanupAction = useCallback(async (action: CleanupAction) => {
+    if (!cleanupSession) return;
+
+    setIsCleanupProcessing(true);
+
     try {
-      await api.deleteSession(session.project, session.name);
-      // If we deleted the current session, clear it
-      if (currentSession?.project === session.project && currentSession?.name === session.name) {
-        setCurrentSession(null);
+      switch (action) {
+        case 'archive':
+          // Archive and delete session
+          await api.archiveSession(cleanupSession.project, cleanupSession.name, {
+            deleteSession: true,
+            timestamp: false,
+          });
+          break;
+
+        case 'delete':
+          // Delete without archiving
+          await api.deleteSession(cleanupSession.project, cleanupSession.name);
+          break;
+
+        case 'keep':
+          // Do nothing, just close the dialog
+          break;
+
+        case 'archive-continue':
+          // Archive with timestamp, keep session
+          await api.archiveSession(cleanupSession.project, cleanupSession.name, {
+            deleteSession: false,
+            timestamp: true,
+          });
+          break;
       }
+
+      // Clear current session if we deleted/archived it
+      if (action === 'archive' || action === 'delete') {
+        if (currentSession?.project === cleanupSession.project &&
+            currentSession?.name === cleanupSession.name) {
+          setCurrentSession(null);
+        }
+      }
+
       // Refresh sessions list
       await loadSessions();
     } catch (error) {
-      console.error('Failed to delete session:', error);
+      console.error('Failed to process cleanup action:', error);
+    } finally {
+      setIsCleanupProcessing(false);
+      setCleanupSession(null);
     }
-  }, [currentSession, loadSessions, setCurrentSession]);
+  }, [cleanupSession, currentSession, loadSessions, setCurrentSession]);
+
+  // Handle closing the cleanup dialog
+  const handleCleanupClose = useCallback(() => {
+    if (!isCleanupProcessing) {
+      setCleanupSession(null);
+    }
+  }, [isCleanupProcessing]);
 
   // Build overflow actions for toolbar
   const overflowActions: ToolbarAction[] = useMemo(() => {
@@ -973,6 +1029,16 @@ const App: React.FC = () => {
         {/* Question Panel Overlay - renders on top of mobile layout */}
         {currentQuestion && <QuestionPanel />}
 
+        {/* Session Cleanup Dialog */}
+        {cleanupSession && (
+          <SessionCleanupDialog
+            session={cleanupSession}
+            onAction={handleCleanupAction}
+            onClose={handleCleanupClose}
+            isProcessing={isCleanupProcessing}
+          />
+        )}
+
         {/* Notification Toast Container */}
         <ToastContainer />
       </ErrorBoundary>
@@ -1052,6 +1118,16 @@ const App: React.FC = () => {
 
         {/* Loading Overlay */}
         <LoadingOverlay show={isLoading} />
+
+        {/* Session Cleanup Dialog */}
+        {cleanupSession && (
+          <SessionCleanupDialog
+            session={cleanupSession}
+            onAction={handleCleanupAction}
+            onClose={handleCleanupClose}
+            isProcessing={isCleanupProcessing}
+          />
+        )}
 
         {/* Notification Toast Container */}
         <ToastContainer />

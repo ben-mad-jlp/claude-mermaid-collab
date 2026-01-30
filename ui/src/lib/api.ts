@@ -34,10 +34,20 @@ export function generateSessionName(): string {
 /**
  * API client interface defining available HTTP operations
  */
+export interface ArchiveResult {
+  success: boolean;
+  archivePath: string;
+  archivedFiles: {
+    documents: string[];
+    diagrams: string[];
+  };
+}
+
 export interface ApiClient {
   getSessions(): Promise<Session[]>;
   createSession(project: string, session: string): Promise<Session>;
   deleteSession(project: string, session: string): Promise<boolean>;
+  archiveSession(project: string, session: string, options?: { deleteSession?: boolean; timestamp?: boolean }): Promise<ArchiveResult>;
   getDiagrams(project: string, session: string): Promise<Diagram[]>;
   getDocuments(project: string, session: string): Promise<Document[]>;
   getDiagram(project: string, session: string, id: string): Promise<Diagram | null>;
@@ -125,6 +135,33 @@ export const api: ApiClient = {
     }
     const data = await response.json();
     return data.success;
+  },
+
+  /**
+   * Archive a session to docs/designs/
+   */
+  async archiveSession(
+    project: string,
+    session: string,
+    options?: { deleteSession?: boolean; timestamp?: boolean }
+  ): Promise<ArchiveResult> {
+    const response = await fetch('/api/sessions/archive', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        project,
+        session,
+        deleteSession: options?.deleteSession ?? true,
+        timestamp: options?.timestamp ?? false,
+      }),
+    });
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || response.statusText);
+    }
+    return response.json();
   },
 
   /**
