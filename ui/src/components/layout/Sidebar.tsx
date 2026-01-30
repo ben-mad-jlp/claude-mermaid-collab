@@ -159,8 +159,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isDisabled = !currentSession;
 
   // Check if in implementation phase (show task graph) - check both state and phase fields
-  const currentPhase = collabState?.state || collabState?.phase;
-  const isImplementationPhase = currentPhase === 'execute-batch' || currentPhase === 'ready-to-implement';
+  const currentState = collabState?.state;
+  const currentPhase = collabState?.phase;
+  const isImplementationPhase =
+    currentPhase === 'implementation' ||
+    currentState === 'execute-batch' ||
+    currentState === 'ready-to-implement';
 
   return (
     <aside
