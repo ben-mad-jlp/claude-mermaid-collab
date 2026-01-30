@@ -145,7 +145,7 @@ export const SplitPane: React.FC<SplitPaneProps> = ({
             bg-gray-200 dark:bg-gray-700
             hover:bg-accent-400 dark:hover:bg-accent-600
             active:bg-accent-500 dark:active:bg-accent-500
-            transition-colors
+            ${isDragging ? '' : 'transition-colors'}
             flex items-center justify-center
           `}
         >
@@ -225,6 +225,8 @@ export const ThreeWaySplitPane: React.FC<ThreeWaySplitPaneProps> = ({
   storageId,
   className = '',
 }) => {
+  const [isDragging, setIsDragging] = useState(false);
+
   return (
     <div
       data-testid="three-way-split-pane"
@@ -242,7 +244,7 @@ export const ThreeWaySplitPane: React.FC<ThreeWaySplitPaneProps> = ({
           collapsedSizePercentage={0}
           data-testid="split-pane-left"
         >
-          <div className="w-full h-full overflow-hidden">
+          <div className={`w-full h-full overflow-hidden ${isDragging ? 'pointer-events-none select-none' : ''}`}>
             {leftContent}
           </div>
         </Panel>
@@ -250,13 +252,14 @@ export const ThreeWaySplitPane: React.FC<ThreeWaySplitPaneProps> = ({
         {/* Left Resize Handle */}
         <PanelResizeHandle
           data-testid="split-pane-handle-left"
+          onDragging={setIsDragging}
           className={`
             group
             ${direction === 'horizontal' ? 'w-1.5' : 'h-1.5'}
             bg-gray-200 dark:bg-gray-700
             hover:bg-accent-400 dark:hover:bg-accent-600
             active:bg-accent-500 dark:active:bg-accent-500
-            transition-colors
+            ${isDragging ? '' : 'transition-colors'}
             flex items-center justify-center
           `}
         >
@@ -278,7 +281,7 @@ export const ThreeWaySplitPane: React.FC<ThreeWaySplitPaneProps> = ({
           minSizePercentage={minCenterSize}
           data-testid="split-pane-center"
         >
-          <div className="w-full h-full overflow-hidden">
+          <div className={`w-full h-full overflow-hidden ${isDragging ? 'pointer-events-none select-none' : ''}`}>
             {centerContent}
           </div>
         </Panel>
@@ -286,13 +289,14 @@ export const ThreeWaySplitPane: React.FC<ThreeWaySplitPaneProps> = ({
         {/* Right Resize Handle */}
         <PanelResizeHandle
           data-testid="split-pane-handle-right"
+          onDragging={setIsDragging}
           className={`
             group
             ${direction === 'horizontal' ? 'w-1.5' : 'h-1.5'}
             bg-gray-200 dark:bg-gray-700
             hover:bg-accent-400 dark:hover:bg-accent-600
             active:bg-accent-500 dark:active:bg-accent-500
-            transition-colors
+            ${isDragging ? '' : 'transition-colors'}
             flex items-center justify-center
           `}
         >
@@ -316,7 +320,7 @@ export const ThreeWaySplitPane: React.FC<ThreeWaySplitPaneProps> = ({
           collapsedSizePercentage={0}
           data-testid="split-pane-right"
         >
-          <div className="w-full h-full overflow-hidden">
+          <div className={`w-full h-full overflow-hidden ${isDragging ? 'pointer-events-none select-none' : ''}`}>
             {rightContent}
           </div>
         </Panel>
