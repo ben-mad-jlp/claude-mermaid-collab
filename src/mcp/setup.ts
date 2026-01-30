@@ -11,6 +11,7 @@ import {
   ListResourcesRequestSchema,
   ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+import { Resvg } from '@resvg/resvg-js';
 import { dismissUI, dismissUISchema } from './tools/dismiss-ui.js';
 import { updateUI, updateUISchema } from './tools/update-ui.js';
 import { renderUISchema } from './tools/render-ui.js';
@@ -187,6 +188,73 @@ async function transpileDiagram(project: string, session: string, id: string): P
   }
   const data = await response.json();
   return data.mermaid;
+}
+
+async function exportDiagramSVG(project: string, session: string, id: string, theme?: string): Promise<string> {
+  const themeParam = theme ? `&theme=${encodeURIComponent(theme)}` : '';
+  const response = await fetch(buildUrl(`/api/render/${id}`, project, session) + themeParam);
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error(`Diagram not found: ${id}`);
+    }
+    throw new Error(`Failed to export diagram: ${response.statusText}`);
+  }
+  const svg = await response.text();
+
+  // Extract dimensions from SVG
+  const widthMatch = svg.match(/width="([^"]+)"/);
+  const heightMatch = svg.match(/height="([^"]+)"/);
+  const width = widthMatch ? widthMatch[1] : 'auto';
+  const height = heightMatch ? heightMatch[1] : 'auto';
+
+  return JSON.stringify({
+    id,
+    svg,
+    width,
+    height,
+  }, null, 2);
+}
+
+async function exportDiagramPNG(project: string, session: string, id: string, theme?: string, scale?: number): Promise<string> {
+  // First get the SVG
+  const themeParam = theme ? `&theme=${encodeURIComponent(theme)}` : '';
+  const response = await fetch(buildUrl(`/api/render/${id}`, project, session) + themeParam);
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error(`Diagram not found: ${id}`);
+    }
+    throw new Error(`Failed to export diagram: ${response.statusText}`);
+  }
+  const svg = await response.text();
+
+  // Convert SVG to PNG using resvg
+  const resvg = new Resvg(svg, {
+    background: '#ffffff',
+    fitTo: scale ? {
+      mode: 'zoom' as const,
+      value: scale,
+    } : {
+      mode: 'original' as const,
+    },
+  });
+
+  const pngData = resvg.render();
+  const pngBuffer = pngData.asPng();
+  const png = Buffer.from(pngBuffer).toString('base64');
+
+  // Extract dimensions
+  const widthMatch = svg.match(/width="([^"]+)"/);
+  const heightMatch = svg.match(/height="([^"]+)"/);
+  const width = widthMatch ? widthMatch[1] : 'auto';
+  const height = heightMatch ? heightMatch[1] : 'auto';
+
+  return JSON.stringify({
+    id,
+    png,
+    width,
+    height,
+    note: 'PNG is base64 encoded. Save with: echo "<png>" | base64 -d > diagram.png',
+  }, null, 2);
 }
 
 // ============= Document Tools =============
@@ -507,6 +575,33 @@ export async function setupMCPServer(): Promise<Server> {
           properties: {
             ...sessionParamsDesc,
             id: { type: 'string', description: 'The SMACH diagram ID' },
+          },
+          required: ['project', 'session', 'id'],
+        },
+      },
+      {
+        name: 'export_diagram_svg',
+        description: 'Export a diagram as an SVG image string. Returns the complete SVG markup that can be saved or displayed.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            ...sessionParamsDesc,
+            id: { type: 'string', description: 'Diagram ID' },
+            theme: { type: 'string', description: 'Mermaid theme (default, dark, forest, neutral). Default: default' },
+          },
+          required: ['project', 'session', 'id'],
+        },
+      },
+      {
+        name: 'export_diagram_png',
+        description: 'Export a diagram as a PNG image. Returns base64-encoded PNG data that can be saved to a file and viewed.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            ...sessionParamsDesc,
+            id: { type: 'string', description: 'Diagram ID' },
+            theme: { type: 'string', description: 'Mermaid theme (default, dark, forest, neutral). Default: default' },
+            scale: { type: 'number', description: 'Scale factor for the PNG (default: 1)' },
           },
           required: ['project', 'session', 'id'],
         },
@@ -1037,6 +1132,18 @@ export async function setupMCPServer(): Promise<Server> {
             const { project, session, id } = args as { project: string; session: string; id: string };
             if (!project || !session || !id) throw new Error('Missing required: project, session, id');
             return await transpileDiagram(project, session, id);
+          }
+
+          case 'export_diagram_svg': {
+            const { project, session, id, theme } = args as { project: string; session: string; id: string; theme?: string };
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            return await exportDiagramSVG(project, session, id, theme);
+          }
+
+          case 'export_diagram_png': {
+            const { project, session, id, theme, scale } = args as { project: string; session: string; id: string; theme?: string; scale?: number };
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            return await exportDiagramPNG(project, session, id, theme, scale);
           }
 
           case 'list_documents': {
