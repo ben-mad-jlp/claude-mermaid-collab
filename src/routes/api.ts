@@ -16,6 +16,7 @@ import { getDisplayName } from '../mcp/workflow/state-machine';
 import { homedir } from 'os';
 import { existsSync } from 'fs';
 import { archiveSession, type ArchiveOptions } from '../mcp/tools/collab-state';
+import { addLesson, listLessons, type LessonCategory } from '../mcp/tools/lessons';
 import {
   listWireframesHandler,
   createWireframeHandler,
@@ -1400,6 +1401,60 @@ export async function handleAPI(
       return Response.json({ success: true });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 404 });
+    }
+  }
+
+  // ============================================
+  // Lessons Routes
+  // ============================================
+
+  // GET /api/lessons?project=...&session=...
+  if (path === '/api/lessons' && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    try {
+      const result = await listLessons(params.project, params.session);
+      return Response.json(result);
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // POST /api/lesson?project=...&session=...
+  if (path === '/api/lesson' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const { lesson, category } = await req.json() as { lesson?: string; category?: LessonCategory };
+
+    if (!lesson) {
+      return Response.json({ error: 'lesson content required' }, { status: 400 });
+    }
+
+    try {
+      // Register session if not already registered
+      const sessionResult = await sessionRegistry.register(params.project, params.session);
+      if (sessionResult.created) {
+        wsHandler.broadcast({ type: 'session_created', project: params.project, session: params.session });
+      }
+
+      const result = await addLesson(params.project, params.session, lesson, category);
+
+      wsHandler.broadcast({
+        type: 'lesson_added',
+        lessonCount: result.lessonCount,
+        project: params.project,
+        session: params.session,
+      });
+
+      return Response.json(result);
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
     }
   }
 

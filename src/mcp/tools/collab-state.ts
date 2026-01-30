@@ -217,6 +217,7 @@ export interface ArchiveResult {
     documents: string[];
     diagrams: string[];
     wireframes: string[];
+    lessons: boolean; // Whether LESSONS.md was archived
   };
 }
 
@@ -254,18 +255,22 @@ export async function archiveSession(
   // Create archive directory
   await mkdir(archiveDir, { recursive: true });
 
-  const archivedFiles: { documents: string[]; diagrams: string[]; wireframes: string[] } = {
+  const archivedFiles: { documents: string[]; diagrams: string[]; wireframes: string[]; lessons: boolean } = {
     documents: [],
     diagrams: [],
     wireframes: [],
+    lessons: false,
   };
 
-  // Copy documents
+  // Copy documents (includes LESSONS.md if present)
   if (await fileExists(documentsDir)) {
     const docFiles = await readdir(documentsDir);
     for (const file of docFiles) {
       await cp(join(documentsDir, file), join(archiveDir, file));
       archivedFiles.documents.push(file);
+      if (file === 'LESSONS.md') {
+        archivedFiles.lessons = true;
+      }
     }
   }
 

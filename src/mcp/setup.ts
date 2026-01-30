@@ -37,6 +37,12 @@ import { sessionRegistry } from '../services/session-registry.js';
 import { projectRegistry } from '../services/project-registry.js';
 import { updateTaskStatus, updateTasksStatus, getTaskGraph } from './workflow/task-status.js';
 import {
+  addLesson,
+  listLessons,
+  addLessonSchema,
+  listLessonsSchema,
+} from './tools/lessons.js';
+import {
   handleCreateWireframe,
   handleUpdateWireframe,
   handleGetWireframe,
@@ -1165,6 +1171,17 @@ export async function setupMCPServer(): Promise<Server> {
           required: ['project', 'session'],
         },
       },
+      // Lessons tools
+      {
+        name: 'add_lesson',
+        description: 'Record a lesson learned during the session. Creates LESSONS.md if it doesn\'t exist.',
+        inputSchema: addLessonSchema,
+      },
+      {
+        name: 'list_lessons',
+        description: 'Get all lessons from a session.',
+        inputSchema: listLessonsSchema,
+      },
     ],
   }));
 
@@ -1809,6 +1826,25 @@ export async function setupMCPServer(): Promise<Server> {
             const { project, session } = args as { project: string; session: string };
             if (!project || !session) throw new Error('Missing required: project, session');
             const result = await getTaskGraph({ project, session });
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'add_lesson': {
+            const { project, session, lesson, category } = args as {
+              project: string;
+              session: string;
+              lesson: string;
+              category?: 'universal' | 'codebase' | 'workflow' | 'gotcha';
+            };
+            if (!project || !session || !lesson) throw new Error('Missing required: project, session, lesson');
+            const result = await addLesson(project, session, lesson, category);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'list_lessons': {
+            const { project, session } = args as { project: string; session: string };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            const result = await listLessons(project, session);
             return JSON.stringify(result, null, 2);
           }
 
