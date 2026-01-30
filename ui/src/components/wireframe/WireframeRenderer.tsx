@@ -22,7 +22,8 @@ import {
   getContainerComponent,
   isContainerComponent,
 } from './components';
-import { ROUGH_OPTIONS, COLORS } from './svg-utils';
+import { useTheme } from '@/hooks/useTheme';
+import { ROUGH_OPTIONS, getThemeColors, type WireframeTheme } from './svg-utils';
 
 /**
  * Props for the WireframeRenderer component
@@ -222,10 +223,12 @@ interface ScreenRendererInternalProps {
   screen: ScreenComponent;
   bounds: LayoutBounds;
   labelY: number;
+  wireframeTheme: WireframeTheme;
 }
 
-function ScreenRendererInternal({ screen, bounds, labelY }: ScreenRendererInternalProps): JSX.Element {
+function ScreenRendererInternal({ screen, bounds, labelY, wireframeTheme }: ScreenRendererInternalProps): JSX.Element {
   const groupRef = useRef<SVGGElement>(null);
+  const colors = getThemeColors(wireframeTheme);
 
   // Draw rough.js screen border
   useEffect(() => {
@@ -244,7 +247,7 @@ function ScreenRendererInternal({ screen, bounds, labelY }: ScreenRendererIntern
       bounds.height,
       {
         ...ROUGH_OPTIONS,
-        stroke: COLORS.container.screenBorder,
+        stroke: colors.container.screenBorder,
         fill: 'none',
         strokeWidth: 2,
       }
@@ -257,7 +260,7 @@ function ScreenRendererInternal({ screen, bounds, labelY }: ScreenRendererIntern
         groupRef.current?.removeChild(border);
       }
     };
-  }, [bounds]);
+  }, [bounds, colors]);
 
   return (
     <g ref={groupRef} data-screen-id={screen.id}>
@@ -268,7 +271,7 @@ function ScreenRendererInternal({ screen, bounds, labelY }: ScreenRendererIntern
         fontSize={14}
         fontWeight="bold"
         fontFamily="sans-serif"
-        fill="#374151"
+        fill={colors.container.label}
       >
         {screen.name}
       </text>
@@ -279,7 +282,7 @@ function ScreenRendererInternal({ screen, bounds, labelY }: ScreenRendererIntern
         y={bounds.y}
         width={bounds.width}
         height={bounds.height}
-        fill={screen.backgroundColor || '#ffffff'}
+        fill={screen.backgroundColor || colors.container.screenBackground}
         rx={4}
         ry={4}
       />
@@ -363,6 +366,10 @@ export function WireframeRenderer({
   scale = 1,
   className,
 }: WireframeRendererProps): JSX.Element {
+  const { theme } = useTheme();
+  const wireframeTheme: WireframeTheme = theme === 'dark' ? 'dark' : 'light';
+  const colors = getThemeColors(wireframeTheme);
+
   // Validate wireframe structure - screens array is required
   if (!wireframe?.screens || !Array.isArray(wireframe.screens)) {
     return (
@@ -413,6 +420,9 @@ export function WireframeRenderer({
   const svgWidth = dimensions.width * scale;
   const svgHeight = dimensions.height * scale;
 
+  // SVG canvas background based on theme
+  const svgBackground = wireframeTheme === 'dark' ? '#0f172a' : '#f8f9fa';
+
   return (
     <svg
       className={className}
@@ -421,7 +431,7 @@ export function WireframeRenderer({
       height={svgHeight}
       preserveAspectRatio="xMinYMin meet"
       style={{
-        backgroundColor: '#f8f9fa',
+        backgroundColor: svgBackground,
         maxWidth: '100%',
         height: 'auto',
       }}
@@ -432,6 +442,7 @@ export function WireframeRenderer({
           screen={screen}
           bounds={bounds}
           labelY={labelY}
+          wireframeTheme={wireframeTheme}
         />
       ))}
     </svg>
