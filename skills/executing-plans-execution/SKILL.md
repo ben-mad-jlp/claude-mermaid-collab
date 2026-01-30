@@ -26,10 +26,10 @@ This document contains detailed execution logic for the executing-plans skill.
 ### Standard Execution (No Dependency Graph)
 
 For each task:
-1. Call `update_task_status` with `status: "in_progress"` to mark task start
-2. Follow each step exactly (plan has bite-sized steps)
-3. Run verifications as specified
-4. Call `update_task_status` with `status: "completed"` to mark task completion (or `status: "failed"` if verification fails)
+1. Spawn Task agent (subagent marks task `in_progress` immediately)
+2. Subagent follows each step exactly (plan has bite-sized steps)
+3. Subagent runs verifications as specified
+4. Subagent marks task `completed` or `failed` before returning
 
 ### Step 2.1: Per-Task Execution with Item Type Routing
 
@@ -45,28 +45,19 @@ Before executing each task, determine its item type and follow the appropriate e
 
 ```
 FUNCTION executeTask(task, itemType):
-  CALL update_task_status(project, session, task.id, "in_progress")
+  # Subagent handles all status updates - orchestrator just spawns
 
   IF itemType == "task":
     # Skip TDD for operational tasks
-    EXECUTE task steps directly (from task-planning Prerequisites/Steps/Verification)
-    RUN verification checks
-    IF verification passes:
-      CALL update_task_status(project, session, task.id, "completed")
-    ELSE:
-      CALL update_task_status(project, session, task.id, "failed")
+    SPAWN Task agent with project/session/taskId
+    # Subagent: marks in_progress, executes steps, marks completed/failed
+
   ELSE IF itemType IN ["code", "bugfix"]:
     # Normal TDD flow
-    INVOKE test-driven-development skill
-    WRITE failing test
-    IMPLEMENT code per design spec
-    VERIFY test passes
-    IF verification passes:
-      CALL update_task_status(project, session, task.id, "completed")
-    ELSE:
-      CALL update_task_status(project, session, task.id, "failed")
+    SPAWN Task agent with project/session/taskId
+    # Subagent: marks in_progress, runs TDD, marks completed/failed
+
   ELSE:
-    CALL update_task_status(project, session, task.id, "failed")
     STOP - unknown item type, ask user
 ```
 
@@ -97,15 +88,15 @@ ready_tasks = tasks where:
    - Tasks explicitly marked `parallel: true`
    - OR tasks with no file overlap and no shared dependencies
 2. If multiple parallel-safe tasks exist:
-   - For each task, call `update_task_status` with `status: "in_progress"`
    - **REQUIRED:** Spawn Task agents in parallel (single message, multiple tool calls)
+   - Each Task agent receives project/session/taskId variables
    - Each Task agent MUST invoke `mermaid-collab:subagent-driven-development:implementer-prompt` skill
-   - Each Task agent MUST call `update_task_status` with `status: "completed"` or `status: "failed"` when done
+   - Subagent handles entire status lifecycle (in_progress → completed/failed)
    - Task prompt includes: task ID, files, description, relevant pseudocode
    - Wait for all agents to complete
 3. If only sequential tasks remain:
    - Execute one at a time in topological order
-   - For each task: call `update_task_status` with `status: "in_progress"` at start, then `status: "completed"` or `status: "failed"` at end
+   - Subagent handles entire status lifecycle (in_progress → completed/failed)
 
 **RED FLAG - INLINE IMPLEMENTATION:**
 If you find yourself using Edit/Write tools directly on source files instead of spawning Task agents, you are violating the subagent requirement. STOP and use Task tool instead.
@@ -114,6 +105,16 @@ If you find yourself using Edit/Write tools directly on source files instead of 
 
 ```
 You are implementing a task from the collab workflow.
+
+## Task Status
+
+Call these at start and end of your work:
+- project: {project}
+- session: {session}
+- taskId: {taskId}
+
+First action: update_task_status(in_progress)
+Last action: update_task_status(completed/failed)
 
 ## Design Document Location
 Collab Session: .collab/<session-name>
@@ -168,50 +169,49 @@ Do NOT run the full test suite during TDD cycles.
 
 ### Task Status Management
 
-Use the `update_task_status` tool to track task progress. This enables real-time task graph visualization and WebSocket broadcasts.
+**Subagents own the entire status lifecycle.** The orchestrator does NOT call `update_task_status` - subagents handle all status updates.
 
-**When task starts:**
+**What subagents do:**
+
+1. **First action** - Mark task in progress:
 ```
 Tool: update_task_status
 Args: {
   project: <project-path>,
   session: <session-name>,
   taskId: <task-id>,
-  status: "in_progress"
+  status: "in_progress",
+  minimal: true
 }
 ```
 
-**When task completes successfully:**
+2. **Last action** - Mark task completed or failed:
 ```
 Tool: update_task_status
 Args: {
   project: <project-path>,
   session: <session-name>,
   taskId: <task-id>,
-  status: "completed"
+  status: "completed",  // or "failed"
+  minimal: true
 }
 ```
 
-**When task fails:**
-```
-Tool: update_task_status
-Args: {
-  project: <project-path>,
-  session: <session-name>,
-  taskId: <task-id>,
-  status: "failed"
-}
-```
+**Why subagents own status:**
+- More accurate timing - status changes when work actually starts/ends
+- No delay waiting for orchestrator to process return
+- Real-time task graph updates in UI
+- `minimal: true` reduces context bloat in subagent response
 
-**Benefits:**
-- Each status change triggers diagram regeneration
-- WebSocket broadcast keeps UI in sync in real-time
-- No more batch-only updates - status changes are immediate and granular
+**Orchestrator trust model:**
+- Trust that subagent called status updates
+- Don't duplicate or verify status changes
+- If subagent fails to update, task graph shows wrong state (acceptable tradeoff)
 
 ### Task Completion Handling
 
 When a task completes:
-1. Call `update_task_status` with `status: "completed"` to record completion
+1. Subagent already called `update_task_status` - no action needed
 2. Check what tasks are now unblocked (their `depends-on` all satisfied)
 3. Add newly unblocked tasks to the ready queue
 4. Repeat until all tasks done

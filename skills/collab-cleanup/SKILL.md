@@ -84,6 +84,7 @@ Phase: [current phase]
 Artifacts:
 - Documents: [list .md files]
 - Diagrams: [list .mmd files]
+- Wireframes: [list .json files]
 ```
 
 ### Step 3: Ask User Choice
@@ -109,8 +110,9 @@ What would you like to do with the design artifacts?
    - Create `docs/designs/[session-name]/` directory
    - Copy all documents from `.collab/sessions/[session]/documents/*`
    - Copy all diagrams from `.collab/sessions/[session]/diagrams/*`
+   - Copy all wireframes from `.collab/sessions/[session]/wireframes/*`
    - Delete the `.collab/sessions/[session]/` folder
-3. Report what was archived based on the tool's response (archivedFiles.documents and archivedFiles.diagrams)
+3. Report what was archived based on the tool's response (archivedFiles.documents, archivedFiles.diagrams, and archivedFiles.wireframes)
 
 **If Delete:**
 1. Confirm: "Delete session [name]? This cannot be undone."

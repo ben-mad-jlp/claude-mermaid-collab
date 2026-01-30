@@ -884,7 +884,7 @@ export async function setupMCPServer(): Promise<Server> {
       },
       {
         name: 'archive_session',
-        description: 'Archive a collab session by copying documents and diagrams to docs/designs/[session]/ and optionally deleting the session folder.',
+        description: 'Archive a collab session by copying documents, diagrams, and wireframes to docs/designs/[session]/ and optionally deleting the session folder.',
         inputSchema: {
           type: 'object',
           properties: {

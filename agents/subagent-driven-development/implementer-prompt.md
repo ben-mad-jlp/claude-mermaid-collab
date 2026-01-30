@@ -8,6 +8,13 @@ Task tool (general-purpose):
   prompt: |
     You are implementing Task N: [task name]
 
+    ## Task Status Variables
+
+    Use these for task status updates:
+    - project: <project-path>
+    - session: <session-name>
+    - taskId: <task-id>
+
     ## Task Description
 
     [FULL TEXT of task from plan - paste it here, don't make subagent read file]
@@ -15,6 +22,20 @@ Task tool (general-purpose):
     ## Context
 
     [Scene-setting: where this fits, dependencies, architectural context]
+
+    ## Task Status (First Step)
+
+    Before doing any work, mark this task as in progress:
+    ```
+    Tool: mcp__mermaid__update_task_status
+    Args: {
+      project: "<project-path>",
+      session: "<session-name>",
+      taskId: "<task-id>",
+      status: "in_progress",
+      minimal: true
+    }
+    ```
 
     ## Before You Begin
 
@@ -124,6 +145,36 @@ Task tool (general-purpose):
     - Are tests comprehensive?
 
     If you find issues during self-review, fix them now before reporting.
+
+    ## Task Status (Final Step)
+
+    When your work is complete (tests pass, self-review done):
+
+    **Call `update_task_status` to mark task completed:**
+    ```
+    Tool: mcp__mermaid__update_task_status
+    Args: {
+      project: "<project-path>",
+      session: "<session-name>",
+      taskId: "<task-id>",
+      status: "completed",
+      minimal: true
+    }
+    ```
+
+    **If implementation fails or you cannot complete the task:**
+    ```
+    Tool: mcp__mermaid__update_task_status
+    Args: {
+      project: "<project-path>",
+      session: "<session-name>",
+      taskId: "<task-id>",
+      status: "failed",
+      minimal: true
+    }
+    ```
+
+    This update MUST be called before reporting back.
 
     ## Report Format
 

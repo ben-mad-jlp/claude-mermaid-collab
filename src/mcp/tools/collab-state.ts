@@ -216,6 +216,7 @@ export interface ArchiveResult {
   archivedFiles: {
     documents: string[];
     diagrams: string[];
+    wireframes: string[];
   };
 }
 
@@ -229,6 +230,7 @@ export async function archiveSession(
   const sessionDir = join(project, '.collab', 'sessions', session);
   const documentsDir = join(sessionDir, 'documents');
   const diagramsDir = join(sessionDir, 'diagrams');
+  const wireframesDir = join(sessionDir, 'wireframes');
 
   // Build archive folder name with optional timestamp
   let archiveFolderName = session;
@@ -252,9 +254,10 @@ export async function archiveSession(
   // Create archive directory
   await mkdir(archiveDir, { recursive: true });
 
-  const archivedFiles: { documents: string[]; diagrams: string[] } = {
+  const archivedFiles: { documents: string[]; diagrams: string[]; wireframes: string[] } = {
     documents: [],
     diagrams: [],
+    wireframes: [],
   };
 
   // Copy documents
@@ -272,6 +275,15 @@ export async function archiveSession(
     for (const file of diagramFiles) {
       await cp(join(diagramsDir, file), join(archiveDir, file));
       archivedFiles.diagrams.push(file);
+    }
+  }
+
+  // Copy wireframes
+  if (await fileExists(wireframesDir)) {
+    const wireframeFiles = await readdir(wireframesDir);
+    for (const file of wireframeFiles) {
+      await cp(join(wireframesDir, file), join(archiveDir, file));
+      archivedFiles.wireframes.push(file);
     }
   }
 
