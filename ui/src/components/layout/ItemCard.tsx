@@ -43,7 +43,7 @@ function formatRelativeTime(timestamp: number): string {
 /**
  * Get icon for item type
  */
-function getItemIcon(type: 'diagram' | 'document'): React.ReactNode {
+function getItemIcon(type: 'diagram' | 'document' | 'wireframe'): React.ReactNode {
   if (type === 'diagram') {
     return (
       <svg
@@ -55,6 +55,21 @@ function getItemIcon(type: 'diagram' | 'document'): React.ReactNode {
         aria-hidden="true"
       >
         <path d="M20 7L12 3L4 7M20 7L12 11M20 7V17L12 21M12 11L4 7M12 11V21M4 7V17L12 21" />
+      </svg>
+    );
+  }
+  if (type === 'wireframe') {
+    return (
+      <svg
+        className="w-4 h-4"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        aria-hidden="true"
+      >
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <path d="M3 9h18M9 21V9" />
       </svg>
     );
   }
@@ -81,7 +96,7 @@ export const ItemCard: React.FC<ItemCardProps> = ({
   onClick,
 }) => {
   const relativeTime = formatRelativeTime(item.lastModified);
-  const typeLabel = item.type === 'diagram' ? 'Diagram' : 'Document';
+  const typeLabel = item.type === 'diagram' ? 'Diagram' : item.type === 'wireframe' ? 'Wireframe' : 'Document';
 
   return (
     <button

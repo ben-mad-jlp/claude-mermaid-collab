@@ -51,6 +51,9 @@ import { ChatPanel } from '@/components/chat-drawer';
 import UnifiedEditor from '@/components/editors/UnifiedEditor';
 import type { MermaidPreviewRef } from '@/components/editors/MermaidPreview';
 
+// Import task graph view
+import { TaskGraphView } from '@/components/task-graph';
+
 // Import notification components
 import { ToastContainer } from '@/components/notifications';
 import { requestNotificationPermission, showUserInputNotification } from '@/services/notification-service';
@@ -162,14 +165,20 @@ const App: React.FC = () => {
     setCurrentSession,
     diagrams,
     documents,
+    wireframes,
     selectedDiagramId,
     selectedDocumentId,
+    selectedWireframeId,
+    taskGraphSelected,
     updateDiagram,
     updateDocument,
+    updateWireframe,
     addDiagram,
     addDocument,
+    addWireframe,
     removeDiagram,
     removeDocument,
+    removeWireframe,
     setPendingDiff,
     setCollabState,
   } = useSessionStore(
@@ -179,14 +188,20 @@ const App: React.FC = () => {
       setCurrentSession: state.setCurrentSession,
       diagrams: state.diagrams,
       documents: state.documents,
+      wireframes: state.wireframes,
       selectedDiagramId: state.selectedDiagramId,
       selectedDocumentId: state.selectedDocumentId,
+      selectedWireframeId: state.selectedWireframeId,
+      taskGraphSelected: state.taskGraphSelected,
       updateDiagram: state.updateDiagram,
       updateDocument: state.updateDocument,
+      updateWireframe: state.updateWireframe,
       addDiagram: state.addDiagram,
       addDocument: state.addDocument,
+      addWireframe: state.addWireframe,
       removeDiagram: state.removeDiagram,
       removeDocument: state.removeDocument,
+      removeWireframe: state.removeWireframe,
       setPendingDiff: state.setPendingDiff,
       setCollabState: state.setCollabState,
     }))
@@ -405,6 +420,47 @@ const App: React.FC = () => {
           break;
         }
 
+        case 'wireframe_created': {
+          // Add new wireframe without full refresh
+          const { id, name, content, lastModified, project, session } = message as any;
+          if (id &&
+              currentSession &&
+              project === currentSession.project &&
+              session === currentSession.name) {
+            addWireframe({
+              id,
+              name: name || id,
+              content,
+              lastModified: lastModified || Date.now(),
+            });
+          }
+          break;
+        }
+
+        case 'wireframe_updated': {
+          // Update wireframe without full refresh
+          const { id, content, project, session } = message as any;
+          if (id &&
+              currentSession &&
+              project === currentSession.project &&
+              session === currentSession.name) {
+            updateWireframe(id, { content, lastModified: Date.now() });
+          }
+          break;
+        }
+
+        case 'wireframe_deleted': {
+          // Remove wireframe without full refresh
+          const { id, project, session } = message as any;
+          if (id &&
+              currentSession &&
+              project === currentSession.project &&
+              session === currentSession.name) {
+            removeWireframe(id);
+          }
+          break;
+        }
+
         case 'claude_question': {
           // Item 9: Handle incoming Claude Code questions
           const { question } = message as any;
@@ -481,9 +537,9 @@ const App: React.FC = () => {
     return () => {
       subscription.unsubscribe();
     };
-  }, [isConnected, currentSession, updateDiagram, updateDocument, addDiagram, addDocument, removeDiagram, removeDocument, setPendingDiff, setCollabState, receiveQuestion, restoreUIState]);
+  }, [isConnected, currentSession, updateDiagram, updateDocument, updateWireframe, addDiagram, addDocument, addWireframe, removeDiagram, removeDocument, removeWireframe, setPendingDiff, setCollabState, receiveQuestion, restoreUIState]);
 
-  // Compute selected item from diagrams/documents
+  // Compute selected item from diagrams/documents/wireframes
   const selectedItem: Item | null = useMemo(() => {
     if (selectedDiagramId) {
       const diagram = diagrams.find((d) => d.id === selectedDiagramId);
@@ -509,8 +565,20 @@ const App: React.FC = () => {
         };
       }
     }
+    if (selectedWireframeId) {
+      const wireframe = wireframes.find((w) => w.id === selectedWireframeId);
+      if (wireframe) {
+        return {
+          id: wireframe.id,
+          name: wireframe.name,
+          type: 'wireframe' as const,
+          content: wireframe.content ?? '',
+          lastModified: wireframe.lastModified ?? Date.now(),
+        };
+      }
+    }
     return null;
-  }, [diagrams, documents, selectedDiagramId, selectedDocumentId]);
+  }, [diagrams, documents, wireframes, selectedDiagramId, selectedDocumentId, selectedWireframeId]);
 
   // Track local content for auto-save
   const [localContent, setLocalContent] = React.useState<string>('');
@@ -794,6 +862,39 @@ const App: React.FC = () => {
             <p className="text-red-700 dark:text-red-200 text-sm">
               {dataError}
             </p>
+          </div>
+        </div>
+      );
+    }
+
+    // Render task graph view when selected
+    if (taskGraphSelected && currentSession) {
+      return (
+        <div className="flex flex-col h-full min-h-0">
+          {/* Toolbar for Task Graph */}
+          <EditorToolbar
+            itemName="Task Graph"
+            hasUnsavedChanges={false}
+            onUndo={() => {}}
+            onRedo={() => {}}
+            canUndo={false}
+            canRedo={false}
+            zoom={zoomLevel}
+            onZoomIn={zoomIn}
+            onZoomOut={zoomOut}
+            overflowActions={[]}
+            showZoom={true}
+            onCenter={handleCenter}
+            onFitToView={handleFitToView}
+            itemType="diagram"
+          />
+
+          {/* Task Graph View */}
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <TaskGraphView
+              project={currentSession.project}
+              session={currentSession.name}
+            />
           </div>
         </div>
       );

@@ -16,14 +16,15 @@
  * and Markdown documents, reducing code duplication and simplifying the UI.
  */
 
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useRef, useMemo } from 'react';
 import { EditorView } from '@codemirror/view';
 import { SplitPane } from '@/components/layout/SplitPane';
 import { CodeMirrorWrapper } from '@/components/editors/CodeMirrorWrapper';
 import { MermaidPreview, MermaidPreviewRef } from '@/components/editors/MermaidPreview';
 import { MarkdownPreview } from '@/components/editors/MarkdownPreview';
+import { WireframeRenderer } from '@/components/wireframe/WireframeRenderer';
 import { DiffView } from '@/components/ai-ui/display/DiffView';
-import { Item } from '@/types';
+import { Item, WireframeRoot } from '@/types';
 import { useUIStore } from '@/stores/uiStore';
 import { useEditorHistory } from '@/hooks/useEditorHistory';
 import { useExportDiagram } from '@/hooks/useExportDiagram';
@@ -142,6 +143,16 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
     // If error, silently skip (graceful error handling)
   }, [item, onContentChange]);
 
+  // Parse wireframe JSON content (must be called before early return to follow Rules of Hooks)
+  const parsedWireframe = useMemo((): WireframeRoot | null => {
+    if (!item || item.type !== 'wireframe' || !item.content) return null;
+    try {
+      return JSON.parse(item.content) as WireframeRoot;
+    } catch {
+      return null;
+    }
+  }, [item]);
+
   // Placeholder when no item is selected
   if (!item) {
     return (
@@ -162,12 +173,14 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
   }
 
   // Determine editor language based on item type
-  const editorLanguage = item.type === 'diagram' ? 'yaml' : 'markdown';
+  const editorLanguage = item.type === 'diagram' ? 'yaml' : item.type === 'wireframe' ? 'json' : 'markdown';
 
   // Determine placeholder text based on item type
   const placeholderText =
     item.type === 'diagram'
       ? 'Enter Mermaid diagram syntax...'
+      : item.type === 'wireframe'
+      ? 'Enter wireframe JSON...'
       : 'Enter Markdown content...';
 
   /**
@@ -195,6 +208,7 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
    * Renders the appropriate preview component based on item type
    * Uses key={item.id} to maintain instance across editMode toggles
    * For diagrams, wires the SVG container ref callback for export functionality
+   * For wireframes, renders the WireframeRenderer with parsed JSON
    * For documents, passes historyDiff for inline diff display
    */
   const previewComponent = item.type === 'diagram' ? (
@@ -209,6 +223,24 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
       onContainerRef={svgContainerRef}
       previewRef={previewRef}
     />
+  ) : item.type === 'wireframe' ? (
+    // Wireframe preview using WireframeRenderer
+    parsedWireframe ? (
+      <div key={item.id} className="h-full overflow-auto">
+        <WireframeRenderer
+          wireframe={parsedWireframe}
+          scale={zoomLevel / 100}
+          className="min-h-full"
+        />
+      </div>
+    ) : (
+      <div key={item.id} className="h-full flex items-center justify-center text-gray-500 dark:text-gray-400">
+        <div className="text-center">
+          <p className="mb-2">Invalid wireframe JSON</p>
+          <p className="text-sm">Check the syntax and try again</p>
+        </div>
+      </div>
+    )
   ) : historyDiff?.viewMode === 'side-by-side' ? (
     // Side-by-side diff view using DiffView component
     (() => {

@@ -22,6 +22,7 @@ describe('Sidebar', () => {
     mockUseDataLoader.mockReturnValue({
       selectDiagramWithContent: vi.fn(),
       selectDocumentWithContent: vi.fn(),
+      selectWireframeWithContent: vi.fn(),
       isLoading: false,
     } as any);
   });
@@ -38,8 +39,10 @@ describe('Sidebar', () => {
       selector({
         diagrams: [],
         documents: [],
+        wireframes: [],
         selectedDiagramId: null,
         selectedDocumentId: null,
+        selectedWireframeId: null,
         currentSession: { project: '/test', name: 'test-session' } as any,
         collabState: {
           state: 'execute-batch',
@@ -70,8 +73,10 @@ describe('Sidebar', () => {
       selector({
         diagrams: [],
         documents: [],
+        wireframes: [],
         selectedDiagramId: null,
         selectedDocumentId: null,
+        selectedWireframeId: null,
         currentSession: { project: '/test', name: 'test-session' } as any,
       } as any)
     );
@@ -95,8 +100,10 @@ describe('Sidebar', () => {
       selector({
         diagrams: [],
         documents: [],
+        wireframes: [],
         selectedDiagramId: null,
         selectedDocumentId: null,
+        selectedWireframeId: null,
         currentSession: { project: '/test', name: 'test-session' } as any,
       } as any)
     );
@@ -120,8 +127,10 @@ describe('Sidebar', () => {
       selector({
         diagrams: [],
         documents: [],
+        wireframes: [],
         selectedDiagramId: null,
         selectedDocumentId: null,
+        selectedWireframeId: null,
         currentSession: null,
       } as any)
     );
@@ -143,8 +152,10 @@ describe('Sidebar', () => {
       selector({
         diagrams: [],
         documents: [],
+        wireframes: [],
         selectedDiagramId: null,
         selectedDocumentId: null,
+        selectedWireframeId: null,
         currentSession: { project: '/test', name: 'test-session' } as any,
       } as any)
     );
@@ -166,8 +177,10 @@ describe('Sidebar', () => {
       selector({
         diagrams: [],
         documents: [],
+        wireframes: [],
         selectedDiagramId: null,
         selectedDocumentId: null,
+        selectedWireframeId: null,
         currentSession: { project: '/test', name: 'test-session' } as any,
       } as any)
     );
@@ -180,5 +193,166 @@ describe('Sidebar', () => {
 
     const aside = container.querySelector('aside[data-testid="sidebar"]');
     expect(aside).toHaveClass('flex', 'flex-col', 'w-72');
+  });
+
+  /**
+   * Test Task Graph entry display during implementation phase
+   */
+  describe('Task Graph Entry', () => {
+    it('should show Task Graph entry when in execute-batch state', () => {
+      mockUseSessionStore.mockImplementation((selector) =>
+        selector({
+          diagrams: [],
+          documents: [],
+          wireframes: [],
+          selectedDiagramId: null,
+          selectedDocumentId: null,
+          selectedWireframeId: null,
+          taskGraphSelected: false,
+          currentSession: { project: '/test', name: 'test-session' } as any,
+          collabState: { state: 'execute-batch' } as any,
+          selectTaskGraph: vi.fn(),
+        } as any)
+      );
+
+      render(
+        <BrowserRouter>
+          <Sidebar />
+        </BrowserRouter>
+      );
+
+      expect(screen.getByTestId('task-graph-entry')).toBeInTheDocument();
+      expect(screen.getByText('Task Graph')).toBeInTheDocument();
+    });
+
+    it('should show Task Graph entry when in ready-to-implement state', () => {
+      mockUseSessionStore.mockImplementation((selector) =>
+        selector({
+          diagrams: [],
+          documents: [],
+          wireframes: [],
+          selectedDiagramId: null,
+          selectedDocumentId: null,
+          selectedWireframeId: null,
+          taskGraphSelected: false,
+          currentSession: { project: '/test', name: 'test-session' } as any,
+          collabState: { state: 'ready-to-implement' } as any,
+          selectTaskGraph: vi.fn(),
+        } as any)
+      );
+
+      render(
+        <BrowserRouter>
+          <Sidebar />
+        </BrowserRouter>
+      );
+
+      expect(screen.getByTestId('task-graph-entry')).toBeInTheDocument();
+    });
+
+    it('should NOT show Task Graph entry when not in implementation phase', () => {
+      mockUseSessionStore.mockImplementation((selector) =>
+        selector({
+          diagrams: [],
+          documents: [],
+          wireframes: [],
+          selectedDiagramId: null,
+          selectedDocumentId: null,
+          selectedWireframeId: null,
+          taskGraphSelected: false,
+          currentSession: { project: '/test', name: 'test-session' } as any,
+          collabState: { state: 'brainstorming' } as any,
+          selectTaskGraph: vi.fn(),
+        } as any)
+      );
+
+      render(
+        <BrowserRouter>
+          <Sidebar />
+        </BrowserRouter>
+      );
+
+      expect(screen.queryByTestId('task-graph-entry')).not.toBeInTheDocument();
+    });
+
+    it('should NOT show Task Graph entry when no session is selected', () => {
+      mockUseSessionStore.mockImplementation((selector) =>
+        selector({
+          diagrams: [],
+          documents: [],
+          wireframes: [],
+          selectedDiagramId: null,
+          selectedDocumentId: null,
+          selectedWireframeId: null,
+          taskGraphSelected: false,
+          currentSession: null,
+          collabState: { state: 'execute-batch' } as any,
+          selectTaskGraph: vi.fn(),
+        } as any)
+      );
+
+      render(
+        <BrowserRouter>
+          <Sidebar />
+        </BrowserRouter>
+      );
+
+      expect(screen.queryByTestId('task-graph-entry')).not.toBeInTheDocument();
+    });
+
+    it('should highlight Task Graph entry when selected', () => {
+      mockUseSessionStore.mockImplementation((selector) =>
+        selector({
+          diagrams: [],
+          documents: [],
+          wireframes: [],
+          selectedDiagramId: null,
+          selectedDocumentId: null,
+          selectedWireframeId: null,
+          taskGraphSelected: true,
+          currentSession: { project: '/test', name: 'test-session' } as any,
+          collabState: { state: 'execute-batch' } as any,
+          selectTaskGraph: vi.fn(),
+        } as any)
+      );
+
+      render(
+        <BrowserRouter>
+          <Sidebar />
+        </BrowserRouter>
+      );
+
+      const taskGraphEntry = screen.getByTestId('task-graph-entry');
+      expect(taskGraphEntry).toHaveClass('bg-accent-100');
+    });
+
+    it('should call selectTaskGraph when clicked', () => {
+      const mockSelectTaskGraph = vi.fn();
+      mockUseSessionStore.mockImplementation((selector) =>
+        selector({
+          diagrams: [],
+          documents: [],
+          wireframes: [],
+          selectedDiagramId: null,
+          selectedDocumentId: null,
+          selectedWireframeId: null,
+          taskGraphSelected: false,
+          currentSession: { project: '/test', name: 'test-session' } as any,
+          collabState: { state: 'execute-batch' } as any,
+          selectTaskGraph: mockSelectTaskGraph,
+        } as any)
+      );
+
+      render(
+        <BrowserRouter>
+          <Sidebar />
+        </BrowserRouter>
+      );
+
+      const taskGraphEntry = screen.getByTestId('task-graph-entry');
+      taskGraphEntry.click();
+
+      expect(mockSelectTaskGraph).toHaveBeenCalled();
+    });
   });
 });

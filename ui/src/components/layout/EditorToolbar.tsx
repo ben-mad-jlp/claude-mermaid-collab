@@ -63,7 +63,7 @@ export interface EditorToolbarProps {
   /** Whether there are proposals to manage */
   hasProposals?: boolean;
   /** Type of item being edited (for context-specific actions) */
-  itemType?: 'diagram' | 'document';
+  itemType?: 'diagram' | 'document' | 'wireframe';
   /** Callback for rotate/direction toggle action */
   onRotate?: () => void;
   /** Whether rotate is enabled (true for diagrams only) */
