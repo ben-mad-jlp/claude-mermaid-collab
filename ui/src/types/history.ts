@@ -1,5 +1,5 @@
 /**
- * History Types - Types for document update history UI
+ * History Types - Types for document, diagram, and wireframe update history UI
  */
 
 /**
@@ -63,6 +63,45 @@ export interface HistoryModalProps {
 export interface UseDocumentHistoryReturn {
   /** Document history data */
   history: DocumentHistory | null;
+  /** Loading state */
+  isLoading: boolean;
+  /** Error message if failed */
+  error: string | null;
+  /** Refetch history */
+  refetch: () => Promise<void>;
+  /** Get content at a specific timestamp */
+  getVersionAt: (timestamp: string) => Promise<string | null>;
+}
+
+/**
+ * Response from GET /api/diagram/:id/history or /api/wireframe/:id/history
+ * Uses same structure as DocumentHistory
+ */
+export type DiagramHistory = DocumentHistory;
+export type WireframeHistory = DocumentHistory;
+
+/**
+ * Return type for useDiagramHistory hook
+ */
+export interface UseDiagramHistoryReturn {
+  /** Diagram history data */
+  history: DiagramHistory | null;
+  /** Loading state */
+  isLoading: boolean;
+  /** Error message if failed */
+  error: string | null;
+  /** Refetch history */
+  refetch: () => Promise<void>;
+  /** Get content at a specific timestamp */
+  getVersionAt: (timestamp: string) => Promise<string | null>;
+}
+
+/**
+ * Return type for useWireframeHistory hook
+ */
+export interface UseWireframeHistoryReturn {
+  /** Wireframe history data */
+  history: WireframeHistory | null;
   /** Loading state */
   isLoading: boolean;
   /** Error message if failed */

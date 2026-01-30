@@ -23,11 +23,15 @@ import {
   updateWireframeHandler,
 } from '../api/wireframe-routes';
 import { WireframeRenderer as WireframeSVGRenderer } from '../services/wireframe-renderer';
+import { WireframeValidator } from '../services/wireframe-validator';
 import {
   parseTaskGraph,
   buildBatches,
   type TaskGraphTask,
 } from '../mcp/workflow/task-sync';
+
+// Single shared validator instance
+const wireframeValidator = new WireframeValidator();
 
 /**
  * Expand ~ to home directory in paths
@@ -514,8 +518,60 @@ export async function handleAPI(
     return Response.json({ diagrams });
   }
 
+  // GET /api/diagram/:id/history?project=...&session=...
+  if (path.match(/^\/api\/diagram\/[^/]+\/history$/) && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const id = path.split('/')[3];
+
+    try {
+      const sessionPath = sessionRegistry.resolvePath(params.project, params.session, '.');
+      const updateLogManager = new UpdateLogManager(sessionPath);
+      const history = await updateLogManager.getHistory('diagrams', id);
+
+      if (!history) {
+        return Response.json({ error: 'No history for diagram' }, { status: 404 });
+      }
+
+      return Response.json({ original: history.original, changes: history.changes });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // GET /api/diagram/:id/version?project=...&session=...&timestamp=...
+  if (path.match(/^\/api\/diagram\/[^/]+\/version$/) && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const timestamp = url.searchParams.get('timestamp');
+    if (!timestamp) {
+      return Response.json({ error: 'timestamp query param required' }, { status: 400 });
+    }
+
+    const id = path.split('/')[3];
+
+    try {
+      const sessionPath = sessionRegistry.resolvePath(params.project, params.session, '.');
+      const updateLogManager = new UpdateLogManager(sessionPath);
+      const content = await updateLogManager.replayToTimestamp('diagrams', id, timestamp);
+
+      return Response.json({ content, timestamp });
+    } catch (error: any) {
+      if (error.message.includes('No history found')) {
+        return Response.json({ error: error.message }, { status: 404 });
+      }
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
   // GET /api/diagram/:id?project=...&session=...
-  if (path.startsWith('/api/diagram/') && req.method === 'GET') {
+  if (path.startsWith('/api/diagram/') && !path.includes('/history') && !path.includes('/version') && req.method === 'GET') {
     const params = getSessionParams(url);
     if (!params) {
       return Response.json({ error: 'project and session query params required' }, { status: 400 });
@@ -608,7 +664,37 @@ export async function handleAPI(
 
     try {
       const { diagramManager } = await createManagers(params.project, params.session);
+
+      // Get old content before saving (for history logging)
+      const oldDiagram = await diagramManager.getDiagram(id);
+      const oldContent = oldDiagram?.content ?? '';
+
       await diagramManager.saveDiagram(id, content);
+
+      // Log the update (don't fail the request if logging fails)
+      try {
+        const sessionPath = sessionRegistry.resolvePath(params.project, params.session, '.');
+        const updateLogManager = new UpdateLogManager(sessionPath);
+        await updateLogManager.logUpdate('diagrams', id, oldContent, content);
+
+        // Get updated change count for broadcast
+        const history = await updateLogManager.getHistory('diagrams', id);
+        const changeCount = history?.changes.length ?? 0;
+
+        // Only broadcast if there's history (content actually changed)
+        if (changeCount > 0) {
+          wsHandler.broadcast({
+            type: 'diagram_history_updated',
+            id,
+            project: params.project,
+            session: params.session,
+            changeCount,
+          });
+        }
+      } catch (logError) {
+        // Log error but don't fail the request - history is supplementary
+        console.warn('Failed to log diagram update:', logError);
+      }
 
       // Broadcast update immediately
       const diagram = await diagramManager.getDiagram(id);
@@ -691,6 +777,16 @@ export async function handleAPI(
         return Response.json({ error: 'Name and content required' }, { status: 400 });
       }
 
+      // Validate wireframe structure before saving
+      const validation = wireframeValidator.validate(content);
+      if (!validation.valid) {
+        return Response.json({
+          success: false,
+          error: validation.error,
+          path: validation.path,
+        }, { status: 400 });
+      }
+
       // Register session if not already registered
       const result = await sessionRegistry.register(params.project, params.session);
       if (result.created) {
@@ -727,8 +823,60 @@ export async function handleAPI(
     }
   }
 
+  // GET /api/wireframe/:id/history?project=...&session=...
+  if (path.match(/^\/api\/wireframe\/[^/]+\/history$/) && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const id = path.split('/')[3];
+
+    try {
+      const sessionPath = sessionRegistry.resolvePath(params.project, params.session, '.');
+      const updateLogManager = new UpdateLogManager(sessionPath);
+      const history = await updateLogManager.getHistory('wireframes', id);
+
+      if (!history) {
+        return Response.json({ error: 'No history for wireframe' }, { status: 404 });
+      }
+
+      return Response.json({ original: history.original, changes: history.changes });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // GET /api/wireframe/:id/version?project=...&session=...&timestamp=...
+  if (path.match(/^\/api\/wireframe\/[^/]+\/version$/) && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const timestamp = url.searchParams.get('timestamp');
+    if (!timestamp) {
+      return Response.json({ error: 'timestamp query param required' }, { status: 400 });
+    }
+
+    const id = path.split('/')[3];
+
+    try {
+      const sessionPath = sessionRegistry.resolvePath(params.project, params.session, '.');
+      const updateLogManager = new UpdateLogManager(sessionPath);
+      const content = await updateLogManager.replayToTimestamp('wireframes', id, timestamp);
+
+      return Response.json({ content, timestamp });
+    } catch (error: any) {
+      if (error.message.includes('No history found')) {
+        return Response.json({ error: error.message }, { status: 404 });
+      }
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
   // GET /api/wireframe/:id?project=...&session=...
-  if (path.startsWith('/api/wireframe/') && !path.endsWith('/render') && req.method === 'GET') {
+  if (path.startsWith('/api/wireframe/') && !path.endsWith('/render') && !path.includes('/history') && !path.includes('/version') && req.method === 'GET') {
     const params = getSessionParams(url);
     if (!params) {
       return Response.json({ error: 'project and session query params required' }, { status: 400 });
@@ -765,6 +913,28 @@ export async function handleAPI(
         return Response.json({ error: 'Content required' }, { status: 400 });
       }
 
+      // Validate wireframe structure before saving
+      const validation = wireframeValidator.validate(content);
+      if (!validation.valid) {
+        return Response.json({
+          success: false,
+          error: validation.error,
+          path: validation.path,
+        }, { status: 400 });
+      }
+
+      // Get old content before saving (for history logging)
+      let oldContent = '';
+      try {
+        const wireframePath = join(params.project, '.collab', 'sessions', params.session, 'wireframes', `${id}.wireframe.json`);
+        const wireframeFile = Bun.file(wireframePath);
+        if (await wireframeFile.exists()) {
+          oldContent = await wireframeFile.text();
+        }
+      } catch {
+        // Ignore errors reading old content
+      }
+
       let capturedData: any = null;
       const mockRes = {
         status: (code: number) => ({
@@ -787,6 +957,32 @@ export async function handleAPI(
 
       // Broadcast wireframe update if successful
       if (capturedData && capturedData.success) {
+        // Log the update (don't fail the request if logging fails)
+        try {
+          const sessionPath = sessionRegistry.resolvePath(params.project, params.session, '.');
+          const updateLogManager = new UpdateLogManager(sessionPath);
+          const newContent = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
+          await updateLogManager.logUpdate('wireframes', id, oldContent, newContent);
+
+          // Get updated change count for broadcast
+          const history = await updateLogManager.getHistory('wireframes', id);
+          const changeCount = history?.changes.length ?? 0;
+
+          // Broadcast history update if there's history
+          if (changeCount > 0) {
+            wsHandler.broadcast({
+              type: 'wireframe_history_updated',
+              id,
+              project: params.project,
+              session: params.session,
+              changeCount,
+            });
+          }
+        } catch (logError) {
+          // Log error but don't fail the request - history is supplementary
+          console.warn('Failed to log wireframe update:', logError);
+        }
+
         wsHandler.broadcast({
           type: 'wireframe_updated',
           id,
@@ -894,6 +1090,13 @@ export async function handleAPI(
     return Response.json(result);
   }
 
+  // POST /api/wireframe/validate (no session required - validates structure only)
+  if (path === '/api/wireframe/validate' && req.method === 'POST') {
+    const { content } = await req.json() as { content?: any };
+    const result = wireframeValidator.validate(content);
+    return Response.json(result);
+  }
+
   // GET /api/transpile/:id?project=...&session=... - Get transpiled Mermaid output for SMACH diagrams
   if (path.startsWith('/api/transpile/') && req.method === 'GET') {
     const params = getSessionParams(url);
@@ -983,7 +1186,7 @@ export async function handleAPI(
       const documentsPath = sessionRegistry.resolvePath(params.project, params.session, 'documents');
       const sessionPath = join(documentsPath, '..');
       const updateLogManager = new UpdateLogManager(sessionPath);
-      const history = await updateLogManager.getHistory(id);
+      const history = await updateLogManager.getHistory('documents', id);
 
       if (!history) {
         return Response.json({ error: 'No history for document' }, { status: 404 });
@@ -1014,7 +1217,7 @@ export async function handleAPI(
       const documentsPath = sessionRegistry.resolvePath(params.project, params.session, 'documents');
       const sessionPath = join(documentsPath, '..');
       const updateLogManager = new UpdateLogManager(sessionPath);
-      const content = await updateLogManager.replayToTimestamp(id, timestamp);
+      const content = await updateLogManager.replayToTimestamp('documents', id, timestamp);
 
       return Response.json({ content, timestamp });
     } catch (error: any) {
@@ -1095,10 +1298,10 @@ export async function handleAPI(
         const documentsPath = sessionRegistry.resolvePath(params.project, params.session, 'documents');
         const sessionPath = join(documentsPath, '..');
         const updateLogManager = new UpdateLogManager(sessionPath);
-        await updateLogManager.logUpdate(id, oldContent, content, patch);
+        await updateLogManager.logUpdate('documents', id, oldContent, content, patch);
 
         // Get updated change count for broadcast
-        const history = await updateLogManager.getHistory(id);
+        const history = await updateLogManager.getHistory('documents', id);
         const changeCount = history?.changes.length ?? 0;
 
         // Only broadcast if there's history (content actually changed)

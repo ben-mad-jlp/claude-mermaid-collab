@@ -266,6 +266,54 @@ const App: React.FC = () => {
     setHistoryDiff(null);
   }, []);
 
+  // Diagram history preview state
+  const [diagramHistoryPreview, setDiagramHistoryPreview] = useState<{
+    timestamp: string;
+    historicalContent: string;
+  } | null>(null);
+
+  // Handle diagram history version selection
+  const handleDiagramHistorySelect = useCallback((timestamp: string, content: string) => {
+    setDiagramHistoryPreview({ timestamp, historicalContent: content });
+  }, []);
+
+  // Clear diagram history preview
+  const handleClearDiagramHistoryPreview = useCallback(() => {
+    setDiagramHistoryPreview(null);
+  }, []);
+
+  // Revert diagram to historical version
+  const handleDiagramRevert = useCallback(() => {
+    if (diagramHistoryPreview) {
+      setLocalContent(diagramHistoryPreview.historicalContent);
+      setDiagramHistoryPreview(null);
+    }
+  }, [diagramHistoryPreview]);
+
+  // Wireframe history preview state
+  const [wireframeHistoryPreview, setWireframeHistoryPreview] = useState<{
+    timestamp: string;
+    historicalContent: string;
+  } | null>(null);
+
+  // Handle wireframe history version selection
+  const handleWireframeHistorySelect = useCallback((timestamp: string, content: string) => {
+    setWireframeHistoryPreview({ timestamp, historicalContent: content });
+  }, []);
+
+  // Clear wireframe history preview
+  const handleClearWireframeHistoryPreview = useCallback(() => {
+    setWireframeHistoryPreview(null);
+  }, []);
+
+  // Revert wireframe to historical version
+  const handleWireframeRevert = useCallback(() => {
+    if (wireframeHistoryPreview) {
+      setLocalContent(wireframeHistoryPreview.historicalContent);
+      setWireframeHistoryPreview(null);
+    }
+  }, [wireframeHistoryPreview]);
+
   // Registered projects state (projects may exist without sessions)
   const [registeredProjects, setRegisteredProjects] = useState<string[]>([]);
 
@@ -604,9 +652,11 @@ const App: React.FC = () => {
     }
   }, [selectedItem?.id, selectedItem?.content]);
 
-  // Clear history diff when selected item changes
+  // Clear history state when selected item changes
   useEffect(() => {
     setHistoryDiff(null);
+    setDiagramHistoryPreview(null);
+    setWireframeHistoryPreview(null);
   }, [selectedItem?.id]);
 
   // Auto-save handler - uses WebSocket to persist changes
@@ -987,6 +1037,10 @@ const App: React.FC = () => {
           historyDiff={selectedItem?.type === 'document' ? historyDiff : null}
           onClearHistoryDiff={handleClearHistoryDiff}
           onHistorySettingsChange={selectedItem?.type === 'document' ? handleHistorySettingsChange : undefined}
+          diagramId={selectedItem?.type === 'diagram' ? selectedItem.id : undefined}
+          onDiagramHistorySelect={selectedItem?.type === 'diagram' ? handleDiagramHistorySelect : undefined}
+          wireframeId={selectedItem?.type === 'wireframe' ? selectedItem.id : undefined}
+          onWireframeHistorySelect={selectedItem?.type === 'wireframe' ? handleWireframeHistorySelect : undefined}
         />
 
         {/* Unified Editor */}
@@ -1002,6 +1056,12 @@ const App: React.FC = () => {
             previewRef={mermaidPreviewRef}
             historyDiff={selectedItem?.type === 'document' ? historyDiff : null}
             onClearHistoryDiff={handleClearHistoryDiff}
+            diagramHistoryPreview={selectedItem?.type === 'diagram' ? diagramHistoryPreview : null}
+            onDiagramRevert={handleDiagramRevert}
+            onClearDiagramHistoryPreview={handleClearDiagramHistoryPreview}
+            wireframeHistoryPreview={selectedItem?.type === 'wireframe' ? wireframeHistoryPreview : null}
+            onWireframeRevert={handleWireframeRevert}
+            onClearWireframeHistoryPreview={handleClearWireframeHistoryPreview}
           />
         </div>
       </div>

@@ -17,7 +17,7 @@ describe('Wireframe Routes', () => {
 
   beforeEach(async () => {
     testProjectDir = join(tmpdir(), `test-wireframe-project-${Date.now()}`);
-    testSessionDir = join(testProjectDir, '.collab', 'test-session');
+    testSessionDir = join(testProjectDir, '.collab', 'sessions', 'test-session');
     wireframesDir = join(testSessionDir, 'wireframes');
 
     await mkdir(wireframesDir, { recursive: true });
@@ -114,7 +114,7 @@ describe('Wireframe Routes', () => {
     });
 
     it('should return id and success on creation', async () => {
-      const wireframeContent = { viewport: 'desktop', screens: [] };
+      const wireframeContent = { viewport: 'desktop', direction: 'LR', screens: [] };
 
       const req = {
         query: { project: testProjectDir, session: 'test-session' },
@@ -131,10 +131,10 @@ describe('Wireframe Routes', () => {
 
     it('should handle nested project paths', async () => {
       const nestedProjectDir = join(tmpdir(), `nested-${Date.now()}`, 'project');
-      const nestedSessionDir = join(nestedProjectDir, '.collab', 'test-session');
+      const nestedSessionDir = join(nestedProjectDir, '.collab', 'sessions', 'test-session');
       const nestedWireframesDir = join(nestedSessionDir, 'wireframes');
 
-      const wireframeContent = { viewport: 'mobile', screens: [] };
+      const wireframeContent = { viewport: 'mobile', direction: 'LR', screens: [] };
 
       const req = {
         query: { project: nestedProjectDir, session: 'test-session' },
@@ -179,7 +179,8 @@ describe('Wireframe Routes', () => {
       await getWireframeHandler(req, res);
 
       expect(capturedData.id).toBe('test-get');
-      expect(capturedData.content).toEqual(wireframeContent);
+      // Content is returned as a JSON string, not parsed object
+      expect(JSON.parse(capturedData.content)).toEqual(wireframeContent);
     });
 
     it('should return 404 when wireframe not found', async () => {
@@ -211,7 +212,7 @@ describe('Wireframe Routes', () => {
     });
 
     it('should include lastModified timestamp', async () => {
-      const wireframeContent = { viewport: 'mobile', screens: [] };
+      const wireframeContent = { viewport: 'mobile', direction: 'LR', screens: [] };
       const filePath = join(wireframesDir, 'test-timestamp.wireframe.json');
       await writeFile(filePath, JSON.stringify(wireframeContent, null, 2));
 
@@ -238,8 +239,18 @@ describe('Wireframe Routes', () => {
 
   describe('updateWireframeHandler', () => {
     it('should update an existing wireframe', async () => {
-      const originalContent = { viewport: 'mobile', screens: [] };
-      const updatedContent = { viewport: 'desktop', screens: [{ type: 'Screen', label: 'Home' }] };
+      const originalContent = { viewport: 'mobile', direction: 'LR', screens: [] };
+      const updatedContent = {
+        viewport: 'desktop',
+        direction: 'LR',
+        screens: [{
+          id: 'home-screen',
+          type: 'screen',
+          name: 'Home',
+          bounds: { x: 0, y: 0, width: 375, height: 600 },
+          children: []
+        }]
+      };
 
       const filePath = join(wireframesDir, 'test-update.wireframe.json');
       await writeFile(filePath, JSON.stringify(originalContent, null, 2));
@@ -271,7 +282,7 @@ describe('Wireframe Routes', () => {
     it('should return 404 when wireframe not found', async () => {
       const req = {
         query: { project: testProjectDir, session: 'test-session', id: 'nonexistent' },
-        json: async () => ({ content: { viewport: 'mobile' } }),
+        json: async () => ({ content: { viewport: 'mobile', direction: 'LR', screens: [] } }),
       } as any;
 
       let statusCode = 200;
@@ -298,8 +309,18 @@ describe('Wireframe Routes', () => {
     });
 
     it('should preserve file format with proper JSON indentation', async () => {
-      const originalContent = { viewport: 'mobile' };
-      const updatedContent = { viewport: 'tablet', screens: [{ type: 'Screen' }] };
+      const originalContent = { viewport: 'mobile', direction: 'LR', screens: [] };
+      const updatedContent = {
+        viewport: 'tablet',
+        direction: 'LR',
+        screens: [{
+          id: 'screen1',
+          type: 'screen',
+          name: 'Screen',
+          bounds: { x: 0, y: 0, width: 375, height: 600 },
+          children: []
+        }]
+      };
 
       const filePath = join(wireframesDir, 'test-format.wireframe.json');
       await writeFile(filePath, JSON.stringify(originalContent, null, 2));

@@ -24,6 +24,8 @@ import { MermaidPreview, MermaidPreviewRef } from '@/components/editors/MermaidP
 import { MarkdownPreview } from '@/components/editors/MarkdownPreview';
 import { WireframeRenderer } from '@/components/wireframe/WireframeRenderer';
 import { DiffView } from '@/components/ai-ui/display/DiffView';
+import { DiagramHistoryPreview } from '@/components/editors/DiagramHistoryPreview';
+import { WireframeHistoryPreview } from '@/components/editors/WireframeHistoryPreview';
 import { Item, WireframeRoot } from '@/types';
 import { useUIStore } from '@/stores/uiStore';
 import { useEditorHistory } from '@/hooks/useEditorHistory';
@@ -61,6 +63,24 @@ export interface UnifiedEditorProps {
   } | null;
   /** Callback to clear the history diff view */
   onClearHistoryDiff?: () => void;
+  /** Diagram history preview state (diagrams only) */
+  diagramHistoryPreview?: {
+    timestamp: string;
+    historicalContent: string;
+  } | null;
+  /** Callback to revert diagram to historical version */
+  onDiagramRevert?: () => void;
+  /** Callback to clear diagram history preview */
+  onClearDiagramHistoryPreview?: () => void;
+  /** Wireframe history preview state (wireframes only) */
+  wireframeHistoryPreview?: {
+    timestamp: string;
+    historicalContent: string;
+  } | null;
+  /** Callback to revert wireframe to historical version */
+  onWireframeRevert?: () => void;
+  /** Callback to clear wireframe history preview */
+  onClearWireframeHistoryPreview?: () => void;
 }
 
 /**
@@ -105,6 +125,12 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
   previewRef,
   historyDiff,
   onClearHistoryDiff,
+  diagramHistoryPreview,
+  onDiagramRevert,
+  onClearDiagramHistoryPreview,
+  wireframeHistoryPreview,
+  onWireframeRevert,
+  onClearWireframeHistoryPreview,
 }) => {
   const { editorSplitPosition, setEditorSplitPosition } = useUIStore();
 
@@ -180,6 +206,32 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
           </p>
         </div>
       </div>
+    );
+  }
+
+  // Diagram history preview mode - show side-by-side comparison
+  if (item.type === 'diagram' && diagramHistoryPreview && onDiagramRevert && onClearDiagramHistoryPreview) {
+    return (
+      <DiagramHistoryPreview
+        currentContent={item.content}
+        historicalContent={diagramHistoryPreview.historicalContent}
+        historicalTimestamp={diagramHistoryPreview.timestamp}
+        onRevert={onDiagramRevert}
+        onClose={onClearDiagramHistoryPreview}
+      />
+    );
+  }
+
+  // Wireframe history preview mode - show side-by-side comparison
+  if (item.type === 'wireframe' && wireframeHistoryPreview && onWireframeRevert && onClearWireframeHistoryPreview) {
+    return (
+      <WireframeHistoryPreview
+        currentContent={item.content}
+        historicalContent={wireframeHistoryPreview.historicalContent}
+        historicalTimestamp={wireframeHistoryPreview.timestamp}
+        onRevert={onWireframeRevert}
+        onClose={onClearWireframeHistoryPreview}
+      />
     );
   }
 

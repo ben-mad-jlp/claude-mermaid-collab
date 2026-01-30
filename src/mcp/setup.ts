@@ -607,6 +607,31 @@ export async function setupMCPServer(): Promise<Server> {
         },
       },
       {
+        name: 'get_diagram_history',
+        description: 'Get the change history for a diagram. Returns original content and list of changes with timestamps.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            ...sessionParamsDesc,
+            id: { type: 'string', description: 'Diagram ID' },
+          },
+          required: ['project', 'session', 'id'],
+        },
+      },
+      {
+        name: 'revert_diagram',
+        description: 'Revert a diagram to a specific historical version by timestamp.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            ...sessionParamsDesc,
+            id: { type: 'string', description: 'Diagram ID' },
+            timestamp: { type: 'string', description: 'ISO timestamp of the version to revert to' },
+          },
+          required: ['project', 'session', 'id', 'timestamp'],
+        },
+      },
+      {
         name: 'list_documents',
         description: 'List all markdown documents in a session.',
         inputSchema: {
@@ -727,6 +752,44 @@ export async function setupMCPServer(): Promise<Server> {
         name: 'export_wireframe_png',
         description: 'Export a wireframe as a PNG image. Returns base64-encoded PNG data that can be saved to a file and viewed.',
         inputSchema: exportWireframePNGSchema,
+      },
+      {
+        name: 'validate_wireframe',
+        description: 'Check if wireframe JSON is valid without saving.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            content: { type: 'object', description: 'Wireframe JSON to validate' },
+          },
+          required: ['content'],
+        },
+      },
+      {
+        name: 'get_wireframe_history',
+        description: 'Get the change history for a wireframe. Returns original content and list of changes with timestamps.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to the project root directory' },
+            session: { type: 'string', description: 'Session name (e.g., "bright-calm-river")' },
+            id: { type: 'string', description: 'Wireframe ID' },
+          },
+          required: ['project', 'session', 'id'],
+        },
+      },
+      {
+        name: 'revert_wireframe',
+        description: 'Revert a wireframe to a specific historical version by timestamp.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to the project root directory' },
+            session: { type: 'string', description: 'Session name (e.g., "bright-calm-river")' },
+            id: { type: 'string', description: 'Wireframe ID' },
+            timestamp: { type: 'string', description: 'ISO timestamp of the version to revert to' },
+          },
+          required: ['project', 'session', 'id', 'timestamp'],
+        },
       },
       {
         name: 'render_ui',
@@ -1146,6 +1209,47 @@ export async function setupMCPServer(): Promise<Server> {
             return await exportDiagramPNG(project, session, id, theme, scale);
           }
 
+          case 'get_diagram_history': {
+            const { project, session, id } = args as { project: string; session: string; id: string };
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            const response = await fetch(buildUrl(`/api/diagram/${id}/history`, project, session));
+            if (!response.ok) {
+              if (response.status === 404) {
+                return JSON.stringify({ error: 'No history for diagram', history: null }, null, 2);
+              }
+              throw new Error(`Failed to get diagram history: ${response.statusText}`);
+            }
+            const data = await response.json();
+            return JSON.stringify(data, null, 2);
+          }
+
+          case 'revert_diagram': {
+            const { project, session, id, timestamp } = args as { project: string; session: string; id: string; timestamp: string };
+            if (!project || !session || !id || !timestamp) throw new Error('Missing required: project, session, id, timestamp');
+            // Get historical content
+            const versionResponse = await fetch(buildUrl(`/api/diagram/${id}/version`, project, session, { timestamp }));
+            if (!versionResponse.ok) {
+              throw new Error(`Failed to get diagram version: ${versionResponse.statusText}`);
+            }
+            const versionData = await versionResponse.json();
+            // Save as current content
+            const updateResponse = await fetch(buildUrl(`/api/diagram/${id}`, project, session), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ content: versionData.content }),
+            });
+            if (!updateResponse.ok) {
+              const error = await updateResponse.json();
+              throw new Error(`Failed to revert diagram: ${error.error || updateResponse.statusText}`);
+            }
+            return JSON.stringify({
+              success: true,
+              id,
+              revertedTo: timestamp,
+              message: `Diagram reverted to version from ${timestamp}`,
+            }, null, 2);
+          }
+
           case 'list_documents': {
             const { project, session } = args as { project: string; session: string };
             if (!project || !session) throw new Error('Missing required: project, session');
@@ -1235,6 +1339,62 @@ export async function setupMCPServer(): Promise<Server> {
             if (!project || !session || !id) throw new Error('Missing required: project, session, id');
             const result = await handleExportWireframePNG(project, session, id, scale);
             return JSON.stringify(result, null, 2);
+          }
+
+          case 'validate_wireframe': {
+            const { content } = args as { content: any };
+            if (!content) throw new Error('Missing required: content');
+            const response = await fetch(`${API_BASE_URL}/api/wireframe/validate`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ content }),
+            });
+            if (!response.ok) {
+              throw new Error(`Failed to validate wireframe: ${response.statusText}`);
+            }
+            const data = await response.json();
+            return JSON.stringify(data, null, 2);
+          }
+
+          case 'get_wireframe_history': {
+            const { project, session, id } = args as { project: string; session: string; id: string };
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            const response = await fetch(buildUrl(`/api/wireframe/${id}/history`, project, session));
+            if (!response.ok) {
+              if (response.status === 404) {
+                return JSON.stringify({ error: 'No history for wireframe', history: null }, null, 2);
+              }
+              throw new Error(`Failed to get wireframe history: ${response.statusText}`);
+            }
+            const data = await response.json();
+            return JSON.stringify(data, null, 2);
+          }
+
+          case 'revert_wireframe': {
+            const { project, session, id, timestamp } = args as { project: string; session: string; id: string; timestamp: string };
+            if (!project || !session || !id || !timestamp) throw new Error('Missing required: project, session, id, timestamp');
+            // Get historical content
+            const versionResponse = await fetch(buildUrl(`/api/wireframe/${id}/version`, project, session, { timestamp }));
+            if (!versionResponse.ok) {
+              throw new Error(`Failed to get wireframe version: ${versionResponse.statusText}`);
+            }
+            const versionData = await versionResponse.json();
+            // Save as current content
+            const updateResponse = await fetch(buildUrl(`/api/wireframe/${id}`, project, session), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ content: versionData.content }),
+            });
+            if (!updateResponse.ok) {
+              const error = await updateResponse.json();
+              throw new Error(`Failed to revert wireframe: ${error.error || updateResponse.statusText}`);
+            }
+            return JSON.stringify({
+              success: true,
+              id,
+              revertedTo: timestamp,
+              message: `Wireframe reverted to version from ${timestamp}`,
+            }, null, 2);
           }
 
           case 'render_ui': {

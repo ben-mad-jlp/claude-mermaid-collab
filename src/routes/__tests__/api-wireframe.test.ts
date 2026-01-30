@@ -22,7 +22,7 @@ describe('API Wireframe Routes', () => {
 
   beforeEach(async () => {
     testProjectDir = join(tmpdir(), `test-api-wireframe-${Date.now()}`);
-    const wireframesDir = join(testProjectDir, '.collab', testSession, 'wireframes');
+    const wireframesDir = join(testProjectDir, '.collab', 'sessions', testSession, 'wireframes');
     await mkdir(wireframesDir, { recursive: true });
 
     // Mock dependencies
@@ -52,8 +52,8 @@ describe('API Wireframe Routes', () => {
 
     it('should list wireframes in session', async () => {
       // Create a wireframe
-      const wireframesDir = join(testProjectDir, '.collab', testSession, 'wireframes');
-      const wireframeContent = { viewport: 'mobile', screens: [] };
+      const wireframesDir = join(testProjectDir, '.collab', 'sessions', testSession, 'wireframes');
+      const wireframeContent = { viewport: 'mobile', direction: 'LR', screens: [] };
       await writeFile(
         join(wireframesDir, 'test-wf.wireframe.json'),
         JSON.stringify(wireframeContent, null, 2)
@@ -92,7 +92,7 @@ describe('API Wireframe Routes', () => {
       expect(data.id).toBe('new-wireframe');
 
       // Verify file was created
-      const filePath = join(testProjectDir, '.collab', testSession, 'wireframes', 'new-wireframe.wireframe.json');
+      const filePath = join(testProjectDir, '.collab', 'sessions', testSession, 'wireframes', 'new-wireframe.wireframe.json');
       const exists = fs.existsSync(filePath);
       expect(exists).toBe(true);
     });
@@ -100,8 +100,8 @@ describe('API Wireframe Routes', () => {
 
   describe('GET /api/wireframe/:id', () => {
     it('should retrieve a wireframe by id', async () => {
-      const wireframesDir = join(testProjectDir, '.collab', testSession, 'wireframes');
-      const wireframeContent = { viewport: 'tablet', screens: [] };
+      const wireframesDir = join(testProjectDir, '.collab', 'sessions', testSession, 'wireframes');
+      const wireframeContent = { viewport: 'tablet', direction: 'LR', screens: [] };
       const filePath = join(wireframesDir, 'my-wireframe.wireframe.json');
       await writeFile(filePath, JSON.stringify(wireframeContent, null, 2));
 
@@ -114,7 +114,8 @@ describe('API Wireframe Routes', () => {
       expect(response.status).toBe(200);
       const data = await response.json();
       expect(data.id).toBe('my-wireframe');
-      expect(data.content).toEqual(wireframeContent);
+      // Content is returned as a JSON string, not parsed object
+      expect(JSON.parse(data.content)).toEqual(wireframeContent);
       expect(data).toHaveProperty('lastModified');
     });
 
@@ -131,9 +132,19 @@ describe('API Wireframe Routes', () => {
 
   describe('POST /api/wireframe/:id', () => {
     it('should update an existing wireframe', async () => {
-      const wireframesDir = join(testProjectDir, '.collab', testSession, 'wireframes');
-      const originalContent = { viewport: 'mobile' };
-      const updatedContent = { viewport: 'desktop', screens: [{ type: 'Screen' }] };
+      const wireframesDir = join(testProjectDir, '.collab', 'sessions', testSession, 'wireframes');
+      const originalContent = { viewport: 'mobile', direction: 'LR', screens: [] };
+      const updatedContent = {
+        viewport: 'desktop',
+        direction: 'LR',
+        screens: [{
+          id: 'home-screen',
+          type: 'screen',
+          name: 'Home',
+          bounds: { x: 0, y: 0, width: 375, height: 600 },
+          children: []
+        }]
+      };
 
       const filePath = join(wireframesDir, 'update-test.wireframe.json');
       await writeFile(filePath, JSON.stringify(originalContent, null, 2));
@@ -158,11 +169,13 @@ describe('API Wireframe Routes', () => {
     });
 
     it('should return 404 when updating non-existent wireframe', async () => {
+      // Even for non-existent wireframes, validation runs first, so use a valid wireframe
+      const validContent = { viewport: 'mobile', direction: 'LR', screens: [] };
       const req = new Request(
         `http://localhost/api/wireframe/nonexistent?project=${testProjectDir}&session=${testSession}`,
         {
           method: 'POST',
-          body: JSON.stringify({ content: { viewport: 'mobile' } }),
+          body: JSON.stringify({ content: validContent }),
         }
       );
       const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);

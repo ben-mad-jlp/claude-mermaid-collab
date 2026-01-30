@@ -14,6 +14,8 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { ToolbarAction } from '@/types';
 import { HistoryToolbar } from '@/components/editors/HistoryToolbar';
 import { HistoryDiffSettingsDropdown } from '@/components/editors/HistoryDiffSettingsDropdown';
+import { DiagramHistoryDropdown } from '@/components/editors/DiagramHistoryDropdown';
+import { WireframeHistoryDropdown } from '@/components/editors/WireframeHistoryDropdown';
 
 export interface EditorToolbarProps {
   /** Name of the item being edited */
@@ -32,8 +34,16 @@ export interface EditorToolbarProps {
   documentId?: string;
   /** Current document content (documents only) */
   documentContent?: string;
-  /** Callback when history version is selected */
+  /** Callback when history version is selected (documents) */
   onHistoryVersionSelect?: (timestamp: string, content: string, previousContent?: string) => void;
+  /** Diagram ID for history (diagrams only) */
+  diagramId?: string;
+  /** Callback when diagram history version is selected */
+  onDiagramHistorySelect?: (timestamp: string, content: string) => void;
+  /** Wireframe ID for history (wireframes only) */
+  wireframeId?: string;
+  /** Callback when wireframe history version is selected */
+  onWireframeHistorySelect?: (timestamp: string, content: string) => void;
   /** Current zoom level (percentage) */
   zoom: number;
   /** Callback for zoom in action */
@@ -101,6 +111,10 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   documentId,
   documentContent,
   onHistoryVersionSelect,
+  diagramId,
+  onDiagramHistorySelect,
+  wireframeId,
+  onWireframeHistorySelect,
   zoom,
   onZoomIn,
   onZoomOut,
@@ -407,7 +421,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           border-b border-gray-200 dark:border-gray-700
         "
       >
-      {/* History Controls (documents) or Undo/Redo (diagrams) - positioned first on far left */}
+      {/* History Controls (documents) or Undo/Redo + History (diagrams/wireframes) - positioned first on far left */}
       {itemType === 'document' && documentId && onHistoryVersionSelect ? (
         <HistoryToolbar
           documentId={documentId}
@@ -481,6 +495,22 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
               <path d="M3 17a9 9 0 019-9 9 9 0 016 2.3L21 13" />
             </svg>
           </button>
+
+          {/* Diagram History Dropdown */}
+          {itemType === 'diagram' && diagramId && onDiagramHistorySelect && (
+            <DiagramHistoryDropdown
+              diagramId={diagramId}
+              onVersionSelect={onDiagramHistorySelect}
+            />
+          )}
+
+          {/* Wireframe History Dropdown */}
+          {itemType === 'wireframe' && wireframeId && onWireframeHistorySelect && (
+            <WireframeHistoryDropdown
+              wireframeId={wireframeId}
+              onVersionSelect={onWireframeHistorySelect}
+            />
+          )}
         </>
       )}
 
