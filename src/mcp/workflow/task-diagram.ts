@@ -62,6 +62,7 @@ export function buildDiagramContent(batches: TaskBatch[]): string {
   for (const batch of batches) {
     for (const task of batch.tasks) {
       for (const dep of task.dependsOn) {
+        if (!dep) continue; // Skip empty dependencies
         const fromId = sanitizeId(dep);
         const toId = sanitizeId(task.id);
         lines.push(`    ${fromId} --> ${toId}`);
