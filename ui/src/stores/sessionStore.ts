@@ -208,7 +208,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const { diagrams } = get();
     // Only select if diagram exists or if clearing selection
     if (id === null || diagrams.find((d) => d.id === id)) {
-      set({ selectedDiagramId: id, selectedDocumentId: null, taskGraphSelected: false });
+      set({ selectedDiagramId: id, selectedDocumentId: null, selectedWireframeId: null, taskGraphSelected: false });
     }
   },
 
@@ -254,7 +254,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const { documents } = get();
     // Only select if document exists or if clearing selection
     if (id === null || documents.find((d) => d.id === id)) {
-      set({ selectedDocumentId: id, selectedDiagramId: null, taskGraphSelected: false });
+      set({ selectedDocumentId: id, selectedDiagramId: null, selectedWireframeId: null, taskGraphSelected: false });
     }
   },
 
@@ -316,7 +316,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   // Task graph selection
   selectTaskGraph: () => {
-    set({ taskGraphSelected: true, selectedDiagramId: null, selectedDocumentId: null });
+    set({ taskGraphSelected: true, selectedDiagramId: null, selectedDocumentId: null, selectedWireframeId: null });
   },
 
   clearTaskGraphSelection: () => {
