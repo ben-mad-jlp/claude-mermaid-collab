@@ -152,19 +152,21 @@ export const Markdown: React.FC<MarkdownProps> = ({
       if (isCodeBlock && codeHighlight) {
         const code = String(children).replace(/\n$/, '');
         return (
-          <div className="mb-3 rounded-lg overflow-hidden">
+          <div className="mb-3 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
             <Highlight
               language={language}
-              code={code}
               style={(isDarkMode ? atomOneDark : atomOneLight) as any}
               customStyle={{
                 margin: 0,
                 padding: '12px 16px',
                 fontSize: '13px',
                 lineHeight: '1.5',
+                background: isDarkMode ? '#282c34' : '#fafafa',
               } as any}
               {...({ wrapLongLines: true } as any)}
-            />
+            >
+              {code}
+            </Highlight>
           </div>
         );
       }
