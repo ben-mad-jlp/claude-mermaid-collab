@@ -619,6 +619,99 @@ describe('updateTaskStatus function', () => {
       })
     );
   });
+
+  it('should return minimal response when minimal flag is true', async () => {
+    const batches: TaskBatch[] = [
+      {
+        id: 'batch-1',
+        status: 'pending',
+        tasks: [
+          {
+            id: 'task-1',
+            status: 'pending',
+            dependsOn: [],
+          },
+        ],
+      },
+    ];
+
+    vi.spyOn(collabState, 'getSessionState').mockResolvedValue({
+      batches,
+      lastActivity: new Date().toISOString(),
+      currentItem: null
+    });
+
+    vi.spyOn(collabState, 'updateSessionState').mockResolvedValue({
+      success: true,
+    });
+
+    vi.spyOn(taskDiagram, 'generateTaskDiagram').mockReturnValue(
+      'graph TD\n  task_1["task-1: in_progress"]'
+    );
+
+    const params: UpdateTaskStatusParams = {
+      project: mockProject,
+      session: mockSession,
+      taskId: 'task-1',
+      status: 'in_progress',
+      minimal: true,
+    };
+
+    const response = await updateTaskStatus(params);
+
+    expect(response.success).toBe(true);
+    // Minimal response should NOT include diagram, batches, completedTasks, pendingTasks
+    expect(response.diagram).toBeUndefined();
+    expect(response.batches).toBeUndefined();
+    expect(response.completedTasks).toBeUndefined();
+    expect(response.pendingTasks).toBeUndefined();
+  });
+
+  it('should return full response when minimal flag is false', async () => {
+    const batches: TaskBatch[] = [
+      {
+        id: 'batch-1',
+        status: 'pending',
+        tasks: [
+          {
+            id: 'task-1',
+            status: 'pending',
+            dependsOn: [],
+          },
+        ],
+      },
+    ];
+
+    vi.spyOn(collabState, 'getSessionState').mockResolvedValue({
+      batches,
+      lastActivity: new Date().toISOString(),
+      currentItem: null
+    });
+
+    vi.spyOn(collabState, 'updateSessionState').mockResolvedValue({
+      success: true,
+    });
+
+    vi.spyOn(taskDiagram, 'generateTaskDiagram').mockReturnValue(
+      'graph TD\n  task_1["task-1: in_progress"]'
+    );
+
+    const params: UpdateTaskStatusParams = {
+      project: mockProject,
+      session: mockSession,
+      taskId: 'task-1',
+      status: 'in_progress',
+      minimal: false,
+    };
+
+    const response = await updateTaskStatus(params);
+
+    expect(response.success).toBe(true);
+    expect(response.diagram).toBeDefined();
+    expect(response.batches).toBeDefined();
+    expect(response.completedTasks).toBeDefined();
+    expect(response.pendingTasks).toBeDefined();
+  });
 });
 
 describe('getTaskGraph function', () => {

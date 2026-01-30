@@ -24,6 +24,9 @@ export interface UpdateTaskStatusParams {
 
   /** New status for the task */
   status: 'pending' | 'in_progress' | 'completed' | 'failed';
+
+  /** If true, return minimal response (just success) to reduce context size */
+  minimal?: boolean;
 }
 
 /**
@@ -231,7 +234,13 @@ export async function updateTaskStatus(
     }
   }
 
-  // Step 9: Return response
+  // Step 9: Return response (minimal if requested)
+  if (params.minimal) {
+    return {
+      success: true,
+    } as TaskGraphResponse;
+  }
+
   return {
     success: true,
     diagram,

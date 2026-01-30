@@ -266,6 +266,11 @@ function getPhaseFromState(stateId: StateId): string {
     return 'complete';
   }
 
+  // Vibe mode
+  if (stateId === 'vibe-active') {
+    return 'vibe';
+  }
+
   return 'brainstorming';
 }
 

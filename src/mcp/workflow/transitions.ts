@@ -12,12 +12,14 @@ export interface SessionState {
   state: string;
   currentItem: number | null;
   workItems: WorkItem[];
+  sessionType?: 'structured' | 'vibe';
   [key: string]: unknown;
 }
 
 /** Context for evaluating transitions */
 export interface TransitionContext {
   currentItemType?: 'code' | 'task' | 'bugfix';
+  sessionType?: 'structured' | 'vibe';
   itemsRemaining: boolean;
   pendingBrainstormItems: boolean;
   pendingRoughDraftItems: boolean;
@@ -42,6 +44,9 @@ export function evaluateCondition(
 
     case 'item_type':
       return context.currentItemType === condition.value;
+
+    case 'session_type':
+      return context.sessionType === condition.value;
 
     case 'items_remaining':
       return context.itemsRemaining;
@@ -107,6 +112,7 @@ export function buildTransitionContext(
     batches?: unknown[];
     currentBatch?: number;
     pendingTasks?: string[];
+    sessionType?: 'structured' | 'vibe';
   },
   currentItemType?: 'code' | 'task' | 'bugfix'
 ): TransitionContext {
@@ -136,6 +142,7 @@ export function buildTransitionContext(
 
   return {
     currentItemType,
+    sessionType: sessionState.sessionType,
     itemsRemaining,
     pendingBrainstormItems,
     pendingRoughDraftItems,

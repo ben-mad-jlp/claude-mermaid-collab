@@ -54,32 +54,21 @@ Args: {}
    Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
    Args: { "project": "<cwd>", "session": "<name>", "phase": "initialize", "sessionType": "<structured|vibe>", "currentItem": null }
    ```
-5. Route based on type:
-   - If structured:
-     ```
-     Tool: mcp__plugin_mermaid-collab_mermaid__complete_skill
-     Args: { "project": "<cwd>", "session": "<name>", "skill": "collab-start" }
-     ```
-     Invoke: result.next_skill
-   - If vibe:
-     ```
-     Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
-     Args: { "project": "<cwd>", "session": "<name>", "state": "vibe-active" }
-     ```
-     Display: "Vibe session active. Create diagrams, docs, or wireframes. Use /collab-cleanup when done."
+5. Route via state machine (same for both types):
+   ```
+   Tool: mcp__plugin_mermaid-collab_mermaid__complete_skill
+   Args: { "project": "<cwd>", "session": "<name>", "skill": "collab-start" }
+   ```
+   Invoke: result.next_skill (will be "gather-session-goals" for structured, "vibe-active" for vibe)
 
 ## Step 4: Resume Existing Session
 
 1. Get session state: `mcp__plugin_mermaid-collab_mermaid__get_session_state()`
-2. Check sessionType:
-   - If vibe: Display "Vibe session '<name>' resumed. Create diagrams, docs, or wireframes. Use /collab-cleanup when done." **STOP** (no further routing)
-   - If structured or undefined: Continue to step 3
-3. Call complete_skill with current state to get next skill:
-   ```
-   Tool: mcp__plugin_mermaid-collab_mermaid__complete_skill
-   Args: { "project": "<cwd>", "session": "<name>", "skill": "collab-resume" }
-   ```
-4. Invoke result.next_skill
+2. Route based on sessionType and state:
+   - If sessionType is "vibe" or state is "vibe-active": Invoke skill "vibe-active"
+   - Otherwise: Get the current skill from the state and invoke it directly
+     - The state field maps to a skill (e.g., "brainstorm-exploring" → "brainstorming-exploring")
+     - Invoke that skill to continue the workflow
 
 ## No Manual Routing
 

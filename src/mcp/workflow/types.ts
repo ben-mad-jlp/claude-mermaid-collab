@@ -52,6 +52,7 @@ export type StateId =
 /** Condition types for transition guards */
 export type TransitionCondition =
   | { type: 'item_type'; value: 'code' | 'task' | 'bugfix' }
+  | { type: 'session_type'; value: SessionType }
   | { type: 'items_remaining' }
   | { type: 'no_items_remaining' }
   | { type: 'pending_brainstorm_items' }

@@ -80,7 +80,10 @@ export const WORKFLOW_STATES: WorkflowState[] = [
   {
     id: 'collab-start',
     skill: 'collab-start',
-    transitions: [{ to: 'gather-goals' }],
+    transitions: [
+      { to: 'vibe-active', condition: { type: 'session_type', value: 'vibe' } },
+      { to: 'gather-goals' },  // default for structured
+    ],
   },
   {
     id: 'gather-goals',
@@ -279,9 +282,9 @@ export const WORKFLOW_STATES: WorkflowState[] = [
   // ========== Vibe mode ==========
   {
     id: 'vibe-active',
-    skill: null,
+    skill: 'vibe-active',
     transitions: [
-      { to: 'cleanup', condition: { type: 'cleanup_requested' } }
+      { to: 'cleanup' },  // simple transition, triggered by complete_skill
     ],
   },
 

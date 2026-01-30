@@ -43,8 +43,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ className, onAutoSwitch })
     await respondToMessage(messageId, { action: actionId, ...payload });
   };
 
-  // Find the last blocking message that hasn't been responded to
-  const pendingBlockingMessage = messages.filter(m => m.blocking && !m.responded).pop();
+  // Find the newest blocking message that hasn't been responded to or canceled
+  const pendingBlockingMessage = messages.find(m => m.blocking && !m.responded && !m.canceled);
 
   // Handle sending a custom text response
   const handleSendMessage = (message: string) => {

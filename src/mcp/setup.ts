@@ -1113,6 +1113,10 @@ export async function setupMCPServer(): Promise<Server> {
               enum: ['pending', 'in_progress', 'completed', 'failed'],
               description: 'New status for the task',
             },
+            minimal: {
+              type: 'boolean',
+              description: 'If true, return minimal response (just success) to reduce context size. Default: false',
+            },
           },
           required: ['project', 'session', 'taskId', 'status'],
         },
@@ -1743,15 +1747,16 @@ export async function setupMCPServer(): Promise<Server> {
           }
 
           case 'update_task_status': {
-            const { project, session, taskId, status } = args as {
+            const { project, session, taskId, status, minimal } = args as {
               project: string;
               session: string;
               taskId: string;
               status: 'pending' | 'in_progress' | 'completed' | 'failed';
+              minimal?: boolean;
             };
             if (!project || !session || !taskId || !status) throw new Error('Missing required: project, session, taskId, status');
             const wsHandler = getWebSocketHandler();
-            const result = await updateTaskStatus({ project, session, taskId, status }, wsHandler || undefined);
+            const result = await updateTaskStatus({ project, session, taskId, status, minimal }, wsHandler || undefined);
             return JSON.stringify(result, null, 2);
           }
 
