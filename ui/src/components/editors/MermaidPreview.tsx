@@ -378,12 +378,12 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
   // Track if mermaid is initialized
   const [mermaidReady, setMermaidReady] = useState(false);
 
-  // Initialize mermaid with theme and wireframe plugin
+  // Initialize mermaid with theme - pass content to detect custom init directives
   useEffect(() => {
-    initializeMermaid(theme as 'light' | 'dark').then(() => {
+    initializeMermaid(theme as 'light' | 'dark', content).then(() => {
       setMermaidReady(true);
     });
-  }, [theme]);
+  }, [theme, content]);
 
   // Render the diagram
   const renderDiagram = useCallback(async () => {
