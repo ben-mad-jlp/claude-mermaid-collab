@@ -1,6 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import type { AppBarComponent, BottomNavComponent, NavMenuComponent, LayoutBounds } from '../../../types/wireframe';
-import { appendRoughRectLocal, appendRoughCircle, appendRoughLine, cleanupRoughElements, getRoughSvg, COLORS } from '../svg-utils';
+import { useTheme } from '@/hooks/useTheme';
+import { appendRoughRectLocal, appendRoughCircle, appendRoughLine, cleanupRoughElements, getRoughSvg, getThemeColors, type WireframeTheme } from '../svg-utils';
 
 /**
  * Props for the AppBar wireframe component renderer
@@ -37,6 +38,9 @@ export interface NavMenuProps {
  */
 export function AppBar({ component, bounds }: AppBarProps): JSX.Element {
   const groupRef = useRef<SVGGElement>(null);
+  const { theme } = useTheme();
+  const wireframeTheme: WireframeTheme = theme === 'dark' ? 'dark' : 'light';
+  const colors = getThemeColors(wireframeTheme);
 
   useEffect(() => {
     if (!groupRef.current) return;
@@ -57,9 +61,9 @@ export function AppBar({ component, bounds }: AppBarProps): JSX.Element {
 
     // Draw app bar background - insert at start so text renders on top
     const bgElement = rc.rectangle(0, 0, bounds.width, bounds.height, {
-      fill: COLORS.nav.background,
+      fill: colors.nav.background,
       fillStyle: 'solid',
-      stroke: COLORS.nav.border,
+      stroke: colors.nav.border,
       strokeWidth: 1,
       roughness: 0.5,
     });
@@ -68,7 +72,7 @@ export function AppBar({ component, bounds }: AppBarProps): JSX.Element {
 
     // Draw bottom border - insert after bg
     const borderElement = rc.line(0, bounds.height - 1, bounds.width, bounds.height - 1, {
-      stroke: COLORS.nav.bottomBorder,
+      stroke: colors.nav.bottomBorder,
       strokeWidth: 1,
       roughness: 0.3,
     });
@@ -84,7 +88,7 @@ export function AppBar({ component, bounds }: AppBarProps): JSX.Element {
     const padding = 16;
     if (component.leftIcon) {
       const iconCircle = rc.circle(padding + iconSize / 2, bounds.height / 2, iconSize, {
-        stroke: COLORS.nav.icon,
+        stroke: colors.nav.icon,
         strokeWidth: 1.5,
         roughness: 0.8,
         fill: 'none',
@@ -98,7 +102,7 @@ export function AppBar({ component, bounds }: AppBarProps): JSX.Element {
       let rightX = bounds.width - padding - iconSize / 2;
       for (let i = component.rightIcons.length - 1; i >= 0; i--) {
         const iconCircle = rc.circle(rightX, bounds.height / 2, iconSize, {
-          stroke: COLORS.nav.icon,
+          stroke: colors.nav.icon,
           strokeWidth: 1.5,
           roughness: 0.8,
           fill: 'none',
@@ -112,7 +116,7 @@ export function AppBar({ component, bounds }: AppBarProps): JSX.Element {
     return () => {
       cleanupRoughElements(groupRef, elements);
     };
-  }, [component, bounds]);
+  }, [component, bounds, colors]);
 
   const iconSize = 24;
   const padding = 16;
@@ -133,7 +137,7 @@ export function AppBar({ component, bounds }: AppBarProps): JSX.Element {
           dominantBaseline="middle"
           fontSize={iconSize * 0.5}
           fontFamily="sans-serif"
-          fill={COLORS.nav.icon}
+          fill={colors.nav.icon}
         >
           {component.leftIcon.charAt(0).toUpperCase()}
         </text>
@@ -149,7 +153,7 @@ export function AppBar({ component, bounds }: AppBarProps): JSX.Element {
           fontSize={18}
           fontWeight="bold"
           fontFamily="sans-serif"
-          fill={COLORS.nav.text}
+          fill={colors.nav.text}
         >
           {component.title}
         </text>
@@ -167,7 +171,7 @@ export function AppBar({ component, bounds }: AppBarProps): JSX.Element {
             dominantBaseline="middle"
             fontSize={iconSize * 0.5}
             fontFamily="sans-serif"
-            fill={COLORS.nav.icon}
+            fill={colors.nav.icon}
           >
             {icon.charAt(0).toUpperCase()}
           </text>
@@ -187,6 +191,9 @@ export function AppBar({ component, bounds }: AppBarProps): JSX.Element {
  */
 export function BottomNav({ component, bounds }: BottomNavProps): JSX.Element {
   const groupRef = useRef<SVGGElement>(null);
+  const { theme } = useTheme();
+  const wireframeTheme: WireframeTheme = theme === 'dark' ? 'dark' : 'light';
+  const colors = getThemeColors(wireframeTheme);
 
   useEffect(() => {
     if (!groupRef.current) return;
@@ -207,9 +214,9 @@ export function BottomNav({ component, bounds }: BottomNavProps): JSX.Element {
 
     // Draw bottom nav background - insert at start so text renders on top
     const bgElement = rc.rectangle(0, 0, bounds.width, bounds.height, {
-      fill: '#ffffff',
+      fill: colors.nav.background,
       fillStyle: 'solid',
-      stroke: COLORS.nav.border,
+      stroke: colors.nav.border,
       strokeWidth: 1,
       roughness: 0.5,
     });
@@ -218,7 +225,7 @@ export function BottomNav({ component, bounds }: BottomNavProps): JSX.Element {
 
     // Draw top border - insert after bg
     const borderElement = rc.line(0, 1, bounds.width, 1, {
-      stroke: COLORS.nav.bottomBorder,
+      stroke: colors.nav.bottomBorder,
       strokeWidth: 1,
       roughness: 0.3,
     });
@@ -240,7 +247,7 @@ export function BottomNav({ component, bounds }: BottomNavProps): JSX.Element {
         const centerX = itemWidth * index + itemWidth / 2;
         const iconY = bounds.height * 0.35;
         const isActive = index === activeIndex;
-        const color = isActive ? COLORS.nav.active : COLORS.nav.icon;
+        const color = isActive ? colors.nav.active : colors.nav.icon;
 
         const iconCircle = rc.circle(centerX, iconY, iconSize, {
           stroke: color,
@@ -256,7 +263,7 @@ export function BottomNav({ component, bounds }: BottomNavProps): JSX.Element {
     return () => {
       cleanupRoughElements(groupRef, elements);
     };
-  }, [component, bounds]);
+  }, [component, bounds, colors]);
 
   const items = component.items || [];
   const itemWidth = items.length > 0 ? bounds.width / items.length : bounds.width;
@@ -275,7 +282,7 @@ export function BottomNav({ component, bounds }: BottomNavProps): JSX.Element {
         const iconY = bounds.height * 0.35;
         const labelY = bounds.height * 0.75;
         const isActive = index === activeIndex;
-        const color = isActive ? COLORS.nav.active : COLORS.nav.icon;
+        const color = isActive ? colors.nav.active : colors.nav.icon;
 
         return (
           <g key={index}>
@@ -324,6 +331,9 @@ export function BottomNav({ component, bounds }: BottomNavProps): JSX.Element {
  */
 export function NavMenu({ component, bounds }: NavMenuProps): JSX.Element {
   const groupRef = useRef<SVGGElement>(null);
+  const { theme } = useTheme();
+  const wireframeTheme: WireframeTheme = theme === 'dark' ? 'dark' : 'light';
+  const colors = getThemeColors(wireframeTheme);
 
   const items = component.items || [];
   const variant = component.variant || 'vertical';
@@ -347,9 +357,9 @@ export function NavMenu({ component, bounds }: NavMenuProps): JSX.Element {
 
     // Draw menu background - insert at start so text renders on top
     const bgElement = rc.rectangle(0, 0, bounds.width, bounds.height, {
-      fill: COLORS.nav.background,
+      fill: colors.nav.background,
       fillStyle: 'solid',
-      stroke: COLORS.nav.border,
+      stroke: colors.nav.border,
       strokeWidth: 1,
       roughness: 0.5,
     });
@@ -372,7 +382,7 @@ export function NavMenu({ component, bounds }: NavMenuProps): JSX.Element {
         // Draw active background - insert after bg but before text
         if (isActive) {
           const activeBg = rc.rectangle(0, y, bounds.width, itemHeight, {
-            fill: COLORS.nav.activeBackground,
+            fill: colors.nav.activeBackground,
             fillStyle: 'solid',
             stroke: 'transparent',
             roughness: 0.3,
@@ -388,12 +398,12 @@ export function NavMenu({ component, bounds }: NavMenuProps): JSX.Element {
 
         // Draw icon circle if present - these can go at end since they're not filled
         if (item.icon) {
-          const textColor = isActive ? COLORS.nav.activeMenu : '#374151';
+          const iconColor = isActive ? colors.nav.activeMenu : colors.nav.text;
           const iconX = 12 + iconSize / 2;
           const iconY = y + itemHeight / 2;
 
           const iconCircle = rc.circle(iconX, iconY, iconSize, {
-            stroke: textColor,
+            stroke: iconColor,
             strokeWidth: 1.5,
             roughness: 0.8,
             fill: 'none',
@@ -412,7 +422,7 @@ export function NavMenu({ component, bounds }: NavMenuProps): JSX.Element {
 
         if (isActive) {
           const activeIndicator = rc.line(x + 8, bounds.height - 3, x + itemWidth - 8, bounds.height - 3, {
-            stroke: COLORS.nav.activeMenu,
+            stroke: colors.nav.activeMenu,
             strokeWidth: 3,
             roughness: 0.3,
           });
@@ -425,7 +435,7 @@ export function NavMenu({ component, bounds }: NavMenuProps): JSX.Element {
     return () => {
       cleanupRoughElements(groupRef, elements);
     };
-  }, [component, bounds, items, variant]);
+  }, [component, bounds, items, variant, colors]);
 
   const iconSize = 18;
   const padding = 12;
@@ -442,7 +452,7 @@ export function NavMenu({ component, bounds }: NavMenuProps): JSX.Element {
           const itemHeight = 44;
           const y = index * itemHeight;
           const isActive = item.active || false;
-          const textColor = isActive ? COLORS.nav.activeMenu : '#374151';
+          const textColor = isActive ? colors.nav.activeMenu : colors.nav.text;
           const textX = item.icon ? padding + iconSize + 12 : padding;
 
           return (
@@ -484,7 +494,7 @@ export function NavMenu({ component, bounds }: NavMenuProps): JSX.Element {
           const x = index * itemWidth;
           const centerX = x + itemWidth / 2;
           const isActive = item.active || false;
-          const textColor = isActive ? COLORS.nav.activeMenu : '#374151';
+          const textColor = isActive ? colors.nav.activeMenu : colors.nav.text;
 
           return (
             <g key={index}>

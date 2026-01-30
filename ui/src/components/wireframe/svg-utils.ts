@@ -19,9 +19,14 @@ export const ROUGH_OPTIONS: Options = {
 };
 
 /**
- * Color palette for wireframe components
+ * Theme type for wireframe colors
  */
-export const COLORS = {
+export type WireframeTheme = 'light' | 'dark';
+
+/**
+ * Color palette for wireframe components - light theme
+ */
+const LIGHT_COLORS = {
   // Button variants
   button: {
     primary: {
@@ -118,7 +123,122 @@ export const COLORS = {
     text: '#333333',
     label: '#666666',
   },
-} as const;
+};
+
+/**
+ * Color palette for wireframe components - dark theme
+ */
+const DARK_COLORS = {
+  // Button variants - adjusted for dark mode
+  button: {
+    primary: {
+      fill: '#3b82f6',
+      stroke: '#2563eb',
+      text: '#ffffff',
+    },
+    secondary: {
+      fill: '#374151',
+      stroke: '#6b7280',
+      text: '#f3f4f6',
+    },
+    danger: {
+      fill: '#7f1d1d',
+      stroke: '#dc2626',
+      text: '#fecaca',
+    },
+    success: {
+      fill: '#14532d',
+      stroke: '#16a34a',
+      text: '#bbf7d0',
+    },
+    disabled: {
+      fill: '#374151',
+      stroke: '#4b5563',
+      text: '#6b7280',
+    },
+    default: {
+      fill: '#374151',
+      stroke: '#6b7280',
+      text: '#f3f4f6',
+    },
+  },
+  // Input states - dark backgrounds with light text
+  input: {
+    normal: {
+      background: '#374151',
+      border: '#6b7280',
+      text: '#f3f4f6',
+      placeholder: '#9ca3af',
+    },
+    disabled: {
+      background: '#1f2937',
+      border: '#374151',
+      text: '#6b7280',
+      placeholder: '#4b5563',
+    },
+  },
+  // Navigation colors - dark mode
+  nav: {
+    background: '#1f2937',
+    border: '#374151',
+    bottomBorder: '#4b5563',
+    text: '#f3f4f6',
+    icon: '#9ca3af',
+    active: '#60a5fa',
+    activeMenu: '#818cf8',
+    activeBackground: '#312e81',
+  },
+  // Display component colors - dark mode
+  display: {
+    avatar: {
+      fill: '#374151',
+      stroke: '#6b7280',
+      text: '#d1d5db',
+      placeholder: '#6b7280',
+    },
+    image: {
+      fill: '#1f2937',
+      stroke: '#4b5563',
+      placeholder: '#6b7280',
+      text: '#9ca3af',
+    },
+    icon: {
+      stroke: '#9ca3af',
+      text: '#9ca3af',
+    },
+    list: {
+      background: '#1f2937',
+      border: '#374151',
+      divider: '#374151',
+      iconStroke: '#9ca3af',
+      iconText: '#9ca3af',
+      text: '#e5e7eb',
+    },
+  },
+  // Container colors - dark mode
+  container: {
+    screenBorder: '#6b7280',
+    screenBackground: '#111827',
+    cardBorder: '#4b5563',
+    cardBackground: '#1f2937',
+    cardShadow: 'rgba(0, 0, 0, 0.4)',
+    text: '#f3f4f6',
+    label: '#d1d5db',
+  },
+};
+
+/**
+ * Get colors for the specified theme
+ */
+export function getThemeColors(theme: WireframeTheme) {
+  return theme === 'dark' ? DARK_COLORS : LIGHT_COLORS;
+}
+
+/**
+ * Legacy COLORS export for backwards compatibility (light theme)
+ * @deprecated Use getThemeColors(theme) instead
+ */
+export const COLORS = LIGHT_COLORS;
 
 /**
  * Get RoughSVG instance from a group ref's ownerSVGElement
@@ -220,28 +340,34 @@ export function appendRoughLine(
 }
 
 /**
- * Get button colors based on variant and disabled state
+ * Get button colors based on variant, disabled state, and theme
  */
 export function getButtonColors(
   variant: ButtonVariant,
-  disabled: boolean
+  disabled: boolean,
+  theme: WireframeTheme = 'light'
 ): { fill: string; stroke: string; text: string } {
+  const colors = getThemeColors(theme);
   if (disabled) {
-    return COLORS.button.disabled;
+    return colors.button.disabled;
   }
-  return COLORS.button[variant] || COLORS.button.default;
+  return colors.button[variant] || colors.button.default;
 }
 
 /**
- * Get input colors based on disabled state
+ * Get input colors based on disabled state and theme
  */
-export function getInputColors(disabled: boolean): {
+export function getInputColors(
+  disabled: boolean,
+  theme: WireframeTheme = 'light'
+): {
   background: string;
   border: string;
   text: string;
   placeholder: string;
 } {
-  return disabled ? COLORS.input.disabled : COLORS.input.normal;
+  const colors = getThemeColors(theme);
+  return disabled ? colors.input.disabled : colors.input.normal;
 }
 
 /**

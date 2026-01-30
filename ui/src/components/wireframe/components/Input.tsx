@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useMemo } from 'react';
 import type { InputComponent, LayoutBounds } from '../../../types/wireframe';
-import { appendRoughRectLocal, appendRoughLine, getInputColors, cleanupRoughElements, getRoughSvg } from '../svg-utils';
+import { useTheme } from '@/hooks/useTheme';
+import { appendRoughRectLocal, appendRoughLine, getInputColors, cleanupRoughElements, getRoughSvg, type WireframeTheme } from '../svg-utils';
 
 /**
  * Props for the Input wireframe component renderer
@@ -22,9 +23,11 @@ export interface InputProps {
  */
 export function Input({ component, bounds }: InputProps): JSX.Element {
   const groupRef = useRef<SVGGElement>(null);
+  const { theme } = useTheme();
+  const wireframeTheme: WireframeTheme = theme === 'dark' ? 'dark' : 'light';
 
   const disabled = component.disabled || false;
-  const colors = getInputColors(disabled);
+  const colors = getInputColors(disabled, wireframeTheme);
 
   // Determine text to display
   const { displayText, textColor } = useMemo(() => {
@@ -87,7 +90,7 @@ export function Input({ component, bounds }: InputProps): JSX.Element {
     return () => {
       cleanupRoughElements(groupRef, [rectElement, cursorElement]);
     };
-  }, [component.value, disabled, bounds.width, bounds.height, colors]);
+  }, [component.value, disabled, bounds.width, bounds.height, colors, wireframeTheme]);
 
   const textPadding = 12;
 

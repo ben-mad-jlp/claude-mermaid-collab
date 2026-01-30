@@ -1,6 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import type { ButtonComponent, LayoutBounds } from '../../../types/wireframe';
-import { appendRoughRectLocal, getButtonColors, cleanupRoughElements } from '../svg-utils';
+import { useTheme } from '@/hooks/useTheme';
+import { appendRoughRectLocal, getButtonColors, cleanupRoughElements, type WireframeTheme } from '../svg-utils';
 
 /**
  * Props for the Button wireframe component renderer
@@ -22,6 +23,8 @@ export interface ButtonProps {
  */
 export function Button({ component, bounds }: ButtonProps): JSX.Element {
   const groupRef = useRef<SVGGElement>(null);
+  const { theme } = useTheme();
+  const wireframeTheme: WireframeTheme = theme === 'dark' ? 'dark' : 'light';
 
   useEffect(() => {
     if (!groupRef.current) return;
@@ -29,7 +32,7 @@ export function Button({ component, bounds }: ButtonProps): JSX.Element {
     // Get colors based on variant
     const variant = component.variant || 'default';
     const disabled = component.disabled || false;
-    const colors = getButtonColors(variant, disabled);
+    const colors = getButtonColors(variant, disabled, wireframeTheme);
 
     // Draw rough rectangle - insert at beginning so text renders on top
     const rectElement = appendRoughRectLocal(groupRef, bounds.width, bounds.height, {
@@ -49,11 +52,11 @@ export function Button({ component, bounds }: ButtonProps): JSX.Element {
     return () => {
       cleanupRoughElements(groupRef, [rectElement]);
     };
-  }, [component.variant, component.disabled, bounds.width, bounds.height]);
+  }, [component.variant, component.disabled, bounds.width, bounds.height, wireframeTheme]);
 
   const variant = component.variant || 'default';
   const disabled = component.disabled || false;
-  const colors = getButtonColors(variant, disabled);
+  const colors = getButtonColors(variant, disabled, wireframeTheme);
   const label = component.label || 'Button';
 
   return (

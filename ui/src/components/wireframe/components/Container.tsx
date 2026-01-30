@@ -10,6 +10,8 @@
 
 import React, { useRef, useEffect, useMemo } from 'react';
 import rough from 'roughjs';
+import { useTheme } from '@/hooks/useTheme';
+import { getThemeColors, type WireframeTheme } from '../svg-utils';
 import type {
   ScreenComponent,
   ColComponent,
@@ -38,17 +40,12 @@ const DEFAULT_PADDING = 0;
 const BORDER_RADIUS = 8;
 
 /**
- * Theme colors for wireframe rendering
+ * Get container colors for the given theme
  */
-const COLORS = {
-  screenBorder: '#333333',
-  screenBackground: '#ffffff',
-  cardBorder: '#666666',
-  cardBackground: '#ffffff',
-  cardShadow: 'rgba(0, 0, 0, 0.15)',
-  textColor: '#333333',
-  labelColor: '#666666',
-};
+function getContainerColors(theme: WireframeTheme) {
+  const colors = getThemeColors(theme);
+  return colors.container;
+}
 
 /**
  * Rough.js options for hand-drawn effect
@@ -86,6 +83,9 @@ export const ScreenRenderer: React.FC<ContainerRendererProps<ScreenComponent>> =
   renderChildren,
 }) => {
   const groupRef = useRef<SVGGElement>(null);
+  const { theme } = useTheme();
+  const wireframeTheme: WireframeTheme = theme === 'dark' ? 'dark' : 'light';
+  const colors = getContainerColors(wireframeTheme);
   const { id, name, backgroundColor, children } = component;
 
   // Calculate content bounds (below the label)
@@ -113,7 +113,7 @@ export const ScreenRenderer: React.FC<ContainerRendererProps<ScreenComponent>> =
       contentBounds.height,
       {
         ...ROUGH_OPTIONS,
-        stroke: COLORS.screenBorder,
+        stroke: colors.screenBorder,
         fill: 'none',
       }
     );
@@ -130,7 +130,7 @@ export const ScreenRenderer: React.FC<ContainerRendererProps<ScreenComponent>> =
         groupRef.current?.removeChild(frame);
       }
     };
-  }, [contentBounds]);
+  }, [contentBounds, colors]);
 
   return (
     <g ref={groupRef} data-component-id={id} data-component-type="screen">
@@ -140,7 +140,7 @@ export const ScreenRenderer: React.FC<ContainerRendererProps<ScreenComponent>> =
         y={contentBounds.y}
         width={contentBounds.width}
         height={contentBounds.height}
-        fill={backgroundColor || COLORS.screenBackground}
+        fill={backgroundColor || colors.screenBackground}
         stroke="none"
       />
 
@@ -152,7 +152,7 @@ export const ScreenRenderer: React.FC<ContainerRendererProps<ScreenComponent>> =
         fontSize={14}
         fontFamily="system-ui, -apple-system, sans-serif"
         fontWeight={500}
-        fill={COLORS.labelColor}
+        fill={colors.label}
       >
         {name}
       </text>
@@ -237,6 +237,9 @@ export const CardRenderer: React.FC<ContainerRendererProps<CardComponent>> = ({
   renderChildren,
 }) => {
   const groupRef = useRef<SVGGElement>(null);
+  const { theme } = useTheme();
+  const wireframeTheme: WireframeTheme = theme === 'dark' ? 'dark' : 'light';
+  const colors = getContainerColors(wireframeTheme);
   const { id, title, padding = DEFAULT_PADDING, children } = component;
 
   // Calculate content bounds (below title if present, with padding)
@@ -268,7 +271,7 @@ export const CardRenderer: React.FC<ContainerRendererProps<CardComponent>> = ({
       bounds.height,
       {
         ...ROUGH_OPTIONS,
-        stroke: COLORS.cardBorder,
+        stroke: colors.cardBorder,
         fill: 'none',
         roughness: 1.0,
       }
@@ -286,7 +289,7 @@ export const CardRenderer: React.FC<ContainerRendererProps<CardComponent>> = ({
         groupRef.current?.removeChild(cardBorder);
       }
     };
-  }, [bounds]);
+  }, [bounds, colors]);
 
   return (
     <g ref={groupRef} data-component-id={id} data-component-type="card">
@@ -296,7 +299,7 @@ export const CardRenderer: React.FC<ContainerRendererProps<CardComponent>> = ({
         y={bounds.y + CARD_SHADOW_OFFSET}
         width={bounds.width}
         height={bounds.height}
-        fill={COLORS.cardShadow}
+        fill={colors.cardShadow}
         rx={BORDER_RADIUS}
         ry={BORDER_RADIUS}
       />
@@ -307,7 +310,7 @@ export const CardRenderer: React.FC<ContainerRendererProps<CardComponent>> = ({
         y={bounds.y}
         width={bounds.width}
         height={bounds.height}
-        fill={COLORS.cardBackground}
+        fill={colors.cardBackground}
         rx={BORDER_RADIUS}
         ry={BORDER_RADIUS}
       />
@@ -321,7 +324,7 @@ export const CardRenderer: React.FC<ContainerRendererProps<CardComponent>> = ({
             y1={bounds.y + CARD_TITLE_HEIGHT}
             x2={bounds.x + bounds.width}
             y2={bounds.y + CARD_TITLE_HEIGHT}
-            stroke={COLORS.cardBorder}
+            stroke={colors.cardBorder}
             strokeWidth={1}
             strokeOpacity={0.3}
           />
@@ -333,7 +336,7 @@ export const CardRenderer: React.FC<ContainerRendererProps<CardComponent>> = ({
             fontSize={14}
             fontFamily="system-ui, -apple-system, sans-serif"
             fontWeight={600}
-            fill={COLORS.textColor}
+            fill={colors.text}
           >
             {title}
           </text>

@@ -1,6 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import type { AvatarComponent, ImageComponent, IconComponent, ListComponent, DividerComponent, LayoutBounds } from '../../../types/wireframe';
-import { appendRoughCircle, appendRoughRectLocal, appendRoughLine, cleanupRoughElements, getRoughSvg, COLORS } from '../svg-utils';
+import { useTheme } from '@/hooks/useTheme';
+import { appendRoughCircle, appendRoughRectLocal, appendRoughLine, cleanupRoughElements, getRoughSvg, getThemeColors, type WireframeTheme } from '../svg-utils';
 
 /**
  * Props for the Avatar wireframe component renderer
@@ -43,6 +44,9 @@ export interface ListProps {
  */
 export function Avatar({ component, bounds }: AvatarProps): JSX.Element {
   const groupRef = useRef<SVGGElement>(null);
+  const { theme } = useTheme();
+  const wireframeTheme: WireframeTheme = theme === 'dark' ? 'dark' : 'light';
+  const colors = getThemeColors(wireframeTheme);
 
   const size = component.size || Math.min(bounds.width, bounds.height);
   const centerX = bounds.width / 2;
@@ -55,9 +59,9 @@ export function Avatar({ component, bounds }: AvatarProps): JSX.Element {
 
     // Draw rough circle
     const circleElement = appendRoughCircle(groupRef, centerX, centerY, size - 4, {
-      fill: COLORS.display.avatar.fill,
+      fill: colors.display.avatar.fill,
       fillStyle: 'solid',
-      stroke: COLORS.display.avatar.stroke,
+      stroke: colors.display.avatar.stroke,
       strokeWidth: 1.5,
       roughness: 0.8,
     });
@@ -71,7 +75,7 @@ export function Avatar({ component, bounds }: AvatarProps): JSX.Element {
     return () => {
       cleanupRoughElements(groupRef, elements);
     };
-  }, [size, centerX, centerY]);
+  }, [size, centerX, centerY, colors]);
 
   const radius = size / 2 - 2;
 
@@ -91,7 +95,7 @@ export function Avatar({ component, bounds }: AvatarProps): JSX.Element {
           fontSize={size * 0.4}
           fontWeight="bold"
           fontFamily="sans-serif"
-          fill={COLORS.display.avatar.text}
+          fill={colors.display.avatar.text}
         >
           {component.initials.toUpperCase().slice(0, 2)}
         </text>
@@ -102,12 +106,12 @@ export function Avatar({ component, bounds }: AvatarProps): JSX.Element {
             cx={centerX}
             cy={centerY - radius * 0.2}
             r={radius * 0.3}
-            fill={COLORS.display.avatar.placeholder}
+            fill={colors.display.avatar.placeholder}
           />
           <path
             d={`M ${centerX - radius * 0.5} ${centerY + radius * 0.6}
                 A ${radius * 0.5} ${radius * 0.5} 0 0 1 ${centerX + radius * 0.5} ${centerY + radius * 0.6}`}
-            fill={COLORS.display.avatar.placeholder}
+            fill={colors.display.avatar.placeholder}
           />
         </>
       )}
@@ -125,6 +129,9 @@ export function Avatar({ component, bounds }: AvatarProps): JSX.Element {
  */
 export function Image({ component, bounds }: ImageProps): JSX.Element {
   const groupRef = useRef<SVGGElement>(null);
+  const { theme } = useTheme();
+  const wireframeTheme: WireframeTheme = theme === 'dark' ? 'dark' : 'light';
+  const colors = getThemeColors(wireframeTheme);
 
   useEffect(() => {
     if (!groupRef.current) return;
@@ -137,9 +144,9 @@ export function Image({ component, bounds }: ImageProps): JSX.Element {
 
     // Draw rough rectangle border
     const rectElement = appendRoughRectLocal(groupRef, bounds.width, bounds.height, {
-      fill: COLORS.display.image.fill,
+      fill: colors.display.image.fill,
       fillStyle: 'solid',
-      stroke: COLORS.display.image.stroke,
+      stroke: colors.display.image.stroke,
       strokeWidth: 1.5,
       roughness: 0.8,
     });
@@ -147,7 +154,7 @@ export function Image({ component, bounds }: ImageProps): JSX.Element {
 
     // Draw diagonal lines
     const line1 = rc.line(padding, padding, bounds.width - padding, bounds.height - padding, {
-      stroke: COLORS.display.image.stroke,
+      stroke: colors.display.image.stroke,
       strokeWidth: 1,
       roughness: 0.5,
     });
@@ -155,7 +162,7 @@ export function Image({ component, bounds }: ImageProps): JSX.Element {
     elements.push(line1);
 
     const line2 = rc.line(bounds.width - padding, padding, padding, bounds.height - padding, {
-      stroke: COLORS.display.image.stroke,
+      stroke: colors.display.image.stroke,
       strokeWidth: 1,
       roughness: 0.5,
     });
@@ -175,7 +182,7 @@ export function Image({ component, bounds }: ImageProps): JSX.Element {
     return () => {
       cleanupRoughElements(groupRef, elements);
     };
-  }, [bounds.width, bounds.height]);
+  }, [bounds.width, bounds.height, colors]);
 
   const iconSize = Math.min(bounds.width, bounds.height) * 0.3;
   const centerX = bounds.width / 2;
@@ -195,14 +202,14 @@ export function Image({ component, bounds }: ImageProps): JSX.Element {
             L ${centerX + iconSize / 4} ${centerY - iconSize / 3}
             L ${centerX + iconSize / 2} ${centerY + iconSize / 3}
             Z`}
-        fill={COLORS.display.image.placeholder}
+        fill={colors.display.image.placeholder}
       />
       {/* Sun circle */}
       <circle
         cx={centerX + iconSize / 3}
         cy={centerY - iconSize / 3}
         r={iconSize / 6}
-        fill={COLORS.display.image.placeholder}
+        fill={colors.display.image.placeholder}
       />
       {/* Alt text */}
       {component.alt && (
@@ -213,7 +220,7 @@ export function Image({ component, bounds }: ImageProps): JSX.Element {
           dominantBaseline="auto"
           fontSize={12}
           fontFamily="sans-serif"
-          fill={COLORS.display.image.text}
+          fill={colors.display.image.text}
         >
           {component.alt}
         </text>
@@ -231,6 +238,9 @@ export function Image({ component, bounds }: ImageProps): JSX.Element {
  */
 export function Icon({ component, bounds }: IconProps): JSX.Element {
   const groupRef = useRef<SVGGElement>(null);
+  const { theme } = useTheme();
+  const wireframeTheme: WireframeTheme = theme === 'dark' ? 'dark' : 'light';
+  const colors = getThemeColors(wireframeTheme);
 
   const size = component.size || Math.min(bounds.width, bounds.height);
   const centerX = bounds.width / 2;
@@ -246,7 +256,7 @@ export function Icon({ component, bounds }: IconProps): JSX.Element {
 
     // Draw rough circle
     const circleElement = rc.circle(centerX, centerY, size - 4, {
-      stroke: COLORS.display.icon.stroke,
+      stroke: colors.display.icon.stroke,
       strokeWidth: 1.5,
       roughness: 0.8,
       fill: 'transparent',
@@ -263,7 +273,7 @@ export function Icon({ component, bounds }: IconProps): JSX.Element {
         innerSize,
         innerSize,
         {
-          stroke: COLORS.display.icon.stroke,
+          stroke: colors.display.icon.stroke,
           strokeWidth: 1,
           roughness: 0.5,
         }
@@ -285,7 +295,7 @@ export function Icon({ component, bounds }: IconProps): JSX.Element {
     return () => {
       cleanupRoughElements(groupRef, elements);
     };
-  }, [size, centerX, centerY, component.name]);
+  }, [size, centerX, centerY, component.name, colors]);
 
   return (
     <g
@@ -302,7 +312,7 @@ export function Icon({ component, bounds }: IconProps): JSX.Element {
           dominantBaseline="middle"
           fontSize={size * 0.5}
           fontFamily="sans-serif"
-          fill={COLORS.display.icon.text}
+          fill={colors.display.icon.text}
         >
           {component.name.charAt(0).toUpperCase()}
         </text>
@@ -321,6 +331,9 @@ export function Icon({ component, bounds }: IconProps): JSX.Element {
  */
 export function List({ component, bounds }: ListProps): JSX.Element {
   const groupRef = useRef<SVGGElement>(null);
+  const { theme } = useTheme();
+  const wireframeTheme: WireframeTheme = theme === 'dark' ? 'dark' : 'light';
+  const colors = getThemeColors(wireframeTheme);
 
   const items = component.items || [];
   const itemHeight = 48;
@@ -337,9 +350,9 @@ export function List({ component, bounds }: ListProps): JSX.Element {
 
     // Draw list background
     const bgElement = rc.rectangle(0, 0, bounds.width, bounds.height, {
-      fill: COLORS.display.list.background,
+      fill: colors.display.list.background,
       fillStyle: 'solid',
-      stroke: COLORS.display.list.border,
+      stroke: colors.display.list.border,
       strokeWidth: 1,
       roughness: 0.5,
     });
@@ -353,7 +366,7 @@ export function List({ component, bounds }: ListProps): JSX.Element {
       // Draw divider if enabled and not first item
       if (component.dividers && index > 0) {
         const divider = rc.line(padding, y, bounds.width - padding, y, {
-          stroke: COLORS.display.list.divider,
+          stroke: colors.display.list.divider,
           strokeWidth: 1,
           roughness: 0.3,
         });
@@ -367,7 +380,7 @@ export function List({ component, bounds }: ListProps): JSX.Element {
         const iconY = y + itemHeight / 2;
 
         const iconCircle = rc.circle(iconX, iconY, iconSize, {
-          stroke: COLORS.display.list.iconStroke,
+          stroke: colors.display.list.iconStroke,
           strokeWidth: 1.5,
           roughness: 0.8,
           fill: 'none',
@@ -390,7 +403,7 @@ export function List({ component, bounds }: ListProps): JSX.Element {
     return () => {
       cleanupRoughElements(groupRef, elements);
     };
-  }, [bounds.width, bounds.height, items, component.dividers]);
+  }, [bounds.width, bounds.height, items, component.dividers, colors]);
 
   return (
     <g
@@ -414,7 +427,7 @@ export function List({ component, bounds }: ListProps): JSX.Element {
                 dominantBaseline="middle"
                 fontSize={iconSize * 0.5}
                 fontFamily="sans-serif"
-                fill={COLORS.display.list.iconText}
+                fill={colors.display.list.iconText}
               >
                 {item.icon.charAt(0).toUpperCase()}
               </text>
@@ -427,7 +440,7 @@ export function List({ component, bounds }: ListProps): JSX.Element {
               dominantBaseline="middle"
               fontSize={14}
               fontFamily="sans-serif"
-              fill={COLORS.display.list.text}
+              fill={colors.display.list.text}
             >
               {item.label}
             </text>
@@ -453,6 +466,9 @@ export interface DividerProps {
  */
 export function Divider({ component, bounds }: DividerProps): JSX.Element {
   const groupRef = useRef<SVGGElement>(null);
+  const { theme } = useTheme();
+  const wireframeTheme: WireframeTheme = theme === 'dark' ? 'dark' : 'light';
+  const colors = getThemeColors(wireframeTheme);
   const isVertical = component.orientation === 'vertical';
 
   useEffect(() => {
@@ -468,7 +484,7 @@ export function Divider({ component, bounds }: DividerProps): JSX.Element {
       isVertical ? bounds.width / 2 : bounds.width,
       isVertical ? bounds.height : bounds.height / 2,
       {
-        stroke: '#e5e7eb',
+        stroke: colors.display.list.divider,
         strokeWidth: 1,
         roughness: 0.5,
       }
@@ -478,7 +494,7 @@ export function Divider({ component, bounds }: DividerProps): JSX.Element {
     return () => {
       cleanupRoughElements(groupRef, elements);
     };
-  }, [bounds.width, bounds.height, isVertical]);
+  }, [bounds.width, bounds.height, isVertical, colors]);
 
   return (
     <g
