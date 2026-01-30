@@ -1,0 +1,214 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 1232 664"
+     width="1232" height="664"
+     style="background-color: #f8f9fa;">
+
+    <g data-screen-id="dashboard">
+      <!-- Screen label -->
+      <text x="16" y="24" font-family="sans-serif" font-size="14" font-weight="bold" fill="#374151">Dashboard</text>
+
+      <!-- Screen background -->
+      <rect x="16" y="48" width="1200" height="600"
+            fill="#f5f5f5" stroke="#374151" stroke-width="2" rx="4"/>
+
+      <!-- Screen content -->
+      <g data-component-type="row">
+    <g data-component-type="navmenu">
+      <rect x="16" y="48" width="220" height="600"
+            fill="#ffffff" stroke="#e5e7eb" stroke-width="1.5"/>
+
+        <g>
+          <rect x="16" y="48" width="220" height="44" fill="#eff6ff"/>
+          <text x="32" y="70" dominant-baseline="middle" font-family="sans-serif" font-size="16" fill="#3b82f6">H</text>
+          <text x="56" y="70" dominant-baseline="middle" font-family="sans-serif" font-size="14" fill="#3b82f6">Dashboard</text>
+        </g>
+        <g>
+          <rect x="16" y="92" width="220" height="44" fill="transparent"/>
+          <text x="32" y="114" dominant-baseline="middle" font-family="sans-serif" font-size="16" fill="#374151">C</text>
+          <text x="56" y="114" dominant-baseline="middle" font-family="sans-serif" font-size="14" fill="#374151">Analytics</text>
+        </g>
+        <g>
+          <rect x="16" y="136" width="220" height="44" fill="transparent"/>
+          <text x="32" y="158" dominant-baseline="middle" font-family="sans-serif" font-size="16" fill="#374151">F</text>
+          <text x="56" y="158" dominant-baseline="middle" font-family="sans-serif" font-size="14" fill="#374151">Projects</text>
+        </g>
+        <g>
+          <rect x="16" y="180" width="220" height="44" fill="transparent"/>
+          <text x="32" y="202" dominant-baseline="middle" font-family="sans-serif" font-size="16" fill="#374151">U</text>
+          <text x="56" y="202" dominant-baseline="middle" font-family="sans-serif" font-size="14" fill="#374151">Team</text>
+        </g>
+        <g>
+          <rect x="16" y="224" width="220" height="44" fill="transparent"/>
+          <text x="32" y="246" dominant-baseline="middle" font-family="sans-serif" font-size="16" fill="#374151">G</text>
+          <text x="56" y="246" dominant-baseline="middle" font-family="sans-serif" font-size="14" fill="#374151">Settings</text>
+        </g>
+    </g><g data-component-type="col">
+    <g data-component-type="appbar">
+      <rect x="236" y="48" width="980" height="48"
+            fill="#ffffff" stroke="#e5e7eb" stroke-width="1.5"/>
+
+      <text x="726" y="72"
+            text-anchor="middle" dominant-baseline="middle"
+            font-family="sans-serif" font-size="18" font-weight="bold" fill="#374151">Dashboard</text>
+      <text x="1200" y="72" text-anchor="end" dominant-baseline="middle"
+                           font-family="sans-serif" font-size="20" fill="#374151">B</text><text x="1168" y="72" text-anchor="end" dominant-baseline="middle"
+                           font-family="sans-serif" font-size="20" fill="#374151">U</text>
+    </g><g data-component-type="col"><g data-component-type="row">
+    <g data-component-type="card">
+      <rect x="252" y="112" width="228" height="80"
+            fill="#ffffff" stroke="#e5e7eb" stroke-width="1.5" rx="8"/>
+
+      <g data-component-type="col">
+    <g data-component-type="text">
+      <text x="276" y="144"
+            dominant-baseline="middle"
+            font-family="sans-serif" font-size="12" font-weight="normal" fill="#666">Total Users</text>
+    </g>
+    <g data-component-type="text">
+      <text x="276" y="170"
+            dominant-baseline="middle"
+            font-family="sans-serif" font-size="24" font-weight="bold" fill="#374151">12,456</text>
+    </g></g>
+    </g>
+    <g data-component-type="card">
+      <rect x="492" y="112" width="228" height="80"
+            fill="#ffffff" stroke="#e5e7eb" stroke-width="1.5" rx="8"/>
+
+      <g data-component-type="col">
+    <g data-component-type="text">
+      <text x="516" y="144"
+            dominant-baseline="middle"
+            font-family="sans-serif" font-size="12" font-weight="normal" fill="#666">Revenue</text>
+    </g>
+    <g data-component-type="text">
+      <text x="516" y="170"
+            dominant-baseline="middle"
+            font-family="sans-serif" font-size="24" font-weight="bold" fill="#374151">$45,678</text>
+    </g></g>
+    </g>
+    <g data-component-type="card">
+      <rect x="732" y="112" width="228" height="80"
+            fill="#ffffff" stroke="#e5e7eb" stroke-width="1.5" rx="8"/>
+
+      <g data-component-type="col">
+    <g data-component-type="text">
+      <text x="756" y="144"
+            dominant-baseline="middle"
+            font-family="sans-serif" font-size="12" font-weight="normal" fill="#666">Orders</text>
+    </g>
+    <g data-component-type="text">
+      <text x="756" y="170"
+            dominant-baseline="middle"
+            font-family="sans-serif" font-size="24" font-weight="bold" fill="#374151">1,234</text>
+    </g></g>
+    </g>
+    <g data-component-type="card">
+      <rect x="972" y="112" width="228" height="80"
+            fill="#ffffff" stroke="#e5e7eb" stroke-width="1.5" rx="8"/>
+
+      <g data-component-type="col">
+    <g data-component-type="text">
+      <text x="996" y="144"
+            dominant-baseline="middle"
+            font-family="sans-serif" font-size="12" font-weight="normal" fill="#666">Conversion</text>
+    </g>
+    <g data-component-type="text">
+      <text x="996" y="170"
+            dominant-baseline="middle"
+            font-family="sans-serif" font-size="24" font-weight="bold" fill="#374151">3.2%</text>
+    </g></g>
+    </g></g><g data-component-type="row">
+    <g data-component-type="card">
+      <rect x="252" y="208" width="672" height="220"
+            fill="#ffffff" stroke="#e5e7eb" stroke-width="1.5" rx="8"/>
+
+      <g data-component-type="col">
+    <g data-component-type="text">
+      <text x="276" y="242"
+            dominant-baseline="middle"
+            font-family="sans-serif" font-size="16" font-weight="bold" fill="#374151">Revenue Overview</text>
+    </g>
+    <g data-component-type="image">
+      <rect x="276" y="260" width="576" height="144"
+            fill="#f3f4f6" stroke="#d1d5db" stroke-width="1.5" rx="4"/>
+      <line x1="276" y1="260" x2="852" y2="404"
+            stroke="#d1d5db" stroke-width="1" stroke-dasharray="4 2"/>
+      <line x1="852" y1="260" x2="276" y2="404"
+            stroke="#d1d5db" stroke-width="1" stroke-dasharray="4 2"/>
+      <circle cx="576.96" cy="323.36" r="8.639999999999999" fill="#9ca3af"/>
+      <path d="M 546.72 344.96 L 564 327.68 L 581.28 344.96 Z"
+            fill="#9ca3af"/>
+      <text x="564" y="396" text-anchor="middle"
+            font-family="sans-serif" font-size="12" fill="#9ca3af">Chart</text>
+    </g></g>
+    </g>
+    <g data-component-type="card">
+      <rect x="940" y="208" width="260" height="220"
+            fill="#ffffff" stroke="#e5e7eb" stroke-width="1.5" rx="8"/>
+
+      <g data-component-type="col">
+    <g data-component-type="text">
+      <text x="964" y="242"
+            dominant-baseline="middle"
+            font-family="sans-serif" font-size="16" font-weight="bold" fill="#374151">Recent Activity</text>
+    </g>
+    <g data-component-type="list">
+      <rect x="964" y="260" width="236" height="144"
+            fill="#ffffff" stroke="#e5e7eb" stroke-width="1.5" rx="4"/>
+
+      <g>
+        <text x="980" y="284" dominant-baseline="middle" font-family="sans-serif" font-size="16" fill="#374151">U</text>
+        <text x="1012" y="284" dominant-baseline="middle" font-family="sans-serif" font-size="14" fill="#374151">New user registered</text>
+        <line x1="964" y1="308" x2="1200" y2="308" stroke="#e5e7eb" stroke-width="1"/>
+      </g>
+      <g>
+        <text x="980" y="332" dominant-baseline="middle" font-family="sans-serif" font-size="16" fill="#374151">C</text>
+        <text x="1012" y="332" dominant-baseline="middle" font-family="sans-serif" font-size="14" fill="#374151">Order #1234 placed</text>
+        <line x1="964" y1="356" x2="1200" y2="356" stroke="#e5e7eb" stroke-width="1"/>
+      </g>
+      <g>
+        <text x="980" y="380" dominant-baseline="middle" font-family="sans-serif" font-size="16" fill="#374151">D</text>
+        <text x="1012" y="380" dominant-baseline="middle" font-family="sans-serif" font-size="14" fill="#374151">Payment received</text>
+
+      </g>
+    </g></g>
+    </g></g>
+    <g data-component-type="card">
+      <rect x="252" y="444" width="948" height="100"
+            fill="#ffffff" stroke="#e5e7eb" stroke-width="1.5" rx="8"/>
+
+      <g data-component-type="col">
+    <g data-component-type="text">
+      <text x="276" y="478"
+            dominant-baseline="middle"
+            font-family="sans-serif" font-size="16" font-weight="bold" fill="#374151">Recent Users</text>
+    </g><g data-component-type="row">
+    <g data-component-type="avatar">
+      <circle cx="300" cy="520" r="24" fill="#e5e7eb" stroke="#9ca3af" stroke-width="1.5"/>
+      <text x="300" y="520" text-anchor="middle" dominant-baseline="middle"
+                     font-family="sans-serif" font-size="19.200000000000003" fill="#6b7280">JD</text>
+    </g>
+    <g data-component-type="avatar">
+      <circle cx="364" cy="520" r="24" fill="#e5e7eb" stroke="#9ca3af" stroke-width="1.5"/>
+      <text x="364" y="520" text-anchor="middle" dominant-baseline="middle"
+                     font-family="sans-serif" font-size="19.200000000000003" fill="#6b7280">AS</text>
+    </g>
+    <g data-component-type="avatar">
+      <circle cx="428" cy="520" r="24" fill="#e5e7eb" stroke="#9ca3af" stroke-width="1.5"/>
+      <text x="428" y="520" text-anchor="middle" dominant-baseline="middle"
+                     font-family="sans-serif" font-size="19.200000000000003" fill="#6b7280">MK</text>
+    </g>
+    <g data-component-type="avatar">
+      <circle cx="492" cy="520" r="24" fill="#e5e7eb" stroke="#9ca3af" stroke-width="1.5"/>
+      <text x="492" y="520" text-anchor="middle" dominant-baseline="middle"
+                     font-family="sans-serif" font-size="19.200000000000003" fill="#6b7280">LR</text>
+    </g>
+    <g data-component-type="avatar">
+      <circle cx="556" cy="520" r="24" fill="#e5e7eb" stroke="#9ca3af" stroke-width="1.5"/>
+      <text x="556" y="520" text-anchor="middle" dominant-baseline="middle"
+                     font-family="sans-serif" font-size="19.200000000000003" fill="#6b7280">KP</text>
+    </g></g></g>
+    </g></g></g></g>
+    </g>
+</svg>

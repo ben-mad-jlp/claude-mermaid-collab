@@ -125,6 +125,10 @@ Access at `http://localhost:3737` after starting a session.
 
 Create UI mockups with a JSON-based component system:
 
+<img src="docs/images/wireframe-dashboard.svg" alt="Dashboard Wireframe" width="600" />
+
+<img src="docs/images/wireframe-login.svg" alt="Login Form Wireframe" width="300" />
+
 - 20+ component types (buttons, inputs, cards, lists, etc.)
 - Responsive viewports (mobile, tablet, desktop)
 - Hand-drawn "rough" style for sketching
