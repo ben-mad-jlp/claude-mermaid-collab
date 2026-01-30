@@ -31,22 +31,31 @@ export interface DocumentLogEntry {
 }
 
 /**
+ * Resource types that can have history tracked
+ */
+export type ResourceType = 'documents' | 'diagrams' | 'wireframes';
+
+/**
  * The complete update log structure
- * Maps document IDs to their change history
+ * Maps resource IDs to their change history, organized by resource type
  */
 export interface UpdateLog {
   /** Map of document ID to its log entry */
   documents: Record<string, DocumentLogEntry>;
+  /** Map of diagram ID to its log entry */
+  diagrams: Record<string, DocumentLogEntry>;
+  /** Map of wireframe ID to its log entry */
+  wireframes: Record<string, DocumentLogEntry>;
 }
 
 /**
  * API response for the /history endpoint
- * Returns the change history for a specific document
+ * Returns the change history for a specific resource (document, diagram, or wireframe)
  */
 export interface HistoryResponse {
-  /** Document ID that was queried */
+  /** Resource ID that was queried */
   id: string;
-  /** Original content of the document */
+  /** Original content of the resource */
   original: string;
   /** Array of changes with timestamps and diffs */
   changes: ChangeEntry[];
@@ -54,10 +63,10 @@ export interface HistoryResponse {
 
 /**
  * API response for the /version endpoint
- * Returns a reconstructed version of a document at a specific point in time
+ * Returns a reconstructed version of a resource at a specific point in time
  */
 export interface VersionResponse {
-  /** Document ID that was queried */
+  /** Resource ID that was queried */
   id: string;
   /** The reconstructed content at the requested version */
   content: string;

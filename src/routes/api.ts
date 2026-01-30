@@ -532,8 +532,9 @@ export async function handleAPI(
       const updateLogManager = new UpdateLogManager(sessionPath);
       const history = await updateLogManager.getHistory('diagrams', id);
 
+      // Return empty history if none exists (not a 404 - the item exists, just no changes yet)
       if (!history) {
-        return Response.json({ error: 'No history for diagram' }, { status: 404 });
+        return Response.json({ original: null, changes: [] });
       }
 
       return Response.json({ original: history.original, changes: history.changes });
@@ -837,8 +838,9 @@ export async function handleAPI(
       const updateLogManager = new UpdateLogManager(sessionPath);
       const history = await updateLogManager.getHistory('wireframes', id);
 
+      // Return empty history if none exists (not a 404 - the item exists, just no changes yet)
       if (!history) {
-        return Response.json({ error: 'No history for wireframe' }, { status: 404 });
+        return Response.json({ original: null, changes: [] });
       }
 
       return Response.json({ original: history.original, changes: history.changes });
@@ -992,6 +994,41 @@ export async function handleAPI(
       }
 
       return response;
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 404 });
+    }
+  }
+
+  // DELETE /api/wireframe/:id?project=...&session=...
+  if (path.match(/^\/api\/wireframe\/[^/]+$/) && !path.includes('/render') && !path.includes('/history') && !path.includes('/version') && req.method === 'DELETE') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const id = path.split('/').pop()!;
+
+    try {
+      const wireframePath = join(params.project, '.collab', 'sessions', params.session, 'wireframes', `${id}.wireframe.json`);
+      const wireframeFile = Bun.file(wireframePath);
+
+      if (!await wireframeFile.exists()) {
+        return Response.json({ error: 'Wireframe not found' }, { status: 404 });
+      }
+
+      // Delete the file
+      const { unlink } = await import('fs/promises');
+      await unlink(wireframePath);
+
+      // Broadcast deletion
+      wsHandler.broadcast({
+        type: 'wireframe_deleted',
+        id,
+        project: params.project,
+        session: params.session,
+      });
+
+      return Response.json({ success: true });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 404 });
     }
@@ -1188,8 +1225,9 @@ export async function handleAPI(
       const updateLogManager = new UpdateLogManager(sessionPath);
       const history = await updateLogManager.getHistory('documents', id);
 
+      // Return empty history if none exists (not a 404 - the item exists, just no changes yet)
       if (!history) {
-        return Response.json({ error: 'No history for document' }, { status: 404 });
+        return Response.json({ original: null, changes: [] });
       }
 
       return Response.json({ original: history.original, changes: history.changes });

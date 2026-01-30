@@ -66,6 +66,9 @@ export interface ApiClient {
   getWireframes(project: string, session: string): Promise<Wireframe[]>;
   getWireframe(project: string, session: string, id: string): Promise<Wireframe | null>;
   updateWireframe(project: string, session: string, id: string, content: string): Promise<void>;
+  deleteDiagram(project: string, session: string, id: string): Promise<void>;
+  deleteDocument(project: string, session: string, id: string): Promise<void>;
+  deleteWireframe(project: string, session: string, id: string): Promise<void>;
 }
 
 export interface CachedUIState {
@@ -431,6 +434,39 @@ export const api: ApiClient = {
       },
       body: JSON.stringify({ content }),
     });
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+  },
+
+  /**
+   * Delete a diagram
+   */
+  async deleteDiagram(project: string, session: string, id: string): Promise<void> {
+    const url = `/api/diagram/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const response = await fetch(url, { method: 'DELETE' });
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+  },
+
+  /**
+   * Delete a document
+   */
+  async deleteDocument(project: string, session: string, id: string): Promise<void> {
+    const url = `/api/document/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const response = await fetch(url, { method: 'DELETE' });
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+  },
+
+  /**
+   * Delete a wireframe
+   */
+  async deleteWireframe(project: string, session: string, id: string): Promise<void> {
+    const url = `/api/wireframe/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const response = await fetch(url, { method: 'DELETE' });
     if (!response.ok) {
       throw new Error(response.statusText);
     }

@@ -78,7 +78,7 @@ describe('POST /api/document/:id logging integration', () => {
 
     // Verify update was logged
     const updateLogManager = new UpdateLogManager(testSessionPath);
-    const history = await updateLogManager.getHistory('test-doc');
+    const history = await updateLogManager.getHistory('documents', 'test-doc');
 
     expect(history).not.toBeNull();
     expect(history!.original).toBe('original content');
@@ -109,7 +109,7 @@ describe('POST /api/document/:id logging integration', () => {
 
     // Verify the patch diff was used, not the full content diff
     const updateLogManager = new UpdateLogManager(testSessionPath);
-    const history = await updateLogManager.getHistory('test-doc');
+    const history = await updateLogManager.getHistory('documents', 'test-doc');
 
     expect(history).not.toBeNull();
     expect(history!.changes[0].diff.oldString).toBe('content');
@@ -230,7 +230,7 @@ describe('POST /api/document/:id logging integration', () => {
 
     // Verify no history was created (content unchanged)
     const updateLogManager = new UpdateLogManager(testSessionPath);
-    const history = await updateLogManager.getHistory('test-doc');
+    const history = await updateLogManager.getHistory('documents', 'test-doc');
 
     // Should be null because logUpdate skips unchanged content
     expect(history).toBeNull();
@@ -267,7 +267,7 @@ describe('POST /api/document/:id logging integration', () => {
 
     // Verify both changes are logged
     const updateLogManager = new UpdateLogManager(testSessionPath);
-    const history = await updateLogManager.getHistory('test-doc');
+    const history = await updateLogManager.getHistory('documents', 'test-doc');
 
     expect(history).not.toBeNull();
     expect(history!.original).toBe('original content');

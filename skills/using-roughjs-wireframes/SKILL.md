@@ -160,9 +160,58 @@ Returns: `{ id, previewUrl, message }`
 
 After creation, the preview URL renders your wireframe with:
 - Rough hand-drawn styling
-- Theme support (light/dark mode)
+- Automatic theme support (light/dark mode)
 - Responsive sizing
 - Interactive component feedback
+
+## Theming
+
+Wireframes **automatically adapt** to the app's current theme - no configuration needed.
+
+### How It Works
+
+1. **Automatic detection**: Wireframes detect the app's theme from `useTheme()` hook
+2. **Full color palettes**: Separate light and dark color schemes for all components
+3. **No syntax changes**: Same wireframe JSON works in both modes
+
+### What Changes in Dark Mode
+
+| Component | Light Mode | Dark Mode |
+|-----------|------------|-----------|
+| **Screen background** | White (`#ffffff`) | Dark gray (`#111827`) |
+| **Card background** | White | Dark (`#1f2937`) |
+| **Text** | Dark gray | Light gray |
+| **Primary buttons** | Dark fill, white text | Blue fill, white text |
+| **Input fields** | White bg, gray border | Dark bg, lighter border |
+| **Navigation** | Light bg | Dark bg with lighter text |
+
+### Best Practices
+
+1. **Don't hardcode colors**: Use variants (`primary`, `secondary`) not hex colors
+2. **Test both themes**: Toggle dark mode to verify readability
+3. **Use semantic variants**: `danger` for destructive actions, `success` for confirmations
+4. **Trust the defaults**: The color system is designed for contrast in both modes
+
+### Example: Same Wireframe, Both Themes
+
+This wireframe automatically adapts:
+
+```json
+{
+  "type": "Container",
+  "props": {
+    "direction": "col",
+    "children": [
+      { "type": "Text", "props": { "variant": "heading", "children": ["Dashboard"] } },
+      { "type": "Button", "props": { "text": "Save", "variant": "primary" } },
+      { "type": "Button", "props": { "text": "Cancel", "variant": "secondary" } }
+    ]
+  }
+}
+```
+
+- In **light mode**: Dark heading text, dark primary button, outlined secondary
+- In **dark mode**: Light heading text, blue primary button, filled secondary
 
 ### Update Existing Wireframes
 

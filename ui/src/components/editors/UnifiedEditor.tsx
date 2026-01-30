@@ -41,6 +41,10 @@ export interface UnifiedEditorProps {
   item: Item | null;
   /** Whether to show the editor (split view) or preview only */
   editMode: boolean;
+  /** Project path for resolving embedded assets */
+  project?: string;
+  /** Session name for resolving embedded assets */
+  session?: string;
   /** Callback when content changes in the editor */
   onContentChange: (content: string) => void;
   /** Current zoom level (percentage) */
@@ -117,6 +121,8 @@ export interface UnifiedEditorProps {
 export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
   item,
   editMode,
+  project,
+  session,
   onContentChange,
   zoomLevel = 100,
   onZoomIn,
@@ -324,6 +330,8 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
           key={item.id}
           content={item.content}
           className="h-full"
+          project={project}
+          session={session}
         />
       );
     })()
@@ -336,6 +344,8 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
           key={item.id}
           content={item.content}
           className="h-full"
+          project={project}
+          session={session}
           diff={diffContents ? {
             oldContent: diffContents.before,
             newContent: diffContents.after,

@@ -7,7 +7,7 @@
 
 import { join } from 'path';
 import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync } from 'fs';
-import type { ChangeEntry, DocumentLogEntry, UpdateLog } from '../types/update-log';
+import type { ChangeEntry, DocumentLogEntry, UpdateLog, ResourceType } from '../types/update-log';
 
 /**
  * Manages document update history logging and replay
@@ -26,14 +26,16 @@ export class UpdateLogManager {
   }
 
   /**
-   * Log a document update. Captures original content on first update.
-   * @param documentId - The document ID being updated
+   * Log a resource update. Captures original content on first update.
+   * @param resourceType - The type of resource ('documents', 'diagrams', 'wireframes')
+   * @param resourceId - The resource ID being updated
    * @param oldContent - Content before the update
    * @param newContent - Content after the update
    * @param diff - Optional patch diff if available (from patch operations)
    */
   async logUpdate(
-    documentId: string,
+    resourceType: ResourceType,
+    resourceId: string,
     oldContent: string,
     newContent: string,
     diff?: { oldString: string; newString: string }
@@ -46,9 +48,9 @@ export class UpdateLogManager {
     // Load existing log
     const log = await this.loadLog();
 
-    // Create entry if this is first update for document
-    if (!log.documents[documentId]) {
-      log.documents[documentId] = {
+    // Create entry if this is first update for resource
+    if (!log[resourceType][resourceId]) {
+      log[resourceType][resourceId] = {
         original: oldContent,
         changes: [],
       };
@@ -64,34 +66,36 @@ export class UpdateLogManager {
     };
 
     // Append change
-    log.documents[documentId].changes.push(changeEntry);
+    log[resourceType][resourceId].changes.push(changeEntry);
 
     // Save atomically
     await this.saveLog(log);
   }
 
   /**
-   * Get the change history for a document
-   * @param documentId - The document ID to get history for
-   * @returns Document log entry with original content and changes, or null if no history
+   * Get the change history for a resource
+   * @param resourceType - The type of resource ('documents', 'diagrams', 'wireframes')
+   * @param resourceId - The resource ID to get history for
+   * @returns Log entry with original content and changes, or null if no history
    */
-  async getHistory(documentId: string): Promise<DocumentLogEntry | null> {
+  async getHistory(resourceType: ResourceType, resourceId: string): Promise<DocumentLogEntry | null> {
     const log = await this.loadLog();
-    return log.documents[documentId] ?? null;
+    return log[resourceType][resourceId] ?? null;
   }
 
   /**
-   * Replay changes to reconstruct document at a specific timestamp
-   * @param documentId - The document ID to replay
+   * Replay changes to reconstruct resource content at a specific timestamp
+   * @param resourceType - The type of resource ('documents', 'diagrams', 'wireframes')
+   * @param resourceId - The resource ID to replay
    * @param timestamp - ISO timestamp to replay to
    * @returns Content at that point in time
-   * @throws Error if document has no history or timestamp is invalid
+   * @throws Error if resource has no history or timestamp is invalid
    */
-  async replayToTimestamp(documentId: string, timestamp: string): Promise<string> {
-    const history = await this.getHistory(documentId);
+  async replayToTimestamp(resourceType: ResourceType, resourceId: string, timestamp: string): Promise<string> {
+    const history = await this.getHistory(resourceType, resourceId);
 
     if (!history) {
-      throw new Error(`No history found for document ${documentId}`);
+      throw new Error(`No history found for ${resourceType.slice(0, -1)} ${resourceId}`);
     }
 
     // Parse target timestamp
@@ -123,15 +127,20 @@ export class UpdateLogManager {
   private async loadLog(): Promise<UpdateLog> {
     try {
       if (!existsSync(this.logFilePath)) {
-        return { documents: {} };
+        return { documents: {}, diagrams: {}, wireframes: {} };
       }
 
       const content = readFileSync(this.logFilePath, 'utf-8');
-      return JSON.parse(content) as UpdateLog;
+      const log = JSON.parse(content) as UpdateLog;
+      // Ensure all resource type keys exist (for backwards compatibility)
+      if (!log.diagrams) log.diagrams = {};
+      if (!log.wireframes) log.wireframes = {};
+      if (!log.documents) log.documents = {};
+      return log;
     } catch (error) {
       // File read or JSON parse error - return empty log
       console.warn('Failed to load update log, returning empty log:', error);
-      return { documents: {} };
+      return { documents: {}, diagrams: {}, wireframes: {} };
     }
   }
 

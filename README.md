@@ -1,436 +1,288 @@
 # Mermaid Collab
 
-A collaborative design toolkit for Claude Code: diagram server + skills/agents for design-to-implementation workflows.
+A design-to-implementation toolkit for Claude Code that transforms ideas into working software through structured collaboration.
 
-**Two components:**
-1. **Server** - Real-time Mermaid diagram collaboration with MCP integration and React GUI
-2. **Plugin** - 42 skills + 5 agents for brainstorming, planning, and structured development workflows
+<img src="ui/public/logo.png" alt="Mermaid Collab" width="200" />
 
-## Collab Workflow
+## What is Mermaid Collab?
 
-The collab workflow turns ideas into working code through structured phases with verification gates at each transition.
+Mermaid Collab is a Claude Code plugin that provides:
 
-```
-/collab → gather-goals → work-item-loop → ready-to-implement → rough-draft → executing-plans → cleanup
-```
-
-### Phases
-
-| Phase | Purpose | Output |
-|-------|---------|--------|
-| **gather-session-goals** | Collect work items with type inference | Work items in design doc |
-| **brainstorming** | Socratic design refinement (EXPLORING → CLARIFYING → DESIGNING → VALIDATING) | Complete design with diagrams |
-| **rough-draft** | Progressive refinement (Interface → Pseudocode → Skeleton → Handoff) | Task dependency graph |
-| **executing-plans** | Parallel task execution with verification gates | Working implementation |
-| **collab-cleanup** | Archive or delete session artifacts | Clean workspace |
-
-### Key Principles
-
-- **Spec-first**: Design is complete before any code is written
-- **Drift detection**: Each phase verifies alignment with original design
-- **Anti-drift rules**: Implementation follows design EXACTLY - no interpretation
-- **Verification gates**: Evidence-based checks before each transition
-
-## Features
-
-### Server
-
-- **Multi-Session Architecture**: One server serves multiple projects and sessions
-- **React GUI**: Full-featured web dashboard at `http://localhost:3737`
-- **Split-Pane Editor**: Live preview with syntax validation, undo/redo
-- **Real-Time Collaboration**: WebSocket-based live updates with channel subscriptions
-- **MCP Integration**: Claude Code can create, read, update, and preview diagrams
-- **Wireframe Plugin**: Built-in support for UI wireframes and mockups
-- **Document Collaboration**: Create and edit markdown documents alongside diagrams
-- **AI UI System**: Rich interactive components rendered in browser (forms, tables, code blocks, etc.)
-- **Terminal Integration**: Embedded terminal sessions with tmux support
-- **Kodex Knowledge Base**: Project-specific knowledge management with topic CRUD
-- **Health Monitoring**: `/api/health` endpoint and `check_server_health` MCP tool
-
-### Skills (41 Total)
-
-Skills are orchestration-focused instructions for Claude Code, loaded on-demand. Large skills use phase modules to reduce context overhead.
-
-#### Collab Core (7)
-| Skill | Purpose |
-|-------|---------|
-| **collab** | Orchestrator - creates sessions, manages work item loop |
-| **collab-start** | Quick-start: ensures server running then launches collab |
-| **collab-work-item-loop** | Core loop that processes work items one at a time |
-| **collab-session-mgmt** | Session finding, creating, and resuming procedures |
-| **collab-cleanup** | Archive or delete session artifacts |
-| **collab-clear** | Ask about clearing context, then proceed to next skill |
-| **gather-session-goals** | Collects and classifies work items at session start |
-
-#### Brainstorming (6)
-| Skill | Purpose |
-|-------|---------|
-| **brainstorming** | Parent skill - Socratic design refinement through phases |
-| **brainstorming-exploring** | Phase: Gather context and form initial understanding |
-| **brainstorming-clarifying** | Phase: Discuss each item to understand requirements |
-| **brainstorming-designing** | Phase: Present design approach in validated sections |
-| **brainstorming-validating** | Phase: Run completeness gate for implementation readiness |
-| **brainstorming-transition** | Transition from brainstorming to rough-draft |
-
-#### Rough Draft (5)
-| Skill | Purpose |
-|-------|---------|
-| **rough-draft** | Parent skill - Bridges design to implementation via 4 phases |
-| **rough-draft-interface** | Phase 1: Define structural contracts |
-| **rough-draft-pseudocode** | Phase 2: Define logic flow for each function |
-| **rough-draft-skeleton** | Phase 3: Generate stub files and task dependency graph |
-| **rough-draft-handoff** | Phase 4: Hand off to executing-plans |
-
-#### Executing Plans (3)
-| Skill | Purpose |
-|-------|---------|
-| **executing-plans** | Parent skill - Batch execution with dependency-aware dispatch |
-| **executing-plans-execution** | Detailed execution logic |
-| **executing-plans-review** | Verification and drift detection |
-
-#### Kodex Knowledge Base (7)
-| Skill | Purpose |
-|-------|---------|
-| **using-kodex** | Query topics and flag outdated information |
-| **kodex-init** | Bootstrap knowledge base by analyzing codebase |
-| **kodex-fix** | Fix flagged topics by generating updated content |
-| **kodex-fix-outdated** | Update topics with codebase changes |
-| **kodex-fix-incorrect** | Correct factually incorrect content |
-| **kodex-fix-incomplete** | Fill in missing sections |
-| **kodex-fix-missing** | Create new topics for missing documentation |
-
-#### Implementation (5)
-| Skill | Purpose |
-|-------|---------|
-| **ready-to-implement** | Central checkpoint - validates all items documented |
-| **task-planning** | Plans operational tasks (Prerequisites → Steps → Verification) |
-| **dispatching-parallel-agents** | Coordinates independent tasks |
-| **finishing-a-development-branch** | Merge/PR decision workflow |
-| **writing-plans** | Detailed implementation plans (standalone) |
-
-#### Development Practices (2)
-| Skill | Purpose |
-|-------|---------|
-| **test-driven-development** | RED-GREEN-REFACTOR cycle enforcement |
-| **writing-skills** | Create and verify new skills |
-
-#### Code Review (2)
-| Skill | Purpose |
-|-------|---------|
-| **requesting-code-review** | Prepares code for peer review |
-| **receiving-code-review** | Handles feedback with validation |
-
-#### Visualization & Utilities (4)
-| Skill | Purpose |
-|-------|---------|
-| **mermaid-collab** | Create/edit diagrams, wireframes, documents |
-| **using-gui-wireframes** | UI mockup creation |
-| **using-ai-ui** | Guide for interactive UI components |
-| **using-superpowers** | Establishes skill discovery and usage |
-
-### Agents (5 Total)
-
-Agents are standalone Task tool targets with simplified frontmatter. They focus on specific bounded tasks.
-
-| Agent | Purpose |
-|-------|---------|
-| **subagent-driven-development** | Fast iteration with parallel task execution |
-| **systematic-debugging** | 4-phase root cause analysis (documentation only) |
-| **verify-phase** | Checks rough-draft output aligns with design |
-| **verification-before-completion** | Evidence before success claims |
-| **using-git-worktrees** | Creates isolated development branches |
+1. **Collaboration Server** - Real-time Mermaid diagrams, wireframes, and documents with a React GUI
+2. **Structured Workflow** - A state machine that guides you from idea to implementation
+3. **40+ Skills** - Orchestrated design patterns for brainstorming, planning, and development
 
 ## Quick Start
 
-### 1. Install Server
-
 ```bash
-git clone https://github.com/ben-mad-jlp/claude-mermaid-collab.git
-cd claude-mermaid-collab
-bun install
-```
-
-### 2. Start Server
-
-```bash
-# Start server in background
-bun run bin/mermaid-collab.ts start
-
-# Check status
-bun run bin/mermaid-collab.ts status
-
-# Stop server
-bun run bin/mermaid-collab.ts stop
-```
-
-The server runs at `http://localhost:3737` and serves all sessions.
-
-### 3. Install Plugin (Claude Code)
-
-```bash
-# In Claude Code, install the plugin
+# Install the plugin in Claude Code
 /plugin install ben-mad-jlp/claude-mermaid-collab
-```
 
-### 4. Start a Collab Session
-
-```bash
-# In Claude Code
+# Start a collab session
 /collab
 ```
 
-This will:
-1. Create a new session with a memorable name (e.g., `bright-calm-river`)
-2. Ask what you want to accomplish
-3. Guide you through the design-to-implementation workflow
+That's it! The server auto-starts when needed, and you're guided through a structured workflow.
 
-## Slash Commands
+---
 
-The plugin provides these slash commands (all namespaced under `mermaid-collab:`):
+## The Collab Workflow
 
-| Command | Description |
-|---------|-------------|
-| `/mermaid-collab:collab` | Start or resume a collaborative design session |
-| `/mermaid-collab:collab-start` | Ensure server running and start collab |
-| `/mermaid-collab:brainstorming` | Start brainstorming for a feature/component |
-| `/mermaid-collab:mermaid-collab` | Create and collaborate on Mermaid diagrams |
+The collab workflow is a state machine that ensures **design completeness before implementation**. Every idea goes through verification gates before any code is written.
 
-**Note:** Commands are namespaced with `mermaid-collab:` prefix because they come from this plugin. Type `/mermaid-collab:` in Claude Code to see all available commands.
+### State Machine Overview
 
-## Session Storage
+```mermaid
+flowchart TD
+    A["/collab"] --> B["gather-goals"]
+
+    B --> C["EXPLORING"]
+    C --> D["CLARIFYING"]
+    D --> E["DESIGNING"]
+    E --> F["VALIDATING"]
+    F --> G["blueprint"]
+    G --> H["ready-to-implement"]
+    H --> I["executing-plans"]
+    I --> J["finishing-branch"]
+    J --> K["cleanup"]
+    K --> L(("Done"))
+
+    B -.->|bugfix| M["systematic-debugging"]
+    M -.-> C
+    F -.->|task| N["task-planning"]
+    N -.-> G
+
+    B ==>|vibe| V["vibe-active"]
+    V ==> K
+```
+
+The full workflow includes brainstorming phases, special routing for bugfixes and tasks, and a **vibe mode** shortcut for freeform work.
+
+### Two Session Types
+
+| Type | Flow | Best For |
+|------|------|----------|
+| **Structured** | Full state machine with verification gates | Features, refactors, complex work |
+| **Vibe** | Skip brainstorming → straight to cleanup | Quick sketches, exploration, prototyping |
+
+In **vibe mode**, you bypass all brainstorming phases and work directly with diagrams, documents, and wireframes. When done, go straight to cleanup.
+
+### Phase Details
+
+#### 1. Gather Goals
+Collect work items and classify them:
+- **Code** - Features requiring implementation
+- **Task** - Operational work (setup, config, organization)
+- **Bugfix** - Issues requiring investigation
+
+#### 2. Brainstorming (4 sub-phases)
+
+| Phase | Purpose |
+|-------|---------|
+| **EXPLORING** | Gather context, form initial understanding |
+| **CLARIFYING** | Discuss each item to fully understand requirements |
+| **DESIGNING** | Present design approach in validated sections |
+| **VALIDATING** | Run completeness gate before proceeding |
+
+Special routing:
+- **Bugfixes** → `systematic-debugging` (skip brainstorming)
+- **Tasks** → `task-planning` after design (skip rough-draft)
+
+#### 3. Rough-Draft (code items only)
+Progressive refinement through:
+- **Interface** - Define contracts and types
+- **Pseudocode** - Logic flow for each function
+- **Skeleton** - Generate stub files and task graph
+
+#### 4. Execution
+- Parallel task execution with dependency awareness
+- Verification gates between batches
+- Drift detection against original design
+
+#### 5. Cleanup
+- Archive session to `docs/designs/`
+- Or delete session files
+- Clean workspace for next project
+
+---
+
+## Features
+
+### React GUI
+
+Access at `http://localhost:3737` after starting a session.
+
+**Dashboard Features:**
+- Session browser with project grouping
+- Split-pane editors with live preview
+- Diagram validation with syntax highlighting
+- Document editor with markdown preview
+- Wireframe designer with component palette
+- Terminal integration with tmux support
+- Real-time WebSocket updates
+
+### Wireframes
+
+Create UI mockups with a JSON-based component system:
+
+- 20+ component types (buttons, inputs, cards, lists, etc.)
+- Responsive viewports (mobile, tablet, desktop)
+- Hand-drawn "rough" style for sketching
+- Export to SVG/PNG
+
+### Diagrams
+
+Full Mermaid support with:
+- Flowcharts, sequence diagrams, class diagrams
+- State machines, entity relationships
+- Gantt charts, mind maps
+- Custom themes and styling
+
+### AI UI System
+
+The `render_ui` tool pushes interactive components to the browser:
+
+**32 Component Types:**
+- **Display**: Table, CodeBlock, DiffView, JsonViewer, Markdown, Image
+- **Layout**: Card, Section, Columns, Accordion, Alert
+- **Interactive**: Wizard, Checklist, ApprovalButtons, ProgressBar, Tabs
+- **Inputs**: TextInput, TextArea, Checkbox, RadioGroup, Toggle, Slider
+
+---
+
+## Architecture
+
+### Single Server Model
 
 ```
-~/.mermaid-collab/
-├── sessions.json       # Registry of all sessions
-├── server.pid          # Server process ID
-└── .collab/
-    └── scratch/        # Default scratch session
+┌─────────────────────────────────────────┐
+│           Collaboration Server          │
+│              (port 3737)                │
+├─────────────────────────────────────────┤
+│  React GUI    │  REST API  │  WebSocket │
+├───────────────┴────────────┴────────────┤
+│              MCP Transport              │
+├─────────────────────────────────────────┤
+│  DiagramManager │ DocumentManager │ ... │
+└─────────────────────────────────────────┘
+         ↓              ↓
+    Project A       Project B
+    └─ .collab/     └─ .collab/
+       └─ sessions     └─ sessions
+```
+
+One server instance serves all projects. Sessions are stored in each project's `.collab/` directory.
+
+### Session Storage
+
+```
+~/.mermaid-collab/           # Global config
+├── sessions.json            # Session registry
+├── server.pid               # Process ID
+└── server.log               # Server logs
 
 /your/project/
 ├── .collab/
 │   └── session-name/
-│       ├── diagrams/              # .mmd files
-│       ├── documents/             # .md files (design.md required)
-│       ├── collab-state.json      # Phase tracking
-│       └── terminal-sessions.json # Persistent terminal tabs
-└── .kodex/                        # Project knowledge base
+│       ├── diagrams/        # .mmd files
+│       ├── documents/       # .md files
+│       ├── wireframes/      # .json files
+│       └── collab-state.json
+└── .kodex/                  # Knowledge base
     └── topics/
-        └── *.md                   # Topic files
 ```
 
-### Collab State
-
-```json
-{
-  "phase": "brainstorming|rough-draft/interface|rough-draft/pseudocode|rough-draft/skeleton|implementation",
-  "lastActivity": "2026-01-20T10:30:00Z",
-  "currentItem": null,
-  "completedTasks": [],
-  "pendingTasks": []
-}
-```
+---
 
 ## MCP Tools
 
-All tools require `project` (absolute path) and `session` (session name) parameters unless noted.
+All tools are available to Claude Code via the MCP protocol.
 
-### Health & Session Management
-
+### Session Management
 | Tool | Description |
 |------|-------------|
-| `check_server_health()` | Check server health status |
-| `generate_session_name()` | Generate a memorable session name |
-| `list_sessions()` | List all registered sessions |
-| `list_projects()` | List all registered projects |
-| `register_project(path)` | Register a new project |
-| `unregister_project(path)` | Unregister a project |
+| `check_server_health` | Server status and uptime |
+| `generate_session_name` | Create memorable name |
+| `list_sessions` | All sessions across projects |
+| `get_session_state` | Current phase and work items |
 
-### Collab State Tools
-
+### Content Creation
 | Tool | Description |
 |------|-------------|
-| `get_session_state(project, session)` | Read collab-state.json |
-| `update_session_state(project, session, ...)` | Update collab state fields |
+| `create_diagram` | New Mermaid diagram |
+| `create_document` | New markdown document |
+| `create_wireframe` | New UI wireframe |
+| `update_*` / `patch_*` | Modify existing content |
+| `validate_diagram` | Check Mermaid syntax |
 
-### Diagram Tools
-
+### Workflow
 | Tool | Description |
 |------|-------------|
-| `list_diagrams(project, session)` | List all diagrams |
-| `get_diagram(project, session, id)` | Get diagram content |
-| `create_diagram(project, session, name, content)` | Create new diagram |
-| `update_diagram(project, session, id, content)` | Update diagram |
-| `patch_diagram(project, session, id, old_string, new_string)` | Patch diagram content |
-| `validate_diagram(content)` | Check Mermaid syntax |
-| `preview_diagram(project, session, id)` | Get browser URL |
-| `transpile_diagram(project, session, id)` | Get transpiled output for SMACH diagrams |
+| `complete_skill` | Report completion, get next skill |
+| `update_task_status` | Update task in graph |
+| `get_task_graph` | Current task dependencies |
 
-### Document Tools
-
+### Knowledge Base (Kodex)
 | Tool | Description |
 |------|-------------|
-| `list_documents(project, session)` | List all documents |
-| `get_document(project, session, id)` | Get document content |
-| `create_document(project, session, name, content)` | Create new document |
-| `update_document(project, session, id, content)` | Update document |
-| `patch_document(project, session, id, old_string, new_string)` | Patch document content |
-| `preview_document(project, session, id)` | Get browser URL |
+| `kodex_query_topic` | Read topic content |
+| `kodex_create_topic` | Create new topic (as draft) |
+| `kodex_flag_topic` | Mark as outdated/incorrect |
 
-### UI Tools
+---
 
-| Tool | Description |
-|------|-------------|
-| `render_ui(project, session, ui, blocking?, timeout?)` | Push UI to browser |
-| `update_ui(project, session, patch)` | Update displayed UI with patch |
-| `dismiss_ui(project, session)` | Dismiss current UI |
+## Skills (40+)
 
-### Terminal Session Tools
+Skills are orchestration instructions loaded on-demand. Key categories:
 
-| Tool | Description |
-|------|-------------|
-| `terminal_create_session(project, session, name?)` | Create a new tmux terminal session |
-| `terminal_list_sessions(project, session)` | List all terminal sessions for a collab |
-| `terminal_kill_session(project, session, id)` | Kill a terminal session |
-| `terminal_rename_session(project, session, id, name)` | Rename a terminal session |
-| `terminal_reorder_sessions(project, session, orderedIds)` | Reorder terminal sessions |
+### Core Workflow
+- `collab` - Entry point and session management
+- `gather-session-goals` - Collect and classify work items
+- `collab-cleanup` - Archive or delete artifacts
 
-### Kodex Knowledge Base Tools
+### Brainstorming
+- `brainstorming-exploring` - Context gathering
+- `brainstorming-clarifying` - Requirement discussion
+- `brainstorming-designing` - Design presentation
+- `brainstorming-validating` - Completeness gate
 
-| Tool | Description |
-|------|-------------|
-| `kodex_query_topic(project, name)` | Query a topic from knowledge base |
-| `kodex_list_topics(project, filter?)` | List all topics (all/verified/unverified/has_draft) |
-| `kodex_create_topic(project, name, title, content)` | Create new topic (as draft) |
-| `kodex_update_topic(project, name, content, reason)` | Update topic (creates draft) |
-| `kodex_flag_topic(project, name, type, description)` | Flag topic for review |
-| `kodex_verify_topic(project, name, verified_by)` | Mark topic as verified |
-| `kodex_list_drafts(project, include_content?)` | List pending drafts |
-| `kodex_approve_draft(project, name)` | Approve a pending draft |
-| `kodex_reject_draft(project, name)` | Reject a pending draft |
-| `kodex_dashboard(project)` | Get dashboard stats |
-| `kodex_list_flags(project, status?)` | List flagged topics |
+### Implementation
+- `rough-draft-blueprint` - Interface → Pseudocode → Skeleton
+- `executing-plans` - Parallel task execution
+- `test-driven-development` - RED-GREEN-REFACTOR
 
-## REST API
+### Utilities
+- `systematic-debugging` - 4-phase root cause analysis
+- `writing-skills` - Create new skills
+- `using-kodex` - Query project knowledge
 
-All endpoints require `?project=...&session=...` query parameters unless noted.
+---
 
-### Health
-```bash
-GET /api/health                # Server health status (no params required)
-```
-
-### Sessions
-```bash
-GET /api/sessions              # List all sessions
-POST /api/sessions             # Register session
-DELETE /api/sessions           # Unregister session
-```
-
-### Diagrams
-```bash
-GET /api/diagrams              # List diagrams
-GET /api/diagram/:id           # Get diagram
-POST /api/diagram              # Create diagram
-POST /api/diagram/:id          # Update diagram
-PATCH /api/diagram/:id         # Patch diagram
-DELETE /api/diagram/:id        # Delete diagram
-```
-
-### Documents
-```bash
-GET /api/documents             # List documents
-GET /api/document/:id          # Get document
-POST /api/document             # Create document
-POST /api/document/:id         # Update document
-PATCH /api/document/:id        # Patch document
-DELETE /api/document/:id       # Delete document
-```
-
-### Terminal Sessions
-```bash
-GET /api/terminal/sessions           # List terminal sessions
-POST /api/terminal/sessions          # Create terminal session
-DELETE /api/terminal/sessions/:id    # Kill terminal session
-PATCH /api/terminal/sessions/:id     # Rename terminal session
-PUT /api/terminal/sessions/reorder   # Reorder terminal sessions
-```
-
-## Architecture
-
-### Services
-
-| Service | Purpose |
-|---------|---------|
-| **SessionRegistry** | Tracks sessions across projects |
-| **DiagramManager** | Per-session diagram CRUD |
-| **DocumentManager** | Per-session document CRUD |
-| **TerminalManager** | Collab-scoped tmux session lifecycle |
-| **KodexManager** | Project knowledge base management |
-| **Validator** | Mermaid syntax validation |
-| **Renderer** | Server-side SVG generation |
-| **WebSocketHandler** | Real-time updates with channel subscriptions |
-
-### Single Server Model
-
-- One server instance serves all projects and sessions
-- Runs on port 3737 (configurable via `PORT` env var)
-- Session registry at `~/.mermaid-collab/sessions.json`
-- WebSocket broadcasts include project/session context for filtering
-- Channel-based subscriptions for targeted updates
-
-## AI UI Components
-
-The `render_ui` tool supports 32 component types for rich browser interactions:
-
-### Display Components
-`Table`, `CodeBlock`, `DiffView`, `JsonViewer`, `Markdown`, `Image`, `Spinner`, `Badge`
-
-### Layout Components
-`Card`, `Section`, `Columns`, `Accordion`, `Alert`, `Divider`
-
-### Interactive Components
-`Wizard`, `Checklist`, `ApprovalButtons`, `ProgressBar`, `Tabs`, `Link`
-
-### Input Components (form data collected on action)
-`MultipleChoice`, `TextInput`, `TextArea`, `Checkbox`, `Confirmation`, `RadioGroup`, `Toggle`, `NumberInput`, `Slider`, `FileUpload`
-
-### Mermaid Components
-`DiagramEmbed`, `WireframeEmbed`
-
-## Wireframe Plugin
-
-Create UI wireframes with text-based syntax:
-
-```
-wireframe mobile TD
-  screen "Login Screen"
-    col padding=16
-      Title "Welcome Back"
-      Input "Email"
-      Input "Password"
-      Button "Sign In" primary
-```
-
-See [plugins/wireframe/README.md](plugins/wireframe/README.md) for full documentation.
-
-## Development
+## CLI Commands
 
 ```bash
-# Run server directly (for development)
-bun run src/server.ts
+# Server management
+bun run bin/mermaid-collab.ts start   # Start in background
+bun run bin/mermaid-collab.ts stop    # Stop server
+bun run bin/mermaid-collab.ts status  # Check status
 
-# Run MCP server directly
-bun run src/mcp/server.ts
-
-# Run full dev environment (API + UI + Terminal)
-npm run dev
-
-# Run UI tests
-cd ui && npm run test:ci
-
-# Run backend tests
-npm run test:backend
+# Development
+bun run dev          # Full dev environment (API + UI)
+bun run dev:api      # API server only
+bun run dev:ui       # UI dev server only
+npm run test:ci      # Run all tests
 ```
+
+---
+
+## Key Principles
+
+1. **Spec-First** - Design is complete before code is written
+2. **Verification Gates** - Evidence-based checks at each transition
+3. **Drift Detection** - Implementation matches design exactly
+4. **Context Management** - Clear between phases to stay focused
+
+---
 
 ## License
 

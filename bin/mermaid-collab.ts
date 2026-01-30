@@ -17,11 +17,35 @@ import { homedir } from 'os';
 const DATA_DIR = join(homedir(), '.mermaid-collab');
 const PID_FILE = join(DATA_DIR, 'server.pid');
 const LOG_FILE = join(DATA_DIR, 'server.log');
-const SERVER_SCRIPT = join(dirname(dirname(import.meta.path)), 'src', 'server.ts');
+const PROJECT_ROOT = dirname(dirname(import.meta.path));
+const SERVER_SCRIPT = join(PROJECT_ROOT, 'src', 'server.ts');
+const UI_DIST_DIR = join(PROJECT_ROOT, 'ui', 'dist');
 const PORT = process.env.PORT || 3737;
 
 async function ensureDataDir(): Promise<void> {
   await mkdir(DATA_DIR, { recursive: true });
+}
+
+async function buildUI(): Promise<boolean> {
+  const uiDir = join(PROJECT_ROOT, 'ui');
+  if (!existsSync(uiDir)) {
+    console.error('UI directory not found:', uiDir);
+    return false;
+  }
+
+  console.log('Building UI...');
+  const result = Bun.spawnSync(['bun', 'run', 'build'], {
+    cwd: uiDir,
+    stdio: ['ignore', 'inherit', 'inherit'],
+  });
+
+  if (result.exitCode !== 0) {
+    console.error('UI build failed');
+    return false;
+  }
+
+  console.log('UI build complete');
+  return true;
 }
 
 async function readPid(): Promise<number | null> {
@@ -78,6 +102,14 @@ async function start(): Promise<void> {
   if (!existsSync(SERVER_SCRIPT)) {
     console.error(`Server script not found: ${SERVER_SCRIPT}`);
     process.exit(1);
+  }
+
+  // Build UI if dist doesn't exist
+  if (!existsSync(UI_DIST_DIR)) {
+    const buildSuccess = await buildUI();
+    if (!buildSuccess) {
+      console.error('Failed to build UI. Server will start but UI may not work.');
+    }
   }
 
   // Spawn detached process

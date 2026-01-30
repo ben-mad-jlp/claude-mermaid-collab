@@ -16,23 +16,6 @@ export interface SessionRegistryData {
 const DATA_DIR = join(homedir(), '.mermaid-collab');
 const REGISTRY_PATH = join(DATA_DIR, 'sessions.json');
 
-const INITIAL_DESIGN_TEMPLATE = (sessionName: string) => `# Session: ${sessionName}
-
-## Session Context
-**Out of Scope:** (session-wide boundaries)
-**Shared Decisions:** (cross-cutting choices)
-
----
-
-## Work Items
-
-*To be filled by gather-session-goals*
-
----
-
-## Diagrams
-(auto-synced)`;
-
 export class SessionRegistry {
   private registryPath: string;
 
@@ -125,10 +108,6 @@ export class SessionRegistry {
     }, null, 2);
     await this.createFileIfNotExists(collabStatePath, collabStateContent);
 
-    const designDocPath = join(sessionPath, 'documents', 'design.md');
-    const designDocContent = INITIAL_DESIGN_TEMPLATE(session);
-    await this.createFileIfNotExists(designDocPath, designDocContent);
-
     return { created };
   }
 
@@ -188,15 +167,15 @@ export class SessionRegistry {
    * Resolve the path for a session's diagrams or documents folder.
    * Checks new location first, then old location for backwards compatibility.
    */
-  resolvePath(project: string, session: string, type: 'diagrams' | 'documents'): string {
+  resolvePath(project: string, session: string, type: 'diagrams' | 'documents' | 'wireframes' | '.'): string {
     if (!project || !project.startsWith('/')) {
       throw new Error('Invalid project path: must be an absolute path');
     }
     if (!session) {
       throw new Error('Invalid session name');
     }
-    if (type !== 'diagrams' && type !== 'documents') {
-      throw new Error('Invalid type: must be "diagrams" or "documents"');
+    if (type !== 'diagrams' && type !== 'documents' && type !== 'wireframes' && type !== '.') {
+      throw new Error('Invalid type: must be "diagrams", "documents", "wireframes", or "."');
     }
 
     // Check new location first

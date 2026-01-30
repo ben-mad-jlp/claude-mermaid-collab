@@ -82,7 +82,7 @@ describe('API Document History Endpoints', () => {
       expect(data.error).toContain('project and session');
     });
 
-    it('should return 404 if document has no history', async () => {
+    it('should return empty history if document has no history', async () => {
       const req = new Request(
         `http://localhost/api/document/nonexistent-doc/history?project=${encodeURIComponent(testProjectPath)}&session=${testSession}`,
         { method: 'GET' }
@@ -92,16 +92,17 @@ describe('API Document History Endpoints', () => {
         mockValidator, mockRenderer, mockWSHandler
       );
 
-      expect(response.status).toBe(404);
+      expect(response.status).toBe(200);
       const data = await response.json();
-      expect(data.error).toContain('No history');
+      expect(data.original).toBeNull();
+      expect(data.changes).toEqual([]);
     });
 
     it('should return history with original content and changes', async () => {
       // Create update log with history
       const updateLogManager = new UpdateLogManager(testSessionPath);
-      await updateLogManager.logUpdate('test-doc', 'original content', 'updated content');
-      await updateLogManager.logUpdate('test-doc', 'updated content', 'final content', {
+      await updateLogManager.logUpdate('documents', 'test-doc', 'original content', 'updated content');
+      await updateLogManager.logUpdate('documents', 'test-doc', 'updated content', 'final content', {
         oldString: 'updated',
         newString: 'final',
       });
@@ -126,7 +127,7 @@ describe('API Document History Endpoints', () => {
     it('should return correct structure for history response', async () => {
       // Create update log with a single change
       const updateLogManager = new UpdateLogManager(testSessionPath);
-      await updateLogManager.logUpdate('doc-123', 'Hello world', 'Hello there');
+      await updateLogManager.logUpdate('documents', 'doc-123', 'Hello world', 'Hello there');
 
       const req = new Request(
         `http://localhost/api/document/doc-123/history?project=${encodeURIComponent(testProjectPath)}&session=${testSession}`,
@@ -220,15 +221,15 @@ describe('API Document History Endpoints', () => {
       const updateLogManager = new UpdateLogManager(testSessionPath);
 
       // First update
-      await updateLogManager.logUpdate('test-doc', 'original content', 'updated content');
+      await updateLogManager.logUpdate('documents', 'test-doc', 'original content', 'updated content');
 
       // Get the timestamp of the first change
-      const history = await updateLogManager.getHistory('test-doc');
+      const history = await updateLogManager.getHistory('documents', 'test-doc');
       const firstChangeTimestamp = history!.changes[0].timestamp;
 
       // Wait a bit and make another change
       await new Promise(resolve => setTimeout(resolve, 50));
-      await updateLogManager.logUpdate('test-doc', 'updated content', 'final content');
+      await updateLogManager.logUpdate('documents', 'test-doc', 'updated content', 'final content');
 
       // Request version at the first change timestamp
       const req = new Request(
@@ -254,7 +255,7 @@ describe('API Document History Endpoints', () => {
       const beforeTimestamp = new Date(Date.now() - 1000).toISOString();
       await new Promise(resolve => setTimeout(resolve, 50));
 
-      await updateLogManager.logUpdate('test-doc', 'original content', 'updated content');
+      await updateLogManager.logUpdate('documents', 'test-doc', 'original content', 'updated content');
 
       // Request version before any changes
       const req = new Request(
@@ -275,9 +276,9 @@ describe('API Document History Endpoints', () => {
     it('should return correct structure for version response', async () => {
       // Create update log with history
       const updateLogManager = new UpdateLogManager(testSessionPath);
-      await updateLogManager.logUpdate('test-doc', 'original content', 'updated content');
+      await updateLogManager.logUpdate('documents', 'test-doc', 'original content', 'updated content');
 
-      const history = await updateLogManager.getHistory('test-doc');
+      const history = await updateLogManager.getHistory('documents', 'test-doc');
       const timestamp = history!.changes[0].timestamp;
 
       const req = new Request(

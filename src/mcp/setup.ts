@@ -829,6 +829,15 @@ export async function setupMCPServer(): Promise<Server> {
         },
       },
       {
+        name: 'get_install_path',
+        description: 'Get the installation path of the mermaid-collab plugin. Use this to run CLI commands like server start/stop.',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+          required: [],
+        },
+      },
+      {
         name: 'get_session_state',
         description: 'Get current collab session state (phase, currentItem, etc.)',
         inputSchema: {
@@ -1462,6 +1471,15 @@ export async function setupMCPServer(): Promise<Server> {
                 error: error instanceof Error ? error.message : 'Server not responding',
               }, null, 2);
             }
+          }
+
+          case 'get_install_path': {
+            // Return the directory where this plugin is installed
+            // import.meta.dir gives us the directory of this file (src/mcp/)
+            // We need to go up two levels to get the plugin root
+            const { dirname, join } = await import('path');
+            const pluginRoot = dirname(dirname(dirname(import.meta.path)));
+            return JSON.stringify({ path: pluginRoot }, null, 2);
           }
 
           case 'get_session_state': {

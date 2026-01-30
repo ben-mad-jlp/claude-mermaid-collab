@@ -1048,6 +1048,8 @@ const App: React.FC = () => {
           <UnifiedEditor
             item={editorItem}
             editMode={editMode}
+            project={currentSession?.project}
+            session={currentSession?.name}
             onContentChange={handleContentChange}
             zoomLevel={zoomLevel}
             onZoomIn={zoomIn}

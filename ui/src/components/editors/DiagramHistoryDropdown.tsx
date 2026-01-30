@@ -25,23 +25,35 @@ export interface DiagramHistoryDropdownProps {
 }
 
 /**
- * Formats ISO timestamp to relative time string
- * Examples: "just now", "5m ago", "2h ago", "Yesterday", "3d ago", or date for older
+ * Formats ISO timestamp to a readable timestamp string
+ * Examples: "9:45:30 AM", "Yesterday 9:45 PM", "Mon 9:45 PM", "Jan 30, 9:45 AM"
  */
-function formatRelativeTime(timestamp: string): string {
-  const now = Date.now();
-  const then = new Date(timestamp).getTime();
-  const diffMs = now - then;
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
+function formatTimestamp(timestamp: string): string {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const isYesterday = date.toDateString() === yesterday.toDateString();
 
-  if (diffMins < 1) return 'just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 2) return 'Yesterday';
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return new Date(timestamp).toLocaleDateString();
+  const timeStr = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
+
+  if (isToday) {
+    return timeStr;
+  }
+  if (isYesterday) {
+    return `Yesterday ${date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })}`;
+  }
+
+  // Within last 7 days - show day name
+  const diffDays = Math.floor((now.getTime() - date.getTime()) / 86400000);
+  if (diffDays < 7) {
+    const dayName = date.toLocaleDateString([], { weekday: 'short' });
+    return `${dayName} ${date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })}`;
+  }
+
+  // Older - show date
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
 }
 
 export const DiagramHistoryDropdown: React.FC<DiagramHistoryDropdownProps> = ({
@@ -127,7 +139,7 @@ export const DiagramHistoryDropdown: React.FC<DiagramHistoryDropdownProps> = ({
             >
               {loadingTimestamp === change.timestamp
                 ? 'Loading...'
-                : formatRelativeTime(change.timestamp)}
+                : formatTimestamp(change.timestamp)}
             </button>
           ))}
         </div>

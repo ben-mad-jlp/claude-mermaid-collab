@@ -47,9 +47,9 @@ describe('UpdateLogManager', () => {
       const oldContent = 'Original content';
       const newContent = 'Updated content';
 
-      await manager.logUpdate(documentId, oldContent, newContent);
+      await manager.logUpdate('documents', documentId, oldContent, newContent);
 
-      const history = await manager.getHistory(documentId);
+      const history = await manager.getHistory('documents', documentId);
       expect(history).not.toBeNull();
       expect(history!.original).toBe(oldContent);
     });
@@ -59,9 +59,9 @@ describe('UpdateLogManager', () => {
       const oldContent = 'Hello world';
       const newContent = 'Hello universe';
 
-      await manager.logUpdate(documentId, oldContent, newContent);
+      await manager.logUpdate('documents', documentId, oldContent, newContent);
 
-      const history = await manager.getHistory(documentId);
+      const history = await manager.getHistory('documents', documentId);
       expect(history).not.toBeNull();
       expect(history!.changes).toHaveLength(1);
       expect(history!.changes[0].diff.oldString).toBe(oldContent);
@@ -75,9 +75,9 @@ describe('UpdateLogManager', () => {
       const newContent = 'Full document modified here';
       const diff = { oldString: 'content', newString: 'modified' };
 
-      await manager.logUpdate(documentId, oldContent, newContent, diff);
+      await manager.logUpdate('documents', documentId, oldContent, newContent, diff);
 
-      const history = await manager.getHistory(documentId);
+      const history = await manager.getHistory('documents', documentId);
       expect(history!.changes[0].diff.oldString).toBe('content');
       expect(history!.changes[0].diff.newString).toBe('modified');
     });
@@ -86,20 +86,20 @@ describe('UpdateLogManager', () => {
       const documentId = 'test-doc';
       const content = 'Same content';
 
-      await manager.logUpdate(documentId, content, content);
+      await manager.logUpdate('documents', documentId, content, content);
 
-      const history = await manager.getHistory(documentId);
+      const history = await manager.getHistory('documents', documentId);
       expect(history).toBeNull();
     });
 
     it('should accumulate multiple changes', async () => {
       const documentId = 'test-doc';
 
-      await manager.logUpdate(documentId, 'Version 1', 'Version 2');
-      await manager.logUpdate(documentId, 'Version 2', 'Version 3');
-      await manager.logUpdate(documentId, 'Version 3', 'Version 4');
+      await manager.logUpdate('documents', documentId, 'Version 1', 'Version 2');
+      await manager.logUpdate('documents', documentId, 'Version 2', 'Version 3');
+      await manager.logUpdate('documents', documentId, 'Version 3', 'Version 4');
 
-      const history = await manager.getHistory(documentId);
+      const history = await manager.getHistory('documents', documentId);
       expect(history!.original).toBe('Version 1');
       expect(history!.changes).toHaveLength(3);
       expect(history!.changes[0].diff.newString).toBe('Version 2');
@@ -108,11 +108,11 @@ describe('UpdateLogManager', () => {
     });
 
     it('should handle multiple documents independently', async () => {
-      await manager.logUpdate('doc1', 'Doc 1 original', 'Doc 1 updated');
-      await manager.logUpdate('doc2', 'Doc 2 original', 'Doc 2 updated');
+      await manager.logUpdate('documents', 'doc1', 'Doc 1 original', 'Doc 1 updated');
+      await manager.logUpdate('documents', 'doc2', 'Doc 2 original', 'Doc 2 updated');
 
-      const history1 = await manager.getHistory('doc1');
-      const history2 = await manager.getHistory('doc2');
+      const history1 = await manager.getHistory('documents', 'doc1');
+      const history2 = await manager.getHistory('documents', 'doc2');
 
       expect(history1!.original).toBe('Doc 1 original');
       expect(history2!.original).toBe('Doc 2 original');
@@ -123,26 +123,26 @@ describe('UpdateLogManager', () => {
     it('should handle empty strings as valid content', async () => {
       const documentId = 'test-doc';
 
-      await manager.logUpdate(documentId, '', 'Some content');
+      await manager.logUpdate('documents', documentId, '', 'Some content');
 
-      const history = await manager.getHistory(documentId);
+      const history = await manager.getHistory('documents', documentId);
       expect(history!.original).toBe('');
       expect(history!.changes[0].diff.newString).toBe('Some content');
     });
 
     it('should persist log to disk', async () => {
-      await manager.logUpdate('test-doc', 'Old', 'New');
+      await manager.logUpdate('documents', 'test-doc', 'Old', 'New');
 
       // Create a new manager instance to verify persistence
       const newManager = new UpdateLogManager(testDir);
-      const history = await newManager.getHistory('test-doc');
+      const history = await newManager.getHistory('documents', 'test-doc');
 
       expect(history).not.toBeNull();
       expect(history!.original).toBe('Old');
     });
 
     it('should write valid JSON to disk', async () => {
-      await manager.logUpdate('test-doc', 'Old', 'New');
+      await manager.logUpdate('documents', 'test-doc', 'Old', 'New');
 
       const logPath = join(testDir, 'update-log.json');
       expect(existsSync(logPath)).toBe(true);
@@ -157,7 +157,7 @@ describe('UpdateLogManager', () => {
 
   describe('getHistory', () => {
     it('should return null for document with no history', async () => {
-      const history = await manager.getHistory('nonexistent-doc');
+      const history = await manager.getHistory('documents', 'nonexistent-doc');
       expect(history).toBeNull();
     });
 
@@ -166,14 +166,14 @@ describe('UpdateLogManager', () => {
       mkdirSync(emptyDir, { recursive: true });
       const emptyManager = new UpdateLogManager(emptyDir);
 
-      const history = await emptyManager.getHistory('any-doc');
+      const history = await emptyManager.getHistory('documents', 'any-doc');
       expect(history).toBeNull();
     });
 
     it('should return complete history for existing document', async () => {
-      await manager.logUpdate('test-doc', 'Original', 'Updated');
+      await manager.logUpdate('documents', 'test-doc', 'Original', 'Updated');
 
-      const history = await manager.getHistory('test-doc');
+      const history = await manager.getHistory('documents', 'test-doc');
 
       expect(history).not.toBeNull();
       expect(history!.original).toBe('Original');
@@ -187,7 +187,7 @@ describe('UpdateLogManager', () => {
       const logPath = join(testDir, 'update-log.json');
       writeFileSync(logPath, 'not valid json {{{');
 
-      const history = await manager.getHistory('any-doc');
+      const history = await manager.getHistory('documents', 'any-doc');
       expect(history).toBeNull();
     });
   });
@@ -195,48 +195,48 @@ describe('UpdateLogManager', () => {
   describe('replayToTimestamp', () => {
     it('should throw error when no history exists', async () => {
       await expect(
-        manager.replayToTimestamp('nonexistent-doc', new Date().toISOString())
+        manager.replayToTimestamp('documents', 'nonexistent-doc', new Date().toISOString())
       ).rejects.toThrow('No history found for document nonexistent-doc');
     });
 
     it('should return original content when timestamp is before any changes', async () => {
       const beforeTimestamp = new Date(Date.now() - 10000).toISOString();
-      await manager.logUpdate('test-doc', 'Original', 'Updated');
+      await manager.logUpdate('documents', 'test-doc', 'Original', 'Updated');
 
-      const content = await manager.replayToTimestamp('test-doc', beforeTimestamp);
+      const content = await manager.replayToTimestamp('documents', 'test-doc', beforeTimestamp);
       expect(content).toBe('Original');
     });
 
     it('should return fully replayed content when timestamp is after all changes', async () => {
-      await manager.logUpdate('test-doc', 'Version 1', 'Version 2');
-      await manager.logUpdate('test-doc', 'Version 2', 'Version 3');
+      await manager.logUpdate('documents', 'test-doc', 'Version 1', 'Version 2');
+      await manager.logUpdate('documents', 'test-doc', 'Version 2', 'Version 3');
 
       const futureTimestamp = new Date(Date.now() + 10000).toISOString();
-      const content = await manager.replayToTimestamp('test-doc', futureTimestamp);
+      const content = await manager.replayToTimestamp('documents', 'test-doc', futureTimestamp);
       expect(content).toBe('Version 3');
     });
 
     it('should replay changes up to specific timestamp', async () => {
-      await manager.logUpdate('test-doc', 'Version 1', 'Version 2');
+      await manager.logUpdate('documents', 'test-doc', 'Version 1', 'Version 2');
 
       // Wait a bit and record timestamp
       await new Promise(resolve => setTimeout(resolve, 50));
       const midTimestamp = new Date().toISOString();
       await new Promise(resolve => setTimeout(resolve, 50));
 
-      await manager.logUpdate('test-doc', 'Version 2', 'Version 3');
+      await manager.logUpdate('documents', 'test-doc', 'Version 2', 'Version 3');
 
-      const content = await manager.replayToTimestamp('test-doc', midTimestamp);
+      const content = await manager.replayToTimestamp('documents', 'test-doc', midTimestamp);
       expect(content).toBe('Version 2');
     });
 
     it('should include change at exact timestamp match', async () => {
-      await manager.logUpdate('test-doc', 'Version 1', 'Version 2');
+      await manager.logUpdate('documents', 'test-doc', 'Version 1', 'Version 2');
 
-      const history = await manager.getHistory('test-doc');
+      const history = await manager.getHistory('documents', 'test-doc');
       const exactTimestamp = history!.changes[0].timestamp;
 
-      const content = await manager.replayToTimestamp('test-doc', exactTimestamp);
+      const content = await manager.replayToTimestamp('documents', 'test-doc', exactTimestamp);
       expect(content).toBe('Version 2');
     });
 
@@ -245,10 +245,10 @@ describe('UpdateLogManager', () => {
       const updated = 'Hello universe, this is a test document.';
       const diff = { oldString: 'world', newString: 'universe' };
 
-      await manager.logUpdate('test-doc', original, updated, diff);
+      await manager.logUpdate('documents', 'test-doc', original, updated, diff);
 
       const futureTimestamp = new Date(Date.now() + 10000).toISOString();
-      const content = await manager.replayToTimestamp('test-doc', futureTimestamp);
+      const content = await manager.replayToTimestamp('documents', 'test-doc', futureTimestamp);
 
       // When using patch-style diff, replay applies oldString->newString replacement
       expect(content).toBe('Hello universe, this is a test document.');
@@ -258,6 +258,7 @@ describe('UpdateLogManager', () => {
       const original = 'The quick brown fox jumps over the lazy dog.';
 
       await manager.logUpdate(
+        'documents',
         'test-doc',
         original,
         'The quick brown cat jumps over the lazy dog.',
@@ -265,6 +266,7 @@ describe('UpdateLogManager', () => {
       );
 
       await manager.logUpdate(
+        'documents',
         'test-doc',
         'The quick brown cat jumps over the lazy dog.',
         'The quick brown cat jumps over the lazy cat.',
@@ -272,7 +274,7 @@ describe('UpdateLogManager', () => {
       );
 
       const futureTimestamp = new Date(Date.now() + 10000).toISOString();
-      const content = await manager.replayToTimestamp('test-doc', futureTimestamp);
+      const content = await manager.replayToTimestamp('documents', 'test-doc', futureTimestamp);
       expect(content).toBe('The quick brown cat jumps over the lazy cat.');
     });
   });
@@ -284,7 +286,7 @@ describe('UpdateLogManager', () => {
       const emptyManager = new UpdateLogManager(emptyDir);
 
       // Calling getHistory exercises loadLog
-      const history = await emptyManager.getHistory('any-doc');
+      const history = await emptyManager.getHistory('documents', 'any-doc');
       expect(history).toBeNull();
     });
 
@@ -293,14 +295,14 @@ describe('UpdateLogManager', () => {
       writeFileSync(join(testDir, 'update-log.json'), '{ invalid json');
 
       // Should not throw, should return null for history
-      const history = await manager.getHistory('any-doc');
+      const history = await manager.getHistory('documents', 'any-doc');
       expect(history).toBeNull();
     });
   });
 
   describe('saveLog (private, tested via public methods)', () => {
     it('should save log atomically (via temp file)', async () => {
-      await manager.logUpdate('test-doc', 'Old', 'New');
+      await manager.logUpdate('documents', 'test-doc', 'Old', 'New');
 
       // Verify the log file exists and temp file doesn't
       const logPath = join(testDir, 'update-log.json');
@@ -311,7 +313,7 @@ describe('UpdateLogManager', () => {
     });
 
     it('should write formatted JSON with indentation', async () => {
-      await manager.logUpdate('test-doc', 'Old', 'New');
+      await manager.logUpdate('documents', 'test-doc', 'Old', 'New');
 
       const logPath = join(testDir, 'update-log.json');
       const content = readFileSync(logPath, 'utf-8');
@@ -327,7 +329,7 @@ describe('UpdateLogManager', () => {
       const invalidManager = new UpdateLogManager('/nonexistent/path/that/does/not/exist');
 
       await expect(
-        invalidManager.logUpdate('test-doc', 'Old', 'New')
+        invalidManager.logUpdate('documents', 'test-doc', 'Old', 'New')
       ).rejects.toThrow('Failed to save update log');
     });
   });

@@ -100,6 +100,84 @@ Use the direction toggle button (⤡) in the editor to switch between:
 
 Supported directions: TD, TB, BT, RL, LR
 
+## Diagram Theming
+
+Diagrams automatically adapt to the app's light/dark theme. Understanding how theming works helps create diagrams that look good in both modes.
+
+### Default Behavior (Recommended)
+
+Diagrams without custom `%%{init}%%` directives automatically follow the app theme:
+- **Light mode**: Uses Mermaid's `default` theme
+- **Dark mode**: Uses Mermaid's `dark` theme
+
+This is the recommended approach for most diagrams - they "just work" in both modes.
+
+### Custom Theming with `%%{init}%%`
+
+When you add an `%%{init}%%` directive, the diagram takes **full control** of its own theming. The app's theme setting is ignored.
+
+```mermaid
+%%{init: {'theme': 'base'}}%%
+flowchart TD
+    A[Start] --> B[End]
+```
+
+Available themes: `default`, `dark`, `forest`, `neutral`, `base`
+
+### Custom Status Colors
+
+For diagrams with status indicators (pending/in-progress/completed), use `classDef` and `class` instead of hardcoded styles:
+
+```mermaid
+flowchart TD
+    subgraph pending["Pending"]
+        T1["Task 1"]
+        T2["Task 2"]
+    end
+    subgraph in_progress["In Progress"]
+        T3["Task 3"]
+    end
+    subgraph completed["Completed"]
+        T4["Task 4"]
+    end
+
+    %% Define status colors
+    classDef pendingTask fill:#fbbf24,stroke:#d97706,color:#1f2937
+    classDef inProgressTask fill:#3b82f6,stroke:#2563eb,color:#ffffff
+    classDef completedTask fill:#22c55e,stroke:#16a34a,color:#ffffff
+
+    %% Apply to nodes
+    class T1,T2 pendingTask
+    class T3 inProgressTask
+    class T4 completedTask
+```
+
+**Why this works**: `classDef`/`class` applies colors to specific nodes without affecting the overall theme, so subgraphs and backgrounds still adapt to light/dark mode.
+
+### What NOT to Do
+
+Don't hardcode dark colors in `themeVariables` if you want diagrams to work in both modes:
+
+```mermaid
+%% BAD - This will look wrong in light mode
+%%{init: {'theme': 'base', 'themeVariables': {'background': '#1e293b', 'primaryColor': '#334155'}}}%%
+```
+
+Don't use inline `style` directives for status colors:
+
+```mermaid
+%% BAD - Harder to maintain, doesn't scale
+style T1 fill:#fbbf24
+style T2 fill:#fbbf24
+```
+
+### Theming Best Practices
+
+1. **Let most diagrams follow app theme** - Don't add `%%{init}%%` unless you need custom styling
+2. **Use `classDef` for status colors** - Keeps nodes styled while letting backgrounds adapt
+3. **Test in both modes** - Toggle dark mode to verify your diagram looks good
+4. **Keep subgraphs unstyled** - Let them inherit theme colors for proper backgrounds
+
 ## Creating UI Wireframes
 
 The built-in wireframe plugin lets you create UI mockups with text syntax.

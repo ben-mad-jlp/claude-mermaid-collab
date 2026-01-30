@@ -212,9 +212,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   const handleDeleteSession = useCallback((e: React.MouseEvent, session: Session) => {
     e.stopPropagation();
-    if (window.confirm(`Delete session "${session.name}"? This removes it from the list but does not delete files.`)) {
-      onDeleteSession?.(session);
-    }
+    onDeleteSession?.(session);
   }, [onDeleteSession]);
 
   // Get display name for project (basename)

@@ -16,6 +16,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useDataLoader } from '@/hooks/useDataLoader';
 import { ItemCard } from '@/components/layout/ItemCard';
 import { Item } from '@/types';
+import { api } from '@/lib/api';
 
 export interface SidebarProps {
   /** Optional custom class name */
@@ -39,6 +40,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     currentSession,
     collabState,
     selectTaskGraph,
+    removeDiagram,
+    removeDocument,
+    removeWireframe,
   } = useSessionStore(
     useShallow((state) => ({
       diagrams: state.diagrams,
@@ -51,12 +55,45 @@ export const Sidebar: React.FC<SidebarProps> = ({
       currentSession: state.currentSession,
       collabState: state.collabState,
       selectTaskGraph: state.selectTaskGraph,
+      removeDiagram: state.removeDiagram,
+      removeDocument: state.removeDocument,
+      removeWireframe: state.removeWireframe,
     }))
   );
 
   const { selectDiagramWithContent, selectDocumentWithContent, selectWireframeWithContent } = useDataLoader();
 
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Detect if in vibe mode (check both state and phase fields for compatibility)
+  const isVibing = collabState?.state === 'vibe-active' || collabState?.phase === 'vibe-active';
+
+  const handleDeleteItem = useCallback(
+    async (item: Item) => {
+      if (!currentSession) return;
+
+      const typeLabel = item.type === 'diagram' ? 'diagram' : item.type === 'wireframe' ? 'wireframe' : 'document';
+      if (!window.confirm(`Delete ${typeLabel} "${item.name}"?`)) {
+        return;
+      }
+
+      try {
+        if (item.type === 'diagram') {
+          await api.deleteDiagram(currentSession.project, currentSession.name, item.id);
+          removeDiagram(item.id);
+        } else if (item.type === 'document') {
+          await api.deleteDocument(currentSession.project, currentSession.name, item.id);
+          removeDocument(item.id);
+        } else if (item.type === 'wireframe') {
+          await api.deleteWireframe(currentSession.project, currentSession.name, item.id);
+          removeWireframe(item.id);
+        }
+      } catch (error) {
+        console.error('Failed to delete item:', error);
+      }
+    },
+    [currentSession, removeDiagram, removeDocument, removeWireframe]
+  );
 
   const handleItemClick = useCallback(
     (item: Item) => {
@@ -121,8 +158,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const isDisabled = !currentSession;
 
-  // Check if in implementation phase (show task graph)
-  const isImplementationPhase = collabState?.state === 'execute-batch' || collabState?.state === 'ready-to-implement';
+  // Check if in implementation phase (show task graph) - check both state and phase fields
+  const currentPhase = collabState?.state || collabState?.phase;
+  const isImplementationPhase = currentPhase === 'execute-batch' || currentPhase === 'ready-to-implement';
 
   return (
     <aside
@@ -211,6 +249,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 item={item}
                 isSelected={isItemSelected(item)}
                 onClick={() => handleItemClick(item)}
+                showDelete={isVibing}
+                onDelete={() => handleDeleteItem(item)}
               />
             ))}
           </div>

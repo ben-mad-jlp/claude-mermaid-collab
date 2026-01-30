@@ -37,6 +37,10 @@ export interface MarkdownPreviewProps {
   onElementClick?: (line: number) => void;
   /** Ref for scroll container */
   scrollRef?: React.RefObject<HTMLDivElement>;
+  /** Project path for resolving embedded assets */
+  project?: string;
+  /** Session name for resolving embedded assets */
+  session?: string;
 }
 
 /**
@@ -170,8 +174,51 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   onElementClick,
   scrollRef,
+  project,
+  session,
 }) => {
   const { theme } = useTheme();
+
+  /**
+   * Resolve image src to API endpoint if it's a special reference
+   * Supports:
+   * - @wireframe/id -> /api/wireframe/:id/render
+   * - @diagram/id -> /api/render/:id
+   * - ./wireframes/id or wireframes/id -> /api/wireframe/:id/render
+   * - ./diagrams/id or diagrams/id -> /api/render/:id
+   * - Regular URLs pass through unchanged
+   */
+  const resolveImageSrc = (src: string): string | null => {
+    if (!project || !session) return src;
+
+    const params = new URLSearchParams({ project, session });
+
+    // Handle @wireframe/id format
+    if (src.startsWith('@wireframe/')) {
+      const id = src.replace('@wireframe/', '');
+      return `/api/wireframe/${id}/render?${params}`;
+    }
+
+    // Handle @diagram/id format
+    if (src.startsWith('@diagram/')) {
+      const id = src.replace('@diagram/', '');
+      return `/api/render/${id}?${params}&theme=${theme}`;
+    }
+
+    // Handle ./wireframes/id or wireframes/id path
+    if (src.match(/^\.?\/?(wireframes?)\/(.+)$/)) {
+      const id = src.replace(/^\.?\/?(wireframes?)\//, '').replace(/\.(json|wireframe)$/, '');
+      return `/api/wireframe/${id}/render?${params}`;
+    }
+
+    // Handle ./diagrams/id or diagrams/id path
+    if (src.match(/^\.?\/?(diagrams?)\/(.+)$/)) {
+      const id = src.replace(/^\.?\/?(diagrams?)\//, '').replace(/\.mmd$/, '');
+      return `/api/render/${id}?${params}&theme=${theme}`;
+    }
+
+    return src;
+  };
 
   // Memoize the markdown components to avoid unnecessary re-renders
   const components = useMemo(
@@ -239,6 +286,32 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         </a>
       ),
 
+      // Images - with support for embedded diagrams and wireframes
+      img: ({ src, alt }: { src?: string; alt?: string }) => {
+        const resolvedSrc = src ? resolveImageSrc(src) : null;
+
+        // Debug: log resolved src
+        console.log('[MarkdownPreview img] src:', src, 'resolved:', resolvedSrc, 'project:', project, 'session:', session);
+
+        if (!resolvedSrc) {
+          return (
+            <span className="inline-block px-2 py-1 bg-gray-100 dark:bg-gray-800 text-gray-500 text-sm rounded">
+              [Image: {alt || 'no source'}]
+            </span>
+          );
+        }
+
+        return (
+          <img
+            src={resolvedSrc}
+            alt={alt || ''}
+            className="max-w-full h-auto my-4 rounded-lg border border-gray-200 dark:border-gray-700"
+            loading="lazy"
+            onError={(e) => console.error('[MarkdownPreview img] Failed to load:', resolvedSrc, e)}
+          />
+        );
+      },
+
       // Lists
       ul: ({ children }: { children?: React.ReactNode }) => (
         <ul className="list-disc list-inside my-3 ml-2 text-gray-700 dark:text-gray-300">
@@ -254,27 +327,27 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         <li className="my-1">{children}</li>
       ),
 
-      // Code blocks
-      code: ({
-        inline,
-        className: codeClassName,
+      // Pre wrapper for code blocks - renders the syntax highlighted block
+      pre: ({
         children,
       }: {
-        inline?: boolean;
-        className?: string;
         children?: React.ReactNode;
       }) => {
-        const match = /language-(\w+)/.exec(codeClassName || '');
-        const language = match ? match[1] : 'text';
-        const code = String(children).replace(/\n$/, '');
+        // Extract the code element's props
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const codeElement = React.Children.toArray(children).find(
+          (child): child is React.ReactElement =>
+            React.isValidElement(child) && child.type === 'code'
+        );
 
-        if (inline) {
-          return (
-            <code className="bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded font-mono text-sm text-gray-900 dark:text-gray-100">
-              {code}
-            </code>
-          );
+        if (!codeElement) {
+          return <pre className="my-4 p-4 bg-gray-100 dark:bg-gray-800 rounded-lg overflow-auto">{children}</pre>;
         }
+
+        const codeClassName = codeElement.props.className || '';
+        const match = /language-(\w+)/.exec(codeClassName);
+        const language = match ? match[1] : 'text';
+        const code = String(codeElement.props.children).replace(/\n$/, '');
 
         return (
           <div className="my-4 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
@@ -291,6 +364,28 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
               {code}
             </SyntaxHighlighter>
           </div>
+        );
+      },
+
+      // Inline code only - block code is handled by pre
+      code: ({
+        className: codeClassName,
+        children,
+      }: {
+        className?: string;
+        children?: React.ReactNode;
+      }) => {
+        // If there's a language class, this will be handled by pre
+        // This component only handles inline code
+        if (codeClassName) {
+          // Return plain code element - pre will handle the rendering
+          return <code className={codeClassName}>{children}</code>;
+        }
+
+        return (
+          <code className="bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded font-mono text-sm text-gray-900 dark:text-gray-100">
+            {children}
+          </code>
         );
       },
 
@@ -341,7 +436,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         return <AnnotationRenderer {...node.data} />;
       },
     }),
-    [theme]
+    [theme, project, session]
   );
 
   // Compute diff segments if diff is provided

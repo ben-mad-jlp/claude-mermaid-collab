@@ -9,15 +9,40 @@ allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Glob, Grep, Bash
 
 Entry point for collab workflow. Handles session management and delegates to MCP state machine.
 
-## Step 1: Check Server
+## Step 1: Check Server and Auto-Start
 
+First, get the plugin installation path (needed for starting server):
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__get_install_path
+Args: {}
+```
+Store the returned `path` value.
+
+Then check server health:
 ```
 Tool: mcp__plugin_mermaid-collab_mermaid__check_server_health
 Args: {}
 ```
 
-If not healthy: "Server not running. Start with: bun run bin/mermaid-collab.ts start"
-**STOP** if server not running.
+If healthy: continue to Step 2.
+
+If NOT healthy, automatically start the server:
+
+1. Start the server using the install path:
+   ```
+   Tool: Bash
+   Command: cd <install_path> && bun run bin/mermaid-collab.ts start
+   ```
+   (Replace `<install_path>` with the path from get_install_path)
+
+2. Verify server is now ready:
+   ```
+   Tool: mcp__plugin_mermaid-collab_mermaid__check_server_health
+   Args: {}
+   ```
+
+If still not healthy after starting: "Failed to start collab server. Check logs at ~/.mermaid-collab/server.log"
+**STOP** if server failed to start.
 
 ## Step 2: Find/Create Session
 
