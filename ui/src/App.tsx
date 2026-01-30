@@ -706,6 +706,16 @@ const App: React.FC = () => {
     }
   }, [theme]);
 
+  // Update page title with project and session name
+  useEffect(() => {
+    if (currentSession) {
+      const projectName = currentSession.project.split('/').pop() || currentSession.project;
+      document.title = `${projectName} / ${currentSession.name} - Mermaid Collab`;
+    } else {
+      document.title = 'Mermaid Collab';
+    }
+  }, [currentSession]);
+
   // Load sessions and projects on mount
   useEffect(() => {
     loadSessions();
