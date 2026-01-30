@@ -276,13 +276,13 @@ function ScreenRendererInternal({ screen, bounds, labelY, wireframeTheme }: Scre
         {screen.name}
       </text>
 
-      {/* Screen background */}
+      {/* Screen background - in dark mode, always use theme background */}
       <rect
         x={bounds.x}
         y={bounds.y}
         width={bounds.width}
         height={bounds.height}
-        fill={screen.backgroundColor || colors.container.screenBackground}
+        fill={wireframeTheme === 'dark' ? colors.container.screenBackground : (screen.backgroundColor || colors.container.screenBackground)}
         rx={4}
         ry={4}
       />

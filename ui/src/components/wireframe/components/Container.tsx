@@ -134,13 +134,13 @@ export const ScreenRenderer: React.FC<ContainerRendererProps<ScreenComponent>> =
 
   return (
     <g ref={groupRef} data-component-id={id} data-component-type="screen">
-      {/* Background rectangle */}
+      {/* Background rectangle - in dark mode, always use theme background */}
       <rect
         x={contentBounds.x}
         y={contentBounds.y}
         width={contentBounds.width}
         height={contentBounds.height}
-        fill={backgroundColor || colors.screenBackground}
+        fill={wireframeTheme === 'dark' ? colors.screenBackground : (backgroundColor || colors.screenBackground)}
         stroke="none"
       />
 
