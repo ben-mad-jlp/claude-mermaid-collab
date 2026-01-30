@@ -377,12 +377,11 @@ Key points:
 
 After each task completes, verify implementation against design and check for drift.
 
-**Invoke skill: executing-plans-review** for detailed verification, drift detection, and snapshot logic.
+**Invoke skill: executing-plans-review** for detailed verification and drift detection logic.
 
 Key points:
 - Per-task verification compares output against design doc
 - Drift detection identifies mismatches with pros/cons analysis
-- Snapshots enable recovery after context compaction
 - Proposing design changes uses special markdown tags
 
 ### Step 3: Report
@@ -502,7 +501,7 @@ collab -> brainstorming -> rough-draft -> executing-plans -> finishing-a-develop
 ## Sub-Skills
 
 - **executing-plans-execution** - Detailed task execution logic, routing, and agent prompts
-- **executing-plans-review** - Verification, drift detection, and snapshot saving
+- **executing-plans-review** - Verification and drift detection
 
 ## Completion
 

@@ -26,7 +26,7 @@ export class DiagramManager {
       const stats = await stat(path);
 
       this.index.set(id, {
-        name: file,
+        name: id,
         path,
         lastModified: stats.mtimeMs,
       });
@@ -92,7 +92,7 @@ export class DiagramManager {
     const stats = await stat(path);
 
     this.index.set(id, {
-      name: filename,
+      name: id,
       path,
       lastModified: stats.mtimeMs,
     });
@@ -109,10 +109,9 @@ export class DiagramManager {
   }
 
   updateIndex(id: string, path: string): void {
-    const filename = basename(path);
     stat(path).then(stats => {
       this.index.set(id, {
-        name: filename,
+        name: id,
         path,
         lastModified: stats.mtimeMs,
       });

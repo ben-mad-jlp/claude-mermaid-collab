@@ -32,7 +32,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
         phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: null,
-        hasSnapshot: false,
       };
 
       expect(message.type).toBe('session_state_updated');
@@ -44,7 +43,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
         phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: 1,
-        hasSnapshot: false,
       };
 
       const state = message as any;
@@ -59,7 +57,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
         phase: 'brainstorming',
         lastActivity: timestamp,
         currentItem: 1,
-        hasSnapshot: false,
       };
 
       const state = message as any;
@@ -73,7 +70,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
         phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: null,
-        hasSnapshot: false,
       };
 
       const messageWithNumber: WSMessage = {
@@ -81,25 +77,10 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
         phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: 2,
-        hasSnapshot: false,
       };
 
       expect((messageWithNull as any).currentItem).toBeNull();
       expect((messageWithNumber as any).currentItem).toBe(2);
-    });
-
-    test('session_state_updated must include hasSnapshot field (required)', () => {
-      const message: WSMessage = {
-        type: 'session_state_updated',
-        phase: 'brainstorming',
-        lastActivity: new Date().toISOString(),
-        currentItem: 1,
-        hasSnapshot: true,
-      };
-
-      const state = message as any;
-      expect(state.hasSnapshot).toBeDefined();
-      expect(typeof state.hasSnapshot).toBe('boolean');
     });
   });
 
@@ -110,7 +91,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
         phase: 'executing-plans',
         lastActivity: new Date().toISOString(),
         currentItem: 1,
-        hasSnapshot: false,
         completedTasks: ['task_1', 'task_2'],
       };
 
@@ -124,7 +104,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
         phase: 'executing-plans',
         lastActivity: new Date().toISOString(),
         currentItem: 1,
-        hasSnapshot: false,
         pendingTasks: ['task_3', 'task_4'],
       };
 
@@ -138,7 +117,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
         phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: 1,
-        hasSnapshot: false,
         totalItems: 5,
       };
 
@@ -152,7 +130,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
         phase: 'rough-draft',
         lastActivity: new Date().toISOString(),
         currentItem: 2,
-        hasSnapshot: false,
         documentedItems: 3,
       };
 
@@ -168,7 +145,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
         phase: 'brainstorming',
         lastActivity: '2026-01-26T10:30:00.000Z',
         currentItem: 1,
-        hasSnapshot: false,
       };
 
       const json = JSON.stringify(message);
@@ -183,7 +159,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
         phase: 'executing-plans',
         lastActivity: '2026-01-26T14:00:00.000Z',
         currentItem: 3,
-        hasSnapshot: true,
         completedTasks: ['t1'],
         pendingTasks: ['t2', 't3'],
         totalItems: 5,
@@ -196,7 +171,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
       expect(parsed.type).toBe('session_state_updated');
       expect((parsed as any).phase).toBe('executing-plans');
       expect((parsed as any).currentItem).toBe(3);
-      expect((parsed as any).hasSnapshot).toBe(true);
       expect((parsed as any).completedTasks).toEqual(['t1']);
       expect((parsed as any).totalItems).toBe(5);
     });
@@ -207,7 +181,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
         phase: 'brainstorming',
         lastActivity: '2026-01-26T10:00:00Z',
         currentItem: null,
-        hasSnapshot: false,
       };
 
       const json = JSON.stringify(message);
@@ -224,7 +197,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
         phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: 1,
-        hasSnapshot: false,
       };
 
       // Type guard pattern should work
@@ -233,7 +205,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
         expect(state.phase).toBeDefined();
         expect(state.lastActivity).toBeDefined();
         expect(state.currentItem).toBeDefined();
-        expect(state.hasSnapshot).toBeDefined();
       } else {
         throw new Error('Type guard failed');
       }
@@ -246,7 +217,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
           phase: 'brainstorming',
           lastActivity: new Date().toISOString(),
           currentItem: 1,
-          hasSnapshot: false,
         },
         {
           type: 'notification',
@@ -279,7 +249,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
         phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: 1,
-        hasSnapshot: false,
       };
 
       // Should not throw
@@ -298,7 +267,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
         phase: 'executing-plans',
         lastActivity: '2026-01-26T15:00:00Z',
         currentItem: 2,
-        hasSnapshot: true,
         completedTasks: ['task_1', 'task_2'],
         pendingTasks: ['task_3'],
         totalItems: 5,
@@ -322,7 +290,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
         phase: 'executing-plans',
         lastActivity: new Date().toISOString(),
         currentItem: 1,
-        hasSnapshot: false,
         completedTasks: [],
         pendingTasks: [],
       };
@@ -340,7 +307,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
         phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: 0,
-        hasSnapshot: false,
         totalItems: 0,
         documentedItems: 0,
       };
@@ -359,7 +325,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
           phase,
           lastActivity: new Date().toISOString(),
           currentItem: 1,
-          hasSnapshot: false,
         };
 
         expect((message as any).phase).toBe(phase);

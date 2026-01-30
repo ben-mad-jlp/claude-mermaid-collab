@@ -14,7 +14,7 @@
 import React from 'react';
 import { Diagram, Document } from '@/types';
 
-export type ItemType = 'diagram' | 'document';
+export type ItemType = 'diagram' | 'document' | 'wireframe';
 
 export interface ItemCardProps {
   /** Item ID (diagram or document) */
@@ -72,6 +72,25 @@ function getItemIcon(type: ItemType): React.ReactNode {
     );
   }
 
+  if (type === 'wireframe') {
+    // Wireframe icon - phone/screen outline
+    return (
+      <svg
+        className="w-5 h-5"
+        viewBox="0 0 20 20"
+        fill="currentColor"
+        aria-hidden="true"
+      >
+        <path
+          fillRule="evenodd"
+          d="M5 2a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V4a2 2 0 00-2-2H5zm0 2h10v10H5V4zm3 11a1 1 0 112 0 1 1 0 01-2 0z"
+          clipRule="evenodd"
+        />
+      </svg>
+    );
+  }
+
+  // Document icon
   return (
     <svg
       className="w-5 h-5"

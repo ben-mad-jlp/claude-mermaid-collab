@@ -11,9 +11,6 @@ import {
   ListResourcesRequestSchema,
   ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { readFile } from 'fs/promises';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
 import { dismissUI, dismissUISchema } from './tools/dismiss-ui.js';
 import { updateUI, updateUISchema } from './tools/update-ui.js';
 import { renderUISchema } from './tools/render-ui.js';
@@ -21,10 +18,6 @@ import { terminalToolSchemas } from './tools/terminal-sessions.js';
 import {
   getSessionState,
   updateSessionState,
-  hasSnapshot,
-  saveSnapshot,
-  loadSnapshot,
-  deleteSnapshot,
   archiveSession,
 } from './tools/collab-state.js';
 import { completeSkill } from './workflow/complete-skill.js';
@@ -39,7 +32,25 @@ import {
 import { getKodexManager } from '../services/kodex-manager.js';
 import type { FlagType, TopicContent } from '../services/kodex-manager.js';
 import { getWebSocketHandler } from '../services/ws-handler-manager.js';
+import { sessionRegistry } from '../services/session-registry.js';
+import { projectRegistry } from '../services/project-registry.js';
 import { updateTaskStatus, getTaskGraph } from './workflow/task-status.js';
+import {
+  handleCreateWireframe,
+  handleUpdateWireframe,
+  handleGetWireframe,
+  handleListWireframes,
+  handlePreviewWireframe,
+  handleExportWireframeSVG,
+  handleExportWireframePNG,
+  createWireframeSchema,
+  updateWireframeSchema,
+  getWireframeSchema,
+  listWireframesSchema,
+  previewWireframeSchema,
+  exportWireframeSVGSchema,
+  exportWireframePNGSchema,
+} from './tools/wireframe.js';
 
 // Configuration
 const API_PORT = parseInt(process.env.PORT || '3737', 10);
@@ -368,10 +379,6 @@ export async function setupMCPServer(): Promise<Server> {
     { capabilities: { tools: {}, resources: {} } }
   );
 
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = dirname(__filename);
-  const docsDir = join(__dirname, '..', '..', 'docs');
-
   // Session params description (shared across tools)
   const sessionParamsDesc = {
     project: {
@@ -384,22 +391,13 @@ export async function setupMCPServer(): Promise<Server> {
     },
   };
 
-  // Resources
+  // Resources - none currently registered
   server.setRequestHandler(ListResourcesRequestSchema, async () => ({
-    resources: [{
-      uri: 'wireframe://syntax-guide',
-      name: 'Wireframe Diagram Syntax Guide',
-      description: 'Complete syntax reference for creating wireframe diagrams',
-      mimeType: 'text/markdown',
-    }],
+    resources: [],
   }));
 
   server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     const { uri } = request.params;
-    if (uri === 'wireframe://syntax-guide') {
-      const content = await readFile(join(docsDir, 'wireframe-syntax.md'), 'utf-8');
-      return { contents: [{ uri, mimeType: 'text/markdown', text: content }] };
-    }
     throw new Error(`Unknown resource: ${uri}`);
   });
 
@@ -601,6 +599,41 @@ export async function setupMCPServer(): Promise<Server> {
         },
       },
       {
+        name: 'create_wireframe',
+        description: 'Create a new wireframe. Returns the wireframe ID and preview URL.',
+        inputSchema: createWireframeSchema,
+      },
+      {
+        name: 'update_wireframe',
+        description: 'Update an existing wireframe\'s content.',
+        inputSchema: updateWireframeSchema,
+      },
+      {
+        name: 'get_wireframe',
+        description: 'Read a wireframe\'s content by ID.',
+        inputSchema: getWireframeSchema,
+      },
+      {
+        name: 'list_wireframes',
+        description: 'List all wireframes in a session.',
+        inputSchema: listWireframesSchema,
+      },
+      {
+        name: 'preview_wireframe',
+        description: 'Get the browser URL to view a wireframe.',
+        inputSchema: previewWireframeSchema,
+      },
+      {
+        name: 'export_wireframe_svg',
+        description: 'Export a wireframe as an SVG image string. Returns the complete SVG markup that can be saved or displayed.',
+        inputSchema: exportWireframeSVGSchema,
+      },
+      {
+        name: 'export_wireframe_png',
+        description: 'Export a wireframe as a PNG image. Returns base64-encoded PNG data that can be saved to a file and viewed.',
+        inputSchema: exportWireframePNGSchema,
+      },
+      {
         name: 'render_ui',
         description: 'Push UI to browser. Renders JSON UI definitions to the browser and manages user interactions. Can optionally block until user action is received.',
         inputSchema: renderUISchema,
@@ -639,7 +672,7 @@ export async function setupMCPServer(): Promise<Server> {
       },
       {
         name: 'get_session_state',
-        description: 'Get current collab session state (phase, currentItem, hasSnapshot, etc.)',
+        description: 'Get current collab session state (phase, currentItem, etc.)',
         inputSchema: {
           type: 'object',
           properties: {
@@ -660,7 +693,6 @@ export async function setupMCPServer(): Promise<Server> {
             phase: { type: 'string', description: 'Current phase' },
             currentItem: { type: ['number', 'null'], description: 'Current work item number' },
             currentItemType: { type: 'string', enum: ['code', 'task', 'bugfix'], description: 'Type of current work item' },
-            hasSnapshot: { type: 'boolean', description: 'Whether snapshot exists' },
             workItems: {
               type: 'array',
               description: 'Work items for the session',
@@ -679,59 +711,6 @@ export async function setupMCPServer(): Promise<Server> {
             pendingTasks: { type: 'array', items: { type: 'string' }, description: 'Pending task IDs' },
             totalItems: { type: 'number', description: 'Total number of work items (for brainstorming/rough-draft phases)' },
             documentedItems: { type: 'number', description: 'Number of documented items (for brainstorming/rough-draft phases)' },
-          },
-          required: ['project', 'session'],
-        },
-      },
-      {
-        name: 'has_snapshot',
-        description: 'Check if context snapshot exists for session',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            session: { type: 'string', description: 'Session name' },
-          },
-          required: ['project', 'session'],
-        },
-      },
-      {
-        name: 'save_snapshot',
-        description: 'Save context snapshot for compaction recovery',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            session: { type: 'string', description: 'Session name' },
-            activeSkill: { type: 'string', description: 'Currently active skill name' },
-            currentStep: { type: 'string', description: 'Current step/phase within skill' },
-            inProgressItem: { type: ['number', 'null'], description: 'Work item number in progress' },
-            pendingQuestion: { type: ['string', 'null'], description: 'Question awaiting user response' },
-            recentContext: { type: 'array', description: 'Recent context entries' },
-          },
-          required: ['project', 'session', 'activeSkill', 'currentStep', 'inProgressItem'],
-        },
-      },
-      {
-        name: 'load_snapshot',
-        description: 'Load context snapshot contents',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            session: { type: 'string', description: 'Session name' },
-          },
-          required: ['project', 'session'],
-        },
-      },
-      {
-        name: 'delete_snapshot',
-        description: 'Delete context snapshot file',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            session: { type: 'string', description: 'Session name' },
           },
           required: ['project', 'session'],
         },
@@ -1102,6 +1081,55 @@ export async function setupMCPServer(): Promise<Server> {
             return await previewDocument(project, session, id);
           }
 
+          case 'create_wireframe': {
+            const { project, session, name, content } = args as { project: string; session: string; name: string; content: any };
+            if (!project || !session || !name || !content) throw new Error('Missing required: project, session, name, content');
+            const result = await handleCreateWireframe(project, session, name, content);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'update_wireframe': {
+            const { project, session, id, content } = args as { project: string; session: string; id: string; content: any };
+            if (!project || !session || !id || !content) throw new Error('Missing required: project, session, id, content');
+            const result = await handleUpdateWireframe(project, session, id, content);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'get_wireframe': {
+            const { project, session, id } = args as { project: string; session: string; id: string };
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            const result = await handleGetWireframe(project, session, id);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'list_wireframes': {
+            const { project, session } = args as { project: string; session: string };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            const result = await handleListWireframes(project, session);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'preview_wireframe': {
+            const { project, session, id } = args as { project: string; session: string; id: string };
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            const result = await handlePreviewWireframe(project, session, id);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'export_wireframe_svg': {
+            const { project, session, id, scale } = args as { project: string; session: string; id: string; scale?: number };
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            const result = await handleExportWireframeSVG(project, session, id, scale);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'export_wireframe_png': {
+            const { project, session, id, scale } = args as { project: string; session: string; id: string; scale?: number };
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            const result = await handleExportWireframePNG(project, session, id, scale);
+            return JSON.stringify(result, null, 2);
+          }
+
           case 'render_ui': {
             const { project, session, ui, blocking } = args as { project: string; session: string; ui: any; blocking?: boolean };
             if (!project || !session || !ui) throw new Error('Missing required: project, session, ui');
@@ -1183,7 +1211,6 @@ export async function setupMCPServer(): Promise<Server> {
               phase?: string;
               currentItem?: number | null;
               currentItemType?: 'code' | 'task' | 'bugfix';
-              hasSnapshot?: boolean;
               workItems?: Array<{
                 number: number;
                 title: string;
@@ -1196,46 +1223,19 @@ export async function setupMCPServer(): Promise<Server> {
               documentedItems?: number;
             };
             if (!project || !session) throw new Error('Missing required: project, session');
+
+            // Register session and project if not already registered
+            const sessionResult = await sessionRegistry.register(project, session);
+            await projectRegistry.register(project);
+
             const wsHandler = getWebSocketHandler();
-            const result = await updateSessionState(project, session, updates, wsHandler || undefined);
-            return JSON.stringify(result, null, 2);
-          }
 
-          case 'has_snapshot': {
-            const { project, session } = args as { project: string; session: string };
-            if (!project || !session) throw new Error('Missing required: project, session');
-            const exists = await hasSnapshot(project, session);
-            return JSON.stringify({ exists }, null, 2);
-          }
-
-          case 'save_snapshot': {
-            const { project, session, activeSkill, currentStep, inProgressItem, pendingQuestion, recentContext } = args as {
-              project: string;
-              session: string;
-              activeSkill: string;
-              currentStep: string;
-              inProgressItem: number | null;
-              pendingQuestion?: string | null;
-              recentContext?: Array<{ type: string; content: string }>;
-            };
-            if (!project || !session || !activeSkill || !currentStep) {
-              throw new Error('Missing required: project, session, activeSkill, currentStep');
+            // Broadcast session_created if this is a new session
+            if (sessionResult.created && wsHandler) {
+              wsHandler.broadcast({ type: 'session_created', project, session });
             }
-            const result = await saveSnapshot(project, session, activeSkill, currentStep, inProgressItem, pendingQuestion, recentContext);
-            return JSON.stringify(result, null, 2);
-          }
 
-          case 'load_snapshot': {
-            const { project, session } = args as { project: string; session: string };
-            if (!project || !session) throw new Error('Missing required: project, session');
-            const snapshot = await loadSnapshot(project, session);
-            return JSON.stringify(snapshot, null, 2);
-          }
-
-          case 'delete_snapshot': {
-            const { project, session } = args as { project: string; session: string };
-            if (!project || !session) throw new Error('Missing required: project, session');
-            const result = await deleteSnapshot(project, session);
+            const result = await updateSessionState(project, session, updates, wsHandler || undefined);
             return JSON.stringify(result, null, 2);
           }
 

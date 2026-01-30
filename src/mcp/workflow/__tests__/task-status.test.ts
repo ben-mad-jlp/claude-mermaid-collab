@@ -271,8 +271,7 @@ describe('updateTaskStatus function', () => {
     vi.spyOn(collabState, 'getSessionState').mockResolvedValue({
       batches: mockBatches,
       lastActivity: new Date().toISOString(),
-      currentItem: null,
-      hasSnapshot: false,
+      currentItem: null
     });
 
     const params: UpdateTaskStatusParams = {
@@ -308,8 +307,7 @@ describe('updateTaskStatus function', () => {
     vi.spyOn(collabState, 'getSessionState').mockResolvedValue({
       batches: mockBatches,
       lastActivity: new Date().toISOString(),
-      currentItem: null,
-      hasSnapshot: false,
+      currentItem: null
     });
 
     const params: UpdateTaskStatusParams = {
@@ -342,8 +340,7 @@ describe('updateTaskStatus function', () => {
     vi.spyOn(collabState, 'getSessionState').mockResolvedValue({
       batches,
       lastActivity: new Date().toISOString(),
-      currentItem: null,
-      hasSnapshot: false,
+      currentItem: null
     });
 
     vi.spyOn(collabState, 'updateSessionState').mockResolvedValue({
@@ -391,8 +388,7 @@ describe('updateTaskStatus function', () => {
     vi.spyOn(collabState, 'getSessionState').mockResolvedValue({
       batches,
       lastActivity: new Date().toISOString(),
-      currentItem: null,
-      hasSnapshot: false,
+      currentItem: null
     });
 
     vi.spyOn(collabState, 'updateSessionState').mockResolvedValue({
@@ -440,8 +436,7 @@ describe('updateTaskStatus function', () => {
     vi.spyOn(collabState, 'getSessionState').mockResolvedValue({
       batches,
       lastActivity: new Date().toISOString(),
-      currentItem: null,
-      hasSnapshot: false,
+      currentItem: null
     });
 
     vi.spyOn(collabState, 'updateSessionState').mockResolvedValue({
@@ -493,8 +488,7 @@ describe('updateTaskStatus function', () => {
     vi.spyOn(collabState, 'getSessionState').mockResolvedValue({
       batches,
       lastActivity: new Date().toISOString(),
-      currentItem: null,
-      hasSnapshot: false,
+      currentItem: null
     });
 
     vi.spyOn(collabState, 'updateSessionState').mockResolvedValue({
@@ -538,8 +532,7 @@ describe('updateTaskStatus function', () => {
     vi.spyOn(collabState, 'getSessionState').mockResolvedValue({
       batches,
       lastActivity: new Date().toISOString(),
-      currentItem: null,
-      hasSnapshot: false,
+      currentItem: null
     });
 
     const updateSpy = vi.spyOn(collabState, 'updateSessionState')
@@ -587,8 +580,7 @@ describe('updateTaskStatus function', () => {
     vi.spyOn(collabState, 'getSessionState').mockResolvedValue({
       batches,
       lastActivity: new Date().toISOString(),
-      currentItem: null,
-      hasSnapshot: false,
+      currentItem: null
     });
 
     vi.spyOn(collabState, 'updateSessionState').mockResolvedValue({
@@ -682,8 +674,7 @@ describe('getTaskGraph function', () => {
       completedTasks: [],
       pendingTasks: ['task-1'],
       lastActivity: new Date().toISOString(),
-      currentItem: null,
-      hasSnapshot: false,
+      currentItem: null
     });
 
     vi.spyOn(taskDiagram, 'generateTaskDiagram').mockReturnValue(
@@ -711,8 +702,7 @@ describe('getTaskGraph function', () => {
       completedTasks: [],
       pendingTasks: ['task-1'],
       lastActivity: new Date().toISOString(),
-      currentItem: null,
-      hasSnapshot: false,
+      currentItem: null
     });
 
     const diagramSpy = vi.spyOn(taskDiagram, 'generateTaskDiagram')
@@ -737,8 +727,7 @@ describe('getTaskGraph function', () => {
       completedTasks: [],
       pendingTasks: [],
       lastActivity: new Date().toISOString(),
-      currentItem: null,
-      hasSnapshot: false,
+      currentItem: null
     });
 
     vi.spyOn(taskDiagram, 'generateTaskDiagram').mockReturnValue(
@@ -762,8 +751,7 @@ describe('getTaskGraph function', () => {
     vi.spyOn(collabState, 'getSessionState').mockResolvedValue({
       batches: mockBatches,
       lastActivity: new Date().toISOString(),
-      currentItem: null,
-      hasSnapshot: false,
+      currentItem: null
     } as any);
 
     vi.spyOn(taskDiagram, 'generateTaskDiagram').mockReturnValue(

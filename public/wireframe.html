@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wireframe Viewer</title>
+  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/session-panel.css">
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+    }
+
+    .viewer-container {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 12px 20px;
+      background: var(--toolbar-bg);
+      border-bottom: 1px solid var(--border-color);
+      flex-shrink: 0;
+    }
+
+    .wireframe-title {
+      font-size: 16px;
+      font-weight: 600;
+      flex: 1;
+    }
+
+    .toolbar-group {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    button {
+      padding: 8px 16px;
+      border: 1px solid var(--border-color);
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    button:hover {
+      background: var(--hover-bg);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    button.active {
+      background: var(--accent-color);
+      color: white;
+      border-color: var(--accent-color);
+    }
+
+    /* Viewport selector */
+    .viewport-selector {
+      display: flex;
+      gap: 4px;
+      background: var(--bg-tertiary);
+      padding: 4px;
+      border-radius: 6px;
+    }
+
+    .viewport-btn {
+      padding: 6px 12px;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+      border-radius: 4px;
+      font-size: 13px;
+      font-weight: 500;
+      transition: all 0.15s ease;
+    }
+
+    .viewport-btn:hover {
+      background: var(--hover-bg);
+      color: var(--text-primary);
+    }
+
+    .viewport-btn.active {
+      background: var(--bg-secondary);
+      color: var(--accent-color);
+      box-shadow: 0 1px 3px var(--shadow-color);
+    }
+
+    /* Loading state */
+    .loading-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 16px;
+      color: var(--text-secondary);
+    }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid var(--border-color);
+      border-top-color: var(--accent-color);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Error state */
+    .error-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      padding: 40px;
+    }
+
+    .error-box {
+      max-width: 400px;
+      padding: 24px;
+      background: var(--error-bg);
+      border: 1px solid var(--error-color);
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    .error-title {
+      margin: 0 0 8px;
+      color: var(--error-color);
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .error-message {
+      margin: 0;
+      color: var(--text-secondary);
+      font-size: 14px;
+    }
+
+    /* Main content */
+    .main-content {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .split-pane {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* Session panel divider */
+    .session-panel-divider {
+      width: 4px;
+      background: var(--border-color);
+      cursor: col-resize;
+      flex-shrink: 0;
+      transition: background 0.15s ease;
+    }
+
+    .session-panel-divider:hover,
+    .session-panel-divider.dragging {
+      background: var(--accent-color);
+    }
+
+    .session-panel-divider.hidden {
+      display: none;
+    }
+
+    /* Wireframe display area */
+    .wireframe-viewport {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-tertiary);
+      overflow: auto;
+      padding: 32px;
+    }
+
+    .wireframe-canvas-container {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      box-shadow: 0 4px 12px var(--shadow-color);
+      overflow: hidden;
+      transition: width 0.3s ease;
+    }
+
+    .wireframe-canvas-container.mobile {
+      width: 375px;
+    }
+
+    .wireframe-canvas-container.tablet {
+      width: 768px;
+    }
+
+    .wireframe-canvas-container.desktop {
+      width: 1200px;
+    }
+
+    .wireframe-canvas {
+      width: 100%;
+      height: 100%;
+      min-height: 600px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Placeholder content */
+    .placeholder-content {
+      padding: 24px;
+      text-align: center;
+    }
+
+    .placeholder-title {
+      margin: 0 0 8px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .placeholder-subtitle {
+      margin: 0 0 16px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .json-preview {
+      text-align: left;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      padding: 16px;
+      overflow: auto;
+      max-height: 400px;
+    }
+
+    .json-preview pre {
+      margin: 0;
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      color: var(--text-primary);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+  </style>
+</head>
+<body>
+  <div class="viewer-container">
+    <div class="toolbar">
+      <button id="back-button" title="Back to Dashboard">&#8592;</button>
+      <div class="wireframe-title" id="title">Loading...</div>
+
+      <div class="toolbar-group viewport-selector">
+        <button class="viewport-btn active" data-viewport="mobile" title="Mobile (375px)">Mobile</button>
+        <button class="viewport-btn" data-viewport="tablet" title="Tablet (768px)">Tablet</button>
+        <button class="viewport-btn" data-viewport="desktop" title="Desktop (1200px)">Desktop</button>
+      </div>
+
+      <div class="toolbar-group">
+        <button id="refresh" title="Refresh">&#8635; Refresh</button>
+      </div>
+
+      <button class="theme-toggle" id="theme-toggle" title="Toggle Theme">
+        <span class="theme-toggle-icon">&#9681;</span>
+        <span>Theme</span>
+      </button>
+
+      <div class="connection-status disconnected" id="status">
+        <span class="status-dot"></span>
+        <span id="status-text">Disconnected</span>
+      </div>
+    </div>
+
+    <div class="main-content">
+      <div class="split-pane">
+        <div id="session-panel-container"></div>
+        <div class="session-panel-divider" id="session-panel-divider"></div>
+        <div class="wireframe-viewport" id="wireframe-viewport">
+          <div class="loading-container" id="loading">
+            <div class="spinner"></div>
+            <span>Loading wireframe...</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/js/api-client.js"></script>
+  <script type="module">
+    import SessionPanel from '/js/session-panel.js';
+    import APIClient from '/js/api-client.js';
+
+    // Get wireframe ID and session from URL
+    const params = new URLSearchParams(window.location.search);
+    const wireframeId = params.get('id');
+    const projectParam = params.get('project');
+    const sessionParam = params.get('session');
+
+    // DOM elements
+    const titleEl = document.getElementById('title');
+    const viewportEl = document.getElementById('wireframe-viewport');
+    const loadingEl = document.getElementById('loading');
+    const statusEl = document.getElementById('status');
+    const statusTextEl = document.getElementById('status-text');
+    const backButton = document.getElementById('back-button');
+    const refreshButton = document.getElementById('refresh');
+    const themeToggle = document.getElementById('theme-toggle');
+    const viewportButtons = document.querySelectorAll('.viewport-btn');
+
+    // State
+    let currentWireframe = null;
+    let currentViewport = 'mobile';
+    let ws = null;
+
+    // Initialize API client
+    const api = new APIClient();
+    if (projectParam && sessionParam) {
+      api.setSession(projectParam, sessionParam);
+    } else {
+      const stored = localStorage.getItem('mermaid-collab-session');
+      if (stored) {
+        try {
+          const { project, session } = JSON.parse(stored);
+          api.setSession(project, session);
+        } catch (e) {
+          console.error('Failed to parse stored session:', e);
+        }
+      }
+    }
+
+    // Initialize theme
+    function initTheme() {
+      const theme = localStorage.getItem('theme') || 'light';
+      document.documentElement.setAttribute('data-theme', theme);
+    }
+
+    // Toggle theme
+    themeToggle.addEventListener('click', () => {
+      const current = document.documentElement.getAttribute('data-theme');
+      const next = current === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('theme', next);
+    });
+
+    // Back button
+    backButton.addEventListener('click', () => {
+      if (api.hasSession()) {
+        const project = encodeURIComponent(api.project);
+        const session = encodeURIComponent(api.session);
+        window.location.href = `/?project=${project}&session=${session}`;
+      } else {
+        window.location.href = '/';
+      }
+    });
+
+    // Refresh button
+    refreshButton.addEventListener('click', () => {
+      fetchWireframe();
+    });
+
+    // Viewport buttons
+    viewportButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const viewport = btn.dataset.viewport;
+        setViewport(viewport);
+      });
+    });
+
+    function setViewport(viewport) {
+      currentViewport = viewport;
+      viewportButtons.forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.viewport === viewport);
+      });
+      renderWireframe();
+    }
+
+    // Show error
+    function showError(message) {
+      viewportEl.innerHTML = `
+        <div class="error-container">
+          <div class="error-box">
+            <h3 class="error-title">Error Loading Wireframe</h3>
+            <p class="error-message">${message}</p>
+          </div>
+        </div>
+      `;
+    }
+
+    // Show loading
+    function showLoading() {
+      viewportEl.innerHTML = `
+        <div class="loading-container">
+          <div class="spinner"></div>
+          <span>Loading wireframe...</span>
+        </div>
+      `;
+    }
+
+    // Render wireframe
+    function renderWireframe() {
+      if (!currentWireframe) return;
+
+      // For now, show JSON preview until WireframeRenderer is implemented
+      viewportEl.innerHTML = `
+        <div class="wireframe-canvas-container ${currentViewport}">
+          <div class="wireframe-canvas">
+            <div class="placeholder-content">
+              <h3 class="placeholder-title">Wireframe Preview</h3>
+              <p class="placeholder-subtitle">WireframeRenderer will be connected in Wave 4</p>
+              <div class="json-preview">
+                <pre>${JSON.stringify(currentWireframe, null, 2)}</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // Fetch wireframe from API
+    async function fetchWireframe() {
+      if (!wireframeId) {
+        showError('No wireframe ID provided');
+        return;
+      }
+
+      if (!api.hasSession()) {
+        showError('No session configured');
+        return;
+      }
+
+      showLoading();
+
+      try {
+        const url = new URL('/api/wireframe/' + wireframeId, window.location.origin);
+        url.searchParams.set('project', api.project);
+        url.searchParams.set('session', api.session);
+
+        const response = await fetch(url.toString());
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        currentWireframe = data.content;
+        titleEl.textContent = data.name || wireframeId;
+
+        // Set viewport from wireframe if available
+        if (currentWireframe?.viewport) {
+          setViewport(currentWireframe.viewport);
+        } else {
+          renderWireframe();
+        }
+      } catch (error) {
+        console.error('Failed to fetch wireframe:', error);
+        showError(error.message);
+      }
+    }
+
+    // WebSocket connection
+    function connectWebSocket() {
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
+
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        statusEl.className = 'connection-status connected';
+        statusTextEl.textContent = 'Connected';
+
+        // Subscribe to wireframe updates
+        if (api.hasSession()) {
+          ws.send(JSON.stringify({
+            type: 'subscribe',
+            project: api.project,
+            session: api.session
+          }));
+        }
+      };
+
+      ws.onclose = () => {
+        statusEl.className = 'connection-status disconnected';
+        statusTextEl.textContent = 'Disconnected';
+
+        // Reconnect after delay
+        setTimeout(connectWebSocket, 3000);
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        statusEl.className = 'connection-status disconnected';
+        statusTextEl.textContent = 'Error';
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+
+          // Update wireframe if it matches
+          if (message.id === wireframeId && message.content) {
+            currentWireframe = message.content;
+            renderWireframe();
+          }
+        } catch (error) {
+          console.error('Failed to parse WebSocket message:', error);
+        }
+      };
+    }
+
+    // Initialize SessionPanel if we have a session
+    if (api.hasSession() && wireframeId) {
+      const panel = new SessionPanel({
+        container: document.getElementById('session-panel-container'),
+        api: api,
+        currentItemId: wireframeId,
+        currentItemType: 'wireframe',
+        onNavigate: (id, type) => {
+          const project = encodeURIComponent(api.project);
+          const session = encodeURIComponent(api.session);
+          if (type === 'wireframe') {
+            window.location.href = `/wireframe.html?id=${id}&project=${project}&session=${session}`;
+          } else {
+            window.location.href = `/${type}.html?id=${id}&project=${project}&session=${session}`;
+          }
+        }
+      });
+      panel.initialize();
+    }
+
+    // Initialize
+    initTheme();
+    fetchWireframe();
+    connectWebSocket();
+  </script>
+</body>
+</html>

@@ -36,16 +36,16 @@ export interface WireframeListItem {
  */
 export async function listWireframesHandler(req: any, res: any): Promise<any> {
   const { project, session } = req.query;
-  const wireframesDir = join(project, '.collab', session, 'wireframes');
+  const wireframesDir = join(project, '.collab', 'sessions', session, 'wireframes');
 
   const files = await readdir(wireframesDir).catch(() => []);
 
   const wireframes = files
     .filter((f) => f.endsWith('.wireframe.json'))
-    .map((f) => ({
-      id: f.replace('.wireframe.json', ''),
-      name: f,
-    }));
+    .map((f) => {
+      const id = f.replace('.wireframe.json', '');
+      return { id, name: id };
+    });
 
   const result = { wireframes };
   return res.json(result);
@@ -66,7 +66,7 @@ export async function createWireframeHandler(req: any, res: any): Promise<any> {
   const { project, session } = req.query;
   const { name, content } = await req.json();
 
-  const filePath = join(project, '.collab', session, 'wireframes', `${name}.wireframe.json`);
+  const filePath = join(project, '.collab', 'sessions', session, 'wireframes', `${name}.wireframe.json`);
 
   // Create directories if they don't exist
   await mkdir(dirname(filePath), { recursive: true });
@@ -86,11 +86,12 @@ export async function createWireframeHandler(req: any, res: any): Promise<any> {
  * - session: session name
  * - id: wireframe ID (file name without extension)
  *
- * Response: { id: string, content: WireframeRoot, lastModified: number }
+ * Response: { id: string, content: string, lastModified: number }
+ * Note: content is returned as a JSON string for consistency with diagrams/documents
  */
 export async function getWireframeHandler(req: any, res: any): Promise<any> {
   const { project, session, id } = req.query;
-  const filePath = join(project, '.collab', session, 'wireframes', `${id}.wireframe.json`);
+  const filePath = join(project, '.collab', 'sessions', session, 'wireframes', `${id}.wireframe.json`);
 
   try {
     if (!existsSync(filePath)) {
@@ -98,15 +99,15 @@ export async function getWireframeHandler(req: any, res: any): Promise<any> {
     }
 
     const content = await readFile(filePath, 'utf-8');
-    const parsed = JSON.parse(content);
 
     // Get file stats for lastModified
     const stats = await stat(filePath);
     const lastModified = stats.mtimeMs;
 
+    // Return content as string (not parsed) for consistency with diagrams/documents
     const result = {
       id,
-      content: parsed,
+      content,
       lastModified,
     };
     return res.json(result);
@@ -123,7 +124,7 @@ export async function getWireframeHandler(req: any, res: any): Promise<any> {
  * - session: session name
  * - id: wireframe ID (file name without extension)
  *
- * Body: { content: WireframeRoot }
+ * Body: { content: string } - JSON string of wireframe content
  *
  * Response: { success: boolean }
  */
@@ -131,15 +132,20 @@ export async function updateWireframeHandler(req: any, res: any): Promise<any> {
   const { project, session, id } = req.query;
   const { content } = await req.json();
 
-  const filePath = join(project, '.collab', session, 'wireframes', `${id}.wireframe.json`);
+  const filePath = join(project, '.collab', 'sessions', session, 'wireframes', `${id}.wireframe.json`);
 
   try {
     if (!existsSync(filePath)) {
       return res.status(404).json({ error: 'Wireframe not found' });
     }
 
-    // Write updated content with proper JSON formatting
-    await writeFile(filePath, JSON.stringify(content, null, 2));
+    // Content can be either a string or an object
+    // If it's a string, write it directly; if object, stringify it
+    const contentToWrite = typeof content === 'string'
+      ? content
+      : JSON.stringify(content, null, 2);
+
+    await writeFile(filePath, contentToWrite);
 
     const result = { success: true };
     return res.json(result);

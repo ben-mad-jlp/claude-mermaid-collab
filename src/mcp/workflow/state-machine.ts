@@ -40,7 +40,7 @@ export const STATE_DISPLAY_NAMES: Record<string, string> = {
   'done': 'Done',
 
   // Vibe mode
-  'vibe-active': 'Vibe Mode',
+  'vibe-active': 'Vibing',
 
   // Routing nodes
   'work-item-router': 'Routing',

@@ -705,6 +705,7 @@ describe('useSessionStore', () => {
       expect(state).toHaveProperty('selectedDocumentId');
       expect(state).toHaveProperty('collabState');
       expect(state).toHaveProperty('pendingDiff');
+      expect(state).toHaveProperty('taskGraphSelected');
     });
 
     it('should have all required methods', () => {
@@ -729,6 +730,78 @@ describe('useSessionStore', () => {
       expect(typeof state.reset).toBe('function');
       expect(typeof state.setPendingDiff).toBe('function');
       expect(typeof state.clearPendingDiff).toBe('function');
+      expect(typeof state.selectTaskGraph).toBe('function');
+      expect(typeof state.clearTaskGraphSelection).toBe('function');
+    });
+  });
+
+  describe('Task Graph Selection', () => {
+    it('should initialize with taskGraphSelected false', () => {
+      const state = useSessionStore.getState();
+      expect(state.taskGraphSelected).toBe(false);
+    });
+
+    it('should select task graph and clear diagram/document selection', () => {
+      const diagram = createMockDiagram();
+      const document = createMockDocument();
+      useSessionStore.getState().addDiagram(diagram);
+      useSessionStore.getState().addDocument(document);
+      useSessionStore.getState().selectDiagram(diagram.id);
+
+      useSessionStore.getState().selectTaskGraph();
+
+      const state = useSessionStore.getState();
+      expect(state.taskGraphSelected).toBe(true);
+      expect(state.selectedDiagramId).toBeNull();
+      expect(state.selectedDocumentId).toBeNull();
+    });
+
+    it('should clear task graph selection', () => {
+      useSessionStore.getState().selectTaskGraph();
+      useSessionStore.getState().clearTaskGraphSelection();
+
+      expect(useSessionStore.getState().taskGraphSelected).toBe(false);
+    });
+
+    it('should clear task graph selection when selecting a diagram', () => {
+      const diagram = createMockDiagram();
+      useSessionStore.getState().addDiagram(diagram);
+      useSessionStore.getState().selectTaskGraph();
+
+      useSessionStore.getState().selectDiagram(diagram.id);
+
+      const state = useSessionStore.getState();
+      expect(state.taskGraphSelected).toBe(false);
+      expect(state.selectedDiagramId).toBe(diagram.id);
+    });
+
+    it('should clear task graph selection when selecting a document', () => {
+      const document = createMockDocument();
+      useSessionStore.getState().addDocument(document);
+      useSessionStore.getState().selectTaskGraph();
+
+      useSessionStore.getState().selectDocument(document.id);
+
+      const state = useSessionStore.getState();
+      expect(state.taskGraphSelected).toBe(false);
+      expect(state.selectedDocumentId).toBe(document.id);
+    });
+
+    it('should clear task graph selection when session changes', () => {
+      useSessionStore.getState().selectTaskGraph();
+      const session = createMockSession();
+
+      useSessionStore.getState().setCurrentSession(session);
+
+      expect(useSessionStore.getState().taskGraphSelected).toBe(false);
+    });
+
+    it('should clear task graph selection when clearing session', () => {
+      useSessionStore.getState().selectTaskGraph();
+
+      useSessionStore.getState().clearSession();
+
+      expect(useSessionStore.getState().taskGraphSelected).toBe(false);
     });
   });
 });

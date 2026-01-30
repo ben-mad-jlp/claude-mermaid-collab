@@ -15,8 +15,14 @@ import React, { useCallback, useMemo } from 'react';
 import { useSession } from '@/hooks/useSession';
 import { Diagram, Document, Session } from '@/types';
 
-export type SessionItem = (Diagram | Document) & {
-  type: 'diagram' | 'document';
+export interface Wireframe {
+  id: string;
+  name: string;
+  lastModified?: number;
+}
+
+export type SessionItem = (Diagram | Document | Wireframe) & {
+  type: 'diagram' | 'document' | 'wireframe';
   hasUpdate?: boolean;
 };
 
@@ -27,6 +33,8 @@ export interface SessionPanelProps {
   diagrams?: Diagram[];
   /** Documents in the session */
   documents?: Document[];
+  /** Wireframes in the session */
+  wireframes?: Wireframe[];
   /** Currently selected item ID */
   selectedItemId?: string | null;
   /** Callback when an item is clicked */
@@ -63,7 +71,7 @@ function formatRelativeTime(timestamp: number | string | undefined): string {
 /**
  * Get icon for item type
  */
-function getItemIcon(type: 'diagram' | 'document'): React.ReactNode {
+function getItemIcon(type: 'diagram' | 'document' | 'wireframe'): React.ReactNode {
   if (type === 'diagram') {
     return (
       <svg
@@ -74,6 +82,24 @@ function getItemIcon(type: 'diagram' | 'document'): React.ReactNode {
       >
         <path d="M2 10a8 8 0 018-8v8h8a8 8 0 11-16 0z" />
         <path d="M12 2.252A8.014 8.014 0 0117.748 8H12V2.252z" />
+      </svg>
+    );
+  }
+
+  if (type === 'wireframe') {
+    // Wireframe icon - phone/screen outline
+    return (
+      <svg
+        className="w-4 h-4"
+        viewBox="0 0 20 20"
+        fill="currentColor"
+        aria-hidden="true"
+      >
+        <path
+          fillRule="evenodd"
+          d="M5 2a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V4a2 2 0 00-2-2H5zm0 2h10v10H5V4zm3 11a1 1 0 112 0 1 1 0 01-2 0z"
+          clipRule="evenodd"
+        />
       </svg>
     );
   }
@@ -101,13 +127,14 @@ export const SessionPanel: React.FC<SessionPanelProps> = ({
   session,
   diagrams = [],
   documents = [],
+  wireframes = [],
   selectedItemId,
   onItemClick,
   onItemOpenNewTab,
   className = '',
   compact = false,
 }) => {
-  // Combine diagrams and documents into a unified list
+  // Combine diagrams, documents, and wireframes into a unified list
   const items: SessionItem[] = useMemo(() => {
     const diagramItems: SessionItem[] = diagrams.map((d) => ({
       ...d,
@@ -119,13 +146,18 @@ export const SessionPanel: React.FC<SessionPanelProps> = ({
       type: 'document' as const,
     }));
 
+    const wireframeItems: SessionItem[] = wireframes.map((w) => ({
+      ...w,
+      type: 'wireframe' as const,
+    }));
+
     // Sort by lastModified (most recent first)
-    return [...diagramItems, ...documentItems].sort((a, b) => {
+    return [...diagramItems, ...documentItems, ...wireframeItems].sort((a, b) => {
       const aTime = a.lastModified || 0;
       const bTime = b.lastModified || 0;
       return bTime - aTime;
     });
-  }, [diagrams, documents]);
+  }, [diagrams, documents, wireframes]);
 
   const handleItemClick = useCallback(
     (item: SessionItem) => {

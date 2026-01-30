@@ -47,20 +47,19 @@ The collab workflow turns ideas into working code through structured phases with
 - **Kodex Knowledge Base**: Project-specific knowledge management with topic CRUD
 - **Health Monitoring**: `/api/health` endpoint and `check_server_health` MCP tool
 
-### Skills (42 Total)
+### Skills (41 Total)
 
 Skills are orchestration-focused instructions for Claude Code, loaded on-demand. Large skills use phase modules to reduce context overhead.
 
-#### Collab Core (8)
+#### Collab Core (7)
 | Skill | Purpose |
 |-------|---------|
 | **collab** | Orchestrator - creates sessions, manages work item loop |
 | **collab-start** | Quick-start: ensures server running then launches collab |
 | **collab-work-item-loop** | Core loop that processes work items one at a time |
 | **collab-session-mgmt** | Session finding, creating, and resuming procedures |
-| **collab-compact** | Save context snapshot and trigger compaction |
 | **collab-cleanup** | Archive or delete session artifacts |
-| **collab-clear** | Close out a collab session |
+| **collab-clear** | Ask about clearing context, then proceed to next skill |
 | **gather-session-goals** | Collects and classifies work items at session start |
 
 #### Brainstorming (6)
@@ -87,7 +86,7 @@ Skills are orchestration-focused instructions for Claude Code, loaded on-demand.
 |-------|---------|
 | **executing-plans** | Parent skill - Batch execution with dependency-aware dispatch |
 | **executing-plans-execution** | Detailed execution logic |
-| **executing-plans-review** | Verification, drift detection, and snapshot logic |
+| **executing-plans-review** | Verification and drift detection |
 
 #### Kodex Knowledge Base (7)
 | Skill | Purpose |
@@ -213,8 +212,7 @@ The plugin provides these slash commands (all namespaced under `mermaid-collab:`
 │       ├── diagrams/              # .mmd files
 │       ├── documents/             # .md files (design.md required)
 │       ├── collab-state.json      # Phase tracking
-│       ├── terminal-sessions.json # Persistent terminal tabs
-│       └── context-snapshot.json  # Recovery after compaction
+│       └── terminal-sessions.json # Persistent terminal tabs
 └── .kodex/                        # Project knowledge base
     └── topics/
         └── *.md                   # Topic files
@@ -227,7 +225,6 @@ The plugin provides these slash commands (all namespaced under `mermaid-collab:`
   "phase": "brainstorming|rough-draft/interface|rough-draft/pseudocode|rough-draft/skeleton|implementation",
   "lastActivity": "2026-01-20T10:30:00Z",
   "currentItem": null,
-  "hasSnapshot": false,
   "completedTasks": [],
   "pendingTasks": []
 }
@@ -254,10 +251,6 @@ All tools require `project` (absolute path) and `session` (session name) paramet
 |------|-------------|
 | `get_session_state(project, session)` | Read collab-state.json |
 | `update_session_state(project, session, ...)` | Update collab state fields |
-| `has_snapshot(project, session)` | Check if context snapshot exists |
-| `save_snapshot(project, session, ...)` | Save context snapshot for recovery |
-| `load_snapshot(project, session)` | Load context snapshot |
-| `delete_snapshot(project, session)` | Delete context snapshot |
 
 ### Diagram Tools
 

@@ -1,22 +1,14 @@
 // Set up DOM environment BEFORE importing mermaid
 import './dom-setup.ts';
 import mermaid from 'mermaid';
-import * as wireframe from 'mermaid-wireframe';
 
 export type Theme = 'default' | 'dark' | 'forest' | 'neutral';
 export type Format = 'svg' | 'png';
 
 export class Renderer {
   private thumbnailCache: Map<string, Buffer> = new Map();
-  private wireframeRegistered: boolean = false;
 
   async renderSVG(content: string, theme: Theme = 'default'): Promise<string> {
-    // Register wireframe plugin once
-    if (!this.wireframeRegistered) {
-      await mermaid.registerExternalDiagrams([wireframe]);
-      this.wireframeRegistered = true;
-    }
-
     mermaid.initialize({
       theme,
       startOnLoad: false,

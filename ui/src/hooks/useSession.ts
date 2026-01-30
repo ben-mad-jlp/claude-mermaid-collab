@@ -11,7 +11,7 @@
 import { useCallback } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { Session, Diagram, Document, CollabState } from '../types';
-import { useSessionStore } from '../stores/sessionStore';
+import { useSessionStore, Wireframe } from '../stores/sessionStore';
 
 export interface UseSessionReturn {
   // Session state
@@ -28,6 +28,11 @@ export interface UseSessionReturn {
   documents: Document[];
   selectedDocumentId: string | null;
   selectedDocument: Document | undefined;
+
+  // Wireframe state
+  wireframes: Wireframe[];
+  selectedWireframeId: string | null;
+  selectedWireframe: Wireframe | undefined;
 
   // Collab state
   collabState: CollabState | null;
@@ -48,6 +53,12 @@ export interface UseSessionReturn {
   updateDocument: (id: string, updates: Partial<Document>) => void;
   removeDocument: (id: string) => void;
   selectDocument: (id: string | null) => void;
+
+  // Wireframe actions
+  addWireframe: (wireframe: Wireframe) => void;
+  updateWireframe: (id: string, updates: Partial<Wireframe>) => void;
+  removeWireframe: (id: string) => void;
+  selectWireframe: (id: string | null) => void;
 
   // Collab state actions
   setCollabState: (state: CollabState | null) => void;
@@ -99,6 +110,8 @@ export function useSession(): UseSessionReturn {
     selectedDiagramId,
     documents,
     selectedDocumentId,
+    wireframes,
+    selectedWireframeId,
     collabState,
     setCurrentSession,
     setLoading,
@@ -115,6 +128,12 @@ export function useSession(): UseSessionReturn {
     removeDocument,
     selectDocument,
     getSelectedDocument,
+    setWireframes,
+    addWireframe,
+    updateWireframe,
+    removeWireframe,
+    selectWireframe,
+    getSelectedWireframe,
     setCollabState,
     clearSession,
     reset,
@@ -127,6 +146,8 @@ export function useSession(): UseSessionReturn {
       selectedDiagramId: state.selectedDiagramId,
       documents: state.documents,
       selectedDocumentId: state.selectedDocumentId,
+      wireframes: state.wireframes,
+      selectedWireframeId: state.selectedWireframeId,
       collabState: state.collabState,
       setCurrentSession: state.setCurrentSession,
       setLoading: state.setLoading,
@@ -143,6 +164,12 @@ export function useSession(): UseSessionReturn {
       removeDocument: state.removeDocument,
       selectDocument: state.selectDocument,
       getSelectedDocument: state.getSelectedDocument,
+      setWireframes: state.setWireframes,
+      addWireframe: state.addWireframe,
+      updateWireframe: state.updateWireframe,
+      removeWireframe: state.removeWireframe,
+      selectWireframe: state.selectWireframe,
+      getSelectedWireframe: state.getSelectedWireframe,
       setCollabState: state.setCollabState,
       clearSession: state.clearSession,
       reset: state.reset,
@@ -159,6 +186,11 @@ export function useSession(): UseSessionReturn {
     return getSelectedDocument();
   }, [getSelectedDocument])();
 
+  // Memoize selected wireframe getter
+  const selectedWireframe = useCallback(() => {
+    return getSelectedWireframe();
+  }, [getSelectedWireframe])();
+
   return {
     currentSession,
     isLoading,
@@ -169,6 +201,9 @@ export function useSession(): UseSessionReturn {
     documents,
     selectedDocumentId,
     selectedDocument,
+    wireframes,
+    selectedWireframeId,
+    selectedWireframe,
     collabState,
     setCurrentSession,
     setLoading,
@@ -181,6 +216,10 @@ export function useSession(): UseSessionReturn {
     updateDocument,
     removeDocument,
     selectDocument,
+    addWireframe,
+    updateWireframe,
+    removeWireframe,
+    selectWireframe,
     setCollabState,
     clearSession,
     reset,

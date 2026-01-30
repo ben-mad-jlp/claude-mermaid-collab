@@ -147,7 +147,18 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
   const parsedWireframe = useMemo((): WireframeRoot | null => {
     if (!item || item.type !== 'wireframe' || !item.content) return null;
     try {
-      return JSON.parse(item.content) as WireframeRoot;
+      const parsed = JSON.parse(item.content);
+      // Validate required wireframe structure
+      if (
+        !parsed ||
+        typeof parsed !== 'object' ||
+        typeof parsed.viewport !== 'string' ||
+        typeof parsed.direction !== 'string' ||
+        !Array.isArray(parsed.screens)
+      ) {
+        return null;
+      }
+      return parsed as WireframeRoot;
     } catch {
       return null;
     }

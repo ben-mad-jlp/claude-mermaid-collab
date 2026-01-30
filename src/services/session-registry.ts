@@ -121,8 +121,7 @@ export class SessionRegistry {
     const collabStateContent = JSON.stringify({
       state: 'collab-start',
       lastActivity: now,
-      currentItem: null,
-      hasSnapshot: false
+      currentItem: null
     }, null, 2);
     await this.createFileIfNotExists(collabStatePath, collabStateContent);
 

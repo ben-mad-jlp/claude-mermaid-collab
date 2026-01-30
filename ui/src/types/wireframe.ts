@@ -35,6 +35,8 @@ export interface BaseComponent {
   type: string;
   bounds: LayoutBounds;
   label?: string;
+  flex?: number;                              // 0 = fixed size (use bounds), 1+ = proportional flex
+  align?: 'start' | 'center' | 'end';         // Cross-axis alignment
 }
 
 /**
@@ -100,6 +102,107 @@ export interface TextComponent extends BaseComponent {
 }
 
 /**
+ * CardComponent interface represents a card container with visual styling
+ */
+export interface CardComponent extends BaseComponent {
+  type: 'card';
+  title?: string;
+  gap?: number;
+  padding?: number;
+  children: WireframeComponent[];
+}
+
+/**
+ * NavItem interface represents a navigation menu item
+ */
+export interface NavItem {
+  label: string;
+  icon?: string;
+  active?: boolean;
+}
+
+/**
+ * AppBarComponent interface represents a top app bar
+ */
+export interface AppBarComponent extends BaseComponent {
+  type: 'appbar';
+  title?: string;
+  leftIcon?: string;
+  rightIcons?: string[];
+}
+
+/**
+ * BottomNavComponent interface represents a bottom navigation bar
+ */
+export interface BottomNavComponent extends BaseComponent {
+  type: 'bottomnav';
+  items: NavItem[];
+  activeIndex?: number;
+}
+
+/**
+ * NavMenuComponent interface represents a side navigation menu
+ */
+export interface NavMenuComponent extends BaseComponent {
+  type: 'navmenu';
+  items: NavItem[];
+  variant?: 'horizontal' | 'vertical';
+}
+
+/**
+ * AvatarComponent interface represents a circular avatar placeholder
+ */
+export interface AvatarComponent extends BaseComponent {
+  type: 'avatar';
+  size?: number;
+  initials?: string;
+}
+
+/**
+ * ImageComponent interface represents an image placeholder
+ */
+export interface ImageComponent extends BaseComponent {
+  type: 'image';
+  alt?: string;
+  aspectRatio?: string;
+}
+
+/**
+ * IconComponent interface represents a simple icon placeholder
+ */
+export interface IconComponent extends BaseComponent {
+  type: 'icon';
+  name?: string;
+  size?: number;
+}
+
+/**
+ * ListItemData interface represents a single list item's data
+ */
+export interface ListItemData {
+  id: string;
+  label: string;
+  icon?: string;
+}
+
+/**
+ * ListComponent interface represents a list with items
+ */
+export interface ListComponent extends BaseComponent {
+  type: 'list';
+  items: ListItemData[];
+  dividers?: boolean;
+}
+
+/**
+ * DividerComponent interface represents a horizontal or vertical divider line
+ */
+export interface DividerComponent extends BaseComponent {
+  type: 'divider';
+  orientation?: 'horizontal' | 'vertical';
+}
+
+/**
  * RenderContext interface provides context for rough.js rendering
  */
 export interface RenderContext {
@@ -126,6 +229,15 @@ export type WireframeComponent =
   | ScreenComponent
   | ColComponent
   | RowComponent
+  | CardComponent
   | ButtonComponent
   | InputComponent
-  | TextComponent;
+  | TextComponent
+  | AppBarComponent
+  | BottomNavComponent
+  | NavMenuComponent
+  | AvatarComponent
+  | ImageComponent
+  | IconComponent
+  | ListComponent
+  | DividerComponent;

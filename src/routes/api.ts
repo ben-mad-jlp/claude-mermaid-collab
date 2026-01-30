@@ -21,6 +21,12 @@ import {
   getWireframeHandler,
   updateWireframeHandler,
 } from '../api/wireframe-routes';
+import { WireframeRenderer as WireframeSVGRenderer } from '../services/wireframe-renderer';
+import {
+  parseTaskGraph,
+  buildBatches,
+  type TaskGraphTask,
+} from '../mcp/workflow/task-sync';
 
 /**
  * Expand ~ to home directory in paths
@@ -310,6 +316,114 @@ export async function handleAPI(
     }
   }
 
+  // GET /api/projects/:project/sessions/:session/task-graph - Get task graph for UI display
+  const taskGraphMatch = path.match(/^\/api\/projects\/([^/]+)\/sessions\/([^/]+)\/task-graph$/);
+  if (taskGraphMatch && req.method === 'GET') {
+    const project = decodeURIComponent(taskGraphMatch[1]);
+    const session = decodeURIComponent(taskGraphMatch[2]);
+
+    try {
+      // Read task-graph.md document
+      const documentsPath = sessionRegistry.resolvePath(project, session, 'documents');
+      const taskGraphPath = join(documentsPath, 'task-graph.md');
+      const taskGraphFile = Bun.file(taskGraphPath);
+
+      if (!await taskGraphFile.exists()) {
+        // No task graph yet - return empty state
+        return Response.json({
+          diagram: null,
+          batches: [],
+          completedTasks: [],
+          pendingTasks: [],
+        });
+      }
+
+      const content = await taskGraphFile.text();
+
+      // Parse the task graph
+      let tasks: TaskGraphTask[] = [];
+      try {
+        const taskGraph = parseTaskGraph(content);
+        tasks = taskGraph.tasks;
+      } catch {
+        // Parsing failed - return empty state
+        return Response.json({
+          diagram: null,
+          batches: [],
+          completedTasks: [],
+          pendingTasks: [],
+        });
+      }
+
+      // Build batches
+      const batches = buildBatches(tasks);
+
+      // Generate Mermaid diagram
+      const waveColors = ['#c8e6c9', '#bbdefb', '#fff3e0', '#f3e5f5', '#ffccbc'];
+      const mermaidLines: string[] = ['graph TD'];
+
+      // Add nodes
+      for (const task of tasks) {
+        const shortDesc = task.description.substring(0, 30) + (task.description.length > 30 ? '...' : '');
+        mermaidLines.push(`    ${task.id}["${task.id}<br/>${shortDesc}"]`);
+      }
+
+      mermaidLines.push('');
+
+      // Add edges based on dependencies
+      for (const task of tasks) {
+        const deps = task['depends-on'] || [];
+        for (const dep of deps) {
+          mermaidLines.push(`    ${dep} --> ${task.id}`);
+        }
+      }
+
+      mermaidLines.push('');
+
+      // Get session state for completed/pending tasks
+      const stateFile = Bun.file(join(project, '.collab', 'sessions', session, 'collab-state.json'));
+      let completedTasks: string[] = [];
+      let pendingTasks: string[] = [];
+
+      if (await stateFile.exists()) {
+        try {
+          const stateContent = await stateFile.text();
+          const state = JSON.parse(stateContent);
+          completedTasks = state.completedTasks || [];
+          pendingTasks = state.pendingTasks || [];
+        } catch {
+          // Failed to read state, continue with empty arrays
+        }
+      }
+
+      const completedSet = new Set(completedTasks);
+
+      // Add styles based on wave and completion status
+      batches.forEach((batch, waveIndex) => {
+        const waveColor = waveColors[waveIndex % waveColors.length];
+        for (const task of batch.tasks) {
+          if (completedSet.has(task.id)) {
+            // Completed tasks get green with darker border
+            mermaidLines.push(`    style ${task.id} fill:#4caf50,stroke:#2e7d32,color:#fff`);
+          } else {
+            mermaidLines.push(`    style ${task.id} fill:${waveColor}`);
+          }
+        }
+      });
+
+      const diagram = mermaidLines.join('\n');
+
+      return Response.json({
+        diagram,
+        batches,
+        completedTasks,
+        pendingTasks,
+      });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
   // GET /api/ui-state?project=...&session=... - Get cached UI state for reconnection
   if (path === '/api/ui-state' && req.method === 'GET') {
     const params = getSessionParams(url);
@@ -414,7 +528,7 @@ export async function handleAPI(
       wsHandler.broadcast({
         type: 'diagram_created',
         id,
-        name: name + '.mmd',
+        name,
         content,
         lastModified: Date.now(),
         project: params.project,
@@ -573,7 +687,7 @@ export async function handleAPI(
   }
 
   // GET /api/wireframe/:id?project=...&session=...
-  if (path.startsWith('/api/wireframe/') && req.method === 'GET') {
+  if (path.startsWith('/api/wireframe/') && !path.endsWith('/render') && req.method === 'GET') {
     const params = getSessionParams(url);
     if (!params) {
       return Response.json({ error: 'project and session query params required' }, { status: 400 });
@@ -595,7 +709,7 @@ export async function handleAPI(
   }
 
   // POST /api/wireframe/:id?project=...&session=... (update)
-  if (path.startsWith('/api/wireframe/') && req.method === 'POST') {
+  if (path.startsWith('/api/wireframe/') && !path.endsWith('/render') && req.method === 'POST') {
     const params = getSessionParams(url);
     if (!params) {
       return Response.json({ error: 'project and session query params required' }, { status: 400 });
@@ -643,6 +757,41 @@ export async function handleAPI(
       return response;
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 404 });
+    }
+  }
+
+  // GET /api/wireframe/:id/render?project=...&session=... - Render wireframe as SVG image
+  if (path.match(/^\/api\/wireframe\/[^/]+\/render$/) && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    // Extract id from path (between /wireframe/ and /render)
+    const pathParts = path.split('/');
+    const id = pathParts[3];
+    const scale = parseFloat(url.searchParams.get('scale') || '1') || 1;
+
+    try {
+      // Read wireframe directly from file
+      const wireframePath = join(params.project, '.collab', 'sessions', params.session, 'wireframes', `${id}.wireframe.json`);
+      const wireframeFile = Bun.file(wireframePath);
+
+      if (!await wireframeFile.exists()) {
+        return Response.json({ error: 'Wireframe not found' }, { status: 404 });
+      }
+
+      const wireframeContent = await wireframeFile.json();
+
+      // Render to SVG
+      const wireframeRenderer = new WireframeSVGRenderer();
+      const svg = wireframeRenderer.renderToSVG(wireframeContent, scale);
+
+      return new Response(svg, {
+        headers: { 'Content-Type': 'image/svg+xml' },
+      });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
     }
   }
 
@@ -862,7 +1011,7 @@ export async function handleAPI(
       wsHandler.broadcast({
         type: 'document_created',
         id,
-        name: name + '.md',
+        name,
         content,
         lastModified: Date.now(),
         project: params.project,

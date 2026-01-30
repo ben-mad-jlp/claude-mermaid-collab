@@ -40,7 +40,6 @@ describe('getSessionState - Display Name Computation', () => {
         phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: null,
-        hasSnapshot: false,
       };
 
       const statePath = join(testProject, '.collab', 'sessions', testSession, 'collab-state.json');
@@ -58,7 +57,6 @@ describe('getSessionState - Display Name Computation', () => {
         phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: null,
-        hasSnapshot: false,
       };
 
       const statePath = join(testProject, '.collab', 'sessions', testSession, 'collab-state.json');
@@ -75,7 +73,6 @@ describe('getSessionState - Display Name Computation', () => {
         phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: null,
-        hasSnapshot: false,
       };
 
       const statePath = join(testProject, '.collab', 'sessions', testSession, 'collab-state.json');
@@ -92,7 +89,6 @@ describe('getSessionState - Display Name Computation', () => {
         phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: null,
-        hasSnapshot: false,
       };
 
       const statePath = join(testProject, '.collab', 'sessions', testSession, 'collab-state.json');
@@ -109,7 +105,6 @@ describe('getSessionState - Display Name Computation', () => {
         phase: 'rough-draft',
         lastActivity: new Date().toISOString(),
         currentItem: null,
-        hasSnapshot: false,
       };
 
       const statePath = join(testProject, '.collab', 'sessions', testSession, 'collab-state.json');
@@ -126,7 +121,6 @@ describe('getSessionState - Display Name Computation', () => {
         phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: null,
-        hasSnapshot: false,
       };
 
       const statePath = join(testProject, '.collab', 'sessions', testSession, 'collab-state.json');
@@ -143,7 +137,6 @@ describe('getSessionState - Display Name Computation', () => {
         phase: 'ready',
         lastActivity: new Date().toISOString(),
         currentItem: null,
-        hasSnapshot: false,
       };
 
       const statePath = join(testProject, '.collab', 'sessions', testSession, 'collab-state.json');
@@ -160,7 +153,6 @@ describe('getSessionState - Display Name Computation', () => {
         phase: 'executing',
         lastActivity: new Date().toISOString(),
         currentItem: null,
-        hasSnapshot: false,
       };
 
       const statePath = join(testProject, '.collab', 'sessions', testSession, 'collab-state.json');
@@ -176,7 +168,6 @@ describe('getSessionState - Display Name Computation', () => {
         phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: null,
-        hasSnapshot: false,
       };
 
       const statePath = join(testProject, '.collab', 'sessions', testSession, 'collab-state.json');
@@ -194,7 +185,6 @@ describe('getSessionState - Display Name Computation', () => {
         phase: 'brainstorming',
         lastActivity: '2025-01-28T10:00:00Z',
         currentItem: 1,
-        hasSnapshot: true,
         totalItems: 5,
         documentedItems: 2,
       };
@@ -207,7 +197,6 @@ describe('getSessionState - Display Name Computation', () => {
       expect(result.displayName).toBe('Exploring');
       expect(result.phase).toBe('brainstorming');
       expect(result.currentItem).toBe(1);
-      expect(result.hasSnapshot).toBe(true);
       expect(result.totalItems).toBe(5);
       expect(result.documentedItems).toBe(2);
     });
@@ -219,7 +208,6 @@ describe('getSessionState - Display Name Computation', () => {
         state: 'brainstorm-exploring',
         lastActivity: new Date().toISOString(),
         currentItem: null,
-        hasSnapshot: false,
       };
 
       const statePath = join(testProject, '.collab', 'sessions', testSession, 'collab-state.json');
@@ -236,7 +224,6 @@ describe('getSessionState - Display Name Computation', () => {
         phase: 'custom-phase',
         lastActivity: new Date().toISOString(),
         currentItem: null,
-        hasSnapshot: false,
       };
 
       const statePath = join(testProject, '.collab', 'sessions', testSession, 'collab-state.json');
@@ -252,7 +239,6 @@ describe('getSessionState - Display Name Computation', () => {
         state: 'rough-draft-interface',
         lastActivity: new Date().toISOString(),
         currentItem: null,
-        hasSnapshot: false,
       };
 
       const statePath = join(testProject, '.collab', 'sessions', testSession, 'collab-state.json');
@@ -268,7 +254,6 @@ describe('getSessionState - Display Name Computation', () => {
         state: 'clear-bs1',
         lastActivity: new Date().toISOString(),
         currentItem: null,
-        hasSnapshot: false,
       };
 
       const statePath = join(testProject, '.collab', 'sessions', testSession, 'collab-state.json');

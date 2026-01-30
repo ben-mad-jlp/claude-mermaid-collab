@@ -13,10 +13,11 @@
 
 import React, { useMemo, useCallback, useState } from 'react';
 import { Diagram, Document } from '@/types';
+import { Wireframe } from '@/stores/sessionStore';
 import ItemCard from './ItemCard';
 
-export type GridItem = (Diagram | Document) & {
-  type: 'diagram' | 'document';
+export type GridItem = (Diagram | Document | Wireframe) & {
+  type: 'diagram' | 'document' | 'wireframe';
 };
 
 export interface ItemGridProps {

@@ -98,7 +98,7 @@ describe('State Machine Display Names', () => {
 
     describe('Vibe mode states', () => {
       it('should have display name for vibe-active', () => {
-        expect(STATE_DISPLAY_NAMES['vibe-active']).toBe('Vibe Mode');
+        expect(STATE_DISPLAY_NAMES['vibe-active']).toBe('Vibing');
       });
     });
 
@@ -245,8 +245,8 @@ describe('Vibe Mode State', () => {
   });
 
   describe('getDisplayName for vibe-active', () => {
-    it('should return Vibe Mode', () => {
-      expect(getDisplayName('vibe-active')).toBe('Vibe Mode');
+    it('should return Vibing', () => {
+      expect(getDisplayName('vibe-active')).toBe('Vibing');
     });
   });
 

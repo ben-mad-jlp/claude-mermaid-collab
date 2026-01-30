@@ -41,10 +41,8 @@ Args: { "project": "<cwd>", "session": "<session>", "skill": "collab-clear" }
 ## Step 3: Handle Choice
 
 **If user chose "Yes, clear":**
-1. Save snapshot with next_skill as activeSkill
-2. Update state: hasSnapshot = true
-3. Display: "Context saved. Triggering /clear..."
-4. Invoke /clear (user will run /collab to resume)
+1. Display: "Triggering /clear... Run /collab to resume."
+2. Invoke /clear
 
 **If user chose "No, continue":**
 1. Invoke result.next_skill directly (skip the clear)

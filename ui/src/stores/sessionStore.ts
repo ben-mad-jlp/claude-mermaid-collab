@@ -2,6 +2,16 @@ import { create } from 'zustand';
 import { Session, Diagram, Document, CollabState } from '../types';
 
 /**
+ * Wireframe type definition
+ */
+export interface Wireframe {
+  id: string;
+  name: string;
+  content?: string;
+  lastModified?: number;
+}
+
+/**
  * Diff state for highlighting document patches
  */
 export interface DiffState {
@@ -31,6 +41,13 @@ export interface SessionState {
   // Documents in current session
   documents: Document[];
   selectedDocumentId: string | null;
+
+  // Wireframes in current session
+  wireframes: Wireframe[];
+  selectedWireframeId: string | null;
+
+  // Task graph selection state
+  taskGraphSelected: boolean;
 
   // Collab state for current session
   collabState: CollabState | null;
@@ -62,8 +79,20 @@ export interface SessionState {
   selectDocument: (id: string | null) => void;
   getSelectedDocument: () => Document | undefined;
 
+  // Wireframe actions
+  setWireframes: (wireframes: Wireframe[]) => void;
+  addWireframe: (wireframe: Wireframe) => void;
+  updateWireframe: (id: string, wireframe: Partial<Wireframe>) => void;
+  removeWireframe: (id: string) => void;
+  selectWireframe: (id: string | null) => void;
+  getSelectedWireframe: () => Wireframe | undefined;
+
   // Collab state actions
   setCollabState: (state: CollabState | null) => void;
+
+  // Task graph selection actions
+  selectTaskGraph: () => void;
+  clearTaskGraphSelection: () => void;
 
   // Diff state actions
   setPendingDiff: (diff: DiffState | null) => void;
@@ -88,6 +117,9 @@ const initialState = {
   selectedDiagramId: null,
   documents: [],
   selectedDocumentId: null,
+  wireframes: [],
+  selectedWireframeId: null,
+  taskGraphSelected: false,
   collabState: null,
   pendingDiff: null,
 };
@@ -119,15 +151,18 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       return;
     }
 
-    // Clear diagrams, documents, and related state when session changes
+    // Clear diagrams, documents, wireframes, and related state when session changes
     // This ensures clean state when switching between sessions
     set({
       currentSession: session,
       error: null,
       diagrams: [],
       documents: [],
+      wireframes: [],
       selectedDiagramId: null,
       selectedDocumentId: null,
+      selectedWireframeId: null,
+      taskGraphSelected: false,
       collabState: null,
     });
   },
@@ -173,7 +208,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const { diagrams } = get();
     // Only select if diagram exists or if clearing selection
     if (id === null || diagrams.find((d) => d.id === id)) {
-      set({ selectedDiagramId: id, selectedDocumentId: null });
+      set({ selectedDiagramId: id, selectedDocumentId: null, taskGraphSelected: false });
     }
   },
 
@@ -219,7 +254,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const { documents } = get();
     // Only select if document exists or if clearing selection
     if (id === null || documents.find((d) => d.id === id)) {
-      set({ selectedDocumentId: id, selectedDiagramId: null });
+      set({ selectedDocumentId: id, selectedDiagramId: null, taskGraphSelected: false });
     }
   },
 
@@ -228,9 +263,64 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     return documents.find((d) => d.id === selectedDocumentId);
   },
 
+  // Wireframe management
+  setWireframes: (wireframes: Wireframe[]) => {
+    set({ wireframes });
+    // Clear selected wireframe if it's not in the new list
+    const { selectedWireframeId } = get();
+    if (selectedWireframeId && !wireframes.find((w) => w.id === selectedWireframeId)) {
+      set({ selectedWireframeId: null });
+    }
+  },
+
+  addWireframe: (wireframe: Wireframe) => {
+    const { wireframes } = get();
+    // Avoid duplicates
+    if (!wireframes.find((w) => w.id === wireframe.id)) {
+      set({ wireframes: [...wireframes, wireframe] });
+    }
+  },
+
+  updateWireframe: (id: string, updates: Partial<Wireframe>) => {
+    const { wireframes } = get();
+    set({
+      wireframes: wireframes.map((w) => (w.id === id ? { ...w, ...updates } : w)),
+    });
+  },
+
+  removeWireframe: (id: string) => {
+    const { wireframes, selectedWireframeId } = get();
+    set({
+      wireframes: wireframes.filter((w) => w.id !== id),
+      selectedWireframeId: selectedWireframeId === id ? null : selectedWireframeId,
+    });
+  },
+
+  selectWireframe: (id: string | null) => {
+    const { wireframes } = get();
+    // Only select if wireframe exists or if clearing selection
+    if (id === null || wireframes.find((w) => w.id === id)) {
+      set({ selectedWireframeId: id, selectedDiagramId: null, selectedDocumentId: null, taskGraphSelected: false });
+    }
+  },
+
+  getSelectedWireframe: () => {
+    const { wireframes, selectedWireframeId } = get();
+    return wireframes.find((w) => w.id === selectedWireframeId);
+  },
+
   // Collab state management
   setCollabState: (state: CollabState | null) => {
     set({ collabState: state });
+  },
+
+  // Task graph selection
+  selectTaskGraph: () => {
+    set({ taskGraphSelected: true, selectedDiagramId: null, selectedDocumentId: null });
+  },
+
+  clearTaskGraphSelection: () => {
+    set({ taskGraphSelected: false });
   },
 
   // Diff state management
@@ -248,8 +338,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       currentSession: null,
       diagrams: [],
       documents: [],
+      wireframes: [],
       selectedDiagramId: null,
       selectedDocumentId: null,
+      selectedWireframeId: null,
+      taskGraphSelected: false,
       collabState: null,
       error: null,
     });

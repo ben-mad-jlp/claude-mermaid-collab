@@ -1,7 +1,6 @@
 // Set up DOM environment BEFORE importing mermaid
 import '../services/dom-setup.ts';
 import mermaid from 'mermaid';
-import * as wireframe from 'mermaid-wireframe';
 
 /**
  * Theme types supported by Mermaid
@@ -45,7 +44,6 @@ export class MermaidError extends Error {
  * Internal state for Mermaid initialization
  */
 let isInitialized = false;
-let wireframeRegistered = false;
 
 /**
  * Initialize Mermaid with the given options.
@@ -60,12 +58,6 @@ export async function initializeMermaid(options: MermaidInitOptions = {}): Promi
   }
 
   try {
-    // Register wireframe plugin if not already registered
-    if (!wireframeRegistered) {
-      await mermaid.registerExternalDiagrams([wireframe]);
-      wireframeRegistered = true;
-    }
-
     const initConfig: MermaidInitOptions = {
       theme: options.theme || 'default',
       startOnLoad: options.startOnLoad ?? false,
@@ -188,7 +180,6 @@ export function validateDiagram(content: string): boolean {
       'gitGraph',
       'requirement',
       'architecture',
-      'wireframe',
       'mindmap',
       'timeline',
     ];
@@ -232,7 +223,6 @@ export function setTheme(theme: Theme): void {
  */
 export function reset(): void {
   isInitialized = false;
-  wireframeRegistered = false;
   try {
     mermaid.contentLoaded();
   } catch {

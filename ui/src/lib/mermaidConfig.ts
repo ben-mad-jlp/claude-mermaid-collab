@@ -1,53 +1,17 @@
 /**
  * Centralized Mermaid configuration
  *
- * Handles mermaid initialization and plugin registration.
- * Ensures the wireframe plugin is registered before any diagram rendering.
+ * Handles mermaid initialization for standard diagram types.
+ * Note: Wireframe diagrams now use the JSON-based rough.js renderer,
+ * not Mermaid's external diagram system.
  */
 
 import mermaid from 'mermaid';
 
-// Track registration state to avoid double registration
-let pluginRegistered = false;
-let registrationPromise: Promise<void> | null = null;
-
 /**
- * Register the wireframe plugin with Mermaid
- * This must be called before any wireframe diagrams can be rendered
- */
-export async function registerWireframePlugin(): Promise<void> {
-  // Return existing promise if registration is in progress
-  if (registrationPromise) {
-    return registrationPromise;
-  }
-
-  // Skip if already registered
-  if (pluginRegistered) {
-    return;
-  }
-
-  registrationPromise = (async () => {
-    try {
-      // Dynamic import of the wireframe plugin
-      const wireframe = await import('mermaid-wireframe');
-      await mermaid.registerExternalDiagrams([wireframe]);
-      pluginRegistered = true;
-    } catch (error) {
-      console.warn('Failed to register wireframe plugin:', error);
-      // Don't throw - diagrams without wireframe should still work
-    }
-  })();
-
-  return registrationPromise;
-}
-
-/**
- * Initialize mermaid with theme and register plugins
+ * Initialize mermaid with theme
  */
 export async function initializeMermaid(theme: 'light' | 'dark'): Promise<void> {
-  // Ensure wireframe plugin is registered first
-  await registerWireframePlugin();
-
   const config: any = {
     startOnLoad: false,
     theme: theme === 'dark' ? 'dark' : 'default',
@@ -77,7 +41,18 @@ export async function initializeMermaid(theme: 'light' | 'dark'): Promise<void> 
 
 /**
  * Check if a diagram content is a wireframe diagram
+ * Wireframes now use JSON format, not Mermaid syntax
  */
 export function isWireframeDiagram(content: string): boolean {
-  return /^\s*wireframe\s/m.test(content);
+  // Legacy check for old Mermaid wireframe syntax
+  if (/^\s*wireframe\s/m.test(content)) {
+    return true;
+  }
+  // New JSON wireframes start with { and have viewport/screens
+  try {
+    const parsed = JSON.parse(content);
+    return parsed.viewport && parsed.screens;
+  } catch {
+    return false;
+  }
 }

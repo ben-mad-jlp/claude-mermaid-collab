@@ -29,7 +29,6 @@
     "@xterm/xterm": "^5.5.0",
     "js-yaml": "^4.1.1",
     "mermaid": "^10.6.1",
-    "mermaid-wireframe": "file:../plugins/wireframe",
     "react": "^18.2.0",
     "react-diff-viewer-continued": "^3.3.0",
     "react-dom": "^18.2.0",
@@ -38,6 +37,7 @@
     "react-router-dom": "^7.13.0",
     "react-syntax-highlighter": "^15.5.0",
     "remark-gfm": "^4.0.0",
+    "roughjs": "^4.6.6",
     "zustand": "^4.4.1"
   },
   "devDependencies": {

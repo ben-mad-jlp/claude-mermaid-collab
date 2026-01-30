@@ -73,6 +73,9 @@ function getPhaseColor(state: string | undefined, displayName: string | undefine
     if (state === 'done' || state === 'workflow-complete' || state === 'cleanup') {
       return 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300';
     }
+    if (state === 'vibe-active') {
+      return 'bg-pink-100 dark:bg-pink-900/30 text-pink-700 dark:text-pink-300';
+    }
   }
 
   // Fallback: color based on displayName keywords
@@ -89,6 +92,9 @@ function getPhaseColor(state: string | undefined, displayName: string | undefine
     }
     if (lower.includes('investigating')) {
       return 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300';
+    }
+    if (lower.includes('vibing')) {
+      return 'bg-pink-100 dark:bg-pink-900/30 text-pink-700 dark:text-pink-300';
     }
   }
 

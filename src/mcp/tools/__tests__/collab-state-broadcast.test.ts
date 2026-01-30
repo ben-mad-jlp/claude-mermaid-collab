@@ -91,17 +91,6 @@ describe('updateSessionState - Broadcast Functionality', () => {
       expect(broadcastCall.currentItem).toBe(3);
     });
 
-    test('should include hasSnapshot in broadcast message', async () => {
-      const updates: StateUpdateParams = {
-        hasSnapshot: true,
-      };
-
-      await updateSessionState(testProject, testSession, updates, mockWsHandler);
-
-      const broadcastCall = (mockWsHandler.broadcast as any).mock.calls[0][0];
-      expect(broadcastCall.hasSnapshot).toBe(true);
-    });
-
     test('should include completedTasks in broadcast when provided', async () => {
       const updates: StateUpdateParams = {
         completedTasks: ['task_1', 'task_2'],
@@ -172,7 +161,6 @@ describe('updateSessionState - Broadcast Functionality', () => {
       const updates: StateUpdateParams = {
         phase: 'executing-plans',
         currentItem: 2,
-        hasSnapshot: true,
         completedTasks: ['task_1'],
         pendingTasks: ['task_2', 'task_3'],
         totalItems: 5,
@@ -185,7 +173,6 @@ describe('updateSessionState - Broadcast Functionality', () => {
       expect(broadcastCall.type).toBe('session_state_updated');
       expect(broadcastCall.phase).toBe('executing-plans');
       expect(broadcastCall.currentItem).toBe(2);
-      expect(broadcastCall.hasSnapshot).toBe(true);
       expect(broadcastCall.completedTasks).toEqual(['task_1']);
       expect(broadcastCall.pendingTasks).toEqual(['task_2', 'task_3']);
       expect(broadcastCall.totalItems).toBe(5);

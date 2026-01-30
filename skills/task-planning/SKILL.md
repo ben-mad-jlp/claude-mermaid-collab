@@ -61,8 +61,7 @@ Args: {
 Collab Session Structure:
 .collab/[session-name]/
 ├── design.md                 (updated with Prerequisites/Steps/Verification)
-├── collab-state.json        (contains currentItem reference)
-└── context-snapshot.json    (saved at phase transitions)
+└── collab-state.json        (contains currentItem reference)
 ```
 
 ## The Process
@@ -79,23 +78,7 @@ Identify what must exist before the task can start.
    - Document the prerequisite name
    - Document how to check if it exists
 4. Ask: "Anything else that needs to exist?"
-5. When user confirms prerequisites are complete, save snapshot and proceed to Steps phase
-
-**Snapshot Saving:**
-```
-// After each prerequisite documented, save to preserve context
-Tool: mcp__plugin_mermaid-collab_mermaid__save_snapshot
-Args: {
-  "project": "<cwd>",
-  "session": "<session-name>",
-  "activeSkill": "task-planning",
-  "currentStep": "prerequisites",
-  "pendingQuestion": "Are there more prerequisites?",
-  "inProgressItem": currentItem,
-  "recentContext": []
-}
-// Note: version and timestamp are automatically added
-```
+5. When user confirms prerequisites are complete, proceed to Steps phase
 
 ### Phase 2: Steps
 
@@ -109,23 +92,7 @@ Define the ordered sequence of commands/actions to complete the task.
    - Document the expected outcome after running it
 3. Order steps by dependency (what must run before what)
 4. Ask: "Are there more steps?"
-5. When user confirms steps are complete, save snapshot and proceed to Verification phase
-
-**Snapshot Saving:**
-```
-// After each step documented, save context
-Tool: mcp__plugin_mermaid-collab_mermaid__save_snapshot
-Args: {
-  "project": "<cwd>",
-  "session": "<session-name>",
-  "activeSkill": "task-planning",
-  "currentStep": "steps",
-  "pendingQuestion": "Are there more steps?",
-  "inProgressItem": currentItem,
-  "recentContext": []
-}
-// Note: version and timestamp are automatically added
-```
+5. When user confirms steps are complete, proceed to Verification phase
 
 ### Phase 3: Verification
 
@@ -137,24 +104,7 @@ Define how to confirm the task completed successfully.
 2. Document verification commands/checks
 3. Update the design.md with all three phases (Prerequisites, Steps, Verification)
 4. Mark item as "task-planning" phase complete
-5. Save final snapshot
-6. Return to collab skill (indicate item is ready for executing-plans phase)
-
-**Snapshot Saving:**
-```
-// After verification documented and design.md updated
-Tool: mcp__plugin_mermaid-collab_mermaid__save_snapshot
-Args: {
-  "project": "<cwd>",
-  "session": "<session-name>",
-  "activeSkill": "task-planning",
-  "currentStep": "verification-complete",
-  "pendingQuestion": null,
-  "inProgressItem": currentItem,
-  "recentContext": []
-}
-// Note: version and timestamp are automatically added
-```
+5. Return to collab skill (indicate item is ready for executing-plans phase)
 
 ## Integration
 
@@ -204,29 +154,6 @@ The task-planning skill updates the work item in design.md with this structure:
 **Success Criteria:**
 [From original brainstorming]
 ```
-
-## Context Preservation
-
-This skill saves snapshots at key transitions to preserve planning progress if the session is compacted.
-
-**Snapshot Structure (returned by mcp__plugin_mermaid-collab_mermaid__load_snapshot):**
-```json
-{
-  "version": 1,
-  "timestamp": "2025-01-21T14:30:00Z",
-  "activeSkill": "task-planning",
-  "currentStep": "prerequisites|steps|verification-complete",
-  "pendingQuestion": "Are there more prerequisites?",
-  "inProgressItem": { "id": "item-1", "name": "..." },
-  "recentContext": []
-}
-```
-Note: `version` and `timestamp` are automatically added by `mcp__plugin_mermaid-collab_mermaid__save_snapshot`.
-
-When the collab session resumes after compaction:
-1. collab skill reads context-snapshot.json
-2. Restores the task-planning skill state
-3. Resumes from pendingQuestion (continues the conversation)
 
 ## Tools Available
 

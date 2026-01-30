@@ -4,6 +4,7 @@
 
 import type { Session, Diagram, Document, CollabState } from '@/types';
 import type { TerminalSession, CreateSessionResult } from '@/types/terminal';
+import type { Wireframe } from '@/stores/sessionStore';
 
 // Word lists for session name generation (matching backend)
 const ADJECTIVES = [
@@ -52,6 +53,9 @@ export interface ApiClient {
   reorderTerminalSessions(project: string, session: string, orderedIds: string[]): Promise<void>;
   getSessionState(project: string, session: string): Promise<CollabState | null>;
   getUIState(project: string, session: string): Promise<CachedUIState | null>;
+  getWireframes(project: string, session: string): Promise<Wireframe[]>;
+  getWireframe(project: string, session: string, id: string): Promise<Wireframe | null>;
+  updateWireframe(project: string, session: string, id: string, content: string): Promise<void>;
 }
 
 export interface CachedUIState {
@@ -347,5 +351,51 @@ export const api: ApiClient = {
       return null;
     }
     return data as CachedUIState;
+  },
+
+  /**
+   * Fetch wireframes for a specific session
+   */
+  async getWireframes(project: string, session: string): Promise<Wireframe[]> {
+    const url = `/api/wireframes?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+    const data = await response.json();
+    // API returns { wireframes: [...] }
+    return data.wireframes || [];
+  },
+
+  /**
+   * Fetch a single wireframe with full content
+   */
+  async getWireframe(project: string, session: string, id: string): Promise<Wireframe | null> {
+    const url = `/api/wireframe/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const response = await fetch(url);
+    if (response.status === 404) {
+      return null;
+    }
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+    return response.json();
+  },
+
+  /**
+   * Update a wireframe's content
+   */
+  async updateWireframe(project: string, session: string, id: string, content: string): Promise<void> {
+    const url = `/api/wireframe/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ content }),
+    });
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
   },
 };

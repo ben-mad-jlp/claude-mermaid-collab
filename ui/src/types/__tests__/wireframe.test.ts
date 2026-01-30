@@ -7,6 +7,7 @@ import {
   ScreenComponent,
   ColComponent,
   RowComponent,
+  CardComponent,
   ButtonComponent,
   InputComponent,
   TextComponent,
@@ -420,6 +421,83 @@ describe('Wireframe Types', () => {
       };
 
       expect(component.type).toBe('text');
+    });
+
+    it('should accept card component', () => {
+      const component: WireframeComponent = {
+        id: 'card-1',
+        type: 'card',
+        bounds: { x: 0, y: 0, width: 300, height: 200 },
+        children: [],
+      };
+
+      expect(component.type).toBe('card');
+    });
+  });
+
+  describe('CardComponent interface', () => {
+    it('should create valid card component', () => {
+      const card: CardComponent = {
+        id: 'card-1',
+        type: 'card',
+        bounds: { x: 0, y: 0, width: 300, height: 200 },
+        children: [],
+      };
+
+      expect(card.type).toBe('card');
+      expect(card.children).toEqual([]);
+    });
+
+    it('should support optional title', () => {
+      const card: CardComponent = {
+        id: 'card-2',
+        type: 'card',
+        bounds: { x: 0, y: 0, width: 300, height: 200 },
+        title: 'Card Title',
+        children: [],
+      };
+
+      expect(card.title).toBe('Card Title');
+    });
+
+    it('should support layout properties', () => {
+      const card: CardComponent = {
+        id: 'card-3',
+        type: 'card',
+        bounds: { x: 0, y: 0, width: 300, height: 200 },
+        gap: 8,
+        padding: 16,
+        children: [],
+      };
+
+      expect(card.gap).toBe(8);
+      expect(card.padding).toBe(16);
+    });
+
+    it('should support nested children', () => {
+      const card: CardComponent = {
+        id: 'card-4',
+        type: 'card',
+        bounds: { x: 0, y: 0, width: 300, height: 200 },
+        children: [
+          {
+            id: 'text-1',
+            type: 'text',
+            content: 'Card content',
+            bounds: { x: 0, y: 0, width: 280, height: 30 },
+          },
+          {
+            id: 'btn-1',
+            type: 'button',
+            label: 'Action',
+            bounds: { x: 0, y: 40, width: 100, height: 40 },
+          },
+        ],
+      };
+
+      expect(card.children).toHaveLength(2);
+      expect(card.children[0].type).toBe('text');
+      expect(card.children[1].type).toBe('button');
     });
   });
 });

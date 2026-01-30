@@ -47,7 +47,6 @@ export interface CollabState {
   template?: CollabTemplate;
   lastActivity: string;
   currentItem?: number | null;
-  hasSnapshot?: boolean;
   pendingVerificationIssues?: VerificationIssue[];
 }
 
@@ -274,7 +273,6 @@ export async function createCollabSession(
     template,
     lastActivity: now,
     currentItem: null,
-    hasSnapshot: false,
     pendingVerificationIssues: [],
   };
   await writeFile(
