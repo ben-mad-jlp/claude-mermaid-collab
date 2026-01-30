@@ -18,20 +18,24 @@ export function hasCustomInit(content: string): boolean {
 /**
  * Initialize mermaid with theme
  *
- * Note: We use 'base' theme when diagrams have custom init directives to
- * allow diagram-level styling to take full control. For diagrams without
- * custom init, we use the app's theme for good defaults.
+ * Note: When a diagram has its own %%{init}%% directive, we don't set a
+ * global theme to let the diagram's directive take full control. This allows
+ * diagrams to specify their own theme (dark, base, default) or custom styling.
+ * For diagrams without custom init, we use the app's theme for good defaults.
  */
 export async function initializeMermaid(theme: 'light' | 'dark', diagramContent?: string): Promise<void> {
-  // If diagram has custom init directive, use 'base' theme to let diagram control styling
-  // Otherwise, use the app's theme for sensible defaults
-  const useCustomTheme = diagramContent && hasCustomInit(diagramContent);
+  const hasCustom = diagramContent && hasCustomInit(diagramContent);
 
   const config: any = {
     startOnLoad: false,
-    theme: useCustomTheme ? 'base' : (theme === 'dark' ? 'dark' : 'default'),
     securityLevel: 'loose',
   };
+
+  // Only set global theme if diagram doesn't have its own init directive
+  // This lets diagram-level %%{init}%% directives take full control
+  if (!hasCustom) {
+    config.theme = theme === 'dark' ? 'dark' : 'default';
+  }
 
   mermaid.initialize(config);
 }
