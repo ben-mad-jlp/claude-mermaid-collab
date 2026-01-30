@@ -35,7 +35,7 @@ import type { FlagType, TopicContent } from '../services/kodex-manager.js';
 import { getWebSocketHandler } from '../services/ws-handler-manager.js';
 import { sessionRegistry } from '../services/session-registry.js';
 import { projectRegistry } from '../services/project-registry.js';
-import { updateTaskStatus, getTaskGraph } from './workflow/task-status.js';
+import { updateTaskStatus, updateTasksStatus, getTaskGraph } from './workflow/task-status.js';
 import {
   handleCreateWireframe,
   handleUpdateWireframe,
@@ -1122,6 +1122,38 @@ export async function setupMCPServer(): Promise<Server> {
         },
       },
       {
+        name: 'update_tasks_status',
+        description: 'Update multiple tasks\' statuses in a single call. More efficient than multiple update_task_status calls.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            session: { type: 'string', description: 'Session name' },
+            updates: {
+              type: 'array',
+              description: 'Array of task updates to apply',
+              items: {
+                type: 'object',
+                properties: {
+                  taskId: { type: 'string', description: 'Task ID to update' },
+                  status: {
+                    type: 'string',
+                    enum: ['pending', 'in_progress', 'completed', 'failed'],
+                    description: 'New status for the task',
+                  },
+                },
+                required: ['taskId', 'status'],
+              },
+            },
+            minimal: {
+              type: 'boolean',
+              description: 'If true, return minimal response (just success and count) to reduce context size. Default: false',
+            },
+          },
+          required: ['project', 'session', 'updates'],
+        },
+      },
+      {
         name: 'get_task_graph',
         description: 'Get the current task graph state without modifications.',
         inputSchema: {
@@ -1757,6 +1789,19 @@ export async function setupMCPServer(): Promise<Server> {
             if (!project || !session || !taskId || !status) throw new Error('Missing required: project, session, taskId, status');
             const wsHandler = getWebSocketHandler();
             const result = await updateTaskStatus({ project, session, taskId, status, minimal }, wsHandler || undefined);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'update_tasks_status': {
+            const { project, session, updates, minimal } = args as {
+              project: string;
+              session: string;
+              updates: Array<{ taskId: string; status: 'pending' | 'in_progress' | 'completed' | 'failed' }>;
+              minimal?: boolean;
+            };
+            if (!project || !session || !updates || updates.length === 0) throw new Error('Missing required: project, session, updates (non-empty array)');
+            const wsHandler = getWebSocketHandler();
+            const result = await updateTasksStatus({ project, session, updates, minimal }, wsHandler || undefined);
             return JSON.stringify(result, null, 2);
           }
 
