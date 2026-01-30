@@ -14,15 +14,44 @@ Mermaid Collab is a Claude Code plugin that provides:
 
 ## Quick Start
 
-```bash
-# Install the plugin in Claude Code
-/plugin install ben-mad-jlp/claude-mermaid-collab
+### 1. Install the Plugin
 
-# Start a collab session
+```bash
+# In Claude Code
+/plugin install ben-mad-jlp/claude-mermaid-collab
+```
+
+### 2. Start the Server
+
+After installation, you need to start the collaboration server once. Open a terminal and run:
+
+```bash
+# Find your plugin installation path (version may vary)
+cd ~/.claude/plugins/cache/mermaid-collab-dev/mermaid-collab/*/
+
+# Install UI dependencies (first time only)
+cd ui && bun install && cd ..
+
+# Start the server
+bun run bin/mermaid-collab.ts start
+```
+
+The server runs on `http://localhost:3737` and persists across Claude Code sessions.
+
+**Tip:** Add an alias to your shell profile for convenience:
+```bash
+alias collab-server='cd ~/.claude/plugins/cache/mermaid-collab-dev/mermaid-collab/*/ && bun run bin/mermaid-collab.ts'
+```
+Then use: `collab-server start`, `collab-server stop`, `collab-server status`
+
+### 3. Start a Session
+
+```bash
+# In Claude Code (restart Claude Code after starting server)
 /collab
 ```
 
-That's it! The server auto-starts when needed, and you're guided through a structured workflow.
+You're now guided through a structured workflow.
 
 ---
 
