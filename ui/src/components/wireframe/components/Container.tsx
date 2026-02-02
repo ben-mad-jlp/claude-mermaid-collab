@@ -37,6 +37,8 @@ const SCREEN_LABEL_HEIGHT = 24;
 const CARD_TITLE_HEIGHT = 32;
 const CARD_SHADOW_OFFSET = 3;
 const DEFAULT_PADDING = 0;
+const CARD_DEFAULT_PADDING = 16; // Cards need padding between border and content
+const SCREEN_CONTENT_PADDING = 12; // Screen content has edge padding
 const BORDER_RADIUS = 8;
 
 /**
@@ -88,12 +90,12 @@ export const ScreenRenderer: React.FC<ContainerRendererProps<ScreenComponent>> =
   const colors = getContainerColors(wireframeTheme);
   const { id, name, backgroundColor, children } = component;
 
-  // Calculate content bounds (below the label)
+  // Calculate content bounds (below the label, with screen padding)
   const contentBounds = useMemo(() => ({
-    x: bounds.x,
-    y: bounds.y + SCREEN_LABEL_HEIGHT,
-    width: bounds.width,
-    height: bounds.height - SCREEN_LABEL_HEIGHT,
+    x: bounds.x + SCREEN_CONTENT_PADDING,
+    y: bounds.y + SCREEN_LABEL_HEIGHT + SCREEN_CONTENT_PADDING,
+    width: bounds.width - SCREEN_CONTENT_PADDING * 2,
+    height: bounds.height - SCREEN_LABEL_HEIGHT - SCREEN_CONTENT_PADDING * 2,
   }), [bounds]);
 
   // Draw rough.js frame on mount
@@ -240,7 +242,7 @@ export const CardRenderer: React.FC<ContainerRendererProps<CardComponent>> = ({
   const { theme } = useTheme();
   const wireframeTheme: WireframeTheme = theme === 'dark' ? 'dark' : 'light';
   const colors = getContainerColors(wireframeTheme);
-  const { id, title, padding = DEFAULT_PADDING, children } = component;
+  const { id, title, padding = CARD_DEFAULT_PADDING, children } = component;
 
   // Calculate content bounds (below title if present, with padding)
   const contentBounds = useMemo(() => {
@@ -329,9 +331,9 @@ export const CardRenderer: React.FC<ContainerRendererProps<CardComponent>> = ({
             strokeOpacity={0.3}
           />
 
-          {/* Title text */}
+          {/* Title text - use padding for left offset */}
           <text
-            x={bounds.x + 12}
+            x={bounds.x + padding}
             y={bounds.y + CARD_TITLE_HEIGHT / 2 + 5}
             fontSize={14}
             fontFamily="system-ui, -apple-system, sans-serif"

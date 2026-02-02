@@ -15,7 +15,7 @@ import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import {
   oneDark,
-  oneLight,
+  vs,
 } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useTheme } from '@/hooks/useTheme';
 import { remarkAnnotations } from '@/lib/remarkAnnotations';
@@ -353,7 +353,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
           <div className="my-4 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
             <SyntaxHighlighter
               language={language}
-              style={theme === 'dark' ? oneDark : oneLight}
+              style={theme === 'dark' ? oneDark : vs}
               showLineNumbers={false}
               customStyle={{
                 margin: 0,

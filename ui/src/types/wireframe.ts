@@ -84,6 +84,7 @@ export interface ButtonComponent extends BaseComponent {
  */
 export interface InputComponent extends BaseComponent {
   type: 'input';
+  label?: string;
   placeholder?: string;
   value?: string;
   inputType?: string;

@@ -143,7 +143,6 @@ export const SplitPane: React.FC<SplitPaneProps> = ({
             bg-gray-200 dark:bg-gray-700
             hover:bg-accent-400 dark:hover:bg-accent-600
             active:bg-accent-500 dark:active:bg-accent-500
-            transition-colors
             flex items-center justify-center
           `}
         >
@@ -254,7 +253,6 @@ export const ThreeWaySplitPane: React.FC<ThreeWaySplitPaneProps> = ({
             bg-gray-200 dark:bg-gray-700
             hover:bg-accent-400 dark:hover:bg-accent-600
             active:bg-accent-500 dark:active:bg-accent-500
-            transition-colors
             flex items-center justify-center
           `}
         >
@@ -290,7 +288,6 @@ export const ThreeWaySplitPane: React.FC<ThreeWaySplitPaneProps> = ({
             bg-gray-200 dark:bg-gray-700
             hover:bg-accent-400 dark:hover:bg-accent-600
             active:bg-accent-500 dark:active:bg-accent-500
-            transition-colors
             flex items-center justify-center
           `}
         >

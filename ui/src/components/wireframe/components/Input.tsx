@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useMemo } from 'react';
 import type { InputComponent, LayoutBounds } from '../../../types/wireframe';
 import { useTheme } from '@/hooks/useTheme';
-import { appendRoughRectLocal, appendRoughLine, getInputColors, cleanupRoughElements, getRoughSvg, type WireframeTheme } from '../svg-utils';
+import { getInputColors, cleanupRoughElements, getRoughSvg, type WireframeTheme } from '../svg-utils';
 
 /**
  * Props for the Input wireframe component renderer
@@ -14,9 +14,16 @@ export interface InputProps {
 }
 
 /**
+ * Layout constants for input with label
+ */
+const LABEL_HEIGHT = 20;
+const LABEL_GAP = 4;
+
+/**
  * Input component renderer for wireframe elements using rough.js SVG
  *
  * Renders a hand-drawn style input field with:
+ * - Optional label above the input
  * - Rough rectangle border
  * - Placeholder or value text
  * - Disabled state styling
@@ -28,6 +35,11 @@ export function Input({ component, bounds }: InputProps): JSX.Element {
 
   const disabled = component.disabled || false;
   const colors = getInputColors(disabled, wireframeTheme);
+
+  // Calculate input field bounds (below label if present)
+  const hasLabel = !!component.label;
+  const labelOffset = hasLabel ? LABEL_HEIGHT + LABEL_GAP : 0;
+  const inputHeight = bounds.height - labelOffset;
 
   // Determine text to display
   const { displayText, textColor } = useMemo(() => {
@@ -47,50 +59,61 @@ export function Input({ component, bounds }: InputProps): JSX.Element {
   useEffect(() => {
     if (!groupRef.current) return;
 
-    // Draw rough rectangle for input border - insert at beginning so text is on top
-    const rectElement = appendRoughRectLocal(groupRef, bounds.width, bounds.height, {
-      fill: colors.background,
-      fillStyle: 'solid',
-      stroke: colors.border,
-      strokeWidth: 1.5,
-      roughness: 0.8,
-      bowing: 0.3,
-    });
+    const rc = getRoughSvg(groupRef);
+    if (!rc) return;
+
+    const elements: (SVGGElement | null)[] = [];
+    const padding = 2;
+
+    // Draw rough rectangle for input border at labelOffset position
+    const rectElement = rc.rectangle(
+      padding,
+      labelOffset + padding,
+      bounds.width - padding * 2,
+      inputHeight - padding * 2,
+      {
+        fill: colors.background,
+        fillStyle: 'solid',
+        stroke: colors.border,
+        strokeWidth: 1.5,
+        roughness: 0.8,
+        bowing: 0.3,
+      }
+    );
+    groupRef.current.appendChild(rectElement);
+    elements.push(rectElement);
 
     // Move rectangle to beginning of group so text is on top
-    if (rectElement && groupRef.current.firstChild) {
+    if (groupRef.current.firstChild && groupRef.current.firstChild !== rectElement) {
       groupRef.current.insertBefore(rectElement, groupRef.current.firstChild);
     }
 
     // Draw cursor line if has value and not disabled
-    let cursorElement: SVGGElement | null = null;
     if (component.value && !disabled) {
-      const rc = getRoughSvg(groupRef);
-      if (rc && groupRef.current) {
-        // Estimate text width (rough approximation)
-        const textPadding = 12;
-        const charWidth = 8; // Approximate character width
-        const textWidth = Math.min(
-          textPadding + component.value.length * charWidth,
-          bounds.width - textPadding
-        );
-        const cursorX = textWidth + 2;
+      // Estimate text width (rough approximation)
+      const textPadding = 12;
+      const charWidth = 8; // Approximate character width
+      const textWidth = Math.min(
+        textPadding + component.value.length * charWidth,
+        bounds.width - textPadding
+      );
+      const cursorX = textWidth + 2;
 
-        cursorElement = rc.line(
-          cursorX,
-          bounds.height * 0.25,
-          cursorX,
-          bounds.height * 0.75,
-          { stroke: colors.text, strokeWidth: 1, roughness: 0.3 }
-        );
-        groupRef.current.appendChild(cursorElement);
-      }
+      const cursorElement = rc.line(
+        cursorX,
+        labelOffset + inputHeight * 0.25,
+        cursorX,
+        labelOffset + inputHeight * 0.75,
+        { stroke: colors.text, strokeWidth: 1, roughness: 0.3 }
+      );
+      groupRef.current.appendChild(cursorElement);
+      elements.push(cursorElement);
     }
 
     return () => {
-      cleanupRoughElements(groupRef, [rectElement, cursorElement]);
+      cleanupRoughElements(groupRef, elements);
     };
-  }, [component.value, disabled, bounds.width, bounds.height, colors, wireframeTheme]);
+  }, [component.value, disabled, bounds.width, bounds.height, inputHeight, labelOffset, colors, wireframeTheme]);
 
   const textPadding = 12;
 
@@ -100,13 +123,29 @@ export function Input({ component, bounds }: InputProps): JSX.Element {
       data-component-type="input"
       transform={`translate(${bounds.x}, ${bounds.y})`}
     >
-      {/* Text content with clipping */}
+      {/* Label text above input */}
+      {hasLabel && (
+        <text
+          x={0}
+          y={LABEL_HEIGHT * 0.7}
+          textAnchor="start"
+          dominantBaseline="auto"
+          fontSize={14}
+          fontWeight="500"
+          fontFamily="sans-serif"
+          fill={colors.text}
+        >
+          {component.label}
+        </text>
+      )}
+
+      {/* Input text content with clipping */}
       <clipPath id={`input-clip-${component.id}`}>
-        <rect x={textPadding} y={0} width={bounds.width - textPadding * 2} height={bounds.height} />
+        <rect x={textPadding} y={labelOffset} width={bounds.width - textPadding * 2} height={inputHeight} />
       </clipPath>
       <text
         x={textPadding}
-        y={bounds.height / 2}
+        y={labelOffset + inputHeight / 2}
         textAnchor="start"
         dominantBaseline="middle"
         fontSize={14}

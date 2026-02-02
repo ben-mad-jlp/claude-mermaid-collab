@@ -55,6 +55,18 @@ export default {
         slideInRight: 'slideInRight 200ms ease-out',
         slideOutRight: 'slideOutRight 200ms ease-in',
       },
+      typography: {
+        DEFAULT: {
+          css: {
+            // Disable prose styling for pre/code - let SyntaxHighlighter handle it
+            'pre': false,
+            'code': false,
+            'pre code': false,
+            'code::before': false,
+            'code::after': false,
+          },
+        },
+      },
     },
   },
   darkMode: 'class',

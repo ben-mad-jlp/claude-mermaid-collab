@@ -46,12 +46,12 @@ export interface TextRendererProps {
 }
 
 /**
- * Calculates the vertical center position for text within bounds
+ * Calculates the vertical center position for text within local bounds
  * Accounts for font baseline adjustment
  */
-function calculateTextY(bounds: LayoutBounds, fontSize: number): number {
+function calculateTextY(height: number, fontSize: number): number {
   // Center text vertically with baseline adjustment (roughly 0.35 of font size)
-  return bounds.y + bounds.height / 2 + fontSize * 0.35;
+  return height / 2 + fontSize * 0.35;
 }
 
 /**
@@ -79,23 +79,27 @@ export function TextRenderer({ component, bounds }: TextRendererProps): JSX.Elem
   const fontWeight = component.fontWeight ?? 'normal';
   const fill = component.color ?? themeColors.text;
 
-  // Calculate position
-  const x = bounds.x;
-  const y = calculateTextY(bounds, fontSize);
+  // Calculate position in local coordinates (relative to transform)
+  const y = calculateTextY(bounds.height, fontSize);
 
   return (
-    <text
-      x={x.toString()}
-      y={y.toString()}
-      fontSize={fontSize.toString()}
-      fontWeight={fontWeight}
-      fontFamily={HAND_DRAWN_FONT}
-      fill={fill}
-      textAnchor="start"
-      dominantBaseline="middle"
+    <g
+      data-component-type="text"
+      transform={`translate(${bounds.x}, ${bounds.y})`}
     >
-      {component.content}
-    </text>
+      <text
+        x="0"
+        y={y.toString()}
+        fontSize={fontSize.toString()}
+        fontWeight={fontWeight}
+        fontFamily={HAND_DRAWN_FONT}
+        fill={fill}
+        textAnchor="start"
+        dominantBaseline="middle"
+      >
+        {component.content}
+      </text>
+    </g>
   );
 }
 
@@ -124,22 +128,26 @@ export function TitleRenderer({ component, bounds }: TextRendererProps): JSX.Ele
   const fontWeight = component.fontWeight ?? 'bold';
   const fill = component.color ?? themeColors.title;
 
-  // Calculate position
-  const x = bounds.x;
-  const y = calculateTextY(bounds, fontSize);
+  // Calculate position in local coordinates (relative to transform)
+  const y = calculateTextY(bounds.height, fontSize);
 
   return (
-    <text
-      x={x.toString()}
-      y={y.toString()}
-      fontSize={fontSize.toString()}
-      fontWeight={fontWeight}
-      fontFamily={HAND_DRAWN_FONT}
-      fill={fill}
-      textAnchor="start"
-      dominantBaseline="middle"
+    <g
+      data-component-type="title"
+      transform={`translate(${bounds.x}, ${bounds.y})`}
     >
-      {component.content}
-    </text>
+      <text
+        x="0"
+        y={y.toString()}
+        fontSize={fontSize.toString()}
+        fontWeight={fontWeight}
+        fontFamily={HAND_DRAWN_FONT}
+        fill={fill}
+        textAnchor="start"
+        dominantBaseline="middle"
+      >
+        {component.content}
+      </text>
+    </g>
   );
 }

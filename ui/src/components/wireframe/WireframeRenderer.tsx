@@ -53,6 +53,7 @@ const SCREEN_GAP = 32;
 const SCREEN_PADDING = 16;
 const LABEL_SPACE = 32;
 const BASE_HEIGHT = 600;
+const SCREEN_CONTENT_PADDING = 12; // Padding inside screen content area
 const VIEWPORT_WIDTHS = {
   mobile: 375,
   tablet: 768,
@@ -142,14 +143,22 @@ function renderComponentTree(
       : contentBounds.height - totalGaps;
 
     // Pass 1: Calculate fixed space and total flex
+    // NOTE: If a child has explicit bounds and no flex property, treat as flex: 0 (fixed size)
     let fixedSpace = 0;
     let totalFlex = 0;
 
     for (const child of children) {
-      const flex = (child as any).flex ?? 1;
+      // Check if flex is explicitly set
+      const hasExplicitFlex = (child as any).flex !== undefined;
+      const explicitSize = isRow ? child.bounds.width : child.bounds.height;
+
+      // Default to flex: 0 if explicit bounds exist, otherwise flex: 1
+      const flex = hasExplicitFlex
+        ? (child as any).flex
+        : (explicitSize > 0 ? 0 : 1);
+
       if (flex === 0) {
-        const size = isRow ? child.bounds.width : child.bounds.height;
-        fixedSpace += size > 0 ? size : 0;
+        fixedSpace += explicitSize > 0 ? explicitSize : 0;
       } else {
         totalFlex += flex;
       }
@@ -161,14 +170,21 @@ function renderComponentTree(
     let offset = isRow ? contentBounds.x : contentBounds.y;
 
     return children.map((child, index) => {
-      const flex = (child as any).flex ?? 1;
+      // Check if flex is explicitly set
+      const hasExplicitFlex = (child as any).flex !== undefined;
+      const explicitMainSize = isRow ? child.bounds.width : child.bounds.height;
+
+      // Default to flex: 0 if explicit bounds exist, otherwise flex: 1
+      const flex = hasExplicitFlex
+        ? (child as any).flex
+        : (explicitMainSize > 0 ? 0 : 1);
+
       const align = (child as any).align || 'start';
 
       // Calculate main axis size
       let mainSize: number;
       if (flex === 0) {
-        mainSize = isRow ? child.bounds.width : child.bounds.height;
-        if (mainSize <= 0) mainSize = spacePerFlex; // Fallback
+        mainSize = explicitMainSize > 0 ? explicitMainSize : spacePerFlex; // Use explicit or fallback
       } else {
         mainSize = spacePerFlex * flex;
       }
@@ -290,18 +306,31 @@ function ScreenRendererInternal({ screen, bounds, labelY, wireframeTheme }: Scre
       {/* Render screen children using flex layout */}
       {(() => {
         const children = screen.children;
+        const padding = SCREEN_CONTENT_PADDING;
+
+        // Full-bleed component types (no horizontal padding)
+        const fullBleedTypes = new Set(['appbar', 'bottomnav']);
+
         const totalGaps = 0; // Screens don't have gap
         const mainAxisTotal = bounds.height - totalGaps;
 
         // Pass 1: Calculate fixed space and total flex
+        // NOTE: If a child has explicit bounds and no flex property, treat as flex: 0 (fixed size)
         let fixedSpace = 0;
         let totalFlex = 0;
 
         for (const child of children) {
-          const flex = (child as any).flex ?? 1;
+          // Check if flex is explicitly set
+          const hasExplicitFlex = (child as any).flex !== undefined;
+          const explicitSize = child.bounds.height;
+
+          // Default to flex: 0 if explicit bounds exist, otherwise flex: 1
+          const flex = hasExplicitFlex
+            ? (child as any).flex
+            : (explicitSize > 0 ? 0 : 1);
+
           if (flex === 0) {
-            const size = child.bounds.height;
-            fixedSpace += size > 0 ? size : 0;
+            fixedSpace += explicitSize > 0 ? explicitSize : 0;
           } else {
             totalFlex += flex;
           }
@@ -313,20 +342,31 @@ function ScreenRendererInternal({ screen, bounds, labelY, wireframeTheme }: Scre
         let offset = bounds.y;
 
         return children.map((child, index) => {
-          const flex = (child as any).flex ?? 1;
+          // Check if flex is explicitly set
+          const hasExplicitFlex = (child as any).flex !== undefined;
+          const explicitMainSize = child.bounds.height;
+
+          // Default to flex: 0 if explicit bounds exist, otherwise flex: 1
+          const flex = hasExplicitFlex
+            ? (child as any).flex
+            : (explicitMainSize > 0 ? 0 : 1);
+
           const align = (child as any).align || 'start';
 
           // Calculate main axis size
           let mainSize: number;
           if (flex === 0) {
-            mainSize = child.bounds.height;
-            if (mainSize <= 0) mainSize = spacePerFlex;
+            mainSize = explicitMainSize > 0 ? explicitMainSize : spacePerFlex;
           } else {
             mainSize = spacePerFlex * flex;
           }
 
+          // Check if this component should be full-bleed (no horizontal padding)
+          const isFullBleed = fullBleedTypes.has(child.type.toLowerCase());
+          const effectivePadding = isFullBleed ? 0 : padding;
+
           // Calculate cross axis size and position
-          const crossAxisTotal = bounds.width;
+          const crossAxisTotal = bounds.width - effectivePadding * 2;
           let crossSize = child.bounds.width;
           if (crossSize <= 0) crossSize = crossAxisTotal;
 
@@ -335,7 +375,7 @@ function ScreenRendererInternal({ screen, bounds, labelY, wireframeTheme }: Scre
           else if (align === 'end') crossOffset = crossAxisTotal - crossSize;
 
           const childBounds: LayoutBounds = {
-            x: bounds.x + crossOffset,
+            x: bounds.x + effectivePadding + crossOffset,
             y: offset,
             width: crossSize,
             height: mainSize,
@@ -343,9 +383,17 @@ function ScreenRendererInternal({ screen, bounds, labelY, wireframeTheme }: Scre
 
           offset += mainSize;
 
+          // Parent bounds for children (with padding for non-full-bleed)
+          const parentBounds: LayoutBounds = {
+            x: bounds.x + effectivePadding,
+            y: bounds.y,
+            width: bounds.width - effectivePadding * 2,
+            height: bounds.height,
+          };
+
           return (
             <g key={child.id || index}>
-              {renderComponentTree(child, childBounds, bounds)}
+              {renderComponentTree(child, childBounds, parentBounds)}
             </g>
           );
         });

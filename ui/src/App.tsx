@@ -59,7 +59,7 @@ import { ToastContainer } from '@/components/notifications';
 import { requestNotificationPermission, showUserInputNotification } from '@/services/notification-service';
 
 // Import dialogs
-import { SessionCleanupDialog, type CleanupAction } from '@/components/dialogs';
+import { SessionCleanupDialog, type CleanupAction, CreateSessionDialog, type SessionType } from '@/components/dialogs';
 
 /**
  * Error Boundary Component
@@ -320,6 +320,12 @@ const App: React.FC = () => {
   // Session cleanup dialog state
   const [cleanupSession, setCleanupSession] = useState<Session | null>(null);
   const [isCleanupProcessing, setIsCleanupProcessing] = useState(false);
+
+  // Create session dialog state
+  const [createSessionDialog, setCreateSessionDialog] = useState<{
+    project: string;
+    suggestedName: string;
+  } | null>(null);
 
   // Load registered projects from API
   const loadProjects = useCallback(async () => {
@@ -753,26 +759,31 @@ const App: React.FC = () => {
   );
 
   // Handle creating a new session in a specific project
-  const handleCreateSession = useCallback(async (project: string) => {
+  const handleCreateSession = useCallback((project: string) => {
     const suggestedName = generateSessionName();
+    setCreateSessionDialog({ project, suggestedName });
+  }, []);
 
-    // Prompt user for session name with generated name as default
-    const sessionName = window.prompt('Enter session name:', suggestedName);
-
-    // User cancelled or entered empty name
-    if (!sessionName?.trim()) {
-      return;
-    }
+  // Handle create session dialog confirmation
+  const handleCreateSessionConfirm = useCallback(async (name: string, type: SessionType) => {
+    if (!createSessionDialog) return;
 
     try {
-      const newSession = await api.createSession(project, sessionName.trim());
+      const newSession = await api.createSession(createSessionDialog.project, name, type);
       // Refresh sessions list and select the new session
       await loadSessions();
       setCurrentSession(newSession);
     } catch (error) {
       console.error('Failed to create session:', error);
+    } finally {
+      setCreateSessionDialog(null);
     }
-  }, [loadSessions, setCurrentSession]);
+  }, [createSessionDialog, loadSessions, setCurrentSession]);
+
+  // Handle create session dialog close
+  const handleCreateSessionClose = useCallback(() => {
+    setCreateSessionDialog(null);
+  }, []);
 
   // Handle adding a new project
   const handleAddProject = useCallback(async () => {
@@ -1111,6 +1122,15 @@ const App: React.FC = () => {
           />
         )}
 
+        {/* Create Session Dialog */}
+        {createSessionDialog && (
+          <CreateSessionDialog
+            suggestedName={createSessionDialog.suggestedName}
+            onConfirm={handleCreateSessionConfirm}
+            onClose={handleCreateSessionClose}
+          />
+        )}
+
         {/* Notification Toast Container */}
         <ToastContainer />
       </ErrorBoundary>
@@ -1198,6 +1218,15 @@ const App: React.FC = () => {
             onAction={handleCleanupAction}
             onClose={handleCleanupClose}
             isProcessing={isCleanupProcessing}
+          />
+        )}
+
+        {/* Create Session Dialog */}
+        {createSessionDialog && (
+          <CreateSessionDialog
+            suggestedName={createSessionDialog.suggestedName}
+            onConfirm={handleCreateSessionConfirm}
+            onClose={handleCreateSessionClose}
           />
         )}
 

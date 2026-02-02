@@ -65,7 +65,11 @@ export class SessionRegistry {
    * Also ensures the session directories exist.
    * Returns { created: true } if a new session was created, { created: false } if already existed.
    */
-  async register(project: string, session: string): Promise<{ created: boolean }> {
+  async register(
+    project: string,
+    session: string,
+    sessionType?: 'structured' | 'vibe'
+  ): Promise<{ created: boolean }> {
     // Validate inputs
     if (!project || !project.startsWith('/')) {
       throw new Error('Invalid project path: must be an absolute path');
@@ -103,6 +107,7 @@ export class SessionRegistry {
     const collabStatePath = join(sessionPath, 'collab-state.json');
     const collabStateContent = JSON.stringify({
       state: 'collab-start',
+      sessionType: sessionType || 'structured',
       lastActivity: now,
       currentItem: null
     }, null, 2);

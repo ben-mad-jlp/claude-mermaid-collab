@@ -28,115 +28,252 @@ Use this skill when:
 
 ## Quick Reference
 
-### Basic Component Structure
+### Wireframe Root Structure
 
-All wireframe components follow this JSON pattern:
+Every wireframe requires this root structure:
 
 ```json
 {
-  "type": "ComponentType",
-  "props": {
-    "children": ["text or nested components"],
-    "variant": "optional styling variant"
-  }
+  "viewport": "mobile",
+  "direction": "LR",
+  "screens": [
+    {
+      "id": "screen-1",
+      "type": "screen",
+      "name": "Screen Name",
+      "bounds": { "x": 0, "y": 0, "width": 0, "height": 0 },
+      "children": [...]
+    }
+  ]
 }
 ```
+
+**Required root fields:**
+- `viewport`: `"mobile"` (375px), `"tablet"` (768px), or `"desktop"` (1200px)
+- `direction`: `"LR"` (screens left-to-right) or `"TD"` (screens top-down)
+- `screens`: Array of screen components
+
+### Basic Component Structure
+
+All components follow this pattern:
+
+```json
+{
+  "id": "unique-id",
+  "type": "componentType",
+  "bounds": { "x": 0, "y": 0, "width": 0, "height": 0 },
+  ...type-specific properties
+}
+```
+
+**Required for all components:**
+- `id`: Unique identifier string
+- `type`: Component type (lowercase)
+- `bounds`: Position/size object (see "How Bounds Work" section)
 
 ### Available Component Types
 
-| Component | Purpose | Props |
-|-----------|---------|-------|
-| **Button** | Interactive element | text, variant (primary/secondary/danger), onClick |
-| **Input** | Text entry field | placeholder, type, label |
-| **Text** | Display text/labels | children, variant (heading/body/caption) |
-| **Container** | Layout wrapper | direction (row/col), children, gap |
-| **Card** | Grouped content box | title, children, variant |
-| **Navigation** | Header/sidebar navigation | items (array of {label, active}) |
-| **Display** | Read-only text/list | content, type (list/paragraph) |
+| Component | Purpose | Key Properties |
+|-----------|---------|----------------|
+| **screen** | Top-level container | `name`, `children` |
+| **col** | Vertical layout | `children`, `gap`, `padding` |
+| **row** | Horizontal layout | `children`, `gap`, `padding` |
+| **card** | Grouped content box | `title`, `children`, `padding` |
+| **button** | Interactive element | `label`, `variant` (primary/secondary/danger) |
+| **input** | Text entry field | `placeholder`, `label` |
+| **text** | Display text | `content` |
+| **title** | Heading text | `content` |
+| **appbar** | Top app bar | `title`, `leftIcon`, `rightIcons` |
+| **bottomnav** | Bottom navigation | `items` (array of {icon, label, active}) |
+| **navmenu** | Navigation menu | `items` (array of {icon, label, active}) |
+| **avatar** | User avatar | `initials`, `size` |
+| **icon** | Icon display | `name` |
+| **image** | Image placeholder | `alt` |
+| **list** | List of items | `items` (array of {primary, secondary}) |
+| **divider** | Visual separator | (no special props) |
 
 ### Common Patterns
 
-**Simple form layout:**
+**Simple login form:**
 ```json
 {
-  "type": "Container",
-  "props": {
-    "direction": "col",
-    "gap": "medium",
-    "children": [
-      { "type": "Text", "props": { "variant": "heading", "children": ["Login Form"] } },
-      { "type": "Input", "props": { "placeholder": "Email", "label": "Email" } },
-      { "type": "Input", "props": { "placeholder": "Password", "type": "password", "label": "Password" } },
-      { "type": "Button", "props": { "text": "Sign In", "variant": "primary" } }
-    ]
-  }
+  "viewport": "mobile",
+  "direction": "LR",
+  "screens": [{
+    "id": "login",
+    "type": "screen",
+    "name": "Login",
+    "bounds": { "x": 0, "y": 0, "width": 0, "height": 0 },
+    "children": [{
+      "id": "login-form",
+      "type": "col",
+      "bounds": { "x": 0, "y": 0, "width": 0, "height": 0 },
+      "padding": 16,
+      "gap": 16,
+      "children": [
+        { "id": "title", "type": "title", "content": "Sign In", "bounds": { "x": 0, "y": 0, "width": 0, "height": 32 } },
+        { "id": "email", "type": "input", "label": "Email", "placeholder": "Enter email", "bounds": { "x": 0, "y": 0, "width": 0, "height": 56 } },
+        { "id": "password", "type": "input", "label": "Password", "placeholder": "Enter password", "bounds": { "x": 0, "y": 0, "width": 0, "height": 56 } },
+        { "id": "submit", "type": "button", "label": "Sign In", "variant": "primary", "bounds": { "x": 0, "y": 0, "width": 0, "height": 48 } }
+      ]
+    }]
+  }]
 }
 ```
 
-**Card grid layout:**
+**App with header, content, and bottom nav:**
 ```json
 {
-  "type": "Container",
-  "props": {
-    "direction": "row",
-    "gap": "large",
+  "viewport": "mobile",
+  "direction": "LR",
+  "screens": [{
+    "id": "home",
+    "type": "screen",
+    "name": "Home",
+    "bounds": { "x": 0, "y": 0, "width": 0, "height": 0 },
     "children": [
       {
-        "type": "Card",
-        "props": {
-          "title": "Feature 1",
-          "children": [
-            { "type": "Text", "props": { "variant": "body", "children": ["Description here"] } }
-          ]
-        }
+        "id": "header",
+        "type": "appbar",
+        "title": "My App",
+        "leftIcon": "menu",
+        "bounds": { "x": 0, "y": 0, "width": 0, "height": 56 }
       },
       {
-        "type": "Card",
-        "props": {
-          "title": "Feature 2",
-          "children": [
-            { "type": "Text", "props": { "variant": "body", "children": ["Description here"] } }
-          ]
-        }
+        "id": "content",
+        "type": "col",
+        "bounds": { "x": 0, "y": 0, "width": 0, "height": 0 },
+        "padding": 16,
+        "gap": 12,
+        "children": [
+          { "id": "welcome", "type": "title", "content": "Welcome", "bounds": { "x": 0, "y": 0, "width": 0, "height": 32 } },
+          { "id": "desc", "type": "text", "content": "Main content goes here", "bounds": { "x": 0, "y": 0, "width": 0, "height": 24 } }
+        ]
+      },
+      {
+        "id": "nav",
+        "type": "bottomnav",
+        "bounds": { "x": 0, "y": 0, "width": 0, "height": 60 },
+        "items": [
+          { "icon": "home", "label": "Home", "active": true },
+          { "icon": "search", "label": "Search" },
+          { "icon": "settings", "label": "Settings" }
+        ]
       }
     ]
-  }
+  }]
 }
 ```
 
-**Navigation with content:**
+**Multiple screens side-by-side:**
 ```json
 {
-  "type": "Container",
-  "props": {
-    "direction": "col",
-    "children": [
-      {
-        "type": "Navigation",
-        "props": {
-          "items": [
-            { "label": "Home", "active": true },
-            { "label": "Features", "active": false },
-            { "label": "Pricing", "active": false },
-            { "label": "About", "active": false }
-          ]
-        }
-      },
-      {
-        "type": "Container",
-        "props": {
-          "direction": "col",
-          "gap": "large",
-          "children": [
-            { "type": "Text", "props": { "variant": "heading", "children": ["Welcome"] } },
-            { "type": "Text", "props": { "variant": "body", "children": ["Main content goes here"] } }
-          ]
-        }
-      }
-    ]
-  }
+  "viewport": "mobile",
+  "direction": "LR",
+  "screens": [
+    {
+      "id": "list",
+      "type": "screen",
+      "name": "Product List",
+      "bounds": { "x": 0, "y": 0, "width": 0, "height": 0 },
+      "children": [...]
+    },
+    {
+      "id": "detail",
+      "type": "screen",
+      "name": "Product Detail",
+      "bounds": { "x": 0, "y": 0, "width": 0, "height": 0 },
+      "children": [...]
+    }
+  ]
 }
 ```
+
+## Screen Layout Convention
+
+**Always wrap screen content in a padded col container** for consistent spacing across screens.
+
+### The Pattern
+
+```
+Screen
+├── appbar (full-bleed, no padding)
+├── col (padding: 16, gap: 12) ← Content wrapper
+│   ├── content components...
+│   ├── cards, inputs, text...
+│   └── buttons...
+└── bottomnav (full-bleed, no padding)
+```
+
+### Why This Matters
+
+AppBar and BottomNav are "full-bleed" components that span the full screen width. All other content needs consistent horizontal padding. Without a wrapper col, each component relies only on the screen's built-in padding (12px), which looks tight.
+
+**With wrapper col (padding: 16):**
+- Content gets col padding (16px) + screen padding (12px) = 28px from edge
+- Consistent spacing across all screens
+- Cards, inputs, and buttons all align properly
+
+**Without wrapper col:**
+- Content only gets screen padding (12px)
+- Looks cramped compared to screens with wrapper col
+- Inconsistent appearance across your wireframes
+
+### Correct Structure
+
+```json
+{
+  "id": "my-screen",
+  "type": "screen",
+  "name": "My Screen",
+  "bounds": { "x": 0, "y": 0, "width": 0, "height": 0 },
+  "children": [
+    {
+      "id": "appbar",
+      "type": "appbar",
+      "title": "Title",
+      "bounds": { "x": 0, "y": 0, "width": 0, "height": 56 }
+    },
+    {
+      "id": "content",
+      "type": "col",
+      "bounds": { "x": 0, "y": 0, "width": 0, "height": 0 },
+      "padding": 16,
+      "gap": 12,
+      "children": [
+        { "id": "card1", "type": "card", "title": "Info", "bounds": { "x": 0, "y": 0, "width": 0, "height": 100 }, "children": [...] },
+        { "id": "input1", "type": "input", "placeholder": "Enter value", "bounds": { "x": 0, "y": 0, "width": 0, "height": 48 } },
+        { "id": "btn", "type": "button", "label": "Submit", "variant": "primary", "bounds": { "x": 0, "y": 0, "width": 0, "height": 48 } }
+      ]
+    },
+    {
+      "id": "bottomnav",
+      "type": "bottomnav",
+      "bounds": { "x": 0, "y": 0, "width": 0, "height": 60 },
+      "items": [...]
+    }
+  ]
+}
+```
+
+### Incorrect Structure (Avoid)
+
+```json
+{
+  "id": "my-screen",
+  "type": "screen",
+  "name": "My Screen",
+  "bounds": { "x": 0, "y": 0, "width": 0, "height": 0 },
+  "children": [
+    { "id": "appbar", "type": "appbar", ... },
+    { "id": "card1", "type": "card", ... },
+    { "id": "input1", "type": "input", ... },
+    { "id": "btn", "type": "button", ... }
+  ]
+}
+```
+
+This places components as direct screen children without the wrapper col, resulting in inconsistent/tight padding.
 
 ## Tool Usage
 
@@ -145,16 +282,32 @@ All wireframe components follow this JSON pattern:
 Use the `create_wireframe` tool with the `mermaid-collab` MCP server:
 
 ```
-Tool: create_wireframe
+Tool: mcp__mermaid__create_wireframe
 Args: {
-  "project": "/path/to/project",
+  "project": "/absolute/path/to/project",
   "session": "session-name",
   "name": "my-wireframe",
-  "content": { ... JSON component structure ... }
+  "content": {
+    "viewport": "mobile",
+    "direction": "LR",
+    "screens": [...]
+  }
 }
 ```
 
-Returns: `{ id, previewUrl, message }`
+Returns: `{ success: true, id, previewUrl }`
+
+### Update a Wireframe
+
+```
+Tool: mcp__mermaid__update_wireframe
+Args: {
+  "project": "/absolute/path/to/project",
+  "session": "session-name",
+  "id": "wireframe-id",
+  "content": { ... updated wireframe ... }
+}
+```
 
 ### View a Wireframe
 
@@ -162,7 +315,8 @@ After creation, the preview URL renders your wireframe with:
 - Rough hand-drawn styling
 - Automatic theme support (light/dark mode)
 - Responsive sizing
-- Interactive component feedback
+
+Open the preview URL in a browser to see the rendered wireframe.
 
 ## Theming
 
@@ -194,155 +348,127 @@ Wireframes **automatically adapt** to the app's current theme - no configuration
 
 ### Example: Same Wireframe, Both Themes
 
-This wireframe automatically adapts:
+This wireframe automatically adapts to light/dark mode:
 
 ```json
 {
-  "type": "Container",
-  "props": {
-    "direction": "col",
-    "children": [
-      { "type": "Text", "props": { "variant": "heading", "children": ["Dashboard"] } },
-      { "type": "Button", "props": { "text": "Save", "variant": "primary" } },
-      { "type": "Button", "props": { "text": "Cancel", "variant": "secondary" } }
-    ]
-  }
+  "viewport": "mobile",
+  "direction": "LR",
+  "screens": [{
+    "id": "dashboard",
+    "type": "screen",
+    "name": "Dashboard",
+    "bounds": { "x": 0, "y": 0, "width": 0, "height": 0 },
+    "children": [{
+      "id": "content",
+      "type": "col",
+      "bounds": { "x": 0, "y": 0, "width": 0, "height": 0 },
+      "padding": 16,
+      "gap": 16,
+      "children": [
+        { "id": "title", "type": "title", "content": "Dashboard", "bounds": { "x": 0, "y": 0, "width": 0, "height": 32 } },
+        { "id": "save", "type": "button", "label": "Save", "variant": "primary", "bounds": { "x": 0, "y": 0, "width": 0, "height": 48 } },
+        { "id": "cancel", "type": "button", "label": "Cancel", "variant": "secondary", "bounds": { "x": 0, "y": 0, "width": 0, "height": 48 } }
+      ]
+    }]
+  }]
 }
 ```
 
 - In **light mode**: Dark heading text, dark primary button, outlined secondary
 - In **dark mode**: Light heading text, blue primary button, filled secondary
 
-### Update Existing Wireframes
-
-Use `update_wireframe` to modify existing wireframe content without recreating.
-
-### Real Example: Multi-Page Flow
-
-Example showing wireframe for a product ordering flow:
-
-**Screen 1: Product List**
-```json
-{
-  "type": "Container",
-  "props": {
-    "direction": "col",
-    "gap": "medium",
-    "children": [
-      {
-        "type": "Navigation",
-        "props": {
-          "items": [
-            { "label": "Products", "active": true },
-            { "label": "Cart" }
-          ]
-        }
-      },
-      {
-        "type": "Container",
-        "props": {
-          "direction": "row",
-          "gap": "large",
-          "children": [
-            {
-              "type": "Card",
-              "props": {
-                "title": "Product A",
-                "children": [
-                  { "type": "Display", "props": { "type": "paragraph", "content": "$29.99" } },
-                  { "type": "Button", "props": { "text": "Add to Cart", "variant": "primary" } }
-                ]
-              }
-            },
-            {
-              "type": "Card",
-              "props": {
-                "title": "Product B",
-                "children": [
-                  { "type": "Display", "props": { "type": "paragraph", "content": "$39.99" } },
-                  { "type": "Button", "props": { "text": "Add to Cart", "variant": "primary" } }
-                ]
-              }
-            }
-          ]
-        }
-      }
-    ]
-  }
-}
-```
-
 ## Component Details
 
 ### Text Component
 
-Display text with semantic meaning:
+Display body text:
 
 ```json
-{ "type": "Text", "props": { "variant": "heading", "children": ["Page Title"] } }
-{ "type": "Text", "props": { "variant": "body", "children": ["Regular paragraph text"] } }
-{ "type": "Text", "props": { "variant": "caption", "children": ["Small helper text"] } }
+{ "id": "txt-1", "type": "text", "content": "Regular paragraph text", "bounds": { "x": 0, "y": 0, "width": 0, "height": 24 } }
 ```
 
-**Variants:**
-- `heading` - Large, bold (h1/h2 equivalent)
-- `body` - Regular paragraph text
-- `caption` - Small, muted helper text
+**Properties:**
+- `content` - The text to display (required)
+- `fontSize` - Optional custom font size
+- `fontWeight` - Optional: "normal" or "bold"
+- `color` - Optional custom color
+
+### Title Component
+
+Display heading text (larger, bolder):
+
+```json
+{ "id": "title-1", "type": "title", "content": "Page Title", "bounds": { "x": 0, "y": 0, "width": 0, "height": 32 } }
+```
+
+**Properties:**
+- `content` - The heading text (required)
+- `fontSize` - Optional custom font size (default: 24)
 
 ### Input Component
 
-Text entry fields with validation feedback:
+Text entry fields:
 
 ```json
-{ "type": "Input", "props": { "placeholder": "Enter name", "label": "Full Name" } }
-{ "type": "Input", "props": { "type": "email", "placeholder": "name@example.com", "label": "Email" } }
-{ "type": "Input", "props": { "type": "password", "placeholder": "••••••••", "label": "Password" } }
-{ "type": "Input", "props": { "type": "number", "placeholder": "0", "label": "Age" } }
+{ "id": "input-1", "type": "input", "label": "Email", "placeholder": "Enter email", "bounds": { "x": 0, "y": 0, "width": 0, "height": 56 } }
 ```
 
-**Props:**
-- `label` - Displayed above input
-- `placeholder` - Gray hint text
-- `type` - text, email, password, number, search, url
-- `required` - Boolean, shows required indicator
-- `error` - Boolean, shows error styling
+**Properties:**
+- `label` - Label displayed above input
+- `placeholder` - Gray hint text inside input
 
 ### Button Component
 
 Interactive trigger elements:
 
 ```json
-{ "type": "Button", "props": { "text": "Click Me", "variant": "primary" } }
-{ "type": "Button", "props": { "text": "Secondary", "variant": "secondary" } }
-{ "type": "Button", "props": { "text": "Danger", "variant": "danger" } }
-{ "type": "Button", "props": { "text": "Disabled", "disabled": true } }
+{ "id": "btn-1", "type": "button", "label": "Submit", "variant": "primary", "bounds": { "x": 0, "y": 0, "width": 0, "height": 48 } }
+{ "id": "btn-2", "type": "button", "label": "Cancel", "variant": "secondary", "bounds": { "x": 0, "y": 0, "width": 0, "height": 48 } }
+{ "id": "btn-3", "type": "button", "label": "Delete", "variant": "danger", "bounds": { "x": 0, "y": 0, "width": 0, "height": 48 } }
 ```
 
-**Variants:**
-- `primary` - Main action (solid, prominent)
-- `secondary` - Alternative action (outlined)
-- `danger` - Destructive action (red/warning colors)
+**Properties:**
+- `label` - Button text (required)
+- `variant` - "primary", "secondary", or "danger"
 
-### Container Component
+### Col Component (Vertical Layout)
 
-Flexible layout wrapper:
+Stack children vertically:
 
 ```json
 {
-  "type": "Container",
-  "props": {
-    "direction": "col",
-    "gap": "medium",
-    "children": [ ... ]
-  }
+  "id": "col-1",
+  "type": "col",
+  "bounds": { "x": 0, "y": 0, "width": 0, "height": 0 },
+  "padding": 16,
+  "gap": 12,
+  "children": [...]
 }
 ```
 
-**Props:**
-- `direction` - "row" (horizontal) or "col" (vertical)
-- `gap` - "small", "medium", "large" (spacing between children)
-- `padding` - "small", "medium", "large" (internal spacing)
-- `children` - Array of components
+**Properties:**
+- `children` - Array of child components (required)
+- `gap` - Spacing between children in pixels
+- `padding` - Internal padding in pixels
+
+### Row Component (Horizontal Layout)
+
+Arrange children horizontally:
+
+```json
+{
+  "id": "row-1",
+  "type": "row",
+  "bounds": { "x": 0, "y": 0, "width": 0, "height": 60 },
+  "gap": 8,
+  "children": [...]
+}
+```
+
+**Properties:**
+- `children` - Array of child components (required)
+- `gap` - Spacing between children in pixels
 
 ### Card Component
 
@@ -350,172 +476,193 @@ Grouped content with optional title:
 
 ```json
 {
-  "type": "Card",
-  "props": {
-    "title": "Card Title",
-    "variant": "elevated",
-    "children": [ ... ]
-  }
+  "id": "card-1",
+  "type": "card",
+  "title": "Card Title",
+  "bounds": { "x": 0, "y": 0, "width": 0, "height": 120 },
+  "padding": 12,
+  "children": [...]
 }
 ```
 
-**Variants:**
-- `default` - Subtle border only
-- `elevated` - Shadow effect for depth
-- `filled` - Subtle background
+**Properties:**
+- `title` - Optional card header text
+- `children` - Array of child components (required)
+- `padding` - Internal padding in pixels
 
-### Navigation Component
+### AppBar Component
 
-Header or sidebar navigation:
+Top application bar:
 
 ```json
 {
-  "type": "Navigation",
-  "props": {
-    "items": [
-      { "label": "Home", "active": true },
-      { "label": "About", "active": false },
-      { "label": "Contact", "active": false }
-    ],
-    "variant": "horizontal"
-  }
+  "id": "appbar-1",
+  "type": "appbar",
+  "title": "Screen Title",
+  "leftIcon": "menu",
+  "rightIcons": ["search", "more"],
+  "bounds": { "x": 0, "y": 0, "width": 0, "height": 56 }
 }
 ```
 
-**Props:**
-- `items` - Array of {label, active}
-- `variant` - "horizontal" (top nav) or "vertical" (sidebar)
+**Properties:**
+- `title` - Center title text
+- `leftIcon` - Icon name for left side (e.g., "menu", "back")
+- `rightIcons` - Array of icon names for right side
 
-### Display Component
+### BottomNav Component
 
-Read-only content display:
+Bottom navigation bar:
 
 ```json
-{ "type": "Display", "props": { "type": "paragraph", "content": "Regular text content" } }
-{ "type": "Display", "props": { "type": "list", "content": ["Item 1", "Item 2", "Item 3"] } }
-{ "type": "Display", "props": { "type": "code", "content": "const x = 42;" } }
+{
+  "id": "bottomnav-1",
+  "type": "bottomnav",
+  "bounds": { "x": 0, "y": 0, "width": 0, "height": 60 },
+  "items": [
+    { "icon": "home", "label": "Home", "active": true },
+    { "icon": "search", "label": "Search" },
+    { "icon": "settings", "label": "Settings" }
+  ]
+}
 ```
+
+**Properties:**
+- `items` - Array of navigation items (required)
+  - `icon` - Icon name
+  - `label` - Text label
+  - `active` - Boolean, highlights if true
+
+### NavMenu Component
+
+Drawer/sidebar navigation menu:
+
+```json
+{
+  "id": "navmenu-1",
+  "type": "navmenu",
+  "bounds": { "x": 0, "y": 0, "width": 280, "height": 0 },
+  "items": [
+    { "icon": "home", "label": "Home", "active": true },
+    { "icon": "inventory", "label": "Inventory" },
+    { "icon": "settings", "label": "Settings" }
+  ]
+}
+```
+
+### List Component
+
+Display a list of items:
+
+```json
+{
+  "id": "list-1",
+  "type": "list",
+  "bounds": { "x": 0, "y": 0, "width": 0, "height": 0 },
+  "items": [
+    { "primary": "Item 1", "secondary": "Description" },
+    { "primary": "Item 2", "secondary": "Description" }
+  ]
+}
+```
+
+**Properties:**
+- `items` - Array of list items (required)
+  - `primary` - Main text
+  - `secondary` - Optional secondary text
+
+### Avatar Component
+
+User avatar circle:
+
+```json
+{ "id": "avatar-1", "type": "avatar", "initials": "JD", "bounds": { "x": 0, "y": 0, "width": 40, "height": 40 } }
+```
+
+**Properties:**
+- `initials` - 1-2 character initials to display
+- `size` - Optional size (default based on bounds)
 
 ## Common Mistakes
 
-### Mistake 1: Nesting Too Deeply
-Don't create deeply nested structures - wireframes should feel simple and sketchy.
+### Mistake 1: Missing Required Fields
+Every component needs `id`, `type`, and `bounds`.
+
+**Bad:**
+```json
+{ "type": "text", "content": "Hello" }
+```
+
+**Good:**
+```json
+{ "id": "txt-1", "type": "text", "content": "Hello", "bounds": { "x": 0, "y": 0, "width": 0, "height": 24 } }
+```
+
+### Mistake 2: Wrong Bounds for Layout Intent
+Setting explicit width/height when you want flexible sizing, or vice versa.
+
+**Bad (wants full width but sets fixed):**
+```json
+{ "id": "btn", "type": "button", "label": "Submit", "bounds": { "x": 0, "y": 0, "width": 100, "height": 48 } }
+```
+
+**Good (full width button):**
+```json
+{ "id": "btn", "type": "button", "label": "Submit", "bounds": { "x": 0, "y": 0, "width": 0, "height": 48 } }
+```
+
+### Mistake 3: Nesting Too Deeply
+Keep structures shallow - wireframes should feel simple and sketchy.
 
 **Bad:**
 ```json
 {
-  "type": "Container",
-  "props": {
+  "id": "c1", "type": "col", "bounds": {...},
+  "children": [{
+    "id": "c2", "type": "col", "bounds": {...},
     "children": [{
-      "type": "Container",
-      "props": {
-        "children": [{
-          "type": "Container",
-          "props": {
-            "children": [{ "type": "Text", "props": { "children": ["Text"] } }]
-          }
-        }]
-      }
+      "id": "c3", "type": "col", "bounds": {...},
+      "children": [{ "id": "txt", "type": "text", ... }]
     }]
-  }
+  }]
 }
 ```
 
 **Good:**
 ```json
 {
-  "type": "Container",
-  "props": {
-    "direction": "col",
-    "gap": "medium",
-    "children": [
-      { "type": "Text", "props": { "variant": "heading", "children": ["Title"] } },
-      { "type": "Text", "props": { "variant": "body", "children": ["Content"] } }
-    ]
-  }
+  "id": "content", "type": "col", "bounds": {...}, "gap": 12,
+  "children": [
+    { "id": "title", "type": "title", "content": "Title", "bounds": {...} },
+    { "id": "desc", "type": "text", "content": "Description", "bounds": {...} }
+  ]
 }
 ```
 
-### Mistake 2: Over-Styling
-Rough wireframes shouldn't include precise colors or custom styling - that's what final design tools are for.
+### Mistake 4: Using Props-Based Syntax
+The wireframe system uses flat properties, not a `props` wrapper.
+
+**Bad (old syntax):**
+```json
+{ "type": "Button", "props": { "text": "Click", "variant": "primary" } }
+```
+
+**Good (correct syntax):**
+```json
+{ "id": "btn", "type": "button", "label": "Click", "variant": "primary", "bounds": {...} }
+```
+
+### Mistake 5: Missing Children Array for Containers
+Container types (col, row, card, screen) require a `children` array.
 
 **Bad:**
 ```json
-{
-  "type": "Text",
-  "props": {
-    "color": "#FF5733",
-    "fontSize": "24px",
-    "fontFamily": "Helvetica Neue",
-    "children": ["Styled Text"]
-  }
-}
+{ "id": "col-1", "type": "col", "bounds": {...} }
 ```
 
 **Good:**
 ```json
-{
-  "type": "Text",
-  "props": {
-    "variant": "heading",
-    "children": ["Page Title"]
-  }
-}
-```
-
-### Mistake 3: Mixing Concerns
-Keep wireframes focused on layout and interaction, not content copy. Use placeholder text.
-
-**Bad:**
-```json
-{
-  "type": "Text",
-  "props": {
-    "children": ["Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua..."]
-  }
-}
-```
-
-**Good:**
-```json
-{
-  "type": "Text",
-  "props": {
-    "variant": "body",
-    "children": ["Product description placeholder - focus on layout"]
-  }
-}
-```
-
-### Mistake 4: Wrong Component Type
-Use semantic components - don't try to create custom layouts.
-
-**Bad:**
-```json
-{
-  "type": "Container",
-  "props": {
-    "children": [
-      { "type": "Display", "props": { "content": "← Home" } },
-      { "type": "Display", "props": { "content": "About" } },
-      { "type": "Display", "props": { "content": "Contact" } }
-    ]
-  }
-}
-```
-
-**Good:**
-```json
-{
-  "type": "Navigation",
-  "props": {
-    "items": [
-      { "label": "Home", "active": true },
-      { "label": "About" },
-      { "label": "Contact" }
-    ]
-  }
-}
+{ "id": "col-1", "type": "col", "bounds": {...}, "children": [] }
 ```
 
 ## Real-World Impact
@@ -549,6 +696,96 @@ Wireframes live in your collab session alongside:
 - Diagrams showing data flow
 - Specs linking to implementation tasks
 
+## Critical: How Bounds Work
+
+**This is the most important concept for creating wireframes that render correctly.**
+
+Every component requires a `bounds` object with `x`, `y`, `width`, and `height`. However, these values are NOT used the way you might expect:
+
+### Position vs Size
+
+| Property | Purpose | Who Uses It |
+|----------|---------|-------------|
+| `bounds.x` | **IGNORED** | Parent calculates actual position |
+| `bounds.y` | **IGNORED** | Parent calculates actual position |
+| `bounds.width` | **SIZE HINT** | Used for layout calculation |
+| `bounds.height` | **SIZE HINT** | Used for layout calculation |
+
+### The Flex Layout Algorithm
+
+The renderer uses a flexbox-style algorithm:
+
+1. **Parent controls position** - Children are positioned by their parent container based on direction (row/col), gap, and alignment
+2. **Children specify size** - `width` and `height` in bounds are size hints
+3. **Flex behavior**:
+   - If `flex` property is set explicitly, it overrides bounds size
+   - If `flex` is NOT set and bounds has explicit size > 0, component uses that size (flex: 0 behavior)
+   - If `flex` is NOT set and bounds size is 0, component stretches to fill available space (flex: 1 behavior)
+
+### Practical Examples
+
+**Fixed-size component (respects explicit bounds):**
+```json
+{
+  "type": "button",
+  "id": "btn-1",
+  "label": "Submit",
+  "bounds": { "x": 0, "y": 0, "width": 100, "height": 40 }
+}
+```
+This button will be 100×40 pixels. The x/y values are ignored.
+
+**Stretching component (fills available space):**
+```json
+{
+  "type": "col",
+  "id": "content",
+  "bounds": { "x": 0, "y": 0, "width": 0, "height": 0 },
+  "children": [...]
+}
+```
+This column will stretch to fill its parent because width/height are 0.
+
+**Mixed fixed and flexible:**
+```json
+{
+  "type": "col",
+  "id": "layout",
+  "bounds": { "x": 0, "y": 0, "width": 0, "height": 0 },
+  "children": [
+    { "type": "appbar", "id": "header", "bounds": { "x": 0, "y": 0, "width": 0, "height": 56 }, ... },
+    { "type": "col", "id": "content", "bounds": { "x": 0, "y": 0, "width": 0, "height": 0 }, "children": [...] },
+    { "type": "bottomnav", "id": "nav", "bounds": { "x": 0, "y": 0, "width": 0, "height": 60 }, ... }
+  ]
+}
+```
+- AppBar: fixed 56px height, full width
+- Content: stretches to fill remaining space
+- BottomNav: fixed 60px height, full width
+
+### Common Patterns
+
+**Always set x/y to 0** - They're ignored anyway:
+```json
+"bounds": { "x": 0, "y": 0, "width": 375, "height": 48 }
+```
+
+**Use 0 for flexible dimensions:**
+```json
+"bounds": { "x": 0, "y": 0, "width": 0, "height": 48 }  // Full width, fixed height
+"bounds": { "x": 0, "y": 0, "width": 120, "height": 0 }  // Fixed width, flexible height
+"bounds": { "x": 0, "y": 0, "width": 0, "height": 0 }    // Stretch both ways
+```
+
+### Why This Matters
+
+If you set explicit `width` or `height` values, the component will use those exact sizes. If you want a component to stretch and fill available space, set those dimensions to `0`.
+
+This allows you to create layouts like:
+- Fixed headers (56px) with stretching content areas
+- Side-by-side cards with equal widths (all set to 0)
+- Fixed-width buttons in a row with flexible spacers
+
 ## Syntax Validation
 
 The system validates all wireframe JSON before rendering. Common errors:
@@ -557,47 +794,68 @@ The system validates all wireframe JSON before rendering. Common errors:
 - Invalid component type
 - Malformed `children` array
 - Invalid `variant` or `direction` value
+- Missing `bounds` object
+- Missing `id` field
 
-If validation fails, you'll see an error message with line number. Check the JSON structure against the component reference above.
+If validation fails, you'll see an error message with the path to the invalid field. Check the JSON structure against the component reference above.
 
 ## Advanced: Combining with Other Tools
 
 ### Link Wireframe in Design Document
 
-In a markdown document, reference your wireframe:
+In a markdown document, reference your wireframe by ID:
 
 ```markdown
 ## Product List Screen
 
-See the wireframe here: [wireframe-id]
+See the wireframe: `inventory-screens` (wireframe ID)
+
+Preview: http://localhost:3737/wireframe.html?project=...&session=...&id=inventory-screens
 
 ### Design Notes
-- Three-column grid for products
-- Add to cart triggers modal
-- Navigation stays fixed at top
+- Search input at top with filter buttons
+- List items show SKU, location, quantity
+- Tap item to see detail screen
 ```
 
-### Show Multiple Screens
+### Show Multiple Screens in One Wireframe
 
-Create separate wireframes for each screen in a user flow, then link them in a flow diagram or document.
+Use the `direction` and multiple screens to show a flow:
 
-### Validate Before Creating
-
-Before spending time on JSON, sketch the structure:
-
-```
-HomePage
-├── Navigation [items: Home, Products, Cart]
-└── Container [col]
-    ├── Hero section
-    ├── Featured products [row]
-    │  ├── Card [Product 1]
-    │  ├── Card [Product 2]
-    │  └── Card [Product 3]
-    └── Footer
+```json
+{
+  "viewport": "mobile",
+  "direction": "LR",
+  "screens": [
+    { "id": "list", "type": "screen", "name": "List View", ... },
+    { "id": "detail", "type": "screen", "name": "Detail View", ... },
+    { "id": "edit", "type": "screen", "name": "Edit View", ... }
+  ]
+}
 ```
 
-Then convert to JSON components.
+This renders three screens side-by-side (LR) showing the progression.
+
+### Sketch Structure First
+
+Before writing JSON, sketch the component tree:
+
+```
+Screen: Home
+├── appbar [title: "Home", leftIcon: "menu"]
+├── col [padding: 16, gap: 12]
+│   ├── title [content: "Welcome"]
+│   ├── card [title: "Quick Actions"]
+│   │   └── row [gap: 8]
+│   │       ├── button [label: "Inventory"]
+│   │       ├── button [label: "Picking"]
+│   │       └── button [label: "Shipping"]
+│   └── card [title: "Recent Activity"]
+│       └── list [items: ...]
+└── bottomnav [items: Home, Search, Settings]
+```
+
+Then convert to JSON with proper `id`, `type`, and `bounds` for each.
 
 ## Bottom Line
 
