@@ -1,7 +1,7 @@
 {
   "name": "mermaid-collab",
   "description": "Collaborative design workflows for Claude Code: mermaid diagrams, wireframes, and design-to-implementation pipelines with real-time preview",
-  "version": "5.40.22",
+  "version": "5.40.23",
   "author": {
     "name": "Ben Maderazo"
   },
