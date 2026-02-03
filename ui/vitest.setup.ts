@@ -11,6 +11,13 @@ import '@testing-library/jest-dom';
 import { vi } from 'vitest';
 import React from 'react';
 
+// Mock ResizeObserver for tests
+global.ResizeObserver = vi.fn().mockImplementation(() => ({
+  observe: vi.fn(),
+  unobserve: vi.fn(),
+  disconnect: vi.fn(),
+}));
+
 // Mock EmbeddedTerminal component to avoid xterm DOM issues in tests
 vi.mock('@/components/EmbeddedTerminal', () => ({
   EmbeddedTerminal: function MockTerminal({ className }: { className?: string }) {

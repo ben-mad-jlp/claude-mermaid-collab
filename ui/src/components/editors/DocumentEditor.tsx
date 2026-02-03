@@ -486,6 +486,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   onClearDiff={handleClearDiff}
                   onElementClick={handleSourceLineClick}
                   scrollRef={previewScrollRef}
+                  collapsibleSections
                 />
               </div>
 

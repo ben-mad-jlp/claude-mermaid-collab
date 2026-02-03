@@ -180,7 +180,7 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
             <MermaidPreview content={selectedItem.content} />
           ) : (
             // Render MarkdownPreview for documents
-            <MarkdownPreview content={selectedItem.content} />
+            <MarkdownPreview content={selectedItem.content} collapsibleSections />
           )
         ) : (
           // Empty state - show prompt to select an item

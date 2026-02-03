@@ -12,6 +12,7 @@
 import React, { useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import {
   oneDark,
@@ -20,6 +21,8 @@ import {
 import { useTheme } from '@/hooks/useTheme';
 import { remarkAnnotations } from '@/lib/remarkAnnotations';
 import { AnnotationRenderer } from './AnnotationComponents';
+import { CollapsibleDetails, CollapsibleSummary } from './CollapsibleDetails';
+import { CollapsibleMarkdown } from './CollapsibleMarkdown';
 
 export interface MarkdownPreviewProps {
   /** The Markdown content to render */
@@ -41,6 +44,8 @@ export interface MarkdownPreviewProps {
   project?: string;
   /** Session name for resolving embedded assets */
   session?: string;
+  /** Enable collapsible sections based on headings */
+  collapsibleSections?: boolean;
 }
 
 /**
@@ -176,6 +181,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
   scrollRef,
   project,
   session,
+  collapsibleSections = false,
 }) => {
   const { theme } = useTheme();
 
@@ -435,6 +441,23 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         if (!node?.data) return null;
         return <AnnotationRenderer {...node.data} />;
       },
+
+      // Collapsible details/summary components
+      // Note: 'open' attribute from HTML may come as string "" or boolean
+      details: ({
+        children,
+        open,
+      }: {
+        children?: React.ReactNode;
+        open?: boolean | string;
+      }) => (
+        <CollapsibleDetails open={open !== undefined && open !== false}>
+          {children}
+        </CollapsibleDetails>
+      ),
+      summary: ({ children }: { children?: React.ReactNode }) => (
+        <CollapsibleSummary>{children}</CollapsibleSummary>
+      ),
     }),
     [theme, project, session]
   );
@@ -470,7 +493,11 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
                 if (segment.type === 'unchanged') {
                   return (
                     <div key={idx} className="diff-unchanged">
-                      <ReactMarkdown components={components} remarkPlugins={[remarkGfm, remarkAnnotations]}>
+                      <ReactMarkdown
+                        components={components}
+                        remarkPlugins={[remarkGfm, remarkAnnotations]}
+                        rehypePlugins={[rehypeRaw]}
+                      >
                         {segment.content}
                       </ReactMarkdown>
                     </div>
@@ -478,7 +505,11 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
                 } else if (segment.type === 'added') {
                   return (
                     <div key={idx} className="diff-added">
-                      <ReactMarkdown components={components} remarkPlugins={[remarkGfm, remarkAnnotations]}>
+                      <ReactMarkdown
+                        components={components}
+                        remarkPlugins={[remarkGfm, remarkAnnotations]}
+                        rehypePlugins={[rehypeRaw]}
+                      >
                         {segment.content}
                       </ReactMarkdown>
                     </div>
@@ -486,7 +517,11 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
                 } else {
                   return (
                     <div key={idx} className="diff-removed">
-                      <ReactMarkdown components={components} remarkPlugins={[remarkGfm, remarkAnnotations]}>
+                      <ReactMarkdown
+                        components={components}
+                        remarkPlugins={[remarkGfm, remarkAnnotations]}
+                        rehypePlugins={[rehypeRaw]}
+                      >
                         {segment.content}
                       </ReactMarkdown>
                     </div>
@@ -494,9 +529,19 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
                 }
               })}
             </div>
+          ) : collapsibleSections ? (
+            // Render with collapsible sections
+            (() => { console.log('[MarkdownPreview] Using CollapsibleMarkdown'); return null; })() ||
+            <CollapsibleMarkdown content={content} />
           ) : (
             // Render normally
-            <ReactMarkdown components={components} remarkPlugins={[remarkGfm, remarkAnnotations]}>{content}</ReactMarkdown>
+            <ReactMarkdown
+              components={components}
+              remarkPlugins={[remarkGfm, remarkAnnotations]}
+              rehypePlugins={[rehypeRaw]}
+            >
+              {content}
+            </ReactMarkdown>
           )}
         </div>
       ) : (

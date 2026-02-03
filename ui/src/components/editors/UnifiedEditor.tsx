@@ -332,6 +332,7 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
           className="h-full"
           project={project}
           session={session}
+          collapsibleSections
         />
       );
     })()
@@ -346,6 +347,7 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
           className="h-full"
           project={project}
           session={session}
+          collapsibleSections
           diff={diffContents ? {
             oldContent: diffContents.before,
             newContent: diffContents.after,
