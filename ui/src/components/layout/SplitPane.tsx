@@ -110,7 +110,7 @@ export const SplitPane: React.FC<SplitPaneProps> = ({
   return (
     <div
       data-testid="split-pane"
-      className={`w-full h-full ${className}`}
+      className={`w-full h-full min-w-0 ${className}`}
     >
       <PanelGroup
         direction={direction}
@@ -129,7 +129,7 @@ export const SplitPane: React.FC<SplitPaneProps> = ({
           onExpand={onPrimaryExpand}
           data-testid="split-pane-primary"
         >
-          <div className="w-full h-full overflow-hidden">
+          <div className="w-full h-full min-w-0 overflow-hidden">
             {primaryContent}
           </div>
         </Panel>
@@ -166,7 +166,7 @@ export const SplitPane: React.FC<SplitPaneProps> = ({
           collapsible={secondaryCollapsible}
           data-testid="split-pane-secondary"
         >
-          <div className="w-full h-full overflow-hidden">
+          <div className="w-full h-full min-w-0 overflow-hidden">
             {secondaryContent}
           </div>
         </Panel>
@@ -225,7 +225,7 @@ export const ThreeWaySplitPane: React.FC<ThreeWaySplitPaneProps> = ({
   return (
     <div
       data-testid="three-way-split-pane"
-      className={`w-full h-full ${className}`}
+      className={`w-full h-full min-w-0 ${className}`}
     >
       <PanelGroup
         direction={direction}
@@ -239,7 +239,7 @@ export const ThreeWaySplitPane: React.FC<ThreeWaySplitPaneProps> = ({
           collapsedSizePercentage={0}
           data-testid="split-pane-left"
         >
-          <div className="w-full h-full overflow-hidden">
+          <div className="w-full h-full min-w-0 overflow-hidden">
             {leftContent}
           </div>
         </Panel>
@@ -274,7 +274,7 @@ export const ThreeWaySplitPane: React.FC<ThreeWaySplitPaneProps> = ({
           minSizePercentage={minCenterSize}
           data-testid="split-pane-center"
         >
-          <div className="w-full h-full overflow-hidden">
+          <div className="w-full h-full min-w-0 overflow-hidden">
             {centerContent}
           </div>
         </Panel>
@@ -311,7 +311,7 @@ export const ThreeWaySplitPane: React.FC<ThreeWaySplitPaneProps> = ({
           collapsedSizePercentage={0}
           data-testid="split-pane-right"
         >
-          <div className="w-full h-full overflow-hidden">
+          <div className="w-full h-full min-w-0 overflow-hidden">
             {rightContent}
           </div>
         </Panel>
