@@ -765,11 +765,11 @@ const App: React.FC = () => {
   }, []);
 
   // Handle create session dialog confirmation
-  const handleCreateSessionConfirm = useCallback(async (name: string, type: SessionType) => {
+  const handleCreateSessionConfirm = useCallback(async (name: string, type: SessionType, useRenderUI: boolean) => {
     if (!createSessionDialog) return;
 
     try {
-      const newSession = await api.createSession(createSessionDialog.project, name, type);
+      const newSession = await api.createSession(createSessionDialog.project, name, type, useRenderUI);
       // Refresh sessions list and select the new session
       await loadSessions();
       setCurrentSession(newSession);

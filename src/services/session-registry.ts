@@ -68,7 +68,8 @@ export class SessionRegistry {
   async register(
     project: string,
     session: string,
-    sessionType?: 'structured' | 'vibe'
+    sessionType?: 'structured' | 'vibe',
+    useRenderUI?: boolean
   ): Promise<{ created: boolean }> {
     // Validate inputs
     if (!project || !project.startsWith('/')) {
@@ -109,7 +110,8 @@ export class SessionRegistry {
       state: 'collab-start',
       sessionType: sessionType || 'structured',
       lastActivity: now,
-      currentItem: null
+      currentItem: null,
+      useRenderUI: useRenderUI ?? true
     }, null, 2);
     await this.createFileIfNotExists(collabStatePath, collabStateContent);
 

@@ -12,7 +12,7 @@ export type SessionType = 'structured' | 'vibe';
 
 interface CreateSessionDialogProps {
   suggestedName: string;
-  onConfirm: (name: string, type: SessionType) => void;
+  onConfirm: (name: string, type: SessionType, useRenderUI: boolean) => void;
   onClose: () => void;
 }
 
@@ -23,10 +23,11 @@ export const CreateSessionDialog: React.FC<CreateSessionDialogProps> = ({
 }) => {
   const [sessionName, setSessionName] = useState(suggestedName);
   const [selectedType, setSelectedType] = useState<SessionType | null>(null);
+  const [useRenderUI, setUseRenderUI] = useState(true);
 
   const handleConfirm = () => {
     if (sessionName.trim() && selectedType) {
-      onConfirm(sessionName.trim(), selectedType);
+      onConfirm(sessionName.trim(), selectedType, useRenderUI);
     }
   };
 
@@ -162,6 +163,30 @@ export const CreateSessionDialog: React.FC<CreateSessionDialogProps> = ({
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Browser UI Toggle */}
+          <div className="mt-4">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <div className="relative">
+                <input
+                  type="checkbox"
+                  checked={useRenderUI}
+                  onChange={(e) => setUseRenderUI(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-10 h-6 bg-gray-200 dark:bg-gray-700 rounded-full peer peer-checked:bg-blue-500 transition-colors"></div>
+                <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-4"></div>
+              </div>
+              <div>
+                <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Browser UI for questions
+                </div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">
+                  Disable to use console-based questions instead
+                </div>
+              </div>
+            </label>
           </div>
         </div>
 

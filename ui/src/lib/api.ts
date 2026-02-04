@@ -45,7 +45,7 @@ export interface ArchiveResult {
 
 export interface ApiClient {
   getSessions(): Promise<Session[]>;
-  createSession(project: string, session: string, sessionType?: 'structured' | 'vibe'): Promise<Session>;
+  createSession(project: string, session: string, sessionType?: 'structured' | 'vibe', useRenderUI?: boolean): Promise<Session>;
   deleteSession(project: string, session: string): Promise<boolean>;
   archiveSession(project: string, session: string, options?: { deleteSession?: boolean; timestamp?: boolean }): Promise<ArchiveResult>;
   getDiagrams(project: string, session: string): Promise<Diagram[]>;
@@ -106,14 +106,15 @@ export const api: ApiClient = {
   async createSession(
     project: string,
     session: string,
-    sessionType?: 'structured' | 'vibe'
+    sessionType?: 'structured' | 'vibe',
+    useRenderUI?: boolean
   ): Promise<Session> {
     const response = await fetch('/api/sessions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ project, session, sessionType }),
+      body: JSON.stringify({ project, session, sessionType, useRenderUI }),
     });
     if (!response.ok) {
       throw new Error(response.statusText);

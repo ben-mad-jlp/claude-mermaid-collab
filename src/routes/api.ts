@@ -163,10 +163,11 @@ export async function handleAPI(
   // POST /api/sessions - Register a session (called by MCP tools)
   if (path === '/api/sessions' && req.method === 'POST') {
     try {
-      const { project: rawProject, session, sessionType } = await req.json() as {
+      const { project: rawProject, session, sessionType, useRenderUI } = await req.json() as {
         project?: string;
         session?: string;
         sessionType?: 'structured' | 'vibe';
+        useRenderUI?: boolean;
       };
 
       if (!rawProject || !session) {
@@ -176,7 +177,7 @@ export async function handleAPI(
       // Expand ~ to home directory
       const project = expandPath(rawProject);
 
-      const result = await sessionRegistry.register(project, session, sessionType);
+      const result = await sessionRegistry.register(project, session, sessionType, useRenderUI);
       if (result.created) {
         wsHandler.broadcast({ type: 'session_created', project, session });
       }

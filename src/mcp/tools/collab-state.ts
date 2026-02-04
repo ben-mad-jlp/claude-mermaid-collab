@@ -29,6 +29,7 @@ export interface CollabState {
   totalItems?: number;
   documentedItems?: number;
   autoAllowRoughDraft?: boolean; // User preference for auto-allowing rough-draft proposals
+  useRenderUI?: boolean; // Whether to use browser UI for questions (default: true)
 }
 
 export interface StateUpdateParams {
@@ -45,6 +46,7 @@ export interface StateUpdateParams {
   totalItems?: number;
   documentedItems?: number;
   autoAllowRoughDraft?: boolean; // User preference for auto-allowing rough-draft proposals
+  useRenderUI?: boolean; // Whether to use browser UI for questions (default: true)
 }
 
 // ============= Helper Functions =============
@@ -164,6 +166,9 @@ export async function updateSessionState(
     // Auto-allow rough-draft preference
     ...(updates.autoAllowRoughDraft !== undefined && { autoAllowRoughDraft: updates.autoAllowRoughDraft }),
     ...(currentState.autoAllowRoughDraft !== undefined && updates.autoAllowRoughDraft === undefined && { autoAllowRoughDraft: currentState.autoAllowRoughDraft }),
+    // Use browser UI for questions preference
+    ...(updates.useRenderUI !== undefined && { useRenderUI: updates.useRenderUI }),
+    ...(currentState.useRenderUI !== undefined && updates.useRenderUI === undefined && { useRenderUI: currentState.useRenderUI }),
   };
 
   // Ensure directory exists

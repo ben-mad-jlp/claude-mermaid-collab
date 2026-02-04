@@ -884,6 +884,7 @@ export async function setupMCPServer(): Promise<Server> {
             pendingTasks: { type: 'array', items: { type: 'string' }, description: 'Pending task IDs' },
             totalItems: { type: 'number', description: 'Total number of work items (for brainstorming/rough-draft phases)' },
             documentedItems: { type: 'number', description: 'Number of documented items (for brainstorming/rough-draft phases)' },
+            useRenderUI: { type: 'boolean', description: 'Whether to use browser UI for questions (default: true). Set to false for console-based questions.' },
           },
           required: ['project', 'session'],
         },
@@ -1559,6 +1560,7 @@ export async function setupMCPServer(): Promise<Server> {
               pendingTasks?: string[];
               totalItems?: number;
               documentedItems?: number;
+              useRenderUI?: boolean;
             };
             if (!project || !session) throw new Error('Missing required: project, session');
 
