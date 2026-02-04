@@ -5,12 +5,12 @@
 
 import type { TaskBatch } from './types.js';
 
-/** Status colors for diagram nodes (dark-mode friendly) */
+/** Status colors for diagram nodes (muted, dark-mode friendly) */
 export const STATUS_COLORS = {
-  pending: 'fill:#64748b,stroke:#94a3b8,color:#fff',
-  in_progress: 'fill:#eab308,stroke:#facc15,color:#000',
-  completed: 'fill:#22c55e,stroke:#4ade80,color:#000',
-  failed: 'fill:#ef4444,stroke:#f87171,color:#fff',
+  pending: 'fill:#64748b,stroke:#475569,color:#fff',      // muted gray
+  in_progress: 'fill:#6987c9,stroke:#4b6cb7,color:#fff',  // muted blue
+  completed: 'fill:#6b9e7d,stroke:#4a7c5c,color:#fff',    // muted green
+  failed: 'fill:#c97676,stroke:#a85555,color:#fff',       // muted red
 } as const;
 
 export type TaskStatus = keyof typeof STATUS_COLORS;
@@ -27,7 +27,7 @@ export function generateTaskDiagram(state: { batches?: TaskBatch[] }): string {
 }
 
 /**
- * Build diagram content with batch subgraphs
+ * Build diagram content from batches
  */
 export function buildDiagramContent(batches: TaskBatch[]): string {
   const lines: string[] = ['graph TD'];
@@ -39,21 +39,13 @@ export function buildDiagramContent(batches: TaskBatch[]): string {
   lines.push(`    classDef failed ${STATUS_COLORS.failed}`);
   lines.push('');
 
-  // Build subgraphs for each batch
-  for (let i = 0; i < batches.length; i++) {
-    const batch = batches[i];
-    const batchLabel = `Wave ${i + 1}`;
-
-    lines.push(`    subgraph ${batch.id}["${batchLabel}"]`);
-
-    // Add nodes for each task
+  // Add nodes for each task (no subgraphs)
+  for (const batch of batches) {
     for (const task of batch.tasks) {
       const nodeId = sanitizeId(task.id);
       const label = task.id;
-      lines.push(`        ${nodeId}["${label}"]`);
+      lines.push(`    ${nodeId}["${label}"]`);
     }
-
-    lines.push('    end');
   }
 
   lines.push('');

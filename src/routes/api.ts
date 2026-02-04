@@ -373,13 +373,101 @@ export async function handleAPI(
     const session = decodeURIComponent(taskGraphMatch[2]);
 
     try {
-      // Read task-graph.md document
+      // Get session state (primary source for task graph with statuses)
+      const statePath = join(project, '.collab', 'sessions', session, 'collab-state.json');
+      const stateFile = Bun.file(statePath);
+      let completedTasks: string[] = [];
+      let pendingTasks: string[] = [];
+      let stateBatches: Array<{ id: string; tasks: Array<{ id: string; status?: string; dependsOn?: string[] }> }> = [];
+
+      if (await stateFile.exists()) {
+        try {
+          const stateContent = await stateFile.text();
+          const state = JSON.parse(stateContent);
+          completedTasks = state.completedTasks || [];
+          pendingTasks = state.pendingTasks || [];
+          stateBatches = state.batches || [];
+        } catch {
+          // Failed to read state
+        }
+      }
+
+      // If we have batches in session state, use those (they have correct edges and statuses)
+      if (stateBatches.length > 0) {
+        const mermaidLines: string[] = ['graph TD'];
+
+        // Muted status colors (dark-mode friendly)
+        const statusColors = {
+          pending: 'fill:#64748b,stroke:#475569,color:#fff',      // muted gray
+          in_progress: 'fill:#6987c9,stroke:#4b6cb7,color:#fff',  // muted blue
+          completed: 'fill:#6b9e7d,stroke:#4a7c5c,color:#fff',    // muted green
+          failed: 'fill:#c97676,stroke:#a85555,color:#fff',       // muted red
+        };
+
+        // Add class definitions
+        mermaidLines.push(`    classDef pending ${statusColors.pending}`);
+        mermaidLines.push(`    classDef in_progress ${statusColors.in_progress}`);
+        mermaidLines.push(`    classDef completed ${statusColors.completed}`);
+        mermaidLines.push(`    classDef failed ${statusColors.failed}`);
+        mermaidLines.push('');
+
+        // Add nodes for each task (no subgraphs)
+        for (const batch of stateBatches) {
+          for (const task of batch.tasks) {
+            const nodeId = task.id.replace(/[^a-zA-Z0-9_]/g, '_');
+            mermaidLines.push(`    ${nodeId}["${task.id}"]`);
+          }
+        }
+
+        mermaidLines.push('');
+
+        // Add edges from session state (with proper filtering like MCP tool)
+        for (const batch of stateBatches) {
+          for (const task of batch.tasks) {
+            const deps = task.dependsOn || [];
+            for (const dep of deps) {
+              if (!dep || !dep.trim()) continue;  // Skip empty dependencies
+              const fromId = dep.replace(/[^a-zA-Z0-9_]/g, '_');
+              if (!fromId || fromId === '_') continue;  // Skip invalid IDs
+              const toId = task.id.replace(/[^a-zA-Z0-9_]/g, '_');
+              mermaidLines.push(`    ${fromId} --> ${toId}`);
+            }
+          }
+        }
+
+        mermaidLines.push('');
+
+        // Apply class to each task based on status
+        for (const batch of stateBatches) {
+          for (const task of batch.tasks) {
+            const nodeId = task.id.replace(/[^a-zA-Z0-9_]/g, '_');
+            const statusClass = task.status || 'pending';
+            mermaidLines.push(`    class ${nodeId} ${statusClass}`);
+          }
+        }
+
+        const diagram = mermaidLines.join('\n');
+
+        // Convert stateBatches to the expected format
+        const batches = stateBatches.map(b => ({
+          id: b.id,
+          tasks: b.tasks.map(t => ({ id: t.id, status: t.status })),
+        }));
+
+        return Response.json({
+          diagram,
+          batches,
+          completedTasks,
+          pendingTasks,
+        });
+      }
+
+      // Fallback: Read from task-graph.md if no session state batches
       const documentsPath = sessionRegistry.resolvePath(project, session, 'documents');
       const taskGraphPath = join(documentsPath, 'task-graph.md');
       const taskGraphFile = Bun.file(taskGraphPath);
 
       if (!await taskGraphFile.exists()) {
-        // No task graph yet - return empty state
         return Response.json({
           diagram: null,
           batches: [],
@@ -390,13 +478,11 @@ export async function handleAPI(
 
       const content = await taskGraphFile.text();
 
-      // Parse the task graph
       let tasks: TaskGraphTask[] = [];
       try {
         const taskGraph = parseTaskGraph(content);
         tasks = taskGraph.tasks;
       } catch {
-        // Parsing failed - return empty state
         return Response.json({
           diagram: null,
           batches: [],
@@ -405,14 +491,10 @@ export async function handleAPI(
         });
       }
 
-      // Build batches
       const batches = buildBatches(tasks);
-
-      // Generate Mermaid diagram
-      const waveColors = ['#c8e6c9', '#bbdefb', '#fff3e0', '#f3e5f5', '#ffccbc'];
+      const waveColors = ['#94a3b8', '#7c9fc9', '#a3a38f', '#b39eb5', '#c9a38f'];  // muted wave colors
       const mermaidLines: string[] = ['graph TD'];
 
-      // Add nodes
       for (const task of tasks) {
         const shortDesc = task.description.substring(0, 30) + (task.description.length > 30 ? '...' : '');
         mermaidLines.push(`    ${task.id}["${task.id}<br/>${shortDesc}"]`);
@@ -420,44 +502,20 @@ export async function handleAPI(
 
       mermaidLines.push('');
 
-      // Add edges based on dependencies
       for (const task of tasks) {
         const deps = task['depends-on'] || [];
         for (const dep of deps) {
+          if (!dep || !dep.trim()) continue;
           mermaidLines.push(`    ${dep} --> ${task.id}`);
         }
       }
 
       mermaidLines.push('');
 
-      // Get session state for completed/pending tasks
-      const stateFile = Bun.file(join(project, '.collab', 'sessions', session, 'collab-state.json'));
-      let completedTasks: string[] = [];
-      let pendingTasks: string[] = [];
-
-      if (await stateFile.exists()) {
-        try {
-          const stateContent = await stateFile.text();
-          const state = JSON.parse(stateContent);
-          completedTasks = state.completedTasks || [];
-          pendingTasks = state.pendingTasks || [];
-        } catch {
-          // Failed to read state, continue with empty arrays
-        }
-      }
-
-      const completedSet = new Set(completedTasks);
-
-      // Add styles based on wave and completion status
       batches.forEach((batch, waveIndex) => {
         const waveColor = waveColors[waveIndex % waveColors.length];
         for (const task of batch.tasks) {
-          if (completedSet.has(task.id)) {
-            // Completed tasks get green with darker border
-            mermaidLines.push(`    style ${task.id} fill:#4caf50,stroke:#2e7d32,color:#fff`);
-          } else {
-            mermaidLines.push(`    style ${task.id} fill:${waveColor}`);
-          }
+          mermaidLines.push(`    style ${task.id} fill:${waveColor},stroke:#475569,color:#fff`);
         }
       });
 
