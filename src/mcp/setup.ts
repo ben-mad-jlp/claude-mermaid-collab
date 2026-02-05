@@ -733,7 +733,46 @@ IMPORTANT - Common pitfalls to avoid:
       },
       {
         name: 'create_wireframe',
-        description: 'Create a new wireframe. Returns the wireframe ID and preview URL.',
+        description: `Create a new wireframe. Returns the wireframe ID and preview URL.
+
+REQUIRED JSON STRUCTURE:
+{
+  "viewport": "mobile" | "tablet" | "desktop",
+  "direction": "LR" | "TD",
+  "screens": [{ screen components... }]
+}
+
+EVERY COMPONENT REQUIRES:
+- id: unique string
+- type: component type name
+- bounds: { x, y, width, height } (all numbers)
+
+COMPONENT TYPES & REQUIRED FIELDS:
+- screen: name (string), children (array)
+- col/row/card: children (array)
+- button: label (string)
+- text/title: content (string)
+- input: (no extra required fields)
+- list/navmenu/bottomnav: items (array of {label, icon?, active?})
+- appbar/avatar/image/icon/divider: (no extra required fields)
+
+EXAMPLE:
+{
+  "viewport": "mobile",
+  "direction": "TD",
+  "screens": [{
+    "id": "main",
+    "type": "screen",
+    "name": "Home",
+    "bounds": {"x":0,"y":0,"width":375,"height":600},
+    "children": [{
+      "id": "btn1",
+      "type": "button",
+      "bounds": {"x":20,"y":100,"width":335,"height":44},
+      "label": "Click Me"
+    }]
+  }]
+}`,
         inputSchema: createWireframeSchema,
       },
       {
