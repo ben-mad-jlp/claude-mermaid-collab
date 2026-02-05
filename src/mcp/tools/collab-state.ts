@@ -30,6 +30,7 @@ export interface CollabState {
   documentedItems?: number;
   autoAllowRoughDraft?: boolean; // User preference for auto-allowing rough-draft proposals
   useRenderUI?: boolean; // Whether to use browser UI for questions (default: true)
+  nextSkill?: string | null; // Next skill to invoke after context clear
 }
 
 export interface StateUpdateParams {
@@ -47,6 +48,7 @@ export interface StateUpdateParams {
   documentedItems?: number;
   autoAllowRoughDraft?: boolean; // User preference for auto-allowing rough-draft proposals
   useRenderUI?: boolean; // Whether to use browser UI for questions (default: true)
+  nextSkill?: string | null; // Next skill to invoke after context clear
 }
 
 // ============= Helper Functions =============
@@ -169,6 +171,9 @@ export async function updateSessionState(
     // Use browser UI for questions preference
     ...(updates.useRenderUI !== undefined && { useRenderUI: updates.useRenderUI }),
     ...(currentState.useRenderUI !== undefined && updates.useRenderUI === undefined && { useRenderUI: currentState.useRenderUI }),
+    // Next skill to invoke after context clear
+    ...(updates.nextSkill !== undefined && { nextSkill: updates.nextSkill }),
+    ...(currentState.nextSkill !== undefined && updates.nextSkill === undefined && { nextSkill: currentState.nextSkill }),
   };
 
   // Ensure directory exists

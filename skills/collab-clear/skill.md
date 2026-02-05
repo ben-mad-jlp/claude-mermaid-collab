@@ -41,7 +41,7 @@ Args: { "project": "<cwd>", "session": "<session>", "skill": "collab-clear" }
 ## Step 3: Handle Choice
 
 **If user chose "Yes, clear":**
-1. Display: "Triggering /clear... Run /collab to resume."
+1. Display: "Triggering /clear... Run /collab to resume with {result.next_skill}."
 2. Invoke /clear
 
 **If user chose "No, continue":**

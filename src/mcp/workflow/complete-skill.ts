@@ -187,6 +187,8 @@ export async function completeSkill(
   // 8. Update session state
   await updateSessionState(project, session, {
     state: resolved.stateId,
+    // Store next skill name so /collab can invoke it after context clear
+    nextSkill: resolved.skill,
     // Update phase based on state category
     phase: getPhaseFromState(resolved.stateId),
     // Include item updates if we selected a new work item
