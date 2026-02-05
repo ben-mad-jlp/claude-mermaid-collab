@@ -153,37 +153,30 @@ Ready to proceed to rough-draft?
 2. No
 ```
 
-### Step 5: Transition to Rough-Draft
+### Step 5: Transition via complete_skill
 
-On user confirmation (selects **1**):
+On user confirmation (selects **Yes**):
 
-**Update collab-state via MCP:**
-
-```
-Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
-Args: {
-  "project": "<absolute-path-to-cwd>",
-  "session": "<session-name>",
-  "phase": "rough-draft/interface"
-}
-```
-Note: `lastActivity` is automatically updated by the MCP tool.
-
-**Invoke rough-draft skill:**
+**Call complete_skill to handle the transition:**
 
 ```
-Transitioning to rough-draft phase...
+Tool: mcp__plugin_mermaid-collab_mermaid__complete_skill
+Args: { "project": "<cwd>", "session": "<session>", "skill": "ready-to-implement" }
 ```
 
-Then invoke the rough-draft skill to begin implementation planning.
+The server will:
+1. Update session phase automatically
+2. Return `next_skill` indicating where to go next
+3. Handle any cleanup needed
+
+**Handle response:**
+- If `action == "clear"`: Invoke skill: collab-clear
+- If `next_skill` is not null: Invoke that skill
+- If `next_skill` is null: Workflow complete
 
 **If user declines:**
 
-```
-Returning to work item loop for more work...
-```
-
-Return to collab skill to continue the work item loop.
+Return to collab skill to continue the work item loop (do NOT call complete_skill).
 
 ## Error Handling
 
@@ -290,14 +283,6 @@ This skill acts as the central checkpoint for all resumes and pre-implementation
 
 ## Completion
 
-At the end of this skill's work, call complete_skill:
+**IMPORTANT:** When user confirms ready to implement, call `complete_skill` as shown in Step 5.
 
-```
-Tool: mcp__plugin_mermaid-collab_mermaid__complete_skill
-Args: { "project": "<cwd>", "session": "<session>", "skill": "ready-to-implement" }
-```
-
-**Handle response:**
-- If `action == "clear"`: Invoke skill: collab-clear
-- If `next_skill` is not null: Invoke that skill
-- If `next_skill` is null: Workflow complete
+Do NOT manually call `update_session_state` - the server handles phase transitions automatically when you call `complete_skill`.
