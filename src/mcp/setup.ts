@@ -526,7 +526,14 @@ export async function setupMCPServer(): Promise<Server> {
       },
       {
         name: 'create_diagram',
-        description: 'Create a new Mermaid diagram. Returns the diagram ID and preview URL.',
+        description: `Create a new Mermaid diagram. Returns the diagram ID and preview URL.
+
+IMPORTANT - Common pitfalls to avoid:
+- State diagrams: Do NOT place 'note right of X' inside state X itself (creates cycle)
+- State diagrams: Notes must reference states from outside, not inside composite states
+- Flowcharts: Use HTML entities for special chars in labels (e.g., &amp; for &)
+- All types: Avoid colons in node IDs (they're interpreted as aliases)
+- Test complex diagrams with validate_diagram first`,
         inputSchema: {
           type: 'object',
           properties: {
