@@ -39,6 +39,8 @@ In vibe mode, respond to user requests to:
    Args: { "project": "<cwd>", "session": "<session>", "skill": "vibe-active" }
    ```
    Invoke: result.next_skill (will be "collab-cleanup")
+6. **Convert to structured** - When user wants structured workflow (work items, brainstorming, blueprints):
+   Invoke skill: convert-to-structured
 
 ## Completion
 
@@ -54,3 +56,5 @@ This skill does NOT:
 - Enforce any particular flow
 
 Just help the user create whatever content they need.
+
+**Want structure?** If the user asks for work item tracking, brainstorming, or a guided workflow, invoke the `convert-to-structured` skill to convert this session while preserving all existing artifacts.

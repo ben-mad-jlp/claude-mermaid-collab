@@ -284,7 +284,8 @@ export const WORKFLOW_STATES: WorkflowState[] = [
     id: 'vibe-active',
     skill: 'vibe-active',
     transitions: [
-      { to: 'cleanup' },  // simple transition, triggered by complete_skill
+      { to: 'clear-pre-item', condition: { type: 'pending_brainstorm_items' } },
+      { to: 'cleanup' },
     ],
   },
 

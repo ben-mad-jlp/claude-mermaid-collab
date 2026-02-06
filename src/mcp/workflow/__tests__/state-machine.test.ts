@@ -217,9 +217,9 @@ describe('Vibe Mode State', () => {
       expect(vibeActiveState).toBeDefined();
     });
 
-    it('should have no skill (user drives vibe mode)', () => {
+    it('should have vibe-active skill', () => {
       const vibeActiveState = getState('vibe-active');
-      expect(vibeActiveState?.skill).toBeNull();
+      expect(vibeActiveState?.skill).toBe('vibe-active');
     });
 
     it('should have correct id', () => {
@@ -227,20 +227,28 @@ describe('Vibe Mode State', () => {
       expect(vibeActiveState?.id).toBe('vibe-active');
     });
 
-    it('should have transition to cleanup on cleanup_requested condition', () => {
+    it('should have conditional transition to clear-pre-item when pending brainstorm items', () => {
       const vibeActiveState = getState('vibe-active');
       expect(vibeActiveState?.transitions).toBeDefined();
       expect(vibeActiveState?.transitions.length).toBeGreaterThan(0);
 
+      const convertTransition = vibeActiveState?.transitions.find(
+        (t) => t.to === 'clear-pre-item' && t.condition?.type === 'pending_brainstorm_items'
+      );
+      expect(convertTransition).toBeDefined();
+    });
+
+    it('should have fallthrough transition to cleanup', () => {
+      const vibeActiveState = getState('vibe-active');
       const cleanupTransition = vibeActiveState?.transitions.find(
-        (t) => t.to === 'cleanup' && t.condition?.type === 'cleanup_requested'
+        (t) => t.to === 'cleanup' && !t.condition
       );
       expect(cleanupTransition).toBeDefined();
     });
 
-    it('should have exactly one transition', () => {
+    it('should have exactly two transitions', () => {
       const vibeActiveState = getState('vibe-active');
-      expect(vibeActiveState?.transitions.length).toBe(1);
+      expect(vibeActiveState?.transitions.length).toBe(2);
     });
   });
 
@@ -257,10 +265,25 @@ describe('Vibe Mode State', () => {
       expect(state?.id).toBe('vibe-active');
     });
 
-    it('should not have a skill mapping', () => {
+    it('should have a skill mapping', () => {
       const skillId = skillToState('vibe-active');
-      // vibe-active has no skill, so skillToState should not find it
-      expect(skillId).not.toBe('vibe-active');
+      expect(skillId).toBe('vibe-active');
+    });
+  });
+
+  describe('vibe-active transition evaluation', () => {
+    it('should have pending_brainstorm_items condition on first transition', () => {
+      const vibeActiveState = getState('vibe-active');
+      const firstTransition = vibeActiveState?.transitions[0];
+      expect(firstTransition?.to).toBe('clear-pre-item');
+      expect(firstTransition?.condition?.type).toBe('pending_brainstorm_items');
+    });
+
+    it('should have unconditional cleanup as second transition', () => {
+      const vibeActiveState = getState('vibe-active');
+      const secondTransition = vibeActiveState?.transitions[1];
+      expect(secondTransition?.to).toBe('cleanup');
+      expect(secondTransition?.condition).toBeUndefined();
     });
   });
 });

@@ -188,3 +188,75 @@ describe('completeSkill - work item status updates', () => {
     expect(item2.status).toBe('brainstormed'); // Unchanged
   });
 });
+
+describe('completeSkill - vibe-active conversion routing', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUpdateSessionState.mockResolvedValue(undefined);
+  });
+
+  it('should route to clear-pre-item (brainstorm flow) when completing vibe-active with pending work items', async () => {
+    const workItems: WorkItem[] = [
+      { number: 1, title: 'Add auth', type: 'code', status: 'pending' },
+      { number: 2, title: 'Fix login bug', type: 'bugfix', status: 'pending' },
+    ];
+    mockGetSessionState.mockResolvedValue({
+      state: 'vibe-active',
+      currentItem: 1,
+      currentItemType: 'code',
+      sessionType: 'structured',
+      workItems: [...workItems],
+      lastActivity: new Date().toISOString(),
+    });
+
+    const result = await completeSkill('test-project', 'test-session', 'vibe-active');
+
+    // Should route to collab-clear (the skill for clear-pre-item) which leads to brainstorm flow
+    expect(result.next_skill).toBe('collab-clear');
+    expect(result.action).toBe('clear');
+
+    // Verify state was updated to clear-pre-item path
+    expect(mockUpdateSessionState).toHaveBeenCalled();
+    const updateCall = mockUpdateSessionState.mock.calls[0];
+    const updatedState = updateCall[2];
+    expect(updatedState.state).toBe('clear-pre-item');
+  });
+
+  it('should route to cleanup when completing vibe-active without work items', async () => {
+    mockGetSessionState.mockResolvedValue({
+      state: 'vibe-active',
+      currentItem: null,
+      sessionType: 'vibe',
+      workItems: [],
+      lastActivity: new Date().toISOString(),
+    });
+
+    const result = await completeSkill('test-project', 'test-session', 'vibe-active');
+
+    // Should route to cleanup (no pending brainstorm items)
+    expect(result.next_skill).toBe('collab-cleanup');
+
+    expect(mockUpdateSessionState).toHaveBeenCalled();
+    const updateCall = mockUpdateSessionState.mock.calls[0];
+    const updatedState = updateCall[2];
+    expect(updatedState.state).toBe('cleanup');
+  });
+
+  it('should route to cleanup when completing vibe-active with all items complete', async () => {
+    const workItems: WorkItem[] = [
+      { number: 1, title: 'Done item', type: 'code', status: 'complete' },
+    ];
+    mockGetSessionState.mockResolvedValue({
+      state: 'vibe-active',
+      currentItem: 1,
+      currentItemType: 'code',
+      workItems: [...workItems],
+      lastActivity: new Date().toISOString(),
+    });
+
+    const result = await completeSkill('test-project', 'test-session', 'vibe-active');
+
+    // No pending brainstorm items -> should route to cleanup
+    expect(result.next_skill).toBe('collab-cleanup');
+  });
+});
