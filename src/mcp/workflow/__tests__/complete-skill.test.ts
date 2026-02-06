@@ -136,7 +136,7 @@ describe('completeSkill - work item status updates', () => {
     expect(result.next_skill).not.toBe('rough-draft-blueprint');
   });
 
-  it('should not update items when no currentItem is set', async () => {
+  it('should infer item when currentItem is null (defensive fallback)', async () => {
     const workItems: WorkItem[] = [
       { number: 1, title: 'Code 1', type: 'code', status: 'brainstormed' },
     ];
@@ -147,21 +147,14 @@ describe('completeSkill - work item status updates', () => {
       lastActivity: new Date().toISOString(),
     });
 
-    // Should not throw, and items should remain unchanged
-    try {
-      await completeSkill('test-project', 'test-session', 'rough-draft-blueprint');
-    } catch {
-      // May throw due to no transition - that's ok
-    }
+    await completeSkill('test-project', 'test-session', 'rough-draft-blueprint');
 
-    // If updateSessionState was called, the item should still be brainstormed
-    if (mockUpdateSessionState.mock.calls.length > 0) {
-      const updatedState = mockUpdateSessionState.mock.calls[0][2];
-      const item = updatedState.workItems?.find((i: WorkItem) => i.number === 1);
-      if (item) {
-        expect(item.status).toBe('brainstormed');
-      }
-    }
+    // Defensive fallback should infer and update the matching item
+    expect(mockUpdateSessionState).toHaveBeenCalled();
+    const updatedState = mockUpdateSessionState.mock.calls[0][2];
+    const item = updatedState.workItems?.find((i: WorkItem) => i.number === 1);
+    expect(item.status).toBe('complete');
+    expect(updatedState.currentItem).toBe(1);
   });
 
   it('should only update the current item, not others', async () => {
@@ -258,5 +251,175 @@ describe('completeSkill - vibe-active conversion routing', () => {
 
     // No pending brainstorm items -> should route to cleanup
     expect(result.next_skill).toBe('collab-cleanup');
+  });
+});
+
+describe('completeSkill - defensive currentItem inference', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUpdateSessionState.mockResolvedValue(undefined);
+  });
+
+  it('should infer first brainstormed code item when rough-draft-blueprint has null currentItem', async () => {
+    const workItems: WorkItem[] = [
+      { number: 1, title: 'Code 1', type: 'code', status: 'brainstormed' },
+    ];
+    mockGetSessionState.mockResolvedValue({
+      state: 'rough-draft-blueprint',
+      currentItem: null,
+      workItems: [...workItems],
+      lastActivity: new Date().toISOString(),
+    });
+
+    await completeSkill('test-project', 'test-session', 'rough-draft-blueprint');
+
+    expect(mockUpdateSessionState).toHaveBeenCalled();
+    const updateCall = mockUpdateSessionState.mock.calls[0];
+    const updatedState = updateCall[2];
+    const updatedItem = updatedState.workItems.find((i: WorkItem) => i.number === 1);
+    expect(updatedItem.status).toBe('complete');
+    // Should persist inferred currentItem
+    expect(updatedState.currentItem).toBe(1);
+    expect(updatedState.currentItemType).toBe('code');
+  });
+
+  it('should infer first pending item when brainstorm-validating has null currentItem', async () => {
+    const workItems: WorkItem[] = [
+      { number: 1, title: 'Code 1', type: 'code', status: 'pending' },
+    ];
+    mockGetSessionState.mockResolvedValue({
+      state: 'brainstorm-validating',
+      currentItem: null,
+      workItems: [...workItems],
+      lastActivity: new Date().toISOString(),
+    });
+
+    await completeSkill('test-project', 'test-session', 'brainstorming-validating');
+
+    expect(mockUpdateSessionState).toHaveBeenCalled();
+    const updateCall = mockUpdateSessionState.mock.calls[0];
+    const updatedState = updateCall[2];
+    const updatedItem = updatedState.workItems.find((i: WorkItem) => i.number === 1);
+    expect(updatedItem.status).toBe('brainstormed');
+    expect(updatedState.currentItem).toBe(1);
+    expect(updatedState.currentItemType).toBe('code');
+  });
+
+  it('should infer first brainstormed task when task-planning has null currentItem', async () => {
+    const workItems: WorkItem[] = [
+      { number: 1, title: 'Task 1', type: 'task', status: 'brainstormed' },
+    ];
+    mockGetSessionState.mockResolvedValue({
+      state: 'task-planning',
+      currentItem: null,
+      workItems: [...workItems],
+      lastActivity: new Date().toISOString(),
+    });
+
+    await completeSkill('test-project', 'test-session', 'task-planning');
+
+    expect(mockUpdateSessionState).toHaveBeenCalled();
+    const updateCall = mockUpdateSessionState.mock.calls[0];
+    const updatedState = updateCall[2];
+    const updatedItem = updatedState.workItems.find((i: WorkItem) => i.number === 1);
+    expect(updatedItem.status).toBe('complete');
+    expect(updatedState.currentItem).toBe(1);
+    expect(updatedState.currentItemType).toBe('task');
+  });
+
+  it('should infer first pending bugfix when systematic-debugging has null currentItem', async () => {
+    const workItems: WorkItem[] = [
+      { number: 1, title: 'Bug 1', type: 'bugfix', status: 'pending' },
+    ];
+    mockGetSessionState.mockResolvedValue({
+      state: 'systematic-debugging',
+      currentItem: null,
+      workItems: [...workItems],
+      lastActivity: new Date().toISOString(),
+    });
+
+    await completeSkill('test-project', 'test-session', 'systematic-debugging');
+
+    expect(mockUpdateSessionState).toHaveBeenCalled();
+    const updateCall = mockUpdateSessionState.mock.calls[0];
+    const updatedState = updateCall[2];
+    const updatedItem = updatedState.workItems.find((i: WorkItem) => i.number === 1);
+    expect(updatedItem.status).toBe('complete');
+    expect(updatedState.currentItem).toBe(1);
+    expect(updatedState.currentItemType).toBe('bugfix');
+  });
+
+  it('should break the loop: inferred item marked complete prevents re-routing to rough-draft-blueprint', async () => {
+    const workItems: WorkItem[] = [
+      { number: 1, title: 'Code 1', type: 'code', status: 'brainstormed' },
+    ];
+    mockGetSessionState.mockResolvedValue({
+      state: 'rough-draft-blueprint',
+      currentItem: null,
+      currentItemType: 'code',
+      workItems: [...workItems],
+      lastActivity: new Date().toISOString(),
+    });
+
+    const result = await completeSkill('test-project', 'test-session', 'rough-draft-blueprint');
+
+    // After inference marks the item complete, rough-draft-item-router should NOT
+    // route back to rough-draft-blueprint
+    expect(result.next_skill).not.toBe('rough-draft-blueprint');
+  });
+
+  it('should not infer when no matching items exist (all complete)', async () => {
+    const workItems: WorkItem[] = [
+      { number: 1, title: 'Code 1', type: 'code', status: 'complete' },
+      { number: 2, title: 'Code 2', type: 'code', status: 'complete' },
+    ];
+    mockGetSessionState.mockResolvedValue({
+      state: 'rough-draft-blueprint',
+      currentItem: null,
+      workItems: [...workItems],
+      lastActivity: new Date().toISOString(),
+    });
+
+    try {
+      await completeSkill('test-project', 'test-session', 'rough-draft-blueprint');
+    } catch {
+      // May throw or route differently - that's ok
+    }
+
+    if (mockUpdateSessionState.mock.calls.length > 0) {
+      const updatedState = mockUpdateSessionState.mock.calls[0][2];
+      // Items should remain unchanged since no inference was possible
+      const item1 = updatedState.workItems.find((i: WorkItem) => i.number === 1);
+      const item2 = updatedState.workItems.find((i: WorkItem) => i.number === 2);
+      expect(item1.status).toBe('complete');
+      expect(item2.status).toBe('complete');
+    }
+  });
+
+  it('should infer first match only when multiple items match', async () => {
+    const workItems: WorkItem[] = [
+      { number: 1, title: 'Code 1', type: 'code', status: 'brainstormed' },
+      { number: 2, title: 'Code 2', type: 'code', status: 'brainstormed' },
+      { number: 3, title: 'Code 3', type: 'code', status: 'brainstormed' },
+    ];
+    mockGetSessionState.mockResolvedValue({
+      state: 'rough-draft-blueprint',
+      currentItem: null,
+      workItems: [...workItems],
+      lastActivity: new Date().toISOString(),
+    });
+
+    await completeSkill('test-project', 'test-session', 'rough-draft-blueprint');
+
+    expect(mockUpdateSessionState).toHaveBeenCalled();
+    const updateCall = mockUpdateSessionState.mock.calls[0];
+    const updatedState = updateCall[2];
+    // Only first matching item should be marked complete
+    const item1 = updatedState.workItems.find((i: WorkItem) => i.number === 1);
+    const item2 = updatedState.workItems.find((i: WorkItem) => i.number === 2);
+    const item3 = updatedState.workItems.find((i: WorkItem) => i.number === 3);
+    expect(item1.status).toBe('complete');
+    expect(item2.status).toBe('brainstormed');
+    expect(item3.status).toBe('brainstormed');
   });
 });

@@ -44,6 +44,26 @@ function findNextPendingRoughDraftItem(workItems?: WorkItem[]): WorkItem | null 
 }
 
 /**
+ * Infer the current work item when sessionState.currentItem is null.
+ * Maps each status-updating state to the expected item status/type at that point.
+ * Returns the first matching item, or null if none found.
+ */
+function inferCurrentItem(stateId: StateId, workItems: WorkItem[]): WorkItem | null {
+  switch (stateId) {
+    case 'rough-draft-blueprint':
+      return workItems.find(item => item.type === 'code' && item.status === 'brainstormed') ?? null;
+    case 'brainstorm-validating':
+      return workItems.find(item => item.status === 'pending') ?? null;
+    case 'task-planning':
+      return workItems.find(item => item.type === 'task' && item.status === 'brainstormed') ?? null;
+    case 'systematic-debugging':
+      return workItems.find(item => item.type === 'bugfix' && item.status === 'pending') ?? null;
+    default:
+      return null;
+  }
+}
+
+/**
  * Handle complete_skill MCP tool call
  */
 export async function completeSkill(
@@ -88,12 +108,37 @@ export async function completeSkill(
   // 2a. Update work item status based on completed skill
   // Must happen BEFORE buildTransitionContext because it reads item statuses for routing
   const statusUpdate = getStatusUpdateForSkill(currentStateId);
-  if (statusUpdate && sessionState.workItems && sessionState.currentItem != null) {
-    sessionState.workItems = sessionState.workItems.map(item =>
-      item.number === sessionState.currentItem
-        ? { ...item, status: statusUpdate }
-        : item
-    );
+  let inferredItemUpdates: { currentItem?: number | null; currentItemType?: WorkItemType } = {};
+
+  if (statusUpdate && sessionState.workItems) {
+    if (sessionState.currentItem != null) {
+      // Normal path: update the item specified by currentItem
+      sessionState.workItems = sessionState.workItems.map(item =>
+        item.number === sessionState.currentItem
+          ? { ...item, status: statusUpdate }
+          : item
+      );
+    } else {
+      // Defensive fallback: infer item when currentItem is null
+      const inferredItem = inferCurrentItem(currentStateId, sessionState.workItems);
+      if (inferredItem) {
+        console.warn(
+          `[complete-skill] currentItem was null for state "${currentStateId}", ` +
+          `inferred item #${inferredItem.number} ("${inferredItem.title}").`
+        );
+        sessionState.currentItem = inferredItem.number;
+        sessionState.currentItemType = inferredItem.type;
+        inferredItemUpdates = {
+          currentItem: inferredItem.number,
+          currentItemType: inferredItem.type,
+        };
+        sessionState.workItems = sessionState.workItems.map(item =>
+          item.number === inferredItem.number
+            ? { ...item, status: statusUpdate }
+            : item
+        );
+      }
+    }
   }
 
   // 3. Build transition context
@@ -202,7 +247,9 @@ export async function completeSkill(
     nextSkill: resolved.skill,
     // Update phase based on state category
     phase: getPhaseFromState(resolved.stateId),
-    // Include item updates if we selected a new work item
+    // Persist inferred item if currentItem was null
+    ...inferredItemUpdates,
+    // Include item updates if we selected a new work item (router selections take precedence)
     ...itemUpdates,
     // Persist migrated workItems (documented → brainstormed)
     workItems: sessionState.workItems,
