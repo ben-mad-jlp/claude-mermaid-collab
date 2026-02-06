@@ -123,6 +123,35 @@ graph LR
     A[File: path/to/file.md] --> B[Section being modified]
 ```
 
+## Recording Exploration Insights (Optional)
+
+If exploration revealed valuable architecture or pattern insights worth preserving:
+
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__add_lesson
+Args: {
+  "project": "<cwd>",
+  "session": "<session>",
+  "lesson": "<insight>",
+  "category": "codebase"
+}
+```
+
+**Good lesson candidates:**
+- Component relationships that weren't documented
+- Patterns used consistently across the codebase
+- Conventions discovered from reading code
+- Architectural decisions inferred from structure
+- Dependencies between subsystems
+
+**Category guidance:**
+| Category | When to use |
+|----------|-------------|
+| codebase | Architecture insights, undocumented patterns |
+| workflow | Better exploration approaches for this project |
+| gotcha | Surprising behaviors discovered during exploration |
+| universal | Broadly applicable architecture insights |
+
 ## Transition to CLARIFYING
 
 **Prerequisites:**

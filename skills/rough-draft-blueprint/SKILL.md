@@ -18,6 +18,26 @@ Create a single comprehensive blueprint document for the current work item that 
 2. Function blueprints (signatures, pseudocode, stubs)
 3. Task dependency graph (YAML, execution waves, Mermaid)
 
+## Quick Assessment
+
+Before starting the full blueprint, assess whether this item actually needs one.
+
+**Skip the blueprint and call `complete_skill` immediately if:**
+- The item is a config-only change (e.g., updating `.env`, `tsconfig.json`, `package.json`)
+- The item is a simple rename or move with no logic changes
+- The item is a single-file change with obvious implementation (< 20 lines)
+- The design doc already contains sufficient detail to implement directly
+
+**To skip:** Call `complete_skill` with `skill: "rough-draft-blueprint"` right away. The state machine will mark this item complete and route to the next item or to `ready-to-implement`.
+
+**Proceed with the full blueprint if:**
+- Multiple files need coordinated changes
+- New functions or modules are being created
+- The implementation requires a task dependency graph
+- There are non-obvious edge cases or integration points
+
+---
+
 ## Step 0: Query Kodex
 
 Query project knowledge for relevant conventions and patterns.
@@ -346,6 +366,37 @@ graph TD
 - Total waves: M
 - Max parallelism: P
 ```
+
+---
+
+## Recording Blueprint Insights (Optional)
+
+If blueprint creation revealed conventions or patterns worth preserving:
+
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__add_lesson
+Args: {
+  "project": "<cwd>",
+  "session": "<session>",
+  "lesson": "<insight>",
+  "category": "codebase"
+}
+```
+
+**Good lesson candidates:**
+- Naming conventions discovered or established
+- File organization patterns
+- Type definition patterns specific to this codebase
+- Function signature conventions
+- Error handling patterns used consistently
+
+**Category guidance:**
+| Category | When to use |
+|----------|-------------|
+| codebase | Naming, structure, and type conventions |
+| workflow | Blueprint process improvements |
+| gotcha | Non-obvious constraints discovered during planning |
+| universal | Broadly applicable design patterns |
 
 ---
 

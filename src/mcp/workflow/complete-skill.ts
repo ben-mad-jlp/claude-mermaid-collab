@@ -4,7 +4,7 @@
 
 import type { CompleteSkillOutput, StateId, WorkItem, WorkItemType } from './types.js';
 import { getState, skillToState, getSkillForState, migrateWorkItems } from './state-machine.js';
-import { getNextState, buildTransitionContext, resolveToSkillState } from './transitions.js';
+import { getNextState, buildTransitionContext, resolveToSkillState, getStatusUpdateForSkill } from './transitions.js';
 import { getSessionState, updateSessionState, type CollabState } from '../tools/collab-state.js';
 import { syncTasksFromTaskGraph } from './task-sync.js';
 import { updateTaskDiagram } from './task-diagram.js';
@@ -83,6 +83,17 @@ export async function completeSkill(
 
   if (!currentStateId) {
     throw new Error(`Unknown skill: ${completedSkill}`);
+  }
+
+  // 2a. Update work item status based on completed skill
+  // Must happen BEFORE buildTransitionContext because it reads item statuses for routing
+  const statusUpdate = getStatusUpdateForSkill(currentStateId);
+  if (statusUpdate && sessionState.workItems && sessionState.currentItem != null) {
+    sessionState.workItems = sessionState.workItems.map(item =>
+      item.number === sessionState.currentItem
+        ? { ...item, status: statusUpdate }
+        : item
+    );
   }
 
   // 3. Build transition context

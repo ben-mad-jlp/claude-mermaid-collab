@@ -152,7 +152,35 @@ Args: {
 }
 ```
 
-## Step 8: Complete Skill
+## Step 8: Record Lessons (Optional)
+
+If debugging revealed insights worth preserving, record them:
+
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__add_lesson
+Args: {
+  "project": "<cwd>",
+  "session": "<session>",
+  "lesson": "<insight>",
+  "category": "gotcha"  // or codebase/workflow/universal
+}
+```
+
+**Good lesson candidates:**
+- Bug patterns that could recur (e.g., "Race condition in X when Y happens")
+- Unexpected component behaviors discovered during investigation
+- Diagnostic approaches that worked well for this type of bug
+- Root causes that weren't obvious from the symptoms
+
+**Category guidance:**
+| Category | When to use |
+|----------|-------------|
+| gotcha | Tricky situations, non-obvious failure modes |
+| codebase | Project-specific behaviors, undocumented assumptions |
+| workflow | Better debugging approaches for this project |
+| universal | Broadly applicable debugging insights |
+
+## Step 9: Complete Skill
 
 ```
 Tool: mcp__plugin_mermaid-collab_mermaid__complete_skill

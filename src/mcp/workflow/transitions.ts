@@ -255,6 +255,25 @@ function updateItemStatusInSession(item: WorkItem, newStatus: string): WorkItem 
 }
 
 /**
+ * Get the item status update that should happen when completing a given skill state.
+ * Returns the new status, or null if no status update is needed for this state.
+ *
+ * This is the single source of truth for which states trigger item status updates.
+ */
+export function getStatusUpdateForSkill(stateId: StateId): ItemStatus | null {
+  switch (stateId) {
+    case 'brainstorm-validating':
+      return 'brainstormed';
+    case 'task-planning':
+    case 'systematic-debugging':
+    case 'rough-draft-blueprint':
+      return 'complete';
+    default:
+      return null;
+  }
+}
+
+/**
  * Get next state for phase batching flow.
  * Implements the workflow: all items brainstorm first, then all code items go through rough-draft.
  * Updates item status based on current state and returns next state.
@@ -274,59 +293,35 @@ export function getNextStateForPhaseBatching(
   // Get current item
   const currentItem = getCurrentWorkItem(sessionState);
 
-  // Route based on current state and update item status
+  // Update item status using the shared helper
+  const statusUpdate = getStatusUpdateForSkill(currentStateId);
+  if (statusUpdate && currentItem) {
+    sessionState.workItems = sessionState.workItems.map((item) =>
+      item.number === currentItem.number ? { ...item, status: statusUpdate } : item
+    );
+  }
+
+  // Route based on current state
   switch (currentStateId) {
     // ========== Brainstorm Phase Completion ==========
-    case 'brainstorm-validating': {
+    case 'brainstorm-validating':
       if (!currentItem) return null;
-      // Mark code/task items as brainstormed
-      // (brainstorm-validating is only reached by code/task items, not bugfixes)
-      const updatedItem = updateItemStatusInSession(currentItem, 'brainstormed');
-      const updatedWorkItems = sessionState.workItems.map((item) =>
-        item.number === currentItem.number ? updatedItem : item
-      );
-      sessionState.workItems = updatedWorkItems;
-      // Route to item-type-router (tasks go to task-planning, code goes back to router)
       return 'item-type-router';
-    }
 
-    case 'task-planning': {
+    case 'task-planning':
       if (!currentItem) return null;
-      // Tasks are complete after task-planning (they skip rough-draft)
-      // Mark as complete directly
-      const updatedWorkItems = sessionState.workItems.map((item) =>
-        item.number === currentItem.number ? { ...item, status: 'complete' as const } : item
-      );
-      sessionState.workItems = updatedWorkItems;
-      // Go back to brainstorm router to pick up next item
       return 'clear-post-brainstorm';
-    }
 
-    case 'systematic-debugging': {
+    case 'systematic-debugging':
       if (!currentItem) return null;
-      // Bugfixes are complete after systematic-debugging
-      const updatedWorkItems = sessionState.workItems.map((item) =>
-        item.number === currentItem.number ? { ...item, status: 'complete' as const } : item
-      );
-      sessionState.workItems = updatedWorkItems;
-      // Go back to brainstorm router to pick up next item
       return 'clear-post-brainstorm';
-    }
 
-    // ========== Rough-Draft Phase Status Updates ==========
-    case 'rough-draft-blueprint': {
+    // ========== Rough-Draft Phase ==========
+    case 'rough-draft-blueprint':
       if (!currentItem) return null;
-      // Mark item as complete after blueprint is done
-      const updatedWorkItems = sessionState.workItems.map((item) =>
-        item.number === currentItem.number ? { ...item, status: 'complete' as const } : item
-      );
-      sessionState.workItems = updatedWorkItems;
-      // Go back to rough-draft router to pick up next code item
       return 'clear-post-rough';
-    }
 
     default:
-      // For other states, use standard transition logic (routing handled by state machine)
       return null;
   }
 }

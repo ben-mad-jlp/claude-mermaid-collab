@@ -5,6 +5,7 @@ import {
   SessionState,
   findNextPendingItemInSession,
   getNextStateForPhaseBatching,
+  getStatusUpdateForSkill,
 } from '../transitions';
 import { WorkItem } from '../types';
 
@@ -304,6 +305,40 @@ describe('Transition condition functions', () => {
         ];
         expect(findNextPendingItemInSession(items)?.status).toBe(status);
       });
+    });
+  });
+
+  describe('getStatusUpdateForSkill', () => {
+    it('should return brainstormed for brainstorm-validating', () => {
+      expect(getStatusUpdateForSkill('brainstorm-validating')).toBe('brainstormed');
+    });
+
+    it('should return complete for task-planning', () => {
+      expect(getStatusUpdateForSkill('task-planning')).toBe('complete');
+    });
+
+    it('should return complete for systematic-debugging', () => {
+      expect(getStatusUpdateForSkill('systematic-debugging')).toBe('complete');
+    });
+
+    it('should return complete for rough-draft-blueprint', () => {
+      expect(getStatusUpdateForSkill('rough-draft-blueprint')).toBe('complete');
+    });
+
+    it('should return null for states that do not update item status', () => {
+      expect(getStatusUpdateForSkill('brainstorm-exploring')).toBeNull();
+      expect(getStatusUpdateForSkill('brainstorm-clarifying')).toBeNull();
+      expect(getStatusUpdateForSkill('brainstorm-designing')).toBeNull();
+      expect(getStatusUpdateForSkill('execute-batch')).toBeNull();
+      expect(getStatusUpdateForSkill('ready-to-implement')).toBeNull();
+      expect(getStatusUpdateForSkill('collab-start')).toBeNull();
+    });
+
+    it('should return null for routing nodes', () => {
+      expect(getStatusUpdateForSkill('brainstorm-item-router')).toBeNull();
+      expect(getStatusUpdateForSkill('rough-draft-item-router')).toBeNull();
+      expect(getStatusUpdateForSkill('item-type-router')).toBeNull();
+      expect(getStatusUpdateForSkill('batch-router')).toBeNull();
     });
   });
 

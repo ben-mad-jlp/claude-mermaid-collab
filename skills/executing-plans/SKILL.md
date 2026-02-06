@@ -384,6 +384,35 @@ Key points:
 - Drift detection identifies mismatches with pros/cons analysis
 - Proposing design changes uses special markdown tags
 
+### Recording Lessons During Execution
+
+When implementation reveals something the plan didn't anticipate, record it:
+
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__add_lesson
+Args: {
+  "project": "<cwd>",
+  "session": "<session>",
+  "lesson": "<insight>",
+  "category": "workflow"
+}
+```
+
+**Record when:**
+- Tasks were more coupled than expected
+- Plan had gaps that needed filling
+- A useful pattern emerged during implementation
+- Dependency order assumptions were wrong
+- Verification revealed non-obvious requirements
+
+**Category guidance:**
+| Category | When to use |
+|----------|-------------|
+| workflow | Planning gaps, execution order insights |
+| codebase | Implementation patterns specific to this project |
+| gotcha | Non-obvious blockers encountered during execution |
+| universal | Planning/execution insights applicable broadly |
+
 ### Step 3: Report
 When batch complete:
 - Show what was implemented

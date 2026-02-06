@@ -85,6 +85,7 @@ Artifacts:
 - Documents: [list .md files]
 - Diagrams: [list .mmd files]
 - Wireframes: [list .json files]
+- Lessons: [count from LESSONS.md if exists]
 ```
 
 ### Step 3: Ask User Choice
@@ -97,6 +98,51 @@ What would you like to do with the design artifacts?
 3. Keep - Leave session in place, exit without cleanup
 4. Archive & Continue - Archive with timestamp, reset session for new work
 ```
+
+### Step 3.5: Review Lessons (if any exist)
+
+If lessons were recorded during the session:
+
+1. Call `mcp__plugin_mermaid-collab_mermaid__list_lessons`:
+   ```
+   Tool: mcp__plugin_mermaid-collab_mermaid__list_lessons
+   Args: { "project": "<cwd>", "session": "<session>" }
+   ```
+
+2. Display lessons grouped by category:
+   ```
+   Lessons from this session:
+
+   **gotcha:**
+   - Race condition in WebSocket reconnect when network flaps
+
+   **codebase:**
+   - Auth middleware requires request.context to be set first
+
+   **workflow:**
+   - Blueprint phase catches most integration issues early
+   ```
+
+3. Ask: "Any final lessons from this session before closing?"
+   - If yes, record via `add_lesson`:
+     ```
+     Tool: mcp__plugin_mermaid-collab_mermaid__add_lesson
+     Args: {
+       "project": "<cwd>",
+       "session": "<session>",
+       "lesson": "<insight>",
+       "category": "<category>"
+     }
+     ```
+   - If no, proceed to Step 4
+
+**Category reference:**
+| Category | Use for |
+|----------|---------|
+| universal | Broadly applicable learnings |
+| codebase | Project-specific learnings |
+| workflow | Process and methodology improvements |
+| gotcha | Tricky situations and their solutions |
 
 ### Step 4: Execute Choice
 

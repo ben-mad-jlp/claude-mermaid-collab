@@ -466,6 +466,35 @@ Testing is part of implementation, not optional follow-up. TDD cycle: test → i
 - Can't explain why mock is needed
 - Mocking "just to be safe"
 
+## Recording Test Insights (Optional)
+
+If test writing revealed design insights worth preserving:
+
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__add_lesson
+Args: {
+  "project": "<cwd>",
+  "session": "<session>",
+  "lesson": "<insight>",
+  "category": "codebase"
+}
+```
+
+**Good lesson candidates:**
+- Components that need dependency injection for testability
+- APIs with non-obvious side effects that complicate testing
+- Mocking patterns specific to this codebase
+- Test setup requirements for certain subsystems
+- Edge cases that weren't obvious from the design
+
+**Category guidance:**
+| Category | When to use |
+|----------|-------------|
+| codebase | Project-specific testing patterns, mock requirements |
+| gotcha | Tricky test scenarios, non-obvious setup needs |
+| workflow | TDD process improvements for this project |
+| universal | Testing insights applicable broadly |
+
 ## Final Rule
 
 ```
