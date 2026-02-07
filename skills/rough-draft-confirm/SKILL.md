@@ -2,7 +2,7 @@
 name: rough-draft-confirm
 description: Ask user about auto-allow for rough-draft proposals before starting rough-draft phase
 user-invocable: false
-model: haiku
+model: sonnet
 allowed-tools: mcp__plugin_mermaid-collab_mermaid__*
 ---
 

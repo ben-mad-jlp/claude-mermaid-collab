@@ -2,6 +2,7 @@
 name: executing-plans-execution
 description: Detailed execution logic for the executing-plans skill
 user-invocable: false
+model: haiku
 allowed-tools:
   - Read
   - Glob
