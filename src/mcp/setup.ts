@@ -944,6 +944,7 @@ EXAMPLE:
             totalItems: { type: 'number', description: 'Total number of work items (for brainstorming/rough-draft phases)' },
             documentedItems: { type: 'number', description: 'Number of documented items (for brainstorming/rough-draft phases)' },
             useRenderUI: { type: 'boolean', description: 'Whether to use browser UI for questions (default: true). Set to false for console-based questions.' },
+            sessionType: { type: 'string', enum: ['structured', 'vibe'], description: 'Session type: structured (guided) or vibe (freeform)' },
           },
           required: ['project', 'session'],
         },
@@ -1654,6 +1655,7 @@ EXAMPLE:
               totalItems?: number;
               documentedItems?: number;
               useRenderUI?: boolean;
+              sessionType?: 'structured' | 'vibe';
             };
             if (!project || !session) throw new Error('Missing required: project, session');
 
