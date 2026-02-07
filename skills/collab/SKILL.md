@@ -2,6 +2,7 @@
 name: collab
 description: Start or resume a collab session - session management only
 user-invocable: true
+model: haiku
 allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Glob, Grep, Bash
 ---
 

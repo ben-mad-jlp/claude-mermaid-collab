@@ -2,6 +2,7 @@
 name: vibe-active
 description: Freeform collab session for creating diagrams, docs, and wireframes
 user-invocable: false
+model: sonnet
 allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Glob, Grep, Bash
 ---
 

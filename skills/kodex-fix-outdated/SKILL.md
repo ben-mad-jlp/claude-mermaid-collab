@@ -2,6 +2,7 @@
 name: kodex-fix-outdated
 description: Update an outdated Kodex topic by analyzing codebase changes since topic was written
 user-invocable: false
+model: sonnet
 allowed-tools:
   - Glob
   - Grep

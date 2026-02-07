@@ -2,6 +2,7 @@
 name: brainstorming-exploring
 description: The EXPLORING phase gathers context about the project and forms an initial understanding
 user-invocable: false
+model: sonnet
 allowed-tools:
   - Read
   - Glob

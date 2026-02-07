@@ -2,6 +2,7 @@
 name: kodex-bootstrap-missing
 description: Convert all missing topic flags into stub topics flagged as incomplete
 user-invocable: true
+model: haiku
 allowed-tools:
   - AskUserQuestion
   - mcp__plugin_mermaid-collab_mermaid__kodex_list_flags

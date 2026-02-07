@@ -2,6 +2,7 @@
 name: ui-question
 description: Ask user a question via browser UI and wait for response
 user-invocable: false
+model: haiku
 allowed-tools: mcp__plugin_mermaid-collab_mermaid__render_ui, mcp__plugin_mermaid-collab_mermaid__get_ui_response, mcp__plugin_mermaid-collab_mermaid__list_sessions, mcp__plugin_mermaid-collab_mermaid__get_session_state, AskUserQuestion
 ---
 

@@ -2,6 +2,7 @@
 name: using-kodex
 description: Use when project knowledge could help - queries Kodex topics and flags outdated information
 user-invocable: false
+model: haiku
 allowed-tools:
   - mcp__plugin_mermaid-collab_mermaid__kodex_query_topic
   - mcp__plugin_mermaid-collab_mermaid__kodex_list_topics

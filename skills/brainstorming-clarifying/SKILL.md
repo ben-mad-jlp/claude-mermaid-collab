@@ -2,6 +2,7 @@
 name: brainstorming-clarifying
 description: The CLARIFYING phase discusses each item one at a time to fully understand requirements
 user-invocable: false
+model: sonnet
 allowed-tools:
   - Read
   - Glob

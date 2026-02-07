@@ -2,6 +2,7 @@
 name: kodex-fix
 description: Fix flagged Kodex topics by generating updated content
 user-invocable: true
+model: sonnet
 allowed-tools:
   - AskUserQuestion
   - mcp__plugin_mermaid-collab_mermaid__kodex_list_flags

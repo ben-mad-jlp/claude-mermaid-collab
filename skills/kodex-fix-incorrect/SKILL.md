@@ -2,6 +2,7 @@
 name: kodex-fix-incorrect
 description: Correct factually incorrect Kodex topic content
 user-invocable: false
+model: sonnet
 allowed-tools:
   - Glob
   - Grep

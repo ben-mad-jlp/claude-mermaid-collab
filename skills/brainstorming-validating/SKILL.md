@@ -2,6 +2,7 @@
 name: brainstorming-validating
 description: The VALIDATING phase runs the completeness gate to ensure design is ready for implementation
 user-invocable: false
+model: sonnet
 allowed-tools:
   - Read
   - Glob

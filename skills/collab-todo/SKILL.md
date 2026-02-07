@@ -2,6 +2,7 @@
 name: collab-todo
 description: Vibe on a project todo - select a todo and enter freeform mode to create artifacts
 user-invocable: true
+model: haiku
 allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Glob, Grep, Bash
 ---
 

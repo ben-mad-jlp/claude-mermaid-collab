@@ -1,6 +1,7 @@
 ---
 name: using-roughjs-wireframes
 description: Use when creating UI mockups and wireframes with rough hand-drawn styling for design collaboration and prototyping
+model: sonnet
 ---
 
 # Using Rough.js Wireframes

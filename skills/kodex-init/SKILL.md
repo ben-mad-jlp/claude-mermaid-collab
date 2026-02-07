@@ -2,6 +2,7 @@
 name: kodex-init
 description: Bootstrap a Kodex knowledge base by analyzing codebase structure and creating topic stubs
 user-invocable: true
+model: sonnet
 allowed-tools:
   - Bash
   - Glob

@@ -1,6 +1,7 @@
 ---
 name: kodex-generate-aliases
 description: Use when generating aliases for Kodex topics to improve findability and search coverage
+model: haiku
 ---
 
 # Generate Aliases for Kodex Topic

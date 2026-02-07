@@ -2,6 +2,7 @@
 name: collab-cleanup
 description: Close out a collab session - archive or delete design artifacts
 user-invocable: false
+model: haiku
 ---
 
 # Collab Cleanup

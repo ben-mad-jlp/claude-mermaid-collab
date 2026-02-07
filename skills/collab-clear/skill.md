@@ -2,6 +2,7 @@
 name: collab-clear
 description: Ask user about clearing context, then proceed to next skill
 user-invocable: true
+model: haiku
 allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read
 ---
 
