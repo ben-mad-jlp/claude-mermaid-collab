@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Session, Diagram, Document, CollabState } from '../types';
+import { Session, Diagram, Document, CollabState, ProjectTodo } from '../types';
 
 /**
  * Wireframe type definition
@@ -49,6 +49,11 @@ export interface SessionState {
   // Task graph selection state
   taskGraphSelected: boolean;
 
+  // Todos state
+  todos: ProjectTodo[];
+  todosSelected: boolean;
+  todosProject: string | null;
+
   // Collab state for current session
   collabState: CollabState | null;
 
@@ -94,6 +99,15 @@ export interface SessionState {
   selectTaskGraph: () => void;
   clearTaskGraphSelection: () => void;
 
+  // Todo actions
+  setTodos: (todos: ProjectTodo[]) => void;
+  addTodo: (todo: ProjectTodo) => void;
+  removeTodo: (id: number) => void;
+  selectTodos: (project: string) => void;
+  selectedTodoId: number | null;
+  selectTodo: (id: number | null) => void;
+  updateStoreTodo: (id: number, updates: Partial<ProjectTodo>) => void;
+
   // Diff state actions
   setPendingDiff: (diff: DiffState | null) => void;
   clearPendingDiff: () => void;
@@ -120,6 +134,10 @@ const initialState = {
   wireframes: [],
   selectedWireframeId: null,
   taskGraphSelected: false,
+  todos: [],
+  todosSelected: false,
+  todosProject: null,
+  selectedTodoId: null,
   collabState: null,
   pendingDiff: null,
 };
@@ -163,6 +181,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       selectedDocumentId: null,
       selectedWireframeId: null,
       taskGraphSelected: false,
+      todosSelected: false,
       collabState: null,
     });
   },
@@ -323,6 +342,65 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     set({ taskGraphSelected: false });
   },
 
+  // Todo management
+  setTodos: (todos: ProjectTodo[]) => {
+    set({ todos });
+  },
+
+  addTodo: (todo: ProjectTodo) => {
+    const { todos } = get();
+    set({ todos: [...todos, todo] });
+  },
+
+  removeTodo: (id: number) => {
+    const { todos } = get();
+    set({ todos: todos.filter((t) => t.id !== id) });
+  },
+
+  selectTodos: (project: string) => {
+    set({
+      todosSelected: true,
+      todosProject: project,
+      selectedTodoId: null,
+      currentSession: null,
+      selectedDiagramId: null,
+      selectedDocumentId: null,
+      selectedWireframeId: null,
+      taskGraphSelected: false,
+      diagrams: [],
+      documents: [],
+      wireframes: [],
+      collabState: null,
+    });
+  },
+
+  selectTodo: (id: number | null) => {
+    if (id === null) {
+      set({ selectedTodoId: null, currentSession: null, diagrams: [], documents: [], wireframes: [], collabState: null });
+      return;
+    }
+    const { todos, todosProject } = get();
+    const todo = todos.find(t => t.id === id);
+    if (!todo || !todosProject) return;
+    set({
+      selectedTodoId: id,
+      selectedDiagramId: null,
+      selectedDocumentId: null,
+      selectedWireframeId: null,
+      taskGraphSelected: false,
+      currentSession: { project: todosProject, name: todo.sessionName } as Session,
+      diagrams: [],
+      documents: [],
+      wireframes: [],
+      collabState: null,
+    });
+  },
+
+  updateStoreTodo: (id: number, updates: Partial<ProjectTodo>) => {
+    const { todos } = get();
+    set({ todos: todos.map(t => t.id === id ? { ...t, ...updates } : t) });
+  },
+
   // Diff state management
   setPendingDiff: (diff: DiffState | null) => {
     set({ pendingDiff: diff });
@@ -343,6 +421,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       selectedDocumentId: null,
       selectedWireframeId: null,
       taskGraphSelected: false,
+      todosSelected: false,
+      todosProject: null,
+      selectedTodoId: null,
+      todos: [],
       collabState: null,
       error: null,
     });

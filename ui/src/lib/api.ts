@@ -2,7 +2,7 @@
  * API Client - HTTP fetch methods for communicating with the backend
  */
 
-import type { Session, Diagram, Document, CollabState } from '@/types';
+import type { Session, Diagram, Document, CollabState, ProjectTodo } from '@/types';
 import type { TerminalSession, CreateSessionResult } from '@/types/terminal';
 import type { Wireframe } from '@/stores/sessionStore';
 
@@ -69,6 +69,10 @@ export interface ApiClient {
   deleteDiagram(project: string, session: string, id: string): Promise<void>;
   deleteDocument(project: string, session: string, id: string): Promise<void>;
   deleteWireframe(project: string, session: string, id: string): Promise<void>;
+  getTodos(project: string): Promise<ProjectTodo[]>;
+  addTodo(project: string, title: string, description: string): Promise<ProjectTodo>;
+  updateTodo(project: string, id: number, updates: { title?: string }): Promise<ProjectTodo>;
+  removeTodo(project: string, id: number): Promise<void>;
 }
 
 export interface CachedUIState {
@@ -471,6 +475,62 @@ export const api: ApiClient = {
    */
   async deleteWireframe(project: string, session: string, id: string): Promise<void> {
     const url = `/api/wireframe/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const response = await fetch(url, { method: 'DELETE' });
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+  },
+
+  /**
+   * Fetch project todos
+   */
+  async getTodos(project: string): Promise<ProjectTodo[]> {
+    const url = `/api/todos?project=${encodeURIComponent(project)}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+    const data = await response.json();
+    return data.todos || [];
+  },
+
+  /**
+   * Add a project todo
+   */
+  async addTodo(project: string, title: string, description: string): Promise<ProjectTodo> {
+    const response = await fetch('/api/todos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project, title, description }),
+    });
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+    const data = await response.json();
+    return data.todo;
+  },
+
+  /**
+   * Update a project todo
+   */
+  async updateTodo(project: string, id: number, updates: { title?: string }): Promise<ProjectTodo> {
+    const response = await fetch(`/api/todos/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project, ...updates }),
+    });
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+    const data = await response.json();
+    return data.todo;
+  },
+
+  /**
+   * Remove a project todo
+   */
+  async removeTodo(project: string, id: number): Promise<void> {
+    const url = `/api/todos/${id}?project=${encodeURIComponent(project)}`;
     const response = await fetch(url, { method: 'DELETE' });
     if (!response.ok) {
       throw new Error(response.statusText);

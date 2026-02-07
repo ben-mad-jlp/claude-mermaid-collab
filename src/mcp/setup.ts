@@ -43,6 +43,17 @@ import {
   listLessonsSchema,
 } from './tools/lessons.js';
 import {
+  listTodos,
+  addTodo,
+  removeTodo,
+  updateTodo,
+  listTodosSchema,
+  addTodoSchema,
+  removeTodoSchema,
+  updateTodoSchema,
+  listTodoItemsSchema,
+} from './tools/todos.js';
+import {
   handleCreateWireframe,
   handleUpdateWireframe,
   handleGetWireframe,
@@ -461,7 +472,11 @@ export async function setupMCPServer(): Promise<Server> {
     },
     session: {
       type: 'string',
-      description: 'Session name (e.g., "bright-calm-river")',
+      description: 'Session name (e.g., "bright-calm-river"). Either session or todoId is required.',
+    },
+    todoId: {
+      type: 'number',
+      description: 'Todo ID. Alternative to session — resolves the session from the todo.',
     },
   };
 
@@ -509,7 +524,7 @@ export async function setupMCPServer(): Promise<Server> {
         inputSchema: {
           type: 'object',
           properties: sessionParamsDesc,
-          required: ['project', 'session'],
+          required: ['project'],
         },
       },
       {
@@ -521,7 +536,7 @@ export async function setupMCPServer(): Promise<Server> {
             ...sessionParamsDesc,
             id: { type: 'string', description: 'The diagram ID' },
           },
-          required: ['project', 'session', 'id'],
+          required: ['project', 'id'],
         },
       },
       {
@@ -541,7 +556,7 @@ IMPORTANT - Common pitfalls to avoid:
             name: { type: 'string', description: 'Diagram name (without .mmd extension)' },
             content: { type: 'string', description: 'Mermaid diagram syntax' },
           },
-          required: ['project', 'session', 'name', 'content'],
+          required: ['project', 'name', 'content'],
         },
       },
       {
@@ -554,7 +569,7 @@ IMPORTANT - Common pitfalls to avoid:
             id: { type: 'string', description: 'The diagram ID' },
             content: { type: 'string', description: 'New Mermaid content' },
           },
-          required: ['project', 'session', 'id', 'content'],
+          required: ['project', 'id', 'content'],
         },
       },
       {
@@ -577,7 +592,7 @@ IMPORTANT - Common pitfalls to avoid:
             ...sessionParamsDesc,
             id: { type: 'string', description: 'The diagram ID' },
           },
-          required: ['project', 'session', 'id'],
+          required: ['project', 'id'],
         },
       },
       {
@@ -589,7 +604,7 @@ IMPORTANT - Common pitfalls to avoid:
             ...sessionParamsDesc,
             id: { type: 'string', description: 'The SMACH diagram ID' },
           },
-          required: ['project', 'session', 'id'],
+          required: ['project', 'id'],
         },
       },
       {
@@ -602,7 +617,7 @@ IMPORTANT - Common pitfalls to avoid:
             id: { type: 'string', description: 'Diagram ID' },
             theme: { type: 'string', description: 'Mermaid theme (default, dark, forest, neutral). Default: default' },
           },
-          required: ['project', 'session', 'id'],
+          required: ['project', 'id'],
         },
       },
       {
@@ -616,7 +631,7 @@ IMPORTANT - Common pitfalls to avoid:
             theme: { type: 'string', description: 'Mermaid theme (default, dark, forest, neutral). Default: default' },
             scale: { type: 'number', description: 'Scale factor for the PNG (default: 1)' },
           },
-          required: ['project', 'session', 'id'],
+          required: ['project', 'id'],
         },
       },
       {
@@ -628,7 +643,7 @@ IMPORTANT - Common pitfalls to avoid:
             ...sessionParamsDesc,
             id: { type: 'string', description: 'Diagram ID' },
           },
-          required: ['project', 'session', 'id'],
+          required: ['project', 'id'],
         },
       },
       {
@@ -641,7 +656,7 @@ IMPORTANT - Common pitfalls to avoid:
             id: { type: 'string', description: 'Diagram ID' },
             timestamp: { type: 'string', description: 'ISO timestamp of the version to revert to' },
           },
-          required: ['project', 'session', 'id', 'timestamp'],
+          required: ['project', 'id', 'timestamp'],
         },
       },
       {
@@ -650,7 +665,7 @@ IMPORTANT - Common pitfalls to avoid:
         inputSchema: {
           type: 'object',
           properties: sessionParamsDesc,
-          required: ['project', 'session'],
+          required: ['project'],
         },
       },
       {
@@ -662,7 +677,7 @@ IMPORTANT - Common pitfalls to avoid:
             ...sessionParamsDesc,
             id: { type: 'string', description: 'The document ID' },
           },
-          required: ['project', 'session', 'id'],
+          required: ['project', 'id'],
         },
       },
       {
@@ -675,7 +690,7 @@ IMPORTANT - Common pitfalls to avoid:
             name: { type: 'string', description: 'Document name (without .md extension)' },
             content: { type: 'string', description: 'Markdown content' },
           },
-          required: ['project', 'session', 'name', 'content'],
+          required: ['project', 'name', 'content'],
         },
       },
       {
@@ -688,7 +703,7 @@ IMPORTANT - Common pitfalls to avoid:
             id: { type: 'string', description: 'The document ID' },
             content: { type: 'string', description: 'New markdown content' },
           },
-          required: ['project', 'session', 'id', 'content'],
+          required: ['project', 'id', 'content'],
         },
       },
       {
@@ -702,7 +717,7 @@ IMPORTANT - Common pitfalls to avoid:
             old_string: { type: 'string', description: 'Text to find (must be unique in document)' },
             new_string: { type: 'string', description: 'Text to replace with' },
           },
-          required: ['project', 'session', 'id', 'old_string', 'new_string'],
+          required: ['project', 'id', 'old_string', 'new_string'],
         },
       },
       {
@@ -716,7 +731,7 @@ IMPORTANT - Common pitfalls to avoid:
             old_string: { type: 'string', description: 'Text to find (must be unique in diagram)' },
             new_string: { type: 'string', description: 'Text to replace with' },
           },
-          required: ['project', 'session', 'id', 'old_string', 'new_string'],
+          required: ['project', 'id', 'old_string', 'new_string'],
         },
       },
       {
@@ -728,7 +743,7 @@ IMPORTANT - Common pitfalls to avoid:
             ...sessionParamsDesc,
             id: { type: 'string', description: 'The document ID' },
           },
-          required: ['project', 'session', 'id'],
+          required: ['project', 'id'],
         },
       },
       {
@@ -822,11 +837,10 @@ EXAMPLE:
         inputSchema: {
           type: 'object',
           properties: {
-            project: { type: 'string', description: 'Absolute path to the project root directory' },
-            session: { type: 'string', description: 'Session name (e.g., "bright-calm-river")' },
+            ...sessionParamsDesc,
             id: { type: 'string', description: 'Wireframe ID' },
           },
-          required: ['project', 'session', 'id'],
+          required: ['project', 'id'],
         },
       },
       {
@@ -835,12 +849,11 @@ EXAMPLE:
         inputSchema: {
           type: 'object',
           properties: {
-            project: { type: 'string', description: 'Absolute path to the project root directory' },
-            session: { type: 'string', description: 'Session name (e.g., "bright-calm-river")' },
+            ...sessionParamsDesc,
             id: { type: 'string', description: 'Wireframe ID' },
             timestamp: { type: 'string', description: 'ISO timestamp of the version to revert to' },
           },
-          required: ['project', 'session', 'id', 'timestamp'],
+          required: ['project', 'id', 'timestamp'],
         },
       },
       {
@@ -1229,6 +1242,32 @@ EXAMPLE:
         description: 'Get all lessons from a session.',
         inputSchema: listLessonsSchema,
       },
+      // Todos tools
+      {
+        name: 'list_todos',
+        description: 'List all project-level todos.',
+        inputSchema: listTodosSchema,
+      },
+      {
+        name: 'add_todo',
+        description: 'Add a project-level todo.',
+        inputSchema: addTodoSchema,
+      },
+      {
+        name: 'remove_todo',
+        description: 'Remove a project-level todo by ID.',
+        inputSchema: removeTodoSchema,
+      },
+      {
+        name: 'update_todo',
+        description: 'Update a project-level todo title.',
+        inputSchema: updateTodoSchema,
+      },
+      {
+        name: 'list_todo_items',
+        description: 'List all diagrams, documents, and wireframes for a specific todo.',
+        inputSchema: listTodoItemsSchema,
+      },
     ],
   }));
 
@@ -1236,6 +1275,14 @@ EXAMPLE:
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     try {
       const { name, arguments: args } = request.params;
+
+      // Resolve todoId → session
+      if (args?.todoId && !args?.session) {
+        const todosResult = await listTodos(args.project as string);
+        const todo = todosResult.todos.find(t => t.id === (args.todoId as number));
+        if (!todo) throw new Error(`Todo with id ${args.todoId} not found`);
+        (args as any).session = todo.sessionName;
+      }
 
       const result = await (async () => {
         switch (name) {
@@ -1894,6 +1941,61 @@ EXAMPLE:
             if (!project || !session) throw new Error('Missing required: project, session');
             const result = await listLessons(project, session);
             return JSON.stringify(result, null, 2);
+          }
+
+          case 'list_todos': {
+            const { project } = args as { project: string };
+            if (!project) throw new Error('Missing required: project');
+            const result = await listTodos(project);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'add_todo': {
+            const { project, title, description } = args as { project: string; title: string; description?: string };
+            if (!project || !title) throw new Error('Missing required: project, title');
+            const result = await addTodo(project, title);
+            // Register the session
+            await sessionRegistry.register(project, result.todo.sessionName, 'vibe', true);
+            // If description provided, create it as a document in the todo's session
+            if (description) {
+              await createDocument(project, result.todo.sessionName, 'description', description);
+            }
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'remove_todo': {
+            const { project, id } = args as { project: string; id: number };
+            if (!project || id === undefined) throw new Error('Missing required: project, id');
+            const result = await removeTodo(project, id);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'update_todo': {
+            const { project, id, title } = args as { project: string; id: number; title?: string };
+            if (!project || id === undefined) throw new Error('Missing required: project, id');
+            const result = await updateTodo(project, id, { title });
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'list_todo_items': {
+            const { project, id } = args as { project: string; id: number };
+            if (!project || id === undefined) throw new Error('Missing required: project, id');
+            const todosResult = await listTodos(project);
+            const todo = todosResult.todos.find(t => t.id === id);
+            if (!todo) throw new Error(`Todo with id ${id} not found`);
+            const session = todo.sessionName;
+            const [diagrams, documents, wireframes] = await Promise.all([
+              listDiagrams(project, session).catch(() => '[]'),
+              listDocuments(project, session).catch(() => '[]'),
+              handleListWireframes(project, session).catch(() => ({ wireframes: [], count: 0 })),
+            ]);
+            return JSON.stringify({
+              todo,
+              session,
+              diagrams: JSON.parse(diagrams),
+              documents: JSON.parse(documents),
+              wireframes,
+            }, null, 2);
           }
 
           default:

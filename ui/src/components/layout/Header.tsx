@@ -15,6 +15,8 @@ import { useShallow } from 'zustand/react/shallow';
 import { useTheme } from '@/hooks/useTheme';
 import { useSession } from '@/hooks/useSession';
 import { useUIStore } from '@/stores/uiStore';
+import { useSessionStore } from '@/stores/sessionStore';
+import { api } from '@/lib/api';
 import { SessionStatusPanel } from '@/components/SessionStatusPanel';
 import { Session } from '@/types';
 
@@ -69,6 +71,15 @@ export const Header: React.FC<HeaderProps> = ({
     }))
   );
 
+  const { todosSelected, todos, selectTodos, setTodos } = useSessionStore(
+    useShallow((state) => ({
+      todosSelected: state.todosSelected,
+      todos: state.todos,
+      selectTodos: state.selectTodos,
+      setTodos: state.setTodos,
+    }))
+  );
+
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
   const [isSessionDropdownOpen, setIsSessionDropdownOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
@@ -87,11 +98,12 @@ export const Header: React.FC<HeaderProps> = ({
     return Array.from(projectSet).sort();
   }, [sessions, registeredProjects]);
 
-  // Get sessions for selected project
+  // Get sessions for selected project (exclude todo-linked sessions)
   const projectSessions = useMemo(() => {
     if (!selectedProject) return [];
-    return sessions.filter((s) => s.project === selectedProject);
-  }, [sessions, selectedProject]);
+    const todoSessionNames = new Set(todos.map(t => t.sessionName));
+    return sessions.filter((s) => s.project === selectedProject && !todoSessionNames.has(s.name));
+  }, [sessions, selectedProject, todos]);
 
   // Sync selectedProject with currentSession (only when currentSession changes)
   useEffect(() => {
@@ -209,6 +221,18 @@ export const Header: React.FC<HeaderProps> = ({
       onCreateSession?.(selectedProject);
     }
   }, [onCreateSession, selectedProject]);
+
+  const handleTodosClick = useCallback(async () => {
+    if (!selectedProject) return;
+    selectTodos(selectedProject);
+    setIsSessionDropdownOpen(false);
+    try {
+      const result = await api.getTodos(selectedProject);
+      setTodos(result);
+    } catch (error) {
+      console.error('Failed to load todos:', error);
+    }
+  }, [selectedProject, selectTodos, setTodos]);
 
   const handleDeleteSession = useCallback((e: React.MouseEvent, session: Session) => {
     e.stopPropagation();
@@ -432,7 +456,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <path d="M3 9h18" />
               </svg>
               <span className="flex-1 text-left truncate">
-                {currentSession?.project === selectedProject ? currentSession.name : 'Select Session'}
+                {todosSelected ? 'Todos' : currentSession?.project === selectedProject ? currentSession.name : 'Select Session'}
               </span>
               <svg
                 className={`w-4 h-4 transition-transform ${isSessionDropdownOpen ? 'rotate-180' : ''}`}
@@ -456,6 +480,39 @@ export const Header: React.FC<HeaderProps> = ({
                   animate-fadeIn
                 "
               >
+                {/* Permanent Todos entry */}
+                <div className="border-b border-gray-200 dark:border-gray-700">
+                  <button
+                    onClick={handleTodosClick}
+                    className={`
+                      w-full px-4 py-2.5
+                      text-left text-sm
+                      hover:bg-gray-100 dark:hover:bg-gray-700
+                      transition-colors
+                      flex items-center gap-2
+                      ${todosSelected ? 'bg-accent-50 dark:bg-accent-900/30 text-accent-700 dark:text-accent-300' : 'text-gray-700 dark:text-gray-200'}
+                    `}
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M9 11l3 3L22 4" />
+                      <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
+                    </svg>
+                    <span className="flex-1 font-medium">Todos</span>
+                    {todos.length > 0 && (
+                      <span className="
+                        inline-flex items-center justify-center
+                        px-1.5 py-0.5
+                        text-xs font-medium
+                        bg-blue-100 dark:bg-blue-900/40
+                        text-blue-700 dark:text-blue-300
+                        rounded-full
+                      ">
+                        {todos.length}
+                      </span>
+                    )}
+                  </button>
+                </div>
+
                 {projectSessions.length === 0 ? (
                   <div className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
                     No sessions in this project

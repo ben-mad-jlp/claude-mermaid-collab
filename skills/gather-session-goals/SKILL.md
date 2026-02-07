@@ -34,6 +34,43 @@ Before proceeding, check for active collab session:
 
 ## The Process
 
+### Step 0: Import from Project Todos
+
+1. Call `list_todos` for the project
+2. If count > 0, show a `Checkbox` component via `render_ui` listing todo titles:
+   ```
+   Tool: mcp__plugin_mermaid-collab_mermaid__render_ui
+   Args: {
+     "project": "<absolute-path-to-cwd>",
+     "session": "<session-name>",
+     "ui": {
+       "type": "Card",
+       "props": { "title": "Import from project todos" },
+       "children": [
+         { "type": "Markdown", "props": { "content": "Select todos to import as work items:" } },
+         {
+           "type": "Checkbox",
+           "props": {
+             "name": "selectedTodos",
+             "options": [
+               { "value": "<id>", "label": "<title>" }
+             ]
+           }
+         }
+       ],
+       "actions": [
+         { "id": "import", "label": "Import selected", "primary": true },
+         { "id": "skip", "label": "Skip" }
+       ]
+     },
+     "blocking": true
+   }
+   ```
+3. If user clicks "Import selected": selected todos become work items with `type = "unknown"`. Then ask:
+   **"Remove imported todos from the project list?"** (Yes/No via `render_ui`)
+   - If yes: call `remove_todo` for each imported todo
+4. If user clicks "Skip" or count is 0: proceed to Step 1
+
 ### Step 1: Open Question
 
 Ask the user: **"What do you want to accomplish this session?"**

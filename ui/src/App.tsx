@@ -54,6 +54,9 @@ import type { MermaidPreviewRef } from '@/components/editors/MermaidPreview';
 // Import task graph view
 import { TaskGraphView } from '@/components/task-graph';
 
+// Import todos views
+import { TodosView } from '@/components/todos/TodosView';
+
 // Import notification components
 import { ToastContainer } from '@/components/notifications';
 import { requestNotificationPermission, showUserInputNotification } from '@/services/notification-service';
@@ -173,6 +176,10 @@ const App: React.FC = () => {
     selectedDocumentId,
     selectedWireframeId,
     taskGraphSelected,
+    todosSelected,
+    todosProject,
+    selectedTodoId,
+    todos,
     updateDiagram,
     updateDocument,
     updateWireframe,
@@ -196,6 +203,10 @@ const App: React.FC = () => {
       selectedDocumentId: state.selectedDocumentId,
       selectedWireframeId: state.selectedWireframeId,
       taskGraphSelected: state.taskGraphSelected,
+      todosSelected: state.todosSelected,
+      todosProject: state.todosProject,
+      selectedTodoId: state.selectedTodoId,
+      todos: state.todos,
       updateDiagram: state.updateDiagram,
       updateDocument: state.updateDocument,
       updateWireframe: state.updateWireframe,
@@ -993,6 +1004,13 @@ const App: React.FC = () => {
         </div>
       );
     }
+
+    // Render todos list when no specific todo is selected
+    if (todosSelected && todosProject && !selectedTodoId) {
+      return <TodosView />;
+    }
+    // When a todo IS selected, currentSession is already set by selectTodo(),
+    // so the normal session flow handles it — items in sidebar, editor in main content.
 
     // Render task graph view when selected
     if (taskGraphSelected && currentSession) {

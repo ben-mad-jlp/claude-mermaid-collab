@@ -17,6 +17,7 @@ import { homedir } from 'os';
 import { existsSync } from 'fs';
 import { archiveSession, type ArchiveOptions } from '../mcp/tools/collab-state';
 import { addLesson, listLessons, type LessonCategory } from '../mcp/tools/lessons';
+import { listTodos, addTodo, removeTodo, updateTodo } from '../mcp/tools/todos';
 import {
   listWireframesHandler,
   createWireframeHandler,
@@ -1518,6 +1519,94 @@ export async function handleAPI(
       return Response.json(result);
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // ============================================
+  // Todos Routes (project-level, no session required)
+  // ============================================
+
+  // GET /api/todos?project=...
+  if (path === '/api/todos' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) {
+      return Response.json({ error: 'project query param required' }, { status: 400 });
+    }
+
+    try {
+      const result = await listTodos(project);
+      return Response.json(result);
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // POST /api/todos - Add a todo
+  if (path === '/api/todos' && req.method === 'POST') {
+    try {
+      const { project, title, description } = await req.json() as { project?: string; title?: string; description?: string };
+
+      if (!project || !title) {
+        return Response.json({ error: 'project and title required' }, { status: 400 });
+      }
+
+      const result = await addTodo(project, title);
+
+      // Register the auto-created vibe session
+      await sessionRegistry.register(project, result.todo.sessionName, 'vibe', true);
+      wsHandler.broadcast({ type: 'session_created', project, session: result.todo.sessionName });
+
+      // If description provided, create it as a document in the todo's session
+      if (description) {
+        const { documentManager } = await createManagers(project, result.todo.sessionName);
+        await documentManager.createDocument('description', description);
+      }
+
+      return Response.json(result, { status: 201 });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // PATCH /api/todos/:id - Update a todo
+  const todosPatchMatch = path.match(/^\/api\/todos\/(\d+)$/);
+  if (todosPatchMatch && req.method === 'PATCH') {
+    try {
+      const { project, title } = await req.json() as { project?: string; title?: string };
+
+      if (!project) {
+        return Response.json({ error: 'project required' }, { status: 400 });
+      }
+
+      const id = parseInt(todosPatchMatch[1], 10);
+      const result = await updateTodo(project, id, { title });
+      if (!result.success) {
+        return Response.json(result, { status: 404 });
+      }
+      return Response.json(result);
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // DELETE /api/todos/:id?project=...
+  const todosDeleteMatch = path.match(/^\/api\/todos\/(\d+)$/);
+  if (todosDeleteMatch && req.method === 'DELETE') {
+    const project = url.searchParams.get('project');
+    if (!project) {
+      return Response.json({ error: 'project query param required' }, { status: 400 });
+    }
+
+    const id = parseInt(todosDeleteMatch[1], 10);
+
+    try {
+      const result = await removeTodo(project, id);
+      if (!result.success) {
+        return Response.json(result, { status: 404 });
+      }
+      return Response.json(result);
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
     }
   }
 

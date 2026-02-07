@@ -86,7 +86,11 @@ export const createWireframeSchema = {
     },
     session: {
       type: 'string',
-      description: 'Session name',
+      description: 'Session name. Either session or todoId is required.',
+    },
+    todoId: {
+      type: 'number',
+      description: 'Todo ID. Alternative to session — resolves the session from the todo.',
     },
     name: {
       type: 'string',
@@ -97,7 +101,7 @@ export const createWireframeSchema = {
       description: 'Wireframe JSON content',
     },
   },
-  required: ['project', 'session', 'name', 'content'],
+  required: ['project', 'name', 'content'],
 };
 
 export async function handleCreateWireframe(
@@ -144,7 +148,11 @@ export const updateWireframeSchema = {
     },
     session: {
       type: 'string',
-      description: 'Session name',
+      description: 'Session name. Either session or todoId is required.',
+    },
+    todoId: {
+      type: 'number',
+      description: 'Todo ID. Alternative to session — resolves the session from the todo.',
     },
     id: {
       type: 'string',
@@ -155,7 +163,7 @@ export const updateWireframeSchema = {
       description: 'Updated wireframe JSON content',
     },
   },
-  required: ['project', 'session', 'id', 'content'],
+  required: ['project', 'id', 'content'],
 };
 
 export async function handleUpdateWireframe(
@@ -198,14 +206,18 @@ export const getWireframeSchema = {
     },
     session: {
       type: 'string',
-      description: 'Session name',
+      description: 'Session name. Either session or todoId is required.',
+    },
+    todoId: {
+      type: 'number',
+      description: 'Todo ID. Alternative to session — resolves the session from the todo.',
     },
     id: {
       type: 'string',
       description: 'Wireframe ID',
     },
   },
-  required: ['project', 'session', 'id'],
+  required: ['project', 'id'],
 };
 
 export async function handleGetWireframe(
@@ -244,10 +256,14 @@ export const listWireframesSchema = {
     },
     session: {
       type: 'string',
-      description: 'Session name',
+      description: 'Session name. Either session or todoId is required.',
+    },
+    todoId: {
+      type: 'number',
+      description: 'Todo ID. Alternative to session — resolves the session from the todo.',
     },
   },
-  required: ['project', 'session'],
+  required: ['project'],
 };
 
 export async function handleListWireframes(
@@ -282,14 +298,18 @@ export const previewWireframeSchema = {
     },
     session: {
       type: 'string',
-      description: 'Session name',
+      description: 'Session name. Either session or todoId is required.',
+    },
+    todoId: {
+      type: 'number',
+      description: 'Todo ID. Alternative to session — resolves the session from the todo.',
     },
     id: {
       type: 'string',
       description: 'Wireframe ID',
     },
   },
-  required: ['project', 'session', 'id'],
+  required: ['project', 'id'],
 };
 
 export async function handlePreviewWireframe(
@@ -343,7 +363,11 @@ export const exportWireframeSVGSchema = {
     },
     session: {
       type: 'string',
-      description: 'Session name',
+      description: 'Session name. Either session or todoId is required.',
+    },
+    todoId: {
+      type: 'number',
+      description: 'Todo ID. Alternative to session — resolves the session from the todo.',
     },
     id: {
       type: 'string',
@@ -354,7 +378,7 @@ export const exportWireframeSVGSchema = {
       description: 'Scale factor for the SVG (default: 1)',
     },
   },
-  required: ['project', 'session', 'id'],
+  required: ['project', 'id'],
 };
 
 export async function handleExportWireframeSVG(
@@ -421,7 +445,11 @@ export const exportWireframePNGSchema = {
     },
     session: {
       type: 'string',
-      description: 'Session name',
+      description: 'Session name. Either session or todoId is required.',
+    },
+    todoId: {
+      type: 'number',
+      description: 'Todo ID. Alternative to session — resolves the session from the todo.',
     },
     id: {
       type: 'string',
@@ -432,7 +460,7 @@ export const exportWireframePNGSchema = {
       description: 'Scale factor for the PNG (default: 1)',
     },
   },
-  required: ['project', 'session', 'id'],
+  required: ['project', 'id'],
 };
 
 export async function handleExportWireframePNG(

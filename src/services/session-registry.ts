@@ -132,10 +132,12 @@ export class SessionRegistry {
       try {
         // Check new location first
         const newSessionPath = join(session.project, '.collab', 'sessions', session.session);
+        // Check todos directory
+        const todosSessionPath = join(session.project, '.collab', 'todos', session.session);
         // Then old location for backwards compatibility
         const oldSessionPath = join(session.project, '.collab', session.session);
 
-        if (fs.existsSync(newSessionPath) || fs.existsSync(oldSessionPath)) {
+        if (fs.existsSync(newSessionPath) || fs.existsSync(todosSessionPath) || fs.existsSync(oldSessionPath)) {
           validSessions.push(session);
         } else {
           staleSessions.push(session);
@@ -185,10 +187,16 @@ export class SessionRegistry {
       throw new Error('Invalid type: must be "diagrams", "documents", "wireframes", or "."');
     }
 
-    // Check new location first
+    // Check regular sessions first
     const newPath = join(project, '.collab', 'sessions', session, type);
     if (fs.existsSync(newPath)) {
       return newPath;
+    }
+
+    // Check todos directory
+    const todosPath = join(project, '.collab', 'todos', session, type);
+    if (fs.existsSync(todosPath)) {
+      return todosPath;
     }
 
     // Check old location for backwards compatibility
@@ -197,7 +205,7 @@ export class SessionRegistry {
       return oldPath;
     }
 
-    // Default to new location
+    // Default to regular sessions location
     return newPath;
   }
 
