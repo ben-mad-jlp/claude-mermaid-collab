@@ -52,10 +52,15 @@ FUNCTION executeTask(task, itemType):
     SPAWN Task agent with project/session/taskId
     # Subagent: marks in_progress, executes steps, marks completed/failed
 
-  ELSE IF itemType IN ["code", "bugfix"]:
-    # Normal TDD flow
+  ELSE IF itemType == "code":
+    # Standard TDD flow
     SPAWN Task agent with project/session/taskId
-    # Subagent: marks in_progress, runs TDD, marks completed/failed
+    # Subagent: marks in_progress, runs TDD (red-green-refactor), marks completed/failed
+
+  ELSE IF itemType == "bugfix":
+    # Test-first debugging flow
+    SPAWN Task agent with project/session/taskId
+    # Subagent: marks in_progress, writes failing test, fixes bug, verifies, marks completed/failed
 
   ELSE:
     STOP - unknown item type, ask user
@@ -67,10 +72,18 @@ FUNCTION executeTask(task, itemType):
 3. Run verification checks (confirm success)
 4. Mark task as complete
 
-**For Code/Bugfix Type Items:**
+**For Code Type Items:**
 1. Invoke test-driven-development skill
 2. Work through red-green-refactor cycle
 3. Mark task as complete
+
+**For Bugfix Type Items:**
+1. Read root cause analysis from design doc (documented by systematic-debugging investigation)
+2. Write a failing test that reproduces the bug
+3. Verify the test fails for the right reason (bug behavior, not syntax error)
+4. Attempt fix (optionally spawn 2-3 parallel subagents to race)
+5. Verify test passes + run full test suite for regressions
+6. Mark task as complete
 
 ### Dependency-Aware Execution (Collab Workflow)
 

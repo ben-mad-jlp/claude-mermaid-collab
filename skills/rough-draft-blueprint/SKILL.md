@@ -38,6 +38,75 @@ Before starting the full blueprint, assess whether this item actually needs one.
 
 ---
 
+## Bugfix Items (Simplified Blueprint)
+
+When the current item has `Type: bugfix`, create a simplified blueprint instead of the full 3-phase process.
+
+**The investigation phase (systematic-debugging) has already identified:**
+- Root cause
+- Affected files
+- Proposed approach
+- Suggested test strategy
+
+**Process:**
+
+1. Read the design doc to get the investigation findings:
+   ```
+   Tool: mcp__plugin_mermaid-collab_mermaid__get_document
+   Args: { "project": "<cwd>", "session": "<session>", "id": "design" }
+   ```
+
+2. Create a simplified blueprint with a single task:
+   ```
+   Tool: mcp__plugin_mermaid-collab_mermaid__create_document
+   Args: {
+     "project": "<cwd>",
+     "session": "<session>",
+     "name": "blueprint-item-N",
+     "content": "<simplified blueprint>"
+   }
+   ```
+
+**Simplified Blueprint Structure:**
+
+```markdown
+# Blueprint: Item N - [Bugfix Title]
+
+## Investigation Summary
+<Copy root cause, affected files, and proposed approach from design doc>
+
+## Task Graph
+
+```yaml
+tasks:
+  - id: fix-item-N
+    files: [<affected files from investigation>]
+    tests: [<test file paths>]
+    description: "Write failing test reproducing the bug, then fix: <brief description>"
+    parallel: true
+    depends-on: []
+```
+
+### Execution Waves
+
+**Wave 1:**
+- fix-item-N
+
+### Summary
+- Total tasks: 1
+- Total waves: 1
+```
+
+3. Call `complete_skill` as normal:
+   ```
+   Tool: mcp__plugin_mermaid-collab_mermaid__complete_skill
+   Args: { "project": "<cwd>", "session": "<session>", "skill": "rough-draft-blueprint" }
+   ```
+
+**After creating the simplified blueprint, skip the rest of this skill.** Do not proceed to Phase 1/2/3.
+
+---
+
 ## Step 0: Query Kodex
 
 Query project knowledge for relevant conventions and patterns.

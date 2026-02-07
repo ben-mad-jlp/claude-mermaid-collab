@@ -196,7 +196,7 @@ export const WORKFLOW_STATES: WorkflowState[] = [
     transitions: [{ to: 'rough-draft-item-router' }],
   },
 
-  // ========== Rough-draft item router (only code items) ==========
+  // ========== Rough-draft item router (code and bugfix items) ==========
   {
     id: 'rough-draft-item-router',
     skill: null,
@@ -355,13 +355,13 @@ export function findNextPendingBrainstormItem(workItems: WorkItem[]): WorkItem |
 }
 
 /**
- * Find the next code item that needs rough-draft processing.
- * Only returns code items with status === 'brainstormed'.
- * Tasks and bugfixes don't go through rough-draft.
+ * Find the next code or bugfix item that needs rough-draft processing.
+ * Returns code or bugfix items with status === 'brainstormed'.
+ * Tasks don't go through rough-draft.
  */
 export function findNextPendingRoughDraftItem(workItems: WorkItem[]): WorkItem | undefined {
   return workItems.find(
-    (item) => item.type === 'code' && item.status === 'brainstormed'
+    (item) => (item.type === 'code' || item.type === 'bugfix') && item.status === 'brainstormed'
   );
 }
 
@@ -456,11 +456,12 @@ export type SessionState = TransitionSessionState;
  *
  * Phase batching flow:
  * 1. Brainstorm phase: All items (code, task, bugfix) go through brainstorming
- *    - Bugfixes skip brainstorm, go directly to systematic-debugging
+ *    - Bugfixes skip brainstorm, go directly to systematic-debugging → mark 'brainstormed'
  *    - Tasks complete after brainstorm + task-planning
  *    - Code items mark as 'brainstormed' and wait for rough-draft phase
- * 2. Rough-draft phase: Only code items go through rough-draft
- *    - Code items: brainstormed → interface → pseudocode → skeleton → complete
+ * 2. Rough-draft phase: Code and bugfix items go through rough-draft
+ *    - Code items: brainstormed → blueprint → complete
+ *    - Bugfix items: brainstormed → simplified blueprint → complete
  *
  * @param currentState - Current state ID
  * @param sessionState - Current session state with work items

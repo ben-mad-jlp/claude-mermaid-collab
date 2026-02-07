@@ -1,30 +1,27 @@
 ---
 name: systematic-debugging
-description: Investigate bugfix items using test-first debugging methodology
+description: Investigate bugfix items to identify root cause and document findings
 user-invocable: false
-allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Task, Read, Write, Edit, Bash, Glob, Grep
+allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Task, Read, Glob, Grep
 ---
 
-# Systematic Debugging (Test-First)
+# Systematic Debugging (Investigation)
 
-Fix bugs by writing a failing test first, then having subagents race to fix it.
+Investigate bugfix items to identify the root cause and document findings for the execution phase.
 
 ## Core Principle
 
-**Don't start by trying to fix the bug. Start by writing a test that reproduces it.**
-
-A passing test is the only proof that a fix works. Subagents compete to make the test pass.
+**Investigation only.** This skill identifies the root cause, affected files, and suggests a test strategy. The actual fix happens during execution (rough-draft-blueprint + executing-plans).
 
 ## Overview
 
 When a work item has `Type: bugfix`, this skill:
 1. Reads the bug report from the design doc
-2. Writes a failing test that reproduces the bug
-3. Verifies the test fails for the right reason
-4. Spawns parallel subagents to attempt fixes
-5. First subagent to make the test pass wins
-6. Updates the design doc with the fix
-7. Calls complete_skill to proceed
+2. Reproduces the issue mentally by tracing the code path
+3. Identifies the root cause and affected files
+4. Documents findings in the design doc
+5. Suggests a test strategy (but does NOT write tests)
+6. Calls complete_skill to proceed
 
 ## Step 1: Get Current Item Context
 
@@ -37,93 +34,27 @@ Args: { "project": "<cwd>", "session": "<session>", "id": "design" }
 
 Find the work item marked as current (from session state's `currentItem`).
 
-## Step 2: Write a Failing Test
+## Step 2: Reproduce Mentally
 
-Before any fix attempts, write a test that reproduces the bug.
+Trace the code path to understand the bug:
 
-**Requirements:**
-- Test must fail with the current code
-- Test must fail for the right reason (bug behavior, not syntax error)
-- Test must be minimal - isolate the bug
-- Test name should describe the expected behavior: `test('rejects empty email', ...)`
+1. **Read the affected code** - Use Read, Glob, Grep to find and read the relevant source files
+2. **Trace the execution flow** - Follow the code path from input to buggy output
+3. **Identify where behavior diverges** - Find the exact point where expected != actual
+4. **Check for related patterns** - Search for similar patterns elsewhere that may also be affected
 
-**Process:**
-1. Analyze the bug report to understand expected vs actual behavior
-2. Find the appropriate test file (or create one)
-3. Write a test that asserts the expected behavior
-4. Run the test to confirm it fails
+## Step 3: Identify Root Cause
 
-```bash
-npm run test:ci -- path/to/test.test.ts
-```
+Determine the underlying cause:
 
-**Escape hatch:** If after 3 attempts you cannot write a reproducing test (timing issues, environment-specific, etc.), document why and fall back to manual investigation. Ask the user for guidance.
+1. **What** is the incorrect behavior?
+2. **Where** in the code does it occur? (file, function, line)
+3. **Why** does it happen? (logic error, missing check, race condition, etc.)
+4. **What files** need to change to fix it?
 
-## Step 3: Verify Test Fails Correctly
+## Step 4: Document Findings
 
-**MANDATORY. Never skip.**
-
-The test must:
-- Fail (not error)
-- Fail because of the bug (not typos or missing imports)
-- Show the actual buggy behavior in the failure message
-
-If the test passes immediately, you're not testing the bug. Rewrite.
-
-If the test errors, fix the error and re-run until it fails correctly.
-
-## Step 4: Spawn Fix Subagents
-
-Once you have a verified failing test, spawn 2-3 subagents in parallel to attempt fixes:
-
-```
-Tool: Task (call multiple in parallel)
-Args: {
-  "subagent_type": "mermaid-collab:systematic-debugging:systematic-debugging",
-  "description": "Fix bug: <item-title> - Approach A",
-  "prompt": "Bug: <description>
-
-Failing test location: <path/to/test.ts>
-Test name: <test name>
-
-Your goal: Make this test pass with minimal code changes.
-
-Constraints:
-- Do NOT modify the test
-- Keep changes minimal and focused
-- Run the test after your fix to verify it passes
-- If you can't fix it, explain why
-
-Run this command to verify:
-npm run test:ci -- <path/to/test.ts>"
-}
-```
-
-**Subagent approaches to try:**
-- Approach A: Most obvious/direct fix
-- Approach B: Alternative approach if A seems risky
-- Approach C: (Optional) Different angle if bug is complex
-
-## Step 5: Evaluate Results
-
-Wait for subagents to complete. Evaluate:
-
-| Result | Action |
-|--------|--------|
-| One subagent passes test | Use that fix |
-| Multiple pass | Choose simplest/cleanest |
-| None pass | Analyze attempts, write better test or try new approaches |
-| Test was wrong | Fix test, re-run subagents |
-
-**Validation:** After selecting a fix, run the full test suite to ensure no regressions:
-
-```bash
-npm run test:ci
-```
-
-## Step 6: Update Design Doc
-
-Record the fix in the design doc:
+Update the design doc with investigation results:
 
 ```
 Tool: mcp__plugin_mermaid-collab_mermaid__patch_document
@@ -132,27 +63,11 @@ Args: {
   "session": "<session>",
   "id": "design",
   "old_string": "**Status:** pending",
-  "new_string": "**Status:** fixed\n\n**Reproducing Test:**\n`<test file>`: `<test name>`\n\n**Fix:**\n<brief description of the fix>\n\n**Files Changed:**\n- <file1>\n- <file2>"
+  "new_string": "**Status:** investigated\n\n**Root Cause:**\n<description of the root cause>\n\n**Affected Files:**\n- <file1> - <what needs to change>\n- <file2> - <what needs to change>\n\n**Proposed Approach:**\n<brief description of the fix approach>\n\n**Suggested Test Strategy:**\n- Test: <describe a test that would reproduce the bug>\n- Verify: <what the test should assert>\n- Regression: <any related areas to test>"
 }
 ```
 
-## Step 7: Update Session State
-
-```
-Tool: mcp__plugin_mermaid-collab_mermaid__get_session_state
-Args: { "project": "<cwd>", "session": "<session>" }
-```
-
-```
-Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
-Args: {
-  "project": "<cwd>",
-  "session": "<session>",
-  "workItems": [<updated array with item status changed to "fixed">]
-}
-```
-
-## Step 8: Record Lessons (Optional)
+## Step 5: Record Lessons (Optional)
 
 If debugging revealed insights worth preserving, record them:
 
@@ -180,7 +95,7 @@ Args: {
 | workflow | Better debugging approaches for this project |
 | universal | Broadly applicable debugging insights |
 
-## Step 9: Complete Skill
+## Step 6: Complete Skill
 
 ```
 Tool: mcp__plugin_mermaid-collab_mermaid__complete_skill
@@ -192,14 +107,8 @@ Args: { "project": "<cwd>", "session": "<session>", "skill": "systematic-debuggi
 - If `next_skill` is not null: Invoke that skill
 - If `next_skill` is null: Workflow complete
 
-## Why Test-First?
+## What Happens Next
 
-| Old Approach | Test-First Approach |
-|--------------|---------------------|
-| Investigate → Document → Fix later | Test → Fix → Done |
-| "I think I understand the bug" | Test proves you understand it |
-| "I think the fix works" | Test proves the fix works |
-| Root cause documented, fix uncertain | Fix verified, regression prevented |
-| Sequential: investigate then implement | Parallel: subagents race to fix |
-
-The test *is* the investigation. If you can reproduce it, you understand it.
+After investigation, the bugfix item is marked as `brainstormed` and follows the standard pipeline:
+1. **rough-draft-blueprint** creates a simplified blueprint with a single task: write failing test + fix
+2. **executing-plans** executes the fix using the test-first approach with the investigation findings

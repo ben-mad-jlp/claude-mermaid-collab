@@ -317,8 +317,8 @@ describe('Transition condition functions', () => {
       expect(getStatusUpdateForSkill('task-planning')).toBe('complete');
     });
 
-    it('should return complete for systematic-debugging', () => {
-      expect(getStatusUpdateForSkill('systematic-debugging')).toBe('complete');
+    it('should return brainstormed for systematic-debugging', () => {
+      expect(getStatusUpdateForSkill('systematic-debugging')).toBe('brainstormed');
     });
 
     it('should return complete for rough-draft-blueprint', () => {
@@ -371,7 +371,7 @@ describe('Transition condition functions', () => {
       expect(state.workItems[0].status).toBe('complete');
     });
 
-    it('should mark bugfix complete and go to clear-post-brainstorm after systematic-debugging', () => {
+    it('should mark bugfix brainstormed and go to clear-post-brainstorm after systematic-debugging', () => {
       const state: SessionState = {
         state: 'test',
         currentItem: 1,
@@ -381,7 +381,7 @@ describe('Transition condition functions', () => {
       };
       const result = getNextStateForPhaseBatching('systematic-debugging', state);
       expect(result).toBe('clear-post-brainstorm');
-      expect(state.workItems[0].status).toBe('complete');
+      expect(state.workItems[0].status).toBe('brainstormed');
     });
 
     it('should mark item complete and go to clear-post-rough after rough-draft-blueprint', () => {
@@ -471,12 +471,12 @@ describe('Transition condition functions', () => {
       state.currentItem = 3;
       result = getNextStateForPhaseBatching('systematic-debugging', state);
       expect(result).toBe('clear-post-brainstorm');
-      expect(state.workItems[2].status).toBe('complete');
+      expect(state.workItems[2].status).toBe('brainstormed');
 
       // At this point:
       // - Code item: brainstormed (needs rough-draft-blueprint)
       // - Task item: complete
-      // - Bugfix item: complete
+      // - Bugfix item: brainstormed (needs rough-draft-blueprint)
     });
 
     it('should complete code item after rough-draft-blueprint', () => {

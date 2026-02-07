@@ -347,7 +347,8 @@ Task execution diagram verified. Proceeding to execution.
 
 | Type | Execution Flow |
 |------|----------------|
-| code/bugfix | Invoke test-driven-development skill -> Write failing test -> Implement -> Verify test passes |
+| code | TDD: red-green-refactor cycle |
+| bugfix | Test-first: write failing test from investigation findings, fix, verify |
 | task | Execute task steps directly -> Run verification checks |
 
 **Task Type Items:**
@@ -357,9 +358,16 @@ Task execution diagram verified. Proceeding to execution.
 - Verification confirms success
 - No TDD cycle needed (these are operational, not code)
 
-**Code/Bugfix Type Items:**
+**Code Type Items:**
 - Follow standard TDD flow with red-green-refactor
 - Still require verification but through test suite
+
+**Bugfix Type Items:**
+- Read root cause analysis from design doc (from systematic-debugging investigation)
+- Write a failing test reproducing the bug
+- Verify test fails for the right reason
+- Fix the bug (optionally spawn parallel subagents)
+- Verify test passes + run full suite for regressions
 
 ## Step 2: Execute Batch
 

@@ -125,10 +125,10 @@ export function buildTransitionContext(
     ? sessionState.workItems.some((item) => item.status === 'pending')
     : false;
 
-  // Determine if there are code items needing rough-draft (status === 'brainstormed', type === 'code')
+  // Determine if there are code/bugfix items needing rough-draft (status === 'brainstormed', type === 'code' or 'bugfix')
   const pendingRoughDraftItems = sessionState.workItems
     ? sessionState.workItems.some(
-        (item) => item.type === 'code' && item.status === 'brainstormed'
+        (item) => (item.type === 'code' || item.type === 'bugfix') && item.status === 'brainstormed'
       )
     : false;
 
@@ -265,9 +265,10 @@ export function getStatusUpdateForSkill(stateId: StateId): ItemStatus | null {
     case 'brainstorm-validating':
       return 'brainstormed';
     case 'task-planning':
-    case 'systematic-debugging':
     case 'rough-draft-blueprint':
       return 'complete';
+    case 'systematic-debugging':
+      return 'brainstormed';
     default:
       return null;
   }
@@ -280,11 +281,12 @@ export function getStatusUpdateForSkill(stateId: StateId): ItemStatus | null {
  *
  * Phase Batching Flow:
  * 1. Brainstorm Phase: Items are processed one at a time
- *    - Bugfixes: systematic-debugging → mark complete → back to router
+ *    - Bugfixes: systematic-debugging → mark as 'brainstormed' → back to router
  *    - Tasks: brainstorm → task-planning → mark complete → back to router
  *    - Code: brainstorm → mark as 'brainstormed' → back to router
- * 2. Rough-Draft Phase (only code items):
- *    - interface → pseudocode → skeleton → build-task-graph → mark complete → back to router
+ * 2. Rough-Draft Phase (code and bugfix items):
+ *    - Code: blueprint → build-task-graph → mark complete → back to router
+ *    - Bugfix: simplified blueprint → mark complete → back to router
  */
 export function getNextStateForPhaseBatching(
   currentStateId: StateId,

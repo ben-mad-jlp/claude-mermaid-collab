@@ -31,7 +31,7 @@ function findNextPendingBrainstormItem(workItems?: WorkItem[]): WorkItem | null 
 }
 
 /**
- * Find the next code item that needs rough-draft (type === 'code', status === 'brainstormed').
+ * Find the next code or bugfix item that needs rough-draft (type === 'code' or 'bugfix', status === 'brainstormed').
  * Used by rough-draft-item-router.
  */
 function findNextPendingRoughDraftItem(workItems?: WorkItem[]): WorkItem | null {
@@ -39,7 +39,7 @@ function findNextPendingRoughDraftItem(workItems?: WorkItem[]): WorkItem | null 
     return null;
   }
   return workItems.find(
-    (item) => item.type === 'code' && item.status === 'brainstormed'
+    (item) => (item.type === 'code' || item.type === 'bugfix') && item.status === 'brainstormed'
   ) ?? null;
 }
 
@@ -51,7 +51,7 @@ function findNextPendingRoughDraftItem(workItems?: WorkItem[]): WorkItem | null 
 function inferCurrentItem(stateId: StateId, workItems: WorkItem[]): WorkItem | null {
   switch (stateId) {
     case 'rough-draft-blueprint':
-      return workItems.find(item => item.type === 'code' && item.status === 'brainstormed') ?? null;
+      return workItems.find(item => (item.type === 'code' || item.type === 'bugfix') && item.status === 'brainstormed') ?? null;
     case 'brainstorm-validating':
       return workItems.find(item => item.status === 'pending') ?? null;
     case 'task-planning':

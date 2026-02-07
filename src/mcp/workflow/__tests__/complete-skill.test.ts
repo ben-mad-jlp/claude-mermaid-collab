@@ -94,7 +94,7 @@ describe('completeSkill - work item status updates', () => {
     expect(updatedItem.status).toBe('complete');
   });
 
-  it('should update item to complete when completing systematic-debugging', async () => {
+  it('should update item to brainstormed when completing systematic-debugging', async () => {
     const workItems: WorkItem[] = [
       { number: 1, title: 'Bug 1', type: 'bugfix', status: 'pending' },
     ];
@@ -112,7 +112,7 @@ describe('completeSkill - work item status updates', () => {
     const updateCall = mockUpdateSessionState.mock.calls[0];
     const updatedState = updateCall[2];
     const updatedItem = updatedState.workItems.find((i: WorkItem) => i.number === 1);
-    expect(updatedItem.status).toBe('complete');
+    expect(updatedItem.status).toBe('brainstormed');
   });
 
   it('should not find pending rough-draft items after blueprint completes (no infinite loop)', async () => {
@@ -344,7 +344,7 @@ describe('completeSkill - defensive currentItem inference', () => {
     const updateCall = mockUpdateSessionState.mock.calls[0];
     const updatedState = updateCall[2];
     const updatedItem = updatedState.workItems.find((i: WorkItem) => i.number === 1);
-    expect(updatedItem.status).toBe('complete');
+    expect(updatedItem.status).toBe('brainstormed');
     expect(updatedState.currentItem).toBe(1);
     expect(updatedState.currentItemType).toBe('bugfix');
   });

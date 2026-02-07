@@ -6,6 +6,7 @@ import {
   getSkillForState,
   skillToState,
   findNextPendingItem,
+  findNextPendingRoughDraftItem,
   updateItemStatus,
   getCurrentWorkItem,
   migrateWorkItems,
@@ -353,6 +354,61 @@ describe('Work Item Helper Functions', () => {
     });
   });
 
+  describe('findNextPendingRoughDraftItem', () => {
+    it('should return undefined for empty array', () => {
+      expect(findNextPendingRoughDraftItem([])).toBeUndefined();
+    });
+
+    it('should find brainstormed code items', () => {
+      const items: WorkItem[] = [
+        { number: 1, title: 'Code 1', type: 'code', status: 'brainstormed' },
+      ];
+      const result = findNextPendingRoughDraftItem(items);
+      expect(result?.number).toBe(1);
+    });
+
+    it('should find brainstormed bugfix items', () => {
+      const items: WorkItem[] = [
+        { number: 1, title: 'Bug 1', type: 'bugfix', status: 'brainstormed' },
+      ];
+      const result = findNextPendingRoughDraftItem(items);
+      expect(result?.number).toBe(1);
+    });
+
+    it('should not find task items', () => {
+      const items: WorkItem[] = [
+        { number: 1, title: 'Task 1', type: 'task', status: 'brainstormed' },
+      ];
+      expect(findNextPendingRoughDraftItem(items)).toBeUndefined();
+    });
+
+    it('should not find pending items', () => {
+      const items: WorkItem[] = [
+        { number: 1, title: 'Code 1', type: 'code', status: 'pending' },
+        { number: 2, title: 'Bug 1', type: 'bugfix', status: 'pending' },
+      ];
+      expect(findNextPendingRoughDraftItem(items)).toBeUndefined();
+    });
+
+    it('should return first matching item (code before bugfix)', () => {
+      const items: WorkItem[] = [
+        { number: 1, title: 'Code 1', type: 'code', status: 'brainstormed' },
+        { number: 2, title: 'Bug 1', type: 'bugfix', status: 'brainstormed' },
+      ];
+      const result = findNextPendingRoughDraftItem(items);
+      expect(result?.number).toBe(1);
+    });
+
+    it('should skip complete items', () => {
+      const items: WorkItem[] = [
+        { number: 1, title: 'Code 1', type: 'code', status: 'complete' },
+        { number: 2, title: 'Bug 1', type: 'bugfix', status: 'brainstormed' },
+      ];
+      const result = findNextPendingRoughDraftItem(items);
+      expect(result?.number).toBe(2);
+    });
+  });
+
   describe('updateItemStatus', () => {
     it('should update pending to brainstormed', () => {
       const item = createWorkItem(1, 'Item 1', 'pending');
@@ -656,7 +712,7 @@ describe('Phase Batching State Routing', () => {
       expect(state.workItems[0].status).toBe('complete');
     });
 
-    it('should mark bugfix complete after systematic-debugging', () => {
+    it('should mark bugfix brainstormed after systematic-debugging', () => {
       const state: SessionState = {
         state: 'test',
         currentItem: 1,
@@ -664,7 +720,7 @@ describe('Phase Batching State Routing', () => {
       };
       const result = getNextState('systematic-debugging', state);
       expect(result).toBe('clear-post-brainstorm');
-      expect(state.workItems[0].status).toBe('complete');
+      expect(state.workItems[0].status).toBe('brainstormed');
     });
 
     it('should handle single code item through blueprint', () => {
@@ -731,18 +787,25 @@ describe('Phase Batching State Routing', () => {
       expect(result).toBe('clear-post-brainstorm');
       expect(state.workItems[1].status).toBe('complete');
 
-      // Bugfix completes via systematic-debugging (simulated: currentItem = 3)
+      // Bugfix investigated via systematic-debugging (simulated: currentItem = 3)
       state.currentItem = 3;
       result = getNextState('systematic-debugging', state);
       expect(result).toBe('clear-post-brainstorm');
-      expect(state.workItems[2].status).toBe('complete');
+      expect(state.workItems[2].status).toBe('brainstormed');
 
       // Rough-Draft Phase:
-      // Only code item goes through rough-draft-blueprint (simulated: currentItem = 1)
+      // Code and bugfix items go through rough-draft-blueprint
+      // Code item first (simulated: currentItem = 1)
       state.currentItem = 1;
       result = getNextState('rough-draft-blueprint', state);
       expect(result).toBe('clear-post-rough');
       expect(state.workItems[0].status).toBe('complete');
+
+      // Bugfix item next (simulated: currentItem = 3)
+      state.currentItem = 3;
+      result = getNextState('rough-draft-blueprint', state);
+      expect(result).toBe('clear-post-rough');
+      expect(state.workItems[2].status).toBe('complete');
 
       // All items complete
       expect(state.workItems.every((item) => item.status === 'complete')).toBe(true);
