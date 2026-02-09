@@ -35,14 +35,16 @@ Then restart Claude Code and run /collab again.
 
 ## Step 2: Find/Create Session
 
-List sessions for this project:
-```
-Tool: mcp__plugin_mermaid-collab_mermaid__list_sessions
-Args: {}
-```
+1. List all sessions:
+   ```
+   Tool: mcp__plugin_mermaid-collab_mermaid__list_sessions
+   Args: {}
+   ```
 
-**If sessions exist:** Present list with "Create new" option
-**If no sessions:** Go to Step 3
+2. **Filter results to current project** (match `project` field against absolute cwd path)
+
+3. **If sessions exist for current project:** ALWAYS present the full list with a "Create new session" option — never auto-select, even if there is only one session. Let the user choose.
+4. **If no sessions for current project:** Go to Step 3
 
 ## Step 3: Create New Session
 
