@@ -168,8 +168,9 @@ Found {N} potential bugs ({critical} critical, {important} important, {minor} mi
 
 For each bug:
 1. Fix - Address before completing
-2. Accept Risk - Proceed knowing this exists
-3. Dispute - This is not actually a bug
+2. Add as Todo - Defer to a future session
+3. Accept Risk - Proceed knowing this exists
+4. Dispute - This is not actually a bug
 ```
 
 ## Step 4: Gate on Decisions
@@ -177,12 +178,23 @@ For each bug:
 For each bug with severity Critical or Important:
 
 1. Present the bug details
-2. Ask user to decide: Fix, Accept Risk, or Dispute
+2. Ask user to decide: Fix, Add as Todo, Accept Risk, or Dispute
 
 **If user chooses Fix:**
 - Fix the bug inline (this is a bugfix, not a design change — no subagent needed)
 - Run relevant tests to verify fix doesn't break anything
 - Show the fix to the user
+
+**If user chooses Add as Todo:**
+- Create a project todo for future work:
+  ```
+  Tool: mcp__plugin_mermaid-collab_mermaid__add_todo
+  Args: {
+    "project": "<cwd>",
+    "title": "Bug: {short title} in {file}"
+  }
+  ```
+- Continue to next bug
 
 **If user chooses Accept Risk:**
 - Record as a lesson:
@@ -202,7 +214,7 @@ For each bug with severity Critical or Important:
 - If valid: skip it
 - If unclear: discuss further
 
-**Minor bugs:** Present as advisory list. Ask "Fix these minor issues?" (Yes/No). If yes, fix all. If no, skip.
+**Minor bugs:** Present as advisory list. Ask "Fix all / Add all as todos / Skip all?" If fix, fix all. If todos, create a todo for each. If skip, continue.
 
 ## Step 5: Verify Fixes
 
