@@ -433,6 +433,19 @@ Based on feedback:
 - Execute next batch
 - Repeat until complete
 
+### Step 4.5: Bug Review
+
+After ALL tasks are complete and verified, run a systematic bug review before declaring implementation done.
+
+**Invoke skill: executing-plans-bugreview** for the full bug review process.
+
+Key points:
+- Reviews the full diff of all implementation changes
+- Focused on introduced bugs (not design compliance — that's already done)
+- Presents findings categorized by severity (Critical, Important, Minor)
+- Gates on Critical and Important bugs — user must decide Fix, Accept Risk, or Dispute for each
+- Only proceeds to Step 5 after all bugs are resolved or accepted
+
 ### Step 5: Complete Development
 
 After all tasks complete and verified, show summary and ask for confirmation:
@@ -539,6 +552,7 @@ collab -> brainstorming -> rough-draft -> executing-plans -> finishing-a-develop
 
 - **executing-plans-execution** - Detailed task execution logic, routing, and agent prompts
 - **executing-plans-review** - Verification and drift detection
+- **executing-plans-bugreview** - Systematic bug review after all tasks complete
 
 ## Completion
 
