@@ -184,10 +184,9 @@ Tool: mcp__plugin_mermaid-collab_mermaid__complete_skill
 Args: { "project": "<cwd>", "session": "<session>", "skill": "vibe-active" }
 ```
 
-Since all workItems have `status: 'pending'`, the `pending_brainstorm_items` condition is true, routing to `clear-pre-item` -> `brainstorm-item-router` -> structured brainstorm flow.
+Since all workItems have `status: 'pending'`, the `pending_brainstorm_items` condition is true, routing to `brainstorm-item-router` -> structured brainstorm flow.
 
 **Handle response:**
-- If `action == "clear"`: Invoke skill: collab-clear
 - If `next_skill` is not null: Invoke that skill
 - If `next_skill` is null: Workflow complete
 

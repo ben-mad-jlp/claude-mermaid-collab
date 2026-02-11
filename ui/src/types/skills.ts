@@ -26,7 +26,6 @@ export const SKILL_DESCRIPTIONS: Record<string, string> = {
   'brainstorming-validating': 'Running completeness gate to ensure design is ready',
   'collab': 'Starting collaborative design work with isolated sessions',
   'collab-cleanup': 'Archiving or deleting design artifacts',
-  'collab-clear': 'Asking about clearing context before proceeding',
   'collab-session-mgmt': 'Managing collab session procedures',
   'collab-start': 'Starting the mermaid-collab server and session',
   'collab-work-item-loop': 'Processing work items one at a time',

@@ -74,7 +74,16 @@ export async function completeSkill(
   // 1. Read current session state
   const sessionState = await getSessionState(project, session);
 
-  // 1a. Migrate work items to handle legacy status values ('documented' → 'brainstormed')
+  // 1a. Handle case where workItems might be a stringified JSON array (defensive fix)
+  if (sessionState.workItems && typeof sessionState.workItems === 'string') {
+    try {
+      sessionState.workItems = JSON.parse(sessionState.workItems);
+    } catch (error) {
+      throw new Error(`Failed to parse workItems from session state: ${error instanceof Error ? error.message : 'Invalid JSON'}`);
+    }
+  }
+
+  // 1b. Migrate work items to handle legacy status values ('documented' → 'brainstormed')
   if (sessionState.workItems) {
     sessionState.workItems = migrateWorkItems(sessionState.workItems);
   }
@@ -212,9 +221,9 @@ export async function completeSkill(
   }
 
   // 5a. Special handling for execution phase entry - sync tasks BEFORE resolution
-  // Check if we're about to enter execution phase (batch-router or clear-pre-execute)
+  // Check if we're about to enter execution phase (batch-router)
   // This must happen before resolution because batch-router is a routing node
-  if (nextStateId === 'clear-pre-execute' || nextStateId === 'batch-router') {
+  if (nextStateId === 'batch-router') {
     try {
       console.log('Syncing tasks from task-graph/blueprints...');
       await syncTasksFromTaskGraph(project, session);
@@ -237,14 +246,9 @@ export async function completeSkill(
     };
   }
 
-  // 7. Determine if we should clear
-  const shouldClear = resolved.skill === 'collab-clear';
-
-  // 8. Update session state
+  // 7. Update session state
   await updateSessionState(project, session, {
     state: resolved.stateId,
-    // Store next skill name so /collab can invoke it after context clear
-    nextSkill: resolved.skill,
     // Update phase based on state category
     phase: getPhaseFromState(resolved.stateId),
     // Persist inferred item if currentItem was null
@@ -265,7 +269,7 @@ export async function completeSkill(
     }
   }
 
-  // 10. Return next skill and action
+  // 9. Return next skill and action
   // Use updated item info if available, otherwise fall back to session state
   const effectiveState = {
     ...sessionState,
@@ -274,7 +278,6 @@ export async function completeSkill(
   return {
     next_skill: resolved.skill,
     params: buildParams(resolved.stateId, effectiveState),
-    action: shouldClear ? 'clear' : 'none',
   };
 }
 
@@ -288,24 +291,18 @@ function getPhaseFromState(stateId: StateId): string {
     stateId === 'systematic-debugging' ||
     stateId === 'task-planning' ||
     stateId === 'item-type-router' ||
-    stateId === 'clear-post-brainstorm' ||
-    stateId === 'work-item-router' ||
-    stateId === 'clear-post-item'
+    stateId === 'work-item-router'
   ) {
     return 'brainstorming';
   }
 
   // Rough-draft confirm (transition between phases)
-  if (stateId === 'rough-draft-confirm' || stateId === 'clear-pre-rough-batch') {
+  if (stateId === 'rough-draft-confirm') {
     return 'rough-draft/confirm';
   }
 
   // Rough-draft phase states
-  if (
-    stateId.startsWith('rough-draft') ||
-    stateId === 'clear-pre-rough' ||
-    stateId === 'clear-post-rough'
-  ) {
+  if (stateId.startsWith('rough-draft')) {
     return `rough-draft/${stateId.replace('rough-draft-', '')}`;
   }
 
@@ -313,8 +310,6 @@ function getPhaseFromState(stateId: StateId): string {
   if (
     stateId === 'execute-batch' ||
     stateId === 'batch-router' ||
-    stateId === 'clear-pre-execute' ||
-    stateId === 'clear-post-batch' ||
     stateId === 'log-batch-complete' ||
     stateId === 'ready-to-implement'
   ) {

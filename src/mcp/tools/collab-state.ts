@@ -79,9 +79,6 @@ export function derivePhase(state: string): string {
   if (state.startsWith('rough-draft')) {
     return 'rough-draft';
   }
-  if (state.startsWith('clear')) {
-    return 'transition';
-  }
   if (state === 'ready-to-implement') {
     return 'ready';
   }

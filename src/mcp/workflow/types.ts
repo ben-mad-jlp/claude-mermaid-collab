@@ -9,40 +9,29 @@ export type SessionType = 'structured' | 'vibe';
 export type StateId =
   | 'collab-start'
   | 'gather-goals'
-  | 'clear-pre-item'
   // Brainstorm phase routing
   | 'brainstorm-item-router'
   // Brainstorming states
   | 'brainstorm-exploring'
-  | 'clear-bs1'
   | 'brainstorm-clarifying'
-  | 'clear-bs2'
   | 'brainstorm-designing'
-  | 'clear-bs3'
   | 'brainstorm-validating'
   | 'item-type-router'
-  | 'clear-post-brainstorm'
   // Rough-draft phase transition
   | 'rough-draft-confirm'
-  | 'clear-pre-rough-batch'
   | 'rough-draft-item-router'
   // Rough-draft states
-  | 'clear-pre-rough'
   | 'rough-draft-blueprint'
-  | 'clear-post-rough'
   // Other paths
   | 'task-planning'
   | 'systematic-debugging'
   | 'ready-to-implement'
   // Execution states
-  | 'clear-pre-execute'
   | 'batch-router'
   | 'execute-batch'
   | 'log-batch-complete'
-  | 'clear-post-batch'
   // Legacy (kept for backwards compatibility)
   | 'work-item-router'
-  | 'clear-post-item'
   // Terminal states
   | 'workflow-complete'
   | 'vibe-active'
@@ -90,7 +79,7 @@ export interface CompleteSkillOutput {
     item_number?: number;
     batch_index?: number;
   };
-  action?: 'clear' | 'none';
+  action?: 'none';
 }
 
 /** Batch definition for execution phase */

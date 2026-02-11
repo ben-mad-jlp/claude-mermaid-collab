@@ -53,7 +53,6 @@ export const STATE_DISPLAY_NAMES: Record<string, string> = {
 
 /**
  * Get user-friendly display name for a state.
- * For clear-* states, returns "Context Check".
  * For unknown states, returns the state as-is.
  * @param state - Internal state name
  * @param previousState - Optional previous state (for future use)
@@ -63,11 +62,6 @@ export function getDisplayName(state: string, previousState?: string): string {
   // Check for direct mapping in STATE_DISPLAY_NAMES
   if (state in STATE_DISPLAY_NAMES) {
     return STATE_DISPLAY_NAMES[state];
-  }
-
-  // Handle clear-* states
-  if (state.startsWith('clear-')) {
-    return 'Context Check';
   }
 
   // Unknown state - return as-is (fallback)
@@ -88,13 +82,6 @@ export const WORKFLOW_STATES: WorkflowState[] = [
   {
     id: 'gather-goals',
     skill: 'gather-session-goals',
-    transitions: [{ to: 'clear-pre-item' }],
-  },
-
-  // ========== Pre-brainstorm clear ==========
-  {
-    id: 'clear-pre-item',
-    skill: 'collab-clear',
     transitions: [{ to: 'brainstorm-item-router' }],
   },
 
@@ -116,31 +103,16 @@ export const WORKFLOW_STATES: WorkflowState[] = [
   {
     id: 'brainstorm-exploring',
     skill: 'brainstorming-exploring',
-    transitions: [{ to: 'clear-bs1' }],
-  },
-  {
-    id: 'clear-bs1',
-    skill: 'collab-clear',
     transitions: [{ to: 'brainstorm-clarifying' }],
   },
   {
     id: 'brainstorm-clarifying',
     skill: 'brainstorming-clarifying',
-    transitions: [{ to: 'clear-bs2' }],
-  },
-  {
-    id: 'clear-bs2',
-    skill: 'collab-clear',
     transitions: [{ to: 'brainstorm-designing' }],
   },
   {
     id: 'brainstorm-designing',
     skill: 'brainstorming-designing',
-    transitions: [{ to: 'clear-bs3' }],
-  },
-  {
-    id: 'clear-bs3',
-    skill: 'collab-clear',
     transitions: [{ to: 'brainstorm-validating' }],
   },
   {
@@ -157,42 +129,28 @@ export const WORKFLOW_STATES: WorkflowState[] = [
     skill: null,
     transitions: [
       { to: 'task-planning', condition: { type: 'item_type', value: 'task' } },
-      { to: 'clear-post-brainstorm', condition: { type: 'item_type', value: 'code' } },
+      { to: 'brainstorm-item-router', condition: { type: 'item_type', value: 'code' } },
     ],
-  },
-
-  // ========== Clear after brainstorm, loop back ==========
-  {
-    id: 'clear-post-brainstorm',
-    skill: 'collab-clear',
-    transitions: [{ to: 'brainstorm-item-router' }],
   },
 
   // ========== Task planning (completes after brainstorm) ==========
   {
     id: 'task-planning',
     skill: 'task-planning',
-    transitions: [{ to: 'clear-post-brainstorm' }],
+    transitions: [{ to: 'brainstorm-item-router' }],
   },
 
   // ========== Systematic debugging (bugfixes skip brainstorm) ==========
   {
     id: 'systematic-debugging',
     skill: 'systematic-debugging',
-    transitions: [{ to: 'clear-post-brainstorm' }],
+    transitions: [{ to: 'brainstorm-item-router' }],
   },
 
   // ========== Rough-draft confirm (asks about auto-allow) ==========
   {
     id: 'rough-draft-confirm',
     skill: 'rough-draft-confirm',
-    transitions: [{ to: 'clear-pre-rough-batch' }],
-  },
-
-  // ========== Clear before rough-draft batch ==========
-  {
-    id: 'clear-pre-rough-batch',
-    skill: 'collab-clear',
     transitions: [{ to: 'rough-draft-item-router' }],
   },
 
@@ -201,27 +159,15 @@ export const WORKFLOW_STATES: WorkflowState[] = [
     id: 'rough-draft-item-router',
     skill: null,
     transitions: [
-      { to: 'clear-pre-rough', condition: { type: 'pending_rough_draft_items' } },
+      { to: 'rough-draft-blueprint', condition: { type: 'pending_rough_draft_items' } },
       { to: 'ready-to-implement', condition: { type: 'no_pending_rough_draft_items' } },
     ],
   },
 
   // ========== Rough-draft states ==========
   {
-    id: 'clear-pre-rough',
-    skill: 'collab-clear',
-    transitions: [{ to: 'rough-draft-blueprint' }],
-  },
-  {
     id: 'rough-draft-blueprint',
     skill: 'rough-draft-blueprint',
-    transitions: [{ to: 'clear-post-rough' }],
-  },
-
-  // ========== Clear after rough-draft, loop back ==========
-  {
-    id: 'clear-post-rough',
-    skill: 'collab-clear',
     transitions: [{ to: 'rough-draft-item-router' }],
   },
 
@@ -229,15 +175,10 @@ export const WORKFLOW_STATES: WorkflowState[] = [
   {
     id: 'ready-to-implement',
     skill: 'ready-to-implement',
-    transitions: [{ to: 'clear-pre-execute' }],
+    transitions: [{ to: 'batch-router' }],
   },
 
   // ========== Execution states ==========
-  {
-    id: 'clear-pre-execute',
-    skill: 'collab-clear',
-    transitions: [{ to: 'batch-router' }],
-  },
   {
     id: 'batch-router',
     skill: null,
@@ -254,11 +195,6 @@ export const WORKFLOW_STATES: WorkflowState[] = [
   {
     id: 'log-batch-complete',
     skill: null, // Internal logging state
-    transitions: [{ to: 'clear-post-batch' }],
-  },
-  {
-    id: 'clear-post-batch',
-    skill: 'collab-clear',
     transitions: [{ to: 'batch-router' }],
   },
 
@@ -284,7 +220,7 @@ export const WORKFLOW_STATES: WorkflowState[] = [
     id: 'vibe-active',
     skill: 'vibe-active',
     transitions: [
-      { to: 'clear-pre-item', condition: { type: 'pending_brainstorm_items' } },
+      { to: 'brainstorm-item-router', condition: { type: 'pending_brainstorm_items' } },
       { to: 'cleanup' },
     ],
   },
@@ -299,11 +235,6 @@ export const WORKFLOW_STATES: WorkflowState[] = [
       { to: 'systematic-debugging', condition: { type: 'item_type', value: 'bugfix' } },
       { to: 'ready-to-implement', condition: { type: 'no_items_remaining' } },
     ],
-  },
-  {
-    id: 'clear-post-item',
-    skill: 'collab-clear',
-    transitions: [{ to: 'brainstorm-item-router' }],
   },
 ];
 

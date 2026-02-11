@@ -358,7 +358,7 @@ describe('Transition condition functions', () => {
       expect(state.workItems[0].status).toBe('brainstormed');
     });
 
-    it('should mark task complete and go to clear-post-brainstorm after task-planning', () => {
+    it('should mark task complete and go to brainstorm-item-router after task-planning', () => {
       const state: SessionState = {
         state: 'test',
         currentItem: 1,
@@ -367,11 +367,11 @@ describe('Transition condition functions', () => {
         ],
       };
       const result = getNextStateForPhaseBatching('task-planning', state);
-      expect(result).toBe('clear-post-brainstorm');
+      expect(result).toBe('brainstorm-item-router');
       expect(state.workItems[0].status).toBe('complete');
     });
 
-    it('should mark bugfix brainstormed and go to clear-post-brainstorm after systematic-debugging', () => {
+    it('should mark bugfix brainstormed and go to brainstorm-item-router after systematic-debugging', () => {
       const state: SessionState = {
         state: 'test',
         currentItem: 1,
@@ -380,11 +380,11 @@ describe('Transition condition functions', () => {
         ],
       };
       const result = getNextStateForPhaseBatching('systematic-debugging', state);
-      expect(result).toBe('clear-post-brainstorm');
+      expect(result).toBe('brainstorm-item-router');
       expect(state.workItems[0].status).toBe('brainstormed');
     });
 
-    it('should mark item complete and go to clear-post-rough after rough-draft-blueprint', () => {
+    it('should mark item complete and go to rough-draft-item-router after rough-draft-blueprint', () => {
       const state: SessionState = {
         state: 'test',
         currentItem: 1,
@@ -393,7 +393,7 @@ describe('Transition condition functions', () => {
         ],
       };
       const result = getNextStateForPhaseBatching('rough-draft-blueprint', state);
-      expect(result).toBe('clear-post-rough');
+      expect(result).toBe('rough-draft-item-router');
       expect(state.workItems[0].status).toBe('complete');
     });
 
@@ -453,7 +453,7 @@ describe('Transition condition functions', () => {
       expect(result).toBe('item-type-router');
       expect(state.workItems[0].status).toBe('brainstormed');
 
-      // Simulate: router sends code item to clear-post-brainstorm, then back to brainstorm-item-router
+      // Simulate: router sends code item back to brainstorm-item-router
       // which picks up task item (currentItem = 2)
       state.currentItem = 2;
 
@@ -464,13 +464,13 @@ describe('Transition condition functions', () => {
 
       // Task-planning completes -> task is complete
       result = getNextStateForPhaseBatching('task-planning', state);
-      expect(result).toBe('clear-post-brainstorm');
+      expect(result).toBe('brainstorm-item-router');
       expect(state.workItems[1].status).toBe('complete');
 
       // Bugfix is next (currentItem = 3) - goes directly to systematic-debugging
       state.currentItem = 3;
       result = getNextStateForPhaseBatching('systematic-debugging', state);
-      expect(result).toBe('clear-post-brainstorm');
+      expect(result).toBe('brainstorm-item-router');
       expect(state.workItems[2].status).toBe('brainstormed');
 
       // At this point:
@@ -489,7 +489,7 @@ describe('Transition condition functions', () => {
       };
 
       const result = getNextStateForPhaseBatching('rough-draft-blueprint', state);
-      expect(result).toBe('clear-post-rough');
+      expect(result).toBe('rough-draft-item-router');
       expect(state.workItems[0].status).toBe('complete');
     });
   });

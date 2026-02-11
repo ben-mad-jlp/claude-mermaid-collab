@@ -115,22 +115,6 @@ describe('getSessionState - Display Name Computation', () => {
       expect(result.displayName).toBe('Defining Interfaces');
     });
 
-    test('should compute correct displayName for clear-* states', async () => {
-      const stateData = {
-        state: 'clear-bs1',
-        phase: 'brainstorming',
-        lastActivity: new Date().toISOString(),
-        currentItem: null,
-      };
-
-      const statePath = join(testProject, '.collab', 'sessions', testSession, 'collab-state.json');
-      await writeFile(statePath, JSON.stringify(stateData));
-
-      const result = await getSessionState(testProject, testSession);
-
-      expect(result.displayName).toBe('Context Check');
-    });
-
     test('should compute correct displayName for ready-to-implement state', async () => {
       const stateData = {
         state: 'ready-to-implement',
@@ -249,19 +233,5 @@ describe('getSessionState - Display Name Computation', () => {
       expect(result.phase).toBe('rough-draft');
     });
 
-    test('should derive phase as "transition" for clear-* states', async () => {
-      const stateData = {
-        state: 'clear-bs1',
-        lastActivity: new Date().toISOString(),
-        currentItem: null,
-      };
-
-      const statePath = join(testProject, '.collab', 'sessions', testSession, 'collab-state.json');
-      await writeFile(statePath, JSON.stringify(stateData));
-
-      const result = await getSessionState(testProject, testSession);
-
-      expect(result.phase).toBe('transition');
-    });
   });
 });

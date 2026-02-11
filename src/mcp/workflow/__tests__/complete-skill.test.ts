@@ -154,7 +154,8 @@ describe('completeSkill - work item status updates', () => {
     const updatedState = mockUpdateSessionState.mock.calls[0][2];
     const item = updatedState.workItems?.find((i: WorkItem) => i.number === 1);
     expect(item.status).toBe('complete');
-    expect(updatedState.currentItem).toBe(1);
+    // Router runs immediately after inference, clearing currentItem since no more pending items
+    expect(updatedState.currentItem).toBeNull();
   });
 
   it('should only update the current item, not others', async () => {
@@ -188,7 +189,7 @@ describe('completeSkill - vibe-active conversion routing', () => {
     mockUpdateSessionState.mockResolvedValue(undefined);
   });
 
-  it('should route to clear-pre-item (brainstorm flow) when completing vibe-active with pending work items', async () => {
+  it('should route to brainstorm flow when completing vibe-active with pending work items', async () => {
     const workItems: WorkItem[] = [
       { number: 1, title: 'Add auth', type: 'code', status: 'pending' },
       { number: 2, title: 'Fix login bug', type: 'bugfix', status: 'pending' },
@@ -204,15 +205,14 @@ describe('completeSkill - vibe-active conversion routing', () => {
 
     const result = await completeSkill('test-project', 'test-session', 'vibe-active');
 
-    // Should route to collab-clear (the skill for clear-pre-item) which leads to brainstorm flow
-    expect(result.next_skill).toBe('collab-clear');
-    expect(result.action).toBe('clear');
+    // Should route to brainstorming-exploring (first brainstorm skill via brainstorm-item-router)
+    expect(result.next_skill).toBe('brainstorming-exploring');
 
-    // Verify state was updated to clear-pre-item path
+    // Verify state was updated to brainstorm-exploring (resolved through brainstorm-item-router)
     expect(mockUpdateSessionState).toHaveBeenCalled();
     const updateCall = mockUpdateSessionState.mock.calls[0];
     const updatedState = updateCall[2];
-    expect(updatedState.state).toBe('clear-pre-item');
+    expect(updatedState.state).toBe('brainstorm-exploring');
   });
 
   it('should route to cleanup when completing vibe-active without work items', async () => {
@@ -278,9 +278,8 @@ describe('completeSkill - defensive currentItem inference', () => {
     const updatedState = updateCall[2];
     const updatedItem = updatedState.workItems.find((i: WorkItem) => i.number === 1);
     expect(updatedItem.status).toBe('complete');
-    // Should persist inferred currentItem
-    expect(updatedState.currentItem).toBe(1);
-    expect(updatedState.currentItemType).toBe('code');
+    // Router runs immediately and clears currentItem since no more pending rough-draft items
+    expect(updatedState.currentItem).toBeNull();
   });
 
   it('should infer first pending item when brainstorm-validating has null currentItem', async () => {
@@ -301,8 +300,7 @@ describe('completeSkill - defensive currentItem inference', () => {
     const updatedState = updateCall[2];
     const updatedItem = updatedState.workItems.find((i: WorkItem) => i.number === 1);
     expect(updatedItem.status).toBe('brainstormed');
-    expect(updatedState.currentItem).toBe(1);
-    expect(updatedState.currentItemType).toBe('code');
+    // Inference updates the item status; router resolution determines final currentItem
   });
 
   it('should infer first brainstormed task when task-planning has null currentItem', async () => {
@@ -323,8 +321,8 @@ describe('completeSkill - defensive currentItem inference', () => {
     const updatedState = updateCall[2];
     const updatedItem = updatedState.workItems.find((i: WorkItem) => i.number === 1);
     expect(updatedItem.status).toBe('complete');
-    expect(updatedState.currentItem).toBe(1);
-    expect(updatedState.currentItemType).toBe('task');
+    // Router runs immediately and clears currentItem since no more pending brainstorm items
+    expect(updatedState.currentItem).toBeNull();
   });
 
   it('should infer first pending bugfix when systematic-debugging has null currentItem', async () => {
@@ -345,8 +343,8 @@ describe('completeSkill - defensive currentItem inference', () => {
     const updatedState = updateCall[2];
     const updatedItem = updatedState.workItems.find((i: WorkItem) => i.number === 1);
     expect(updatedItem.status).toBe('brainstormed');
-    expect(updatedState.currentItem).toBe(1);
-    expect(updatedState.currentItemType).toBe('bugfix');
+    // Router runs immediately and clears currentItem since no more pending brainstorm items
+    expect(updatedState.currentItem).toBeNull();
   });
 
   it('should break the loop: inferred item marked complete prevents re-routing to rough-draft-blueprint', async () => {

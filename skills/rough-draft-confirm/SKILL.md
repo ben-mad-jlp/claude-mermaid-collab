@@ -92,7 +92,6 @@ Args: { "project": "<cwd>", "session": "<session>", "skill": "rough-draft-confir
 ```
 
 **Handle response:**
-- If `action == "clear"`: Invoke skill: collab-clear
 - If `next_skill` is not null: Invoke that skill
 - If `next_skill` is null: Workflow complete
 

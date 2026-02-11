@@ -104,7 +104,6 @@ Args: { "project": "<cwd>", "session": "<session>", "skill": "systematic-debuggi
 ```
 
 **Handle response:**
-- If `action == "clear"`: Invoke skill: collab-clear
 - If `next_skill` is not null: Invoke that skill
 - If `next_skill` is null: Workflow complete
 

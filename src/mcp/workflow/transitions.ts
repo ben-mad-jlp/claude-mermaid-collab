@@ -312,16 +312,16 @@ export function getNextStateForPhaseBatching(
 
     case 'task-planning':
       if (!currentItem) return null;
-      return 'clear-post-brainstorm';
+      return 'brainstorm-item-router';
 
     case 'systematic-debugging':
       if (!currentItem) return null;
-      return 'clear-post-brainstorm';
+      return 'brainstorm-item-router';
 
     // ========== Rough-Draft Phase ==========
     case 'rough-draft-blueprint':
       if (!currentItem) return null;
-      return 'clear-post-rough';
+      return 'rough-draft-item-router';
 
     default:
       return null;

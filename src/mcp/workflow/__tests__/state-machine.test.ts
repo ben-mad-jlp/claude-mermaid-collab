@@ -150,20 +150,6 @@ describe('State Machine Display Names', () => {
       expect(getDisplayName('done')).toBe('Done');
     });
 
-    it('should return "Context Check" for clear-* states', () => {
-      expect(getDisplayName('clear-pre-item')).toBe('Context Check');
-      expect(getDisplayName('clear-bs1')).toBe('Context Check');
-      expect(getDisplayName('clear-bs2')).toBe('Context Check');
-      expect(getDisplayName('clear-bs3')).toBe('Context Check');
-      expect(getDisplayName('clear-post-brainstorm')).toBe('Context Check');
-      expect(getDisplayName('clear-pre-rough-batch')).toBe('Context Check');
-      expect(getDisplayName('clear-pre-rough')).toBe('Context Check');
-      expect(getDisplayName('clear-post-rough')).toBe('Context Check');
-      expect(getDisplayName('clear-post-item')).toBe('Context Check');
-      expect(getDisplayName('clear-pre-execute')).toBe('Context Check');
-      expect(getDisplayName('clear-post-batch')).toBe('Context Check');
-    });
-
     it('should return state as-is for unknown states', () => {
       expect(getDisplayName('unknown-state')).toBe('unknown-state');
       expect(getDisplayName('some-random-state')).toBe('some-random-state');
@@ -174,16 +160,12 @@ describe('State Machine Display Names', () => {
       expect(getDisplayName('brainstorm-designing', 'brainstorm-clarifying')).toBe(
         'Designing'
       );
-      expect(getDisplayName('clear-bs1', 'brainstorm-exploring')).toBe(
-        'Context Check'
-      );
     });
 
     it('should be case-sensitive', () => {
       expect(getDisplayName('BRAINSTORM-EXPLORING')).toBe(
         'BRAINSTORM-EXPLORING'
       );
-      expect(getDisplayName('Clear-BS1')).toBe('Clear-BS1');
     });
 
     it('should handle empty string', () => {
@@ -228,13 +210,13 @@ describe('Vibe Mode State', () => {
       expect(vibeActiveState?.id).toBe('vibe-active');
     });
 
-    it('should have conditional transition to clear-pre-item when pending brainstorm items', () => {
+    it('should have conditional transition to brainstorm-item-router when pending brainstorm items', () => {
       const vibeActiveState = getState('vibe-active');
       expect(vibeActiveState?.transitions).toBeDefined();
       expect(vibeActiveState?.transitions.length).toBeGreaterThan(0);
 
       const convertTransition = vibeActiveState?.transitions.find(
-        (t) => t.to === 'clear-pre-item' && t.condition?.type === 'pending_brainstorm_items'
+        (t) => t.to === 'brainstorm-item-router' && t.condition?.type === 'pending_brainstorm_items'
       );
       expect(convertTransition).toBeDefined();
     });
@@ -276,7 +258,7 @@ describe('Vibe Mode State', () => {
     it('should have pending_brainstorm_items condition on first transition', () => {
       const vibeActiveState = getState('vibe-active');
       const firstTransition = vibeActiveState?.transitions[0];
-      expect(firstTransition?.to).toBe('clear-pre-item');
+      expect(firstTransition?.to).toBe('brainstorm-item-router');
       expect(firstTransition?.condition?.type).toBe('pending_brainstorm_items');
     });
 
@@ -697,7 +679,7 @@ describe('Phase Batching State Routing', () => {
         workItems: [createWorkItem(1, 'Item 1', 'code', 'brainstormed')],
       };
       const result = getNextState('rough-draft-blueprint', state);
-      expect(result).toBe('clear-post-rough');
+      expect(result).toBe('rough-draft-item-router');
       expect(state.workItems[0].status).toBe('complete');
     });
 
@@ -708,7 +690,7 @@ describe('Phase Batching State Routing', () => {
         workItems: [createWorkItem(1, 'Task 1', 'task', 'brainstormed')],
       };
       const result = getNextState('task-planning', state);
-      expect(result).toBe('clear-post-brainstorm');
+      expect(result).toBe('brainstorm-item-router');
       expect(state.workItems[0].status).toBe('complete');
     });
 
@@ -719,7 +701,7 @@ describe('Phase Batching State Routing', () => {
         workItems: [createWorkItem(1, 'Bug 1', 'bugfix', 'pending')],
       };
       const result = getNextState('systematic-debugging', state);
-      expect(result).toBe('clear-post-brainstorm');
+      expect(result).toBe('brainstorm-item-router');
       expect(state.workItems[0].status).toBe('brainstormed');
     });
 
@@ -732,7 +714,7 @@ describe('Phase Batching State Routing', () => {
 
       // Blueprint complete - item is done
       const result = getNextState('rough-draft-blueprint', state);
-      expect(result).toBe('clear-post-rough');
+      expect(result).toBe('rough-draft-item-router');
       expect(state.workItems[0].status).toBe('complete');
     });
 
@@ -784,13 +766,13 @@ describe('Phase Batching State Routing', () => {
 
       // Task completes via task-planning
       result = getNextState('task-planning', state);
-      expect(result).toBe('clear-post-brainstorm');
+      expect(result).toBe('brainstorm-item-router');
       expect(state.workItems[1].status).toBe('complete');
 
       // Bugfix investigated via systematic-debugging (simulated: currentItem = 3)
       state.currentItem = 3;
       result = getNextState('systematic-debugging', state);
-      expect(result).toBe('clear-post-brainstorm');
+      expect(result).toBe('brainstorm-item-router');
       expect(state.workItems[2].status).toBe('brainstormed');
 
       // Rough-Draft Phase:
@@ -798,13 +780,13 @@ describe('Phase Batching State Routing', () => {
       // Code item first (simulated: currentItem = 1)
       state.currentItem = 1;
       result = getNextState('rough-draft-blueprint', state);
-      expect(result).toBe('clear-post-rough');
+      expect(result).toBe('rough-draft-item-router');
       expect(state.workItems[0].status).toBe('complete');
 
       // Bugfix item next (simulated: currentItem = 3)
       state.currentItem = 3;
       result = getNextState('rough-draft-blueprint', state);
-      expect(result).toBe('clear-post-rough');
+      expect(result).toBe('rough-draft-item-router');
       expect(state.workItems[2].status).toBe('complete');
 
       // All items complete

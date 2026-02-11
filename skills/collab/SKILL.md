@@ -67,9 +67,8 @@ Then restart Claude Code and run /collab again.
 ## Step 4: Resume Existing Session
 
 1. Get session state: `mcp__plugin_mermaid-collab_mermaid__get_session_state()`
-2. Route based on sessionType, nextSkill, and state:
+2. Route based on sessionType and state:
    - If sessionType is "vibe" or state is "vibe-active": Invoke skill "vibe-active"
-   - If `nextSkill` field exists and is not null: Invoke that skill directly (this is set after context clears)
    - Otherwise: Get the current skill from the state and invoke it directly
      - The state field maps to a skill (e.g., "brainstorm-exploring" → "brainstorming-exploring")
      - Invoke that skill to continue the workflow
