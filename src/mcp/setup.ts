@@ -1649,7 +1649,7 @@ EXAMPLE:
                 title: string;
                 type: 'code' | 'task' | 'bugfix';
                 status: 'pending' | 'documented';
-              }>;
+              }> | string;
               completedTasks?: string[];
               pendingTasks?: string[];
               totalItems?: number;
@@ -1658,6 +1658,16 @@ EXAMPLE:
               sessionType?: 'structured' | 'vibe';
             };
             if (!project || !session) throw new Error('Missing required: project, session');
+
+            // Handle case where workItems might be a JSON string instead of an array
+            // This can happen when the MCP client sends large or complex arrays
+            if (updates.workItems && typeof updates.workItems === 'string') {
+              try {
+                updates.workItems = JSON.parse(updates.workItems);
+              } catch (error) {
+                throw new Error(`Failed to parse workItems: ${error instanceof Error ? error.message : 'Invalid JSON'}`);
+              }
+            }
 
             // Register session and project if not already registered
             const sessionResult = await sessionRegistry.register(project, session);
