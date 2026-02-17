@@ -2,7 +2,7 @@
  * Task synchronization from task-graph.md to collab state.
  */
 
-import type { TaskBatch, BatchTask } from './types.js';
+import type { TaskBatch, BatchTask, WorkItem } from './types.js';
 import { getSessionState, updateSessionState } from '../tools/collab-state.js';
 import { readFile, writeFile, readdir, access } from 'fs/promises';
 import { join } from 'path';
@@ -374,6 +374,20 @@ ${batches.map((batch, index) => {
 }
 
 /**
+ * Generate fallback tasks from work items when no task-graph or blueprints exist.
+ * Creates one task per code/bugfix work item (tasks don't go through execution).
+ */
+export function generateFallbackTasks(workItems: WorkItem[]): TaskGraphTask[] {
+  return workItems
+    .filter((item) => item.type === 'code' || item.type === 'bugfix')
+    .map((item) => ({
+      id: `item-${item.number}`,
+      files: [],
+      description: item.title,
+    }));
+}
+
+/**
  * Sync tasks from task-graph.md or blueprint documents to collab-state.json
  * Preserves existing completedTasks and calculates pendingTasks as the difference
  */
@@ -392,36 +406,55 @@ export async function syncTasksFromTaskGraph(
     allTasks = taskGraph.tasks;
   } else {
     // No task-graph document - try to consolidate from blueprint documents
-    const files = await readdir(documentsPath);
-    const blueprintFiles = files.filter((f) => f.startsWith('blueprint-item-') && f.endsWith('.md'));
-
-    if (blueprintFiles.length === 0) {
-      throw new Error('No task-graph or blueprint documents found');
+    let blueprintFiles: string[] = [];
+    try {
+      const files = await readdir(documentsPath);
+      blueprintFiles = files.filter((f) => f.startsWith('blueprint-item-') && f.endsWith('.md'));
+    } catch {
+      // Documents directory may not exist
     }
 
-    // Read each blueprint and extract tasks
-    for (const blueprintFile of blueprintFiles) {
-      const blueprintPath = join(documentsPath, blueprintFile);
-      try {
-        const content = await readFile(blueprintPath, 'utf-8');
-        const taskGraph = parseTaskGraph(content);
-        // Add tasks, avoiding duplicates by id
-        for (const task of taskGraph.tasks) {
-          if (!allTasks.some((t) => t.id === task.id)) {
-            allTasks.push(task);
+    if (blueprintFiles.length > 0) {
+      // Read each blueprint and extract tasks
+      for (const blueprintFile of blueprintFiles) {
+        const blueprintPath = join(documentsPath, blueprintFile);
+        try {
+          const content = await readFile(blueprintPath, 'utf-8');
+          const taskGraph = parseTaskGraph(content);
+          // Add tasks, avoiding duplicates by id
+          for (const task of taskGraph.tasks) {
+            if (!allTasks.some((t) => t.id === task.id)) {
+              allTasks.push(task);
+            }
           }
+        } catch {
+          // Blueprint may not have a valid YAML block, skip it
         }
-      } catch {
-        // Blueprint may not have a valid YAML block, skip it
+      }
+
+      if (allTasks.length > 0) {
+        // Create consolidated task-graph document from blueprints
+        await createConsolidatedTaskGraph(project, session, allTasks);
       }
     }
 
+    // Fallback: generate tasks from work items if no task-graph or blueprint tasks found
     if (allTasks.length === 0) {
-      throw new Error('No tasks found in blueprint documents');
-    }
+      const state = await getSessionState(project, session);
+      const workItems: WorkItem[] = state.workItems || [];
+      allTasks = generateFallbackTasks(workItems);
 
-    // Create consolidated task-graph document from blueprints
-    await createConsolidatedTaskGraph(project, session, allTasks);
+      if (allTasks.length === 0) {
+        throw new Error('No task-graph, blueprint documents, or executable work items found');
+      }
+
+      console.warn(
+        `No task-graph or blueprints found. Generated ${allTasks.length} fallback task(s) from work items.`
+      );
+
+      // Create a consolidated task-graph document from fallback tasks
+      await createConsolidatedTaskGraph(project, session, allTasks);
+    }
   }
 
   // Build batches from all tasks
