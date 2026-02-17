@@ -5,7 +5,7 @@
  * Used to make heading-based sections expandable/collapsible.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 interface CollapsibleSectionProps {
   /** Heading level (1-6) */
@@ -67,6 +67,34 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
 }) => {
   const HeadingTag = `h${level}` as keyof JSX.IntrinsicElements;
   const headingClass = headingClasses[level] || headingClasses[6];
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [measuredHeight, setMeasuredHeight] = useState<number>(0);
+  const [transitioning, setTransitioning] = useState(false);
+
+  const updateHeight = useCallback(() => {
+    if (contentRef.current) {
+      setMeasuredHeight(contentRef.current.scrollHeight);
+    }
+  }, []);
+
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [updateHeight]);
+
+  useEffect(() => {
+    setTransitioning(true);
+  }, [isExpanded]);
+
+  const handleTransitionEnd = useCallback((e: React.TransitionEvent) => {
+    if (e.target === e.currentTarget) {
+      setTransitioning(false);
+    }
+  }, []);
 
   return (
     <div className="collapsible-section" data-section-id={sectionId}>
@@ -81,10 +109,14 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
         <HeadingTag className="inline m-0">{title}</HeadingTag>
       </button>
       <div
+        ref={contentRef}
         id={`section-content-${sectionId}`}
-        className={`overflow-hidden transition-all duration-300 ease-in-out ${
-          isExpanded ? 'max-h-[10000px] opacity-100' : 'max-h-0 opacity-0'
-        }`}
+        className={`${isExpanded && !transitioning ? 'overflow-visible' : 'overflow-hidden'} transition-all duration-300 ease-in-out`}
+        style={{
+          maxHeight: isExpanded ? (measuredHeight || 'none') : 0,
+          opacity: isExpanded ? 1 : 0,
+        }}
+        onTransitionEnd={handleTransitionEnd}
       >
         <div className="pl-6">{children}</div>
       </div>

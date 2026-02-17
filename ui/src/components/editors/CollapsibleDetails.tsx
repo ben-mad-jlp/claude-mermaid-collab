@@ -8,7 +8,7 @@
  * - ARIA accessibility attributes
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 
 interface CollapsibleDetailsProps {
   children?: React.ReactNode;
@@ -64,10 +64,35 @@ export const CollapsibleDetails: React.FC<CollapsibleDetailsProps> = ({
   className = '',
 }) => {
   const [isOpen, setIsOpen] = useState(initialOpen);
+  const [measuredHeight, setMeasuredHeight] = useState<number>(0);
+  const [transitioning, setTransitioning] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   const handleToggle = () => {
+    setTransitioning(true);
     setIsOpen((prev) => !prev);
   };
+
+  const updateHeight = useCallback(() => {
+    if (contentRef.current) {
+      setMeasuredHeight(contentRef.current.scrollHeight);
+    }
+  }, []);
+
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [updateHeight]);
+
+  const handleTransitionEnd = useCallback((e: React.TransitionEvent) => {
+    if (e.target === e.currentTarget) {
+      setTransitioning(false);
+    }
+  }, []);
 
   // Extract summary and content from children
   let summaryContent: React.ReactNode = 'Details';
@@ -107,10 +132,12 @@ export const CollapsibleDetails: React.FC<CollapsibleDetailsProps> = ({
         </span>
       </button>
       <div
-        className="overflow-hidden transition-[max-height] duration-300 ease-in-out"
+        ref={contentRef}
+        className={`${isOpen && !transitioning ? 'overflow-visible' : 'overflow-hidden'} transition-[max-height] duration-300 ease-in-out`}
         style={{
-          maxHeight: isOpen ? 1000 : 0,
+          maxHeight: isOpen ? (measuredHeight || 'none') : 0,
         }}
+        onTransitionEnd={handleTransitionEnd}
         data-testid="collapsible-content"
       >
         <div className="px-4 py-3">
