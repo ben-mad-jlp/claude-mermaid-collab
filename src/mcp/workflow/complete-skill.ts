@@ -150,6 +150,12 @@ export async function completeSkill(
     }
   }
 
+  // 2b. Increment batch counter when completing a batch execution
+  // Without this, batchesRemaining stays true and the state machine loops
+  if (currentStateId === 'execute-batch' && sessionState.currentBatch !== undefined) {
+    sessionState.currentBatch = (sessionState.currentBatch ?? 0) + 1;
+  }
+
   // 3. Build transition context
   // Pass currentItemType from session state for routing decisions
   const context = buildTransitionContext(sessionState, sessionState.currentItemType);
@@ -274,6 +280,8 @@ export async function completeSkill(
     ...inferredItemUpdates,
     // Include item updates if we selected a new work item (router selections take precedence)
     ...itemUpdates,
+    // Persist updated batch counter
+    currentBatch: sessionState.currentBatch,
     // Persist migrated workItems (documented → brainstormed)
     workItems: sessionState.workItems,
   });
