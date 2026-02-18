@@ -127,11 +127,16 @@ const server = Bun.serve({
       }
 
       // SPA fallback: serve index.html for non-file routes
-      const indexPath = join(config.UI_DIST_DIR, 'index.html');
-      if (existsSync(indexPath)) {
-        return new Response(Bun.file(indexPath), {
-          headers: { 'Content-Type': 'text/html' },
-        });
+      // Don't serve HTML for static asset requests (prevents MIME type errors
+      // when browser requests stale chunk filenames after a rebuild)
+      const isStaticAsset = /\.(js|css|map|json|png|jpg|jpeg|svg|ico|woff2?|ttf|eot)$/i.test(url.pathname);
+      if (!isStaticAsset) {
+        const indexPath = join(config.UI_DIST_DIR, 'index.html');
+        if (existsSync(indexPath)) {
+          return new Response(Bun.file(indexPath), {
+            headers: { 'Content-Type': 'text/html' },
+          });
+        }
       }
     }
 
