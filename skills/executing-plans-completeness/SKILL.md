@@ -150,7 +150,7 @@ Completeness review done — implementation matches the design spec.
 Ready to proceed to completion.
 ```
 
-→ Return to executing-plans Step 5.
+→ Proceed to completion.
 
 **If gaps found, present via `render_ui`:**
 
@@ -286,20 +286,29 @@ If any gaps were fixed inline:
 npm run test:ci
 ```
 
-**If tests pass:** Return to executing-plans Step 5.
-**If tests fail:** Fix test failures, then return.
+**If tests pass:** Proceed to completion.
+**If tests fail:** Fix test failures, then proceed to completion.
 
 ## Integration
 
-**Called by:** executing-plans skill, after bug review (Step 4.6)
+**Called by:** State machine after bug review completes.
 
 **Collab workflow position:**
 ```
-executing-plans:
-  Step 1-1.8: Setup
-  Step 2: Execute batches
-  Step 3-4: Report and continue
-  Step 4.5: Bug review
-  Step 4.6: Completeness review ← (you are here)
-  Step 5: Complete development
+batch-router [no_batches_remaining] → bug-review
+bug-review → completeness-review ← (you are here)
+completeness-review → workflow-complete
 ```
+
+## Completion
+
+Call complete_skill when done:
+
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__complete_skill
+Args: { "project": "<cwd>", "session": "<session>", "skill": "executing-plans-completeness" }
+```
+
+**Handle response:**
+- If `next_skill` is not null: Invoke that skill
+- If `next_skill` is null: Workflow complete

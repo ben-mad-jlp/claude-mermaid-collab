@@ -153,7 +153,7 @@ Display the bug review results to the user.
 Bug review complete — no issues found.
 Ready to proceed to completion.
 ```
-→ Return to executing-plans Step 5.
+→ Proceed to completion.
 
 **If bugs found, present each one:**
 
@@ -224,19 +224,29 @@ If any bugs were fixed:
 npm run test:ci
 ```
 
-**If tests pass:** Return to executing-plans Step 5.
-**If tests fail:** Fix test failures, then return.
+**If tests pass:** Proceed to completion.
+**If tests fail:** Fix test failures, then proceed to completion.
 
 ## Integration
 
-**Called by:** executing-plans skill, after all tasks complete (Step 4.5)
+**Called by:** State machine after all execution batches complete.
 
 **Collab workflow position:**
 ```
-executing-plans:
-  Step 1-1.8: Setup
-  Step 2: Execute batches
-  Step 3-4: Report and continue
-  Step 4.5: Bug review ← (you are here)
-  Step 5: Complete development
+batch-router [no_batches_remaining] → bug-review ← (you are here)
+bug-review → completeness-review
+completeness-review → workflow-complete
 ```
+
+## Completion
+
+Call complete_skill when done:
+
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__complete_skill
+Args: { "project": "<cwd>", "session": "<session>", "skill": "executing-plans-bugreview" }
+```
+
+**Handle response:**
+- If `next_skill` is not null: Invoke that skill
+- If `next_skill` is null: Workflow complete

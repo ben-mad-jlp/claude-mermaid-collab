@@ -49,6 +49,8 @@ export const STATE_DISPLAY_NAMES: Record<string, string> = {
   'rough-draft-item-router': 'Routing',
   'batch-router': 'Routing',
   'log-batch-complete': 'Logging',
+  'bug-review': 'Bug Review',
+  'completeness-review': 'Completeness Review',
 };
 
 /**
@@ -88,14 +90,16 @@ export const WORKFLOW_STATES: WorkflowState[] = [
   // ========== Brainstorm item router (routes by type) ==========
   // Routes bugfixes to systematic-debugging, code/task to brainstorm
   // When no pending items, goes to rough-draft-confirm
+  // IMPORTANT: no_pending_brainstorm_items must be checked FIRST, before item_type conditions.
+  // Otherwise, stale currentItemType from the just-completed item matches and loops back.
   {
     id: 'brainstorm-item-router',
     skill: null,
     transitions: [
+      { to: 'rough-draft-confirm', condition: { type: 'no_pending_brainstorm_items' } },
       { to: 'systematic-debugging', condition: { type: 'item_type', value: 'bugfix' } },
       { to: 'brainstorm-exploring', condition: { type: 'item_type', value: 'code' } },
       { to: 'brainstorm-exploring', condition: { type: 'item_type', value: 'task' } },
-      { to: 'rough-draft-confirm', condition: { type: 'no_pending_brainstorm_items' } },
     ],
   },
 
@@ -184,7 +188,7 @@ export const WORKFLOW_STATES: WorkflowState[] = [
     skill: null,
     transitions: [
       { to: 'execute-batch', condition: { type: 'batches_remaining' } },
-      { to: 'workflow-complete', condition: { type: 'no_batches_remaining' } },
+      { to: 'bug-review', condition: { type: 'no_batches_remaining' } },
     ],
   },
   {
@@ -196,6 +200,18 @@ export const WORKFLOW_STATES: WorkflowState[] = [
     id: 'log-batch-complete',
     skill: null, // Internal logging state
     transitions: [{ to: 'batch-router' }],
+  },
+
+  // ========== Review states (after execution, before finishing) ==========
+  {
+    id: 'bug-review',
+    skill: 'executing-plans-bugreview',
+    transitions: [{ to: 'completeness-review' }],
+  },
+  {
+    id: 'completeness-review',
+    skill: 'executing-plans-completeness',
+    transitions: [{ to: 'workflow-complete' }],
   },
 
   // ========== Terminal states ==========

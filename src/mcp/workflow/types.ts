@@ -30,6 +30,8 @@ export type StateId =
   | 'batch-router'
   | 'execute-batch'
   | 'log-batch-complete'
+  | 'bug-review'
+  | 'completeness-review'
   // Legacy (kept for backwards compatibility)
   | 'work-item-router'
   // Terminal states

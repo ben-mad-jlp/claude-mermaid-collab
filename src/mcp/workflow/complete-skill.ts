@@ -168,6 +168,16 @@ export async function completeSkill(
   let updatedContext = context;
   let itemUpdates: { currentItem?: number | null; currentItemType?: WorkItemType } = {};
 
+  // Pre-resolve item-type-router so its target (brainstorm-item-router or task-planning)
+  // gets proper item selection handling below. Without this, resolveToSkillState traverses
+  // through item-type-router → brainstorm-item-router without selecting the next item.
+  if (nextStateId === 'item-type-router') {
+    const resolvedTarget = getNextState('item-type-router' as StateId, context);
+    if (resolvedTarget) {
+      nextStateId = resolvedTarget;
+    }
+  }
+
   if (nextStateId === 'brainstorm-item-router' || nextStateId === 'work-item-router') {
     // Brainstorm router: find next item needing brainstorming (status === 'pending')
     const nextItem = findNextPendingBrainstormItem(sessionState.workItems);
@@ -311,7 +321,9 @@ function getPhaseFromState(stateId: StateId): string {
     stateId === 'execute-batch' ||
     stateId === 'batch-router' ||
     stateId === 'log-batch-complete' ||
-    stateId === 'ready-to-implement'
+    stateId === 'ready-to-implement' ||
+    stateId === 'bug-review' ||
+    stateId === 'completeness-review'
   ) {
     return 'implementation';
   }

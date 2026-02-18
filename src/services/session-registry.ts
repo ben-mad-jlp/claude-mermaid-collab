@@ -69,7 +69,8 @@ export class SessionRegistry {
     project: string,
     session: string,
     sessionType?: 'structured' | 'vibe',
-    useRenderUI?: boolean
+    useRenderUI?: boolean,
+    initialState?: string
   ): Promise<{ created: boolean }> {
     // Validate inputs
     if (!project || !project.startsWith('/')) {
@@ -107,7 +108,7 @@ export class SessionRegistry {
     // Create session files if they don't exist
     const collabStatePath = join(sessionPath, 'collab-state.json');
     const collabStateContent = JSON.stringify({
-      state: 'collab-start',
+      state: initialState || 'collab-start',
       sessionType: sessionType || 'structured',
       lastActivity: now,
       currentItem: null,

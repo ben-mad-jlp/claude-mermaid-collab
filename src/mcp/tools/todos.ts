@@ -187,22 +187,6 @@ export async function addTodo(project: string, title: string): Promise<AddTodoRe
 
   await writeTodosFile(data);
 
-  // Create session directory structure under .collab/todos/
-  const sessionDir = join(project, '.collab', 'todos', sessionName);
-  await mkdir(join(sessionDir, 'diagrams'), { recursive: true });
-  await mkdir(join(sessionDir, 'documents'), { recursive: true });
-
-  // Write initial collab-state.json
-  const collabState = {
-    sessionType: 'vibe',
-    state: 'vibe-active',
-    phase: 'vibe-active',
-    lastActivity: new Date().toISOString(),
-    currentItem: null,
-    useRenderUI: true,
-  };
-  await writeFile(join(sessionDir, 'collab-state.json'), JSON.stringify(collabState, null, 2), 'utf-8');
-
   return {
     success: true,
     todo,

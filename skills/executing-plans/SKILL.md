@@ -433,35 +433,6 @@ Based on feedback:
 - Execute next batch
 - Repeat until complete
 
-### Step 4.5: Bug Review
-
-After ALL tasks are complete and verified, run a systematic bug review before declaring implementation done.
-
-**Invoke skill: executing-plans-bugreview** for the full bug review process.
-
-Key points:
-- Reviews the full diff of all implementation changes
-- Focused on introduced bugs (not design compliance — that's already done)
-- Presents findings categorized by severity (Critical, Important, Minor)
-- Gates on Critical and Important bugs — user must decide Fix, Accept Risk, or Dispute for each
-- Only proceeds to Step 5 after all bugs are resolved or accepted
-
-### Step 4.6: Completeness Review
-
-After bug review passes, run a completeness review comparing the design spec against the implementation to catch gaps — missing functions, incomplete stubs, missing tests, and unmet success criteria.
-
-**Invoke skill: executing-plans-completeness** for the full completeness review process.
-
-Key points:
-- Compares design doc and blueprint documents against actual implementation
-- Finds missing functions/types, incomplete implementations, missing tests, unmet success criteria
-- Excludes anything in the design doc's "Out of Scope" section or accepted drift in Decision Log
-- Categorizes gaps as Required vs Nice-to-have
-- For each Required gap, user decides: Add as Todo, Fix Now, or Out of Scope
-- Nice-to-have gaps presented as batch with Add All / Skip All / Review Each options
-- Todos go to global project todo system for future `/collab-todo` work
-- Only proceeds to Step 5 after all gaps are resolved or deferred
-
 ### Step 5: Complete Development
 
 After all tasks complete and verified, show summary and ask for confirmation:

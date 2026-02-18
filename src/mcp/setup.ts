@@ -1967,7 +1967,7 @@ EXAMPLE:
             if (!project || !title) throw new Error('Missing required: project, title');
             const result = await addTodo(project, title);
             // Register the session
-            await sessionRegistry.register(project, result.todo.sessionName, 'vibe', true);
+            await sessionRegistry.register(project, result.todo.sessionName, 'vibe', true, 'vibe-active');
             // If description provided, create it as a document in the todo's session
             if (description) {
               await createDocument(project, result.todo.sessionName, 'description', description);
