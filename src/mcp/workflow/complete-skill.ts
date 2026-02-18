@@ -234,6 +234,15 @@ export async function completeSkill(
   // Check if we're about to enter execution phase (batch-router)
   // This must happen before resolution because batch-router is a routing node
   if (nextStateId === 'batch-router') {
+    // Mark all remaining brainstormed code/bugfix items as complete
+    // since rough-draft phase is done when we reach execution
+    if (sessionState.workItems) {
+      sessionState.workItems = sessionState.workItems.map(item =>
+        (item.type === 'code' || item.type === 'bugfix') && item.status === 'brainstormed'
+          ? { ...item, status: 'complete' }
+          : item
+      );
+    }
     try {
       console.log('Syncing tasks from task-graph/blueprints...');
       await syncTasksFromTaskGraph(project, session);

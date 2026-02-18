@@ -115,6 +115,41 @@ describe('completeSkill - work item status updates', () => {
     expect(updatedItem.status).toBe('brainstormed');
   });
 
+  it('should mark all brainstormed code/bugfix items complete when entering batch-router', async () => {
+    const workItems: WorkItem[] = [
+      { number: 1, title: 'Code 1', type: 'code', status: 'brainstormed' },
+      { number: 2, title: 'Bug 1', type: 'bugfix', status: 'brainstormed' },
+      { number: 3, title: 'Task 1', type: 'task', status: 'complete' },
+      { number: 4, title: 'Code 2', type: 'code', status: 'complete' },
+    ];
+    // ready-to-implement transitions to batch-router
+    mockGetSessionState.mockResolvedValue({
+      state: 'ready-to-implement',
+      currentItem: null,
+      workItems: [...workItems],
+      batches: [],
+      completedTasks: [],
+      pendingTasks: [],
+      lastActivity: new Date().toISOString(),
+    });
+
+    await completeSkill('test-project', 'test-session', 'ready-to-implement');
+
+    expect(mockUpdateSessionState).toHaveBeenCalled();
+    const updateCall = mockUpdateSessionState.mock.calls[0];
+    const updatedState = updateCall[2];
+    const item1 = updatedState.workItems.find((i: WorkItem) => i.number === 1);
+    const item2 = updatedState.workItems.find((i: WorkItem) => i.number === 2);
+    const item3 = updatedState.workItems.find((i: WorkItem) => i.number === 3);
+    const item4 = updatedState.workItems.find((i: WorkItem) => i.number === 4);
+    // Brainstormed code/bugfix items should be marked complete
+    expect(item1.status).toBe('complete');
+    expect(item2.status).toBe('complete');
+    // Already-complete items should remain unchanged
+    expect(item3.status).toBe('complete');
+    expect(item4.status).toBe('complete');
+  });
+
   it('should not find pending rough-draft items after blueprint completes (no infinite loop)', async () => {
     // Scenario: single code item completes rough-draft-blueprint
     // After status update, rough-draft-item-router should find NO pending items
