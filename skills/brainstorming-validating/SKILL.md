@@ -130,7 +130,7 @@ Ready to move to rough-draft?
 ```
 
 **Response handling:**
-- **1 (Yes)**: Transition to rough-draft (invoke brainstorming-transition skill)
+- **1 (Yes)**: Proceed to Completion section below (call `complete_skill`)
 - **2 (No)**: Ask what else needs to be explored, return to appropriate phase
 
 ## Browser-Based Confirmation
@@ -172,9 +172,7 @@ Response: `{ "action": "yes" }` or `{ "action": "no" }`
 - Completeness checklist passed
 - User confirmed ready
 
-**Announce:** "Completeness gate passed. Transitioning to rough-draft skill."
-
-**Invoke skill:** brainstorming-transition
+**Announce:** "Completeness gate passed. Proceeding to complete this skill."
 
 ## Completion
 

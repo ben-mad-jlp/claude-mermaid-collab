@@ -65,6 +65,28 @@ Load plan, review critically, execute tasks in batches, report for review betwee
 
 **Announce at start:** "I'm using the executing-plans skill to implement this plan."
 
+## Recovery After Compaction
+
+If context has been compacted mid-execution, recover state before continuing:
+
+1. Read session state:
+   ```
+   Tool: mcp__plugin_mermaid-collab_mermaid__get_session_state
+   Args: { "project": "<cwd>", "session": "<session>" }
+   ```
+2. Check `completedTasks`, `pendingTasks`, `currentBatch`, and `batches` to understand progress
+3. Read the design doc for the full plan:
+   ```
+   Tool: mcp__plugin_mermaid-collab_mermaid__get_document
+   Args: { "project": "<cwd>", "session": "<session>", "id": "design" }
+   ```
+4. Check the task execution diagram for visual state:
+   ```
+   Tool: mcp__plugin_mermaid-collab_mermaid__get_diagram
+   Args: { "project": "<cwd>", "session": "<session>", "id": "task-execution" }
+   ```
+5. Resume from current batch — do NOT re-dispatch completed tasks
+
 ## The Process
 
 ### Step 1: Load and Review Plan
@@ -433,50 +455,17 @@ Based on feedback:
 - Execute next batch
 - Repeat until complete
 
-### Step 5: Complete Development
+### Step 5: Complete Execution
 
-After all tasks complete and verified, show summary and ask for confirmation:
+After all tasks complete and all batches verified:
 
-```
-Implementation complete:
-- [N] tasks completed: [list task IDs]
-- All tests passing
-- All TODOs resolved
+1. Show summary:
+   - [N] tasks completed: [list task IDs]
+   - All tests passing
+   - All TODOs resolved
 
-Ready to move to finishing-a-development-branch?
-
-1. Yes
-2. No
-```
-
-- If **1 (Yes)**: Invoke finishing-a-development-branch skill
-- If **2 (No)**: Ask what needs to be addressed
-
-**On confirmation:**
-- Announce: "I'm using the finishing-a-development-branch skill to complete this work."
-- **REQUIRED SUB-SKILL:** Use superpowers:finishing-a-development-branch
-- Follow that skill to verify tests, present options, execute choice
-
-### Step 5.1: Offer Collab Cleanup (Within Collab Workflow)
-
-**REQUIRED** when executing within a collab session:
-
-After development work completes (whether through finishing-a-development-branch or direct user commands like "commit and push"), always offer collab session cleanup:
-
-```
-Development complete.
-
-Clean up collab session? This will archive or delete design artifacts.
-Run /collab-cleanup?
-
-1. Yes
-2. No
-```
-
-- If **1 (Yes)**: Invoke collab-cleanup skill
-- If **2 (No)**: "Session kept open. Run `/collab-cleanup` when ready."
-
-**This step ensures users always get the option to clean up, regardless of how they chose to finish the work.**
+2. Proceed to Completion section below (call `complete_skill`)
+   The state machine routes to `bug-review` and `completeness-review` automatically, then to `finishing-a-development-branch` and cleanup.
 
 ## When to Stop and Ask for Help
 
@@ -523,7 +512,7 @@ This skill can be invoked in two contexts:
 
 **Collab Workflow Chain:**
 ```
-collab -> brainstorming -> rough-draft -> executing-plans -> finishing-a-development-branch
+collab -> brainstorming -> rough-draft -> executing-plans -> bug-review -> completeness-review -> finishing-a-development-branch -> cleanup
                                             ^
                                      (you are here)
 ```

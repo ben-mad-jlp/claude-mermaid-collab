@@ -16,6 +16,24 @@ allowed-tools:
 
 The DESIGNING phase presents the design approach in small, validated sections.
 
+## Recovery After Compaction
+
+If context has been compacted, recover state before proceeding:
+
+1. Read session state:
+   ```
+   Tool: mcp__plugin_mermaid-collab_mermaid__get_session_state
+   Args: { "project": "<cwd>", "session": "<session>" }
+   ```
+2. Note `currentItem` (which work item we're designing) and `workItems` (the full list)
+3. Re-read the design doc to see which sections are already written/validated:
+   ```
+   Tool: mcp__plugin_mermaid-collab_mermaid__get_document
+   Args: { "project": "<cwd>", "session": "<session>", "id": "design" }
+   ```
+4. Check for `[PROPOSED]` markers — these sections still need user validation
+5. Sections without `[PROPOSED]` have already been accepted — skip them
+
 ## Purpose
 
 - Propose and explore different approaches

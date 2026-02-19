@@ -16,6 +16,23 @@ allowed-tools:
 
 The CLARIFYING phase discusses each item one at a time to fully understand requirements before designing.
 
+## Recovery After Compaction
+
+If context has been compacted, recover state before proceeding:
+
+1. Read session state:
+   ```
+   Tool: mcp__plugin_mermaid-collab_mermaid__get_session_state
+   Args: { "project": "<cwd>", "session": "<session>" }
+   ```
+2. Note `currentItem` (which work item we're clarifying) and `workItems` (the full list)
+3. Re-read the design doc — it is the persistent record of all clarification so far:
+   ```
+   Tool: mcp__plugin_mermaid-collab_mermaid__get_document
+   Args: { "project": "<cwd>", "session": "<session>", "id": "design" }
+   ```
+4. Check which fields are already filled for the current item (Problem/Goal, Approach, Success Criteria, Decisions) — skip questions already answered
+
 ## Purpose
 
 - Discuss ONE item at a time (never batch multiple items)

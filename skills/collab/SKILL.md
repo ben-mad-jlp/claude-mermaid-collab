@@ -69,9 +69,35 @@ Then restart Claude Code and run /collab again.
 1. Get session state: `mcp__plugin_mermaid-collab_mermaid__get_session_state()`
 2. Route based on sessionType and state:
    - If sessionType is "vibe" or state is "vibe-active": Invoke skill "vibe-active"
-   - Otherwise: Get the current skill from the state and invoke it directly
-     - The state field maps to a skill (e.g., "brainstorm-exploring" → "brainstorming-exploring")
-     - Invoke that skill to continue the workflow
+   - Otherwise: Look up the skill from the state using the mapping below
+
+### State-to-Skill Mapping
+
+| State | Skill to invoke |
+|-------|----------------|
+| gather-goals | gather-session-goals |
+| brainstorm-exploring | brainstorming-exploring |
+| brainstorm-clarifying | brainstorming-clarifying |
+| brainstorm-designing | brainstorming-designing |
+| brainstorm-validating | brainstorming-validating |
+| systematic-debugging | systematic-debugging |
+| task-planning | task-planning |
+| rough-draft-confirm | rough-draft-confirm |
+| rough-draft-blueprint | rough-draft-blueprint |
+| ready-to-implement | ready-to-implement |
+| execute-batch | executing-plans |
+| bug-review | executing-plans-bugreview |
+| completeness-review | executing-plans-completeness |
+| workflow-complete | finishing-a-development-branch |
+| cleanup | collab-cleanup |
+
+### Execution Phase Resume
+
+When state is `execute-batch`, `bug-review`, or `completeness-review`, show progress before invoking:
+
+1. Read `batches`, `currentBatch`, `completedTasks`, `pendingTasks` from state
+2. Display: "Resuming [skill]. Batch [N]/[total], [X] tasks completed, [Y] remaining."
+3. Then invoke the mapped skill
 
 ## No Manual Routing
 

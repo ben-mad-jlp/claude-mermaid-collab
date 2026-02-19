@@ -3,6 +3,7 @@ name: finishing-a-development-branch
 description: Use when implementation is complete, all tests pass, and you need to decide how to integrate the work - guides completion of development work by presenting structured options for merge, PR, or cleanup
 user-invocable: false
 model: haiku
+allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Glob, Grep, Bash
 ---
 
 # Finishing a Development Branch
@@ -248,8 +249,21 @@ Run cleanup now?
 2. No
 ```
 
-- If **1 (Yes)**: Invoke collab-cleanup skill
-- If **2 (No)**: "Session kept open. Run `/collab-cleanup` when ready."
+- If **1 (Yes)**: Proceed to Completion section below (call `complete_skill`)
+- If **2 (No)**: Proceed to Completion section below (call `complete_skill`) — the state machine routes to cleanup
+
+## Completion
+
+At the end of this skill's work, call complete_skill:
+
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__complete_skill
+Args: { "project": "<cwd>", "session": "<session>", "skill": "finishing-a-development-branch" }
+```
+
+**Handle response:**
+- If `next_skill` is not null: Invoke that skill
+- If `next_skill` is null: Workflow complete
 
 ## Integration
 

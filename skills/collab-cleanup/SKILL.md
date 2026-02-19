@@ -3,6 +3,7 @@ name: collab-cleanup
 description: Close out a collab session - archive or delete design artifacts
 user-invocable: false
 model: haiku
+allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Glob, Grep, Bash
 ---
 
 # Collab Cleanup
@@ -219,9 +220,9 @@ Display completion message:
 
 **Collab workflow position:**
 ```
-collab → brainstorming → rough-draft → executing-plans → finishing-a-development-branch → collab-cleanup
-                                                                                              ↑
-                                                                                        (you are here)
+collab → brainstorming → rough-draft → executing-plans → bug-review → completeness-review → finishing-a-development-branch → collab-cleanup
+                                                                                                                                    ↑
+                                                                                                                              (you are here)
 ```
 
 ## Common Mistakes
@@ -245,3 +246,16 @@ collab → brainstorming → rough-draft → executing-plans → finishing-a-dev
 - Show session summary before action
 - Confirm destructive actions
 - Report what was done
+
+## Completion
+
+At the end of this skill's work, call complete_skill:
+
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__complete_skill
+Args: { "project": "<cwd>", "session": "<session>", "skill": "collab-cleanup" }
+```
+
+**Handle response:**
+- If `next_skill` is not null: Invoke that skill
+- If `next_skill` is null: Workflow complete (session is done)

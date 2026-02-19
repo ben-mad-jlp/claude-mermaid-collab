@@ -16,6 +16,23 @@ allowed-tools:
 
 The EXPLORING phase gathers context about the project and forms an initial understanding of what needs to be built.
 
+## Recovery After Compaction
+
+If context has been compacted, recover state before proceeding:
+
+1. Read session state:
+   ```
+   Tool: mcp__plugin_mermaid-collab_mermaid__get_session_state
+   Args: { "project": "<cwd>", "session": "<session>" }
+   ```
+2. Note `currentItem` (which work item we're exploring) and `workItems` (the full list)
+3. Read the design doc to recover any context already gathered:
+   ```
+   Tool: mcp__plugin_mermaid-collab_mermaid__get_document
+   Args: { "project": "<cwd>", "session": "<session>", "id": "design" }
+   ```
+4. If design doc already has content for the current item, skip to where exploration left off
+
 ## Purpose
 
 - Understand the current project state
