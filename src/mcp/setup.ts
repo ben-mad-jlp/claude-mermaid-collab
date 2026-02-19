@@ -380,6 +380,114 @@ async function patchDocument(project: string, session: string, id: string, oldSt
   }, null, 2);
 }
 
+function extractDesignItem(content: string, itemNumber: number): { itemText: string; startIndex: number; endIndex: number; itemCount: number } {
+  const itemPattern = /^### Item \d+:/gm;
+  const matches: { index: number }[] = [];
+  let match;
+  while ((match = itemPattern.exec(content)) !== null) {
+    matches.push({ index: match.index });
+  }
+
+  const itemCount = matches.length;
+  if (itemCount === 0) {
+    throw new Error('No work items found in document. Expected headings like "### Item 1: Title".');
+  }
+  if (itemNumber < 1 || itemNumber > itemCount) {
+    throw new Error(`Item number ${itemNumber} out of range. Document has ${itemCount} item(s).`);
+  }
+
+  const itemIndex = itemNumber - 1;
+  const startIndex = matches[itemIndex].index;
+
+  let endIndex: number;
+  if (itemIndex + 1 < matches.length) {
+    // End at next item heading
+    endIndex = matches[itemIndex + 1].index;
+  } else {
+    // Last item: end at next ## heading or EOF
+    const nextSectionPattern = /^## /gm;
+    nextSectionPattern.lastIndex = startIndex + 1;
+    const nextSection = nextSectionPattern.exec(content);
+    endIndex = nextSection ? nextSection.index : content.length;
+  }
+
+  let itemText = content.slice(startIndex, endIndex);
+  // Trim trailing --- separators and whitespace
+  itemText = itemText.replace(/\n---\s*$/, '').trimEnd();
+
+  return { itemText, startIndex, endIndex, itemCount };
+}
+
+async function getDesignItem(project: string, session: string, id: string, itemNumber: number): Promise<string> {
+  const response = await fetch(buildUrl(`/api/document/${id}`, project, session));
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error(`Document not found: ${id}`);
+    }
+    throw new Error(`Failed to get document: ${response.statusText}`);
+  }
+  const data = await response.json();
+  const { itemText, itemCount } = extractDesignItem(data.content, itemNumber);
+
+  return JSON.stringify({
+    item_number: itemNumber,
+    item_count: itemCount,
+    content: itemText,
+  }, null, 2);
+}
+
+async function patchDesignItem(project: string, session: string, id: string, itemNumber: number, oldString: string, newString: string): Promise<string> {
+  const getResponse = await fetch(buildUrl(`/api/document/${id}`, project, session));
+  if (!getResponse.ok) {
+    if (getResponse.status === 404) {
+      throw new Error(`Document not found: ${id}`);
+    }
+    throw new Error(`Failed to get document: ${getResponse.statusText}`);
+  }
+  const docData = await getResponse.json();
+  const fullContent = docData.content;
+
+  const { itemText, startIndex, endIndex } = extractDesignItem(fullContent, itemNumber);
+
+  const occurrences = itemText.split(oldString).length - 1;
+  if (occurrences === 0) {
+    throw new Error(`old_string not found in item ${itemNumber}. The text you're trying to replace does not exist within this item.`);
+  }
+  if (occurrences > 1) {
+    throw new Error(`old_string matches ${occurrences} locations in item ${itemNumber}. Provide more context to make it unique.`);
+  }
+
+  const patchedItem = itemText.replace(oldString, newString);
+  const updatedContent = fullContent.slice(0, startIndex) + patchedItem + fullContent.slice(startIndex + itemText.length);
+
+  const updateResponse = await fetch(buildUrl(`/api/document/${id}`, project, session), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      content: updatedContent,
+      patch: { oldString, newString }
+    }),
+  });
+
+  if (!updateResponse.ok) {
+    const error = await updateResponse.json();
+    throw new Error(`Failed to patch document: ${error.error || updateResponse.statusText}`);
+  }
+
+  const changeIndex = patchedItem.indexOf(newString);
+  const previewStart = Math.max(0, changeIndex - 50);
+  const previewEnd = Math.min(patchedItem.length, changeIndex + newString.length + 50);
+  const preview = patchedItem.slice(previewStart, previewEnd);
+
+  return JSON.stringify({
+    success: true,
+    id,
+    item_number: itemNumber,
+    message: `Item ${itemNumber} patched successfully`,
+    preview: `...${preview}...`,
+  }, null, 2);
+}
+
 async function patchDiagram(project: string, session: string, id: string, oldString: string, newString: string): Promise<string> {
   const getResponse = await fetch(buildUrl(`/api/diagram/${id}`, project, session));
   if (!getResponse.ok) {
@@ -718,6 +826,34 @@ IMPORTANT - Common pitfalls to avoid:
             new_string: { type: 'string', description: 'Text to replace with' },
           },
           required: ['project', 'id', 'old_string', 'new_string'],
+        },
+      },
+      {
+        name: 'get_design_item',
+        description: 'Read a single work item from a design document by item number. Returns just that item\'s markdown section. Items are headed "### Item N: Title".',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            ...sessionParamsDesc,
+            id: { type: 'string', description: 'The document ID (defaults to "design")', default: 'design' },
+            item_number: { type: 'integer', description: 'The item number to read (1-based)' },
+          },
+          required: ['project', 'item_number'],
+        },
+      },
+      {
+        name: 'patch_design_item',
+        description: 'Patch a specific work item in a design document. Scopes the search-replace to just that item\'s section, so old_string only needs to be unique within the item.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            ...sessionParamsDesc,
+            id: { type: 'string', description: 'The document ID (defaults to "design")', default: 'design' },
+            item_number: { type: 'integer', description: 'The item number to patch (1-based)' },
+            old_string: { type: 'string', description: 'Text to find (must be unique within the item)' },
+            new_string: { type: 'string', description: 'Text to replace with' },
+          },
+          required: ['project', 'item_number', 'old_string', 'new_string'],
         },
       },
       {
@@ -1435,6 +1571,18 @@ EXAMPLE:
             const { project, session, id, old_string, new_string } = args as { project: string; session: string; id: string; old_string: string; new_string: string };
             if (!project || !session || !id || !old_string || new_string === undefined) throw new Error('Missing required: project, session, id, old_string, new_string');
             return await patchDocument(project, session, id, old_string, new_string);
+          }
+
+          case 'get_design_item': {
+            const { project, session, id = 'design', item_number } = args as { project: string; session: string; id?: string; item_number: number };
+            if (!project || !session || !item_number) throw new Error('Missing required: project, session, item_number');
+            return await getDesignItem(project, session, id, item_number);
+          }
+
+          case 'patch_design_item': {
+            const { project, session, id = 'design', item_number, old_string, new_string } = args as { project: string; session: string; id?: string; item_number: number; old_string: string; new_string: string };
+            if (!project || !session || !item_number || !old_string || new_string === undefined) throw new Error('Missing required: project, session, item_number, old_string, new_string');
+            return await patchDesignItem(project, session, id, item_number, old_string, new_string);
           }
 
           case 'patch_diagram': {
