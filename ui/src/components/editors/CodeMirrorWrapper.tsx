@@ -209,7 +209,7 @@ export const CodeMirrorWrapper: React.FC<CodeMirrorWrapperProps> = ({
           highlightSelectionMatches: true,
           searchKeymap: true,
         }}
-        className={`${themeClasses} w-full flex-1`}
+        className={`${themeClasses} w-full flex-1 min-h-0`}
         data-testid="codemirror-editor"
       />
     </div>

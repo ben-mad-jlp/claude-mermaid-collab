@@ -33,6 +33,8 @@ export interface HeaderProps {
   onCreateSession?: (project: string) => void;
   /** Callback to add a new project */
   onAddProject?: () => void;
+  /** Callback to remove a project */
+  onRemoveProject?: (project: string) => void;
   /** Callback to delete a session */
   onDeleteSession?: (session: Session) => void;
   /** WebSocket connection status */
@@ -53,6 +55,7 @@ export const Header: React.FC<HeaderProps> = ({
   onRefreshSessions,
   onCreateSession,
   onAddProject,
+  onRemoveProject,
   onDeleteSession,
   isConnected = false,
   isConnecting = false,
@@ -214,6 +217,16 @@ export const Header: React.FC<HeaderProps> = ({
     setIsProjectDropdownOpen(false);
     onAddProject?.();
   }, [onAddProject]);
+
+  const handleRemoveProject = useCallback((e: React.MouseEvent, project: string) => {
+    e.stopPropagation();
+    if (window.confirm(`Remove project "${getProjectDisplayName(project)}" from the list?`)) {
+      onRemoveProject?.(project);
+      if (selectedProject === project) {
+        setSelectedProject(null);
+      }
+    }
+  }, [onRemoveProject, selectedProject]);
 
   const handleCreateSession = useCallback(() => {
     setIsSessionDropdownOpen(false);
@@ -377,7 +390,7 @@ export const Header: React.FC<HeaderProps> = ({
                 data-testid="project-dropdown"
                 role="listbox"
                 className="
-                  absolute left-0 mt-2 w-80
+                  absolute left-0 mt-2 min-w-[300px] w-max max-w-[480px]
                   bg-white dark:bg-gray-800
                   border border-gray-200 dark:border-gray-700
                   rounded-lg shadow-lg
@@ -388,21 +401,45 @@ export const Header: React.FC<HeaderProps> = ({
                 <ul className="max-h-60 overflow-y-auto">
                   {projects.map((project) => (
                     <li key={project}>
-                      <button
-                        role="option"
-                        aria-selected={selectedProject === project}
-                        onClick={() => handleProjectSelect(project)}
+                      <div
                         className={`
-                          w-full px-4 py-2.5
-                          text-left text-sm
+                          flex items-center
                           hover:bg-gray-100 dark:hover:bg-gray-700
                           transition-colors
-                          ${selectedProject === project ? 'bg-accent-50 dark:bg-accent-900/30 text-accent-700 dark:text-accent-300' : 'text-gray-700 dark:text-gray-200'}
+                          ${selectedProject === project ? 'bg-accent-50 dark:bg-accent-900/30' : ''}
                         `}
                       >
-                        <div className="font-medium truncate">{getProjectDisplayName(project)}</div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{project}</div>
-                      </button>
+                        <button
+                          role="option"
+                          aria-selected={selectedProject === project}
+                          onClick={() => handleProjectSelect(project)}
+                          className={`
+                            flex-1 px-4 py-2.5
+                            text-left text-sm
+                            ${selectedProject === project ? 'text-accent-700 dark:text-accent-300' : 'text-gray-700 dark:text-gray-200'}
+                          `}
+                        >
+                          <div className="font-medium truncate">{getProjectDisplayName(project)}</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{project}</div>
+                        </button>
+                        {onRemoveProject && (
+                          <button
+                            onClick={(e) => handleRemoveProject(e, project)}
+                            className="
+                              p-2 mr-2
+                              text-gray-400 hover:text-red-500
+                              dark:text-gray-500 dark:hover:text-red-400
+                              transition-colors
+                            "
+                            aria-label={`Remove project ${getProjectDisplayName(project)}`}
+                            title="Remove project"
+                          >
+                            <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
                     </li>
                   ))}
                 </ul>

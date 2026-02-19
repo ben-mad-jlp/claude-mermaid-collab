@@ -29,6 +29,8 @@ export interface MobileLayoutHandlers {
   onCreateSession?: (project: string) => void;
   /** Callback to add a new project */
   onAddProject?: () => void;
+  /** Callback to remove a project */
+  onRemoveProject?: (project: string) => void;
   /** Callback to delete a session */
   onDeleteSession?: (session: Session) => void;
 }
@@ -125,6 +127,7 @@ export const MobileLayout: React.FC<MobileLayoutProps> = ({
         onRefreshSessions={handlers.onRefreshSessions}
         onCreateSession={handlers.onCreateSession}
         onAddProject={handlers.onAddProject}
+        onRemoveProject={handlers.onRemoveProject}
         onDeleteSession={handlers.onDeleteSession}
         isConnected={isConnected}
         isConnecting={isConnecting}

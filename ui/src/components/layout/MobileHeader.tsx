@@ -77,6 +77,8 @@ export interface MobileHeaderProps {
   onCreateSession?: (project: string) => void;
   /** Callback to add a new project */
   onAddProject?: () => void;
+  /** Callback to remove a project */
+  onRemoveProject?: (project: string) => void;
   /** Callback to delete a session */
   onDeleteSession?: (session: Session) => void;
   /** WebSocket connection status */
@@ -97,6 +99,7 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
   onRefreshSessions,
   onCreateSession,
   onAddProject,
+  onRemoveProject,
   onDeleteSession,
   isConnected = false,
   isConnecting = false,
@@ -213,6 +216,16 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
     onAddProject?.();
   }, [onAddProject]);
 
+  const handleRemoveProject = useCallback((e: React.MouseEvent, project: string) => {
+    e.stopPropagation();
+    if (window.confirm(`Remove project "${getProjectDisplayName(project)}" from the list?`)) {
+      onRemoveProject?.(project);
+      if (selectedProject === project) {
+        setSelectedProject(null);
+      }
+    }
+  }, [onRemoveProject, selectedProject]);
+
   const handleCreateSession = useCallback(() => {
     setIsSessionDropdownOpen(false);
     if (selectedProject) {
@@ -296,21 +309,45 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
               <ul className="max-h-48 overflow-y-auto">
                 {projects.map((project) => (
                   <li key={project}>
-                    <button
-                      role="option"
-                      aria-selected={selectedProject === project}
-                      onClick={() => handleProjectSelect(project)}
+                    <div
                       className={`
-                        w-full px-3 py-2
-                        text-left text-xs
+                        flex items-center
                         hover:bg-gray-100 dark:hover:bg-gray-700
                         transition-colors
-                        truncate
-                        ${selectedProject === project ? 'bg-accent-50 dark:bg-accent-900/30 text-accent-700 dark:text-accent-300' : 'text-gray-700 dark:text-gray-200'}
+                        ${selectedProject === project ? 'bg-accent-50 dark:bg-accent-900/30' : ''}
                       `}
                     >
-                      {getProjectDisplayName(project)}
-                    </button>
+                      <button
+                        role="option"
+                        aria-selected={selectedProject === project}
+                        onClick={() => handleProjectSelect(project)}
+                        className={`
+                          flex-1 px-3 py-2
+                          text-left text-xs
+                          truncate
+                          ${selectedProject === project ? 'text-accent-700 dark:text-accent-300' : 'text-gray-700 dark:text-gray-200'}
+                        `}
+                      >
+                        {getProjectDisplayName(project)}
+                      </button>
+                      {onRemoveProject && (
+                        <button
+                          onClick={(e) => handleRemoveProject(e, project)}
+                          className="
+                            p-1 mr-1 flex-shrink-0
+                            text-gray-400 hover:text-red-500
+                            dark:text-gray-500 dark:hover:text-red-400
+                            transition-colors
+                          "
+                          aria-label={`Remove project ${getProjectDisplayName(project)}`}
+                          title="Remove project"
+                        >
+                          <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
                   </li>
                 ))}
               </ul>

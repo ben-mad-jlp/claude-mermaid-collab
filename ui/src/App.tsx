@@ -828,6 +828,31 @@ const App: React.FC = () => {
     }
   }, [loadSessions, loadProjects]);
 
+  // Handle removing a project
+  const handleRemoveProject = useCallback(async (projectPath: string) => {
+    try {
+      const response = await fetch(`/api/projects?path=${encodeURIComponent(projectPath)}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        console.error('Failed to remove project');
+        return;
+      }
+
+      // Clear current session if it belongs to the removed project
+      if (currentSession?.project === projectPath) {
+        setCurrentSession(null);
+      }
+
+      // Refresh projects and sessions lists
+      await loadProjects();
+      await loadSessions();
+    } catch (error) {
+      console.error('Failed to remove project:', error);
+    }
+  }, [currentSession, setCurrentSession, loadProjects, loadSessions]);
+
   // Handle refreshing everything - projects, sessions list, and current session items
   const handleRefreshAll = useCallback(async () => {
     // Refresh projects and sessions list
@@ -1121,6 +1146,7 @@ const App: React.FC = () => {
             onRefreshSessions: handleRefreshAll,
             onCreateSession: handleCreateSession,
             onAddProject: handleAddProject,
+            onRemoveProject: handleRemoveProject,
             onDeleteSession: handleDeleteSession,
           }}
           isConnected={isConnected}
@@ -1174,6 +1200,7 @@ const App: React.FC = () => {
           onRefreshSessions={handleRefreshAll}
           onCreateSession={handleCreateSession}
           onAddProject={handleAddProject}
+          onRemoveProject={handleRemoveProject}
           onDeleteSession={handleDeleteSession}
           isConnected={isConnected}
           isConnecting={isConnecting}

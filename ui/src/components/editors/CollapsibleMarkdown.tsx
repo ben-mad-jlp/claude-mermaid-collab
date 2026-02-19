@@ -40,6 +40,7 @@ function parseMarkdownSections(markdown: string): { preamble: string; sections: 
   let currentContent: string[] = [];
   let sectionStack: { section: Section; level: number }[] = [];
   let sectionCounter = 0;
+  let inCodeBlock = false;
 
   const flushContent = () => {
     if (currentContent.length > 0) {
@@ -54,7 +55,12 @@ function parseMarkdownSections(markdown: string): { preamble: string; sections: 
   };
 
   for (const line of lines) {
-    const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
+    // Track fenced code blocks (``` or ~~~)
+    if (line.trimStart().match(/^(`{3,}|~{3,})/)) {
+      inCodeBlock = !inCodeBlock;
+    }
+
+    const headingMatch = !inCodeBlock && line.match(/^(#{1,6})\s+(.+)$/);
 
     if (headingMatch) {
       flushContent();
