@@ -1,6 +1,6 @@
 import { readdir, readFile, writeFile, mkdir, access, stat } from 'fs/promises';
 import { join } from 'path';
-import { derivePhase } from '../mcp/tools/collab-state.js';
+import { getDisplayName } from '../mcp/workflow/state-machine.js';
 
 // Word lists for name generation (embedded to avoid cross-dependencies)
 const ADJECTIVES = [
@@ -32,7 +32,7 @@ const NOUNS = [
 ];
 
 export type CollabTemplate = 'feature' | 'bugfix' | 'refactor' | 'spike';
-export type CollabPhase = 'brainstorming' | 'rough-draft/interface' | 'rough-draft/pseudocode' | 'rough-draft/skeleton' | 'implementation';
+// CollabPhase type removed — use state directly
 
 export interface CollabMetadata {
   name: string;
@@ -43,7 +43,6 @@ export interface CollabMetadata {
 
 export interface CollabState {
   state?: string;
-  phase?: CollabPhase;
   template?: CollabTemplate;
   lastActivity: string;
   currentItem?: number | null;
@@ -60,7 +59,7 @@ export interface VerificationIssue {
 export interface CollabSession {
   name: string;
   template: CollabTemplate;
-  phase: CollabPhase;
+  displayName: string;
   lastActivity: string;
   pendingIssueCount: number;
   path: string;
@@ -184,7 +183,7 @@ export async function listCollabSessions(baseDir: string): Promise<CollabSession
           sessions.push({
             name: entry.name,
             template,
-            phase: state.phase || (state.state ? derivePhase(state.state) : 'brainstorming'),
+            displayName: state.state ? getDisplayName(state.state) : 'Starting',
             lastActivity: state.lastActivity,
             pendingIssueCount: state.pendingVerificationIssues?.length || 0,
             path: sessionPath,

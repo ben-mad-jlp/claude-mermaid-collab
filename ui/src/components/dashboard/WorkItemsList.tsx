@@ -43,11 +43,17 @@ export const WorkItemsList: React.FC<WorkItemsListProps> = ({
 }) => {
   const [showTaskGraph, setShowTaskGraph] = useState(false);
 
-  // Get phase and current session from store
+  // Get current state and session from store
   const collabState = useSessionStore((state) => state.collabState);
   const currentSessionData = useSessionStore((state) => state.currentSession);
-  const phase = collabState?.state;
-  const isImplementationPhase = phase === 'execute-batch' || phase === 'ready-to-implement';
+  const currentState = collabState?.state;
+  const isImplementationPhase =
+    currentState === 'execute-batch' ||
+    currentState === 'ready-to-implement' ||
+    currentState === 'batch-router' ||
+    currentState === 'log-batch-complete' ||
+    currentState === 'bug-review' ||
+    currentState === 'completeness-review';
 
   // Use provided project/session or fall back to current session from store
   const currentProject = project || currentSessionData?.project;

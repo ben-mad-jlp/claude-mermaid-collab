@@ -37,7 +37,6 @@ describe('getSessionState - Display Name Computation', () => {
     test('should include displayName in response when state is set', async () => {
       const stateData = {
         state: 'brainstorm-exploring',
-        phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: null,
       };
@@ -54,7 +53,6 @@ describe('getSessionState - Display Name Computation', () => {
     test('should compute correct displayName for brainstorm-exploring state', async () => {
       const stateData = {
         state: 'brainstorm-exploring',
-        phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: null,
       };
@@ -70,7 +68,6 @@ describe('getSessionState - Display Name Computation', () => {
     test('should compute correct displayName for brainstorm-clarifying state', async () => {
       const stateData = {
         state: 'brainstorm-clarifying',
-        phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: null,
       };
@@ -86,7 +83,6 @@ describe('getSessionState - Display Name Computation', () => {
     test('should compute correct displayName for brainstorm-designing state', async () => {
       const stateData = {
         state: 'brainstorm-designing',
-        phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: null,
       };
@@ -102,7 +98,6 @@ describe('getSessionState - Display Name Computation', () => {
     test('should compute correct displayName for rough-draft-interface state', async () => {
       const stateData = {
         state: 'rough-draft-interface',
-        phase: 'rough-draft',
         lastActivity: new Date().toISOString(),
         currentItem: null,
       };
@@ -112,13 +107,12 @@ describe('getSessionState - Display Name Computation', () => {
 
       const result = await getSessionState(testProject, testSession);
 
-      expect(result.displayName).toBe('Defining Interfaces');
+      expect(result.displayName).toBe('rough-draft-interface');
     });
 
     test('should compute correct displayName for ready-to-implement state', async () => {
       const stateData = {
         state: 'ready-to-implement',
-        phase: 'ready',
         lastActivity: new Date().toISOString(),
         currentItem: null,
       };
@@ -134,7 +128,6 @@ describe('getSessionState - Display Name Computation', () => {
     test('should compute correct displayName for execute-batch state', async () => {
       const stateData = {
         state: 'execute-batch',
-        phase: 'executing',
         lastActivity: new Date().toISOString(),
         currentItem: null,
       };
@@ -149,7 +142,6 @@ describe('getSessionState - Display Name Computation', () => {
 
     test('should not set displayName when state is undefined', async () => {
       const stateData = {
-        phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: null,
       };
@@ -166,7 +158,6 @@ describe('getSessionState - Display Name Computation', () => {
     test('should preserve other state fields when adding displayName', async () => {
       const stateData = {
         state: 'brainstorm-exploring',
-        phase: 'brainstorming',
         lastActivity: '2025-01-28T10:00:00Z',
         currentItem: 1,
         totalItems: 5,
@@ -179,59 +170,9 @@ describe('getSessionState - Display Name Computation', () => {
       const result = await getSessionState(testProject, testSession);
 
       expect(result.displayName).toBe('Exploring');
-      expect(result.phase).toBe('brainstorming');
       expect(result.currentItem).toBe(1);
       expect(result.totalItems).toBe(5);
       expect(result.documentedItems).toBe(2);
     });
-  });
-
-  describe('Phase Derivation', () => {
-    test('should derive phase from state when phase is not set', async () => {
-      const stateData = {
-        state: 'brainstorm-exploring',
-        lastActivity: new Date().toISOString(),
-        currentItem: null,
-      };
-
-      const statePath = join(testProject, '.collab', 'sessions', testSession, 'collab-state.json');
-      await writeFile(statePath, JSON.stringify(stateData));
-
-      const result = await getSessionState(testProject, testSession);
-
-      expect(result.phase).toBe('brainstorming');
-    });
-
-    test('should not override existing phase', async () => {
-      const stateData = {
-        state: 'brainstorm-exploring',
-        phase: 'custom-phase',
-        lastActivity: new Date().toISOString(),
-        currentItem: null,
-      };
-
-      const statePath = join(testProject, '.collab', 'sessions', testSession, 'collab-state.json');
-      await writeFile(statePath, JSON.stringify(stateData));
-
-      const result = await getSessionState(testProject, testSession);
-
-      expect(result.phase).toBe('custom-phase');
-    });
-
-    test('should derive phase as "rough-draft" for rough-draft states', async () => {
-      const stateData = {
-        state: 'rough-draft-interface',
-        lastActivity: new Date().toISOString(),
-        currentItem: null,
-      };
-
-      const statePath = join(testProject, '.collab', 'sessions', testSession, 'collab-state.json');
-      await writeFile(statePath, JSON.stringify(stateData));
-
-      const result = await getSessionState(testProject, testSession);
-
-      expect(result.phase).toBe('rough-draft');
-    });
-
   });
 });

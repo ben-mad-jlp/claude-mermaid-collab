@@ -678,7 +678,7 @@ describe('WebSocketClient', () => {
 
     it('should create and dispatch CustomEvent with session_state_updated type', () => {
       const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
-      const detail = { project: 'test-project', session: 'test-session', state: { phase: 'executing' } };
+      const detail = { project: 'test-project', session: 'test-session', state: { completedItems: 3 } };
 
       dispatchWebSocketEvent('session_state_updated', detail);
 
@@ -824,7 +824,7 @@ describe('WebSocketClient', () => {
         type: 'session_state_updated',
         project: 'test-project',
         session: 'test-session',
-        state: { phase: 'executing', completedItems: 5 },
+        state: { completedItems: 5 },
       };
 
       mockWebSocketInstance!.simulateMessage(sessionStateMessage);
@@ -835,7 +835,7 @@ describe('WebSocketClient', () => {
           detail: {
             project: 'test-project',
             session: 'test-session',
-            state: { phase: 'executing', completedItems: 5 },
+            state: { completedItems: 5 },
           },
         })
       );
@@ -862,7 +862,7 @@ describe('WebSocketClient', () => {
         type: 'session_state_updated',
         project: 'proj1',
         session: 'sess1',
-        state: { phase: 'brainstorming' },
+        state: { currentItem: 1 },
       };
 
       mockWebSocketInstance!.simulateMessage(statusMessage);
@@ -968,14 +968,14 @@ describe('WebSocketClient', () => {
         type: 'session_state_updated',
         project: 'proj',
         session: 'sess',
-        state: { phase: 'designing' },
+        state: { currentItem: 2 },
       };
 
       mockWebSocketInstance!.simulateMessage(stateMessage);
 
       expect(listener).toHaveBeenCalledOnce();
       const event = listener.mock.calls[0][0] as CustomEvent;
-      expect(event.detail.state.phase).toBe('designing');
+      expect(event.detail.state.currentItem).toBe(2);
 
       window.removeEventListener('session_state_updated', listener);
     });
@@ -1120,7 +1120,7 @@ describe('WebSocketClient', () => {
         type: 'session_state_updated',
         project: 'proj1',
         session: 'sess1',
-        state: { phase: 'executing' },
+        state: { currentItem: 3 },
       };
 
       const taskGraphMessage: WebSocketMessage = {

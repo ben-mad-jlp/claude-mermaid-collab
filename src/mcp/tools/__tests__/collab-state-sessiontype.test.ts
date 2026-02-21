@@ -37,7 +37,7 @@ describe('updateSessionState - SessionType Field', () => {
     test('should persist sessionType to file when provided as "vibe"', async () => {
       const updates: StateUpdateParams = {
         sessionType: 'vibe',
-        phase: 'initialize',
+        state: 'initialize',
       };
 
       await updateSessionState(testProject, testSession, updates);
@@ -53,7 +53,7 @@ describe('updateSessionState - SessionType Field', () => {
     test('should persist sessionType to file when provided as "structured"', async () => {
       const updates: StateUpdateParams = {
         sessionType: 'structured',
-        phase: 'initialize',
+        state: 'initialize',
       };
 
       await updateSessionState(testProject, testSession, updates);
@@ -69,13 +69,12 @@ describe('updateSessionState - SessionType Field', () => {
       // First update: set sessionType
       let updates: StateUpdateParams = {
         sessionType: 'vibe',
-        phase: 'initialize',
+        state: 'initialize',
       };
       await updateSessionState(testProject, testSession, updates);
 
-      // Second update: update phase without providing sessionType
+      // Second update: update other fields without providing sessionType
       updates = {
-        phase: 'brainstorming',
         currentItem: 1,
       };
       await updateSessionState(testProject, testSession, updates);
@@ -86,7 +85,6 @@ describe('updateSessionState - SessionType Field', () => {
       const state = JSON.parse(content) as CollabState;
 
       expect(state.sessionType).toBe('vibe');
-      expect(state.phase).toBe('brainstorming');
     });
 
     test('should allow changing sessionType in subsequent updates', async () => {
@@ -118,7 +116,6 @@ describe('updateSessionState - SessionType Field', () => {
       // Manually create state file without sessionType (old session)
       const stateFile = join(testProject, '.collab', 'sessions', testSession, 'collab-state.json');
       const oldState: CollabState = {
-        phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: 1,
       };
@@ -126,7 +123,7 @@ describe('updateSessionState - SessionType Field', () => {
 
       // Update without providing sessionType
       const updates: StateUpdateParams = {
-        phase: 'rough-draft',
+        currentItem: 2,
       };
       await updateSessionState(testProject, testSession, updates);
 
@@ -135,14 +132,12 @@ describe('updateSessionState - SessionType Field', () => {
       const state = JSON.parse(content) as CollabState;
 
       expect(state.sessionType).toBeUndefined();
-      expect(state.phase).toBe('rough-draft');
     });
 
     test('should add sessionType when updating old session without it', async () => {
       // Manually create old state file
       const stateFile = join(testProject, '.collab', 'sessions', testSession, 'collab-state.json');
       const oldState: CollabState = {
-        phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: 1,
       };
@@ -166,7 +161,7 @@ describe('updateSessionState - SessionType Field', () => {
     test('should include sessionType in broadcast when set to "vibe"', async () => {
       const updates: StateUpdateParams = {
         sessionType: 'vibe',
-        phase: 'initialize',
+        state: 'initialize',
       };
 
       await updateSessionState(testProject, testSession, updates, mockWsHandler);
@@ -178,7 +173,7 @@ describe('updateSessionState - SessionType Field', () => {
     test('should include sessionType in broadcast when set to "structured"', async () => {
       const updates: StateUpdateParams = {
         sessionType: 'structured',
-        phase: 'initialize',
+        state: 'initialize',
       };
 
       await updateSessionState(testProject, testSession, updates, mockWsHandler);
@@ -189,7 +184,7 @@ describe('updateSessionState - SessionType Field', () => {
 
     test('should not include sessionType in broadcast when undefined', async () => {
       const updates: StateUpdateParams = {
-        phase: 'initialize',
+        state: 'initialize',
       };
 
       await updateSessionState(testProject, testSession, updates, mockWsHandler);
@@ -212,7 +207,6 @@ describe('updateSessionState - SessionType Field', () => {
       // Second update: change other field without touching sessionType
       vi.clearAllMocks();
       updates = {
-        phase: 'brainstorming',
         currentItem: 1,
       };
       await updateSessionState(testProject, testSession, updates, mockWsHandler);
@@ -246,7 +240,7 @@ describe('updateSessionState - SessionType Field', () => {
       // First set the state
       const updates: StateUpdateParams = {
         sessionType: 'vibe',
-        phase: 'initialize',
+        state: 'initialize',
       };
       await updateSessionState(testProject, testSession, updates);
 
@@ -260,7 +254,6 @@ describe('updateSessionState - SessionType Field', () => {
       // Manually create old state file without sessionType
       const stateFile = join(testProject, '.collab', 'sessions', testSession, 'collab-state.json');
       const oldState: CollabState = {
-        phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: 1,
       };
@@ -270,7 +263,6 @@ describe('updateSessionState - SessionType Field', () => {
       const state = await getSessionState(testProject, testSession);
 
       expect(state.sessionType).toBeUndefined();
-      expect(state.phase).toBe('brainstorming');
     });
   });
 

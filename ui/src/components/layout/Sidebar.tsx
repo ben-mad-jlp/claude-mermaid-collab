@@ -69,7 +69,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [showAddTodoDialog, setShowAddTodoDialog] = useState(false);
   const [isTodoDropdownOpen, setIsTodoDropdownOpen] = useState(false);
 
-  const isVibing = collabState?.state === 'vibe-active' || collabState?.phase === 'vibe-active';
+  const isVibing = collabState?.state === 'vibe-active';
 
   const handleDeleteItem = useCallback(
     async (item: Item) => {
@@ -191,11 +191,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isDisabled = !currentSession && !todosSelected;
 
   const currentState = collabState?.state;
-  const currentPhase = collabState?.phase;
   const isImplementationPhase =
-    currentPhase === 'implementation' ||
     currentState === 'execute-batch' ||
-    currentState === 'ready-to-implement';
+    currentState === 'ready-to-implement' ||
+    currentState === 'batch-router' ||
+    currentState === 'log-batch-complete' ||
+    currentState === 'bug-review' ||
+    currentState === 'completeness-review';
 
   // Determine if delete buttons should show for items
   const showItemDelete = todosSelected || isVibing;

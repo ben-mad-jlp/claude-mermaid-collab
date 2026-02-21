@@ -51,12 +51,15 @@ if [ ! -f "$STATE_FILE" ]; then
     exit 0
 fi
 
-# Read phase
-PHASE=$(jq -r '.phase' "$STATE_FILE")
+# Read state
+STATE=$(jq -r '.state' "$STATE_FILE")
 
-if [ "$PHASE" = "implementation" ]; then
-    exit 0
-fi
+# Allow edits during implementation states
+case "$STATE" in
+    execute-batch|batch-router|log-batch-complete|ready-to-implement|bug-review|completeness-review)
+        exit 0
+        ;;
+esac
 
 # Brainstorming - check if file is in .collab/
 COLLAB_DIR=$(dirname "$SESSION_PATH")

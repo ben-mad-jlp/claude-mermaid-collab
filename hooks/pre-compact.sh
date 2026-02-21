@@ -16,15 +16,15 @@ done
 [ -z "$SESSION_DIR" ] && exit 0
 
 # Read current state
-STATE=$(cat "${SESSION_DIR}collab-state.json")
-PHASE=$(echo "$STATE" | jq -r '.phase')
-CURRENT_ITEM=$(echo "$STATE" | jq -r '.currentItem // empty')
+STATE_JSON=$(cat "${SESSION_DIR}collab-state.json")
+STATE=$(echo "$STATE_JSON" | jq -r '.state')
+CURRENT_ITEM=$(echo "$STATE_JSON" | jq -r '.currentItem // empty')
 
-# Determine active skill from phase
-case "$PHASE" in
-  brainstorming*) SKILL="brainstorming" ;;
+# Determine active skill from state
+case "$STATE" in
+  brainstorm*) SKILL="brainstorming" ;;
   rough-draft*) SKILL="rough-draft" ;;
-  implementation*) SKILL="executing-plans" ;;
+  execute-batch|batch-router|ready-to-implement|bug-review|completeness-review|log-batch-complete) SKILL="executing-plans" ;;
   *) SKILL="collab" ;;
 esac
 
@@ -34,7 +34,7 @@ cat > "${SESSION_DIR}context-snapshot.json" << EOF
   "version": 1,
   "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "activeSkill": "$SKILL",
-  "currentStep": "$PHASE",
+  "currentStep": "$STATE",
   "pendingQuestion": null,
   "inProgressItem": $( [ -n "$CURRENT_ITEM" ] && echo "$CURRENT_ITEM" || echo "null" ),
   "recentContext": []

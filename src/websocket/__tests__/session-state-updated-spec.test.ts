@@ -29,7 +29,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
       // The session_state_updated type must be part of the WSMessage union
       const message: WSMessage = {
         type: 'session_state_updated',
-        phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: null,
       };
@@ -37,24 +36,10 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
       expect(message.type).toBe('session_state_updated');
     });
 
-    test('session_state_updated must include phase field (required)', () => {
-      const message: WSMessage = {
-        type: 'session_state_updated',
-        phase: 'brainstorming',
-        lastActivity: new Date().toISOString(),
-        currentItem: 1,
-      };
-
-      const state = message as any;
-      expect(state.phase).toBeDefined();
-      expect(typeof state.phase).toBe('string');
-    });
-
     test('session_state_updated must include lastActivity field (required)', () => {
       const timestamp = new Date().toISOString();
       const message: WSMessage = {
         type: 'session_state_updated',
-        phase: 'brainstorming',
         lastActivity: timestamp,
         currentItem: 1,
       };
@@ -67,14 +52,12 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
     test('session_state_updated must include currentItem field (required, can be null)', () => {
       const messageWithNull: WSMessage = {
         type: 'session_state_updated',
-        phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: null,
       };
 
       const messageWithNumber: WSMessage = {
         type: 'session_state_updated',
-        phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: 2,
       };
@@ -88,7 +71,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
     test('session_state_updated should support optional completedTasks array', () => {
       const message: WSMessage = {
         type: 'session_state_updated',
-        phase: 'executing-plans',
         lastActivity: new Date().toISOString(),
         currentItem: 1,
         completedTasks: ['task_1', 'task_2'],
@@ -101,7 +83,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
     test('session_state_updated should support optional pendingTasks array', () => {
       const message: WSMessage = {
         type: 'session_state_updated',
-        phase: 'executing-plans',
         lastActivity: new Date().toISOString(),
         currentItem: 1,
         pendingTasks: ['task_3', 'task_4'],
@@ -114,7 +95,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
     test('session_state_updated should support optional totalItems number', () => {
       const message: WSMessage = {
         type: 'session_state_updated',
-        phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: 1,
         totalItems: 5,
@@ -127,7 +107,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
     test('session_state_updated should support optional documentedItems number', () => {
       const message: WSMessage = {
         type: 'session_state_updated',
-        phase: 'rough-draft',
         lastActivity: new Date().toISOString(),
         currentItem: 2,
         documentedItems: 3,
@@ -142,7 +121,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
     test('session_state_updated message must be JSON serializable', () => {
       const message: WSMessage = {
         type: 'session_state_updated',
-        phase: 'brainstorming',
         lastActivity: '2026-01-26T10:30:00.000Z',
         currentItem: 1,
       };
@@ -150,13 +128,11 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
       const json = JSON.stringify(message);
       expect(typeof json).toBe('string');
       expect(json).toContain('session_state_updated');
-      expect(json).toContain('brainstorming');
     });
 
     test('session_state_updated message must be JSON deserializable', () => {
       const original: WSMessage = {
         type: 'session_state_updated',
-        phase: 'executing-plans',
         lastActivity: '2026-01-26T14:00:00.000Z',
         currentItem: 3,
         completedTasks: ['t1'],
@@ -169,7 +145,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
       const parsed = JSON.parse(json) as WSMessage;
 
       expect(parsed.type).toBe('session_state_updated');
-      expect((parsed as any).phase).toBe('executing-plans');
       expect((parsed as any).currentItem).toBe(3);
       expect((parsed as any).completedTasks).toEqual(['t1']);
       expect((parsed as any).totalItems).toBe(5);
@@ -178,7 +153,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
     test('session_state_updated should preserve null values in JSON', () => {
       const message: WSMessage = {
         type: 'session_state_updated',
-        phase: 'brainstorming',
         lastActivity: '2026-01-26T10:00:00Z',
         currentItem: null,
       };
@@ -194,7 +168,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
     test('session_state_updated should work with type narrowing', () => {
       const message: WSMessage = {
         type: 'session_state_updated',
-        phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: 1,
       };
@@ -202,7 +175,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
       // Type guard pattern should work
       if (message.type === 'session_state_updated') {
         const state = message as any;
-        expect(state.phase).toBeDefined();
         expect(state.lastActivity).toBeDefined();
         expect(state.currentItem).toBeDefined();
       } else {
@@ -214,7 +186,7 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
       const messages: WSMessage[] = [
         {
           type: 'session_state_updated',
-          phase: 'brainstorming',
+  
           lastActivity: new Date().toISOString(),
           currentItem: 1,
         },
@@ -246,7 +218,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
     test('session_state_updated message should be broadcastable via WebSocketHandler', () => {
       const message: WSMessage = {
         type: 'session_state_updated',
-        phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: 1,
       };
@@ -264,7 +235,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
     test('session_state_updated with all fields should broadcast correctly', () => {
       const message: WSMessage = {
         type: 'session_state_updated',
-        phase: 'executing-plans',
         lastActivity: '2026-01-26T15:00:00Z',
         currentItem: 2,
         completedTasks: ['task_1', 'task_2'],
@@ -277,7 +247,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
 
       const sentData = JSON.parse((mockWs.send as any).mock.calls[0][0]);
       expect(sentData.type).toBe('session_state_updated');
-      expect(sentData.phase).toBe('executing-plans');
       expect(sentData.completedTasks).toEqual(['task_1', 'task_2']);
       expect(sentData.totalItems).toBe(5);
     });
@@ -287,7 +256,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
     test('session_state_updated with empty arrays should serialize correctly', () => {
       const message: WSMessage = {
         type: 'session_state_updated',
-        phase: 'executing-plans',
         lastActivity: new Date().toISOString(),
         currentItem: 1,
         completedTasks: [],
@@ -304,7 +272,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
     test('session_state_updated with zero totalItems should be valid', () => {
       const message: WSMessage = {
         type: 'session_state_updated',
-        phase: 'brainstorming',
         lastActivity: new Date().toISOString(),
         currentItem: 0,
         totalItems: 0,
@@ -316,19 +283,5 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
       expect((message as any).documentedItems).toBe(0);
     });
 
-    test('session_state_updated should handle various phase values', () => {
-      const phases = ['brainstorming', 'rough-draft', 'executing-plans', 'finished'];
-
-      phases.forEach((phase) => {
-        const message: WSMessage = {
-          type: 'session_state_updated',
-          phase,
-          lastActivity: new Date().toISOString(),
-          currentItem: 1,
-        };
-
-        expect((message as any).phase).toBe(phase);
-      });
-    });
   });
 });

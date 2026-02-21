@@ -16,7 +16,6 @@ import type { TaskBatch, WorkItem, WorkItemType, SessionType } from '../workflow
 export interface CollabState {
   state?: string; // Current state machine state ID
   sessionType?: SessionType; // Session type: 'structured' (guided) or 'vibe' (freeform)
-  phase?: string; // Optional, derived from state via derivePhase()
   lastActivity: string;
   currentItem: number | null;
   currentItemType?: WorkItemType; // Type of current item for routing
@@ -36,7 +35,6 @@ export interface CollabState {
 export interface StateUpdateParams {
   state?: string; // Current state machine state ID
   sessionType?: SessionType; // Session type: 'structured' (guided) or 'vibe' (freeform)
-  phase?: string;
   currentItem?: number | null;
   currentItemType?: WorkItemType; // Type of current item for routing
   workItems?: WorkItem[]; // Work items for the session
@@ -66,29 +64,6 @@ async function fileExists(path: string): Promise<boolean> {
   }
 }
 
-/**
- * Derive phase from state for backwards compatibility.
- * Extracts the base phase from the state identifier.
- * @param state - The state identifier
- * @returns The derived phase name
- */
-export function derivePhase(state: string): string {
-  if (state.startsWith('brainstorm')) {
-    return 'brainstorming';
-  }
-  if (state.startsWith('rough-draft')) {
-    return 'rough-draft';
-  }
-  if (state === 'ready-to-implement') {
-    return 'ready';
-  }
-  if (state === 'execute-batch') {
-    return 'executing';
-  }
-  // Return state as-is as fallback
-  return state;
-}
-
 // ============= State Management Functions =============
 
 export async function getSessionState(project: string, session: string): Promise<CollabState> {
@@ -104,11 +79,6 @@ export async function getSessionState(project: string, session: string): Promise
   // Compute display name from state if available
   if (rawState.state) {
     rawState.displayName = getDisplayName(rawState.state);
-  }
-
-  // Derive phase from state for backwards compatibility if not already set
-  if (rawState.state && !rawState.phase) {
-    rawState.phase = derivePhase(rawState.state);
   }
 
   return rawState;
@@ -131,10 +101,6 @@ export async function updateSessionState(
 
   // Merge updates
   const newState: CollabState = {
-    // Only include phase if explicitly set or exists in current state (for backwards compat)
-    // New sessions should use state instead, with phase derived via derivePhase()
-    ...(updates.phase && { phase: updates.phase }),
-    ...(currentState.phase && !updates.phase && { phase: currentState.phase }),
     lastActivity: new Date().toISOString(),
     currentItem: updates.currentItem !== undefined ? updates.currentItem : (currentState.currentItem ?? null),
     // State machine field - primary control mechanism
@@ -187,7 +153,6 @@ export async function updateSessionState(
 
       wsHandler.broadcast({
         type: 'session_state_updated',
-        phase: newState.phase,
         lastActivity: newState.lastActivity,
         currentItem: newState.currentItem,
         ...(newState.state && { state: newState.state }),

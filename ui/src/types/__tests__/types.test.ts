@@ -28,12 +28,10 @@ describe('Session Types', () => {
       const session: Session = {
         project: '/path/to/project',
         name: 'test-session',
-        phase: 'phase-1',
         lastActivity: '2024-01-21T10:30:00Z',
         itemCount: 5,
       };
 
-      expect(session.phase).toBe('phase-1');
       expect(session.lastActivity).toBe('2024-01-21T10:30:00Z');
       expect(session.itemCount).toBe(5);
     });
@@ -42,19 +40,16 @@ describe('Session Types', () => {
   describe('CollabState interface', () => {
     it('should have required properties', () => {
       const state: CollabState = {
-        phase: 'brainstorming',
         lastActivity: '2024-01-21T10:30:00Z',
         currentItem: null,
       };
 
-      expect(state.phase).toBeDefined();
       expect(state.lastActivity).toBeDefined();
       expect(state.currentItem).toBeNull();
     });
 
     it('should support optional properties', () => {
       const state: CollabState = {
-        phase: 'implementation',
         lastActivity: '2024-01-21T10:30:00Z',
         currentItem: 1,
         worktreePath: '/path/to/worktree',
@@ -212,7 +207,7 @@ describe('Document Types', () => {
 describe('Type Exports', () => {
   it('should export all session types', () => {
     const session: Session = { project: 'p', name: 'n' };
-    const state: CollabState = { phase: 'p', lastActivity: 'a', currentItem: null };
+    const state: CollabState = { lastActivity: 'a', currentItem: null };
     const issue: VerificationIssue = {
       type: 'drift',
       phase: 'p',
@@ -260,12 +255,12 @@ describe('Type Compatibility', () => {
   it('should support array of mixed session data', () => {
     const sessions: Session[] = [
       { project: 'p1', name: 's1' },
-      { project: 'p2', name: 's2', phase: 'phase-1', itemCount: 3 },
+      { project: 'p2', name: 's2', itemCount: 3 },
     ];
 
     expect(sessions).toHaveLength(2);
     expect(sessions[0].project).toBe('p1');
-    expect(sessions[1].phase).toBe('phase-1');
+    expect(sessions[1].itemCount).toBe(3);
   });
 
   it('should support mixed arrays of diagrams and documents', () => {
@@ -308,7 +303,6 @@ describe('Type Validation Scenarios', () => {
 
   it('should handle sessions with null currentItem', () => {
     const state: CollabState = {
-      phase: 'p',
       lastActivity: 'a',
       currentItem: null,
     };
@@ -318,7 +312,6 @@ describe('Type Validation Scenarios', () => {
 
   it('should handle sessions with numeric currentItem', () => {
     const state: CollabState = {
-      phase: 'p',
       lastActivity: 'a',
       currentItem: 42,
     };
@@ -328,7 +321,6 @@ describe('Type Validation Scenarios', () => {
 
   it('should handle empty verification issues array', () => {
     const state: CollabState = {
-      phase: 'p',
       lastActivity: 'a',
       currentItem: null,
       pendingVerificationIssues: [],

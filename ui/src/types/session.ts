@@ -5,14 +5,12 @@
 export interface Session {
   project: string;
   name: string;
-  phase?: string;
   displayName?: string;
   lastActivity?: string;
   itemCount?: number;
 }
 
 export interface CollabState {
-  phase?: string;
   displayName?: string;
   state?: string;
   lastActivity: string;

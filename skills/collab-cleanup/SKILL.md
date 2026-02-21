@@ -58,16 +58,16 @@ Close a collab session after development is complete. Offers choices to archive 
    ```
 2. Filter results to current project (match `project` field against absolute cwd path)
 3. If sessions found for current project:
-   - For each session, fetch phase via `mcp__plugin_mermaid-collab_mermaid__get_session_state`:
+   - For each session, fetch state via `mcp__plugin_mermaid-collab_mermaid__get_session_state`:
      ```
      Tool: mcp__plugin_mermaid-collab_mermaid__get_session_state
      Args: { "project": "<cwd>", "session": "<session-name>" }
      ```
-   - Display list with phases:
+   - Display list with current state:
      ```
      Sessions in this project:
-     1. glowing-sunny-mesa (phase: rough-draft)
-     2. bright-calm-river (phase: implementation)
+     1. glowing-sunny-mesa (state: rough-draft-blueprint)
+     2. bright-calm-river (state: execute-batch)
      ```
    - Ask: "Which session to clean up?" (or if only one, confirm it)
 4. If no sessions for current project:
@@ -81,7 +81,7 @@ Display session details:
 ```
 Session: [name]
 Template: [feature/bugfix/refactor/spike]
-Phase: [current phase]
+State: [current state]
 
 Artifacts:
 - Documents: [list .md files]
@@ -195,7 +195,6 @@ If lessons were recorded during the session:
    Args: {
      "project": "<absolute-path-to-cwd>",
      "session": "<session-name>",
-     "phase": "brainstorming",
      "currentItem": null
    }
    ```
@@ -233,7 +232,7 @@ collab → brainstorming → rough-draft → executing-plans → bug-review → 
 
 ### Deleting active session
 - **Problem:** User accidentally deletes session they're still working on
-- **Fix:** Confirm deletion, check if phase is not "implementation"
+- **Fix:** Confirm deletion, check if state is not in implementation (execute-batch, batch-router, etc.)
 
 ## Red Flags
 

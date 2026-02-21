@@ -911,7 +911,6 @@ describe('App Component', () => {
     it('should call setCollabState directly to update collab state', () => {
       // Test the sessionStore method directly
       const testCollabState = {
-        phase: 'brainstorming',
         lastActivity: '2025-01-26T12:00:00Z',
         currentItem: 1,
         totalItems: 5,
@@ -930,7 +929,6 @@ describe('App Component', () => {
     it('should clear collabState when setCollabState is called with null', () => {
       // Setup: Set initial collab state
       const testCollabState = {
-        phase: 'brainstorming',
         lastActivity: '2025-01-26T12:00:00Z',
         currentItem: 1,
       };
@@ -949,7 +947,6 @@ describe('App Component', () => {
     it('should handle partial collabState updates', () => {
       // Set initial state
       const initialState = {
-        phase: 'brainstorming',
         lastActivity: '2025-01-26T12:00:00Z',
         currentItem: 1,
         totalItems: 5,
@@ -958,7 +955,6 @@ describe('App Component', () => {
 
       // Update with new state
       const updatedState = {
-        phase: 'executing-plans',
         lastActivity: '2025-01-26T13:00:00Z',
         currentItem: 2,
         totalItems: 5,
@@ -968,16 +964,15 @@ describe('App Component', () => {
 
       // Verify the new state replaced the old
       const currentState = useSessionStore.getState().collabState;
-      expect(currentState?.phase).toBe('executing-plans');
       expect(currentState?.currentItem).toBe(2);
       expect(currentState?.completedTasks).toEqual(['task-1']);
     });
 
     it('should handle rapid successive state updates', () => {
       const states = [
-        { phase: 'phase-1', currentItem: 1, lastActivity: '2025-01-26T12:00:00Z' },
-        { phase: 'phase-2', currentItem: 2, lastActivity: '2025-01-26T12:01:00Z' },
-        { phase: 'phase-3', currentItem: 3, lastActivity: '2025-01-26T12:02:00Z' },
+        { currentItem: 1, lastActivity: '2025-01-26T12:00:00Z' },
+        { currentItem: 2, lastActivity: '2025-01-26T12:01:00Z' },
+        { currentItem: 3, lastActivity: '2025-01-26T12:02:00Z' },
       ];
 
       // Apply states in rapid succession
@@ -987,13 +982,11 @@ describe('App Component', () => {
 
       // Verify the final state is the last one
       const currentState = useSessionStore.getState().collabState;
-      expect(currentState?.phase).toBe('phase-3');
       expect(currentState?.currentItem).toBe(3);
     });
 
     it('should update totalItems and documentedItems properties', () => {
       const testCollabState = {
-        phase: 'brainstorming',
         lastActivity: '2025-01-26T12:00:00Z',
         currentItem: 1,
         totalItems: 10,
@@ -1010,7 +1003,6 @@ describe('App Component', () => {
 
     it('should persist state across multiple store calls', () => {
       const state1 = {
-        phase: 'phase-1',
         lastActivity: '2025-01-26T12:00:00Z',
         currentItem: 1,
         totalItems: 5,
@@ -1020,7 +1012,7 @@ describe('App Component', () => {
 
       // Read it back
       const readState = useSessionStore.getState().collabState;
-      expect(readState?.phase).toBe('phase-1');
+      expect(readState?.currentItem).toBe(1);
 
       // Update it
       const state2 = {

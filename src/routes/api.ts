@@ -352,15 +352,6 @@ export async function handleAPI(
       if (state.state && !state.displayName) {
         state.displayName = getDisplayName(state.state);
       }
-      // Fallback: use phase as displayName for older sessions without state
-      // Try getDisplayName first (handles vibe-active -> Vibing), then capitalize
-      else if (!state.state && state.phase && !state.displayName) {
-        const lookup = getDisplayName(state.phase);
-        // If getDisplayName returned the same value (no mapping found), capitalize it
-        state.displayName = lookup !== state.phase
-          ? lookup
-          : state.phase.charAt(0).toUpperCase() + state.phase.slice(1);
-      }
 
       return Response.json(state);
     } catch (error: any) {

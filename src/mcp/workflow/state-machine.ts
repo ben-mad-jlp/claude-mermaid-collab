@@ -392,6 +392,22 @@ export function migrateWorkItems(items: WorkItem[]): WorkItem[] {
 }
 
 /**
+ * Set of states that belong to the implementation phase.
+ * Used to replace the legacy `phase === 'implementation'` checks.
+ */
+const IMPLEMENTATION_STATES = new Set([
+  'execute-batch', 'batch-router', 'log-batch-complete',
+  'ready-to-implement', 'bug-review', 'completeness-review',
+]);
+
+/**
+ * Check whether a state ID belongs to the implementation phase.
+ */
+export function isImplementationState(state: string): boolean {
+  return IMPLEMENTATION_STATES.has(state);
+}
+
+/**
  * Session state interface for phase batching routing
  * Re-export from transitions for convenience
  */

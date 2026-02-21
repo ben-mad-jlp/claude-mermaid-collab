@@ -55,7 +55,7 @@ Then restart Claude Code and run /collab again.
 4. Initialize state with sessionType:
    ```
    Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
-   Args: { "project": "<cwd>", "session": "<name>", "phase": "initialize", "sessionType": "<structured|vibe>", "currentItem": null }
+   Args: { "project": "<cwd>", "session": "<name>", "sessionType": "<structured|vibe>", "currentItem": null }
    ```
 5. Route via state machine (same for both types):
    ```

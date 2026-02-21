@@ -3,7 +3,7 @@
  */
 
 import type { CompleteSkillOutput, StateId, WorkItem, WorkItemType } from './types.js';
-import { getState, skillToState, getSkillForState, migrateWorkItems } from './state-machine.js';
+import { getState, skillToState, getSkillForState, migrateWorkItems, isImplementationState } from './state-machine.js';
 import { getNextState, buildTransitionContext, resolveToSkillState, getStatusUpdateForSkill } from './transitions.js';
 import { getSessionState, updateSessionState, type CollabState } from '../tools/collab-state.js';
 import { syncTasksFromTaskGraph } from './task-sync.js';
@@ -274,8 +274,6 @@ export async function completeSkill(
   // 7. Update session state
   await updateSessionState(project, session, {
     state: resolved.stateId,
-    // Update phase based on state category
-    phase: getPhaseFromState(resolved.stateId),
     // Persist inferred item if currentItem was null
     ...inferredItemUpdates,
     // Include item updates if we selected a new work item (router selections take precedence)
@@ -287,7 +285,7 @@ export async function completeSkill(
   });
 
   // 9. Auto-update diagram during execution phase
-  if (sessionState.phase === 'implementation' && sessionState.batches) {
+  if (sessionState.state && isImplementationState(sessionState.state) && sessionState.batches) {
     try {
       await updateTaskDiagram(project, session, sessionState);
     } catch (error) {
@@ -306,56 +304,6 @@ export async function completeSkill(
     next_skill: resolved.skill,
     params: buildParams(resolved.stateId, effectiveState),
   };
-}
-
-/**
- * Get phase string from state ID
- */
-function getPhaseFromState(stateId: StateId): string {
-  // Brainstorming phase states
-  if (
-    stateId.startsWith('brainstorm') ||
-    stateId === 'systematic-debugging' ||
-    stateId === 'task-planning' ||
-    stateId === 'item-type-router' ||
-    stateId === 'work-item-router'
-  ) {
-    return 'brainstorming';
-  }
-
-  // Rough-draft confirm (transition between phases)
-  if (stateId === 'rough-draft-confirm') {
-    return 'rough-draft/confirm';
-  }
-
-  // Rough-draft phase states
-  if (stateId.startsWith('rough-draft')) {
-    return `rough-draft/${stateId.replace('rough-draft-', '')}`;
-  }
-
-  // Implementation phase states
-  if (
-    stateId === 'execute-batch' ||
-    stateId === 'batch-router' ||
-    stateId === 'log-batch-complete' ||
-    stateId === 'ready-to-implement' ||
-    stateId === 'bug-review' ||
-    stateId === 'completeness-review'
-  ) {
-    return 'implementation';
-  }
-
-  // Completion phase states
-  if (stateId === 'workflow-complete' || stateId === 'cleanup' || stateId === 'done') {
-    return 'complete';
-  }
-
-  // Vibe mode
-  if (stateId === 'vibe-active') {
-    return 'vibe';
-  }
-
-  return 'brainstorming';
 }
 
 /**

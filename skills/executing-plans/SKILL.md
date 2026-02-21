@@ -139,7 +139,6 @@ Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
 Args: {
   "project": "<cwd>",
   "session": "<name>",
-  "phase": "implementation",
   "completedTasks": [],
   "pendingTasks": ["task-1", "task-2", "task-3"],
   "pendingVerificationIssues": []

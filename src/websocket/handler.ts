@@ -29,7 +29,7 @@ export type WSMessage =
   | { type: 'session_created'; project: string; session: string }
   | { type: 'notification'; data: NotificationData }
   | { type: 'status_changed'; status: 'working' | 'waiting' | 'idle'; message?: string; lastActivity: string }
-  | { type: 'session_state_updated'; phase: string; lastActivity: string; currentItem: number | null; completedTasks?: string[]; pendingTasks?: string[]; totalItems?: number; documentedItems?: number };
+  | { type: 'session_state_updated'; lastActivity: string; currentItem: number | null; completedTasks?: string[]; pendingTasks?: string[]; totalItems?: number; documentedItems?: number };
 
 export class WebSocketHandler {
   private connections: Set<ServerWebSocket<{ subscriptions: Set<string> }>> = new Set();

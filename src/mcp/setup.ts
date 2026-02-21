@@ -1040,7 +1040,7 @@ EXAMPLE:
       },
       {
         name: 'get_session_state',
-        description: 'Get current collab session state (phase, currentItem, etc.)',
+        description: 'Get current collab session state (state, currentItem, etc.)',
         inputSchema: {
           type: 'object',
           properties: {
@@ -1058,7 +1058,6 @@ EXAMPLE:
           properties: {
             project: { type: 'string', description: 'Absolute path to project root' },
             session: { type: 'string', description: 'Session name' },
-            phase: { type: 'string', description: 'Current phase' },
             currentItem: { type: ['number', 'null'], description: 'Current work item number' },
             currentItemType: { type: 'string', enum: ['code', 'task', 'bugfix'], description: 'Type of current work item' },
             workItems: {
@@ -1789,7 +1788,6 @@ EXAMPLE:
             const { project, session, ...updates } = args as {
               project: string;
               session: string;
-              phase?: string;
               currentItem?: number | null;
               currentItemType?: 'code' | 'task' | 'bugfix';
               workItems?: Array<{

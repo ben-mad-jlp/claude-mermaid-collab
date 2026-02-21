@@ -12,7 +12,6 @@ describe('useSessionStore', () => {
   const createMockSession = (overrides?: Partial<Session>): Session => ({
     project: 'test-project',
     name: 'Test Session',
-    phase: 'brainstorming',
     lastActivity: new Date().toISOString(),
     itemCount: 5,
     ...overrides,
@@ -39,7 +38,6 @@ describe('useSessionStore', () => {
   });
 
   const createMockCollabState = (overrides?: Partial<CollabState>): CollabState => ({
-    phase: 'brainstorming',
     lastActivity: new Date().toISOString(),
     currentItem: 1,
     ...overrides,
@@ -427,10 +425,10 @@ describe('useSessionStore', () => {
       const collabState = createMockCollabState();
       useSessionStore.getState().setCollabState(collabState);
 
-      const updatedState = createMockCollabState({ phase: 'implementation' });
+      const updatedState = createMockCollabState({ currentItem: 5 });
       useSessionStore.getState().setCollabState(updatedState);
 
-      expect(useSessionStore.getState().collabState?.phase).toBe('implementation');
+      expect(useSessionStore.getState().collabState?.currentItem).toBe(5);
     });
   });
 
