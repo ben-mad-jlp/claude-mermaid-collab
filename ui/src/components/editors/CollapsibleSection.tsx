@@ -68,17 +68,18 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
   const HeadingTag = `h${level}` as keyof JSX.IntrinsicElements;
   const headingClass = headingClasses[level] || headingClasses[6];
   const contentRef = useRef<HTMLDivElement>(null);
+  const innerRef = useRef<HTMLDivElement>(null);
   const [measuredHeight, setMeasuredHeight] = useState<number>(0);
   const [transitioning, setTransitioning] = useState(false);
 
   const updateHeight = useCallback(() => {
-    if (contentRef.current) {
-      setMeasuredHeight(contentRef.current.scrollHeight);
+    if (innerRef.current) {
+      setMeasuredHeight(innerRef.current.scrollHeight);
     }
   }, []);
 
   useEffect(() => {
-    const el = contentRef.current;
+    const el = innerRef.current;
     if (!el) return;
     updateHeight();
     const observer = new ResizeObserver(updateHeight);
@@ -118,7 +119,7 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
         }}
         onTransitionEnd={handleTransitionEnd}
       >
-        <div className="pl-6">{children}</div>
+        <div ref={innerRef} className="pl-6">{children}</div>
       </div>
     </div>
   );
