@@ -2,6 +2,23 @@
 
 The design editor is a Figma-compatible vector design tool built on CanvasKit (Skia WASM). It supports rectangles, ellipses, text, frames with auto-layout, lines, groups, sections, and components.
 
+## When to Use the Design Editor vs Mermaid
+
+**Use the design editor** when precise visual appearance matters:
+- GUI mockups — screens, dialogs, forms, navigation bars
+- UI component prototypes — buttons, cards, inputs, lists, tables
+- Page layouts — content arrangement, spacing, responsive grids
+- Marketing/presentation visuals — landing pages, feature callouts
+- Design system explorations — color palettes, typography, spacing scales
+
+**Use Mermaid diagrams** when logical relationships matter more than visual fidelity:
+- Flowcharts, decision trees, process flows, algorithms
+- Sequence diagrams — API calls, message passing, request/response
+- State diagrams, architecture diagrams, class/ER diagrams
+- Gantt charts, mind maps, git graphs
+
+**Rule of thumb:** If you're showing what a user would *see on screen*, use the design editor. If you're showing how things *connect or flow*, use Mermaid.
+
 ## MCP Tools
 
 ### Creating Designs

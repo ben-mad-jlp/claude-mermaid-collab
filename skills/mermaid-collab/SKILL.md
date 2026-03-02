@@ -14,7 +14,7 @@ This skill helps you create, edit, and collaborate on Mermaid diagrams and UI de
 
 - **Real-time Diagram Editor**: Live preview with pan, zoom, and auto-save for Mermaid diagrams
 - **Real-time Document Editor**: Markdown document collaboration with live preview
-- **UI Design Plugin**: Text-based design creation for mobile, tablet, and desktop
+- **Design Editor**: Figma-compatible vector design tool for GUI mockups and visual layouts
 - **Team Collaboration**: Real-time updates across all connected clients via WebSocket
 - **File-Based Storage**: Simple `.mmd` and `.md` files for version control
 - **Unified Dashboard**: Browse and manage both diagrams and documents in one place
@@ -37,14 +37,35 @@ The server starts on `http://localhost:3737`. The `PUBLIC_DIR` (HTML/CSS/JS) is 
 
 ## When to Use This Skill
 
-Use this skill when you need to:
-- Create flowcharts, state diagrams, sequence diagrams, or any Mermaid diagram
-- Design UI designs and mockups with text-based syntax
-- Write and collaborate on markdown documentation, specs, or notes
-- Collaborate with team members in real-time on diagrams or documents
-- Quickly prototype and iterate on visual designs
-- Document workflows, architectures, or processes
-- Create technical documentation with live preview
+Use this skill when you need to create visual artifacts or collaborative documents.
+
+### Mermaid Diagrams — logic, structure, relationships
+
+Use `create_diagram()` when the **relationships between things** matter more than pixel-perfect appearance:
+- Flowcharts, decision trees, process flows
+- Sequence diagrams (API calls, message passing)
+- State diagrams, lifecycle transitions
+- Architecture diagrams (system components and connections)
+- Class/ER diagrams, data models
+- Gantt charts, timelines
+- Mind maps, git graphs
+
+### Design Editor — visual layouts, GUIs, mockups
+
+Use `create_design()` + `add_design_node()` / `batch_design_operations()` when **precise visual appearance** matters:
+- GUI mockups (screens, dialogs, forms, navigation)
+- UI component prototypes (buttons, cards, inputs)
+- Page layouts, content arrangement, spacing
+- Marketing/presentation visuals
+- Design system explorations (color, typography, spacing)
+
+### Documents — written specs and notes
+
+Use `create_document()` for:
+- Design specifications and requirements
+- Technical documentation
+- Meeting notes, decision logs
+- Any long-form collaborative writing
 
 ## MCP Tools Available
 

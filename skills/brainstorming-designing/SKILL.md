@@ -106,36 +106,49 @@ Do NOT describe architecture or flow in text alone. Show it visually, then expla
 
 ## Visualizing with Mermaid Collab
 
-When brainstorming involves visual artifacts, use the mermaid-collab server.
+When brainstorming involves visual artifacts, use the mermaid-collab server. Choose the right tool:
 
-**GUI/UI Design (ALWAYS use designs):**
-- When discussing screens, layouts, or user interfaces -> create design diagrams
-- Use `create_diagram(name, content)` with design syntax
-- Iterate on designs as the design evolves
-- Preview with `preview_diagram(id)` so user can see in browser
+### Mermaid Diagrams — for logic, structure, and relationships
 
-**Architecture and Flow Design:**
-- System architecture -> flowchart diagrams
-- Data flow -> sequence or flowchart diagrams
-- State machines -> SMACH YAML or state diagrams
-- Component relationships -> class or flowchart diagrams
+Use `create_diagram()` when the **relationships between things** matter more than visual fidelity:
 
-**Design Documents:**
+- **Flowcharts** — decision trees, process flows, algorithms
+- **Sequence diagrams** — API calls, message passing, request/response flows
+- **State diagrams** — state machines, lifecycle transitions
+- **Architecture diagrams** — system components and how they connect
+- **Class/ER diagrams** — data models, entity relationships
+- **Gantt charts** — timelines, project planning
+- **Mind maps** — brainstorming, concept mapping
+- **Git graphs** — branching strategies
+
+### Design Editor — for visual layouts and GUIs
+
+Use `create_design()` + `add_design_node()` / `batch_design_operations()` when **precise visual appearance** matters:
+
+- **GUI mockups** — screens, dialogs, forms, navigation
+- **UI component prototypes** — buttons, cards, inputs, lists
+- **Page layouts** — content arrangement, spacing, responsive grids
+- **Marketing/presentation visuals** — landing pages, feature callouts
+- **Design system explorations** — color palettes, typography, spacing scales
+
+### Design Documents
+
 - Use `create_document(name, content)` for design specs
 - Iterate on documents with `update_document(id, content)`
-- Link related diagrams in the document
+- Link related diagrams and designs in the document
 
-**Workflow:**
-1. During "Exploring approaches" phase, create diagram(s) to visualize options
-2. During "Presenting the design" phase, update diagrams to match validated sections
-3. When writing final design doc, embed diagram references
+### Workflow
+
+1. During "Exploring approaches" phase, create Mermaid diagrams for architecture/flow options
+2. During "Presenting the design" phase, create designs for any UI/screen mockups
+3. When writing final design doc, reference both diagrams and designs
 
 ## Design Completeness Checklist
 
 Before moving to VALIDATING, ensure:
 
-- [ ] Every screen/UI has a design in mermaid-collab
-- [ ] Every data flow/architecture decision has a diagram
+- [ ] Every screen/UI has a **design** in mermaid-collab
+- [ ] Every data flow/architecture decision has a **Mermaid diagram**
 - [ ] No ambiguous language ("should handle errors appropriately" -> specify HOW)
 - [ ] No TBD or "figure out later" items
 - [ ] Success criteria are measurable, not subjective
