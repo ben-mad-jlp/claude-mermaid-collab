@@ -1062,6 +1062,73 @@ export async function handleAPI(
     }
   }
 
+  // POST /api/design/:id/export?project=...&session=...&format=png&scale=2
+  // Sends WS request to browser, browser renders and POSTs result back
+  if (/^\/api\/design\/[^/]+\/export$/.test(path) && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+    const id = path.split('/')[3]; // /api/design/{id}/export
+    const format = url.searchParams.get('format') || 'png';
+    const scale = parseFloat(url.searchParams.get('scale') || '2');
+    const requestId = `export_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+    // Create a promise that resolves when the browser uploads the result
+    const resultPromise = new Promise<{ data: Uint8Array; mimeType: string } | null>((resolve) => {
+      const timeout = setTimeout(() => {
+        delete (wsHandler as any).__pendingExports?.[requestId];
+        resolve(null);
+      }, 15000); // 15s timeout
+
+      if (!(wsHandler as any).__pendingExports) {
+        (wsHandler as any).__pendingExports = {};
+      }
+      (wsHandler as any).__pendingExports[requestId] = (data: Uint8Array, mimeType: string) => {
+        clearTimeout(timeout);
+        delete (wsHandler as any).__pendingExports[requestId];
+        resolve({ data, mimeType });
+      };
+    });
+
+    // Ask browser to render
+    wsHandler.broadcast({
+      type: 'design_export_request',
+      requestId,
+      designId: id,
+      format,
+      scale,
+      project: params.project,
+      session: params.session,
+    } as any);
+
+    const result = await resultPromise;
+    if (!result) {
+      return Response.json({ error: 'Export timed out. Is the design open in a browser?' }, { status: 408 });
+    }
+
+    return new Response(result.data, {
+      headers: {
+        'Content-Type': result.mimeType,
+        'Content-Disposition': `attachment; filename="${id}.${format}"`,
+      },
+    });
+  }
+
+  // POST /api/design-export-result/:requestId - Browser uploads rendered image
+  if (path.startsWith('/api/design-export-result/') && req.method === 'POST') {
+    const requestId = path.split('/').pop()!;
+    const pending = (wsHandler as any).__pendingExports?.[requestId];
+    if (!pending) {
+      return Response.json({ error: 'No pending export for this request' }, { status: 404 });
+    }
+
+    const arrayBuffer = await req.arrayBuffer();
+    const contentType = req.headers.get('content-type') || 'image/png';
+    pending(new Uint8Array(arrayBuffer), contentType);
+    return Response.json({ success: true });
+  }
+
   // GET /api/render/:id?project=...&session=...
   if (path.startsWith('/api/render/') && req.method === 'GET') {
     const params = getSessionParams(url);

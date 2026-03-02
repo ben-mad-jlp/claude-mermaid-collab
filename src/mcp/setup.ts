@@ -58,11 +58,13 @@ import {
   handleGetDesign,
   handleListDesigns,
   handleDeleteDesign,
+  handleExportDesign,
   createDesignSchema,
   updateDesignSchema,
   getDesignSchema,
   listDesignsSchema,
   deleteDesignSchema,
+  exportDesignSchema,
 } from './tools/design.js';
 import {
   addDesignNodeSchema,
@@ -958,6 +960,11 @@ IMPORTANT - Common pitfalls to avoid:
         inputSchema: batchDesignOperationsSchema,
       },
       {
+        name: 'export_design_png',
+        description: 'Export a design as an image (PNG, JPG, or WEBP). Requires the design to be open in a browser. The browser renders the design via CanvasKit and returns the image. Returns the file path of the saved image.',
+        inputSchema: exportDesignSchema,
+      },
+      {
         name: 'render_ui',
         description: 'Push UI to browser. Renders JSON UI definitions to the browser and manages user interactions. Can optionally block until user action is received.',
         inputSchema: renderUISchema,
@@ -1660,6 +1667,13 @@ IMPORTANT - Common pitfalls to avoid:
             const { project, session, designId, operations } = args as { project: string; session: string; designId: string; operations: any[] };
             if (!project || !session || !designId || !operations) throw new Error('Missing required: project, session, designId, operations');
             const result = await handleBatchDesignOperations(project, session, designId, operations);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'export_design_png': {
+            const { project, session, id, format, scale, outputPath } = args as { project: string; session: string; id: string; format?: string; scale?: number; outputPath?: string };
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            const result = await handleExportDesign(project, session, id, format || 'png', scale || 2, outputPath);
             return JSON.stringify(result, null, 2);
           }
 

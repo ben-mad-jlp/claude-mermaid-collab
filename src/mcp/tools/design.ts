@@ -4,6 +4,10 @@
  * CRUD operations for design files stored as .design.json in session folders.
  */
 
+import { writeFile } from 'fs/promises';
+import { join } from 'path';
+import { tmpdir } from 'os';
+
 const API_PORT = parseInt(process.env.PORT || '3737', 10);
 const API_HOST = process.env.HOST || 'localhost';
 const API_BASE_URL = `http://${API_HOST}:${API_PORT}`;
@@ -105,6 +109,18 @@ export const deleteDesignSchema = {
   required: ['project', 'id'],
 };
 
+export const exportDesignSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    id: { type: 'string', description: 'Design ID to export' },
+    format: { type: 'string', enum: ['png', 'jpg', 'webp'], description: 'Image format (default: png)' },
+    scale: { type: 'number', description: 'Export scale factor (default: 2)' },
+    outputPath: { type: 'string', description: 'File path to save the exported image. If not provided, saves to a temp file.' },
+  },
+  required: ['project', 'id'],
+};
+
 // ============= Handlers =============
 
 export async function handleCreateDesign(
@@ -197,4 +213,31 @@ export async function handleDeleteDesign(
   }
 
   return { success: true };
+}
+
+export async function handleExportDesign(
+  project: string,
+  session: string,
+  id: string,
+  format: string = 'png',
+  scale: number = 2,
+  outputPath?: string
+): Promise<{ success: boolean; filePath: string; format: string; size: number }> {
+  const response = await fetch(
+    buildUrl(`/api/design/${id}/export`, project, session, { format, scale: String(scale) }),
+    { method: 'POST' }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(`Failed to export design: ${error.error || response.statusText}`);
+  }
+
+  const data = new Uint8Array(await response.arrayBuffer());
+  const ext = format === 'jpg' ? 'jpg' : format === 'webp' ? 'webp' : 'png';
+  const filePath = outputPath || join(tmpdir(), `design-${id}-${Date.now()}.${ext}`);
+
+  await writeFile(filePath, data);
+
+  return { success: true, filePath, format: ext, size: data.length };
 }

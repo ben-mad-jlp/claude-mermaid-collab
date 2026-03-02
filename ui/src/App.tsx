@@ -533,6 +533,42 @@ const App: React.FC = () => {
           break;
         }
 
+        case 'design_export_request': {
+          // Browser-side rendering for MCP export
+          const { requestId, designId, format, scale } = message as any;
+          if (requestId && designId) {
+            (async () => {
+              try {
+                const { getEditorRefs } = await import('@/stores/designEditorRefs');
+                const { renderNodesToImage } = await import('@/engine/render-image');
+                const { useDesignEditorStore } = await import('@/stores/designEditorStore');
+
+                const { canvasKit, renderer, graph } = getEditorRefs();
+                if (!canvasKit || !renderer) throw new Error('Editor not initialized');
+
+                const pageId = useDesignEditorStore.getState().currentPageId;
+                const page = graph.getNode(pageId);
+                if (!page || page.childIds.length === 0) throw new Error('No content to export');
+
+                const data = renderNodesToImage(canvasKit, renderer, graph, pageId, page.childIds, {
+                  scale: scale || 2,
+                  format: (format || 'PNG').toUpperCase() as 'PNG' | 'JPG' | 'WEBP',
+                });
+                if (!data) throw new Error('Render returned no data');
+
+                await fetch(`/api/design-export-result/${requestId}`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': format === 'jpg' ? 'image/jpeg' : 'image/png' },
+                  body: data.buffer as ArrayBuffer,
+                });
+              } catch (err) {
+                console.error('Design export failed:', err);
+              }
+            })();
+          }
+          break;
+        }
+
         case 'claude_question': {
           // Item 9: Handle incoming Claude Code questions
           const { question } = message as any;
