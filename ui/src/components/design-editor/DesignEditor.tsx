@@ -5,7 +5,7 @@
  * input handling, keyboard shortcuts, and data sync.
  */
 
-import React, { useRef, useEffect } from 'react'
+import React, { useRef, useEffect, useState } from 'react'
 import { DesignToolbar } from './DesignToolbar'
 import { LayersPanel } from './LayersPanel'
 import { PropertiesPanel } from './PropertiesPanel'
@@ -53,6 +53,9 @@ export const DesignEditor: React.FC<DesignEditorProps> = ({ designId }) => {
     }
   }, [designContent, handleRemoteUpdate])
 
+  const [showLayers, setShowLayers] = useState(true)
+  const [showProperties, setShowProperties] = useState(true)
+
   if (error) {
     return (
       <div className="flex items-center justify-center h-full bg-gray-50 dark:bg-gray-900">
@@ -71,12 +74,38 @@ export const DesignEditor: React.FC<DesignEditorProps> = ({ designId }) => {
       <DesignToolbar />
       <div className="flex-1 min-h-0 flex">
         {/* Left: Layers panel */}
-        <div className="w-[240px] shrink-0">
-          <LayersPanel />
-        </div>
+        {showLayers && (
+          <div className="w-[240px] shrink-0 border-r border-gray-200 dark:border-gray-700">
+            <LayersPanel onClose={() => setShowLayers(false)} />
+          </div>
+        )}
 
         {/* Center: Canvas */}
         <div className="flex-1 min-w-0 relative overflow-hidden bg-gray-100 dark:bg-gray-800">
+          {/* Panel toggle buttons */}
+          {!showLayers && (
+            <button
+              onClick={() => setShowLayers(true)}
+              className="absolute top-2 left-2 z-20 p-1.5 rounded bg-white dark:bg-gray-700 shadow border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300"
+              title="Show layers"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M2 4h12M2 8h12M2 12h12" />
+              </svg>
+            </button>
+          )}
+          {!showProperties && (
+            <button
+              onClick={() => setShowProperties(true)}
+              className="absolute top-2 right-2 z-20 p-1.5 rounded bg-white dark:bg-gray-700 shadow border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300"
+              title="Show properties"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M4 2v12M8 4v8M12 6v4" />
+              </svg>
+            </button>
+          )}
+
           {isLoading && (
             <div className="absolute inset-0 flex items-center justify-center z-10 bg-gray-100 dark:bg-gray-800">
               <div className="flex flex-col items-center gap-3">
@@ -95,9 +124,11 @@ export const DesignEditor: React.FC<DesignEditorProps> = ({ designId }) => {
         </div>
 
         {/* Right: Properties panel */}
-        <div className="w-[256px] shrink-0">
-          <PropertiesPanel />
-        </div>
+        {showProperties && (
+          <div className="w-[256px] shrink-0 border-l border-gray-200 dark:border-gray-700">
+            <PropertiesPanel onClose={() => setShowProperties(false)} />
+          </div>
+        )}
       </div>
     </div>
   )

@@ -74,14 +74,25 @@ const Divider: React.FC = () => (
 
 /* ── Main component ────────────────────────────────────────── */
 
-export const PropertiesPanel: React.FC = () => {
+interface PropertiesPanelProps {
+  onClose?: () => void
+}
+
+export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ onClose }) => {
   const { node, nodes, updateProp, commitProp, updateNodeWithUndo } = useDesignNodeProps()
+
+  const closeButton = onClose ? (
+    <button onClick={onClose} className="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Close properties">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M4 4l6 6M10 4l-6 6" /></svg>
+    </button>
+  ) : null
 
   if (nodes.length === 0) {
     return (
-      <div className="flex flex-col h-full border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
-        <div className="shrink-0 px-3 py-2 text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500 border-b border-gray-200 dark:border-gray-700">
-          Properties
+      <div className="flex flex-col h-full bg-white dark:bg-gray-900">
+        <div className="shrink-0 px-3 py-2 flex items-center justify-between border-b border-gray-200 dark:border-gray-700">
+          <span className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500">Properties</span>
+          {closeButton}
         </div>
         <div className="flex-1 flex items-center justify-center px-4">
           <p className="text-xs text-gray-400 dark:text-gray-500 text-center">
@@ -96,9 +107,12 @@ export const PropertiesPanel: React.FC = () => {
   const isFrame = node?.type === 'FRAME' || node?.type === 'COMPONENT' || node?.type === 'COMPONENT_SET'
 
   return (
-    <div className="flex flex-col h-full border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
-      <div className="shrink-0 px-3 py-2 text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500 border-b border-gray-200 dark:border-gray-700">
-        {nodes.length > 1 ? `${nodes.length} layers` : node?.name ?? 'Properties'}
+    <div className="flex flex-col h-full bg-white dark:bg-gray-900">
+      <div className="shrink-0 px-3 py-2 flex items-center justify-between border-b border-gray-200 dark:border-gray-700">
+        <span className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500">
+          {nodes.length > 1 ? `${nodes.length} layers` : node?.name ?? 'Properties'}
+        </span>
+        {closeButton}
       </div>
 
       <div className="flex-1 overflow-y-auto">

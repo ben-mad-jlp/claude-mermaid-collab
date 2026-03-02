@@ -28,7 +28,11 @@ const TYPE_LABELS: Record<string, string> = {
   COMPONENT_SET: 'CS', INSTANCE: 'I', STAR: '*', POLYGON: 'P',
 }
 
-export const LayersPanel: React.FC = () => {
+interface LayersPanelProps {
+  onClose?: () => void
+}
+
+export const LayersPanel: React.FC<LayersPanelProps> = ({ onClose }) => {
   const { selectedIds, sceneVersion, currentPageId } = useDesignEditorStore(
     useShallow((s) => ({
       selectedIds: s.selectedIds,
@@ -94,9 +98,14 @@ export const LayersPanel: React.FC = () => {
   }, [])
 
   return (
-    <div className="flex flex-col h-full border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
-      <div className="shrink-0 px-3 py-2 text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500 border-b border-gray-200 dark:border-gray-700">
-        Layers
+    <div className="flex flex-col h-full bg-white dark:bg-gray-900">
+      <div className="shrink-0 px-3 py-2 flex items-center justify-between border-b border-gray-200 dark:border-gray-700">
+        <span className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500">Layers</span>
+        {onClose && (
+          <button onClick={onClose} className="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Close layers">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M4 4l6 6M10 4l-6 6" /></svg>
+          </button>
+        )}
       </div>
       <div className="flex-1 overflow-y-auto px-1 py-1">
         {layers.length === 0 && (
