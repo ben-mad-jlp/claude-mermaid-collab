@@ -38,7 +38,7 @@ export default defineConfig({
   },
   assetsInclude: ['**/*.wasm'],
   build: {
-    target: 'ES2020',
+    target: 'esnext',
     outDir: 'dist',
     sourcemap: true,
     minify: 'terser',
