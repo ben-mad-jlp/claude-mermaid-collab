@@ -111,7 +111,6 @@ export function useDesignSync(designId: string | null) {
   const updateDesign = useSessionStore((s) => s.updateDesign)
 
   const sceneVersion = useDesignEditorStore((s) => s.sceneVersion)
-  const requestRender = useDesignEditorStore((s) => s.requestRender)
 
   // Load design from API when designId changes
   useEffect(() => {
@@ -155,7 +154,9 @@ export function useDesignSync(designId: string | null) {
         if (designIdRef.current === designId) {
           isLoadingRef.current = false
           lastSavedVersionRef.current = useDesignEditorStore.getState().sceneVersion
-          requestRender()
+          // Only bump renderVersion — NOT sceneVersion — to trigger a repaint
+          // without triggering auto-save (this is a load, not a user edit)
+          useDesignEditorStore.setState((s) => ({ renderVersion: s.renderVersion + 1 }))
         }
       })
 
@@ -164,19 +165,20 @@ export function useDesignSync(designId: string | null) {
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current)
         saveTimerRef.current = null
-        const saveDesignId = designIdRef.current
+        // Use the designId from the effect closure (the OLD design),
+        // not designIdRef.current which is already the NEW design
         const saveSession = currentSessionRef.current
-        if (saveDesignId && saveSession && !isSavingRef.current) {
+        if (designId && saveSession && !isSavingRef.current) {
           const { graph } = getEditorRefs()
           const content = serializeGraph(graph)
           // Fire-and-forget save for the old design
           api
-            .updateDesign(saveSession.project, saveSession.name, saveDesignId, content)
+            .updateDesign(saveSession.project, saveSession.name, designId, content)
             .catch((err) => console.error('Failed to flush save on cleanup:', err))
         }
       }
     }
-  }, [designId, currentSession, requestRender])
+  }, [designId, currentSession])
 
   // Auto-save when sceneVersion changes (debounced)
   useEffect(() => {
@@ -230,12 +232,13 @@ export function useDesignSync(designId: string | null) {
         const graph = deserializeGraph(content)
         setSceneGraph(graph)
         lastSavedVersionRef.current = useDesignEditorStore.getState().sceneVersion
-        requestRender()
+        // Only bump renderVersion for remote updates — the remote already saved
+        useDesignEditorStore.setState((s) => ({ renderVersion: s.renderVersion + 1 }))
       } catch {
         // Ignore malformed remote updates
       }
     },
-    [requestRender]
+    []
   )
 
   return { handleRemoteUpdate }
