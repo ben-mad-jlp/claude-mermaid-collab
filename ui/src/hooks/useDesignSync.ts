@@ -136,6 +136,9 @@ export function useDesignSync(designId: string | null) {
           setSceneGraph(graph)
           const store = useDesignEditorStore.getState()
           store.initFromGraph()
+          // Mark the new sceneVersion as "already saved" so the
+          // auto-save effect doesn't treat this load as a user edit
+          lastSavedVersionRef.current = useDesignEditorStore.getState().sceneVersion
           // Zoom to fit after a frame so canvas dimensions are available
           requestAnimationFrame(() => {
             const vw = window.innerWidth - 240 - 256 // approximate canvas width minus panels
@@ -153,10 +156,9 @@ export function useDesignSync(designId: string | null) {
       .finally(() => {
         if (designIdRef.current === designId) {
           isLoadingRef.current = false
+          // Ensure lastSavedVersionRef is up to date (covers the
+          // case where .then didn't run, e.g. empty design)
           lastSavedVersionRef.current = useDesignEditorStore.getState().sceneVersion
-          // Only bump renderVersion — NOT sceneVersion — to trigger a repaint
-          // without triggering auto-save (this is a load, not a user edit)
-          useDesignEditorStore.setState((s) => ({ renderVersion: s.renderVersion + 1 }))
         }
       })
 
@@ -231,9 +233,12 @@ export function useDesignSync(designId: string | null) {
       try {
         const graph = deserializeGraph(content)
         setSceneGraph(graph)
+        // Bump both versions to invalidate renderer cache, then mark as saved
+        useDesignEditorStore.setState((s) => ({
+          renderVersion: s.renderVersion + 1,
+          sceneVersion: s.sceneVersion + 1,
+        }))
         lastSavedVersionRef.current = useDesignEditorStore.getState().sceneVersion
-        // Only bump renderVersion for remote updates — the remote already saved
-        useDesignEditorStore.setState((s) => ({ renderVersion: s.renderVersion + 1 }))
       } catch {
         // Ignore malformed remote updates
       }

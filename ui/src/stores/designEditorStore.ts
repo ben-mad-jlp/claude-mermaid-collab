@@ -1276,13 +1276,16 @@ export const useDesignEditorStore = create<DesignEditorState>((set, get) => {
       if (!root) return
       // First child of root is the page
       const pageId = root.childIds[0] ?? ''
-      // Only bump renderVersion — this is a load, not a user edit.
-      // Bumping sceneVersion would trigger auto-save and overwrite the file.
+      // Bump both renderVersion AND sceneVersion to invalidate
+      // the renderer's cached picture. The caller (useDesignSync)
+      // must update lastSavedVersionRef after calling this to
+      // prevent the auto-save from treating this as a user edit.
       set((s) => ({
         currentPageId: pageId,
         selectedIds: new Set<string>(),
         editingTextId: null,
         renderVersion: s.renderVersion + 1,
+        sceneVersion: s.sceneVersion + 1,
       }))
     },
 
