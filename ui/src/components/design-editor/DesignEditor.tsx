@@ -53,8 +53,8 @@ export const DesignEditor: React.FC<DesignEditorProps> = ({ designId }) => {
     }
   }, [designContent, handleRemoteUpdate])
 
-  const [showLayers, setShowLayers] = useState(true)
-  const [showProperties, setShowProperties] = useState(true)
+  const [showLayers, setShowLayers] = useState(false)
+  const [showProperties, setShowProperties] = useState(false)
 
   if (error) {
     return (

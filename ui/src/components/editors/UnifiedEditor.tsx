@@ -233,7 +233,7 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
             </div>
           </div>
           <div className="flex-1 min-h-0">
-            <DesignEditor designId={item.id} />
+            <DesignEditor key={item.id} designId={item.id} />
           </div>
         </div>
       );
@@ -241,7 +241,7 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
 
     return (
       <div className="flex-1 flex flex-col h-full">
-        <DesignEditor designId={item.id} />
+        <DesignEditor key={item.id} designId={item.id} />
       </div>
     );
   }
