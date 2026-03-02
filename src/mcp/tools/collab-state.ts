@@ -188,7 +188,7 @@ export interface ArchiveResult {
   archivedFiles: {
     documents: string[];
     diagrams: string[];
-    wireframes: string[];
+    designs: string[];
     lessons: boolean; // Whether LESSONS.md was archived
   };
 }
@@ -203,7 +203,7 @@ export async function archiveSession(
   const sessionDir = join(project, '.collab', 'sessions', session);
   const documentsDir = join(sessionDir, 'documents');
   const diagramsDir = join(sessionDir, 'diagrams');
-  const wireframesDir = join(sessionDir, 'wireframes');
+  const designsDir = join(sessionDir, 'designs');
 
   // Build archive folder name with optional timestamp
   let archiveFolderName = session;
@@ -227,10 +227,10 @@ export async function archiveSession(
   // Create archive directory
   await mkdir(archiveDir, { recursive: true });
 
-  const archivedFiles: { documents: string[]; diagrams: string[]; wireframes: string[]; lessons: boolean } = {
+  const archivedFiles: { documents: string[]; diagrams: string[]; designs: string[]; lessons: boolean } = {
     documents: [],
     diagrams: [],
-    wireframes: [],
+    designs: [],
     lessons: false,
   };
 
@@ -255,12 +255,12 @@ export async function archiveSession(
     }
   }
 
-  // Copy wireframes
-  if (await fileExists(wireframesDir)) {
-    const wireframeFiles = await readdir(wireframesDir);
-    for (const file of wireframeFiles) {
-      await cp(join(wireframesDir, file), join(archiveDir, file));
-      archivedFiles.wireframes.push(file);
+  // Copy designs
+  if (await fileExists(designsDir)) {
+    const designFiles = await readdir(designsDir);
+    for (const file of designFiles) {
+      await cp(join(designsDir, file), join(archiveDir, file));
+      archivedFiles.designs.push(file);
     }
   }
 

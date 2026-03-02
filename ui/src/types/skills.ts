@@ -46,7 +46,7 @@ export const SKILL_DESCRIPTIONS: Record<string, string> = {
   'rough-draft-skeleton': 'Generating stub files and task dependency graph',
   'task-planning': 'Planning operational tasks',
   'test-driven-development': 'Implementing features with TDD approach',
-  'using-gui-wireframes': 'Creating and editing UI mockups',
+  'using-gui-designs': 'Creating and editing UI mockups',
   'using-superpowers': 'Starting conversation and establishing skill usage',
   'writing-plans': 'Writing multi-step task specifications',
   'writing-skills': 'Creating and editing skills',

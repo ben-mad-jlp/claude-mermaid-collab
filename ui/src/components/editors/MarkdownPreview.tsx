@@ -188,9 +188,9 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
   /**
    * Resolve image src to API endpoint if it's a special reference
    * Supports:
-   * - @wireframe/id -> /api/wireframe/:id/render
+   * - @design/id -> /api/design/:id/render
    * - @diagram/id -> /api/render/:id
-   * - ./wireframes/id or wireframes/id -> /api/wireframe/:id/render
+   * - ./designs/id or designs/id -> /api/design/:id/render
    * - ./diagrams/id or diagrams/id -> /api/render/:id
    * - Regular URLs pass through unchanged
    */
@@ -199,10 +199,10 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
 
     const params = new URLSearchParams({ project, session });
 
-    // Handle @wireframe/id format
-    if (src.startsWith('@wireframe/')) {
-      const id = src.replace('@wireframe/', '');
-      return `/api/wireframe/${id}/render?${params}`;
+    // Handle @design/id format
+    if (src.startsWith('@design/')) {
+      const id = src.replace('@design/', '');
+      return `/api/design/${id}/render?${params}`;
     }
 
     // Handle @diagram/id format
@@ -211,10 +211,10 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       return `/api/render/${id}?${params}&theme=${theme}`;
     }
 
-    // Handle ./wireframes/id or wireframes/id path
-    if (src.match(/^\.?\/?(wireframes?)\/(.+)$/)) {
-      const id = src.replace(/^\.?\/?(wireframes?)\//, '').replace(/\.(json|wireframe)$/, '');
-      return `/api/wireframe/${id}/render?${params}`;
+    // Handle ./designs/id or designs/id path
+    if (src.match(/^\.?\/?(designs?)\/(.+)$/)) {
+      const id = src.replace(/^\.?\/?(designs?)\//, '').replace(/\.(json|design)$/, '');
+      return `/api/design/${id}/render?${params}`;
     }
 
     // Handle ./diagrams/id or diagrams/id path
@@ -292,7 +292,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         </a>
       ),
 
-      // Images - with support for embedded diagrams and wireframes
+      // Images - with support for embedded diagrams and designs
       img: ({ src, alt }: { src?: string; alt?: string }) => {
         const resolvedSrc = src ? resolveImageSrc(src) : null;
 

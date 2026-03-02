@@ -29,7 +29,7 @@ Write the test first. Watch it fail. Write minimal code to pass.
 
 **Design alignment:**
 - Tests should verify behavior specified in the design doc
-- If design doc or wireframe exists, test against THAT, not your interpretation
+- If design doc or design exists, test against THAT, not your interpretation
 - Test names should map to design requirements
 
 Thinking "skip TDD just this once"? Stop. That's rationalization.

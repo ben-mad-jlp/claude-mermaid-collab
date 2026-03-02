@@ -22,16 +22,15 @@ import { SplitPane } from '@/components/layout/SplitPane';
 import { CodeMirrorWrapper } from '@/components/editors/CodeMirrorWrapper';
 import { MermaidPreview, MermaidPreviewRef } from '@/components/editors/MermaidPreview';
 import { MarkdownPreview } from '@/components/editors/MarkdownPreview';
-import { WireframeRenderer } from '@/components/wireframe/WireframeRenderer';
 import { DiffView } from '@/components/ai-ui/display/DiffView';
 import { DiagramHistoryPreview } from '@/components/editors/DiagramHistoryPreview';
-import { WireframeHistoryPreview } from '@/components/editors/WireframeHistoryPreview';
-import { Item, WireframeRoot } from '@/types';
+import { Item } from '@/types';
 import { useUIStore } from '@/stores/uiStore';
 import { useEditorHistory } from '@/hooks/useEditorHistory';
 import { useExportDiagram } from '@/hooks/useExportDiagram';
 import { useProposalStore } from '@/stores/proposalStore';
 import { formatMermaid, canFormat } from '@/lib/mermaidFormatter';
+import { DesignEditor } from '@/components/design-editor/DesignEditor';
 
 /**
  * Props for the UnifiedEditor component
@@ -76,15 +75,15 @@ export interface UnifiedEditorProps {
   onDiagramRevert?: () => void;
   /** Callback to clear diagram history preview */
   onClearDiagramHistoryPreview?: () => void;
-  /** Wireframe history preview state (wireframes only) */
-  wireframeHistoryPreview?: {
+  /** Design history preview state (designs only) */
+  designHistoryPreview?: {
     timestamp: string;
     historicalContent: string;
   } | null;
-  /** Callback to revert wireframe to historical version */
-  onWireframeRevert?: () => void;
-  /** Callback to clear wireframe history preview */
-  onClearWireframeHistoryPreview?: () => void;
+  /** Callback to revert design to historical version */
+  onDesignRevert?: () => void;
+  /** Callback to clear design history preview */
+  onClearDesignHistoryPreview?: () => void;
 }
 
 /**
@@ -134,9 +133,9 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
   diagramHistoryPreview,
   onDiagramRevert,
   onClearDiagramHistoryPreview,
-  wireframeHistoryPreview,
-  onWireframeRevert,
-  onClearWireframeHistoryPreview,
+  designHistoryPreview,
+  onDesignRevert,
+  onClearDesignHistoryPreview,
 }) => {
   const { editorSplitPosition, setEditorSplitPosition } = useUIStore();
 
@@ -175,27 +174,6 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
     // If error, silently skip (graceful error handling)
   }, [item, onContentChange]);
 
-  // Parse wireframe JSON content (must be called before early return to follow Rules of Hooks)
-  const parsedWireframe = useMemo((): WireframeRoot | null => {
-    if (!item || item.type !== 'wireframe' || !item.content) return null;
-    try {
-      const parsed = JSON.parse(item.content);
-      // Validate required wireframe structure
-      if (
-        !parsed ||
-        typeof parsed !== 'object' ||
-        typeof parsed.viewport !== 'string' ||
-        typeof parsed.direction !== 'string' ||
-        !Array.isArray(parsed.screens)
-      ) {
-        return null;
-      }
-      return parsed as WireframeRoot;
-    } catch {
-      return null;
-    }
-  }, [item]);
-
   // Placeholder when no item is selected
   if (!item) {
     return (
@@ -228,28 +206,53 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
     );
   }
 
-  // Wireframe history preview mode - show side-by-side comparison
-  if (item.type === 'wireframe' && wireframeHistoryPreview && onWireframeRevert && onClearWireframeHistoryPreview) {
+
+  // Design items get their own full-width layout (no SplitPane with CodeMirror)
+  if (item.type === 'design') {
+    // Design history preview mode
+    if (designHistoryPreview && onDesignRevert && onClearDesignHistoryPreview) {
+      return (
+        <div className="flex-1 flex flex-col h-full bg-white dark:bg-gray-900">
+          <div className="flex items-center gap-3 px-4 py-3 bg-amber-50 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-800">
+            <span className="text-sm text-amber-800 dark:text-amber-200">
+              Viewing version from {new Date(designHistoryPreview.timestamp).toLocaleString()}
+            </span>
+            <div className="flex gap-2 ml-auto">
+              <button
+                onClick={onDesignRevert}
+                className="px-3 py-1 text-sm bg-amber-600 text-white rounded hover:bg-amber-700"
+              >
+                Revert to this version
+              </button>
+              <button
+                onClick={onClearDesignHistoryPreview}
+                className="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 dark:hover:bg-gray-600"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 min-h-0">
+            <DesignEditor designId={item.id} />
+          </div>
+        </div>
+      );
+    }
+
     return (
-      <WireframeHistoryPreview
-        currentContent={item.content}
-        historicalContent={wireframeHistoryPreview.historicalContent}
-        historicalTimestamp={wireframeHistoryPreview.timestamp}
-        onRevert={onWireframeRevert}
-        onClose={onClearWireframeHistoryPreview}
-      />
+      <div className="flex-1 flex flex-col h-full">
+        <DesignEditor designId={item.id} />
+      </div>
     );
   }
 
   // Determine editor language based on item type
-  const editorLanguage = item.type === 'diagram' ? 'yaml' : item.type === 'wireframe' ? 'json' : 'markdown';
+  const editorLanguage = item.type === 'diagram' ? 'yaml' : 'markdown';
 
   // Determine placeholder text based on item type
   const placeholderText =
     item.type === 'diagram'
       ? 'Enter Mermaid diagram syntax...'
-      : item.type === 'wireframe'
-      ? 'Enter wireframe JSON...'
       : 'Enter Markdown content...';
 
   /**
@@ -277,7 +280,7 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
    * Renders the appropriate preview component based on item type
    * Uses key={item.id} to maintain instance across editMode toggles
    * For diagrams, wires the SVG container ref callback for export functionality
-   * For wireframes, renders the WireframeRenderer with parsed JSON
+   * For designs, renders a placeholder
    * For documents, passes historyDiff for inline diff display
    */
   const previewComponent = item.type === 'diagram' ? (
@@ -292,24 +295,6 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
       onContainerRef={svgContainerRef}
       previewRef={previewRef}
     />
-  ) : item.type === 'wireframe' ? (
-    // Wireframe preview using WireframeRenderer
-    parsedWireframe ? (
-      <div key={item.id} className="h-full overflow-auto">
-        <WireframeRenderer
-          wireframe={parsedWireframe}
-          scale={zoomLevel / 100}
-          className="min-h-full"
-        />
-      </div>
-    ) : (
-      <div key={item.id} className="h-full flex items-center justify-center text-gray-500 dark:text-gray-400">
-        <div className="text-center">
-          <p className="mb-2">Invalid wireframe JSON</p>
-          <p className="text-sm">Check the syntax and try again</p>
-        </div>
-      </div>
-    )
   ) : historyDiff?.viewMode === 'side-by-side' ? (
     // Side-by-side diff view using DiffView component
     (() => {

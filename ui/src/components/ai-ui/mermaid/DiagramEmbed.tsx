@@ -83,7 +83,7 @@ export const DiagramEmbed: React.FC<DiagramEmbedProps> = (props) => {
   // Track if mermaid is initialized
   const [mermaidReady, setMermaidReady] = useState(false);
 
-  // Initialize mermaid with theme and wireframe plugin
+  // Initialize mermaid with theme
   useEffect(() => {
     initializeMermaid(theme as 'light' | 'dark').then(() => {
       setMermaidReady(true);

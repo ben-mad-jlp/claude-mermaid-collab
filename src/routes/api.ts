@@ -19,21 +19,16 @@ import { archiveSession, type ArchiveOptions } from '../mcp/tools/collab-state';
 import { addLesson, listLessons, type LessonCategory } from '../mcp/tools/lessons';
 import { listTodos, addTodo, removeTodo, updateTodo } from '../mcp/tools/todos';
 import {
-  listWireframesHandler,
-  createWireframeHandler,
-  getWireframeHandler,
-  updateWireframeHandler,
-} from '../api/wireframe-routes';
-import { WireframeRenderer as WireframeSVGRenderer } from '../services/wireframe-renderer';
-import { WireframeValidator } from '../services/wireframe-validator';
+  listDesignsHandler,
+  createDesignHandler,
+  getDesignHandler,
+  updateDesignHandler,
+} from '../api/design-routes';
 import {
   parseTaskGraph,
   buildBatches,
   type TaskGraphTask,
 } from '../mcp/workflow/task-sync';
-
-// Single shared validator instance
-const wireframeValidator = new WireframeValidator();
 
 /**
  * Expand ~ to home directory in paths
@@ -800,11 +795,11 @@ export async function handleAPI(
   }
 
   // ============================================
-  // Wireframe Routes
+  // Design Routes
   // ============================================
 
-  // GET /api/wireframes?project=...&session=...
-  if (path === '/api/wireframes' && req.method === 'GET') {
+  // GET /api/designs?project=...&session=...
+  if (path === '/api/designs' && req.method === 'GET') {
     const params = getSessionParams(url);
     if (!params) {
       return Response.json({ error: 'project and session query params required' }, { status: 400 });
@@ -814,14 +809,14 @@ export async function handleAPI(
       const mockRes = {
         json: (data: any) => Response.json(data),
       };
-      return await listWireframesHandler({ query: params }, mockRes);
+      return await listDesignsHandler({ query: params }, mockRes);
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
     }
   }
 
-  // POST /api/wireframe?project=...&session=... (create new)
-  if (path === '/api/wireframe' && req.method === 'POST') {
+  // POST /api/design?project=...&session=... (create new)
+  if (path === '/api/design' && req.method === 'POST') {
     const params = getSessionParams(url);
     if (!params) {
       return Response.json({ error: 'project and session query params required' }, { status: 400 });
@@ -832,16 +827,6 @@ export async function handleAPI(
 
       if (!name || !content) {
         return Response.json({ error: 'Name and content required' }, { status: 400 });
-      }
-
-      // Validate wireframe structure before saving
-      const validation = wireframeValidator.validate(content);
-      if (!validation.valid) {
-        return Response.json({
-          success: false,
-          error: validation.error,
-          path: validation.path,
-        }, { status: 400 });
       }
 
       // Register session if not already registered
@@ -857,17 +842,16 @@ export async function handleAPI(
           return Response.json(data);
         },
       };
-      // Create a mock request with pre-parsed JSON
       const mockReq = {
         query: params,
         json: async () => ({ name, content }),
       };
-      const response = await createWireframeHandler(mockReq, mockRes);
+      const response = await createDesignHandler(mockReq, mockRes);
 
-      // Broadcast wireframe creation if successful
+      // Broadcast design creation if successful
       if (capturedData && capturedData.success && capturedData.id) {
         wsHandler.broadcast({
-          type: 'wireframe_created',
+          type: 'design_created',
           id: capturedData.id,
           project: params.project,
           session: params.session,
@@ -880,8 +864,8 @@ export async function handleAPI(
     }
   }
 
-  // GET /api/wireframe/:id/history?project=...&session=...
-  if (path.match(/^\/api\/wireframe\/[^/]+\/history$/) && req.method === 'GET') {
+  // GET /api/design/:id/history?project=...&session=...
+  if (path.match(/^\/api\/design\/[^/]+\/history$/) && req.method === 'GET') {
     const params = getSessionParams(url);
     if (!params) {
       return Response.json({ error: 'project and session query params required' }, { status: 400 });
@@ -892,7 +876,7 @@ export async function handleAPI(
     try {
       const sessionPath = sessionRegistry.resolvePath(params.project, params.session, '.');
       const updateLogManager = new UpdateLogManager(sessionPath);
-      const history = await updateLogManager.getHistory('wireframes', id);
+      const history = await updateLogManager.getHistory('designs', id);
 
       // Return empty history if none exists (not a 404 - the item exists, just no changes yet)
       if (!history) {
@@ -905,8 +889,8 @@ export async function handleAPI(
     }
   }
 
-  // GET /api/wireframe/:id/version?project=...&session=...&timestamp=...
-  if (path.match(/^\/api\/wireframe\/[^/]+\/version$/) && req.method === 'GET') {
+  // GET /api/design/:id/version?project=...&session=...&timestamp=...
+  if (path.match(/^\/api\/design\/[^/]+\/version$/) && req.method === 'GET') {
     const params = getSessionParams(url);
     if (!params) {
       return Response.json({ error: 'project and session query params required' }, { status: 400 });
@@ -922,7 +906,7 @@ export async function handleAPI(
     try {
       const sessionPath = sessionRegistry.resolvePath(params.project, params.session, '.');
       const updateLogManager = new UpdateLogManager(sessionPath);
-      const content = await updateLogManager.replayToTimestamp('wireframes', id, timestamp);
+      const content = await updateLogManager.replayToTimestamp('designs', id, timestamp);
 
       return Response.json({ content, timestamp });
     } catch (error: any) {
@@ -933,8 +917,8 @@ export async function handleAPI(
     }
   }
 
-  // GET /api/wireframe/:id?project=...&session=...
-  if (path.startsWith('/api/wireframe/') && !path.endsWith('/render') && !path.includes('/history') && !path.includes('/version') && req.method === 'GET') {
+  // GET /api/design/:id?project=...&session=...
+  if (path.startsWith('/api/design/') && !path.includes('/history') && !path.includes('/version') && req.method === 'GET') {
     const params = getSessionParams(url);
     if (!params) {
       return Response.json({ error: 'project and session query params required' }, { status: 400 });
@@ -949,14 +933,14 @@ export async function handleAPI(
         }),
         json: (data: any) => Response.json(data),
       };
-      return await getWireframeHandler({ query: { ...params, id } }, mockRes);
+      return await getDesignHandler({ query: { ...params, id } }, mockRes);
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 404 });
     }
   }
 
-  // POST /api/wireframe/:id?project=...&session=... (update)
-  if (path.startsWith('/api/wireframe/') && !path.endsWith('/render') && req.method === 'POST') {
+  // POST /api/design/:id?project=...&session=... (update)
+  if (path.startsWith('/api/design/') && !path.includes('/history') && !path.includes('/version') && req.method === 'POST') {
     const params = getSessionParams(url);
     if (!params) {
       return Response.json({ error: 'project and session query params required' }, { status: 400 });
@@ -971,23 +955,13 @@ export async function handleAPI(
         return Response.json({ error: 'Content required' }, { status: 400 });
       }
 
-      // Validate wireframe structure before saving
-      const validation = wireframeValidator.validate(content);
-      if (!validation.valid) {
-        return Response.json({
-          success: false,
-          error: validation.error,
-          path: validation.path,
-        }, { status: 400 });
-      }
-
       // Get old content before saving (for history logging)
       let oldContent = '';
       try {
-        const wireframePath = join(params.project, '.collab', 'sessions', params.session, 'wireframes', `${id}.wireframe.json`);
-        const wireframeFile = Bun.file(wireframePath);
-        if (await wireframeFile.exists()) {
-          oldContent = await wireframeFile.text();
+        const designPath = join(params.project, '.collab', 'sessions', params.session, 'designs', `${id}.design.json`);
+        const designFile = Bun.file(designPath);
+        if (await designFile.exists()) {
+          oldContent = await designFile.text();
         }
       } catch {
         // Ignore errors reading old content
@@ -1006,30 +980,29 @@ export async function handleAPI(
           return Response.json(data);
         },
       };
-      // Create a mock request with pre-parsed JSON
       const mockReq = {
         query: { ...params, id },
         json: async () => ({ content }),
       };
-      const response = await updateWireframeHandler(mockReq, mockRes);
+      const response = await updateDesignHandler(mockReq, mockRes);
 
-      // Broadcast wireframe update if successful
+      // Broadcast design update if successful
       if (capturedData && capturedData.success) {
         // Log the update (don't fail the request if logging fails)
         try {
           const sessionPath = sessionRegistry.resolvePath(params.project, params.session, '.');
           const updateLogManager = new UpdateLogManager(sessionPath);
           const newContent = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
-          await updateLogManager.logUpdate('wireframes', id, oldContent, newContent);
+          await updateLogManager.logUpdate('designs', id, oldContent, newContent);
 
           // Get updated change count for broadcast
-          const history = await updateLogManager.getHistory('wireframes', id);
+          const history = await updateLogManager.getHistory('designs', id);
           const changeCount = history?.changes.length ?? 0;
 
           // Broadcast history update if there's history
           if (changeCount > 0) {
             wsHandler.broadcast({
-              type: 'wireframe_history_updated',
+              type: 'design_history_updated',
               id,
               project: params.project,
               session: params.session,
@@ -1037,12 +1010,11 @@ export async function handleAPI(
             });
           }
         } catch (logError) {
-          // Log error but don't fail the request - history is supplementary
-          console.warn('Failed to log wireframe update:', logError);
+          console.warn('Failed to log design update:', logError);
         }
 
         wsHandler.broadcast({
-          type: 'wireframe_updated',
+          type: 'design_updated',
           id,
           project: params.project,
           session: params.session,
@@ -1055,8 +1027,8 @@ export async function handleAPI(
     }
   }
 
-  // DELETE /api/wireframe/:id?project=...&session=...
-  if (path.match(/^\/api\/wireframe\/[^/]+$/) && !path.includes('/render') && !path.includes('/history') && !path.includes('/version') && req.method === 'DELETE') {
+  // DELETE /api/design/:id?project=...&session=...
+  if (path.match(/^\/api\/design\/[^/]+$/) && !path.includes('/history') && !path.includes('/version') && req.method === 'DELETE') {
     const params = getSessionParams(url);
     if (!params) {
       return Response.json({ error: 'project and session query params required' }, { status: 400 });
@@ -1065,20 +1037,20 @@ export async function handleAPI(
     const id = path.split('/').pop()!;
 
     try {
-      const wireframePath = join(params.project, '.collab', 'sessions', params.session, 'wireframes', `${id}.wireframe.json`);
-      const wireframeFile = Bun.file(wireframePath);
+      const designPath = join(params.project, '.collab', 'sessions', params.session, 'designs', `${id}.design.json`);
+      const designFile = Bun.file(designPath);
 
-      if (!await wireframeFile.exists()) {
-        return Response.json({ error: 'Wireframe not found' }, { status: 404 });
+      if (!await designFile.exists()) {
+        return Response.json({ error: 'Design not found' }, { status: 404 });
       }
 
       // Delete the file
       const { unlink } = await import('fs/promises');
-      await unlink(wireframePath);
+      await unlink(designPath);
 
       // Broadcast deletion
       wsHandler.broadcast({
-        type: 'wireframe_deleted',
+        type: 'design_deleted',
         id,
         project: params.project,
         session: params.session,
@@ -1087,41 +1059,6 @@ export async function handleAPI(
       return Response.json({ success: true });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 404 });
-    }
-  }
-
-  // GET /api/wireframe/:id/render?project=...&session=... - Render wireframe as SVG image
-  if (path.match(/^\/api\/wireframe\/[^/]+\/render$/) && req.method === 'GET') {
-    const params = getSessionParams(url);
-    if (!params) {
-      return Response.json({ error: 'project and session query params required' }, { status: 400 });
-    }
-
-    // Extract id from path (between /wireframe/ and /render)
-    const pathParts = path.split('/');
-    const id = pathParts[3];
-    const scale = parseFloat(url.searchParams.get('scale') || '1') || 1;
-
-    try {
-      // Read wireframe directly from file
-      const wireframePath = join(params.project, '.collab', 'sessions', params.session, 'wireframes', `${id}.wireframe.json`);
-      const wireframeFile = Bun.file(wireframePath);
-
-      if (!await wireframeFile.exists()) {
-        return Response.json({ error: 'Wireframe not found' }, { status: 404 });
-      }
-
-      const wireframeContent = await wireframeFile.json();
-
-      // Render to SVG
-      const wireframeRenderer = new WireframeSVGRenderer();
-      const svg = wireframeRenderer.renderToSVG(wireframeContent, scale);
-
-      return new Response(svg, {
-        headers: { 'Content-Type': 'image/svg+xml' },
-      });
-    } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 400 });
     }
   }
 
@@ -1180,13 +1117,6 @@ export async function handleAPI(
   if (path === '/api/validate' && req.method === 'POST') {
     const { content } = await req.json() as { content?: string };
     const result = await validator.validate(content || '');
-    return Response.json(result);
-  }
-
-  // POST /api/wireframe/validate (no session required - validates structure only)
-  if (path === '/api/wireframe/validate' && req.method === 'POST') {
-    const { content } = await req.json() as { content?: any };
-    const result = wireframeValidator.validate(content);
     return Response.json(result);
   }
 

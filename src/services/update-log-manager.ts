@@ -27,7 +27,7 @@ export class UpdateLogManager {
 
   /**
    * Log a resource update. Captures original content on first update.
-   * @param resourceType - The type of resource ('documents', 'diagrams', 'wireframes')
+   * @param resourceType - The type of resource ('documents', 'diagrams', 'designs')
    * @param resourceId - The resource ID being updated
    * @param oldContent - Content before the update
    * @param newContent - Content after the update
@@ -74,7 +74,7 @@ export class UpdateLogManager {
 
   /**
    * Get the change history for a resource
-   * @param resourceType - The type of resource ('documents', 'diagrams', 'wireframes')
+   * @param resourceType - The type of resource ('documents', 'diagrams', 'designs')
    * @param resourceId - The resource ID to get history for
    * @returns Log entry with original content and changes, or null if no history
    */
@@ -85,7 +85,7 @@ export class UpdateLogManager {
 
   /**
    * Replay changes to reconstruct resource content at a specific timestamp
-   * @param resourceType - The type of resource ('documents', 'diagrams', 'wireframes')
+   * @param resourceType - The type of resource ('documents', 'diagrams', 'designs')
    * @param resourceId - The resource ID to replay
    * @param timestamp - ISO timestamp to replay to
    * @returns Content at that point in time
@@ -127,20 +127,20 @@ export class UpdateLogManager {
   private async loadLog(): Promise<UpdateLog> {
     try {
       if (!existsSync(this.logFilePath)) {
-        return { documents: {}, diagrams: {}, wireframes: {} };
+        return { documents: {}, diagrams: {}, designs: {} };
       }
 
       const content = readFileSync(this.logFilePath, 'utf-8');
       const log = JSON.parse(content) as UpdateLog;
       // Ensure all resource type keys exist (for backwards compatibility)
       if (!log.diagrams) log.diagrams = {};
-      if (!log.wireframes) log.wireframes = {};
+      if (!log.designs) log.designs = {};
       if (!log.documents) log.documents = {};
       return log;
     } catch (error) {
       // File read or JSON parse error - return empty log
       console.warn('Failed to load update log, returning empty log:', error);
-      return { documents: {}, diagrams: {}, wireframes: {} };
+      return { documents: {}, diagrams: {}, designs: {} };
     }
   }
 

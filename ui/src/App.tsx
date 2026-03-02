@@ -171,10 +171,10 @@ const App: React.FC = () => {
     setCurrentSession,
     diagrams,
     documents,
-    wireframes,
+    designs,
     selectedDiagramId,
     selectedDocumentId,
-    selectedWireframeId,
+    selectedDesignId,
     taskGraphSelected,
     todosSelected,
     todosProject,
@@ -182,13 +182,13 @@ const App: React.FC = () => {
     todos,
     updateDiagram,
     updateDocument,
-    updateWireframe,
+    updateDesign,
     addDiagram,
     addDocument,
-    addWireframe,
+    addDesign,
     removeDiagram,
     removeDocument,
-    removeWireframe,
+    removeDesign,
     setPendingDiff,
     setCollabState,
   } = useSessionStore(
@@ -198,10 +198,10 @@ const App: React.FC = () => {
       setCurrentSession: state.setCurrentSession,
       diagrams: state.diagrams,
       documents: state.documents,
-      wireframes: state.wireframes,
+      designs: state.designs,
       selectedDiagramId: state.selectedDiagramId,
       selectedDocumentId: state.selectedDocumentId,
-      selectedWireframeId: state.selectedWireframeId,
+      selectedDesignId: state.selectedDesignId,
       taskGraphSelected: state.taskGraphSelected,
       todosSelected: state.todosSelected,
       todosProject: state.todosProject,
@@ -209,13 +209,13 @@ const App: React.FC = () => {
       todos: state.todos,
       updateDiagram: state.updateDiagram,
       updateDocument: state.updateDocument,
-      updateWireframe: state.updateWireframe,
+      updateDesign: state.updateDesign,
       addDiagram: state.addDiagram,
       addDocument: state.addDocument,
-      addWireframe: state.addWireframe,
+      addDesign: state.addDesign,
       removeDiagram: state.removeDiagram,
       removeDocument: state.removeDocument,
-      removeWireframe: state.removeWireframe,
+      removeDesign: state.removeDesign,
       setPendingDiff: state.setPendingDiff,
       setCollabState: state.setCollabState,
     }))
@@ -301,29 +301,29 @@ const App: React.FC = () => {
     }
   }, [diagramHistoryPreview]);
 
-  // Wireframe history preview state
-  const [wireframeHistoryPreview, setWireframeHistoryPreview] = useState<{
+  // Design history preview state
+  const [designHistoryPreview, setDesignHistoryPreview] = useState<{
     timestamp: string;
     historicalContent: string;
   } | null>(null);
 
-  // Handle wireframe history version selection
-  const handleWireframeHistorySelect = useCallback((timestamp: string, content: string) => {
-    setWireframeHistoryPreview({ timestamp, historicalContent: content });
+  // Handle design history version selection
+  const handleDesignHistorySelect = useCallback((timestamp: string, content: string) => {
+    setDesignHistoryPreview({ timestamp, historicalContent: content });
   }, []);
 
-  // Clear wireframe history preview
-  const handleClearWireframeHistoryPreview = useCallback(() => {
-    setWireframeHistoryPreview(null);
+  // Clear design history preview
+  const handleClearDesignHistoryPreview = useCallback(() => {
+    setDesignHistoryPreview(null);
   }, []);
 
-  // Revert wireframe to historical version
-  const handleWireframeRevert = useCallback(() => {
-    if (wireframeHistoryPreview) {
-      setLocalContent(wireframeHistoryPreview.historicalContent);
-      setWireframeHistoryPreview(null);
+  // Revert design to historical version
+  const handleDesignRevert = useCallback(() => {
+    if (designHistoryPreview) {
+      setLocalContent(designHistoryPreview.historicalContent);
+      setDesignHistoryPreview(null);
     }
-  }, [wireframeHistoryPreview]);
+  }, [designHistoryPreview]);
 
   // Registered projects state (projects may exist without sessions)
   const [registeredProjects, setRegisteredProjects] = useState<string[]>([]);
@@ -492,14 +492,14 @@ const App: React.FC = () => {
           break;
         }
 
-        case 'wireframe_created': {
-          // Add new wireframe without full refresh
+        case 'design_created': {
+          // Add new design without full refresh
           const { id, name, content, lastModified, project, session } = message as any;
           if (id &&
               currentSession &&
               project === currentSession.project &&
               session === currentSession.name) {
-            addWireframe({
+            addDesign({
               id,
               name: name || id,
               content,
@@ -509,26 +509,26 @@ const App: React.FC = () => {
           break;
         }
 
-        case 'wireframe_updated': {
-          // Update wireframe without full refresh
+        case 'design_updated': {
+          // Update design without full refresh
           const { id, content, project, session } = message as any;
           if (id &&
               currentSession &&
               project === currentSession.project &&
               session === currentSession.name) {
-            updateWireframe(id, { content, lastModified: Date.now() });
+            updateDesign(id, { content, lastModified: Date.now() });
           }
           break;
         }
 
-        case 'wireframe_deleted': {
-          // Remove wireframe without full refresh
+        case 'design_deleted': {
+          // Remove design without full refresh
           const { id, project, session } = message as any;
           if (id &&
               currentSession &&
               project === currentSession.project &&
               session === currentSession.name) {
-            removeWireframe(id);
+            removeDesign(id);
           }
           break;
         }
@@ -609,9 +609,9 @@ const App: React.FC = () => {
     return () => {
       subscription.unsubscribe();
     };
-  }, [isConnected, currentSession, updateDiagram, updateDocument, updateWireframe, addDiagram, addDocument, addWireframe, removeDiagram, removeDocument, removeWireframe, setPendingDiff, setCollabState, receiveQuestion, restoreUIState]);
+  }, [isConnected, currentSession, updateDiagram, updateDocument, updateDesign, addDiagram, addDocument, addDesign, removeDiagram, removeDocument, removeDesign, setPendingDiff, setCollabState, receiveQuestion, restoreUIState]);
 
-  // Compute selected item from diagrams/documents/wireframes
+  // Compute selected item from diagrams/documents/designs
   const selectedItem: Item | null = useMemo(() => {
     if (selectedDiagramId) {
       const diagram = diagrams.find((d) => d.id === selectedDiagramId);
@@ -637,20 +637,20 @@ const App: React.FC = () => {
         };
       }
     }
-    if (selectedWireframeId) {
-      const wireframe = wireframes.find((w) => w.id === selectedWireframeId);
-      if (wireframe) {
+    if (selectedDesignId) {
+      const design = designs.find((w) => w.id === selectedDesignId);
+      if (design) {
         return {
-          id: wireframe.id,
-          name: wireframe.name,
-          type: 'wireframe' as const,
-          content: wireframe.content ?? '',
-          lastModified: wireframe.lastModified ?? Date.now(),
+          id: design.id,
+          name: design.name,
+          type: 'design' as const,
+          content: design.content ?? '',
+          lastModified: design.lastModified ?? Date.now(),
         };
       }
     }
     return null;
-  }, [diagrams, documents, wireframes, selectedDiagramId, selectedDocumentId, selectedWireframeId]);
+  }, [diagrams, documents, designs, selectedDiagramId, selectedDocumentId, selectedDesignId]);
 
   // Track local content for auto-save
   const [localContent, setLocalContent] = React.useState<string>('');
@@ -673,7 +673,7 @@ const App: React.FC = () => {
   useEffect(() => {
     setHistoryDiff(null);
     setDiagramHistoryPreview(null);
-    setWireframeHistoryPreview(null);
+    setDesignHistoryPreview(null);
   }, [selectedItem?.id]);
 
   // Auto-save handler - uses WebSocket to persist changes
@@ -687,6 +687,8 @@ const App: React.FC = () => {
       // Update local store immediately
       if (selectedItem.type === 'diagram') {
         updateDiagram(selectedItem.id, { content });
+      } else if (selectedItem.type === 'design') {
+        updateDesign(selectedItem.id, { content });
       } else {
         updateDocument(selectedItem.id, { content });
       }
@@ -694,8 +696,9 @@ const App: React.FC = () => {
       // Send update via WebSocket if connected
       const client = getWebSocketClient();
       if (client.isConnected()) {
+        const typeMap = { diagram: 'update_diagram', document: 'update_document', design: 'update_design' } as const;
         client.send({
-          type: selectedItem.type === 'diagram' ? 'update_diagram' : 'update_document',
+          type: typeMap[selectedItem.type],
           project,
           session,
           id: selectedItem.id,
@@ -703,7 +706,7 @@ const App: React.FC = () => {
         });
       }
     },
-    [selectedItem, currentSession, updateDiagram, updateDocument]
+    [selectedItem, currentSession, updateDiagram, updateDocument, updateDesign]
   );
 
   // Auto-save hook - pass selectedItem?.id to reset when switching items
@@ -1103,8 +1106,8 @@ const App: React.FC = () => {
           onHistorySettingsChange={selectedItem?.type === 'document' ? handleHistorySettingsChange : undefined}
           diagramId={selectedItem?.type === 'diagram' ? selectedItem.id : undefined}
           onDiagramHistorySelect={selectedItem?.type === 'diagram' ? handleDiagramHistorySelect : undefined}
-          wireframeId={selectedItem?.type === 'wireframe' ? selectedItem.id : undefined}
-          onWireframeHistorySelect={selectedItem?.type === 'wireframe' ? handleWireframeHistorySelect : undefined}
+          designId={selectedItem?.type === 'design' ? selectedItem.id : undefined}
+          onDesignHistorySelect={selectedItem?.type === 'design' ? handleDesignHistorySelect : undefined}
         />
 
         {/* Unified Editor */}
@@ -1125,9 +1128,9 @@ const App: React.FC = () => {
             diagramHistoryPreview={selectedItem?.type === 'diagram' ? diagramHistoryPreview : null}
             onDiagramRevert={handleDiagramRevert}
             onClearDiagramHistoryPreview={handleClearDiagramHistoryPreview}
-            wireframeHistoryPreview={selectedItem?.type === 'wireframe' ? wireframeHistoryPreview : null}
-            onWireframeRevert={handleWireframeRevert}
-            onClearWireframeHistoryPreview={handleClearWireframeHistoryPreview}
+            designHistoryPreview={selectedItem?.type === 'design' ? designHistoryPreview : null}
+            onDesignRevert={handleDesignRevert}
+            onClearDesignHistoryPreview={handleClearDesignHistoryPreview}
           />
         </div>
       </div>

@@ -14,15 +14,10 @@
 import React, { useCallback, useMemo } from 'react';
 import { useSession } from '@/hooks/useSession';
 import { Diagram, Document, Session } from '@/types';
+import type { Design } from '@/stores/sessionStore';
 
-export interface Wireframe {
-  id: string;
-  name: string;
-  lastModified?: number;
-}
-
-export type SessionItem = (Diagram | Document | Wireframe) & {
-  type: 'diagram' | 'document' | 'wireframe';
+export type SessionItem = (Diagram | Document | Design) & {
+  type: 'diagram' | 'document' | 'design';
   hasUpdate?: boolean;
 };
 
@@ -33,8 +28,8 @@ export interface SessionPanelProps {
   diagrams?: Diagram[];
   /** Documents in the session */
   documents?: Document[];
-  /** Wireframes in the session */
-  wireframes?: Wireframe[];
+  /** Designs in the session */
+  designs?: Design[];
   /** Currently selected item ID */
   selectedItemId?: string | null;
   /** Callback when an item is clicked */
@@ -71,7 +66,7 @@ function formatRelativeTime(timestamp: number | string | undefined): string {
 /**
  * Get icon for item type
  */
-function getItemIcon(type: 'diagram' | 'document' | 'wireframe'): React.ReactNode {
+function getItemIcon(type: 'diagram' | 'document' | 'design'): React.ReactNode {
   if (type === 'diagram') {
     return (
       <svg
@@ -86,8 +81,8 @@ function getItemIcon(type: 'diagram' | 'document' | 'wireframe'): React.ReactNod
     );
   }
 
-  if (type === 'wireframe') {
-    // Wireframe icon - phone/screen outline
+  if (type === 'design') {
+    // Design icon - phone/screen outline
     return (
       <svg
         className="w-4 h-4"
@@ -127,14 +122,14 @@ export const SessionPanel: React.FC<SessionPanelProps> = ({
   session,
   diagrams = [],
   documents = [],
-  wireframes = [],
+  designs = [],
   selectedItemId,
   onItemClick,
   onItemOpenNewTab,
   className = '',
   compact = false,
 }) => {
-  // Combine diagrams, documents, and wireframes into a unified list
+  // Combine diagrams, documents, and designs into a unified list
   const items: SessionItem[] = useMemo(() => {
     const diagramItems: SessionItem[] = diagrams.map((d) => ({
       ...d,
@@ -146,18 +141,18 @@ export const SessionPanel: React.FC<SessionPanelProps> = ({
       type: 'document' as const,
     }));
 
-    const wireframeItems: SessionItem[] = wireframes.map((w) => ({
+    const designItems: SessionItem[] = designs.map((w) => ({
       ...w,
-      type: 'wireframe' as const,
+      type: 'design' as const,
     }));
 
     // Sort by lastModified (most recent first)
-    return [...diagramItems, ...documentItems, ...wireframeItems].sort((a, b) => {
+    return [...diagramItems, ...documentItems, ...designItems].sort((a, b) => {
       const aTime = a.lastModified || 0;
       const bTime = b.lastModified || 0;
       return bTime - aTime;
     });
-  }, [diagrams, documents, wireframes]);
+  }, [diagrams, documents, designs]);
 
   const handleItemClick = useCallback(
     (item: SessionItem) => {

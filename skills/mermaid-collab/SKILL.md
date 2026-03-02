@@ -1,6 +1,6 @@
 ---
 name: mermaid-collab
-description: Create and collaborate on Mermaid diagrams and UI wireframes with real-time preview and team sharing
+description: Create and collaborate on Mermaid diagrams and UI designs with real-time preview and team sharing
 model: sonnet
 allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Skill
 user-invocable: false
@@ -8,13 +8,13 @@ user-invocable: false
 
 # Mermaid Collaboration Tool
 
-This skill helps you create, edit, and collaborate on Mermaid diagrams and UI wireframes using the claude-mermaid-collab server.
+This skill helps you create, edit, and collaborate on Mermaid diagrams and UI designs using the claude-mermaid-collab server.
 
 ## What This Tool Provides
 
 - **Real-time Diagram Editor**: Live preview with pan, zoom, and auto-save for Mermaid diagrams
 - **Real-time Document Editor**: Markdown document collaboration with live preview
-- **UI Wireframe Plugin**: Text-based wireframe creation for mobile, tablet, and desktop
+- **UI Design Plugin**: Text-based design creation for mobile, tablet, and desktop
 - **Team Collaboration**: Real-time updates across all connected clients via WebSocket
 - **File-Based Storage**: Simple `.mmd` and `.md` files for version control
 - **Unified Dashboard**: Browse and manage both diagrams and documents in one place
@@ -39,7 +39,7 @@ The server starts on `http://localhost:3737`. The `PUBLIC_DIR` (HTML/CSS/JS) is 
 
 Use this skill when you need to:
 - Create flowcharts, state diagrams, sequence diagrams, or any Mermaid diagram
-- Design UI wireframes and mockups with text-based syntax
+- Design UI designs and mockups with text-based syntax
 - Write and collaborate on markdown documentation, specs, or notes
 - Collaborate with team members in real-time on diagrams or documents
 - Quickly prototype and iterate on visual designs
@@ -179,97 +179,40 @@ style T2 fill:#fbbf24
 3. **Test in both modes** - Toggle dark mode to verify your diagram looks good
 4. **Keep subgraphs unstyled** - Let them inherit theme colors for proper backgrounds
 
-## Creating UI Wireframes
+## Creating UI Designs
 
-The built-in wireframe plugin lets you create UI mockups with text syntax.
+The design editor is a Figma-compatible vector design tool. Create and manipulate designs using MCP tools.
 
-### Basic Wireframe Syntax
-
-```
-wireframe mobile TD
-  screen "Login Screen"
-    col padding=16
-      Title "Welcome Back"
-      Input "Email"
-      Input "Password"
-      Button "Sign In" primary
-```
-
-### Viewports
-- `wireframe mobile` - 375px width
-- `wireframe tablet` - 768px width
-- `wireframe desktop` - 1200px width
-
-### Layout Directions
-- `TD` - Top Down (vertical, default)
-- `LR` - Left Right (horizontal)
-
-### Container Types
-- `screen "Title"` - Top-level screen container
-- `col` - Vertical column layout
-- `row` - Horizontal row layout
-- `Card` - Card container with rounded corners
-
-### UI Widgets
-
-**Input Controls:**
-- `Button "Label"` - Button (can add `primary`, `secondary`, `danger`, `success`)
-- `Input "Placeholder"` - Text input field
-- `Checkbox "Label"` - Checkbox with label
-- `Radio "Label"` - Radio button with label
-- `Switch "Label"` - Toggle switch
-- `Dropdown "Label"` - Dropdown selector
-
-**Display Elements:**
-- `Text "Content"` - Normal text
-- `Title "Heading"` - Bold heading text
-- `Icon "name"` - Icon placeholder
-- `Image` - Image placeholder
-- `Avatar` - User avatar circle
-
-**Navigation:**
-- `AppBar "Title"` - Top app bar
-- `NavMenu "Home|About|Contact"` - Horizontal navigation (use `|` to separate items)
-- `BottomNav "Home|Search|Profile"` - Bottom navigation
-- `FAB "+"` - Floating action button
-
-**Structure:**
-- `Grid` - Table/grid layout (use with `header` and `row` children)
-- `List "Item 1|Item 2|Item 3"` - List of items
-- `divider` - Horizontal divider line
-- `spacer` - Flexible space
-
-### Layout Modifiers
-
-Add modifiers after widget names:
-- `width=200` - Fixed width in pixels
-- `height=100` - Fixed height in pixels
-- `padding=16` - Padding around content
-- `flex` or `flex=2` - Take remaining space (optionally with weight)
-- `align=start|center|end|space-between` - Horizontal alignment
-- `cross=start|center|end` - Vertical alignment
-
-### Complex Wireframe Example
+### Quick Start
 
 ```
-wireframe mobile TD
-  screen "Dashboard"
-    AppBar "My App"
-    col padding=16
-      Title "Welcome"
-      Text "Here's your overview"
-      spacer
-      row
-        Card padding=8 flex
-          Text "Sales"
-          Title "$1,234"
-        Card padding=8 flex
-          Text "Orders"
-          Title "56"
-      spacer
-      List "Recent|Pending|Complete"
-    BottomNav "Home|Stats|Profile"
+# Create a design
+create_design(project, session, "my-design", { rootId: "...", nodes: [...] })
+
+# Add nodes with high-level tools
+add_design_node(project, session, designId, type="RECTANGLE", x=100, y=100, width=200, height=100, fill="#3B82F6", cornerRadius=8)
+add_design_node(project, session, designId, type="TEXT", x=100, y=50, text="Hello", fontSize=24, fontWeight=700)
+add_design_node(project, session, designId, type="FRAME", name="Card", width=300, height=200, fill="#FFFFFF", layoutMode="VERTICAL", itemSpacing=12, padding=16)
+
+# Batch operations for complex layouts
+batch_design_operations(project, session, designId, operations=[...])
 ```
+
+### Available Tools
+- `add_design_node` - Add shapes, text, frames with auto-layout
+- `update_design_node` - Change node properties (position, fill, text, etc.)
+- `remove_design_node` - Delete nodes and children
+- `batch_design_operations` - Multiple add/update/remove in one call
+
+### Supported Node Types
+- `FRAME` - Container with optional auto-layout
+- `RECTANGLE` - Rectangle shape
+- `ELLIPSE` - Ellipse/circle
+- `TEXT` - Text with font properties
+- `LINE` - Line segment
+- `GROUP` - Transparent group container
+
+See the `using-design-editor` skill for full documentation, scene graph structure, and patterns.
 
 ## Collaborating on Markdown Documents
 
@@ -500,7 +443,7 @@ The unified dashboard shows both diagrams and documents:
 3. Team members can view real-time updates in their browsers
 4. Everyone sees changes instantly via WebSocket
 
-### Wireframe Design Tips
+### Design Tips
 1. **Start with screens**: Define your main screens first
 2. **Use containers**: Group related elements in `col` and `row`
 3. **Add padding**: Use `padding=16` on containers for spacing
@@ -537,49 +480,23 @@ All diagrams are stored as `.mmd` files in the `diagrams/` folder:
 
 ## Common Patterns
 
-### Mobile App Wireframe
+### Card Layout
 ```
-wireframe mobile TD
-  screen "Profile"
-    AppBar "Profile"
-    col padding=16
-      Avatar
-      Title "John Doe"
-      Text "john@example.com"
-      divider
-      List "Settings|Privacy|Help|Logout"
+batch_design_operations(designId, operations=[
+  { op: "add", type: "FRAME", nodeId: "card", properties: { name: "Card", width: 320, height: 200, fill: "#FFFFFF", cornerRadius: 12, layoutMode: "VERTICAL", padding: 16, itemSpacing: 8 } },
+  { op: "add", type: "TEXT", parentId: "card", properties: { text: "Title", fontSize: 18, fontWeight: 600 } },
+  { op: "add", type: "TEXT", parentId: "card", properties: { text: "Description", fontSize: 14, fill: "#6B7280" } },
+])
 ```
 
-### Desktop Dashboard
+### Dashboard Grid
 ```
-wireframe desktop LR
-  screen "Analytics Dashboard"
-    col width=200
-      NavMenu "Dashboard|Reports|Users"
-    col flex padding=20
-      Title "Analytics Overview"
-      row
-        Card flex padding=16
-          Text "Total Users"
-          Title "1,234"
-        Card flex padding=16
-          Text "Revenue"
-          Title "$56,789"
-```
-
-### Form Layout
-```
-wireframe tablet TD
-  screen "Registration"
-    col padding=24
-      Title "Create Account"
-      Input "Full Name"
-      Input "Email Address"
-      Input "Password"
-      Checkbox "I agree to terms"
-      spacer
-      Button "Sign Up" primary
-      Text "Already have an account?"
+batch_design_operations(designId, operations=[
+  { op: "add", type: "FRAME", nodeId: "row", properties: { name: "Stats Row", layoutMode: "HORIZONTAL", itemSpacing: 16 } },
+  { op: "add", type: "FRAME", nodeId: "stat1", parentId: "row", properties: { name: "Users", width: 200, height: 100, fill: "#EFF6FF", cornerRadius: 8, layoutMode: "VERTICAL", padding: 16, itemSpacing: 4 } },
+  { op: "add", type: "TEXT", parentId: "stat1", properties: { text: "Total Users", fontSize: 12, fill: "#6B7280" } },
+  { op: "add", type: "TEXT", parentId: "stat1", properties: { text: "1,234", fontSize: 24, fontWeight: 700 } },
+])
 ```
 
 ## Troubleshooting
@@ -589,10 +506,10 @@ wireframe tablet TD
 - Look at error banner in editor for line-specific errors
 - Make sure Mermaid syntax is valid
 
-### Wireframe Not Showing
-- Verify first line starts with `wireframe`
-- Check indentation (use spaces, not tabs)
-- Make sure viewport is specified: `wireframe mobile`
+### Design Not Showing
+- Verify the design has a valid scene graph `{ rootId, nodes[] }`
+- Check that node IDs in `childIds` reference existing nodes
+- Ensure CanvasKit WASM loaded (check browser console)
 
 ### Real-time Updates Not Working
 - Check WebSocket connection status (top-right indicator)
@@ -604,57 +521,29 @@ wireframe tablet TD
 1. **Use validate before save**: Call `validate_diagram()` to catch errors early
 2. **Preview URL sharing**: Use `preview_diagram(id)` to get sharable links
 3. **Direction matters**: Horizontal (LR) works better for wide diagrams, vertical (TD) for tall ones
-4. **Prototype fast**: Wireframes are text-based, so iterate quickly
-5. **Version everything**: Commit `.mmd` files to git for history
-6. **Test viewports**: Try mobile, tablet, desktop to see what works best
+4. **Prototype fast**: Use `batch_design_operations` to build UIs quickly
+5. **Version everything**: Design history is tracked automatically
+6. **Use auto-layout**: Set `layoutMode` on frames for responsive designs
 7. **Use badges**: Dashboard shows diagram vs document badges for easy identification
 
 ## Example Workflow
 
 ```
-# 1. Create a new wireframe
-create_diagram("checkout-flow", """
-wireframe mobile TD
-  screen "Cart"
-    AppBar "Shopping Cart"
-    col padding=16
-      List "Item 1|Item 2|Item 3"
-      divider
-      row
-        Text "Total"
-        spacer
-        Title "$99.99"
-      Button "Checkout" primary
-""")
+# 1. Create a design
+create_design(project, session, "checkout-flow", { rootId: "root", nodes: [] })
 
-# 2. Get preview URL
-preview_diagram("checkout-flow")
+# 2. Add UI elements using batch operations
+batch_design_operations(project, session, "checkout-flow", operations=[
+  { op: "add", type: "FRAME", nodeId: "page", properties: { name: "Cart", width: 375, height: 812, fill: "#FFFFFF", layoutMode: "VERTICAL" } },
+  { op: "add", type: "FRAME", nodeId: "header", parentId: "page", properties: { name: "Header", width: 375, height: 56, fill: "#3B82F6", layoutMode: "HORIZONTAL", padding: 16 } },
+  { op: "add", type: "TEXT", parentId: "header", properties: { text: "Shopping Cart", fontSize: 18, fontWeight: 600, fill: "#FFFFFF" } },
+  { op: "add", type: "FRAME", nodeId: "items", parentId: "page", properties: { layoutMode: "VERTICAL", itemSpacing: 8, padding: 16 } },
+  { op: "add", type: "TEXT", parentId: "items", properties: { text: "Item 1 - $29.99", fontSize: 14 } },
+  { op: "add", type: "TEXT", parentId: "items", properties: { text: "Item 2 - $39.99", fontSize: 14 } },
+  { op: "add", type: "FRAME", nodeId: "btn", parentId: "page", properties: { name: "Checkout Button", width: 343, height: 44, fill: "#3B82F6", cornerRadius: 8 } },
+])
 
-# 3. Share with team, iterate based on feedback
-
-# 4. Update diagram
-update_diagram("checkout-flow", """
-wireframe mobile TD
-  screen "Cart"
-    AppBar "Shopping Cart"
-    col padding=16
-      List "Item 1 - $29.99|Item 2 - $39.99|Item 3 - $30.01"
-      divider
-      row
-        Text "Subtotal"
-        spacer
-        Text "$99.99"
-      row
-        Text "Tax"
-        spacer
-        Text "$8.00"
-      row
-        Title "Total"
-        spacer
-        Title "$107.99"
-      spacer
-      Button "Proceed to Checkout" primary
-""")
+# 3. Design appears live in browser, iterate with update_design_node
 ```
 
 ## Resources
@@ -663,7 +552,7 @@ wireframe mobile TD
 - **Editor**: http://localhost:3737/diagram.html?id=<diagram-id>
 - **Mermaid Docs**: https://mermaid.js.org/
 - **Project README**: See `/README.md` for full documentation
-- **Wireframe Plugin**: See `/plugins/wireframe/README.md` for detailed syntax
+- **Design Editor**: See `skills/using-design-editor/SKILL.md` for full design tool documentation
 
 ---
 

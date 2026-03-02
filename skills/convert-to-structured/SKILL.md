@@ -8,7 +8,7 @@ allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Glob, Grep
 
 # Convert to Structured
 
-Convert an active vibe session to a structured workflow session. Preserves all existing artifacts (diagrams, documents, wireframes) while collecting work items and transitioning to the brainstorm phase.
+Convert an active vibe session to a structured workflow session. Preserves all existing artifacts (diagrams, documents, designs) while collecting work items and transitioning to the brainstorm phase.
 
 ## Overview
 
@@ -33,7 +33,7 @@ Args: { "project": "<cwd>", "session": "<session>" }
 ```
 
 ```
-Tool: mcp__plugin_mermaid-collab_mermaid__list_wireframes
+Tool: mcp__plugin_mermaid-collab_mermaid__list_designs
 Args: { "project": "<cwd>", "session": "<session>" }
 ```
 
@@ -45,7 +45,7 @@ Converting to structured session.
 Existing artifacts from this session:
 - Diagrams: [list or "none"]
 - Documents: [list or "none"]
-- Wireframes: [list or "none"]
+- Designs: [list or "none"]
 
 These will be preserved and available during the structured workflow.
 ```

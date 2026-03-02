@@ -22,7 +22,7 @@ describe('Sidebar', () => {
     mockUseDataLoader.mockReturnValue({
       selectDiagramWithContent: vi.fn(),
       selectDocumentWithContent: vi.fn(),
-      selectWireframeWithContent: vi.fn(),
+      selectDesignWithContent: vi.fn(),
       isLoading: false,
     } as any);
   });
@@ -39,10 +39,10 @@ describe('Sidebar', () => {
       selector({
         diagrams: [],
         documents: [],
-        wireframes: [],
+        designs: [],
         selectedDiagramId: null,
         selectedDocumentId: null,
-        selectedWireframeId: null,
+        selectedDesignId: null,
         currentSession: { project: '/test', name: 'test-session' } as any,
         collabState: {
           state: 'execute-batch',
@@ -73,10 +73,10 @@ describe('Sidebar', () => {
       selector({
         diagrams: [],
         documents: [],
-        wireframes: [],
+        designs: [],
         selectedDiagramId: null,
         selectedDocumentId: null,
-        selectedWireframeId: null,
+        selectedDesignId: null,
         currentSession: { project: '/test', name: 'test-session' } as any,
       } as any)
     );
@@ -100,10 +100,10 @@ describe('Sidebar', () => {
       selector({
         diagrams: [],
         documents: [],
-        wireframes: [],
+        designs: [],
         selectedDiagramId: null,
         selectedDocumentId: null,
-        selectedWireframeId: null,
+        selectedDesignId: null,
         currentSession: { project: '/test', name: 'test-session' } as any,
       } as any)
     );
@@ -127,10 +127,10 @@ describe('Sidebar', () => {
       selector({
         diagrams: [],
         documents: [],
-        wireframes: [],
+        designs: [],
         selectedDiagramId: null,
         selectedDocumentId: null,
-        selectedWireframeId: null,
+        selectedDesignId: null,
         currentSession: null,
       } as any)
     );
@@ -152,10 +152,10 @@ describe('Sidebar', () => {
       selector({
         diagrams: [],
         documents: [],
-        wireframes: [],
+        designs: [],
         selectedDiagramId: null,
         selectedDocumentId: null,
-        selectedWireframeId: null,
+        selectedDesignId: null,
         currentSession: { project: '/test', name: 'test-session' } as any,
       } as any)
     );
@@ -177,10 +177,10 @@ describe('Sidebar', () => {
       selector({
         diagrams: [],
         documents: [],
-        wireframes: [],
+        designs: [],
         selectedDiagramId: null,
         selectedDocumentId: null,
-        selectedWireframeId: null,
+        selectedDesignId: null,
         currentSession: { project: '/test', name: 'test-session' } as any,
       } as any)
     );
@@ -204,10 +204,10 @@ describe('Sidebar', () => {
         selector({
           diagrams: [],
           documents: [],
-          wireframes: [],
+          designs: [],
           selectedDiagramId: null,
           selectedDocumentId: null,
-          selectedWireframeId: null,
+          selectedDesignId: null,
           taskGraphSelected: false,
           currentSession: { project: '/test', name: 'test-session' } as any,
           collabState: { state: 'execute-batch' } as any,
@@ -230,10 +230,10 @@ describe('Sidebar', () => {
         selector({
           diagrams: [],
           documents: [],
-          wireframes: [],
+          designs: [],
           selectedDiagramId: null,
           selectedDocumentId: null,
-          selectedWireframeId: null,
+          selectedDesignId: null,
           taskGraphSelected: false,
           currentSession: { project: '/test', name: 'test-session' } as any,
           collabState: { state: 'ready-to-implement' } as any,
@@ -255,10 +255,10 @@ describe('Sidebar', () => {
         selector({
           diagrams: [],
           documents: [],
-          wireframes: [],
+          designs: [],
           selectedDiagramId: null,
           selectedDocumentId: null,
-          selectedWireframeId: null,
+          selectedDesignId: null,
           taskGraphSelected: false,
           currentSession: { project: '/test', name: 'test-session' } as any,
           collabState: { state: 'brainstorming' } as any,
@@ -280,10 +280,10 @@ describe('Sidebar', () => {
         selector({
           diagrams: [],
           documents: [],
-          wireframes: [],
+          designs: [],
           selectedDiagramId: null,
           selectedDocumentId: null,
-          selectedWireframeId: null,
+          selectedDesignId: null,
           taskGraphSelected: false,
           currentSession: null,
           collabState: { state: 'execute-batch' } as any,
@@ -305,10 +305,10 @@ describe('Sidebar', () => {
         selector({
           diagrams: [],
           documents: [],
-          wireframes: [],
+          designs: [],
           selectedDiagramId: null,
           selectedDocumentId: null,
-          selectedWireframeId: null,
+          selectedDesignId: null,
           taskGraphSelected: true,
           currentSession: { project: '/test', name: 'test-session' } as any,
           collabState: { state: 'execute-batch' } as any,
@@ -332,10 +332,10 @@ describe('Sidebar', () => {
         selector({
           diagrams: [],
           documents: [],
-          wireframes: [],
+          designs: [],
           selectedDiagramId: null,
           selectedDocumentId: null,
-          selectedWireframeId: null,
+          selectedDesignId: null,
           taskGraphSelected: false,
           currentSession: { project: '/test', name: 'test-session' } as any,
           collabState: { state: 'execute-batch' } as any,

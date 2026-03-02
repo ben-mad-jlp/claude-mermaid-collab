@@ -499,7 +499,6 @@ describe('AIUIRenderer', () => {
       Confirmation: { title: 'Confirm', description: 'Confirm?' },
       // Mermaid
       DiagramEmbed: { content: 'graph LR\n  A --> B' },
-      WireframeEmbed: { content: 'sketch' },
     };
 
     Object.entries(componentProps).forEach(([componentName, props]) => {

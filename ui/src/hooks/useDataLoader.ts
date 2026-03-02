@@ -21,7 +21,7 @@ export interface UseDataLoaderReturn {
   error: string | null;
   /** Load all available sessions from the API */
   loadSessions: () => Promise<void>;
-  /** Load diagrams, documents, and wireframes for a specific session */
+  /** Load diagrams, documents, and designs for a specific session */
   loadSessionItems: (project: string, session: string) => Promise<void>;
   /** Refresh session items while preserving current selection */
   refreshSessionItems: (project: string, session: string) => Promise<void>;
@@ -29,8 +29,8 @@ export interface UseDataLoaderReturn {
   selectDiagramWithContent: (project: string, session: string, id: string) => Promise<void>;
   /** Select a document and fetch its content */
   selectDocumentWithContent: (project: string, session: string, id: string) => Promise<void>;
-  /** Select a wireframe and fetch its content */
-  selectWireframeWithContent: (project: string, session: string, id: string) => Promise<void>;
+  /** Select a design and fetch its content */
+  selectDesignWithContent: (project: string, session: string, id: string) => Promise<void>;
 }
 
 /**
@@ -66,13 +66,13 @@ export function useDataLoader(): UseDataLoaderReturn {
   const setSessions = useSessionStore((state) => state.setSessions);
   const setDiagrams = useSessionStore((state) => state.setDiagrams);
   const setDocuments = useSessionStore((state) => state.setDocuments);
-  const setWireframes = useSessionStore((state) => state.setWireframes);
+  const setDesigns = useSessionStore((state) => state.setDesigns);
   const selectDiagram = useSessionStore((state) => state.selectDiagram);
   const selectDocument = useSessionStore((state) => state.selectDocument);
-  const selectWireframe = useSessionStore((state) => state.selectWireframe);
+  const selectDesign = useSessionStore((state) => state.selectDesign);
   const updateDiagram = useSessionStore((state) => state.updateDiagram);
   const updateDocument = useSessionStore((state) => state.updateDocument);
-  const updateWireframe = useSessionStore((state) => state.updateWireframe);
+  const updateDesign = useSessionStore((state) => state.updateDesign);
   const setCollabState = useSessionStore((state) => state.setCollabState);
 
   /**
@@ -110,7 +110,7 @@ export function useDataLoader(): UseDataLoaderReturn {
   );
 
   /**
-   * Load diagrams, documents, and wireframes for a specific session
+   * Load diagrams, documents, and designs for a specific session
    */
   const loadSessionItems = useCallback(
     async (project: string, session: string) => {
@@ -120,10 +120,10 @@ export function useDataLoader(): UseDataLoaderReturn {
       try {
         const diagrams = await api.getDiagrams(project, session);
         const documents = await api.getDocuments(project, session);
-        const wireframes = await api.getWireframes(project, session);
+        const designs = await api.getDesigns(project, session);
         setDiagrams(diagrams);
         setDocuments(documents);
-        setWireframes(wireframes);
+        setDesigns(designs);
 
         // Also load collab state
         await loadCollabState(project, session);
@@ -134,7 +134,7 @@ export function useDataLoader(): UseDataLoaderReturn {
         setIsLoading(false);
       }
     },
-    [setDiagrams, setDocuments, setWireframes, loadCollabState]
+    [setDiagrams, setDocuments, setDesigns, loadCollabState]
   );
 
   /**
@@ -143,23 +143,23 @@ export function useDataLoader(): UseDataLoaderReturn {
   const refreshSessionItems = useCallback(
     async (project: string, session: string) => {
       // Capture current selection
-      const { selectedDiagramId, selectedDocumentId, selectedWireframeId } = useSessionStore.getState();
+      const { selectedDiagramId, selectedDocumentId, selectedDesignId } = useSessionStore.getState();
 
       // Load fresh data
       await loadSessionItems(project, session);
 
       // Restore selection if items still exist
-      const { diagrams: newDiagrams, documents: newDocuments, wireframes: newWireframes } = useSessionStore.getState();
+      const { diagrams: newDiagrams, documents: newDocuments, designs: newDesigns } = useSessionStore.getState();
 
       if (selectedDiagramId && newDiagrams.find((d) => d.id === selectedDiagramId)) {
         selectDiagram(selectedDiagramId);
       } else if (selectedDocumentId && newDocuments.find((d) => d.id === selectedDocumentId)) {
         selectDocument(selectedDocumentId);
-      } else if (selectedWireframeId && newWireframes.find((w) => w.id === selectedWireframeId)) {
-        selectWireframe(selectedWireframeId);
+      } else if (selectedDesignId && newDesigns.find((d) => d.id === selectedDesignId)) {
+        selectDesign(selectedDesignId);
       }
     },
-    [loadSessionItems, selectDiagram, selectDocument, selectWireframe]
+    [loadSessionItems, selectDiagram, selectDocument, selectDesign]
   );
 
   /**
@@ -209,26 +209,26 @@ export function useDataLoader(): UseDataLoaderReturn {
   );
 
   /**
-   * Select a wireframe and fetch its full content
+   * Select a design and fetch its full content
    */
-  const selectWireframeWithContent = useCallback(
+  const selectDesignWithContent = useCallback(
     async (project: string, session: string, id: string) => {
       // First, set the selection (for immediate UI feedback)
-      selectWireframe(id);
+      selectDesign(id);
 
       // Then fetch the full content
       try {
-        const wireframe = await api.getWireframe(project, session, id);
-        if (wireframe) {
-          // Update the wireframe in the store with its content
-          updateWireframe(id, { content: wireframe.content });
+        const design = await api.getDesign(project, session, id);
+        if (design) {
+          // Update the design in the store with its content
+          updateDesign(id, { content: design.content });
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to load wireframe content';
+        const message = err instanceof Error ? err.message : 'Failed to load design content';
         setError(message);
       }
     },
-    [selectWireframe, updateWireframe]
+    [selectDesign, updateDesign]
   );
 
   return {
@@ -239,6 +239,6 @@ export function useDataLoader(): UseDataLoaderReturn {
     refreshSessionItems,
     selectDiagramWithContent,
     selectDocumentWithContent,
-    selectWireframeWithContent,
+    selectDesignWithContent,
   };
 }

@@ -95,4 +95,4 @@ Once the user selects a todo:
    Args: { "project": "<cwd>", "session": "<sessionName>" }
    ```
 3. Tell the user which todo they selected and that they're entering vibe mode
-4. Follow the **vibe-active** skill instructions - enter freeform mode where the user can create diagrams, documents, and wireframes for this todo's session
+4. Follow the **vibe-active** skill instructions - enter freeform mode where the user can create diagrams, documents, and designs for this todo's session

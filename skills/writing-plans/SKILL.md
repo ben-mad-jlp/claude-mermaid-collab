@@ -31,7 +31,7 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 ## Plan Document Header
 
 **Design Artifacts:** 
-- Wireframes: [list mermaid-collab diagram IDs or "N/A"]
+- Designs: [list mermaid-collab diagram IDs or "N/A"]
 - Architecture diagrams: [list IDs or "N/A"]
 - Design doc: `docs/plans/YYYY-MM-DD-<topic>-design.md`
 
@@ -66,7 +66,7 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 - `existing.py:123-145`: Add validation check before process() call, raise ValueError if invalid
 
 **Design Reference:**
-- Wireframe: `mermaid-collab/diagrams/<wireframe-id>` (if applicable)
+- Design: `mermaid-collab/diagrams/<design-id>` (if applicable)
 - Design Doc: `docs/plans/YYYY-MM-DD-<topic>-design.md` section X
 
 **Step 1: Write the failing test**
@@ -113,12 +113,12 @@ git commit -m "feat: add specific feature"
 
 **Every task MUST be traceable to the design:**
 - Reference the specific section of the design doc that this task implements
-- If mermaid-collab wireframes/diagrams exist, reference them by ID
+- If mermaid-collab designs/diagrams exist, reference them by ID
 - Verification steps must check against design, not just "does code work"
 
 **For UI tasks:**
-- Reference the wireframe diagram ID
-- Verification: "Compare implementation to wireframe `<id>` — all elements present and positioned correctly"
+- Reference the design diagram ID
+- Verification: "Compare implementation to design `<id>` — all elements present and positioned correctly"
 
 **For architecture tasks:**
 - Reference the architecture/flow diagram ID

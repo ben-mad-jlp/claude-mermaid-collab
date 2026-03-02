@@ -4,7 +4,7 @@
 
 import type { Session, Diagram, Document, CollabState, ProjectTodo } from '@/types';
 import type { TerminalSession, CreateSessionResult } from '@/types/terminal';
-import type { Wireframe } from '@/stores/sessionStore';
+import type { Design } from '@/stores/sessionStore';
 
 // Word lists for session name generation (matching backend)
 const ADJECTIVES = [
@@ -40,6 +40,8 @@ export interface ArchiveResult {
   archivedFiles: {
     documents: string[];
     diagrams: string[];
+    designs: string[];
+    lessons: boolean;
   };
 }
 
@@ -63,12 +65,14 @@ export interface ApiClient {
   reorderTerminalSessions(project: string, session: string, orderedIds: string[]): Promise<void>;
   getSessionState(project: string, session: string): Promise<CollabState | null>;
   getUIState(project: string, session: string): Promise<CachedUIState | null>;
-  getWireframes(project: string, session: string): Promise<Wireframe[]>;
-  getWireframe(project: string, session: string, id: string): Promise<Wireframe | null>;
-  updateWireframe(project: string, session: string, id: string, content: string): Promise<void>;
+  getDesigns(project: string, session: string): Promise<Design[]>;
+  getDesign(project: string, session: string, id: string): Promise<Design | null>;
+  updateDesign(project: string, session: string, id: string, content: string): Promise<void>;
+  getDesignHistory(project: string, session: string, designId: string, signal?: AbortSignal): Promise<any | null>;
+  getDesignVersion(project: string, session: string, designId: string, timestamp: string, signal?: AbortSignal): Promise<{ content: string } | null>;
   deleteDiagram(project: string, session: string, id: string): Promise<void>;
   deleteDocument(project: string, session: string, id: string): Promise<void>;
-  deleteWireframe(project: string, session: string, id: string): Promise<void>;
+  deleteDesign(project: string, session: string, id: string): Promise<void>;
   getTodos(project: string): Promise<ProjectTodo[]>;
   addTodo(project: string, title: string, description: string): Promise<ProjectTodo>;
   updateTodo(project: string, id: number, updates: { title?: string }): Promise<ProjectTodo>;
@@ -403,24 +407,23 @@ export const api: ApiClient = {
   },
 
   /**
-   * Fetch wireframes for a specific session
+   * Fetch designs for a specific session
    */
-  async getWireframes(project: string, session: string): Promise<Wireframe[]> {
-    const url = `/api/wireframes?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+  async getDesigns(project: string, session: string): Promise<Design[]> {
+    const url = `/api/designs?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error(response.statusText);
     }
     const data = await response.json();
-    // API returns { wireframes: [...] }
-    return data.wireframes || [];
+    return data.designs || [];
   },
 
   /**
-   * Fetch a single wireframe with full content
+   * Fetch a single design with full content
    */
-  async getWireframe(project: string, session: string, id: string): Promise<Wireframe | null> {
-    const url = `/api/wireframe/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+  async getDesign(project: string, session: string, id: string): Promise<Design | null> {
+    const url = `/api/design/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
     const response = await fetch(url);
     if (response.status === 404) {
       return null;
@@ -432,10 +435,10 @@ export const api: ApiClient = {
   },
 
   /**
-   * Update a wireframe's content
+   * Update a design's content
    */
-  async updateWireframe(project: string, session: string, id: string, content: string): Promise<void> {
-    const url = `/api/wireframe/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+  async updateDesign(project: string, session: string, id: string, content: string): Promise<void> {
+    const url = `/api/design/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -446,6 +449,35 @@ export const api: ApiClient = {
     if (!response.ok) {
       throw new Error(response.statusText);
     }
+  },
+
+  /**
+   * Fetch design history
+   */
+  async getDesignHistory(project: string, session: string, designId: string, signal?: AbortSignal): Promise<any | null> {
+    const params = new URLSearchParams({ project, session });
+    const url = `/api/design/${encodeURIComponent(designId)}/history?${params}`;
+    const response = await fetch(url, { signal });
+    if (response.status === 404) {
+      return null;
+    }
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+    return response.json();
+  },
+
+  /**
+   * Fetch a specific design version by timestamp
+   */
+  async getDesignVersion(project: string, session: string, designId: string, timestamp: string, signal?: AbortSignal): Promise<{ content: string } | null> {
+    const params = new URLSearchParams({ project, session, timestamp });
+    const url = `/api/design/${encodeURIComponent(designId)}/version?${params}`;
+    const response = await fetch(url, { signal });
+    if (!response.ok) {
+      return null;
+    }
+    return response.json();
   },
 
   /**
@@ -471,10 +503,10 @@ export const api: ApiClient = {
   },
 
   /**
-   * Delete a wireframe
+   * Delete a design
    */
-  async deleteWireframe(project: string, session: string, id: string): Promise<void> {
-    const url = `/api/wireframe/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+  async deleteDesign(project: string, session: string, id: string): Promise<void> {
+    const url = `/api/design/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
     const response = await fetch(url, { method: 'DELETE' });
     if (!response.ok) {
       throw new Error(response.statusText);

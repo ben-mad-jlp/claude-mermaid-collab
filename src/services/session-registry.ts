@@ -104,6 +104,7 @@ export class SessionRegistry {
     const sessionPath = join(project, '.collab', 'sessions', session);
     await mkdir(join(sessionPath, 'diagrams'), { recursive: true });
     await mkdir(join(sessionPath, 'documents'), { recursive: true });
+    await mkdir(join(sessionPath, 'designs'), { recursive: true });
 
     // Create session files if they don't exist
     const collabStatePath = join(sessionPath, 'collab-state.json');
@@ -177,15 +178,15 @@ export class SessionRegistry {
    * Resolve the path for a session's diagrams or documents folder.
    * Checks new location first, then old location for backwards compatibility.
    */
-  resolvePath(project: string, session: string, type: 'diagrams' | 'documents' | 'wireframes' | '.'): string {
+  resolvePath(project: string, session: string, type: 'diagrams' | 'documents' | 'designs' | '.'): string {
     if (!project || !project.startsWith('/')) {
       throw new Error('Invalid project path: must be an absolute path');
     }
     if (!session) {
       throw new Error('Invalid session name');
     }
-    if (type !== 'diagrams' && type !== 'documents' && type !== 'wireframes' && type !== '.') {
-      throw new Error('Invalid type: must be "diagrams", "documents", "wireframes", or "."');
+    if (type !== 'diagrams' && type !== 'documents' && type !== 'designs' && type !== '.') {
+      throw new Error('Invalid type: must be "diagrams", "documents", "designs", or "."');
     }
 
     // Check regular sessions first

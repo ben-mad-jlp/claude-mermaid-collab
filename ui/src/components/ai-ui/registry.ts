@@ -12,7 +12,7 @@
  * - Layout: Card, Section, Columns, Accordion, Alert, Divider
  * - Interactive: Wizard, Checklist, ApprovalButtons, ProgressBar, Tabs, Link
  * - Inputs: MultipleChoice, TextInput, TextArea, Checkbox, Confirmation, Dropdown, RadioGroup, Toggle, NumberInput, Slider, FileUpload
- * - Mermaid: DiagramEmbed, WireframeEmbed
+ * - Mermaid: DiagramEmbed
  */
 
 import type React from 'react';
@@ -59,7 +59,6 @@ import { FileUpload } from './inputs/FileUpload';
 
 // Import all mermaid components
 import { DiagramEmbed } from './mermaid/DiagramEmbed';
-import { WireframeEmbed } from './mermaid/WireframeEmbed';
 
 /**
  * Component metadata for registry
@@ -371,7 +370,7 @@ const componentRegistry: Map<string, ComponentMetadata> = new Map([
     },
   ],
 
-  // Mermaid components (2)
+  // Mermaid components (1)
   [
     'DiagramEmbed',
     {
@@ -379,15 +378,6 @@ const componentRegistry: Map<string, ComponentMetadata> = new Map([
       category: 'mermaid',
       description: 'Inline Mermaid diagram embedding',
       component: DiagramEmbed,
-    },
-  ],
-  [
-    'WireframeEmbed',
-    {
-      name: 'WireframeEmbed',
-      category: 'mermaid',
-      description: 'Inline wireframe preview embedding',
-      component: WireframeEmbed,
     },
   ],
 ]);

@@ -18,17 +18,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const {
     diagrams,
     documents,
-    wireframes,
+    designs,
     selectedDiagramId,
     selectedDocumentId,
-    selectedWireframeId,
+    selectedDesignId,
     taskGraphSelected,
     currentSession,
     collabState,
     selectTaskGraph,
     removeDiagram,
     removeDocument,
-    removeWireframe,
+    removeDesign,
     todosSelected,
     todosProject,
     todos,
@@ -41,17 +41,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
     useShallow((state) => ({
       diagrams: state.diagrams,
       documents: state.documents,
-      wireframes: state.wireframes,
+      designs: state.designs,
       selectedDiagramId: state.selectedDiagramId,
       selectedDocumentId: state.selectedDocumentId,
-      selectedWireframeId: state.selectedWireframeId,
+      selectedDesignId: state.selectedDesignId,
       taskGraphSelected: state.taskGraphSelected,
       currentSession: state.currentSession,
       collabState: state.collabState,
       selectTaskGraph: state.selectTaskGraph,
       removeDiagram: state.removeDiagram,
       removeDocument: state.removeDocument,
-      removeWireframe: state.removeWireframe,
+      removeDesign: state.removeDesign,
       todosSelected: state.todosSelected,
       todosProject: state.todosProject,
       todos: state.todos,
@@ -63,7 +63,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }))
   );
 
-  const { selectDiagramWithContent, selectDocumentWithContent, selectWireframeWithContent } = useDataLoader();
+  const { selectDiagramWithContent, selectDocumentWithContent, selectDesignWithContent } = useDataLoader();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddTodoDialog, setShowAddTodoDialog] = useState(false);
@@ -75,7 +75,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     async (item: Item) => {
       if (!currentSession) return;
 
-      const typeLabel = item.type === 'diagram' ? 'diagram' : item.type === 'wireframe' ? 'wireframe' : 'document';
+      const typeLabel = item.type === 'diagram' ? 'diagram' : item.type === 'design' ? 'design' : 'document';
       if (!window.confirm(`Delete ${typeLabel} "${item.name}"?`)) {
         return;
       }
@@ -87,15 +87,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
         } else if (item.type === 'document') {
           await api.deleteDocument(currentSession.project, currentSession.name, item.id);
           removeDocument(item.id);
-        } else if (item.type === 'wireframe') {
-          await api.deleteWireframe(currentSession.project, currentSession.name, item.id);
-          removeWireframe(item.id);
+        } else if (item.type === 'design') {
+          await api.deleteDesign(currentSession.project, currentSession.name, item.id);
+          removeDesign(item.id);
         }
       } catch (error) {
         console.error('Failed to delete item:', error);
       }
     },
-    [currentSession, removeDiagram, removeDocument, removeWireframe]
+    [currentSession, removeDiagram, removeDocument, removeDesign]
   );
 
   const handleItemClick = useCallback(
@@ -104,13 +104,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       if (item.type === 'diagram') {
         selectDiagramWithContent(currentSession.project, currentSession.name, item.id);
-      } else if (item.type === 'wireframe') {
-        selectWireframeWithContent(currentSession.project, currentSession.name, item.id);
+      } else if (item.type === 'design') {
+        selectDesignWithContent(currentSession.project, currentSession.name, item.id);
       } else {
         selectDocumentWithContent(currentSession.project, currentSession.name, item.id);
       }
     },
-    [currentSession, selectDiagramWithContent, selectDocumentWithContent, selectWireframeWithContent]
+    [currentSession, selectDiagramWithContent, selectDocumentWithContent, selectDesignWithContent]
   );
 
   const handleSearchChange = useCallback(
@@ -161,11 +161,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const items: Item[] = [
       ...diagrams.map((d) => ({ ...d, type: 'diagram' as const })),
       ...documents.map((d) => ({ ...d, type: 'document' as const })),
-      ...wireframes.map((w) => ({
-        ...w,
-        type: 'wireframe' as const,
-        content: w.content ?? '',
-        lastModified: w.lastModified ?? Date.now(),
+      ...designs.map((d) => ({
+        ...d,
+        type: 'design' as const,
+        content: d.content ?? '',
+        lastModified: d.lastModified ?? Date.now(),
       })),
     ];
 
@@ -177,15 +177,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
 
     return items;
-  }, [diagrams, documents, wireframes, searchQuery]);
+  }, [diagrams, documents, designs, searchQuery]);
 
   const isItemSelected = useCallback(
     (item: Item) => {
       if (item.type === 'diagram') return item.id === selectedDiagramId;
-      if (item.type === 'wireframe') return item.id === selectedWireframeId;
+      if (item.type === 'design') return item.id === selectedDesignId;
       return item.id === selectedDocumentId;
     },
-    [selectedDiagramId, selectedDocumentId, selectedWireframeId]
+    [selectedDiagramId, selectedDocumentId, selectedDesignId]
   );
 
   const isDisabled = !currentSession && !todosSelected;

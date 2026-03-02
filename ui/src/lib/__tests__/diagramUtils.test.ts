@@ -4,7 +4,7 @@
  * Tests verify:
  * - detectDirection function for extracting diagram direction from content
  * - toggleDirection function for swapping diagram direction
- * - Support for graph, flowchart, and wireframe diagram types
+ * - Support for graph and flowchart diagram types
  * - Proper handling of all direction pairs (LR<->TD, RL<->BT)
  * - Edge cases and error handling
  */
@@ -58,23 +58,6 @@ describe('diagramUtils', () => {
       it('should detect TD direction in flowchart', () => {
         const content = 'flowchart TD\n  A[Start] --> B[End]';
         expect(detectDirection(content)).toBe('TD');
-      });
-    });
-
-    describe('wireframe diagrams', () => {
-      it('should detect LR direction in wireframe', () => {
-        const content = 'wireframe mobile LR\n  screen';
-        expect(detectDirection(content)).toBe('LR');
-      });
-
-      it('should detect TD direction in wireframe', () => {
-        const content = 'wireframe mobile TD\n  screen';
-        expect(detectDirection(content)).toBe('TD');
-      });
-
-      it('should detect direction in wireframe with different device names', () => {
-        const content = 'wireframe desktop RL\n  screen';
-        expect(detectDirection(content)).toBe('RL');
       });
     });
 
@@ -174,33 +157,6 @@ describe('diagramUtils', () => {
         expect(result.oldDirection).toBe('BT');
         expect(result.newDirection).toBe('RL');
         expect(result.content).toContain('graph RL');
-      });
-    });
-
-    describe('wireframe diagrams', () => {
-      it('should toggle wireframe mobile LR to TD', () => {
-        const content = 'wireframe mobile LR\n  screen: Main';
-        const result = toggleDirection(content);
-
-        expect(result.oldDirection).toBe('LR');
-        expect(result.newDirection).toBe('TD');
-        expect(result.content).toContain('wireframe mobile TD');
-      });
-
-      it('should toggle wireframe desktop TD to LR', () => {
-        const content = 'wireframe desktop TD\n  screen: Detail';
-        const result = toggleDirection(content);
-
-        expect(result.oldDirection).toBe('TD');
-        expect(result.newDirection).toBe('LR');
-        expect(result.content).toContain('wireframe desktop LR');
-      });
-
-      it('should preserve wireframe device name', () => {
-        const content = 'wireframe tablet RL\n  screen';
-        const result = toggleDirection(content);
-
-        expect(result.content).toContain('wireframe tablet BT');
       });
     });
 

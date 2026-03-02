@@ -63,7 +63,7 @@ npm test / cargo test / pytest / go test ./...
 
 2. **Design alignment (if design artifacts exist):**
 - Open design doc — does implementation match?
-- Open mermaid-collab wireframes/diagrams — does implementation match?
+- Open mermaid-collab designs/diagrams — does implementation match?
 - Any deviations = not complete, go back and fix
 
 **If tests fail or design doesn't match:**

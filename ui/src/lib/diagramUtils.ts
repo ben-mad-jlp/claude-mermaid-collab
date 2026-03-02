@@ -51,16 +51,15 @@ export interface ToggleDirectionResult {
  * Matches patterns like:
  * - graph LR
  * - flowchart TD
- * - wireframe mobile LR
  */
 export function detectDirection(content: string): DiagramDirection | null {
   if (!content || typeof content !== 'string') {
     return null;
   }
 
-  // Match: (graph|flowchart|wireframe\s+\w+)\s+(LR|TD|RL|BT)
+  // Match: (graph|flowchart)\s+(LR|TD|RL|BT)
   // Use multiline flag to match from start of any line
-  const regex = /^(graph|flowchart|wireframe\s+\w+)\s+(LR|TD|RL|BT)/mi;
+  const regex = /^(graph|flowchart)\s+(LR|TD|RL|BT)/mi;
   const match = content.match(regex);
 
   if (match && match[2]) {
@@ -112,7 +111,7 @@ export function toggleDirection(content: string): ToggleDirectionResult {
   if (oldDirection) {
     // Replace existing direction
     // Match the diagram declaration and replace direction
-    const regex = /^((?:graph|flowchart|wireframe\s+\w+)\s+)(LR|TD|RL|BT)/mi;
+    const regex = /^((?:graph|flowchart)\s+)(LR|TD|RL|BT)/mi;
     newContent = content.replace(regex, (match, prefix) => {
       // Preserve case of original direction keyword when replacing
       const oldDirectionMatch = match.match(/(LR|TD|RL|BT)/i);
@@ -127,19 +126,19 @@ export function toggleDirection(content: string): ToggleDirectionResult {
     });
   } else {
     // No existing direction, add it after diagram type
-    const diagramRegex = /^((?:graph|flowchart|wireframe\s+\w+))(\s|$)/mi;
-    const hasSpace = content.match(/^(?:graph|flowchart|wireframe\s+\w+)\s/mi);
+    const diagramRegex = /^((?:graph|flowchart))(\s|$)/mi;
+    const hasSpace = content.match(/^(?:graph|flowchart)\s/mi);
 
     if (hasSpace) {
       // Has a space after diagram type, replace it with space + direction
       newContent = content.replace(
-        /^((?:graph|flowchart|wireframe\s+\w+))\s/mi,
+        /^((?:graph|flowchart))\s/mi,
         `$1 ${newDirection}`
       );
     } else {
       // No space, add it
       newContent = content.replace(
-        /^((?:graph|flowchart|wireframe\s+\w+))(\s|$)/mi,
+        /^((?:graph|flowchart))(\s|$)/mi,
         `$1 ${newDirection}$2`
       );
     }

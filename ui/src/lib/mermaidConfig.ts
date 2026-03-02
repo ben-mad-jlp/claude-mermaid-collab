@@ -2,7 +2,7 @@
  * Centralized Mermaid configuration
  *
  * Handles mermaid initialization for standard diagram types.
- * Note: Wireframe diagrams now use the JSON-based rough.js renderer,
+ * Note: Design diagrams now use the JSON-based rough.js renderer,
  * not Mermaid's external diagram system.
  */
 
@@ -41,15 +41,15 @@ export async function initializeMermaid(theme: 'light' | 'dark', diagramContent?
 }
 
 /**
- * Check if a diagram content is a wireframe diagram
- * Wireframes now use JSON format, not Mermaid syntax
+ * Check if a diagram content is a design diagram
+ * Designs now use JSON format, not Mermaid syntax
  */
-export function isWireframeDiagram(content: string): boolean {
+export function isDesignDiagram(content: string): boolean {
   // Legacy check for old Mermaid wireframe syntax
   if (/^\s*wireframe\s/m.test(content)) {
     return true;
   }
-  // New JSON wireframes start with { and have viewport/screens
+  // New JSON designs start with { and have viewport/screens
   try {
     const parsed = JSON.parse(content);
     return parsed.viewport && parsed.screens;

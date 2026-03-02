@@ -108,10 +108,10 @@ Do NOT describe architecture or flow in text alone. Show it visually, then expla
 
 When brainstorming involves visual artifacts, use the mermaid-collab server.
 
-**GUI/UI Design (ALWAYS use wireframes):**
-- When discussing screens, layouts, or user interfaces -> create wireframe diagrams
-- Use `create_diagram(name, content)` with wireframe syntax
-- Iterate on wireframes as the design evolves
+**GUI/UI Design (ALWAYS use designs):**
+- When discussing screens, layouts, or user interfaces -> create design diagrams
+- Use `create_diagram(name, content)` with design syntax
+- Iterate on designs as the design evolves
 - Preview with `preview_diagram(id)` so user can see in browser
 
 **Architecture and Flow Design:**
@@ -134,7 +134,7 @@ When brainstorming involves visual artifacts, use the mermaid-collab server.
 
 Before moving to VALIDATING, ensure:
 
-- [ ] Every screen/UI has a wireframe in mermaid-collab
+- [ ] Every screen/UI has a design in mermaid-collab
 - [ ] Every data flow/architecture decision has a diagram
 - [ ] No ambiguous language ("should handle errors appropriately" -> specify HOW)
 - [ ] No TBD or "figure out later" items

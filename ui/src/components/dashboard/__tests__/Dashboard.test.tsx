@@ -22,11 +22,14 @@ vi.mock('@/hooks/useSession', () => ({
     currentSession: null,
     diagrams: [],
     documents: [],
+    designs: [],
     selectedDiagramId: null,
     selectedDocumentId: null,
+    selectedDesignId: null,
     setCurrentSession: vi.fn(),
     selectDiagram: vi.fn(),
     selectDocument: vi.fn(),
+    selectDesign: vi.fn(),
   }),
 }));
 

@@ -64,14 +64,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
     currentSession,
     diagrams,
     documents,
-    wireframes,
+    designs,
     selectedDiagramId,
     selectedDocumentId,
-    selectedWireframeId,
+    selectedDesignId,
     setCurrentSession,
     selectDiagram,
     selectDocument,
-    selectWireframe,
+    selectDesign,
   } = useSession();
 
   const sessionPanelSplitPosition = useUIStore(
@@ -93,7 +93,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     }
   }, [currentSession, loadSessionItems]);
 
-  // Combine diagrams, documents, and wireframes into items
+  // Combine diagrams, documents, and designs into items
   const items: GridItem[] = useMemo(() => {
     const diagramItems: GridItem[] = diagrams.map((d) => ({
       ...d,
@@ -105,13 +105,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
       type: 'document' as const,
     }));
 
-    const wireframeItems: GridItem[] = wireframes.map((w) => ({
+    const designItems: GridItem[] = designs.map((w) => ({
       ...w,
-      type: 'wireframe' as const,
+      type: 'design' as const,
     }));
 
     // Sort by lastModified (most recent first)
-    let result = [...diagramItems, ...documentItems, ...wireframeItems].sort((a, b) => {
+    let result = [...diagramItems, ...documentItems, ...designItems].sort((a, b) => {
       const aTime = a.lastModified || 0;
       const bTime = b.lastModified || 0;
       return bTime - aTime;
@@ -127,9 +127,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
     }
 
     return result;
-  }, [diagrams, documents, wireframes, searchQuery]);
+  }, [diagrams, documents, designs, searchQuery]);
 
-  const selectedItemId = selectedDiagramId || selectedDocumentId || selectedWireframeId;
+  const selectedItemId = selectedDiagramId || selectedDocumentId || selectedDesignId;
 
   const handleSessionClick = useCallback(
     (session: any) => {
@@ -143,14 +143,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
     (item: GridItem) => {
       if (item.type === 'diagram') {
         selectDiagram(item.id);
-      } else if (item.type === 'wireframe') {
-        selectWireframe(item.id);
+      } else if (item.type === 'design') {
+        selectDesign(item.id);
       } else {
         selectDocument(item.id);
       }
       onItemClick?.(item);
     },
-    [selectDiagram, selectDocument, selectWireframe, onItemClick]
+    [selectDiagram, selectDocument, selectDesign, onItemClick]
   );
 
   const handlePanelResize = useCallback(

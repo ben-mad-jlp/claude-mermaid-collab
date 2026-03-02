@@ -1,5 +1,5 @@
 /**
- * History Types - Types for document, diagram, and wireframe update history UI
+ * History Types - Types for document, diagram, and design update history UI
  */
 
 /**
@@ -74,11 +74,11 @@ export interface UseDocumentHistoryReturn {
 }
 
 /**
- * Response from GET /api/diagram/:id/history or /api/wireframe/:id/history
+ * Response from GET /api/diagram/:id/history or /api/design/:id/history
  * Uses same structure as DocumentHistory
  */
 export type DiagramHistory = DocumentHistory;
-export type WireframeHistory = DocumentHistory;
+export type DesignHistory = DocumentHistory;
 
 /**
  * Return type for useDiagramHistory hook
@@ -97,11 +97,11 @@ export interface UseDiagramHistoryReturn {
 }
 
 /**
- * Return type for useWireframeHistory hook
+ * Return type for useDesignHistory hook
  */
-export interface UseWireframeHistoryReturn {
-  /** Wireframe history data */
-  history: WireframeHistory | null;
+export interface UseDesignHistoryReturn {
+  /** Design history data */
+  history: DesignHistory | null;
   /** Loading state */
   isLoading: boolean;
   /** Error message if failed */

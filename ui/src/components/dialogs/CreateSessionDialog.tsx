@@ -3,7 +3,7 @@
  *
  * Prompts user for session name and type when creating a new collab session:
  * - Structured: Guided workflow with brainstorming, design, and implementation phases
- * - Vibe: Freeform mode for creating diagrams, docs, and wireframes
+ * - Vibe: Freeform mode for creating diagrams, docs, and designs
  */
 
 import React, { useState } from 'react';
@@ -56,7 +56,7 @@ export const CreateSessionDialog: React.FC<CreateSessionDialogProps> = ({
     {
       id: 'vibe',
       label: 'Vibe',
-      description: 'Freeform mode for creating diagrams, docs, and wireframes',
+      description: 'Freeform mode for creating diagrams, docs, and designs',
       icon: (
         <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <circle cx="12" cy="12" r="10" />

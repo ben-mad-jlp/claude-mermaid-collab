@@ -14,7 +14,7 @@
 import React from 'react';
 import { Diagram, Document } from '@/types';
 
-export type ItemType = 'diagram' | 'document' | 'wireframe';
+export type ItemType = 'diagram' | 'document' | 'design';
 
 export interface ItemCardProps {
   /** Item ID (diagram or document) */
@@ -72,8 +72,8 @@ function getItemIcon(type: ItemType): React.ReactNode {
     );
   }
 
-  if (type === 'wireframe') {
-    // Wireframe icon - phone/screen outline
+  if (type === 'design') {
+    // Design icon - phone/screen outline
     return (
       <svg
         className="w-5 h-5"

@@ -86,7 +86,7 @@ State: [current state]
 Artifacts:
 - Documents: [list .md files]
 - Diagrams: [list .mmd files]
-- Wireframes: [list .json files]
+- Designs: [list .json files]
 - Lessons: [count from LESSONS.md if exists]
 ```
 
@@ -158,9 +158,9 @@ If lessons were recorded during the session:
    - Create `docs/designs/[session-name]/` directory
    - Copy all documents from `.collab/sessions/[session]/documents/*`
    - Copy all diagrams from `.collab/sessions/[session]/diagrams/*`
-   - Copy all wireframes from `.collab/sessions/[session]/wireframes/*`
+   - Copy all designs from `.collab/sessions/[session]/designs/*`
    - Delete the `.collab/sessions/[session]/` folder
-3. Report what was archived based on the tool's response (archivedFiles.documents, archivedFiles.diagrams, and archivedFiles.wireframes)
+3. Report what was archived based on the tool's response (archivedFiles.documents, archivedFiles.diagrams, and archivedFiles.designs)
 
 **If Delete:**
 1. Confirm: "Delete session [name]? This cannot be undone."

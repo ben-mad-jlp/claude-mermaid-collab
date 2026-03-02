@@ -15,7 +15,7 @@ import { ToolbarAction } from '@/types';
 import { HistoryToolbar } from '@/components/editors/HistoryToolbar';
 import { HistoryDiffSettingsDropdown } from '@/components/editors/HistoryDiffSettingsDropdown';
 import { DiagramHistoryDropdown } from '@/components/editors/DiagramHistoryDropdown';
-import { WireframeHistoryDropdown } from '@/components/editors/WireframeHistoryDropdown';
+import { DesignHistoryDropdown } from '@/components/editors/DesignHistoryDropdown';
 
 export interface EditorToolbarProps {
   /** Name of the item being edited */
@@ -40,10 +40,10 @@ export interface EditorToolbarProps {
   diagramId?: string;
   /** Callback when diagram history version is selected */
   onDiagramHistorySelect?: (timestamp: string, content: string) => void;
-  /** Wireframe ID for history (wireframes only) */
-  wireframeId?: string;
-  /** Callback when wireframe history version is selected */
-  onWireframeHistorySelect?: (timestamp: string, content: string) => void;
+  /** Design ID for history (designs only) */
+  designId?: string;
+  /** Callback when design history version is selected */
+  onDesignHistorySelect?: (timestamp: string, content: string) => void;
   /** Current zoom level (percentage) */
   zoom: number;
   /** Callback for zoom in action */
@@ -73,7 +73,7 @@ export interface EditorToolbarProps {
   /** Whether there are proposals to manage */
   hasProposals?: boolean;
   /** Type of item being edited (for context-specific actions) */
-  itemType?: 'diagram' | 'document' | 'wireframe';
+  itemType?: 'diagram' | 'document' | 'design';
   /** Callback for rotate/direction toggle action */
   onRotate?: () => void;
   /** Whether rotate is enabled (true for diagrams only) */
@@ -113,8 +113,8 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   onHistoryVersionSelect,
   diagramId,
   onDiagramHistorySelect,
-  wireframeId,
-  onWireframeHistorySelect,
+  designId,
+  onDesignHistorySelect,
   zoom,
   onZoomIn,
   onZoomOut,
@@ -421,7 +421,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           border-b border-gray-200 dark:border-gray-700
         "
       >
-      {/* History Controls (documents) or Undo/Redo + History (diagrams/wireframes) - positioned first on far left */}
+      {/* History Controls (documents) or Undo/Redo + History (diagrams/designs) - positioned first on far left */}
       {itemType === 'document' && documentId && onHistoryVersionSelect ? (
         <HistoryToolbar
           documentId={documentId}
@@ -504,11 +504,11 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             />
           )}
 
-          {/* Wireframe History Dropdown */}
-          {itemType === 'wireframe' && wireframeId && onWireframeHistorySelect && (
-            <WireframeHistoryDropdown
-              wireframeId={wireframeId}
-              onVersionSelect={onWireframeHistorySelect}
+          {/* Design History Dropdown */}
+          {itemType === 'design' && designId && onDesignHistorySelect && (
+            <DesignHistoryDropdown
+              designId={designId}
+              onVersionSelect={onDesignHistorySelect}
             />
           )}
         </>

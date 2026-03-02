@@ -2,9 +2,9 @@ import { create } from 'zustand';
 import { Session, Diagram, Document, CollabState, ProjectTodo } from '../types';
 
 /**
- * Wireframe type definition
+ * Design type definition
  */
-export interface Wireframe {
+export interface Design {
   id: string;
   name: string;
   content?: string;
@@ -42,9 +42,9 @@ export interface SessionState {
   documents: Document[];
   selectedDocumentId: string | null;
 
-  // Wireframes in current session
-  wireframes: Wireframe[];
-  selectedWireframeId: string | null;
+  // Designs in current session
+  designs: Design[];
+  selectedDesignId: string | null;
 
   // Task graph selection state
   taskGraphSelected: boolean;
@@ -84,13 +84,13 @@ export interface SessionState {
   selectDocument: (id: string | null) => void;
   getSelectedDocument: () => Document | undefined;
 
-  // Wireframe actions
-  setWireframes: (wireframes: Wireframe[]) => void;
-  addWireframe: (wireframe: Wireframe) => void;
-  updateWireframe: (id: string, wireframe: Partial<Wireframe>) => void;
-  removeWireframe: (id: string) => void;
-  selectWireframe: (id: string | null) => void;
-  getSelectedWireframe: () => Wireframe | undefined;
+  // Design actions
+  setDesigns: (designs: Design[]) => void;
+  addDesign: (design: Design) => void;
+  updateDesign: (id: string, design: Partial<Design>) => void;
+  removeDesign: (id: string) => void;
+  selectDesign: (id: string | null) => void;
+  getSelectedDesign: () => Design | undefined;
 
   // Collab state actions
   setCollabState: (state: CollabState | null) => void;
@@ -131,8 +131,8 @@ const initialState = {
   selectedDiagramId: null,
   documents: [],
   selectedDocumentId: null,
-  wireframes: [],
-  selectedWireframeId: null,
+  designs: [],
+  selectedDesignId: null,
   taskGraphSelected: false,
   todos: [],
   todosSelected: false,
@@ -169,17 +169,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       return;
     }
 
-    // Clear diagrams, documents, wireframes, and related state when session changes
+    // Clear diagrams, documents, designs, and related state when session changes
     // This ensures clean state when switching between sessions
     set({
       currentSession: session,
       error: null,
       diagrams: [],
       documents: [],
-      wireframes: [],
+      designs: [],
       selectedDiagramId: null,
       selectedDocumentId: null,
-      selectedWireframeId: null,
+      selectedDesignId: null,
       taskGraphSelected: false,
       todosSelected: false,
       collabState: null,
@@ -227,7 +227,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const { diagrams } = get();
     // Only select if diagram exists or if clearing selection
     if (id === null || diagrams.find((d) => d.id === id)) {
-      set({ selectedDiagramId: id, selectedDocumentId: null, selectedWireframeId: null, taskGraphSelected: false });
+      set({ selectedDiagramId: id, selectedDocumentId: null, selectedDesignId: null, taskGraphSelected: false });
     }
   },
 
@@ -273,7 +273,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const { documents } = get();
     // Only select if document exists or if clearing selection
     if (id === null || documents.find((d) => d.id === id)) {
-      set({ selectedDocumentId: id, selectedDiagramId: null, selectedWireframeId: null, taskGraphSelected: false });
+      set({ selectedDocumentId: id, selectedDiagramId: null, selectedDesignId: null, taskGraphSelected: false });
     }
   },
 
@@ -282,50 +282,50 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     return documents.find((d) => d.id === selectedDocumentId);
   },
 
-  // Wireframe management
-  setWireframes: (wireframes: Wireframe[]) => {
-    set({ wireframes });
-    // Clear selected wireframe if it's not in the new list
-    const { selectedWireframeId } = get();
-    if (selectedWireframeId && !wireframes.find((w) => w.id === selectedWireframeId)) {
-      set({ selectedWireframeId: null });
+  // Design management
+  setDesigns: (designs: Design[]) => {
+    set({ designs });
+    // Clear selected design if it's not in the new list
+    const { selectedDesignId } = get();
+    if (selectedDesignId && !designs.find((w) => w.id === selectedDesignId)) {
+      set({ selectedDesignId: null });
     }
   },
 
-  addWireframe: (wireframe: Wireframe) => {
-    const { wireframes } = get();
+  addDesign: (design: Design) => {
+    const { designs } = get();
     // Avoid duplicates
-    if (!wireframes.find((w) => w.id === wireframe.id)) {
-      set({ wireframes: [...wireframes, wireframe] });
+    if (!designs.find((w) => w.id === design.id)) {
+      set({ designs: [...designs, design] });
     }
   },
 
-  updateWireframe: (id: string, updates: Partial<Wireframe>) => {
-    const { wireframes } = get();
+  updateDesign: (id: string, updates: Partial<Design>) => {
+    const { designs } = get();
     set({
-      wireframes: wireframes.map((w) => (w.id === id ? { ...w, ...updates } : w)),
+      designs: designs.map((w) => (w.id === id ? { ...w, ...updates } : w)),
     });
   },
 
-  removeWireframe: (id: string) => {
-    const { wireframes, selectedWireframeId } = get();
+  removeDesign: (id: string) => {
+    const { designs, selectedDesignId } = get();
     set({
-      wireframes: wireframes.filter((w) => w.id !== id),
-      selectedWireframeId: selectedWireframeId === id ? null : selectedWireframeId,
+      designs: designs.filter((w) => w.id !== id),
+      selectedDesignId: selectedDesignId === id ? null : selectedDesignId,
     });
   },
 
-  selectWireframe: (id: string | null) => {
-    const { wireframes } = get();
-    // Only select if wireframe exists or if clearing selection
-    if (id === null || wireframes.find((w) => w.id === id)) {
-      set({ selectedWireframeId: id, selectedDiagramId: null, selectedDocumentId: null, taskGraphSelected: false });
+  selectDesign: (id: string | null) => {
+    const { designs } = get();
+    // Only select if design exists or if clearing selection
+    if (id === null || designs.find((w) => w.id === id)) {
+      set({ selectedDesignId: id, selectedDiagramId: null, selectedDocumentId: null, taskGraphSelected: false });
     }
   },
 
-  getSelectedWireframe: () => {
-    const { wireframes, selectedWireframeId } = get();
-    return wireframes.find((w) => w.id === selectedWireframeId);
+  getSelectedDesign: () => {
+    const { designs, selectedDesignId } = get();
+    return designs.find((w) => w.id === selectedDesignId);
   },
 
   // Collab state management
@@ -335,7 +335,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   // Task graph selection
   selectTaskGraph: () => {
-    set({ taskGraphSelected: true, selectedDiagramId: null, selectedDocumentId: null, selectedWireframeId: null });
+    set({ taskGraphSelected: true, selectedDiagramId: null, selectedDocumentId: null, selectedDesignId: null });
   },
 
   clearTaskGraphSelection: () => {
@@ -365,18 +365,18 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       currentSession: null,
       selectedDiagramId: null,
       selectedDocumentId: null,
-      selectedWireframeId: null,
+      selectedDesignId: null,
       taskGraphSelected: false,
       diagrams: [],
       documents: [],
-      wireframes: [],
+      designs: [],
       collabState: null,
     });
   },
 
   selectTodo: (id: number | null) => {
     if (id === null) {
-      set({ selectedTodoId: null, currentSession: null, diagrams: [], documents: [], wireframes: [], collabState: null });
+      set({ selectedTodoId: null, currentSession: null, diagrams: [], documents: [], designs: [], collabState: null });
       return;
     }
     const { todos, todosProject } = get();
@@ -386,12 +386,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       selectedTodoId: id,
       selectedDiagramId: null,
       selectedDocumentId: null,
-      selectedWireframeId: null,
+      selectedDesignId: null,
       taskGraphSelected: false,
       currentSession: { project: todosProject, name: todo.sessionName } as Session,
       diagrams: [],
       documents: [],
-      wireframes: [],
+      designs: [],
       collabState: null,
     });
   },
@@ -416,10 +416,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       currentSession: null,
       diagrams: [],
       documents: [],
-      wireframes: [],
+      designs: [],
       selectedDiagramId: null,
       selectedDocumentId: null,
-      selectedWireframeId: null,
+      selectedDesignId: null,
       taskGraphSelected: false,
       todosSelected: false,
       todosProject: null,

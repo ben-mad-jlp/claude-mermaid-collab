@@ -2,11 +2,11 @@
  * Unified item types for sidebar and editor components
  */
 
-// Unified item type for sidebar (diagram, document, or wireframe)
+// Unified item type for sidebar (diagram, document, or design)
 export interface Item {
   id: string;
   name: string;
-  type: 'diagram' | 'document' | 'wireframe';
+  type: 'diagram' | 'document' | 'design';
   content: string;
   lastModified: number;
   folder?: string;

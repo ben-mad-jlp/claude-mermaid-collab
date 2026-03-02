@@ -2,7 +2,7 @@
  * AI UI Components - Central export point
  *
  * Exports all AI-related UI components including:
- * - Mermaid diagram and wireframe embeddings
+ * - Mermaid diagram embeddings
  * - Display components (code, diff, JSON, markdown)
  * - Input components
  * - Interactive components

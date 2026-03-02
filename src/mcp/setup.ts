@@ -11,7 +11,6 @@ import {
   ListResourcesRequestSchema,
   ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { Resvg } from '@resvg/resvg-js';
 import { dismissUI, dismissUISchema } from './tools/dismiss-ui.js';
 import { updateUI, updateUISchema } from './tools/update-ui.js';
 import { renderUISchema } from './tools/render-ui.js';
@@ -54,21 +53,27 @@ import {
   listTodoItemsSchema,
 } from './tools/todos.js';
 import {
-  handleCreateWireframe,
-  handleUpdateWireframe,
-  handleGetWireframe,
-  handleListWireframes,
-  handlePreviewWireframe,
-  handleExportWireframeSVG,
-  handleExportWireframePNG,
-  createWireframeSchema,
-  updateWireframeSchema,
-  getWireframeSchema,
-  listWireframesSchema,
-  previewWireframeSchema,
-  exportWireframeSVGSchema,
-  exportWireframePNGSchema,
-} from './tools/wireframe.js';
+  handleCreateDesign,
+  handleUpdateDesign,
+  handleGetDesign,
+  handleListDesigns,
+  handleDeleteDesign,
+  createDesignSchema,
+  updateDesignSchema,
+  getDesignSchema,
+  listDesignsSchema,
+  deleteDesignSchema,
+} from './tools/design.js';
+import {
+  addDesignNodeSchema,
+  updateDesignNodeSchema,
+  removeDesignNodeSchema,
+  batchDesignOperationsSchema,
+  handleAddDesignNode,
+  handleUpdateDesignNode,
+  handleRemoveDesignNode,
+  handleBatchDesignOperations,
+} from './tools/design-ai.js';
 
 // Configuration
 const API_PORT = parseInt(process.env.PORT || '3737', 10);
@@ -883,114 +888,74 @@ IMPORTANT - Common pitfalls to avoid:
         },
       },
       {
-        name: 'create_wireframe',
-        description: `Create a new wireframe. Returns the wireframe ID and preview URL.
-
-REQUIRED JSON STRUCTURE:
-{
-  "viewport": "mobile" | "tablet" | "desktop",
-  "direction": "LR" | "TD",
-  "screens": [{ screen components... }]
-}
-
-EVERY COMPONENT REQUIRES:
-- id: unique string
-- type: component type name
-- bounds: { x, y, width, height } (all numbers)
-
-COMPONENT TYPES & REQUIRED FIELDS:
-- screen: name (string), children (array)
-- col/row/card: children (array)
-- button: label (string)
-- text/title: content (string)
-- input: (no extra required fields)
-- list/navmenu/bottomnav: items (array of {label, icon?, active?})
-- appbar/avatar/image/icon/divider: (no extra required fields)
-
-EXAMPLE:
-{
-  "viewport": "mobile",
-  "direction": "TD",
-  "screens": [{
-    "id": "main",
-    "type": "screen",
-    "name": "Home",
-    "bounds": {"x":0,"y":0,"width":375,"height":600},
-    "children": [{
-      "id": "btn1",
-      "type": "button",
-      "bounds": {"x":20,"y":100,"width":335,"height":44},
-      "label": "Click Me"
-    }]
-  }]
-}`,
-        inputSchema: createWireframeSchema,
+        name: 'create_design',
+        description: 'Create a new design. Returns the design ID.',
+        inputSchema: createDesignSchema,
       },
       {
-        name: 'update_wireframe',
-        description: 'Update an existing wireframe\'s content.',
-        inputSchema: updateWireframeSchema,
+        name: 'update_design',
+        description: 'Update an existing design\'s content.',
+        inputSchema: updateDesignSchema,
       },
       {
-        name: 'get_wireframe',
-        description: 'Read a wireframe\'s content by ID.',
-        inputSchema: getWireframeSchema,
+        name: 'get_design',
+        description: 'Read a design\'s content by ID.',
+        inputSchema: getDesignSchema,
       },
       {
-        name: 'list_wireframes',
-        description: 'List all wireframes in a session.',
-        inputSchema: listWireframesSchema,
+        name: 'list_designs',
+        description: 'List all designs in a session.',
+        inputSchema: listDesignsSchema,
       },
       {
-        name: 'preview_wireframe',
-        description: 'Get the browser URL to view a wireframe.',
-        inputSchema: previewWireframeSchema,
+        name: 'delete_design',
+        description: 'Delete a design by ID.',
+        inputSchema: deleteDesignSchema,
       },
       {
-        name: 'export_wireframe_svg',
-        description: 'Export a wireframe as an SVG image string. Returns the complete SVG markup that can be saved or displayed.',
-        inputSchema: exportWireframeSVGSchema,
-      },
-      {
-        name: 'export_wireframe_png',
-        description: 'Export a wireframe as a PNG image. Returns base64-encoded PNG data that can be saved to a file and viewed.',
-        inputSchema: exportWireframePNGSchema,
-      },
-      {
-        name: 'validate_wireframe',
-        description: 'Check if wireframe JSON is valid without saving.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            content: { type: 'object', description: 'Wireframe JSON to validate' },
-          },
-          required: ['content'],
-        },
-      },
-      {
-        name: 'get_wireframe_history',
-        description: 'Get the change history for a wireframe. Returns original content and list of changes with timestamps.',
+        name: 'get_design_history',
+        description: 'Get the change history for a design. Returns original content and list of changes with timestamps.',
         inputSchema: {
           type: 'object',
           properties: {
             ...sessionParamsDesc,
-            id: { type: 'string', description: 'Wireframe ID' },
+            id: { type: 'string', description: 'Design ID' },
           },
           required: ['project', 'id'],
         },
       },
       {
-        name: 'revert_wireframe',
-        description: 'Revert a wireframe to a specific historical version by timestamp.',
+        name: 'revert_design',
+        description: 'Revert a design to a specific historical version by timestamp.',
         inputSchema: {
           type: 'object',
           properties: {
             ...sessionParamsDesc,
-            id: { type: 'string', description: 'Wireframe ID' },
+            id: { type: 'string', description: 'Design ID' },
             timestamp: { type: 'string', description: 'ISO timestamp of the version to revert to' },
           },
           required: ['project', 'id', 'timestamp'],
         },
+      },
+      {
+        name: 'add_design_node',
+        description: 'Add a shape, text, or frame node to a design. Returns the new node ID. Supports rectangles, ellipses, text, frames, lines, and groups with fill, stroke, position, size, corner radius, opacity, rotation, and auto-layout properties.',
+        inputSchema: addDesignNodeSchema,
+      },
+      {
+        name: 'update_design_node',
+        description: 'Update properties of a node in a design. Can change position, size, fill, stroke, text, font, corner radius, opacity, rotation, auto-layout settings, and more.',
+        inputSchema: updateDesignNodeSchema,
+      },
+      {
+        name: 'remove_design_node',
+        description: 'Remove a node and all its children from a design.',
+        inputSchema: removeDesignNodeSchema,
+      },
+      {
+        name: 'batch_design_operations',
+        description: 'Apply multiple add/update/remove operations to a design in a single call. Supports temp IDs for referencing nodes created in earlier operations within the same batch.',
+        inputSchema: batchDesignOperationsSchema,
       },
       {
         name: 'render_ui',
@@ -1086,7 +1051,7 @@ EXAMPLE:
       },
       {
         name: 'archive_session',
-        description: 'Archive a collab session by copying documents, diagrams, and wireframes to docs/designs/[session]/ and optionally deleting the session folder.',
+        description: 'Archive a collab session by copying documents, diagrams, and designs to docs/designs/[session]/ and optionally deleting the session folder.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -1401,7 +1366,7 @@ EXAMPLE:
       },
       {
         name: 'list_todo_items',
-        description: 'List all diagrams, documents, and wireframes for a specific todo.',
+        description: 'List all diagrams, documents, and designs for a specific todo.',
         inputSchema: listTodoItemsSchema,
       },
     ],
@@ -1596,109 +1561,106 @@ EXAMPLE:
             return await previewDocument(project, session, id);
           }
 
-          case 'create_wireframe': {
+          case 'create_design': {
             const { project, session, name, content } = args as { project: string; session: string; name: string; content: any };
             if (!project || !session || !name || !content) throw new Error('Missing required: project, session, name, content');
-            const result = await handleCreateWireframe(project, session, name, content);
+            const result = await handleCreateDesign(project, session, name, content);
             return JSON.stringify(result, null, 2);
           }
 
-          case 'update_wireframe': {
+          case 'update_design': {
             const { project, session, id, content } = args as { project: string; session: string; id: string; content: any };
             if (!project || !session || !id || !content) throw new Error('Missing required: project, session, id, content');
-            const result = await handleUpdateWireframe(project, session, id, content);
+            const result = await handleUpdateDesign(project, session, id, content);
             return JSON.stringify(result, null, 2);
           }
 
-          case 'get_wireframe': {
+          case 'get_design': {
             const { project, session, id } = args as { project: string; session: string; id: string };
             if (!project || !session || !id) throw new Error('Missing required: project, session, id');
-            const result = await handleGetWireframe(project, session, id);
+            const result = await handleGetDesign(project, session, id);
             return JSON.stringify(result, null, 2);
           }
 
-          case 'list_wireframes': {
+          case 'list_designs': {
             const { project, session } = args as { project: string; session: string };
             if (!project || !session) throw new Error('Missing required: project, session');
-            const result = await handleListWireframes(project, session);
+            const result = await handleListDesigns(project, session);
             return JSON.stringify(result, null, 2);
           }
 
-          case 'preview_wireframe': {
+          case 'delete_design': {
             const { project, session, id } = args as { project: string; session: string; id: string };
             if (!project || !session || !id) throw new Error('Missing required: project, session, id');
-            const result = await handlePreviewWireframe(project, session, id);
+            const result = await handleDeleteDesign(project, session, id);
             return JSON.stringify(result, null, 2);
           }
 
-          case 'export_wireframe_svg': {
-            const { project, session, id, scale } = args as { project: string; session: string; id: string; scale?: number };
-            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
-            const result = await handleExportWireframeSVG(project, session, id, scale);
-            return JSON.stringify(result, null, 2);
-          }
-
-          case 'export_wireframe_png': {
-            const { project, session, id, scale } = args as { project: string; session: string; id: string; scale?: number };
-            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
-            const result = await handleExportWireframePNG(project, session, id, scale);
-            return JSON.stringify(result, null, 2);
-          }
-
-          case 'validate_wireframe': {
-            const { content } = args as { content: any };
-            if (!content) throw new Error('Missing required: content');
-            const response = await fetch(`${API_BASE_URL}/api/wireframe/validate`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ content }),
-            });
-            if (!response.ok) {
-              throw new Error(`Failed to validate wireframe: ${response.statusText}`);
-            }
-            const data = await response.json();
-            return JSON.stringify(data, null, 2);
-          }
-
-          case 'get_wireframe_history': {
+          case 'get_design_history': {
             const { project, session, id } = args as { project: string; session: string; id: string };
             if (!project || !session || !id) throw new Error('Missing required: project, session, id');
-            const response = await fetch(buildUrl(`/api/wireframe/${id}/history`, project, session));
+            const response = await fetch(buildUrl(`/api/design/${id}/history`, project, session));
             if (!response.ok) {
               if (response.status === 404) {
-                return JSON.stringify({ error: 'No history for wireframe', history: null }, null, 2);
+                return JSON.stringify({ error: 'No history for design', history: null }, null, 2);
               }
-              throw new Error(`Failed to get wireframe history: ${response.statusText}`);
+              throw new Error(`Failed to get design history: ${response.statusText}`);
             }
             const data = await response.json();
             return JSON.stringify(data, null, 2);
           }
 
-          case 'revert_wireframe': {
+          case 'revert_design': {
             const { project, session, id, timestamp } = args as { project: string; session: string; id: string; timestamp: string };
             if (!project || !session || !id || !timestamp) throw new Error('Missing required: project, session, id, timestamp');
-            // Get historical content
-            const versionResponse = await fetch(buildUrl(`/api/wireframe/${id}/version`, project, session, { timestamp }));
+            const versionResponse = await fetch(buildUrl(`/api/design/${id}/version`, project, session, { timestamp }));
             if (!versionResponse.ok) {
-              throw new Error(`Failed to get wireframe version: ${versionResponse.statusText}`);
+              throw new Error(`Failed to get design version: ${versionResponse.statusText}`);
             }
             const versionData = await versionResponse.json();
-            // Save as current content
-            const updateResponse = await fetch(buildUrl(`/api/wireframe/${id}`, project, session), {
+            const updateResponse = await fetch(buildUrl(`/api/design/${id}`, project, session), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ content: versionData.content }),
             });
             if (!updateResponse.ok) {
               const error = await updateResponse.json();
-              throw new Error(`Failed to revert wireframe: ${error.error || updateResponse.statusText}`);
+              throw new Error(`Failed to revert design: ${error.error || updateResponse.statusText}`);
             }
             return JSON.stringify({
               success: true,
               id,
               revertedTo: timestamp,
-              message: `Wireframe reverted to version from ${timestamp}`,
+              message: `Design reverted to version from ${timestamp}`,
             }, null, 2);
+          }
+
+          case 'add_design_node': {
+            const { project, session, designId, ...nodeArgs } = args as { project: string; session: string; designId: string; [key: string]: any };
+            if (!project || !session || !designId) throw new Error('Missing required: project, session, designId');
+            const result = await handleAddDesignNode(project, session, designId, nodeArgs);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'update_design_node': {
+            const { project, session, designId, nodeId, properties } = args as { project: string; session: string; designId: string; nodeId: string; properties: Record<string, any> };
+            if (!project || !session || !designId || !nodeId || !properties) throw new Error('Missing required: project, session, designId, nodeId, properties');
+            const result = await handleUpdateDesignNode(project, session, designId, nodeId, properties);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'remove_design_node': {
+            const { project, session, designId, nodeId } = args as { project: string; session: string; designId: string; nodeId: string };
+            if (!project || !session || !designId || !nodeId) throw new Error('Missing required: project, session, designId, nodeId');
+            const result = await handleRemoveDesignNode(project, session, designId, nodeId);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'batch_design_operations': {
+            const { project, session, designId, operations } = args as { project: string; session: string; designId: string; operations: any[] };
+            if (!project || !session || !designId || !operations) throw new Error('Missing required: project, session, designId, operations');
+            const result = await handleBatchDesignOperations(project, session, designId, operations);
+            return JSON.stringify(result, null, 2);
           }
 
           case 'render_ui': {
@@ -2142,17 +2104,17 @@ EXAMPLE:
             const todo = todosResult.todos.find(t => t.id === id);
             if (!todo) throw new Error(`Todo with id ${id} not found`);
             const session = todo.sessionName;
-            const [diagrams, documents, wireframes] = await Promise.all([
+            const [diagrams, documents, designs] = await Promise.all([
               listDiagrams(project, session).catch(() => '[]'),
               listDocuments(project, session).catch(() => '[]'),
-              handleListWireframes(project, session).catch(() => ({ wireframes: [], count: 0 })),
+              handleListDesigns(project, session).catch(() => ({ designs: [], count: 0 })),
             ]);
             return JSON.stringify({
               todo,
               session,
               diagrams: JSON.parse(diagrams),
               documents: JSON.parse(documents),
-              wireframes,
+              designs,
             }, null, 2);
           }
 
