@@ -654,7 +654,7 @@ export function useDesignCanvasInput({
       if (e.shiftKey) {
         s.pan(-e.deltaX, -e.deltaY)
       } else {
-        s.applyZoom(e.deltaY, e.clientX - rect.left, e.clientY - rect.top)
+        s.applyZoom(-e.deltaY, e.clientX - rect.left, e.clientY - rect.top)
       }
     }
 
