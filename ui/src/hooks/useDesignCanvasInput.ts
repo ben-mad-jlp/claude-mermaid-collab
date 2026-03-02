@@ -649,11 +649,12 @@ export function useDesignCanvasInput({
     function onWheel(e: WheelEvent) {
       e.preventDefault()
       const s = store()
-      if (e.ctrlKey || e.metaKey) {
-        const rect = canvas.getBoundingClientRect()
-        s.applyZoom(e.deltaY, e.clientX - rect.left, e.clientY - rect.top)
-      } else {
+      const rect = canvas.getBoundingClientRect()
+      // Scroll wheel always zooms; hold Shift to pan instead
+      if (e.shiftKey) {
         s.pan(-e.deltaX, -e.deltaY)
+      } else {
+        s.applyZoom(e.deltaY, e.clientX - rect.left, e.clientY - rect.top)
       }
     }
 
