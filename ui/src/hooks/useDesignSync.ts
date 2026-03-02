@@ -135,6 +135,14 @@ export function useDesignSync(designId: string | null) {
         try {
           const graph = deserializeGraph(design.content)
           setSceneGraph(graph)
+          const store = useDesignEditorStore.getState()
+          store.initFromGraph()
+          // Zoom to fit after a frame so canvas dimensions are available
+          requestAnimationFrame(() => {
+            const vw = window.innerWidth - 240 - 256 // approximate canvas width minus panels
+            const vh = window.innerHeight - 48 // minus toolbar
+            useDesignEditorStore.getState().zoomToFit(Math.max(vw, 400), Math.max(vh, 300))
+          })
         } catch {
           resetSceneGraph()
         }

@@ -173,6 +173,8 @@ export interface DesignEditorState {
   applyZoom: (delta: number, centerX: number, centerY: number) => void
   pan: (dx: number, dy: number) => void
   screenToCanvas: (sx: number, sy: number) => { x: number; y: number }
+  initFromGraph: () => void
+  zoomToFit: (viewportWidth: number, viewportHeight: number) => void
 
   // Computed helpers
   getSelectedNodes: () => SceneNode[]
@@ -1266,6 +1268,76 @@ export const useDesignEditorStore = create<DesignEditorState>((set, get) => {
     screenToCanvas: (sx, sy) => {
       const { panX, panY, zoom } = get()
       return { x: (sx - panX) / zoom, y: (sy - panY) / zoom }
+    },
+
+    initFromGraph: () => {
+      const { graph } = getEditorRefs()
+      const root = graph.getNode(graph.rootId)
+      if (!root) return
+      // First child of root is the page
+      const pageId = root.childIds[0] ?? ''
+      set((s) => ({
+        currentPageId: pageId,
+        selectedIds: new Set<string>(),
+        editingTextId: null,
+        renderVersion: s.renderVersion + 1,
+        sceneVersion: s.sceneVersion + 1,
+      }))
+    },
+
+    zoomToFit: (viewportWidth, viewportHeight) => {
+      const { graph } = getEditorRefs()
+      const { currentPageId } = get()
+      const pageNode = graph.getNode(currentPageId)
+      if (!pageNode) return
+
+      // Compute bounding box of page content
+      const children = graph.getChildren(currentPageId)
+      if (children.length === 0) {
+        // Just center on the page frame itself
+        const padding = 40
+        const scaleX = (viewportWidth - padding * 2) / Math.max(pageNode.width, 1)
+        const scaleY = (viewportHeight - padding * 2) / Math.max(pageNode.height, 1)
+        const zoom = Math.min(scaleX, scaleY, 1)
+        set((s) => ({
+          zoom,
+          panX: (viewportWidth - pageNode.width * zoom) / 2,
+          panY: (viewportHeight - pageNode.height * zoom) / 2,
+          renderVersion: s.renderVersion + 1,
+        }))
+        return
+      }
+
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+      function addBounds(node: SceneNode) {
+        const abs = graph.getAbsolutePosition(node.id)
+        minX = Math.min(minX, abs.x)
+        minY = Math.min(minY, abs.y)
+        maxX = Math.max(maxX, abs.x + node.width)
+        maxY = Math.max(maxY, abs.y + node.height)
+      }
+      // Include the page frame itself
+      addBounds(pageNode)
+      for (const child of children) {
+        addBounds(child)
+      }
+
+      const contentW = maxX - minX
+      const contentH = maxY - minY
+      if (contentW <= 0 || contentH <= 0) return
+
+      const padding = 60
+      const scaleX = (viewportWidth - padding * 2) / contentW
+      const scaleY = (viewportHeight - padding * 2) / contentH
+      const zoom = Math.min(scaleX, scaleY, 2) // cap at 2x
+      const panX = (viewportWidth - contentW * zoom) / 2 - minX * zoom
+      const panY = (viewportHeight - contentH * zoom) / 2 - minY * zoom
+      set((s) => ({
+        zoom,
+        panX,
+        panY,
+        renderVersion: s.renderVersion + 1,
+      }))
     },
 
     // --- Computed helpers ---
