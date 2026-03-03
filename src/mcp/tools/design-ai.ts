@@ -9,6 +9,8 @@
  */
 
 import { handleGetDesign, handleUpdateDesign } from './design'
+import { createHash } from 'crypto'
+import { readFile, writeFile } from 'fs/promises'
 
 // ============= Types =============
 
@@ -67,6 +69,9 @@ interface SerializedNode {
 interface SerializedGraph {
   rootId: string
   nodes: SerializedNode[]
+  images?: Array<{ key: string; value: string }>
+  variableCollections?: Array<{ id: string; name: string; modes: Array<{ modeId: string; name: string }>; defaultModeId: string; variableIds: string[] }>
+  variables?: Array<{ id: string; name: string; resolvedType: string; valuesByMode: Record<string, any>; collectionId: string }>
 }
 
 // ============= Constants =============
@@ -197,15 +202,71 @@ function hexToColor(hex: string): Color {
   const r = parseInt(h.slice(0, 2), 16) / 255
   const g = parseInt(h.slice(2, 4), 16) / 255
   const b = parseInt(h.slice(4, 6), 16) / 255
-  return { r, g, b, a: 1 }
+  const a = h.length >= 8 ? parseInt(h.slice(6, 8), 16) / 255 : 1
+  return { r, g, b, a }
 }
 
-function solidFill(hex: string, opacity = 1): Fill {
-  return { type: 'SOLID', color: hexToColor(hex), opacity, visible: true }
+function solidFill(hex: string, opacity?: number): Fill {
+  const color = hexToColor(hex)
+  // Extract alpha from hex into fill opacity, keep color.a at 1
+  const fillOpacity = opacity ?? color.a
+  color.a = 1
+  return { type: 'SOLID', color, opacity: fillOpacity, visible: true }
 }
 
 function solidStroke(hex: string, weight = 1, opacity = 1): Stroke {
   return { color: hexToColor(hex), weight, opacity, visible: true, align: 'CENTER' }
+}
+
+/**
+ * Shared convenience property translation.
+ * Converts shorthand props (fill, stroke, padding) and applies type-specific defaults.
+ */
+function applyConvenienceProps(type: string, props: Record<string, any>): Record<string, any> {
+  const result = { ...props }
+
+  // fill → fills
+  if (result.fill) {
+    result.fills = [solidFill(result.fill)]
+    delete result.fill
+  }
+
+  // stroke → strokes
+  if (result.stroke) {
+    result.strokes = [solidStroke(result.stroke, result.strokeWeight ?? 1)]
+    delete result.stroke
+    delete result.strokeWeight
+  }
+
+  // padding → 4 sides
+  if (result.padding !== undefined) {
+    result.paddingTop = result.padding
+    result.paddingRight = result.padding
+    result.paddingBottom = result.padding
+    result.paddingLeft = result.padding
+    delete result.padding
+  }
+
+  // Type-specific defaults
+  if (type === 'TEXT') {
+    if (!result.width) result.width = 200
+    if (!result.height) result.height = 24
+    result.textAutoResize = 'HEIGHT'
+    if (!result.fills || result.fills.length === 0) {
+      result.fills = [solidFill('#000000')]
+    }
+  } else if (type === 'RECTANGLE' && (!result.fills || result.fills.length === 0)) {
+    result.fills = [solidFill('#D9D9D9')]
+  } else if (type === 'FRAME' && (!result.fills || result.fills.length === 0)) {
+    result.fills = [solidFill('#FFFFFF')]
+  }
+
+  // Strip unsafe props that could override generated defaults in createDefaultNode
+  for (const key of UNSAFE_PROPS) {
+    delete result[key]
+  }
+
+  return result
 }
 
 // ============= Schemas =============
@@ -319,58 +380,9 @@ export async function handleAddDesignNode(
   const parentId = args.parentId ?? findCurrentPage(graph)?.id
   if (!parentId) throw new Error('No parent found. Design may be empty.')
 
-  const overrides: Partial<SerializedNode> = {}
-  if (args.name) overrides.name = args.name
-  if (args.x !== undefined) overrides.x = args.x
-  if (args.y !== undefined) overrides.y = args.y
-  if (args.width !== undefined) overrides.width = args.width
-  if (args.height !== undefined) overrides.height = args.height
-  if (args.rotation !== undefined) overrides.rotation = args.rotation
-  if (args.opacity !== undefined) overrides.opacity = args.opacity
-  if (args.cornerRadius !== undefined) overrides.cornerRadius = args.cornerRadius
-  if (args.text) overrides.text = args.text
-  if (args.fontSize) overrides.fontSize = args.fontSize
-  if (args.fontWeight) overrides.fontWeight = args.fontWeight
-  if (args.fill) overrides.fills = [solidFill(args.fill)]
-  if (args.stroke) {
-    overrides.strokes = [solidStroke(args.stroke, args.strokeWeight ?? 1)]
-  }
-  if (args.layoutMode) overrides.layoutMode = args.layoutMode
-  if (args.primaryAxisAlign) overrides.primaryAxisAlign = args.primaryAxisAlign
-  if (args.counterAxisAlign) overrides.counterAxisAlign = args.counterAxisAlign
-  if (args.primaryAxisSizing) overrides.primaryAxisSizing = args.primaryAxisSizing
-  if (args.counterAxisSizing) overrides.counterAxisSizing = args.counterAxisSizing
-  if (args.itemSpacing !== undefined) overrides.itemSpacing = args.itemSpacing
-  if (args.padding !== undefined) {
-    overrides.paddingTop = args.padding
-    overrides.paddingRight = args.padding
-    overrides.paddingBottom = args.padding
-    overrides.paddingLeft = args.padding
-  }
-  if (args.layoutGrow !== undefined) overrides.layoutGrow = args.layoutGrow
-  if (args.layoutAlignSelf) overrides.layoutAlignSelf = args.layoutAlignSelf
-  if (args.clipsContent !== undefined) overrides.clipsContent = args.clipsContent
-  if (args.textAlignHorizontal) overrides.textAlignHorizontal = args.textAlignHorizontal
-
-  // Text defaults
-  if (args.type === 'TEXT') {
-    if (!overrides.width) overrides.width = 200
-    if (!overrides.height) overrides.height = 24
-    overrides.textAutoResize = 'HEIGHT'
-    if (!overrides.fills || overrides.fills.length === 0) {
-      overrides.fills = [solidFill('#000000')]
-    }
-  }
-
-  // Rectangle defaults
-  if (args.type === 'RECTANGLE' && (!overrides.fills || overrides.fills.length === 0)) {
-    overrides.fills = [solidFill('#D9D9D9')]
-  }
-
-  // Frame defaults
-  if (args.type === 'FRAME' && (!overrides.fills || overrides.fills.length === 0)) {
-    overrides.fills = [solidFill('#FFFFFF')]
-  }
+  // Extract known non-property args, pass the rest through convenience translation
+  const { project: _p, session: _s, designId: _d, type: _t, parentId: _pid, todoId: _tid, ...rawProps } = args
+  const overrides = applyConvenienceProps(args.type, rawProps)
 
   const node = createDefaultNode(args.type, overrides)
   node.parentId = parentId
@@ -488,26 +500,7 @@ export async function handleBatchDesignOperations(
       const parentId = resolveId(op.parentId) ?? findCurrentPage(graph)?.id
       if (!parentId) { results.push({ op: 'add', success: false }); continue }
 
-      const props = { ...op.properties }
-      if (props?.fill) { props.fills = [solidFill(props.fill)]; delete props.fill }
-      if (props?.stroke) { props.strokes = [solidStroke(props.stroke, props.strokeWeight ?? 1)]; delete props.stroke; delete props.strokeWeight }
-      if (props?.padding !== undefined) {
-        props.paddingTop = props.padding; props.paddingRight = props.padding
-        props.paddingBottom = props.padding; props.paddingLeft = props.padding
-        delete props.padding
-      }
-
-      // Type-specific defaults
-      if (op.type === 'TEXT') {
-        if (!props.width) props.width = 200
-        if (!props.height) props.height = 24
-        props.textAutoResize = 'HEIGHT'
-        if (!props.fills) props.fills = [solidFill('#000000')]
-      } else if (op.type === 'RECTANGLE' && !props.fills) {
-        props.fills = [solidFill('#D9D9D9')]
-      } else if (op.type === 'FRAME' && !props.fills) {
-        props.fills = [solidFill('#FFFFFF')]
-      }
+      const props = applyConvenienceProps(op.type, { ...op.properties })
 
       const node = createDefaultNode(op.type, props)
       node.parentId = parentId
@@ -524,14 +517,7 @@ export async function handleBatchDesignOperations(
       const node = graph.nodes.find(n => n.id === realId)
       if (!node) { results.push({ op: 'update', nodeId: realId, success: false }); continue }
 
-      const props = { ...op.properties }
-      if (props?.fill) { props.fills = [solidFill(props.fill)]; delete props.fill }
-      if (props?.stroke) { props.strokes = [solidStroke(props.stroke, props.strokeWeight ?? 1)]; delete props.stroke; delete props.strokeWeight }
-      if (props?.padding !== undefined) {
-        props.paddingTop = props.padding; props.paddingRight = props.padding
-        props.paddingBottom = props.padding; props.paddingLeft = props.padding
-        delete props.padding
-      }
+      const props = applyConvenienceProps(node.type, { ...op.properties })
 
       const safeProps = { ...props }
       for (const key of UNSAFE_PROPS) {
@@ -1121,4 +1107,585 @@ export async function handleTransformDesignNodes(
 
   await handleUpdateDesign(project, session, designId, graph)
   return { success: true }
+}
+
+// ============= Advanced Schemas =============
+
+export const createDesignFromTreeSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    designId: { type: 'string', description: 'Design ID' },
+    parentId: { type: 'string', description: 'Parent node ID. Defaults to first page.' },
+    tree: {
+      type: 'object',
+      description: 'Recursive tree spec. Each node: { type, name?, width?, height?, fill?, stroke?, padding?, layoutMode?, children?: [...], ref?: string, ...any node property }. "ref" assigns a name to reference the created node ID in the result map.',
+    },
+  },
+  required: ['project', 'designId', 'tree'],
+}
+
+export const addDesignImageSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    designId: { type: 'string', description: 'Design ID' },
+    parentId: { type: 'string', description: 'Parent node ID. Defaults to first page.' },
+    name: { type: 'string', description: 'Node name' },
+    source: { type: 'string', description: 'Image source: URL (http/https), file path, or base64 data' },
+    sourceType: { type: 'string', enum: ['url', 'file', 'base64'], description: 'How to interpret source. Default: auto-detect.' },
+    width: { type: 'number', description: 'Width (default: 200)' },
+    height: { type: 'number', description: 'Height (default: 200)' },
+    x: { type: 'number', description: 'X position' },
+    y: { type: 'number', description: 'Y position' },
+    imageScaleMode: { type: 'string', enum: ['FILL', 'FIT', 'CROP', 'TILE'], description: 'Image scale mode (default: FILL)' },
+  },
+  required: ['project', 'designId', 'source'],
+}
+
+export const setNodeImageSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    designId: { type: 'string', description: 'Design ID' },
+    nodeId: { type: 'string', description: 'Node ID to set image on' },
+    source: { type: 'string', description: 'Image source: URL (http/https), file path, or base64 data' },
+    sourceType: { type: 'string', enum: ['url', 'file', 'base64'], description: 'How to interpret source. Default: auto-detect.' },
+    imageScaleMode: { type: 'string', enum: ['FILL', 'FIT', 'CROP', 'TILE'], description: 'Image scale mode (default: FILL)' },
+  },
+  required: ['project', 'designId', 'nodeId', 'source'],
+}
+
+export const exportDesignSvgSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    designId: { type: 'string', description: 'Design ID' },
+    nodeId: { type: 'string', description: 'Root node to export. Defaults to first page.' },
+    outputPath: { type: 'string', description: 'File path to save SVG. If omitted, returns SVG string only.' },
+  },
+  required: ['project', 'designId'],
+}
+
+export const exportDesignCodeSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    designId: { type: 'string', description: 'Design ID' },
+    nodeId: { type: 'string', description: 'Root node to export. Defaults to first page.' },
+    framework: { type: 'string', enum: ['react', 'html'], description: 'Output framework (default: react)' },
+    outputPath: { type: 'string', description: 'File path to save code. If omitted, returns code string only.' },
+  },
+  required: ['project', 'designId'],
+}
+
+// ============= Advanced Handlers =============
+
+export async function handleCreateDesignFromTree(
+  project: string,
+  session: string,
+  designId: string,
+  tree: Record<string, any>,
+  parentId?: string
+): Promise<{ success: boolean; nodeIds: Record<string, string>; rootNodeId: string }> {
+  const design = await handleGetDesign(project, session, designId)
+  const content = typeof design.content === 'string' ? JSON.parse(design.content) : design.content
+  const graph = getGraph(content)
+
+  const resolvedParentId = parentId ?? findCurrentPage(graph)?.id
+  if (!resolvedParentId) throw new Error('No parent found. Design may be empty.')
+
+  const nodeIds: Record<string, string> = {}
+  let rootNodeId = ''
+
+  function buildNode(spec: Record<string, any>, pId: string): string {
+    const { children, ref, type, ...rawProps } = spec
+    if (!type) throw new Error('Each tree node must have a "type" property')
+
+    const props = applyConvenienceProps(type, rawProps)
+    const node = createDefaultNode(type, props)
+    node.parentId = pId
+
+    graph.nodes.push(node)
+    const parent = graph.nodes.find(n => n.id === pId)
+    if (parent) parent.childIds.push(node.id)
+
+    if (ref) nodeIds[ref] = node.id
+    if (spec.name) nodeIds[spec.name] = node.id
+
+    if (children && Array.isArray(children)) {
+      for (const child of children) {
+        buildNode(child, node.id)
+      }
+    }
+
+    return node.id
+  }
+
+  rootNodeId = buildNode(tree, resolvedParentId)
+
+  await handleUpdateDesign(project, session, designId, graph)
+  return { success: true, nodeIds, rootNodeId }
+}
+
+// Image loading helper
+async function loadImageBytes(source: string, sourceType?: string): Promise<Buffer> {
+  const detectedType = sourceType ?? (
+    source.startsWith('http://') || source.startsWith('https://') ? 'url' :
+    source.startsWith('data:') || (source.length > 500 && !source.includes('/')) ? 'base64' :
+    'file'
+  )
+
+  switch (detectedType) {
+    case 'url': {
+      const res = await fetch(source)
+      if (!res.ok) throw new Error(`Failed to fetch image: ${res.status} ${res.statusText}`)
+      return Buffer.from(await res.arrayBuffer())
+    }
+    case 'file': {
+      return Buffer.from(await readFile(source))
+    }
+    case 'base64': {
+      const data = source.replace(/^data:[^;]+;base64,/, '')
+      return Buffer.from(data, 'base64')
+    }
+    default:
+      throw new Error(`Unknown sourceType: ${detectedType}`)
+  }
+}
+
+function addImageToGraph(graph: SerializedGraph, imageBytes: Buffer): { imageHash: string; base64: string } {
+  const imageHash = createHash('sha256').update(imageBytes).digest('hex')
+  const base64 = imageBytes.toString('base64')
+
+  if (!graph.images) graph.images = []
+  const existing = graph.images.find(img => img.key === imageHash)
+  if (!existing) {
+    graph.images.push({ key: imageHash, value: base64 })
+  }
+
+  return { imageHash, base64 }
+}
+
+export async function handleAddDesignImage(
+  project: string,
+  session: string,
+  designId: string,
+  args: Record<string, any>
+): Promise<{ success: boolean; nodeId: string; imageHash: string }> {
+  const design = await handleGetDesign(project, session, designId)
+  const content = typeof design.content === 'string' ? JSON.parse(design.content) : design.content
+  const graph = getGraph(content)
+
+  const parentId = args.parentId ?? findCurrentPage(graph)?.id
+  if (!parentId) throw new Error('No parent found. Design may be empty.')
+
+  const imageBytes = await loadImageBytes(args.source, args.sourceType)
+  const { imageHash } = addImageToGraph(graph, imageBytes)
+
+  const scaleMode = args.imageScaleMode ?? 'FILL'
+  const node = createDefaultNode('FRAME', {
+    name: args.name ?? 'Image',
+    x: args.x ?? 0,
+    y: args.y ?? 0,
+    width: args.width ?? 200,
+    height: args.height ?? 200,
+    clipsContent: true,
+    fills: [{
+      type: 'IMAGE',
+      imageHash,
+      imageScaleMode: scaleMode,
+      opacity: 1,
+      visible: true,
+      color: { r: 0, g: 0, b: 0, a: 0 },
+    }],
+  })
+  node.parentId = parentId
+
+  graph.nodes.push(node)
+  const parent = graph.nodes.find(n => n.id === parentId)
+  if (parent) parent.childIds.push(node.id)
+
+  await handleUpdateDesign(project, session, designId, graph)
+  return { success: true, nodeId: node.id, imageHash }
+}
+
+export async function handleSetNodeImage(
+  project: string,
+  session: string,
+  designId: string,
+  nodeId: string,
+  source: string,
+  sourceType?: string,
+  imageScaleMode?: string
+): Promise<{ success: boolean; imageHash: string }> {
+  const design = await handleGetDesign(project, session, designId)
+  const content = typeof design.content === 'string' ? JSON.parse(design.content) : design.content
+  const graph = getGraph(content)
+
+  const node = graph.nodes.find(n => n.id === nodeId)
+  if (!node) throw new Error(`Node not found: ${nodeId}`)
+
+  const imageBytes = await loadImageBytes(source, sourceType)
+  const { imageHash } = addImageToGraph(graph, imageBytes)
+
+  const scaleMode = imageScaleMode ?? 'FILL'
+  const imageFill = {
+    type: 'IMAGE',
+    imageHash,
+    imageScaleMode: scaleMode,
+    opacity: 1,
+    visible: true,
+    color: { r: 0, g: 0, b: 0, a: 0 },
+  }
+
+  // Replace existing IMAGE fill or add new one
+  const existingIdx = node.fills.findIndex((f: any) => f.type === 'IMAGE')
+  if (existingIdx >= 0) {
+    node.fills[existingIdx] = imageFill as any
+  } else {
+    node.fills.push(imageFill as any)
+  }
+
+  await handleUpdateDesign(project, session, designId, graph)
+  return { success: true, imageHash }
+}
+
+// ============= SVG Export =============
+
+function colorToCSS(color: Color, opacity = 1): string {
+  const r = Math.round(color.r * 255)
+  const g = Math.round(color.g * 255)
+  const b = Math.round(color.b * 255)
+  const a = opacity * color.a
+  if (a < 1) return `rgba(${r},${g},${b},${+a.toFixed(3)})`
+  return `rgb(${r},${g},${b})`
+}
+
+function nodeToSVG(node: SerializedNode, graph: SerializedGraph, defs: string[]): string {
+  if (!node.visible) return ''
+  const opacity = node.opacity < 1 ? ` opacity="${node.opacity}"` : ''
+  const transform = node.rotation ? ` transform="rotate(${node.rotation} ${node.x + node.width / 2} ${node.y + node.height / 2})"` : ''
+
+  // Determine fill
+  let fillAttr = 'fill="none"'
+  if (node.fills.length > 0) {
+    const fill = node.fills.find((f: any) => f.visible !== false)
+    if (fill) {
+      if (fill.type === 'SOLID') {
+        fillAttr = `fill="${colorToCSS(fill.color, fill.opacity)}"`
+      } else if (fill.type === 'IMAGE' && (fill as any).imageHash) {
+        const img = graph.images?.find(i => i.key === (fill as any).imageHash)
+        if (img) {
+          const patId = `pat_${node.id}`
+          defs.push(`<pattern id="${patId}" patternUnits="objectBoundingBox" width="1" height="1"><image href="data:image/png;base64,${img.value}" width="${node.width}" height="${node.height}" preserveAspectRatio="xMidYMid slice"/></pattern>`)
+          fillAttr = `fill="url(#${patId})"`
+        }
+      }
+    }
+  }
+
+  // Determine stroke
+  let strokeAttr = ''
+  if (node.strokes.length > 0) {
+    const stroke = node.strokes.find((s: any) => s.visible !== false)
+    if (stroke) {
+      strokeAttr = ` stroke="${colorToCSS(stroke.color, stroke.opacity)}" stroke-width="${stroke.weight}"`
+    }
+  }
+
+  const cr = node.cornerRadius
+  const rx = cr > 0 ? ` rx="${cr}" ry="${cr}"` : ''
+
+  switch (node.type) {
+    case 'RECTANGLE':
+    case 'SECTION':
+      return `<rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}"${rx} ${fillAttr}${strokeAttr}${opacity}${transform}/>`
+
+    case 'ELLIPSE': {
+      const cx = node.x + node.width / 2
+      const cy = node.y + node.height / 2
+      return `<ellipse cx="${cx}" cy="${cy}" rx="${node.width / 2}" ry="${node.height / 2}" ${fillAttr}${strokeAttr}${opacity}${transform}/>`
+    }
+
+    case 'TEXT': {
+      const textFill = node.fills.length > 0 && node.fills[0].type === 'SOLID'
+        ? `fill="${colorToCSS(node.fills[0].color, node.fills[0].opacity)}"`
+        : 'fill="black"'
+      const anchor = node.textAlignHorizontal === 'CENTER' ? 'middle' : node.textAlignHorizontal === 'RIGHT' ? 'end' : 'start'
+      const textX = anchor === 'middle' ? node.x + node.width / 2 : anchor === 'end' ? node.x + node.width : node.x
+      return `<text x="${textX}" y="${node.y + node.fontSize}" font-family="${node.fontFamily}" font-size="${node.fontSize}" font-weight="${node.fontWeight}" text-anchor="${anchor}" ${textFill}${opacity}${transform}>${escapeXml(node.text)}</text>`
+    }
+
+    case 'LINE':
+      return `<line x1="${node.x}" y1="${node.y}" x2="${node.x + node.width}" y2="${node.y + node.height}"${strokeAttr || ' stroke="black" stroke-width="1"'}${opacity}${transform}/>`
+
+    case 'FRAME':
+    case 'GROUP': {
+      // Children have positions relative to this node, so wrap in a translate group
+      const childTranslate = `translate(${node.x},${node.y})`
+      const children = node.childIds
+        .map(id => graph.nodes.find(n => n.id === id))
+        .filter(Boolean)
+        .map(child => nodeToSVG(child!, graph, defs))
+        .join('\n')
+
+      if (node.type === 'GROUP') {
+        return `<g transform="${childTranslate}"${opacity}${transform}>\n${children}\n</g>`
+      }
+
+      // FRAME: render background rect + clipped children in translated group
+      const clipId = node.clipsContent ? `clip_${node.id}` : ''
+      if (clipId) {
+        // Clip rect at origin since children are translated
+        defs.push(`<clipPath id="${clipId}"><rect x="0" y="0" width="${node.width}" height="${node.height}"${rx}/></clipPath>`)
+      }
+      const bg = `<rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}"${rx} ${fillAttr}${strokeAttr}/>`
+      const clipAttr = clipId ? ` clip-path="url(#${clipId})"` : ''
+      return `<g${opacity}${transform}>\n${bg}\n<g transform="${childTranslate}"${clipAttr}>\n${children}\n</g>\n</g>`
+    }
+
+    default:
+      return `<!-- unsupported type: ${node.type} -->`
+  }
+}
+
+function escapeXml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+export async function handleExportDesignSvg(
+  project: string,
+  session: string,
+  designId: string,
+  nodeId?: string,
+  outputPath?: string
+): Promise<{ success: boolean; svg: string; outputPath?: string }> {
+  const design = await handleGetDesign(project, session, designId)
+  const content = typeof design.content === 'string' ? JSON.parse(design.content) : design.content
+  const graph = getGraph(content)
+
+  const rootId = nodeId ?? findCurrentPage(graph)?.id
+  if (!rootId) throw new Error('No page found. Design may be empty.')
+  const rootNode = graph.nodes.find(n => n.id === rootId)
+  if (!rootNode) throw new Error(`Node not found: ${rootId}`)
+
+  const defs: string[] = []
+  const childrenSvg = rootNode.childIds
+    .map(id => graph.nodes.find(n => n.id === id))
+    .filter(Boolean)
+    .map(child => nodeToSVG(child!, graph, defs))
+    .join('\n')
+
+  const defsBlock = defs.length > 0 ? `<defs>\n${defs.join('\n')}\n</defs>\n` : ''
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${rootNode.width}" height="${rootNode.height}" viewBox="0 0 ${rootNode.width} ${rootNode.height}">\n${defsBlock}${childrenSvg}\n</svg>`
+
+  if (outputPath) {
+    await writeFile(outputPath, svg, 'utf-8')
+    return { success: true, svg, outputPath }
+  }
+
+  return { success: true, svg }
+}
+
+// ============= Code Export =============
+
+// Style helpers for code export
+
+interface StyleMap {
+  [key: string]: string | number
+}
+
+function getVisibleFill(fills: Fill[]): Fill | null {
+  if (!fills || fills.length === 0) return null
+  return fills.find((f: any) => f.visible !== false) ?? null
+}
+
+function getVisibleStroke(strokes: Stroke[]): Stroke | null {
+  if (!strokes || strokes.length === 0) return null
+  return strokes.find((s: any) => s.visible !== false) ?? null
+}
+
+function buildStyleMap(node: SerializedNode): StyleMap {
+  const s: StyleMap = {}
+
+  s.width = node.width
+  s.height = node.height
+
+  if (node.opacity < 1) s.opacity = node.opacity
+  if (node.cornerRadius > 0) s.borderRadius = node.cornerRadius
+  if (node.rotation) s.transform = `rotate(${node.rotation}deg)`
+
+  const fill = getVisibleFill(node.fills)
+  if (fill && fill.type === 'SOLID') {
+    s.backgroundColor = colorToCSS(fill.color, fill.opacity)
+  }
+
+  const stroke = getVisibleStroke(node.strokes)
+  if (stroke) {
+    s.borderWidth = stroke.weight
+    s.borderStyle = 'solid'
+    s.borderColor = colorToCSS(stroke.color, stroke.opacity)
+  }
+
+  if (node.layoutMode && node.layoutMode !== 'NONE') {
+    s.display = 'flex'
+    s.flexDirection = node.layoutMode === 'HORIZONTAL' ? 'row' : 'column'
+
+    const justifyMap: Record<string, string> = { MIN: 'flex-start', CENTER: 'center', MAX: 'flex-end', SPACE_BETWEEN: 'space-between' }
+    if (node.primaryAxisAlign && justifyMap[node.primaryAxisAlign]) {
+      s.justifyContent = justifyMap[node.primaryAxisAlign]
+    }
+
+    const alignMap: Record<string, string> = { MIN: 'flex-start', CENTER: 'center', MAX: 'flex-end', STRETCH: 'stretch', BASELINE: 'baseline' }
+    if (node.counterAxisAlign && alignMap[node.counterAxisAlign]) {
+      s.alignItems = alignMap[node.counterAxisAlign]
+    }
+
+    if (node.itemSpacing > 0) s.gap = node.itemSpacing
+  }
+
+  if (node.paddingTop || node.paddingRight || node.paddingBottom || node.paddingLeft) {
+    if (node.paddingTop === node.paddingRight && node.paddingRight === node.paddingBottom && node.paddingBottom === node.paddingLeft) {
+      s.padding = node.paddingTop
+    } else {
+      s.paddingTop = node.paddingTop
+      s.paddingRight = node.paddingRight
+      s.paddingBottom = node.paddingBottom
+      s.paddingLeft = node.paddingLeft
+    }
+  }
+
+  if (node.clipsContent) s.overflow = 'hidden'
+  if (node.layoutGrow === 1) s.flex = 1
+
+  return s
+}
+
+function buildTextStyleMap(node: SerializedNode, base: StyleMap): StyleMap {
+  const s = { ...base }
+  s.fontFamily = node.fontFamily
+  s.fontSize = node.fontSize
+  s.fontWeight = node.fontWeight
+  if (node.textAlignHorizontal !== 'LEFT') {
+    s.textAlign = node.textAlignHorizontal.toLowerCase()
+  }
+  const fill = getVisibleFill(node.fills)
+  if (fill && fill.type === 'SOLID') {
+    s.color = colorToCSS(fill.color, fill.opacity)
+    delete s.backgroundColor  // text uses color, not background
+  }
+  return s
+}
+
+function styleMapToReact(styles: StyleMap): string {
+  const entries = Object.entries(styles).map(([k, v]) => {
+    if (typeof v === 'number') return `${k}: ${v}`
+    return `${k}: ${JSON.stringify(v)}`
+  })
+  return `{{ ${entries.join(', ')} }}`
+}
+
+function styleMapToHTML(styles: StyleMap): string {
+  // Convert camelCase to kebab-case CSS
+  const entries = Object.entries(styles).map(([k, v]) => {
+    const cssKey = k.replace(/([A-Z])/g, '-$1').toLowerCase()
+    if (typeof v === 'number' && !['opacity', 'flex', 'fontWeight'].includes(k)) {
+      return `${cssKey}: ${v}px`
+    }
+    return `${cssKey}: ${v}`
+  })
+  return entries.join('; ')
+}
+
+function nodeToCode(
+  node: SerializedNode,
+  graph: SerializedGraph,
+  framework: 'react' | 'html',
+  indent: number
+): string {
+  if (!node.visible) return ''
+  const pad = '  '.repeat(indent)
+
+  const styles = buildStyleMap(node)
+
+  if (node.type === 'TEXT') {
+    const textStyles = buildTextStyleMap(node, styles)
+
+    if (framework === 'react') {
+      const styleStr = ` style={${styleMapToReact(textStyles)}}`
+      return `${pad}<span${styleStr}>{${JSON.stringify(node.text)}}</span>`
+    }
+    const styleStr = ` style="${styleMapToHTML(textStyles)}"`
+    return `${pad}<span${styleStr}>${escapeXml(node.text)}</span>`
+  }
+
+  const children = node.childIds
+    .map(id => graph.nodes.find(n => n.id === id))
+    .filter(Boolean)
+    .map(child => nodeToCode(child!, graph, framework, indent + 1))
+    .filter(Boolean)
+    .join('\n')
+
+  const tag = 'div'
+
+  if (framework === 'react') {
+    const styleStr = ` style={${styleMapToReact(styles)}}`
+    if (children) {
+      return `${pad}<${tag}${styleStr}>\n${children}\n${pad}</${tag}>`
+    }
+    return `${pad}<${tag}${styleStr} />`
+  }
+
+  const styleStr = ` style="${styleMapToHTML(styles)}"`
+  if (children) {
+    return `${pad}<${tag}${styleStr}>\n${children}\n${pad}</${tag}>`
+  }
+  return `${pad}<${tag}${styleStr}></${tag}>`
+}
+
+export async function handleExportDesignCode(
+  project: string,
+  session: string,
+  designId: string,
+  nodeId?: string,
+  framework: 'react' | 'html' = 'react',
+  _styling?: string,
+  outputPath?: string
+): Promise<{ success: boolean; code: string; outputPath?: string }> {
+  const design = await handleGetDesign(project, session, designId)
+  const content = typeof design.content === 'string' ? JSON.parse(design.content) : design.content
+  const graph = getGraph(content)
+
+  const rootId = nodeId ?? findCurrentPage(graph)?.id
+  if (!rootId) throw new Error('No page found. Design may be empty.')
+  const rootNode = graph.nodes.find(n => n.id === rootId)
+  if (!rootNode) throw new Error(`Node not found: ${rootId}`)
+
+  const children = rootNode.childIds
+    .map(id => graph.nodes.find(n => n.id === id))
+    .filter(Boolean)
+    .map(child => nodeToCode(child!, graph, framework, 1))
+    .filter(Boolean)
+    .join('\n')
+
+  let code: string
+  if (framework === 'react') {
+    let componentName = (rootNode.name || 'Design').replace(/[^a-zA-Z0-9]/g, '')
+    // Ensure valid React component name: must start with uppercase letter
+    if (!componentName || /^[0-9]/.test(componentName)) {
+      componentName = 'Design' + componentName
+    }
+    componentName = componentName.charAt(0).toUpperCase() + componentName.slice(1)
+    code = `export function ${componentName}() {\n  return (\n    <div style={{ width: ${rootNode.width}, height: ${rootNode.height} }}>\n${children}\n    </div>\n  );\n}`
+  } else {
+    code = `<!DOCTYPE html>\n<html>\n<head><meta charset="UTF-8"><title>${escapeXml(rootNode.name || 'Design')}</title></head>\n<body>\n  <div style="width: ${rootNode.width}px; height: ${rootNode.height}px;">\n${children}\n  </div>\n</body>\n</html>`
+  }
+
+  if (outputPath) {
+    await writeFile(outputPath, code, 'utf-8')
+    return { success: true, code, outputPath }
+  }
+
+  return { success: true, code }
 }

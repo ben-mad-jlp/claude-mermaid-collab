@@ -91,7 +91,25 @@ import {
   handleDuplicateDesignNodes,
   handleAlignDesignNodes,
   handleTransformDesignNodes,
+  createDesignFromTreeSchema,
+  addDesignImageSchema,
+  setNodeImageSchema,
+  exportDesignSvgSchema,
+  exportDesignCodeSchema,
+  handleCreateDesignFromTree,
+  handleAddDesignImage,
+  handleSetNodeImage,
+  handleExportDesignSvg,
+  handleExportDesignCode,
 } from './tools/design-ai.js';
+import {
+  createFromTemplateSchema,
+  createDesignTokensSchema,
+  applyDesignTokensSchema,
+  handleCreateFromTemplate,
+  handleCreateDesignTokens,
+  handleApplyDesignTokens,
+} from './tools/design-templates.js';
 
 // Configuration
 const API_PORT = parseInt(process.env.PORT || '3737', 10);
@@ -1016,6 +1034,46 @@ IMPORTANT - Common pitfalls to avoid:
         inputSchema: transformDesignNodesSchema,
       },
       {
+        name: 'create_design_from_tree',
+        description: 'Create an entire node hierarchy from a single recursive tree spec. Each node: { type, name?, fill?, children?: [...], ref?: "name", ...props }. Returns a map of ref/name→nodeId. Far more efficient than multiple add_design_node calls.',
+        inputSchema: createDesignFromTreeSchema,
+      },
+      {
+        name: 'add_design_image',
+        description: 'Add an image node to a design from a URL, file path, or base64 data. Creates a FRAME with an IMAGE fill.',
+        inputSchema: addDesignImageSchema,
+      },
+      {
+        name: 'set_node_image',
+        description: 'Set or replace the image fill on an existing node. Loads from URL, file path, or base64.',
+        inputSchema: setNodeImageSchema,
+      },
+      {
+        name: 'export_design_svg',
+        description: 'Export a design or node subtree as SVG. Renders fills, strokes, text, images, corners, opacity, rotation, and clipping server-side. Optionally saves to file.',
+        inputSchema: exportDesignSvgSchema,
+      },
+      {
+        name: 'export_design_code',
+        description: 'Export a design as React or HTML code. Converts layout to CSS flexbox, fills to background-color, strokes to border. Params: framework (react/html).',
+        inputSchema: exportDesignCodeSchema,
+      },
+      {
+        name: 'create_from_template',
+        description: 'Create a UI component from a template. Available: navbar, card, button, input, list-item, avatar, badge, modal, tab-bar, form. Each accepts customization params (title, fill, width, items, etc.).',
+        inputSchema: createFromTemplateSchema,
+      },
+      {
+        name: 'create_design_tokens',
+        description: 'Create design token variables (colors, typography, spacing, radii) from a preset (material, ios, minimal-dark, minimal-light) or custom token set.',
+        inputSchema: createDesignTokensSchema,
+      },
+      {
+        name: 'apply_design_tokens',
+        description: 'Bind design token variables to node properties. Maps property names to variable names (e.g. { "fills/0/color": "color/primary" }).',
+        inputSchema: applyDesignTokensSchema,
+      },
+      {
         name: 'export_design_png',
         description: 'Export a design as an image (PNG, JPG, or WEBP). Requires the design to be open in a browser. The browser renders the design via CanvasKit and returns the image. Returns the file path of the saved image.',
         inputSchema: exportDesignSchema,
@@ -1779,6 +1837,63 @@ IMPORTANT - Common pitfalls to avoid:
             const { project, session, designId, nodeIds, action } = args as { project: string; session: string; designId: string; nodeIds: string[]; action: 'flipH' | 'flipV' };
             if (!project || !session || !designId || !nodeIds || !action) throw new Error('Missing required: project, session, designId, nodeIds, action');
             const result = await handleTransformDesignNodes(project, session, designId, nodeIds, action);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'create_design_from_tree': {
+            const { project, session, designId, tree, parentId } = args as { project: string; session: string; designId: string; tree: Record<string, any>; parentId?: string };
+            if (!project || !session || !designId || !tree) throw new Error('Missing required: project, session, designId, tree');
+            const result = await handleCreateDesignFromTree(project, session, designId, tree, parentId);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'add_design_image': {
+            const { project, session, designId, ...imageArgs } = args as { project: string; session: string; designId: string; [key: string]: any };
+            if (!project || !session || !designId) throw new Error('Missing required: project, session, designId');
+            const result = await handleAddDesignImage(project, session, designId, imageArgs);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'set_node_image': {
+            const { project, session, designId, nodeId, source, sourceType, imageScaleMode } = args as { project: string; session: string; designId: string; nodeId: string; source: string; sourceType?: string; imageScaleMode?: string };
+            if (!project || !session || !designId || !nodeId || !source) throw new Error('Missing required: project, session, designId, nodeId, source');
+            const result = await handleSetNodeImage(project, session, designId, nodeId, source, sourceType, imageScaleMode);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'export_design_svg': {
+            const { project, session, designId, nodeId, outputPath } = args as { project: string; session: string; designId: string; nodeId?: string; outputPath?: string };
+            if (!project || !session || !designId) throw new Error('Missing required: project, session, designId');
+            const result = await handleExportDesignSvg(project, session, designId, nodeId, outputPath);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'export_design_code': {
+            const { project, session, designId, nodeId, framework, outputPath } = args as { project: string; session: string; designId: string; nodeId?: string; framework?: 'react' | 'html'; outputPath?: string };
+            if (!project || !session || !designId) throw new Error('Missing required: project, session, designId');
+            const result = await handleExportDesignCode(project, session, designId, nodeId, framework, undefined, outputPath);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'create_from_template': {
+            const { project, session, designId, template, params, parentId } = args as { project: string; session: string; designId: string; template: string; params?: Record<string, any>; parentId?: string };
+            if (!project || !session || !designId || !template) throw new Error('Missing required: project, session, designId, template');
+            const result = await handleCreateFromTemplate(project, session, designId, template, params, parentId);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'create_design_tokens': {
+            const { project, session, designId, preset, custom } = args as { project: string; session: string; designId: string; preset?: string; custom?: any };
+            if (!project || !session || !designId) throw new Error('Missing required: project, session, designId');
+            if (!preset && !custom) throw new Error('Either preset or custom is required');
+            const result = await handleCreateDesignTokens(project, session, designId, preset, custom);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'apply_design_tokens': {
+            const { project, session, designId, nodeId, bindings } = args as { project: string; session: string; designId: string; nodeId: string; bindings: Record<string, string> };
+            if (!project || !session || !designId || !nodeId || !bindings) throw new Error('Missing required: project, session, designId, nodeId, bindings');
+            const result = await handleApplyDesignTokens(project, session, designId, nodeId, bindings);
             return JSON.stringify(result, null, 2);
           }
 
