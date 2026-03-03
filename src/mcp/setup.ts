@@ -101,6 +101,7 @@ import {
   handleSetNodeImage,
   handleExportDesignSvg,
   handleExportDesignCode,
+  validateAndFixGraph,
 } from './tools/design-ai.js';
 import {
   createFromTemplateSchema,
@@ -925,12 +926,12 @@ IMPORTANT - Common pitfalls to avoid:
       },
       {
         name: 'create_design',
-        description: 'Create a new design. Returns the design ID.',
+        description: 'Create a new design. Returns the design ID. Content must be a scene graph with a CANVAS root node containing PAGE child(ren). If a bare PAGE is passed as root, it will be auto-wrapped in a CANVAS. Prefer using create_design_from_tree or create_from_template instead of constructing raw JSON.',
         inputSchema: createDesignSchema,
       },
       {
         name: 'update_design',
-        description: 'Update an existing design\'s content.',
+        description: 'Update an existing design\'s content. Content must be a valid scene graph with CANVAS root → PAGE children. Prefer using add_design_node, update_design_node, or batch_design_operations for incremental edits.',
         inputSchema: updateDesignSchema,
       },
       {
@@ -1685,6 +1686,10 @@ IMPORTANT - Common pitfalls to avoid:
           case 'create_design': {
             const { project, session, name, content } = args as { project: string; session: string; name: string; content: any };
             if (!project || !session || !name || !content) throw new Error('Missing required: project, session, name, content');
+            // Validate and auto-fix graph structure (e.g. wrap bare PAGE in CANVAS)
+            if (content && content.rootId && Array.isArray(content.nodes)) {
+              validateAndFixGraph(content);
+            }
             const result = await handleCreateDesign(project, session, name, content);
             return JSON.stringify(result, null, 2);
           }
@@ -1692,6 +1697,10 @@ IMPORTANT - Common pitfalls to avoid:
           case 'update_design': {
             const { project, session, id, content } = args as { project: string; session: string; id: string; content: any };
             if (!project || !session || !id || !content) throw new Error('Missing required: project, session, id, content');
+            // Validate and auto-fix graph structure
+            if (content && content.rootId && Array.isArray(content.nodes)) {
+              validateAndFixGraph(content);
+            }
             const result = await handleUpdateDesign(project, session, id, content);
             return JSON.stringify(result, null, 2);
           }

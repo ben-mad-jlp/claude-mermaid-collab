@@ -109,6 +109,50 @@ function findCurrentPage(graph: SerializedGraph): SerializedNode | null {
   return graph.nodes.find(n => n.id === root.childIds[0]) ?? null
 }
 
+/**
+ * Validate and auto-fix a scene graph structure.
+ * The design editor expects: CANVAS root → PAGE child(ren) → content.
+ * If a PAGE is used as root, wraps it in a CANVAS node automatically.
+ * Returns the (potentially fixed) graph.
+ */
+export function validateAndFixGraph(graph: SerializedGraph): SerializedGraph {
+  const root = graph.nodes.find(n => n.id === graph.rootId)
+  if (!root) throw new Error('Invalid design: rootId does not reference any node')
+
+  // If root is already CANVAS, validate it has a PAGE child
+  if (root.type === 'CANVAS') {
+    if (root.childIds.length === 0) {
+      throw new Error('Invalid design: CANVAS root must have at least one PAGE child')
+    }
+    const firstChild = graph.nodes.find(n => n.id === root.childIds[0])
+    if (!firstChild) {
+      throw new Error('Invalid design: CANVAS root references missing child node')
+    }
+    return graph
+  }
+
+  // If root is PAGE, auto-wrap in CANVAS
+  if (root.type === 'PAGE') {
+    const canvasId = generateId()
+    const canvas: SerializedNode = {
+      ...createDefaultNode('CANVAS', { name: 'Document' }),
+      id: canvasId,
+      parentId: null,
+      childIds: [root.id],
+    }
+    root.parentId = canvasId
+    graph.nodes.push(canvas)
+    graph.rootId = canvasId
+    return graph
+  }
+
+  // Any other type as root is invalid
+  throw new Error(
+    `Invalid design: root node must be type CANVAS (with PAGE children). Got type "${root.type}". ` +
+    'Expected structure: { rootId → CANVAS node → PAGE child(ren) → content }'
+  )
+}
+
 function createDefaultNode(type: string, overrides: Partial<SerializedNode> = {}): SerializedNode {
   return {
     id: generateId(),
