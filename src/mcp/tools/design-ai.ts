@@ -1583,7 +1583,7 @@ function styleMapToReact(styles: StyleMap): string {
     if (typeof v === 'number') return `${k}: ${v}`
     return `${k}: ${JSON.stringify(v)}`
   })
-  return `{{ ${entries.join(', ')} }}`
+  return `{ ${entries.join(', ')} }`
 }
 
 function styleMapToHTML(styles: StyleMap): string {

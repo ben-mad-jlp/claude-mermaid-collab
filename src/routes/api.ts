@@ -1016,6 +1016,7 @@ export async function handleAPI(
         wsHandler.broadcast({
           type: 'design_updated',
           id,
+          content,
           project: params.project,
           session: params.session,
         });
