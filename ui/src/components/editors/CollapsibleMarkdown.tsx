@@ -16,6 +16,7 @@ import {
   vs,
 } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useTheme } from '@/hooks/useTheme';
+import { remarkDiagramEmbeds } from '@/lib/remarkDiagramEmbeds';
 import {
   ManagedCollapsibleSection,
   CollapsibleSectionsProvider,
@@ -110,7 +111,7 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, components }
   return (
     <ReactMarkdown
       components={components}
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={[remarkGfm, remarkDiagramEmbeds]}
       rehypePlugins={[rehypeRaw]}
     >
       {content}

@@ -23,6 +23,7 @@ import { remarkAnnotations } from '@/lib/remarkAnnotations';
 import { AnnotationRenderer } from './AnnotationComponents';
 import { CollapsibleDetails, CollapsibleSummary } from './CollapsibleDetails';
 import { CollapsibleMarkdown } from './CollapsibleMarkdown';
+import { remarkDiagramEmbeds } from '@/lib/remarkDiagramEmbeds';
 
 export interface MarkdownPreviewProps {
   /** The Markdown content to render */
@@ -495,7 +496,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
                     <div key={idx} className="diff-unchanged">
                       <ReactMarkdown
                         components={components}
-                        remarkPlugins={[remarkGfm, remarkAnnotations]}
+                        remarkPlugins={[remarkGfm, remarkAnnotations, remarkDiagramEmbeds]}
                         rehypePlugins={[rehypeRaw]}
                       >
                         {segment.content}
@@ -507,7 +508,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
                     <div key={idx} className="diff-added">
                       <ReactMarkdown
                         components={components}
-                        remarkPlugins={[remarkGfm, remarkAnnotations]}
+                        remarkPlugins={[remarkGfm, remarkAnnotations, remarkDiagramEmbeds]}
                         rehypePlugins={[rehypeRaw]}
                       >
                         {segment.content}
@@ -519,7 +520,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
                     <div key={idx} className="diff-removed">
                       <ReactMarkdown
                         components={components}
-                        remarkPlugins={[remarkGfm, remarkAnnotations]}
+                        remarkPlugins={[remarkGfm, remarkAnnotations, remarkDiagramEmbeds]}
                         rehypePlugins={[rehypeRaw]}
                       >
                         {segment.content}
@@ -537,7 +538,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             // Render normally
             <ReactMarkdown
               components={components}
-              remarkPlugins={[remarkGfm, remarkAnnotations]}
+              remarkPlugins={[remarkGfm, remarkAnnotations, remarkDiagramEmbeds]}
               rehypePlugins={[rehypeRaw]}
             >
               {content}

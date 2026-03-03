@@ -129,6 +129,8 @@ import {
   handleSaveComponent,
   handleLoadComponent,
   handleListLibraryComponents,
+  designToDiagramSchema,
+  handleDesignToDiagram,
 } from './tools/design-ai.js';
 import {
   createFromTemplateSchema,
@@ -138,6 +140,10 @@ import {
   handleCreateDesignTokens,
   handleApplyDesignTokens,
 } from './tools/design-templates.js';
+import {
+  diagramFromCodeSchema,
+  handleDiagramFromCode,
+} from './tools/diagram-codegen.js';
 
 // Configuration
 const API_PORT = parseInt(process.env.PORT || '3737', 10);
@@ -859,7 +865,7 @@ IMPORTANT - Common pitfalls to avoid:
       },
       {
         name: 'create_document',
-        description: 'Create a new markdown document. Returns the document ID and preview URL.',
+        description: 'Create a new markdown document. Returns the document ID and preview URL. Supports {{diagram:id}} and {{design:id}} embed syntax for live artifact rendering in previews.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -885,7 +891,7 @@ IMPORTANT - Common pitfalls to avoid:
       },
       {
         name: 'patch_document',
-        description: 'Apply a search-replace patch to a document. More efficient than update_document for small changes. Fails if old_string is not found or matches multiple locations.',
+        description: 'Apply a search-replace patch to a document. More efficient than update_document for small changes. Fails if old_string is not found or matches multiple locations. Documents support {{diagram:id}} and {{design:id}} embed syntax.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -895,6 +901,79 @@ IMPORTANT - Common pitfalls to avoid:
             new_string: { type: 'string', description: 'Text to replace with' },
           },
           required: ['project', 'id', 'old_string', 'new_string'],
+        },
+      },
+      // Document History & Revert
+      {
+        name: 'get_document_history',
+        description: 'Get the change history for a document. Returns original content and list of changes with timestamps.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            ...sessionParamsDesc,
+            id: { type: 'string', description: 'Document ID' },
+          },
+          required: ['project', 'id'],
+        },
+      },
+      {
+        name: 'revert_document',
+        description: 'Revert a document to a specific historical version by timestamp.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            ...sessionParamsDesc,
+            id: { type: 'string', description: 'Document ID' },
+            timestamp: { type: 'string', description: 'ISO timestamp of the version to revert to' },
+          },
+          required: ['project', 'id', 'timestamp'],
+        },
+      },
+      {
+        name: 'delete_document',
+        description: 'Delete a document by ID.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            ...sessionParamsDesc,
+            id: { type: 'string', description: 'Document ID' },
+          },
+          required: ['project', 'id'],
+        },
+      },
+      // Design-to-Diagram
+      {
+        name: 'design_to_diagram',
+        description: 'Generate a Mermaid diagram from a design\'s scene graph showing the node hierarchy. Creates a new diagram in the session.',
+        inputSchema: designToDiagramSchema,
+      },
+      // Diagram from Code
+      {
+        name: 'diagram_from_code',
+        description: 'Parse source files to generate a Mermaid diagram. Supports class (class hierarchy), dependency (import graph), and module (directory grouping) diagrams.',
+        inputSchema: diagramFromCodeSchema,
+      },
+      // Session Summary
+      {
+        name: 'generate_session_summary',
+        description: 'Generate a markdown document summarizing all artifacts (diagrams, documents, designs) in the current session.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            ...sessionParamsDesc,
+            documentName: { type: 'string', description: 'Name for the summary document (default: "Session Summary")' },
+          },
+          required: ['project'],
+        },
+      },
+      // Cross-Artifact Link Validation
+      {
+        name: 'validate_session_links',
+        description: 'Scan all documents in a session for artifact references ({{diagram:id}}, {{design:id}}) and validate that referenced artifacts exist.',
+        inputSchema: {
+          type: 'object',
+          properties: sessionParamsDesc,
+          required: ['project'],
         },
       },
       {
@@ -1754,6 +1833,204 @@ IMPORTANT - Common pitfalls to avoid:
             const { project, session, id, old_string, new_string } = args as { project: string; session: string; id: string; old_string: string; new_string: string };
             if (!project || !session || !id || !old_string || new_string === undefined) throw new Error('Missing required: project, session, id, old_string, new_string');
             return await patchDocument(project, session, id, old_string, new_string);
+          }
+
+          // Document History & Revert
+          case 'get_document_history': {
+            const { project, session, id } = args as { project: string; session: string; id: string };
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            const response = await fetch(buildUrl(`/api/document/${id}/history`, project, session));
+            if (!response.ok) {
+              if (response.status === 404) {
+                return JSON.stringify({ error: 'No history for document', history: null }, null, 2);
+              }
+              throw new Error(`Failed to get document history: ${response.statusText}`);
+            }
+            const data = await response.json();
+            return JSON.stringify(data, null, 2);
+          }
+
+          case 'revert_document': {
+            const { project, session, id, timestamp } = args as { project: string; session: string; id: string; timestamp: string };
+            if (!project || !session || !id || !timestamp) throw new Error('Missing required: project, session, id, timestamp');
+            const versionResponse = await fetch(buildUrl(`/api/document/${id}/version`, project, session, { timestamp }));
+            if (!versionResponse.ok) {
+              throw new Error(`Failed to get document version: ${versionResponse.statusText}`);
+            }
+            const versionData = await versionResponse.json() as { content: string };
+            const updateResponse = await fetch(buildUrl(`/api/document/${id}`, project, session), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ content: versionData.content }),
+            });
+            if (!updateResponse.ok) {
+              const error = await updateResponse.json() as { error?: string };
+              throw new Error(`Failed to revert document: ${error.error || updateResponse.statusText}`);
+            }
+            return JSON.stringify({
+              success: true,
+              id,
+              revertedTo: timestamp,
+              message: `Document reverted to version from ${timestamp}`,
+            }, null, 2);
+          }
+
+          case 'delete_document': {
+            const { project, session, id } = args as { project: string; session: string; id: string };
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            const response = await fetch(buildUrl(`/api/document/${id}`, project, session), {
+              method: 'DELETE',
+            });
+            if (!response.ok) {
+              const error = await response.json() as { error?: string };
+              throw new Error(`Failed to delete document: ${error.error || response.statusText}`);
+            }
+            return JSON.stringify({ success: true, id, message: 'Document deleted' }, null, 2);
+          }
+
+          // Design-to-Diagram
+          case 'design_to_diagram': {
+            const { project, session, designId, maxDepth, style } = args as { project: string; session: string; designId: string; maxDepth?: number; style?: 'tree' | 'component-map' };
+            if (!project || !session || !designId) throw new Error('Missing required: project, session, designId');
+            const result = await handleDesignToDiagram(project, session, designId, maxDepth, style);
+            const diagramName = `${designId}-structure`;
+            const diagramResult = await createDiagram(project, session, diagramName, result.mermaidSource);
+            const parsed = JSON.parse(diagramResult);
+            return JSON.stringify({
+              success: true,
+              diagramId: parsed.id,
+              mermaidSource: result.mermaidSource,
+              previewUrl: parsed.previewUrl,
+              message: parsed.message,
+            }, null, 2);
+          }
+
+          // Diagram from Code
+          case 'diagram_from_code': {
+            const { project, session, filePaths, diagramType, diagramName } = args as { project: string; session: string; filePaths: string[]; diagramType: 'class' | 'dependency' | 'module'; diagramName?: string };
+            if (!project || !session || !filePaths || !diagramType) throw new Error('Missing required: project, session, filePaths, diagramType');
+            const result = await handleDiagramFromCode(project, filePaths, diagramType);
+            const name = diagramName || `${diagramType}-diagram`;
+            const diagramResult = await createDiagram(project, session, name, result.mermaidSource);
+            const parsed = JSON.parse(diagramResult);
+            return JSON.stringify({
+              success: true,
+              diagramId: parsed.id,
+              mermaidSource: result.mermaidSource,
+              previewUrl: parsed.previewUrl,
+              message: parsed.message,
+            }, null, 2);
+          }
+
+          // Session Summary
+          case 'generate_session_summary': {
+            const { project, session, documentName } = args as { project: string; session: string; documentName?: string };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            const [diagramsRaw, documentsRaw, designsResult] = await Promise.all([
+              listDiagrams(project, session).catch(() => '[]'),
+              listDocuments(project, session).catch(() => '[]'),
+              handleListDesigns(project, session).catch(() => ({ designs: [], count: 0 })),
+            ]);
+            const diagrams = JSON.parse(diagramsRaw);
+            const documents = JSON.parse(documentsRaw);
+            const designs = designsResult.designs || [];
+
+            const lines: string[] = ['# Session Summary', ''];
+            lines.push(`**Session:** ${session}  `);
+            lines.push(`**Generated:** ${new Date().toISOString()}`, '');
+
+            if (diagrams.length > 0) {
+              lines.push('## Diagrams', '');
+              for (const d of diagrams) {
+                lines.push(`- **${d.name || d.id}** (id: \`${d.id}\`)${d.lastModified ? ` — last modified: ${d.lastModified}` : ''}`);
+              }
+              lines.push('');
+            }
+
+            if (documents.length > 0) {
+              lines.push('## Documents', '');
+              for (const d of documents) {
+                lines.push(`- **${d.name || d.id}** (id: \`${d.id}\`)${d.lastModified ? ` — last modified: ${d.lastModified}` : ''}`);
+              }
+              lines.push('');
+            }
+
+            if (designs.length > 0) {
+              lines.push('## Designs', '');
+              for (const d of designs) {
+                lines.push(`- **${d.name || d.id}** (id: \`${d.id}\`)${d.lastModified ? ` — last modified: ${d.lastModified}` : ''}`);
+              }
+              lines.push('');
+            }
+
+            lines.push('---', '');
+            lines.push(`**Totals:** ${diagrams.length} diagram(s), ${documents.length} document(s), ${designs.length} design(s)`);
+
+            const markdown = lines.join('\n');
+            const summaryName = documentName || 'Session Summary';
+            return await createDocument(project, session, summaryName, markdown);
+          }
+
+          // Cross-Artifact Link Validation
+          case 'validate_session_links': {
+            const { project, session } = args as { project: string; session: string };
+            if (!project || !session) throw new Error('Missing required: project, session');
+
+            const [diagramsRaw, documentsRaw, designsResult] = await Promise.all([
+              listDiagrams(project, session).catch(() => '[]'),
+              listDocuments(project, session).catch(() => '[]'),
+              handleListDesigns(project, session).catch(() => ({ designs: [], count: 0 })),
+            ]);
+            const diagrams = JSON.parse(diagramsRaw);
+            const documents = JSON.parse(documentsRaw);
+            const designs = designsResult.designs || [];
+
+            // Build ID sets
+            const diagramIds = new Set(diagrams.map((d: any) => d.id));
+            const documentIds = new Set(documents.map((d: any) => d.id));
+            const designIds = new Set(designs.map((d: any) => d.id));
+
+            const valid: Array<{ docId: string; ref: string; targetType: string; targetId: string }> = [];
+            const broken: Array<{ docId: string; ref: string; targetType: string; targetId: string }> = [];
+
+            // Read each document and scan for references
+            for (const doc of documents) {
+              try {
+                const docContent = await getDocument(project, session, doc.id);
+                const parsed = JSON.parse(docContent);
+                const content = parsed.content || '';
+
+                // Scan for {{diagram:id}} and {{design:id}} patterns
+                const embedRegex = /\{\{(diagram|design):([^}]+)\}\}/g;
+                let match: RegExpExecArray | null;
+                while ((match = embedRegex.exec(content)) !== null) {
+                  const targetType = match[1];
+                  const targetId = match[2];
+                  const ref = match[0];
+                  const exists = targetType === 'diagram' ? diagramIds.has(targetId) : designIds.has(targetId);
+                  (exists ? valid : broken).push({ docId: doc.id, ref, targetType, targetId });
+                }
+
+                // Also scan for @diagram/id and @design/id patterns (image embeds)
+                const imgRegex = /@(diagram|design)\/([^\s)]+)/g;
+                while ((match = imgRegex.exec(content)) !== null) {
+                  const targetType = match[1];
+                  const targetId = match[2];
+                  const ref = match[0];
+                  const exists = targetType === 'diagram' ? diagramIds.has(targetId) : designIds.has(targetId);
+                  (exists ? valid : broken).push({ docId: doc.id, ref, targetType, targetId });
+                }
+              } catch {
+                // Skip documents that can't be read
+              }
+            }
+
+            return JSON.stringify({
+              success: true,
+              valid,
+              broken,
+              summary: `${valid.length} valid link(s), ${broken.length} broken link(s) across ${documents.length} document(s)`,
+            }, null, 2);
           }
 
           case 'get_design_item': {

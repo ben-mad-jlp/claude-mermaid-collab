@@ -2473,3 +2473,116 @@ export async function handleListLibraryComponents(
   const components = await listLibraryComponents(project, session)
   return { success: true, components }
 }
+
+// ============= Design to Diagram =============
+
+export const designToDiagramSchema = {
+  type: 'object',
+  properties: {
+    project: { type: 'string', description: 'Absolute path to the project root directory' },
+    session: { type: 'string', description: 'Session name' },
+    todoId: { type: 'number', description: 'Todo ID. Alternative to session.' },
+    designId: { type: 'string', description: 'Design ID to convert' },
+    maxDepth: { type: 'number', description: 'Maximum depth to traverse (default: unlimited)' },
+    style: { type: 'string', enum: ['tree', 'component-map'], description: 'tree = full hierarchy, component-map = only FRAME/COMPONENT/SECTION nodes (default: tree)' },
+  },
+  required: ['project', 'designId'],
+}
+
+export async function handleDesignToDiagram(
+  project: string,
+  session: string,
+  designId: string,
+  maxDepth?: number,
+  style: 'tree' | 'component-map' = 'tree'
+): Promise<{ success: boolean; mermaidSource: string }> {
+  const design = await handleGetDesign(project, session, designId)
+  const content = typeof design.content === 'string' ? JSON.parse(design.content) : design.content
+  const graph = getGraph(content)
+
+  const lines: string[] = ['graph TD']
+  const componentTypes = new Set(['FRAME', 'COMPONENT', 'SECTION'])
+
+  // classDef for node types
+  lines.push('  classDef frame fill:#3b82f6,stroke:#1d4ed8,color:#fff')
+  lines.push('  classDef text fill:#22c55e,stroke:#15803d,color:#fff')
+  lines.push('  classDef rect fill:#9ca3af,stroke:#6b7280,color:#fff')
+  lines.push('  classDef component fill:#a855f7,stroke:#7e22ce,color:#fff')
+  lines.push('  classDef section fill:#f59e0b,stroke:#d97706,color:#fff')
+  lines.push('  classDef other fill:#e5e7eb,stroke:#9ca3af,color:#374151')
+
+  const visited = new Set<string>()
+
+  function sanitizeId(id: string): string {
+    const sanitized = id.replace(/[^a-zA-Z0-9_]/g, '_')
+    // Mermaid IDs can't start with a digit
+    if (/^\d/.test(sanitized)) return `n${sanitized}`
+    // Avoid empty IDs
+    if (!sanitized) return `n${Date.now().toString(36)}`
+    return sanitized
+  }
+
+  function escapeLabel(str: string): string {
+    return str.replace(/\\/g, '\\\\').replace(/"/g, "'")
+  }
+
+  function getClassForType(type: string): string {
+    switch (type) {
+      case 'FRAME': return 'frame'
+      case 'TEXT': return 'text'
+      case 'RECTANGLE': return 'rect'
+      case 'COMPONENT': return 'component'
+      case 'SECTION': return 'section'
+      default: return 'other'
+    }
+  }
+
+  function walkNode(nodeId: string, depth: number) {
+    if (visited.has(nodeId)) return
+    if (maxDepth !== undefined && depth > maxDepth) return
+    visited.add(nodeId)
+
+    const node = graph.nodes.find(n => n.id === nodeId)
+    if (!node) return
+
+    // Skip CANVAS and PAGE in output but still traverse children
+    if (node.type === 'CANVAS' || node.type === 'PAGE') {
+      for (const childId of node.childIds) {
+        walkNode(childId, depth)
+      }
+      return
+    }
+
+    // For component-map style, skip non-structural nodes but still traverse children
+    if (style === 'component-map' && !componentTypes.has(node.type)) {
+      for (const childId of node.childIds) {
+        walkNode(childId, depth + 1)
+      }
+      return
+    }
+
+    const safeId = sanitizeId(node.id)
+    const label = escapeLabel(`${node.type}: ${node.name || 'unnamed'}\\n${Math.round(node.width)}x${Math.round(node.height)}`)
+    lines.push(`  ${safeId}["${label}"]:::${getClassForType(node.type)}`)
+
+    for (const childId of node.childIds) {
+      const child = graph.nodes.find(n => n.id === childId)
+      if (!child) continue
+      if (child.type === 'CANVAS' || child.type === 'PAGE') continue
+
+      walkNode(childId, depth + 1)
+      if (visited.has(childId)) {
+        lines.push(`  ${safeId} --> ${sanitizeId(childId)}`)
+      }
+    }
+  }
+
+  // Start from root
+  const root = graph.nodes.find(n => n.id === graph.rootId)
+  if (root) {
+    walkNode(root.id, 0)
+  }
+
+  const mermaidSource = lines.join('\n')
+  return { success: true, mermaidSource }
+}
