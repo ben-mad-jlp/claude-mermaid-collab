@@ -74,6 +74,20 @@ export function useDesignKeyboard() {
         }
       }
 
+      // Shift+1: zoom to fit all
+      if (e.shiftKey && e.key === '!') {
+        e.preventDefault()
+        store.zoomToFit(window.innerWidth, window.innerHeight)
+        return
+      }
+
+      // Shift+2: zoom to selection
+      if (e.shiftKey && e.key === '@') {
+        e.preventDefault()
+        store.zoomToSelection(window.innerWidth, window.innerHeight)
+        return
+      }
+
       // Shift+A: toggle auto-layout
       if (e.shiftKey && e.key === 'A') {
         e.preventDefault()
@@ -103,6 +117,7 @@ export function useDesignKeyboard() {
 
       // Escape
       if (e.key === 'Escape') {
+        if (store.contextMenu) { store.setContextMenu(null); return }
         if (store.penState) { store.penCancel(); return }
         if (store.editingTextId) { store.commitTextEdit(); return }
         store.clearSelection()

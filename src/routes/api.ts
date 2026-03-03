@@ -871,7 +871,7 @@ export async function handleAPI(
       return Response.json({ error: 'project and session query params required' }, { status: 400 });
     }
 
-    const id = path.split('/')[3];
+    const id = decodeURIComponent(path.split('/')[3]);
 
     try {
       const sessionPath = sessionRegistry.resolvePath(params.project, params.session, '.');
@@ -901,7 +901,7 @@ export async function handleAPI(
       return Response.json({ error: 'timestamp query param required' }, { status: 400 });
     }
 
-    const id = path.split('/')[3];
+    const id = decodeURIComponent(path.split('/')[3]);
 
     try {
       const sessionPath = sessionRegistry.resolvePath(params.project, params.session, '.');
@@ -924,7 +924,7 @@ export async function handleAPI(
       return Response.json({ error: 'project and session query params required' }, { status: 400 });
     }
 
-    const id = path.split('/').pop()!;
+    const id = decodeURIComponent(path.split('/').pop()!);
 
     try {
       const mockRes = {
@@ -940,13 +940,13 @@ export async function handleAPI(
   }
 
   // POST /api/design/:id?project=...&session=... (update)
-  if (path.startsWith('/api/design/') && !path.includes('/history') && !path.includes('/version') && req.method === 'POST') {
+  if (path.startsWith('/api/design/') && !path.includes('/history') && !path.includes('/version') && !path.includes('/export') && req.method === 'POST') {
     const params = getSessionParams(url);
     if (!params) {
       return Response.json({ error: 'project and session query params required' }, { status: 400 });
     }
 
-    const id = path.split('/').pop()!;
+    const id = decodeURIComponent(path.split('/').pop()!);
 
     try {
       const { content } = await req.json();
@@ -1069,7 +1069,7 @@ export async function handleAPI(
     if (!params) {
       return Response.json({ error: 'project and session query params required' }, { status: 400 });
     }
-    const id = path.split('/')[3]; // /api/design/{id}/export
+    const id = decodeURIComponent(path.split('/')[3]); // /api/design/{id}/export
     const format = url.searchParams.get('format') || 'png';
     const scale = parseFloat(url.searchParams.get('scale') || '2');
     const requestId = `export_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;

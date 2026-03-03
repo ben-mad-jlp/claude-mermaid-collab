@@ -299,7 +299,7 @@ function generateId(): string {
   return `0:${nextLocalID++}`
 }
 
-function createDefaultNode(type: NodeType, overrides: Partial<SceneNode> = {}): SceneNode {
+export function createDefaultNode(type: NodeType, overrides: Partial<SceneNode> = {}): SceneNode {
   return {
     id: generateId(),
     type,

@@ -71,10 +71,26 @@ import {
   updateDesignNodeSchema,
   removeDesignNodeSchema,
   batchDesignOperationsSchema,
+  getDesignNodeSchema,
+  listDesignNodesSchema,
+  groupDesignNodesSchema,
+  ungroupDesignNodesSchema,
+  reorderDesignNodesSchema,
+  duplicateDesignNodesSchema,
+  alignDesignNodesSchema,
+  transformDesignNodesSchema,
   handleAddDesignNode,
   handleUpdateDesignNode,
   handleRemoveDesignNode,
   handleBatchDesignOperations,
+  handleGetDesignNode,
+  handleListDesignNodes,
+  handleGroupDesignNodes,
+  handleUngroupDesignNodes,
+  handleReorderDesignNodes,
+  handleDuplicateDesignNodes,
+  handleAlignDesignNodes,
+  handleTransformDesignNodes,
 } from './tools/design-ai.js';
 
 // Configuration
@@ -941,12 +957,12 @@ IMPORTANT - Common pitfalls to avoid:
       },
       {
         name: 'add_design_node',
-        description: 'Add a shape, text, or frame node to a design. Returns the new node ID. Supports rectangles, ellipses, text, frames, lines, and groups with fill, stroke, position, size, corner radius, opacity, rotation, and auto-layout properties.',
+        description: 'Add a shape, text, or frame node to a design. Returns the new node ID. Layout properties: layoutMode (HORIZONTAL/VERTICAL), primaryAxisAlign (MIN/CENTER/MAX/SPACE_BETWEEN), counterAxisAlign (MIN/CENTER/MAX/STRETCH), primaryAxisSizing/counterAxisSizing (FIXED/HUG/FILL), itemSpacing, padding, layoutGrow (0=fixed, 1=fill), layoutAlignSelf (AUTO/STRETCH), clipsContent. Visual: fill, stroke, position, size, cornerRadius, opacity, rotation, textAlignHorizontal.',
         inputSchema: addDesignNodeSchema,
       },
       {
         name: 'update_design_node',
-        description: 'Update properties of a node in a design. Can change position, size, fill, stroke, text, font, corner radius, opacity, rotation, auto-layout settings, and more.',
+        description: 'Update properties of a node in a design. Layout: layoutMode, primaryAxisAlign (MIN/CENTER/MAX/SPACE_BETWEEN), counterAxisAlign (MIN/CENTER/MAX/STRETCH), primaryAxisSizing/counterAxisSizing (FIXED/HUG/FILL), itemSpacing, padding, layoutGrow, layoutAlignSelf (AUTO/STRETCH), clipsContent. Visual: x, y, width, height, fill, stroke, text, fontSize, fontWeight, cornerRadius, opacity, rotation, textAlignHorizontal.',
         inputSchema: updateDesignNodeSchema,
       },
       {
@@ -956,8 +972,48 @@ IMPORTANT - Common pitfalls to avoid:
       },
       {
         name: 'batch_design_operations',
-        description: 'Apply multiple add/update/remove operations to a design in a single call. Supports temp IDs for referencing nodes created in earlier operations within the same batch.',
+        description: 'Apply multiple add/update/remove operations to a design in a single call. Supports temp IDs for referencing nodes created in earlier operations within the same batch. Same layout properties as add/update_design_node: primaryAxisAlign, counterAxisAlign, primaryAxisSizing, counterAxisSizing, layoutGrow, layoutAlignSelf, etc.',
         inputSchema: batchDesignOperationsSchema,
+      },
+      {
+        name: 'get_design_node',
+        description: 'Inspect a single node\'s full properties by ID. Returns all properties including position, size, fills, strokes, text, layout, etc.',
+        inputSchema: getDesignNodeSchema,
+      },
+      {
+        name: 'list_design_nodes',
+        description: 'List all nodes in a design as a tree. Returns id, name, type, bounds, depth, and child count for each node.',
+        inputSchema: listDesignNodesSchema,
+      },
+      {
+        name: 'group_design_nodes',
+        description: 'Group multiple nodes into a GROUP container. All nodes must share the same parent.',
+        inputSchema: groupDesignNodesSchema,
+      },
+      {
+        name: 'ungroup_design_nodes',
+        description: 'Ungroup a GROUP node, reparenting its children to the group\'s parent.',
+        inputSchema: ungroupDesignNodesSchema,
+      },
+      {
+        name: 'reorder_design_nodes',
+        description: 'Change z-order of nodes: front, back, forward (one step up), or backward (one step down).',
+        inputSchema: reorderDesignNodesSchema,
+      },
+      {
+        name: 'duplicate_design_nodes',
+        description: 'Deep-clone nodes with an optional position offset. Returns the new node IDs.',
+        inputSchema: duplicateDesignNodesSchema,
+      },
+      {
+        name: 'align_design_nodes',
+        description: 'Align or distribute nodes. Alignment: left, centerH, right, top, centerV, bottom. Distribution: distributeH, distributeV (equal spacing).',
+        inputSchema: alignDesignNodesSchema,
+      },
+      {
+        name: 'transform_design_nodes',
+        description: 'Transform nodes: flip horizontally (flipH) or vertically (flipV). Mirrors positions within selection bounding box.',
+        inputSchema: transformDesignNodesSchema,
       },
       {
         name: 'export_design_png',
@@ -1667,6 +1723,62 @@ IMPORTANT - Common pitfalls to avoid:
             const { project, session, designId, operations } = args as { project: string; session: string; designId: string; operations: any[] };
             if (!project || !session || !designId || !operations) throw new Error('Missing required: project, session, designId, operations');
             const result = await handleBatchDesignOperations(project, session, designId, operations);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'get_design_node': {
+            const { project, session, designId, nodeId } = args as { project: string; session: string; designId: string; nodeId: string };
+            if (!project || !session || !designId || !nodeId) throw new Error('Missing required: project, session, designId, nodeId');
+            const result = await handleGetDesignNode(project, session, designId, nodeId);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'list_design_nodes': {
+            const { project, session, designId, parentId, depth } = args as { project: string; session: string; designId: string; parentId?: string; depth?: number };
+            if (!project || !session || !designId) throw new Error('Missing required: project, session, designId');
+            const result = await handleListDesignNodes(project, session, designId, parentId, depth);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'group_design_nodes': {
+            const { project, session, designId, nodeIds, name } = args as { project: string; session: string; designId: string; nodeIds: string[]; name?: string };
+            if (!project || !session || !designId || !nodeIds) throw new Error('Missing required: project, session, designId, nodeIds');
+            const result = await handleGroupDesignNodes(project, session, designId, nodeIds, name);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'ungroup_design_nodes': {
+            const { project, session, designId, nodeId } = args as { project: string; session: string; designId: string; nodeId: string };
+            if (!project || !session || !designId || !nodeId) throw new Error('Missing required: project, session, designId, nodeId');
+            const result = await handleUngroupDesignNodes(project, session, designId, nodeId);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'reorder_design_nodes': {
+            const { project, session, designId, nodeIds, direction } = args as { project: string; session: string; designId: string; nodeIds: string[]; direction: 'front' | 'back' | 'forward' | 'backward' };
+            if (!project || !session || !designId || !nodeIds || !direction) throw new Error('Missing required: project, session, designId, nodeIds, direction');
+            const result = await handleReorderDesignNodes(project, session, designId, nodeIds, direction);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'duplicate_design_nodes': {
+            const { project, session, designId, nodeIds, offsetX, offsetY } = args as { project: string; session: string; designId: string; nodeIds: string[]; offsetX?: number; offsetY?: number };
+            if (!project || !session || !designId || !nodeIds) throw new Error('Missing required: project, session, designId, nodeIds');
+            const result = await handleDuplicateDesignNodes(project, session, designId, nodeIds, offsetX, offsetY);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'align_design_nodes': {
+            const { project, session, designId, nodeIds, action } = args as { project: string; session: string; designId: string; nodeIds: string[]; action: 'left' | 'centerH' | 'right' | 'top' | 'centerV' | 'bottom' | 'distributeH' | 'distributeV' };
+            if (!project || !session || !designId || !nodeIds || !action) throw new Error('Missing required: project, session, designId, nodeIds, action');
+            const result = await handleAlignDesignNodes(project, session, designId, nodeIds, action);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'transform_design_nodes': {
+            const { project, session, designId, nodeIds, action } = args as { project: string; session: string; designId: string; nodeIds: string[]; action: 'flipH' | 'flipV' };
+            if (!project || !session || !designId || !nodeIds || !action) throw new Error('Missing required: project, session, designId, nodeIds, action');
+            const result = await handleTransformDesignNodes(project, session, designId, nodeIds, action);
             return JSON.stringify(result, null, 2);
           }
 

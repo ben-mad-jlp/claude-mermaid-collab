@@ -91,8 +91,12 @@ export async function createDesignHandler(req: any, res: any): Promise<any> {
   // Create directories if they don't exist
   await mkdir(dirname(filePath), { recursive: true });
 
-  // Write design file with proper JSON formatting
-  await writeFile(filePath, JSON.stringify(content, null, 2));
+  // Content can be either a string or an object
+  // If it's a string, write it directly; if object, stringify it
+  const contentToWrite = typeof content === 'string'
+    ? content
+    : JSON.stringify(content, null, 2);
+  await writeFile(filePath, contentToWrite);
 
   const result = { id: name, success: true };
   return res.json(result);

@@ -178,6 +178,16 @@ export const DesignToolbar: React.FC = () => {
         >
           +
         </button>
+        <button
+          onClick={() => {
+            const s = useDesignEditorStore.getState()
+            s.zoomToFit(window.innerWidth, window.innerHeight)
+          }}
+          title="Zoom to Fit (Shift+1)"
+          className="px-1.5 py-1 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
+        >
+          Fit
+        </button>
       </div>
     </div>
   )

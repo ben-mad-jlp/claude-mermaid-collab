@@ -86,6 +86,18 @@ function getGraph(content: any): SerializedGraph {
   throw new Error('Design content is not a valid scene graph. Expected { rootId, nodes[] }')
 }
 
+function getAbsolutePosition(graph: SerializedGraph, nodeId: string): { x: number; y: number } {
+  let x = 0, y = 0
+  let current = graph.nodes.find(n => n.id === nodeId)
+  while (current) {
+    x += current.x
+    y += current.y
+    if (!current.parentId) break
+    current = graph.nodes.find(n => n.id === current!.parentId)
+  }
+  return { x, y }
+}
+
 function findCurrentPage(graph: SerializedGraph): SerializedNode | null {
   const root = graph.nodes.find(n => n.id === graph.rootId)
   if (!root || root.childIds.length === 0) return null
@@ -230,8 +242,16 @@ export const addDesignNodeSchema = {
     opacity: { type: 'number', description: 'Opacity (0-1)' },
     rotation: { type: 'number', description: 'Rotation in degrees' },
     layoutMode: { type: 'string', enum: ['NONE', 'HORIZONTAL', 'VERTICAL'], description: 'Auto layout direction (for FRAME nodes)' },
-    itemSpacing: { type: 'number', description: 'Item spacing for auto layout' },
-    padding: { type: 'number', description: 'Uniform padding for auto layout' },
+    primaryAxisAlign: { type: 'string', enum: ['MIN', 'CENTER', 'MAX', 'SPACE_BETWEEN'], description: 'Align children along primary axis (start/center/end/space-between)' },
+    counterAxisAlign: { type: 'string', enum: ['MIN', 'CENTER', 'MAX', 'STRETCH', 'BASELINE'], description: 'Align children along counter axis (start/center/end/stretch)' },
+    primaryAxisSizing: { type: 'string', enum: ['FIXED', 'HUG', 'FILL'], description: 'How frame sizes along primary axis. HUG=shrink to fit children, FILL=expand to fill parent' },
+    counterAxisSizing: { type: 'string', enum: ['FIXED', 'HUG', 'FILL'], description: 'How frame sizes along counter axis. HUG=shrink to fit children, FILL=expand to fill parent' },
+    itemSpacing: { type: 'number', description: 'Spacing between children in auto layout (pixels)' },
+    padding: { type: 'number', description: 'Uniform padding for auto layout (pixels). Sets all four sides.' },
+    layoutGrow: { type: 'number', description: 'Flex grow factor for this node inside a parent auto-layout frame. 0=fixed size, 1=fill remaining space.' },
+    layoutAlignSelf: { type: 'string', enum: ['AUTO', 'STRETCH'], description: 'Override counter-axis alignment for this child. STRETCH=fill parent cross-axis width.' },
+    clipsContent: { type: 'boolean', description: 'Clip children to frame bounds (for FRAME nodes)' },
+    textAlignHorizontal: { type: 'string', enum: ['LEFT', 'CENTER', 'RIGHT', 'JUSTIFIED'], description: 'Horizontal text alignment (for TEXT nodes)' },
   },
   required: ['project', 'designId', 'type'],
 }
@@ -244,7 +264,7 @@ export const updateDesignNodeSchema = {
     nodeId: { type: 'string', description: 'Node ID to update' },
     properties: {
       type: 'object',
-      description: 'Properties to update (x, y, width, height, name, fill, stroke, text, fontSize, cornerRadius, opacity, rotation, layoutMode, itemSpacing, etc.)',
+      description: 'Properties to update. Layout: layoutMode, primaryAxisAlign (MIN/CENTER/MAX/SPACE_BETWEEN), counterAxisAlign (MIN/CENTER/MAX/STRETCH), primaryAxisSizing (FIXED/HUG/FILL), counterAxisSizing (FIXED/HUG/FILL), itemSpacing, padding, layoutGrow, layoutAlignSelf (AUTO/STRETCH), clipsContent. Visual: x, y, width, height, name, fill, stroke, text, fontSize, fontWeight, cornerRadius, opacity, rotation, textAlignHorizontal (LEFT/CENTER/RIGHT).',
     },
   },
   required: ['project', 'designId', 'nodeId', 'properties'],
@@ -316,6 +336,10 @@ export async function handleAddDesignNode(
     overrides.strokes = [solidStroke(args.stroke, args.strokeWeight ?? 1)]
   }
   if (args.layoutMode) overrides.layoutMode = args.layoutMode
+  if (args.primaryAxisAlign) overrides.primaryAxisAlign = args.primaryAxisAlign
+  if (args.counterAxisAlign) overrides.counterAxisAlign = args.counterAxisAlign
+  if (args.primaryAxisSizing) overrides.primaryAxisSizing = args.primaryAxisSizing
+  if (args.counterAxisSizing) overrides.counterAxisSizing = args.counterAxisSizing
   if (args.itemSpacing !== undefined) overrides.itemSpacing = args.itemSpacing
   if (args.padding !== undefined) {
     overrides.paddingTop = args.padding
@@ -323,6 +347,10 @@ export async function handleAddDesignNode(
     overrides.paddingBottom = args.padding
     overrides.paddingLeft = args.padding
   }
+  if (args.layoutGrow !== undefined) overrides.layoutGrow = args.layoutGrow
+  if (args.layoutAlignSelf) overrides.layoutAlignSelf = args.layoutAlignSelf
+  if (args.clipsContent !== undefined) overrides.clipsContent = args.clipsContent
+  if (args.textAlignHorizontal) overrides.textAlignHorizontal = args.textAlignHorizontal
 
   // Text defaults
   if (args.type === 'TEXT') {
@@ -463,6 +491,11 @@ export async function handleBatchDesignOperations(
       const props = { ...op.properties }
       if (props?.fill) { props.fills = [solidFill(props.fill)]; delete props.fill }
       if (props?.stroke) { props.strokes = [solidStroke(props.stroke, props.strokeWeight ?? 1)]; delete props.stroke; delete props.strokeWeight }
+      if (props?.padding !== undefined) {
+        props.paddingTop = props.padding; props.paddingRight = props.padding
+        props.paddingBottom = props.padding; props.paddingLeft = props.padding
+        delete props.padding
+      }
 
       // Type-specific defaults
       if (op.type === 'TEXT') {
@@ -529,4 +562,563 @@ export async function handleBatchDesignOperations(
 
   await handleUpdateDesign(project, session, designId, graph)
   return { success: true, results }
+}
+
+// ============= New Schemas =============
+
+export const getDesignNodeSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    designId: { type: 'string', description: 'Design ID' },
+    nodeId: { type: 'string', description: 'Node ID to inspect' },
+  },
+  required: ['project', 'designId', 'nodeId'],
+}
+
+export const listDesignNodesSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    designId: { type: 'string', description: 'Design ID' },
+    parentId: { type: 'string', description: 'Parent node ID to list children of. Defaults to first page.' },
+    depth: { type: 'number', description: 'Max depth to traverse (default: unlimited)' },
+  },
+  required: ['project', 'designId'],
+}
+
+export const groupDesignNodesSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    designId: { type: 'string', description: 'Design ID' },
+    nodeIds: { type: 'array', items: { type: 'string' }, description: 'Node IDs to group' },
+    name: { type: 'string', description: 'Group name (default: "Group")' },
+  },
+  required: ['project', 'designId', 'nodeIds'],
+}
+
+export const ungroupDesignNodesSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    designId: { type: 'string', description: 'Design ID' },
+    nodeId: { type: 'string', description: 'GROUP node ID to ungroup' },
+  },
+  required: ['project', 'designId', 'nodeId'],
+}
+
+export const reorderDesignNodesSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    designId: { type: 'string', description: 'Design ID' },
+    nodeIds: { type: 'array', items: { type: 'string' }, description: 'Node IDs to reorder' },
+    direction: { type: 'string', enum: ['front', 'back', 'forward', 'backward'], description: 'Reorder direction' },
+  },
+  required: ['project', 'designId', 'nodeIds', 'direction'],
+}
+
+export const duplicateDesignNodesSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    designId: { type: 'string', description: 'Design ID' },
+    nodeIds: { type: 'array', items: { type: 'string' }, description: 'Node IDs to duplicate' },
+    offsetX: { type: 'number', description: 'X offset for duplicated nodes (default: 20)' },
+    offsetY: { type: 'number', description: 'Y offset for duplicated nodes (default: 20)' },
+  },
+  required: ['project', 'designId', 'nodeIds'],
+}
+
+export const alignDesignNodesSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    designId: { type: 'string', description: 'Design ID' },
+    nodeIds: { type: 'array', items: { type: 'string' }, description: 'Node IDs to align (minimum 2)' },
+    action: {
+      type: 'string',
+      enum: ['left', 'centerH', 'right', 'top', 'centerV', 'bottom', 'distributeH', 'distributeV'],
+      description: 'Alignment or distribution action',
+    },
+  },
+  required: ['project', 'designId', 'nodeIds', 'action'],
+}
+
+export const transformDesignNodesSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    designId: { type: 'string', description: 'Design ID' },
+    nodeIds: { type: 'array', items: { type: 'string' }, description: 'Node IDs to transform' },
+    action: { type: 'string', enum: ['flipH', 'flipV'], description: 'Transform action' },
+  },
+  required: ['project', 'designId', 'nodeIds', 'action'],
+}
+
+// ============= New Handlers =============
+
+export async function handleGetDesignNode(
+  project: string,
+  session: string,
+  designId: string,
+  nodeId: string
+): Promise<{ success: boolean; node: SerializedNode | null }> {
+  const design = await handleGetDesign(project, session, designId)
+  const content = typeof design.content === 'string' ? JSON.parse(design.content) : design.content
+  const graph = getGraph(content)
+
+  const node = graph.nodes.find(n => n.id === nodeId)
+  if (!node) throw new Error(`Node not found: ${nodeId}`)
+  return { success: true, node }
+}
+
+export async function handleListDesignNodes(
+  project: string,
+  session: string,
+  designId: string,
+  parentId?: string,
+  maxDepth?: number
+): Promise<{ success: boolean; nodes: Array<{ id: string; name: string; type: string; x: number; y: number; width: number; height: number; depth: number; childCount: number }> }> {
+  const design = await handleGetDesign(project, session, designId)
+  const content = typeof design.content === 'string' ? JSON.parse(design.content) : design.content
+  const graph = getGraph(content)
+
+  const rootId = parentId ?? findCurrentPage(graph)?.id
+  if (!rootId) throw new Error('No page found. Design may be empty.')
+
+  const result: Array<{ id: string; name: string; type: string; x: number; y: number; width: number; height: number; depth: number; childCount: number }> = []
+
+  function walk(nodeId: string, depth: number) {
+    if (maxDepth !== undefined && depth > maxDepth) return
+    const node = graph.nodes.find(n => n.id === nodeId)
+    if (!node) return
+    result.push({
+      id: node.id,
+      name: node.name,
+      type: node.type,
+      x: node.x,
+      y: node.y,
+      width: node.width,
+      height: node.height,
+      depth,
+      childCount: node.childIds.length,
+    })
+    for (const childId of node.childIds) {
+      walk(childId, depth + 1)
+    }
+  }
+
+  const rootNode = graph.nodes.find(n => n.id === rootId)
+  if (rootNode) {
+    for (const childId of rootNode.childIds) {
+      walk(childId, 0)
+    }
+  }
+
+  return { success: true, nodes: result }
+}
+
+export async function handleGroupDesignNodes(
+  project: string,
+  session: string,
+  designId: string,
+  nodeIds: string[],
+  name = 'Group'
+): Promise<{ success: boolean; groupId: string }> {
+  if (nodeIds.length === 0) throw new Error('nodeIds must not be empty')
+
+  const design = await handleGetDesign(project, session, designId)
+  const content = typeof design.content === 'string' ? JSON.parse(design.content) : design.content
+  const graph = getGraph(content)
+
+  // Verify all nodes exist and share the same parent
+  const nodes = nodeIds.map(id => {
+    const n = graph.nodes.find(node => node.id === id)
+    if (!n) throw new Error(`Node not found: ${id}`)
+    return n
+  })
+  const parentId = nodes[0].parentId
+  if (!nodes.every(n => n.parentId === parentId)) {
+    throw new Error('All nodes must share the same parent to group')
+  }
+  const parent = graph.nodes.find(n => n.id === parentId)
+  if (!parent) throw new Error('Parent not found')
+
+  // Compute bounding box
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  for (const n of nodes) {
+    minX = Math.min(minX, n.x)
+    minY = Math.min(minY, n.y)
+    maxX = Math.max(maxX, n.x + n.width)
+    maxY = Math.max(maxY, n.y + n.height)
+  }
+
+  // Create group node
+  const group = createDefaultNode('GROUP', {
+    name,
+    x: minX,
+    y: minY,
+    width: maxX - minX,
+    height: maxY - minY,
+  })
+  group.parentId = parentId
+
+  // Insert group at the position of the first selected node
+  const firstIndex = Math.min(...nodeIds.map(id => parent.childIds.indexOf(id)))
+  parent.childIds = parent.childIds.filter(id => !nodeIds.includes(id))
+  parent.childIds.splice(firstIndex, 0, group.id)
+
+  // Reparent children into group, adjusting positions
+  for (const n of nodes) {
+    n.parentId = group.id
+    n.x -= minX
+    n.y -= minY
+    group.childIds.push(n.id)
+  }
+
+  graph.nodes.push(group)
+  await handleUpdateDesign(project, session, designId, graph)
+  return { success: true, groupId: group.id }
+}
+
+export async function handleUngroupDesignNodes(
+  project: string,
+  session: string,
+  designId: string,
+  nodeId: string
+): Promise<{ success: boolean; childIds: string[] }> {
+  const design = await handleGetDesign(project, session, designId)
+  const content = typeof design.content === 'string' ? JSON.parse(design.content) : design.content
+  const graph = getGraph(content)
+
+  const group = graph.nodes.find(n => n.id === nodeId)
+  if (!group) throw new Error(`Node not found: ${nodeId}`)
+  if (group.type !== 'GROUP') throw new Error('Node is not a GROUP')
+
+  const parentId = group.parentId
+  if (!parentId) throw new Error('Group has no parent')
+  const parent = graph.nodes.find(n => n.id === parentId)
+  if (!parent) throw new Error('Parent not found')
+
+  const childIds = [...group.childIds]
+  const groupIndex = parent.childIds.indexOf(nodeId)
+
+  // Reparent children to group's parent, adjusting positions
+  for (let i = 0; i < childIds.length; i++) {
+    const child = graph.nodes.find(n => n.id === childIds[i])
+    if (child) {
+      child.parentId = parentId
+      child.x += group.x
+      child.y += group.y
+    }
+  }
+
+  // Replace group with its children in parent's childIds
+  parent.childIds.splice(groupIndex, 1, ...childIds)
+
+  // Remove the group node
+  graph.nodes = graph.nodes.filter(n => n.id !== nodeId)
+
+  await handleUpdateDesign(project, session, designId, graph)
+  return { success: true, childIds }
+}
+
+export async function handleReorderDesignNodes(
+  project: string,
+  session: string,
+  designId: string,
+  nodeIds: string[],
+  direction: 'front' | 'back' | 'forward' | 'backward'
+): Promise<{ success: boolean }> {
+  const design = await handleGetDesign(project, session, designId)
+  const content = typeof design.content === 'string' ? JSON.parse(design.content) : design.content
+  const graph = getGraph(content)
+
+  // Group nodeIds by parent for correct batch reordering
+  const byParent = new Map<string, string[]>()
+  for (const nodeId of nodeIds) {
+    const node = graph.nodes.find(n => n.id === nodeId)
+    if (!node?.parentId) continue
+    const arr = byParent.get(node.parentId) ?? []
+    arr.push(nodeId)
+    byParent.set(node.parentId, arr)
+  }
+
+  for (const [parentId, ids] of byParent) {
+    const parent = graph.nodes.find(n => n.id === parentId)
+    if (!parent) continue
+    const idSet = new Set(ids)
+
+    switch (direction) {
+      case 'front': {
+        const rest = parent.childIds.filter(id => !idSet.has(id))
+        const moved = parent.childIds.filter(id => idSet.has(id))
+        parent.childIds = [...rest, ...moved]
+        break
+      }
+      case 'back': {
+        const rest = parent.childIds.filter(id => !idSet.has(id))
+        const moved = parent.childIds.filter(id => idSet.has(id))
+        parent.childIds = [...moved, ...rest]
+        break
+      }
+      case 'forward': {
+        // Move each selected node one step toward the end, processing from end to avoid cascading
+        const arr = [...parent.childIds]
+        for (let i = arr.length - 2; i >= 0; i--) {
+          if (idSet.has(arr[i]) && !idSet.has(arr[i + 1])) {
+            ;[arr[i], arr[i + 1]] = [arr[i + 1], arr[i]]
+          }
+        }
+        parent.childIds = arr
+        break
+      }
+      case 'backward': {
+        // Move each selected node one step toward the start, processing from start to avoid cascading
+        const arr = [...parent.childIds]
+        for (let i = 1; i < arr.length; i++) {
+          if (idSet.has(arr[i]) && !idSet.has(arr[i - 1])) {
+            ;[arr[i], arr[i - 1]] = [arr[i - 1], arr[i]]
+          }
+        }
+        parent.childIds = arr
+        break
+      }
+    }
+  }
+
+  await handleUpdateDesign(project, session, designId, graph)
+  return { success: true }
+}
+
+export async function handleDuplicateDesignNodes(
+  project: string,
+  session: string,
+  designId: string,
+  nodeIds: string[],
+  offsetX = 20,
+  offsetY = 20
+): Promise<{ success: boolean; newNodeIds: string[] }> {
+  const design = await handleGetDesign(project, session, designId)
+  const content = typeof design.content === 'string' ? JSON.parse(design.content) : design.content
+  const graph = getGraph(content)
+
+  const newNodeIds: string[] = []
+  const nodeIdSet = new Set(nodeIds)
+
+  // Filter out nodes whose ancestors are already in the set (they'll be cloned as children)
+  const topLevelIds = nodeIds.filter(id => {
+    let current = graph.nodes.find(n => n.id === id)
+    while (current?.parentId) {
+      if (nodeIdSet.has(current.parentId)) return false
+      current = graph.nodes.find(n => n.id === current!.parentId)
+    }
+    return true
+  })
+
+  for (const nodeId of topLevelIds) {
+    const src = graph.nodes.find(n => n.id === nodeId)
+    if (!src) throw new Error(`Node not found: ${nodeId}`)
+
+    // Deep clone the node and all descendants
+    const idMap = new Map<string, string>()
+
+    function cloneNode(srcId: string): string {
+      const srcNode = graph.nodes.find(n => n.id === srcId)
+      if (!srcNode) throw new Error(`Node not found during clone: ${srcId}`)
+      const newId = generateId()
+      idMap.set(srcId, newId)
+
+      const cloned: SerializedNode = JSON.parse(JSON.stringify(srcNode))
+      cloned.id = newId
+      cloned.childIds = []
+      // Clone children recursively
+      for (const childId of srcNode.childIds) {
+        const newChildId = cloneNode(childId)
+        cloned.childIds.push(newChildId)
+        // Update child's parentId
+        const clonedChild = graph.nodes.find(n => n.id === newChildId)
+        if (clonedChild) clonedChild.parentId = newId
+      }
+
+      graph.nodes.push(cloned)
+      return newId
+    }
+
+    const newId = cloneNode(nodeId)
+    const clonedRoot = graph.nodes.find(n => n.id === newId)!
+    clonedRoot.x += offsetX
+    clonedRoot.y += offsetY
+    clonedRoot.name = src.name + ' copy'
+    // Keep original parent
+    clonedRoot.parentId = src.parentId
+
+    // Add to parent's childIds
+    if (src.parentId) {
+      const parent = graph.nodes.find(n => n.id === src.parentId)
+      if (parent) {
+        const idx = parent.childIds.indexOf(nodeId)
+        parent.childIds.splice(idx + 1, 0, newId)
+      }
+    }
+
+    newNodeIds.push(newId)
+  }
+
+  await handleUpdateDesign(project, session, designId, graph)
+  return { success: true, newNodeIds }
+}
+
+export async function handleAlignDesignNodes(
+  project: string,
+  session: string,
+  designId: string,
+  nodeIds: string[],
+  action: 'left' | 'centerH' | 'right' | 'top' | 'centerV' | 'bottom' | 'distributeH' | 'distributeV'
+): Promise<{ success: boolean }> {
+  if (nodeIds.length < 2) throw new Error('Need at least 2 nodes to align/distribute')
+
+  const design = await handleGetDesign(project, session, designId)
+  const content = typeof design.content === 'string' ? JSON.parse(design.content) : design.content
+  const graph = getGraph(content)
+
+  const nodes = nodeIds.map(id => {
+    const n = graph.nodes.find(node => node.id === id)
+    if (!n) throw new Error(`Node not found: ${id}`)
+    return n
+  })
+
+  // Use absolute positions to handle nodes with different parents
+  const absMap = new Map<string, { x: number; y: number }>()
+  for (const n of nodes) {
+    absMap.set(n.id, getAbsolutePosition(graph, n.id))
+  }
+
+  // Helper: set absolute x for a node by adjusting its local x
+  function setAbsX(n: SerializedNode, absX: number) {
+    const abs = absMap.get(n.id)!
+    n.x += absX - abs.x
+    abs.x = absX
+  }
+  function setAbsY(n: SerializedNode, absY: number) {
+    const abs = absMap.get(n.id)!
+    n.y += absY - abs.y
+    abs.y = absY
+  }
+
+  switch (action) {
+    case 'left': {
+      const min = Math.min(...nodes.map(n => absMap.get(n.id)!.x))
+      for (const n of nodes) setAbsX(n, min)
+      break
+    }
+    case 'centerH': {
+      const min = Math.min(...nodes.map(n => absMap.get(n.id)!.x))
+      const max = Math.max(...nodes.map(n => absMap.get(n.id)!.x + n.width))
+      const center = (min + max) / 2
+      for (const n of nodes) setAbsX(n, center - n.width / 2)
+      break
+    }
+    case 'right': {
+      const max = Math.max(...nodes.map(n => absMap.get(n.id)!.x + n.width))
+      for (const n of nodes) setAbsX(n, max - n.width)
+      break
+    }
+    case 'top': {
+      const min = Math.min(...nodes.map(n => absMap.get(n.id)!.y))
+      for (const n of nodes) setAbsY(n, min)
+      break
+    }
+    case 'centerV': {
+      const min = Math.min(...nodes.map(n => absMap.get(n.id)!.y))
+      const max = Math.max(...nodes.map(n => absMap.get(n.id)!.y + n.height))
+      const center = (min + max) / 2
+      for (const n of nodes) setAbsY(n, center - n.height / 2)
+      break
+    }
+    case 'bottom': {
+      const max = Math.max(...nodes.map(n => absMap.get(n.id)!.y + n.height))
+      for (const n of nodes) setAbsY(n, max - n.height)
+      break
+    }
+    case 'distributeH': {
+      if (nodes.length < 3) break
+      const sorted = [...nodes].sort((a, b) => absMap.get(a.id)!.x - absMap.get(b.id)!.x)
+      const firstX = absMap.get(sorted[0].id)!.x
+      const lastX = absMap.get(sorted[sorted.length - 1].id)!.x + sorted[sorted.length - 1].width
+      const totalWidth = sorted.reduce((s, n) => s + n.width, 0)
+      const gap = (lastX - firstX - totalWidth) / (sorted.length - 1)
+      let x = firstX
+      for (const n of sorted) {
+        setAbsX(n, x)
+        x += n.width + gap
+      }
+      break
+    }
+    case 'distributeV': {
+      if (nodes.length < 3) break
+      const sorted = [...nodes].sort((a, b) => absMap.get(a.id)!.y - absMap.get(b.id)!.y)
+      const firstY = absMap.get(sorted[0].id)!.y
+      const lastY = absMap.get(sorted[sorted.length - 1].id)!.y + sorted[sorted.length - 1].height
+      const totalHeight = sorted.reduce((s, n) => s + n.height, 0)
+      const gap = (lastY - firstY - totalHeight) / (sorted.length - 1)
+      let y = firstY
+      for (const n of sorted) {
+        setAbsY(n, y)
+        y += n.height + gap
+      }
+      break
+    }
+  }
+
+  await handleUpdateDesign(project, session, designId, graph)
+  return { success: true }
+}
+
+export async function handleTransformDesignNodes(
+  project: string,
+  session: string,
+  designId: string,
+  nodeIds: string[],
+  action: 'flipH' | 'flipV'
+): Promise<{ success: boolean }> {
+  if (nodeIds.length === 0) throw new Error('nodeIds must not be empty')
+
+  const design = await handleGetDesign(project, session, designId)
+  const content = typeof design.content === 'string' ? JSON.parse(design.content) : design.content
+  const graph = getGraph(content)
+
+  const nodes = nodeIds.map(id => {
+    const n = graph.nodes.find(node => node.id === id)
+    if (!n) throw new Error(`Node not found: ${id}`)
+    return n
+  })
+
+  // Compute bounding box using absolute positions
+  const absMap = new Map<string, { x: number; y: number }>()
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  for (const n of nodes) {
+    const abs = getAbsolutePosition(graph, n.id)
+    absMap.set(n.id, abs)
+    minX = Math.min(minX, abs.x)
+    minY = Math.min(minY, abs.y)
+    maxX = Math.max(maxX, abs.x + n.width)
+    maxY = Math.max(maxY, abs.y + n.height)
+  }
+
+  for (const n of nodes) {
+    const abs = absMap.get(n.id)!
+    if (action === 'flipH') {
+      const newAbsX = maxX - (abs.x - minX) - n.width
+      n.x += newAbsX - abs.x
+    } else {
+      const newAbsY = maxY - (abs.y - minY) - n.height
+      n.y += newAbsY - abs.y
+    }
+  }
+
+  await handleUpdateDesign(project, session, designId, graph)
+  return { success: true }
 }

@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useRef, useCallback } from 'react'
-import { SceneGraph, type SceneNode } from '@/engine/scene-graph'
+import { SceneGraph, type SceneNode, createDefaultNode } from '@/engine/scene-graph'
 import { getEditorRefs, setSceneGraph, resetSceneGraph } from '@/stores/designEditorRefs'
 import { useDesignEditorStore } from '@/stores/designEditorStore'
 import { useSessionStore } from '@/stores/sessionStore'
@@ -70,7 +70,9 @@ function deserializeGraph(json: string): SceneGraph {
   graph.nodes.clear()
   graph.rootId = data.rootId
   for (const node of data.nodes) {
-    graph.nodes.set(node.id, { ...node })
+    // Merge with defaults so MCP-created nodes have all required fields
+    const defaults = createDefaultNode(node.type as any)
+    graph.nodes.set(node.id, { ...defaults, ...node })
   }
 
   // Restore Map fields

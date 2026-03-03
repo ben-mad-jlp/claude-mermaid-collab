@@ -804,6 +804,11 @@ export function useDesignCanvasInput({
       }
     }
 
+    function onContextMenu(e: MouseEvent) {
+      e.preventDefault()
+      useDesignEditorStore.getState().setContextMenu({ x: e.clientX, y: e.clientY })
+    }
+    canvas.addEventListener('contextmenu', onContextMenu)
     canvas.addEventListener('mousedown', onMouseDownWithWindowCapture)
     canvas.addEventListener('mousemove', onMouseMove)
     canvas.addEventListener('mouseup', onMouseUp)
@@ -820,6 +825,7 @@ export function useDesignCanvasInput({
 
     return () => {
       windowMouseUpCleanup?.()
+      canvas.removeEventListener('contextmenu', onContextMenu)
       canvas.removeEventListener('mousedown', onMouseDownWithWindowCapture)
       canvas.removeEventListener('mousemove', onMouseMove)
       canvas.removeEventListener('mouseup', onMouseUp)

@@ -116,6 +116,46 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ onClose }) => 
       </div>
 
       <div className="flex-1 overflow-y-auto">
+        {/* ── Alignment & Distribution ── */}
+        {nodes.length >= 2 && (
+          <>
+            <SectionTitle>Align</SectionTitle>
+            <div className="px-3 pb-1">
+              <div className="flex items-center gap-0.5 mb-1">
+                {(['left', 'centerH', 'right', 'top', 'centerV', 'bottom'] as const).map((dir) => (
+                  <button
+                    key={dir}
+                    onClick={() => useDesignEditorStore.getState().alignNodes(dir)}
+                    title={`Align ${dir}`}
+                    className="flex-1 px-1 py-1 text-[10px] text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
+                  >
+                    {dir === 'left' ? 'L' : dir === 'centerH' ? 'CH' : dir === 'right' ? 'R' : dir === 'top' ? 'T' : dir === 'centerV' ? 'CV' : 'B'}
+                  </button>
+                ))}
+              </div>
+              {nodes.length >= 3 && (
+                <div className="flex items-center gap-0.5">
+                  <button
+                    onClick={() => useDesignEditorStore.getState().distributeNodes('horizontal')}
+                    title="Distribute horizontally"
+                    className="flex-1 px-1 py-1 text-[10px] text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
+                  >
+                    Distribute H
+                  </button>
+                  <button
+                    onClick={() => useDesignEditorStore.getState().distributeNodes('vertical')}
+                    title="Distribute vertically"
+                    className="flex-1 px-1 py-1 text-[10px] text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
+                  >
+                    Distribute V
+                  </button>
+                </div>
+              )}
+            </div>
+            <Divider />
+          </>
+        )}
+
         {/* ── Position & Size ── */}
         {node && (
           <>

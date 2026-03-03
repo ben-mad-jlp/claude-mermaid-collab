@@ -14,7 +14,7 @@ import type { SceneNode, NodeType, LayoutMode, Fill, VectorNetwork, VectorRegion
 import { computeVectorBounds } from '@/engine/vector'
 import type { SnapGuide } from '@/engine/snap'
 import type { Color, Rect } from '@/engine/types'
-import { computeLayout } from '@/engine/layout'
+import { computeLayout, computeAllLayouts } from '@/engine/layout'
 import {
   CANVAS_BG_COLOR,
   ZOOM_SENSITIVITY,
@@ -176,6 +176,20 @@ export interface DesignEditorState {
   initFromGraph: () => void
   zoomToFit: (viewportWidth: number, viewportHeight: number) => void
 
+  // Context menu
+  contextMenu: { x: number; y: number } | null
+  setContextMenu: (menu: { x: number; y: number } | null) => void
+
+  // Alignment & distribution
+  alignNodes: (direction: 'left' | 'centerH' | 'right' | 'top' | 'centerV' | 'bottom') => void
+  distributeNodes: (axis: 'horizontal' | 'vertical') => void
+
+  // Transform
+  flipSelected: (axis: 'horizontal' | 'vertical') => void
+
+  // Zoom to selection
+  zoomToSelection: (viewportWidth: number, viewportHeight: number) => void
+
   // Computed helpers
   getSelectedNodes: () => SceneNode[]
   getSelectedNode: () => SceneNode | undefined
@@ -234,6 +248,7 @@ export const useDesignEditorStore = create<DesignEditorState>((set, get) => {
     remoteCursors: [],
     renderVersion: 0,
     sceneVersion: 0,
+    contextMenu: null,
 
     // --- Actions ---
 
@@ -1276,6 +1291,9 @@ export const useDesignEditorStore = create<DesignEditorState>((set, get) => {
       if (!root) return
       // First child of root is the page
       const pageId = root.childIds[0] ?? ''
+      // Run auto-layout on all frames so MCP-created designs
+      // (which store x/y=0 for auto-layout children) get positioned
+      computeAllLayouts(graph)
       // Bump both renderVersion AND sceneVersion to invalidate
       // the renderer's cached picture. The caller (useDesignSync)
       // must update lastSavedVersionRef after calling this to
@@ -1342,6 +1360,263 @@ export const useDesignEditorStore = create<DesignEditorState>((set, get) => {
         panY,
         renderVersion: s.renderVersion + 1,
       }))
+    },
+
+    // --- Context menu ---
+
+    setContextMenu: (menu) => set({ contextMenu: menu }),
+
+    // --- Alignment ---
+
+    alignNodes: (direction) => {
+      const { graph, undo } = getEditorRefs()
+      const { selectedIds } = get()
+      if (selectedIds.size < 2) return
+
+      const nodes = [...selectedIds].map(id => graph.getNode(id)).filter(Boolean) as SceneNode[]
+      if (nodes.length < 2) return
+
+      // Capture originals for undo
+      const originals = new Map<string, { x: number; y: number }>()
+      for (const n of nodes) originals.set(n.id, { x: n.x, y: n.y })
+
+      // Compute bounding box using absolute positions
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+      const absPositions = new Map<string, { x: number; y: number }>()
+      for (const n of nodes) {
+        const abs = graph.getAbsolutePosition(n.id)
+        absPositions.set(n.id, abs)
+        minX = Math.min(minX, abs.x)
+        minY = Math.min(minY, abs.y)
+        maxX = Math.max(maxX, abs.x + n.width)
+        maxY = Math.max(maxY, abs.y + n.height)
+      }
+
+      for (const n of nodes) {
+        const abs = absPositions.get(n.id)!
+        const offsetX = abs.x - n.x  // difference between absolute and local
+        const offsetY = abs.y - n.y
+        switch (direction) {
+          case 'left':
+            graph.updateNode(n.id, { x: minX - offsetX })
+            break
+          case 'centerH':
+            graph.updateNode(n.id, { x: (minX + maxX) / 2 - n.width / 2 - offsetX })
+            break
+          case 'right':
+            graph.updateNode(n.id, { x: maxX - n.width - offsetX })
+            break
+          case 'top':
+            graph.updateNode(n.id, { y: minY - offsetY })
+            break
+          case 'centerV':
+            graph.updateNode(n.id, { y: (minY + maxY) / 2 - n.height / 2 - offsetY })
+            break
+          case 'bottom':
+            graph.updateNode(n.id, { y: maxY - n.height - offsetY })
+            break
+        }
+        runLayoutForNode(n.id)
+        syncIfInsideComponent(n.id)
+      }
+
+      const finals = new Map<string, { x: number; y: number }>()
+      for (const n of nodes) {
+        const current = graph.getNode(n.id)
+        if (current) finals.set(n.id, { x: current.x, y: current.y })
+      }
+
+      undo.push({
+        label: `Align ${direction}`,
+        forward: () => {
+          for (const [id, pos] of finals) {
+            graph.updateNode(id, pos)
+            runLayoutForNode(id)
+            syncIfInsideComponent(id)
+          }
+          get().requestRender()
+        },
+        inverse: () => {
+          for (const [id, pos] of originals) {
+            graph.updateNode(id, pos)
+            runLayoutForNode(id)
+            syncIfInsideComponent(id)
+          }
+          get().requestRender()
+        },
+      })
+      set(s => ({ renderVersion: s.renderVersion + 1, sceneVersion: s.sceneVersion + 1 }))
+    },
+
+    distributeNodes: (axis) => {
+      const { graph, undo } = getEditorRefs()
+      const { selectedIds } = get()
+      if (selectedIds.size < 3) return
+
+      const nodes = [...selectedIds].map(id => graph.getNode(id)).filter(Boolean) as SceneNode[]
+      if (nodes.length < 3) return
+
+      const originals = new Map<string, { x: number; y: number }>()
+      for (const n of nodes) originals.set(n.id, { x: n.x, y: n.y })
+
+      const absPositions = new Map<string, { x: number; y: number }>()
+      for (const n of nodes) {
+        absPositions.set(n.id, graph.getAbsolutePosition(n.id))
+      }
+
+      if (axis === 'horizontal') {
+        const sorted = [...nodes].sort((a, b) => absPositions.get(a.id)!.x - absPositions.get(b.id)!.x)
+        const first = absPositions.get(sorted[0].id)!.x
+        const last = absPositions.get(sorted[sorted.length - 1].id)!.x + sorted[sorted.length - 1].width
+        const totalWidth = sorted.reduce((s, n) => s + n.width, 0)
+        const gap = (last - first - totalWidth) / (sorted.length - 1)
+        let x = first
+        for (const n of sorted) {
+          const abs = absPositions.get(n.id)!
+          const offsetX = abs.x - n.x
+          graph.updateNode(n.id, { x: x - offsetX })
+          x += n.width + gap
+          runLayoutForNode(n.id)
+          syncIfInsideComponent(n.id)
+        }
+      } else {
+        const sorted = [...nodes].sort((a, b) => absPositions.get(a.id)!.y - absPositions.get(b.id)!.y)
+        const first = absPositions.get(sorted[0].id)!.y
+        const last = absPositions.get(sorted[sorted.length - 1].id)!.y + sorted[sorted.length - 1].height
+        const totalHeight = sorted.reduce((s, n) => s + n.height, 0)
+        const gap = (last - first - totalHeight) / (sorted.length - 1)
+        let y = first
+        for (const n of sorted) {
+          const abs = absPositions.get(n.id)!
+          const offsetY = abs.y - n.y
+          graph.updateNode(n.id, { y: y - offsetY })
+          y += n.height + gap
+          runLayoutForNode(n.id)
+          syncIfInsideComponent(n.id)
+        }
+      }
+
+      const finals = new Map<string, { x: number; y: number }>()
+      for (const n of nodes) {
+        const current = graph.getNode(n.id)
+        if (current) finals.set(n.id, { x: current.x, y: current.y })
+      }
+
+      undo.push({
+        label: `Distribute ${axis}`,
+        forward: () => {
+          for (const [id, pos] of finals) {
+            graph.updateNode(id, pos)
+            runLayoutForNode(id)
+            syncIfInsideComponent(id)
+          }
+          get().requestRender()
+        },
+        inverse: () => {
+          for (const [id, pos] of originals) {
+            graph.updateNode(id, pos)
+            runLayoutForNode(id)
+            syncIfInsideComponent(id)
+          }
+          get().requestRender()
+        },
+      })
+      set(s => ({ renderVersion: s.renderVersion + 1, sceneVersion: s.sceneVersion + 1 }))
+    },
+
+    flipSelected: (axis) => {
+      const { graph, undo } = getEditorRefs()
+      const { selectedIds } = get()
+      if (selectedIds.size === 0) return
+
+      const nodes = [...selectedIds].map(id => graph.getNode(id)).filter(Boolean) as SceneNode[]
+      if (nodes.length === 0) return
+
+      const originals = new Map<string, { x: number; y: number }>()
+      for (const n of nodes) originals.set(n.id, { x: n.x, y: n.y })
+
+      // Compute bounding box
+      const absPositions = new Map<string, { x: number; y: number }>()
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+      for (const n of nodes) {
+        const abs = graph.getAbsolutePosition(n.id)
+        absPositions.set(n.id, abs)
+        minX = Math.min(minX, abs.x)
+        minY = Math.min(minY, abs.y)
+        maxX = Math.max(maxX, abs.x + n.width)
+        maxY = Math.max(maxY, abs.y + n.height)
+      }
+
+      for (const n of nodes) {
+        const abs = absPositions.get(n.id)!
+        if (axis === 'horizontal') {
+          const offsetX = abs.x - n.x
+          const newAbsX = maxX - (abs.x - minX) - n.width
+          graph.updateNode(n.id, { x: newAbsX - offsetX })
+        } else {
+          const offsetY = abs.y - n.y
+          const newAbsY = maxY - (abs.y - minY) - n.height
+          graph.updateNode(n.id, { y: newAbsY - offsetY })
+        }
+        runLayoutForNode(n.id)
+        syncIfInsideComponent(n.id)
+      }
+
+      const finals = new Map<string, { x: number; y: number }>()
+      for (const n of nodes) {
+        const current = graph.getNode(n.id)
+        if (current) finals.set(n.id, { x: current.x, y: current.y })
+      }
+
+      undo.push({
+        label: `Flip ${axis}`,
+        forward: () => {
+          for (const [id, pos] of finals) {
+            graph.updateNode(id, pos)
+            runLayoutForNode(id)
+            syncIfInsideComponent(id)
+          }
+          get().requestRender()
+        },
+        inverse: () => {
+          for (const [id, pos] of originals) {
+            graph.updateNode(id, pos)
+            runLayoutForNode(id)
+            syncIfInsideComponent(id)
+          }
+          get().requestRender()
+        },
+      })
+      set(s => ({ renderVersion: s.renderVersion + 1, sceneVersion: s.sceneVersion + 1 }))
+    },
+
+    zoomToSelection: (viewportWidth, viewportHeight) => {
+      const { graph } = getEditorRefs()
+      const { selectedIds } = get()
+      if (selectedIds.size === 0) return
+
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+      for (const id of selectedIds) {
+        const node = graph.getNode(id)
+        if (!node) continue
+        const abs = graph.getAbsolutePosition(id)
+        minX = Math.min(minX, abs.x)
+        minY = Math.min(minY, abs.y)
+        maxX = Math.max(maxX, abs.x + node.width)
+        maxY = Math.max(maxY, abs.y + node.height)
+      }
+
+      const contentW = maxX - minX
+      const contentH = maxY - minY
+      if (contentW <= 0 || contentH <= 0) return
+
+      const padding = 60
+      const scaleX = (viewportWidth - padding * 2) / contentW
+      const scaleY = (viewportHeight - padding * 2) / contentH
+      const zoom = Math.min(scaleX, scaleY, 2)
+      const panX = (viewportWidth - contentW * zoom) / 2 - minX * zoom
+      const panY = (viewportHeight - contentH * zoom) / 2 - minY * zoom
+      set(s => ({ zoom, panX, panY, renderVersion: s.renderVersion + 1 }))
     },
 
     // --- Computed helpers ---

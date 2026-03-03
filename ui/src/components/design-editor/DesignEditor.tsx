@@ -15,6 +15,7 @@ import { useDesignKeyboard } from '@/hooks/useDesignKeyboard'
 import { useDesignTextEdit } from '@/hooks/useDesignTextEdit'
 import { useDesignSync } from '@/hooks/useDesignSync'
 import { useSessionStore } from '@/stores/sessionStore'
+import { DesignContextMenu } from './DesignContextMenu'
 
 interface DesignEditorProps {
   designId: string | null
@@ -121,6 +122,7 @@ export const DesignEditor: React.FC<DesignEditorProps> = ({ designId }) => {
             className="w-full h-full block"
             data-testid="design-editor-canvas"
           />
+          <DesignContextMenu />
         </div>
 
         {/* Right: Properties panel */}
