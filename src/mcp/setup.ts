@@ -102,6 +102,33 @@ import {
   handleExportDesignSvg,
   handleExportDesignCode,
   validateAndFixGraph,
+  getGraph,
+  annotateNodeSchema,
+  getAnnotationsSchema,
+  removeAnnotationSchema,
+  handleAnnotateNode,
+  handleGetAnnotations,
+  handleRemoveAnnotation,
+  describeDesignSchema,
+  handleDescribeDesign,
+  lintDesignSchema,
+  handleLintDesign,
+  describeDesignChangesSchema,
+  computeDesignDiff,
+  createComponentSchema,
+  createInstanceSchema,
+  listComponentsSchema,
+  detachInstanceSchema,
+  saveComponentSchema,
+  loadComponentSchema,
+  listLibraryComponentsSchema,
+  handleCreateComponent,
+  handleCreateInstance,
+  handleListComponents,
+  handleDetachInstance,
+  handleSaveComponent,
+  handleLoadComponent,
+  handleListLibraryComponents,
 } from './tools/design-ai.js';
 import {
   createFromTemplateSchema,
@@ -1079,6 +1106,76 @@ IMPORTANT - Common pitfalls to avoid:
         description: 'Export a design as an image (PNG, JPG, or WEBP). Requires the design to be open in a browser. The browser renders the design via CanvasKit and returns the image. Returns the file path of the saved image.',
         inputSchema: exportDesignSchema,
       },
+      // Design Annotations
+      {
+        name: 'annotate_node',
+        description: 'Add or update an annotation on a design node. Annotations store intent, notes, and status (placeholder/final/needs-review) for AI-human collaboration.',
+        inputSchema: annotateNodeSchema,
+      },
+      {
+        name: 'get_annotations',
+        description: 'List all annotations in a design. Optionally filter by status (placeholder/final/needs-review).',
+        inputSchema: getAnnotationsSchema,
+      },
+      {
+        name: 'remove_annotation',
+        description: 'Remove an annotation from a design node.',
+        inputSchema: removeAnnotationSchema,
+      },
+      // Visual Feedback
+      {
+        name: 'describe_design',
+        description: 'Analyze a design and return a text description of the node tree with positions, sizes, colors, text, layout, detected issues (zero-size, outside bounds, off-screen), and stats. Modes: full (all nodes) or summary (top 2 levels + stats).',
+        inputSchema: describeDesignSchema,
+      },
+      // Design Linting
+      {
+        name: 'lint_design',
+        description: 'Lint a design for common issues: zero-size nodes, nodes outside parent bounds, text overflow, missing fills, overlapping siblings, orphaned nodes, low contrast text.',
+        inputSchema: lintDesignSchema,
+      },
+      // Design Diff
+      {
+        name: 'describe_design_changes',
+        description: 'Compare current design state against a previous version. Returns added, removed, and modified nodes with property-level diffs. Uses design history; optionally specify a "since" timestamp.',
+        inputSchema: describeDesignChangesSchema,
+      },
+      // Component Library
+      {
+        name: 'create_component',
+        description: 'Convert a FRAME node to a COMPONENT type, making it reusable via create_instance.',
+        inputSchema: createComponentSchema,
+      },
+      {
+        name: 'create_instance',
+        description: 'Create an INSTANCE of a COMPONENT. Deep-clones the component subtree with new IDs and sets componentId reference.',
+        inputSchema: createInstanceSchema,
+      },
+      {
+        name: 'list_components',
+        description: 'List all COMPONENT nodes in a design with their instance counts.',
+        inputSchema: listComponentsSchema,
+      },
+      {
+        name: 'detach_instance',
+        description: 'Detach an INSTANCE from its component, converting it back to a regular FRAME.',
+        inputSchema: detachInstanceSchema,
+      },
+      {
+        name: 'save_component',
+        description: 'Save a COMPONENT subtree to the component library (persistent file storage). Can be loaded into any design later.',
+        inputSchema: saveComponentSchema,
+      },
+      {
+        name: 'load_component',
+        description: 'Load a saved component from the library into a design. Remaps all IDs to avoid conflicts.',
+        inputSchema: loadComponentSchema,
+      },
+      {
+        name: 'list_library_components',
+        description: 'Browse saved components in the component library.',
+        inputSchema: listLibraryComponentsSchema,
+      },
       {
         name: 'render_ui',
         description: 'Push UI to browser. Renders JSON UI definitions to the browser and manages user interactions. Can optionally block until user action is received.',
@@ -1903,6 +2000,132 @@ IMPORTANT - Common pitfalls to avoid:
             const { project, session, designId, nodeId, bindings } = args as { project: string; session: string; designId: string; nodeId: string; bindings: Record<string, string> };
             if (!project || !session || !designId || !nodeId || !bindings) throw new Error('Missing required: project, session, designId, nodeId, bindings');
             const result = await handleApplyDesignTokens(project, session, designId, nodeId, bindings);
+            return JSON.stringify(result, null, 2);
+          }
+
+          // Design Annotations
+          case 'annotate_node': {
+            const { project, session, designId, nodeId, intent, notes, status } = args as { project: string; session: string; designId: string; nodeId: string; intent?: string; notes?: string; status?: string };
+            if (!project || !session || !designId || !nodeId) throw new Error('Missing required: project, session, designId, nodeId');
+            const result = await handleAnnotateNode(project, session, designId, nodeId, { intent, notes, status });
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'get_annotations': {
+            const { project, session, designId, status } = args as { project: string; session: string; designId: string; status?: string };
+            if (!project || !session || !designId) throw new Error('Missing required: project, session, designId');
+            const result = await handleGetAnnotations(project, session, designId, status);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'remove_annotation': {
+            const { project, session, designId, nodeId } = args as { project: string; session: string; designId: string; nodeId: string };
+            if (!project || !session || !designId || !nodeId) throw new Error('Missing required: project, session, designId, nodeId');
+            const result = await handleRemoveAnnotation(project, session, designId, nodeId);
+            return JSON.stringify(result, null, 2);
+          }
+
+          // Visual Feedback
+          case 'describe_design': {
+            const { project, session, designId, mode } = args as { project: string; session: string; designId: string; mode?: 'full' | 'summary' };
+            if (!project || !session || !designId) throw new Error('Missing required: project, session, designId');
+            const result = await handleDescribeDesign(project, session, designId, mode);
+            return JSON.stringify(result, null, 2);
+          }
+
+          // Design Linting
+          case 'lint_design': {
+            const { project, session, designId } = args as { project: string; session: string; designId: string };
+            if (!project || !session || !designId) throw new Error('Missing required: project, session, designId');
+            const result = await handleLintDesign(project, session, designId);
+            return JSON.stringify(result, null, 2);
+          }
+
+          // Design Diff
+          case 'describe_design_changes': {
+            const { project, session, designId, since } = args as { project: string; session: string; designId: string; since?: string };
+            if (!project || !session || !designId) throw new Error('Missing required: project, session, designId');
+            // Fetch current design
+            const currentDesign = await handleGetDesign(project, session, designId);
+            const currentContent = typeof currentDesign.content === 'string' ? JSON.parse(currentDesign.content) : currentDesign.content;
+            // Fetch history
+            const historyUrl = since
+              ? buildUrl(`/api/design/${designId}/version`, project, session, { timestamp: since })
+              : buildUrl(`/api/design/${designId}/history`, project, session);
+            const historyResponse = await fetch(historyUrl);
+            if (!historyResponse.ok) {
+              if (historyResponse.status === 404) {
+                return JSON.stringify({ success: true, diff: { added: [], removed: [], modified: [], summary: 'No history available' } }, null, 2);
+              }
+              throw new Error(`Failed to get design history: ${historyResponse.statusText}`);
+            }
+            const historyData = await historyResponse.json();
+            // Get the previous graph
+            let previousContent: any;
+            if (since) {
+              // /version endpoint returns { content }
+              previousContent = historyData.content;
+            } else {
+              // /history endpoint returns { original, updates }
+              previousContent = historyData.original;
+            }
+            if (!previousContent) {
+              return JSON.stringify({ success: true, diff: { added: [], removed: [], modified: [], summary: 'No previous version found' } }, null, 2);
+            }
+            const previousParsed = typeof previousContent === 'string' ? JSON.parse(previousContent) : previousContent;
+            const currentGraph = getGraph(currentContent);
+            const previousGraph = getGraph(previousParsed);
+            const diff = computeDesignDiff(currentGraph, previousGraph);
+            return JSON.stringify({ success: true, diff }, null, 2);
+          }
+
+          // Component Library
+          case 'create_component': {
+            const { project, session, designId, nodeId } = args as { project: string; session: string; designId: string; nodeId: string };
+            if (!project || !session || !designId || !nodeId) throw new Error('Missing required: project, session, designId, nodeId');
+            const result = await handleCreateComponent(project, session, designId, nodeId);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'create_instance': {
+            const { project, session, designId, componentId, parentId, x, y } = args as { project: string; session: string; designId: string; componentId: string; parentId?: string; x?: number; y?: number };
+            if (!project || !session || !designId || !componentId) throw new Error('Missing required: project, session, designId, componentId');
+            const result = await handleCreateInstance(project, session, designId, componentId, parentId, x, y);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'list_components': {
+            const { project, session, designId } = args as { project: string; session: string; designId: string };
+            if (!project || !session || !designId) throw new Error('Missing required: project, session, designId');
+            const result = await handleListComponents(project, session, designId);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'detach_instance': {
+            const { project, session, designId, nodeId } = args as { project: string; session: string; designId: string; nodeId: string };
+            if (!project || !session || !designId || !nodeId) throw new Error('Missing required: project, session, designId, nodeId');
+            const result = await handleDetachInstance(project, session, designId, nodeId);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'save_component': {
+            const { project, session, designId, nodeId, componentName } = args as { project: string; session: string; designId: string; nodeId: string; componentName?: string };
+            if (!project || !session || !designId || !nodeId) throw new Error('Missing required: project, session, designId, nodeId');
+            const result = await handleSaveComponent(project, session, designId, nodeId, componentName);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'load_component': {
+            const { project, session, designId, componentName, parentId, x, y } = args as { project: string; session: string; designId: string; componentName: string; parentId?: string; x?: number; y?: number };
+            if (!project || !session || !designId || !componentName) throw new Error('Missing required: project, session, designId, componentName');
+            const result = await handleLoadComponent(project, session, designId, componentName, parentId, x, y);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'list_library_components': {
+            const { project, session } = args as { project: string; session: string };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            const result = await handleListLibraryComponents(project, session);
             return JSON.stringify(result, null, 2);
           }
 

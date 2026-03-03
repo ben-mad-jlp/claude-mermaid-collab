@@ -11,6 +11,7 @@
 import { handleGetDesign, handleUpdateDesign } from './design'
 import { createHash } from 'crypto'
 import { readFile, writeFile } from 'fs/promises'
+import { saveComponentToLibrary, loadComponentFromLibrary, listLibraryComponents } from './design-components'
 
 // ============= Types =============
 
@@ -84,7 +85,7 @@ function generateId(): string {
   return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 }
 
-function getGraph(content: any): SerializedGraph {
+export function getGraph(content: any): SerializedGraph {
   if (content && typeof content === 'object' && content.rootId && Array.isArray(content.nodes)) {
     return content as SerializedGraph
   }
@@ -269,6 +270,20 @@ function solidStroke(hex: string, weight = 1, opacity = 1): Stroke {
 function applyConvenienceProps(type: string, props: Record<string, any>): Record<string, any> {
   const result = { ...props }
 
+  // CSS-like layout aliases
+  if (result.gap !== undefined) {
+    result.itemSpacing = result.gap
+    delete result.gap
+  }
+  if (result.align !== undefined) {
+    result.counterAxisAlign = result.align
+    delete result.align
+  }
+  if (result.justify !== undefined) {
+    result.primaryAxisAlign = result.justify
+    delete result.justify
+  }
+
   // fill → fills
   if (result.fill) {
     result.fills = [solidFill(result.fill)]
@@ -289,6 +304,12 @@ function applyConvenienceProps(type: string, props: Record<string, any>): Record
     result.paddingBottom = result.padding
     result.paddingLeft = result.padding
     delete result.padding
+  }
+
+  // Auto-layout defaults for FRAME/COMPONENT/SECTION with layoutMode
+  if (['FRAME', 'COMPONENT', 'SECTION'].includes(type) && result.layoutMode && result.layoutMode !== 'NONE') {
+    if (result.counterAxisAlign === undefined) result.counterAxisAlign = 'CENTER'
+    if (result.clipsContent === undefined) result.clipsContent = true
   }
 
   // Type-specific defaults
@@ -351,11 +372,14 @@ export const addDesignNodeSchema = {
     counterAxisAlign: { type: 'string', enum: ['MIN', 'CENTER', 'MAX', 'STRETCH', 'BASELINE'], description: 'Align children along counter axis (start/center/end/stretch)' },
     primaryAxisSizing: { type: 'string', enum: ['FIXED', 'HUG', 'FILL'], description: 'How frame sizes along primary axis. HUG=shrink to fit children, FILL=expand to fill parent' },
     counterAxisSizing: { type: 'string', enum: ['FIXED', 'HUG', 'FILL'], description: 'How frame sizes along counter axis. HUG=shrink to fit children, FILL=expand to fill parent' },
-    itemSpacing: { type: 'number', description: 'Spacing between children in auto layout (pixels)' },
+    itemSpacing: { type: 'number', description: 'Spacing between children in auto layout (pixels). Alias: gap' },
+    gap: { type: 'number', description: 'Alias for itemSpacing' },
     padding: { type: 'number', description: 'Uniform padding for auto layout (pixels). Sets all four sides.' },
     layoutGrow: { type: 'number', description: 'Flex grow factor for this node inside a parent auto-layout frame. 0=fixed size, 1=fill remaining space.' },
     layoutAlignSelf: { type: 'string', enum: ['AUTO', 'STRETCH'], description: 'Override counter-axis alignment for this child. STRETCH=fill parent cross-axis width.' },
-    clipsContent: { type: 'boolean', description: 'Clip children to frame bounds (for FRAME nodes)' },
+    align: { type: 'string', enum: ['MIN', 'CENTER', 'MAX', 'STRETCH', 'BASELINE'], description: 'Alias for counterAxisAlign' },
+    justify: { type: 'string', enum: ['MIN', 'CENTER', 'MAX', 'SPACE_BETWEEN'], description: 'Alias for primaryAxisAlign' },
+    clipsContent: { type: 'boolean', description: 'Clip children to frame bounds (for FRAME nodes). Auto-set to true when layoutMode is set.' },
     textAlignHorizontal: { type: 'string', enum: ['LEFT', 'CENTER', 'RIGHT', 'JUSTIFIED'], description: 'Horizontal text alignment (for TEXT nodes)' },
   },
   required: ['project', 'designId', 'type'],
@@ -369,7 +393,7 @@ export const updateDesignNodeSchema = {
     nodeId: { type: 'string', description: 'Node ID to update' },
     properties: {
       type: 'object',
-      description: 'Properties to update. Layout: layoutMode, primaryAxisAlign (MIN/CENTER/MAX/SPACE_BETWEEN), counterAxisAlign (MIN/CENTER/MAX/STRETCH), primaryAxisSizing (FIXED/HUG/FILL), counterAxisSizing (FIXED/HUG/FILL), itemSpacing, padding, layoutGrow, layoutAlignSelf (AUTO/STRETCH), clipsContent. Visual: x, y, width, height, name, fill, stroke, text, fontSize, fontWeight, cornerRadius, opacity, rotation, textAlignHorizontal (LEFT/CENTER/RIGHT).',
+      description: 'Properties to update. Layout: layoutMode, primaryAxisAlign/justify (MIN/CENTER/MAX/SPACE_BETWEEN), counterAxisAlign/align (MIN/CENTER/MAX/STRETCH), primaryAxisSizing (FIXED/HUG/FILL), counterAxisSizing (FIXED/HUG/FILL), itemSpacing/gap, padding, layoutGrow, layoutAlignSelf (AUTO/STRETCH), clipsContent. Visual: x, y, width, height, name, fill, stroke, text, fontSize, fontWeight, cornerRadius, opacity, rotation, textAlignHorizontal (LEFT/CENTER/RIGHT).',
     },
   },
   required: ['project', 'designId', 'nodeId', 'properties'],
@@ -456,7 +480,19 @@ export async function handleUpdateDesignNode(
   const node = graph.nodes.find(n => n.id === nodeId)
   if (!node) throw new Error(`Node not found: ${nodeId}`)
 
-  // Handle convenience properties
+  // Handle convenience properties (CSS-like aliases)
+  if (properties.gap !== undefined) {
+    properties.itemSpacing = properties.gap
+    delete properties.gap
+  }
+  if (properties.align !== undefined) {
+    properties.counterAxisAlign = properties.align
+    delete properties.align
+  }
+  if (properties.justify !== undefined) {
+    properties.primaryAxisAlign = properties.justify
+    delete properties.justify
+  }
   if (properties.fill) {
     properties.fills = [solidFill(properties.fill)]
     delete properties.fill
@@ -1732,4 +1768,708 @@ export async function handleExportDesignCode(
   }
 
   return { success: true, code }
+}
+
+// ============= Feature 2: Design Annotations =============
+
+export const annotateNodeSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    designId: { type: 'string', description: 'Design ID' },
+    nodeId: { type: 'string', description: 'Node ID to annotate' },
+    intent: { type: 'string', description: 'Description of what this node is for (e.g. "hero CTA button")' },
+    notes: { type: 'string', description: 'Additional notes or context' },
+    status: { type: 'string', enum: ['placeholder', 'final', 'needs-review'], description: 'Design status of this node' },
+  },
+  required: ['project', 'designId', 'nodeId'],
+}
+
+export const getAnnotationsSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    designId: { type: 'string', description: 'Design ID' },
+    status: { type: 'string', enum: ['placeholder', 'final', 'needs-review'], description: 'Filter annotations by status' },
+  },
+  required: ['project', 'designId'],
+}
+
+export const removeAnnotationSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    designId: { type: 'string', description: 'Design ID' },
+    nodeId: { type: 'string', description: 'Node ID to remove annotation from' },
+  },
+  required: ['project', 'designId', 'nodeId'],
+}
+
+export async function handleAnnotateNode(
+  project: string,
+  session: string,
+  designId: string,
+  nodeId: string,
+  annotation: { intent?: string; notes?: string; status?: string }
+): Promise<{ success: boolean }> {
+  const design = await handleGetDesign(project, session, designId)
+  const content = typeof design.content === 'string' ? JSON.parse(design.content) : design.content
+  const graph = getGraph(content)
+
+  const node = graph.nodes.find(n => n.id === nodeId)
+  if (!node) throw new Error(`Node not found: ${nodeId}`)
+
+  // Merge-update annotation (don't overwrite fields not provided)
+  const existing = node.__annotations ?? {}
+  if (annotation.intent !== undefined) existing.intent = annotation.intent
+  if (annotation.notes !== undefined) existing.notes = annotation.notes
+  if (annotation.status !== undefined) existing.status = annotation.status
+  existing.updatedAt = new Date().toISOString()
+  node.__annotations = existing
+
+  await handleUpdateDesign(project, session, designId, graph)
+  return { success: true }
+}
+
+export async function handleGetAnnotations(
+  project: string,
+  session: string,
+  designId: string,
+  statusFilter?: string
+): Promise<{ success: boolean; annotations: Array<{ nodeId: string; nodeName: string; nodeType: string; intent?: string; notes?: string; status?: string; updatedAt?: string }> }> {
+  const design = await handleGetDesign(project, session, designId)
+  const content = typeof design.content === 'string' ? JSON.parse(design.content) : design.content
+  const graph = getGraph(content)
+
+  const annotations: Array<{ nodeId: string; nodeName: string; nodeType: string; intent?: string; notes?: string; status?: string; updatedAt?: string }> = []
+
+  for (const node of graph.nodes) {
+    if (node.__annotations) {
+      const ann = node.__annotations
+      if (statusFilter && ann.status !== statusFilter) continue
+      annotations.push({
+        nodeId: node.id,
+        nodeName: node.name,
+        nodeType: node.type,
+        intent: ann.intent,
+        notes: ann.notes,
+        status: ann.status,
+        updatedAt: ann.updatedAt,
+      })
+    }
+  }
+
+  return { success: true, annotations }
+}
+
+export async function handleRemoveAnnotation(
+  project: string,
+  session: string,
+  designId: string,
+  nodeId: string
+): Promise<{ success: boolean }> {
+  const design = await handleGetDesign(project, session, designId)
+  const content = typeof design.content === 'string' ? JSON.parse(design.content) : design.content
+  const graph = getGraph(content)
+
+  const node = graph.nodes.find(n => n.id === nodeId)
+  if (!node) throw new Error(`Node not found: ${nodeId}`)
+
+  delete node.__annotations
+
+  await handleUpdateDesign(project, session, designId, graph)
+  return { success: true }
+}
+
+// ============= Feature 3: Visual Feedback (describe_design) =============
+
+export const describeDesignSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    designId: { type: 'string', description: 'Design ID' },
+    mode: { type: 'string', enum: ['full', 'summary'], description: 'full = all nodes, summary = top 2 levels + stats (default: summary)' },
+  },
+  required: ['project', 'designId'],
+}
+
+function colorToHex(c: Color): string {
+  const r = Math.round(c.r * 255).toString(16).padStart(2, '0')
+  const g = Math.round(c.g * 255).toString(16).padStart(2, '0')
+  const b = Math.round(c.b * 255).toString(16).padStart(2, '0')
+  return `#${r}${g}${b}`
+}
+
+export async function handleDescribeDesign(
+  project: string,
+  session: string,
+  designId: string,
+  mode: 'full' | 'summary' = 'summary'
+): Promise<{ success: boolean; description: string; issues: string[]; stats: Record<string, number> }> {
+  const design = await handleGetDesign(project, session, designId)
+  const content = typeof design.content === 'string' ? JSON.parse(design.content) : design.content
+  const graph = getGraph(content)
+
+  const lines: string[] = []
+  const issues: string[] = []
+  const stats = { totalNodes: 0, textNodes: 0, frameNodes: 0, imageNodes: 0, maxDepth: 0 }
+
+  function describeNode(nodeId: string, depth: number) {
+    const node = graph.nodes.find(n => n.id === nodeId)
+    if (!node) return
+
+    // In summary mode, only show top 2 levels
+    if (mode === 'summary' && depth > 2) {
+      stats.totalNodes++
+      if (node.type === 'TEXT') stats.textNodes++
+      if (node.type === 'FRAME' || node.type === 'COMPONENT' || node.type === 'SECTION') stats.frameNodes++
+      if (node.fills?.some((f: any) => f.type === 'IMAGE')) stats.imageNodes++
+      if (depth > stats.maxDepth) stats.maxDepth = depth
+      for (const childId of node.childIds) describeNode(childId, depth + 1)
+      return
+    }
+
+    stats.totalNodes++
+    if (depth > stats.maxDepth) stats.maxDepth = depth
+
+    const indent = '  '.repeat(depth)
+    let line = `${indent}[${node.type}] "${node.name}" (${node.x},${node.y} ${node.width}x${node.height})`
+
+    if (node.type === 'TEXT') {
+      stats.textNodes++
+      line += ` text="${node.text?.slice(0, 50)}${(node.text?.length ?? 0) > 50 ? '...' : ''}"`
+      line += ` ${node.fontSize}px ${node.fontWeight}`
+    }
+    if (node.type === 'FRAME' || node.type === 'COMPONENT' || node.type === 'SECTION') {
+      stats.frameNodes++
+      if (node.layoutMode && node.layoutMode !== 'NONE') {
+        line += ` layout=${node.layoutMode} gap=${node.itemSpacing}`
+      }
+    }
+
+    const fill = node.fills?.find((f: any) => f.visible !== false && f.type === 'SOLID')
+    if (fill) line += ` fill=${colorToHex(fill.color)}`
+
+    const imgFill = node.fills?.find((f: any) => f.type === 'IMAGE')
+    if (imgFill) {
+      stats.imageNodes++
+      line += ' [IMAGE]'
+    }
+
+    if (node.opacity < 1) line += ` opacity=${node.opacity}`
+    if (!node.visible) line += ' [HIDDEN]'
+
+    lines.push(line)
+
+    // Issue detection
+    if (node.type !== 'PAGE' && node.type !== 'CANVAS' && node.visible) {
+      if (node.width === 0 || node.height === 0) {
+        issues.push(`Zero size: "${node.name}" (${node.id}) has ${node.width}x${node.height}`)
+      }
+    }
+
+    // Check if outside parent bounds
+    if (node.parentId) {
+      const parent = graph.nodes.find(n => n.id === node.parentId)
+      if (parent && parent.type !== 'PAGE' && parent.type !== 'CANVAS') {
+        if (node.x + node.width < 0 || node.y + node.height < 0 || node.x > parent.width || node.y > parent.height) {
+          issues.push(`Outside parent: "${node.name}" (${node.id}) is entirely outside "${parent.name}"`)
+        }
+      }
+    }
+
+    for (const childId of node.childIds) {
+      describeNode(childId, depth + 1)
+    }
+  }
+
+  const page = findCurrentPage(graph)
+  if (page) {
+    describeNode(page.id, 0)
+  }
+
+  const description = lines.join('\n')
+  return { success: true, description, issues, stats }
+}
+
+// ============= Feature 4: Design Linting =============
+
+export const lintDesignSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    designId: { type: 'string', description: 'Design ID' },
+  },
+  required: ['project', 'designId'],
+}
+
+function relativeLuminance(c: Color): number {
+  const sRGB = [c.r, c.g, c.b].map(v => v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4))
+  return 0.2126 * sRGB[0] + 0.7152 * sRGB[1] + 0.0722 * sRGB[2]
+}
+
+function contrastRatio(c1: Color, c2: Color): number {
+  const l1 = relativeLuminance(c1)
+  const l2 = relativeLuminance(c2)
+  const lighter = Math.max(l1, l2)
+  const darker = Math.min(l1, l2)
+  return (lighter + 0.05) / (darker + 0.05)
+}
+
+function getAncestorFill(graph: SerializedGraph, nodeId: string): Color | null {
+  let current = graph.nodes.find(n => n.id === nodeId)
+  while (current?.parentId) {
+    current = graph.nodes.find(n => n.id === current!.parentId)
+    if (current) {
+      const fill = current.fills?.find((f: any) => f.visible !== false && f.type === 'SOLID')
+      if (fill) return fill.color
+    }
+  }
+  return null
+}
+
+interface LintIssue {
+  severity: 'error' | 'warning'
+  nodeId: string
+  nodeName: string
+  message: string
+}
+
+export async function handleLintDesign(
+  project: string,
+  session: string,
+  designId: string
+): Promise<{ success: boolean; issues: LintIssue[] }> {
+  const design = await handleGetDesign(project, session, designId)
+  const content = typeof design.content === 'string' ? JSON.parse(design.content) : design.content
+  const graph = getGraph(content)
+
+  const issues: LintIssue[] = []
+  const nodeMap = new Map(graph.nodes.map(n => [n.id, n]))
+
+  for (const node of graph.nodes) {
+    if (node.type === 'PAGE' || node.type === 'CANVAS') continue
+
+    // Orphaned node check
+    if (node.parentId && !nodeMap.has(node.parentId)) {
+      issues.push({ severity: 'error', nodeId: node.id, nodeName: node.name, message: `Orphaned node: parentId "${node.parentId}" does not exist` })
+    }
+
+    if (!node.visible) continue
+
+    // Zero size
+    if (node.width === 0 || node.height === 0) {
+      issues.push({ severity: 'error', nodeId: node.id, nodeName: node.name, message: `Zero size: ${node.width}x${node.height}` })
+    }
+
+    // Outside parent bounds
+    if (node.parentId) {
+      const parent = nodeMap.get(node.parentId)
+      if (parent && parent.type !== 'PAGE' && parent.type !== 'CANVAS') {
+        if (node.x + node.width < 0 || node.y + node.height < 0 || node.x > parent.width || node.y > parent.height) {
+          issues.push({ severity: 'warning', nodeId: node.id, nodeName: node.name, message: `Entirely outside parent "${parent.name}" bounds` })
+        }
+      }
+    }
+
+    // Text overflow heuristic: estimate width of longest line using ~0.6x fontSize per char
+    if (node.type === 'TEXT' && node.text && node.width > 0) {
+      const lines = node.text.split('\n')
+      const longestLine = lines.reduce((a: string, b: string) => a.length > b.length ? a : b, '')
+      const estimatedWidth = longestLine.length * (node.fontSize * 0.6)
+      if (estimatedWidth > node.width * 1.5) {
+        issues.push({ severity: 'warning', nodeId: node.id, nodeName: node.name, message: `Text may overflow: estimated ${Math.round(estimatedWidth)}px content in ${node.width}px container` })
+      }
+    }
+
+    // Missing fills on visible FRAME/RECTANGLE
+    if ((node.type === 'FRAME' || node.type === 'RECTANGLE') && (!node.fills || node.fills.length === 0 || !node.fills.some((f: any) => f.visible !== false))) {
+      issues.push({ severity: 'warning', nodeId: node.id, nodeName: node.name, message: `No visible fills on ${node.type}` })
+    }
+
+    // Low contrast text
+    if (node.type === 'TEXT') {
+      const textFill = node.fills?.find((f: any) => f.visible !== false && f.type === 'SOLID')
+      if (textFill) {
+        const bgColor = getAncestorFill(graph, node.id)
+        if (bgColor) {
+          const ratio = contrastRatio(textFill.color, bgColor)
+          if (ratio < 3.0) {
+            issues.push({ severity: 'warning', nodeId: node.id, nodeName: node.name, message: `Low contrast: ${ratio.toFixed(2)}:1 (minimum 3.0:1 recommended)` })
+          }
+        }
+      }
+    }
+
+    // Overlapping siblings (identical position+size)
+    if (node.parentId) {
+      const parent = nodeMap.get(node.parentId)
+      if (parent) {
+        const idx = parent.childIds.indexOf(node.id)
+        for (let i = idx + 1; i < parent.childIds.length; i++) {
+          const sibling = nodeMap.get(parent.childIds[i])
+          if (sibling && sibling.visible && sibling.x === node.x && sibling.y === node.y && sibling.width === node.width && sibling.height === node.height) {
+            issues.push({ severity: 'warning', nodeId: node.id, nodeName: node.name, message: `Overlaps with sibling "${sibling.name}" at identical position and size` })
+          }
+        }
+      }
+    }
+  }
+
+  return { success: true, issues }
+}
+
+// ============= Feature 5: Design Snapshot/Diff =============
+
+export const describeDesignChangesSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    designId: { type: 'string', description: 'Design ID' },
+    since: { type: 'string', description: 'ISO timestamp to compare against. If omitted, compares against the original version.' },
+  },
+  required: ['project', 'designId'],
+}
+
+const DIFF_PROPERTIES = [
+  'name', 'type', 'x', 'y', 'width', 'height', 'fills', 'strokes',
+  'opacity', 'visible', 'cornerRadius', 'text', 'fontSize', 'fontWeight',
+  'layoutMode', 'itemSpacing', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+]
+
+interface DesignDiff {
+  added: Array<{ id: string; name: string; type: string }>
+  removed: Array<{ id: string; name: string; type: string }>
+  modified: Array<{ id: string; name: string; changes: Record<string, { from: any; to: any }> }>
+  summary: string
+}
+
+export function computeDesignDiff(currentGraph: SerializedGraph, previousGraph: SerializedGraph): DesignDiff {
+  const currentMap = new Map(currentGraph.nodes.map(n => [n.id, n]))
+  const previousMap = new Map(previousGraph.nodes.map(n => [n.id, n]))
+
+  const added: DesignDiff['added'] = []
+  const removed: DesignDiff['removed'] = []
+  const modified: DesignDiff['modified'] = []
+
+  // Find added and modified nodes
+  for (const [id, node] of currentMap) {
+    const prev = previousMap.get(id)
+    if (!prev) {
+      added.push({ id, name: node.name, type: node.type })
+    } else {
+      const changes: Record<string, { from: any; to: any }> = {}
+      for (const prop of DIFF_PROPERTIES) {
+        const oldVal = (prev as any)[prop]
+        const newVal = (node as any)[prop]
+        const oldStr = JSON.stringify(oldVal)
+        const newStr = JSON.stringify(newVal)
+        if (oldStr !== newStr) {
+          changes[prop] = { from: oldVal, to: newVal }
+        }
+      }
+      if (Object.keys(changes).length > 0) {
+        modified.push({ id, name: node.name, changes })
+      }
+    }
+  }
+
+  // Find removed nodes
+  for (const [id, node] of previousMap) {
+    if (!currentMap.has(id)) {
+      removed.push({ id, name: node.name, type: node.type })
+    }
+  }
+
+  const parts: string[] = []
+  if (added.length) parts.push(`${added.length} node(s) added`)
+  if (removed.length) parts.push(`${removed.length} node(s) removed`)
+  if (modified.length) parts.push(`${modified.length} node(s) modified`)
+  const summary = parts.length > 0 ? parts.join(', ') : 'No changes detected'
+
+  return { added, removed, modified, summary }
+}
+
+// ============= Feature 6: Component Library (Schemas) =============
+
+export const createComponentSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    designId: { type: 'string', description: 'Design ID' },
+    nodeId: { type: 'string', description: 'FRAME node ID to convert to COMPONENT' },
+  },
+  required: ['project', 'designId', 'nodeId'],
+}
+
+export const createInstanceSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    designId: { type: 'string', description: 'Design ID' },
+    componentId: { type: 'string', description: 'COMPONENT node ID to create an instance of' },
+    parentId: { type: 'string', description: 'Parent node ID. Defaults to component\'s parent.' },
+    x: { type: 'number', description: 'X position (default: component x + 20)' },
+    y: { type: 'number', description: 'Y position (default: component y + 20)' },
+  },
+  required: ['project', 'designId', 'componentId'],
+}
+
+export const listComponentsSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    designId: { type: 'string', description: 'Design ID' },
+  },
+  required: ['project', 'designId'],
+}
+
+export const detachInstanceSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    designId: { type: 'string', description: 'Design ID' },
+    nodeId: { type: 'string', description: 'INSTANCE node ID to detach' },
+  },
+  required: ['project', 'designId', 'nodeId'],
+}
+
+export const saveComponentSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    designId: { type: 'string', description: 'Design ID' },
+    nodeId: { type: 'string', description: 'COMPONENT node ID to save to library' },
+    componentName: { type: 'string', description: 'Name for the saved component (default: node name)' },
+  },
+  required: ['project', 'designId', 'nodeId'],
+}
+
+export const loadComponentSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    designId: { type: 'string', description: 'Design ID' },
+    componentName: { type: 'string', description: 'Name of the saved component to load' },
+    parentId: { type: 'string', description: 'Parent node ID. Defaults to first page.' },
+    x: { type: 'number', description: 'X position' },
+    y: { type: 'number', description: 'Y position' },
+  },
+  required: ['project', 'designId', 'componentName'],
+}
+
+export const listLibraryComponentsSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+  },
+  required: ['project'],
+}
+
+// ============= Feature 6: Component Library (Handlers) =============
+
+export async function handleCreateComponent(
+  project: string,
+  session: string,
+  designId: string,
+  nodeId: string
+): Promise<{ success: boolean }> {
+  const design = await handleGetDesign(project, session, designId)
+  const content = typeof design.content === 'string' ? JSON.parse(design.content) : design.content
+  const graph = getGraph(content)
+
+  const node = graph.nodes.find(n => n.id === nodeId)
+  if (!node) throw new Error(`Node not found: ${nodeId}`)
+  if (node.type !== 'FRAME') throw new Error(`Node must be a FRAME to convert to COMPONENT. Got: ${node.type}`)
+
+  node.type = 'COMPONENT'
+
+  await handleUpdateDesign(project, session, designId, graph)
+  return { success: true }
+}
+
+export async function handleCreateInstance(
+  project: string,
+  session: string,
+  designId: string,
+  componentId: string,
+  parentId?: string,
+  x?: number,
+  y?: number
+): Promise<{ success: boolean; instanceId: string }> {
+  const design = await handleGetDesign(project, session, designId)
+  const content = typeof design.content === 'string' ? JSON.parse(design.content) : design.content
+  const graph = getGraph(content)
+
+  const component = graph.nodes.find(n => n.id === componentId)
+  if (!component) throw new Error(`Node not found: ${componentId}`)
+  if (component.type !== 'COMPONENT') throw new Error(`Node must be a COMPONENT. Got: ${component.type}`)
+
+  // Deep clone following handleDuplicateDesignNodes pattern
+  const idMap = new Map<string, string>()
+
+  function cloneNode(srcId: string): string {
+    const srcNode = graph.nodes.find(n => n.id === srcId)
+    if (!srcNode) throw new Error(`Node not found during clone: ${srcId}`)
+    const newId = generateId()
+    idMap.set(srcId, newId)
+
+    const cloned: SerializedNode = JSON.parse(JSON.stringify(srcNode))
+    cloned.id = newId
+    cloned.childIds = []
+    for (const childId of srcNode.childIds) {
+      const newChildId = cloneNode(childId)
+      cloned.childIds.push(newChildId)
+      const clonedChild = graph.nodes.find(n => n.id === newChildId)
+      if (clonedChild) clonedChild.parentId = newId
+    }
+    graph.nodes.push(cloned)
+    return newId
+  }
+
+  const instanceId = cloneNode(componentId)
+  const instance = graph.nodes.find(n => n.id === instanceId)!
+  instance.type = 'INSTANCE'
+  instance.componentId = componentId
+  instance.name = component.name + ' (instance)'
+  instance.x = x ?? (component.x + 20)
+  instance.y = y ?? (component.y + 20)
+
+  const resolvedParentId = parentId ?? component.parentId ?? findCurrentPage(graph)?.id
+  if (!resolvedParentId) throw new Error('No parent found')
+  instance.parentId = resolvedParentId
+
+  const parent = graph.nodes.find(n => n.id === resolvedParentId)
+  if (parent) parent.childIds.push(instanceId)
+
+  await handleUpdateDesign(project, session, designId, graph)
+  return { success: true, instanceId }
+}
+
+export async function handleListComponents(
+  project: string,
+  session: string,
+  designId: string
+): Promise<{ success: boolean; components: Array<{ id: string; name: string; instanceCount: number }> }> {
+  const design = await handleGetDesign(project, session, designId)
+  const content = typeof design.content === 'string' ? JSON.parse(design.content) : design.content
+  const graph = getGraph(content)
+
+  const components = graph.nodes.filter(n => n.type === 'COMPONENT')
+  const result = components.map(comp => {
+    const instanceCount = graph.nodes.filter(n => n.type === 'INSTANCE' && n.componentId === comp.id).length
+    return { id: comp.id, name: comp.name, instanceCount }
+  })
+
+  return { success: true, components: result }
+}
+
+export async function handleDetachInstance(
+  project: string,
+  session: string,
+  designId: string,
+  nodeId: string
+): Promise<{ success: boolean }> {
+  const design = await handleGetDesign(project, session, designId)
+  const content = typeof design.content === 'string' ? JSON.parse(design.content) : design.content
+  const graph = getGraph(content)
+
+  const node = graph.nodes.find(n => n.id === nodeId)
+  if (!node) throw new Error(`Node not found: ${nodeId}`)
+  if (node.type !== 'INSTANCE') throw new Error(`Node must be an INSTANCE to detach. Got: ${node.type}`)
+
+  node.type = 'FRAME'
+  node.componentId = null
+
+  await handleUpdateDesign(project, session, designId, graph)
+  return { success: true }
+}
+
+export async function handleSaveComponent(
+  project: string,
+  session: string,
+  designId: string,
+  nodeId: string,
+  componentName?: string
+): Promise<{ success: boolean; path: string }> {
+  const design = await handleGetDesign(project, session, designId)
+  const content = typeof design.content === 'string' ? JSON.parse(design.content) : design.content
+  const graph = getGraph(content)
+
+  const node = graph.nodes.find(n => n.id === nodeId)
+  if (!node) throw new Error(`Node not found: ${nodeId}`)
+  if (node.type !== 'COMPONENT') throw new Error(`Node must be a COMPONENT to save. Got: ${node.type}`)
+
+  // Collect the subtree
+  const subtreeNodes: any[] = []
+  function collectSubtree(id: string) {
+    const n = graph.nodes.find(nd => nd.id === id)
+    if (!n) return
+    subtreeNodes.push(JSON.parse(JSON.stringify(n)))
+    for (const childId of n.childIds) collectSubtree(childId)
+  }
+  collectSubtree(nodeId)
+
+  const name = componentName ?? node.name
+  return saveComponentToLibrary(project, session, name, subtreeNodes)
+}
+
+export async function handleLoadComponent(
+  project: string,
+  session: string,
+  designId: string,
+  componentName: string,
+  parentId?: string,
+  x?: number,
+  y?: number
+): Promise<{ success: boolean; nodeId: string }> {
+  const design = await handleGetDesign(project, session, designId)
+  const content = typeof design.content === 'string' ? JSON.parse(design.content) : design.content
+  const graph = getGraph(content)
+
+  const { nodes: savedNodes } = await loadComponentFromLibrary(project, session, componentName)
+  if (!savedNodes || savedNodes.length === 0) throw new Error('Component has no nodes')
+
+  // Remap IDs
+  const idMap = new Map<string, string>()
+  for (const node of savedNodes) {
+    idMap.set(node.id, generateId())
+  }
+
+  const resolvedParentId = parentId ?? findCurrentPage(graph)?.id
+  if (!resolvedParentId) throw new Error('No parent found')
+
+  let rootNodeId = ''
+
+  for (const node of savedNodes) {
+    const newId = idMap.get(node.id)!
+    node.id = newId
+    node.childIds = node.childIds.map((cid: string) => idMap.get(cid) ?? cid)
+
+    if (node.parentId && idMap.has(node.parentId)) {
+      node.parentId = idMap.get(node.parentId)!
+    } else {
+      // This is the root of the component subtree
+      node.parentId = resolvedParentId
+      if (x !== undefined) node.x = x
+      if (y !== undefined) node.y = y
+      rootNodeId = newId
+
+      const parent = graph.nodes.find(n => n.id === resolvedParentId)
+      if (parent) parent.childIds.push(newId)
+    }
+
+    graph.nodes.push(node)
+  }
+
+  await handleUpdateDesign(project, session, designId, graph)
+  return { success: true, nodeId: rootNodeId }
+}
+
+export async function handleListLibraryComponents(
+  project: string,
+  session: string
+): Promise<{ success: boolean; components: Array<{ name: string; filename: string; savedAt: string }> }> {
+  const components = await listLibraryComponents(project, session)
+  return { success: true, components }
 }
