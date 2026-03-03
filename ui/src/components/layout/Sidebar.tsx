@@ -19,9 +19,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
     diagrams,
     documents,
     designs,
+    spreadsheets,
     selectedDiagramId,
     selectedDocumentId,
     selectedDesignId,
+    selectedSpreadsheetId,
     taskGraphSelected,
     currentSession,
     collabState,
@@ -29,6 +31,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     removeDiagram,
     removeDocument,
     removeDesign,
+    removeSpreadsheet,
     todosSelected,
     todosProject,
     todos,
@@ -42,9 +45,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       diagrams: state.diagrams,
       documents: state.documents,
       designs: state.designs,
+      spreadsheets: state.spreadsheets,
       selectedDiagramId: state.selectedDiagramId,
       selectedDocumentId: state.selectedDocumentId,
       selectedDesignId: state.selectedDesignId,
+      selectedSpreadsheetId: state.selectedSpreadsheetId,
       taskGraphSelected: state.taskGraphSelected,
       currentSession: state.currentSession,
       collabState: state.collabState,
@@ -52,6 +57,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       removeDiagram: state.removeDiagram,
       removeDocument: state.removeDocument,
       removeDesign: state.removeDesign,
+      removeSpreadsheet: state.removeSpreadsheet,
       todosSelected: state.todosSelected,
       todosProject: state.todosProject,
       todos: state.todos,
@@ -63,7 +69,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }))
   );
 
-  const { selectDiagramWithContent, selectDocumentWithContent, selectDesignWithContent } = useDataLoader();
+  const { selectDiagramWithContent, selectDocumentWithContent, selectDesignWithContent, selectSpreadsheetWithContent } = useDataLoader();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddTodoDialog, setShowAddTodoDialog] = useState(false);
@@ -75,7 +81,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     async (item: Item) => {
       if (!currentSession) return;
 
-      const typeLabel = item.type === 'diagram' ? 'diagram' : item.type === 'design' ? 'design' : 'document';
+      const typeLabel = item.type === 'diagram' ? 'diagram' : item.type === 'design' ? 'design' : item.type === 'spreadsheet' ? 'spreadsheet' : 'document';
       if (!window.confirm(`Delete ${typeLabel} "${item.name}"?`)) {
         return;
       }
@@ -90,12 +96,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
         } else if (item.type === 'design') {
           await api.deleteDesign(currentSession.project, currentSession.name, item.id);
           removeDesign(item.id);
+        } else if (item.type === 'spreadsheet') {
+          await api.deleteSpreadsheet(currentSession.project, currentSession.name, item.id);
+          removeSpreadsheet(item.id);
         }
       } catch (error) {
         console.error('Failed to delete item:', error);
       }
     },
-    [currentSession, removeDiagram, removeDocument, removeDesign]
+    [currentSession, removeDiagram, removeDocument, removeDesign, removeSpreadsheet]
   );
 
   const handleItemClick = useCallback(
@@ -106,11 +115,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
         selectDiagramWithContent(currentSession.project, currentSession.name, item.id);
       } else if (item.type === 'design') {
         selectDesignWithContent(currentSession.project, currentSession.name, item.id);
+      } else if (item.type === 'spreadsheet') {
+        selectSpreadsheetWithContent(currentSession.project, currentSession.name, item.id);
       } else {
         selectDocumentWithContent(currentSession.project, currentSession.name, item.id);
       }
     },
-    [currentSession, selectDiagramWithContent, selectDocumentWithContent, selectDesignWithContent]
+    [currentSession, selectDiagramWithContent, selectDocumentWithContent, selectDesignWithContent, selectSpreadsheetWithContent]
   );
 
   const handleSearchChange = useCallback(
@@ -167,6 +178,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
         content: d.content ?? '',
         lastModified: d.lastModified ?? Date.now(),
       })),
+      ...spreadsheets.map((s) => ({
+        ...s,
+        type: 'spreadsheet' as const,
+        content: s.content ?? '',
+        lastModified: s.lastModified ?? Date.now(),
+      })),
     ];
 
     items.sort((a, b) => b.lastModified - a.lastModified);
@@ -177,15 +194,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
 
     return items;
-  }, [diagrams, documents, designs, searchQuery]);
+  }, [diagrams, documents, designs, spreadsheets, searchQuery]);
 
   const isItemSelected = useCallback(
     (item: Item) => {
       if (item.type === 'diagram') return item.id === selectedDiagramId;
       if (item.type === 'design') return item.id === selectedDesignId;
+      if (item.type === 'spreadsheet') return item.id === selectedSpreadsheetId;
       return item.id === selectedDocumentId;
     },
-    [selectedDiagramId, selectedDocumentId, selectedDesignId]
+    [selectedDiagramId, selectedDocumentId, selectedDesignId, selectedSpreadsheetId]
   );
 
   const isDisabled = !currentSession && !todosSelected;

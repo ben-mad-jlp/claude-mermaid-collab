@@ -36,6 +36,25 @@ export interface DocumentListItem {
   lastModified: number;
 }
 
+export interface Spreadsheet {
+  id: string;
+  name: string;
+  content: string;
+  lastModified: number;
+}
+
+export interface SpreadsheetMeta {
+  name: string;
+  path: string;
+  lastModified: number;
+}
+
+export interface SpreadsheetListItem {
+  id: string;
+  name: string;
+  lastModified: number;
+}
+
 export interface ItemMetadata {
   folder: string | null;
   locked: boolean;

@@ -1,5 +1,6 @@
 import { DiagramManager } from '../services/diagram-manager';
 import { DocumentManager } from '../services/document-manager';
+import { SpreadsheetManager } from '../services/spreadsheet-manager';
 import { MetadataManager } from '../services/metadata-manager';
 import { Validator } from '../services/validator';
 import { Renderer, type Theme } from '../services/renderer';
@@ -114,16 +115,19 @@ async function handleHealthCheck(wsHandler: WebSocketHandler): Promise<Response>
 async function createManagers(project: string, session: string) {
   const diagramsDir = sessionRegistry.resolvePath(project, session, 'diagrams');
   const documentsDir = sessionRegistry.resolvePath(project, session, 'documents');
+  const spreadsheetsDir = sessionRegistry.resolvePath(project, session, 'spreadsheets');
 
   const diagramManager = new DiagramManager(diagramsDir);
   const documentManager = new DocumentManager(documentsDir);
+  const spreadsheetManager = new SpreadsheetManager(spreadsheetsDir);
   const metadataManager = new MetadataManager(join(project, '.collab', session));
 
   // Initialize managers (creates directories, builds index)
   await diagramManager.initialize();
   await documentManager.initialize();
+  await spreadsheetManager.initialize();
 
-  return { diagramManager, documentManager, metadataManager };
+  return { diagramManager, documentManager, spreadsheetManager, metadataManager };
 }
 
 export async function handleAPI(
@@ -1446,6 +1450,211 @@ export async function handleAPI(
 
       wsHandler.broadcast({
         type: 'document_deleted',
+        id,
+        project: params.project,
+        session: params.session,
+      });
+
+      return Response.json({ success: true });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 404 });
+    }
+  }
+
+  // ============================================
+  // Spreadsheet Routes
+  // ============================================
+
+  // GET /api/spreadsheets?project=...&session=...
+  if (path === '/api/spreadsheets' && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const { spreadsheetManager } = await createManagers(params.project, params.session);
+    const spreadsheets = await spreadsheetManager.listSpreadsheets();
+    return Response.json({ spreadsheets });
+  }
+
+  // GET /api/spreadsheet/:id/history?project=...&session=...
+  if (path.match(/^\/api\/spreadsheet\/[^/]+\/history$/) && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const id = decodeURIComponent(path.split('/')[3]);
+
+    try {
+      const spreadsheetsPath = sessionRegistry.resolvePath(params.project, params.session, 'spreadsheets');
+      const sessionPath = join(spreadsheetsPath, '..');
+      const updateLogManager = new UpdateLogManager(sessionPath);
+      const history = await updateLogManager.getHistory('spreadsheets', id);
+
+      if (!history) {
+        return Response.json({ original: null, changes: [] });
+      }
+
+      return Response.json({ original: history.original, changes: history.changes });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // GET /api/spreadsheet/:id/version?project=...&session=...&timestamp=...
+  if (path.match(/^\/api\/spreadsheet\/[^/]+\/version$/) && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const timestamp = url.searchParams.get('timestamp');
+    if (!timestamp) {
+      return Response.json({ error: 'timestamp query param required' }, { status: 400 });
+    }
+
+    const id = decodeURIComponent(path.split('/')[3]);
+
+    try {
+      const spreadsheetsPath = sessionRegistry.resolvePath(params.project, params.session, 'spreadsheets');
+      const sessionPath = join(spreadsheetsPath, '..');
+      const updateLogManager = new UpdateLogManager(sessionPath);
+      const content = await updateLogManager.replayToTimestamp('spreadsheets', id, timestamp);
+
+      return Response.json({ content, timestamp });
+    } catch (error: any) {
+      if (error.message.includes('No history found')) {
+        return Response.json({ error: error.message }, { status: 404 });
+      }
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // GET /api/spreadsheet/:id?project=...&session=...
+  if (path.startsWith('/api/spreadsheet/') && !path.includes('/history') && !path.includes('/version') && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const id = decodeURIComponent(path.split('/').pop()!);
+    const { spreadsheetManager } = await createManagers(params.project, params.session);
+    const spreadsheet = await spreadsheetManager.getSpreadsheet(id);
+
+    if (!spreadsheet) {
+      return Response.json({ error: 'Spreadsheet not found' }, { status: 404 });
+    }
+
+    return Response.json(spreadsheet);
+  }
+
+  // POST /api/spreadsheet?project=...&session=... (create new)
+  if (path === '/api/spreadsheet' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const { name, content } = await req.json() as { name?: string; content?: string };
+
+    if (!name || content === undefined) {
+      return Response.json({ error: 'Name and content required' }, { status: 400 });
+    }
+
+    try {
+      // Register session if not already registered
+      const result = await sessionRegistry.register(params.project, params.session);
+      if (result.created) {
+        wsHandler.broadcast({ type: 'session_created', project: params.project, session: params.session });
+      }
+
+      const { spreadsheetManager } = await createManagers(params.project, params.session);
+      const id = await spreadsheetManager.createSpreadsheet(name, content);
+
+      wsHandler.broadcast({
+        type: 'spreadsheet_created',
+        id,
+        name,
+        content,
+        lastModified: Date.now(),
+        project: params.project,
+        session: params.session,
+      });
+
+      return Response.json({ id, success: true });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // POST /api/spreadsheet/:id?project=...&session=... (update)
+  if (path.match(/^\/api\/spreadsheet\/[^/]+$/) && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const id = decodeURIComponent(path.split('/').pop()!);
+    const { content } = await req.json() as { content?: string };
+
+    if (content === undefined) {
+      return Response.json({ error: 'Content required' }, { status: 400 });
+    }
+
+    try {
+      const { spreadsheetManager } = await createManagers(params.project, params.session);
+
+      // Get old content before saving (for history logging)
+      const oldSpreadsheet = await spreadsheetManager.getSpreadsheet(id);
+      const oldContent = oldSpreadsheet?.content ?? '';
+
+      await spreadsheetManager.saveSpreadsheet(id, content);
+
+      // Log the update
+      try {
+        const spreadsheetsPath = sessionRegistry.resolvePath(params.project, params.session, 'spreadsheets');
+        const sessionPath = join(spreadsheetsPath, '..');
+        const updateLogManager = new UpdateLogManager(sessionPath);
+        await updateLogManager.logUpdate('spreadsheets', id, oldContent, content);
+      } catch (logError) {
+        console.warn('Failed to log spreadsheet update:', logError);
+      }
+
+      // Broadcast update
+      const spreadsheet = await spreadsheetManager.getSpreadsheet(id);
+      if (spreadsheet) {
+        wsHandler.broadcast({
+          type: 'spreadsheet_updated',
+          id,
+          content: spreadsheet.content,
+          lastModified: spreadsheet.lastModified,
+          project: params.project,
+          session: params.session,
+        });
+      }
+
+      return Response.json({ success: true });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 404 });
+    }
+  }
+
+  // DELETE /api/spreadsheet/:id?project=...&session=...
+  if (path.match(/^\/api\/spreadsheet\/[^/]+$/) && req.method === 'DELETE') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const id = decodeURIComponent(path.split('/').pop()!);
+
+    try {
+      const { spreadsheetManager } = await createManagers(params.project, params.session);
+      await spreadsheetManager.deleteSpreadsheet(id);
+
+      wsHandler.broadcast({
+        type: 'spreadsheet_deleted',
         id,
         project: params.project,
         session: params.session,

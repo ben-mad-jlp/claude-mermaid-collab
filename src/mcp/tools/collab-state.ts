@@ -189,6 +189,7 @@ export interface ArchiveResult {
     documents: string[];
     diagrams: string[];
     designs: string[];
+    spreadsheets: string[];
     lessons: boolean; // Whether LESSONS.md was archived
   };
 }
@@ -204,6 +205,7 @@ export async function archiveSession(
   const documentsDir = join(sessionDir, 'documents');
   const diagramsDir = join(sessionDir, 'diagrams');
   const designsDir = join(sessionDir, 'designs');
+  const spreadsheetsDir = join(sessionDir, 'spreadsheets');
 
   // Build archive folder name with optional timestamp
   let archiveFolderName = session;
@@ -227,10 +229,11 @@ export async function archiveSession(
   // Create archive directory
   await mkdir(archiveDir, { recursive: true });
 
-  const archivedFiles: { documents: string[]; diagrams: string[]; designs: string[]; lessons: boolean } = {
+  const archivedFiles: { documents: string[]; diagrams: string[]; designs: string[]; spreadsheets: string[]; lessons: boolean } = {
     documents: [],
     diagrams: [],
     designs: [],
+    spreadsheets: [],
     lessons: false,
   };
 
@@ -261,6 +264,15 @@ export async function archiveSession(
     for (const file of designFiles) {
       await cp(join(designsDir, file), join(archiveDir, file));
       archivedFiles.designs.push(file);
+    }
+  }
+
+  // Copy spreadsheets
+  if (await fileExists(spreadsheetsDir)) {
+    const spreadsheetFiles = await readdir(spreadsheetsDir);
+    for (const file of spreadsheetFiles) {
+      await cp(join(spreadsheetsDir, file), join(archiveDir, file));
+      archivedFiles.spreadsheets.push(file);
     }
   }
 

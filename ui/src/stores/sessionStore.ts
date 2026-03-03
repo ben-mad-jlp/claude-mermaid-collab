@@ -12,6 +12,16 @@ export interface Design {
 }
 
 /**
+ * Spreadsheet type definition
+ */
+export interface Spreadsheet {
+  id: string;
+  name: string;
+  content?: string;
+  lastModified?: number;
+}
+
+/**
  * Diff state for highlighting document patches
  */
 export interface DiffState {
@@ -45,6 +55,10 @@ export interface SessionState {
   // Designs in current session
   designs: Design[];
   selectedDesignId: string | null;
+
+  // Spreadsheets in current session
+  spreadsheets: Spreadsheet[];
+  selectedSpreadsheetId: string | null;
 
   // Task graph selection state
   taskGraphSelected: boolean;
@@ -92,6 +106,14 @@ export interface SessionState {
   selectDesign: (id: string | null) => void;
   getSelectedDesign: () => Design | undefined;
 
+  // Spreadsheet actions
+  setSpreadsheets: (spreadsheets: Spreadsheet[]) => void;
+  addSpreadsheet: (spreadsheet: Spreadsheet) => void;
+  updateSpreadsheet: (id: string, spreadsheet: Partial<Spreadsheet>) => void;
+  removeSpreadsheet: (id: string) => void;
+  selectSpreadsheet: (id: string | null) => void;
+  getSelectedSpreadsheet: () => Spreadsheet | undefined;
+
   // Collab state actions
   setCollabState: (state: CollabState | null) => void;
 
@@ -133,6 +155,8 @@ const initialState = {
   selectedDocumentId: null,
   designs: [],
   selectedDesignId: null,
+  spreadsheets: [],
+  selectedSpreadsheetId: null,
   taskGraphSelected: false,
   todos: [],
   todosSelected: false,
@@ -177,9 +201,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       diagrams: [],
       documents: [],
       designs: [],
+      spreadsheets: [],
       selectedDiagramId: null,
       selectedDocumentId: null,
       selectedDesignId: null,
+      selectedSpreadsheetId: null,
       taskGraphSelected: false,
       todosSelected: false,
       collabState: null,
@@ -227,7 +253,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const { diagrams } = get();
     // Only select if diagram exists or if clearing selection
     if (id === null || diagrams.find((d) => d.id === id)) {
-      set({ selectedDiagramId: id, selectedDocumentId: null, selectedDesignId: null, taskGraphSelected: false });
+      set({ selectedDiagramId: id, selectedDocumentId: null, selectedDesignId: null, selectedSpreadsheetId: null, taskGraphSelected: false });
     }
   },
 
@@ -273,7 +299,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const { documents } = get();
     // Only select if document exists or if clearing selection
     if (id === null || documents.find((d) => d.id === id)) {
-      set({ selectedDocumentId: id, selectedDiagramId: null, selectedDesignId: null, taskGraphSelected: false });
+      set({ selectedDocumentId: id, selectedDiagramId: null, selectedDesignId: null, selectedSpreadsheetId: null, taskGraphSelected: false });
     }
   },
 
@@ -319,13 +345,56 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const { designs } = get();
     // Only select if design exists or if clearing selection
     if (id === null || designs.find((w) => w.id === id)) {
-      set({ selectedDesignId: id, selectedDiagramId: null, selectedDocumentId: null, taskGraphSelected: false });
+      set({ selectedDesignId: id, selectedDiagramId: null, selectedDocumentId: null, selectedSpreadsheetId: null, taskGraphSelected: false });
     }
   },
 
   getSelectedDesign: () => {
     const { designs, selectedDesignId } = get();
     return designs.find((w) => w.id === selectedDesignId);
+  },
+
+  // Spreadsheet management
+  setSpreadsheets: (spreadsheets: Spreadsheet[]) => {
+    set({ spreadsheets });
+    const { selectedSpreadsheetId } = get();
+    if (selectedSpreadsheetId && !spreadsheets.find((s) => s.id === selectedSpreadsheetId)) {
+      set({ selectedSpreadsheetId: null });
+    }
+  },
+
+  addSpreadsheet: (spreadsheet: Spreadsheet) => {
+    const { spreadsheets } = get();
+    if (!spreadsheets.find((s) => s.id === spreadsheet.id)) {
+      set({ spreadsheets: [...spreadsheets, spreadsheet] });
+    }
+  },
+
+  updateSpreadsheet: (id: string, updates: Partial<Spreadsheet>) => {
+    const { spreadsheets } = get();
+    set({
+      spreadsheets: spreadsheets.map((s) => (s.id === id ? { ...s, ...updates } : s)),
+    });
+  },
+
+  removeSpreadsheet: (id: string) => {
+    const { spreadsheets, selectedSpreadsheetId } = get();
+    set({
+      spreadsheets: spreadsheets.filter((s) => s.id !== id),
+      selectedSpreadsheetId: selectedSpreadsheetId === id ? null : selectedSpreadsheetId,
+    });
+  },
+
+  selectSpreadsheet: (id: string | null) => {
+    const { spreadsheets } = get();
+    if (id === null || spreadsheets.find((s) => s.id === id)) {
+      set({ selectedSpreadsheetId: id, selectedDiagramId: null, selectedDocumentId: null, selectedDesignId: null, taskGraphSelected: false });
+    }
+  },
+
+  getSelectedSpreadsheet: () => {
+    const { spreadsheets, selectedSpreadsheetId } = get();
+    return spreadsheets.find((s) => s.id === selectedSpreadsheetId);
   },
 
   // Collab state management
@@ -335,7 +404,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   // Task graph selection
   selectTaskGraph: () => {
-    set({ taskGraphSelected: true, selectedDiagramId: null, selectedDocumentId: null, selectedDesignId: null });
+    set({ taskGraphSelected: true, selectedDiagramId: null, selectedDocumentId: null, selectedDesignId: null, selectedSpreadsheetId: null });
   },
 
   clearTaskGraphSelection: () => {
@@ -366,17 +435,19 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       selectedDiagramId: null,
       selectedDocumentId: null,
       selectedDesignId: null,
+      selectedSpreadsheetId: null,
       taskGraphSelected: false,
       diagrams: [],
       documents: [],
       designs: [],
+      spreadsheets: [],
       collabState: null,
     });
   },
 
   selectTodo: (id: number | null) => {
     if (id === null) {
-      set({ selectedTodoId: null, currentSession: null, diagrams: [], documents: [], designs: [], collabState: null });
+      set({ selectedTodoId: null, currentSession: null, diagrams: [], documents: [], designs: [], spreadsheets: [], collabState: null });
       return;
     }
     const { todos, todosProject } = get();
@@ -387,11 +458,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       selectedDiagramId: null,
       selectedDocumentId: null,
       selectedDesignId: null,
+      selectedSpreadsheetId: null,
       taskGraphSelected: false,
       currentSession: { project: todosProject, name: todo.sessionName } as Session,
       diagrams: [],
       documents: [],
       designs: [],
+      spreadsheets: [],
       collabState: null,
     });
   },
@@ -417,9 +490,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       diagrams: [],
       documents: [],
       designs: [],
+      spreadsheets: [],
       selectedDiagramId: null,
       selectedDocumentId: null,
       selectedDesignId: null,
+      selectedSpreadsheetId: null,
       taskGraphSelected: false,
       todosSelected: false,
       todosProject: null,

@@ -21,7 +21,7 @@ export interface UseDataLoaderReturn {
   error: string | null;
   /** Load all available sessions from the API */
   loadSessions: () => Promise<void>;
-  /** Load diagrams, documents, and designs for a specific session */
+  /** Load diagrams, documents, designs, and spreadsheets for a specific session */
   loadSessionItems: (project: string, session: string) => Promise<void>;
   /** Refresh session items while preserving current selection */
   refreshSessionItems: (project: string, session: string) => Promise<void>;
@@ -31,6 +31,8 @@ export interface UseDataLoaderReturn {
   selectDocumentWithContent: (project: string, session: string, id: string) => Promise<void>;
   /** Select a design and fetch its content */
   selectDesignWithContent: (project: string, session: string, id: string) => Promise<void>;
+  /** Select a spreadsheet and fetch its content */
+  selectSpreadsheetWithContent: (project: string, session: string, id: string) => Promise<void>;
 }
 
 /**
@@ -67,12 +69,15 @@ export function useDataLoader(): UseDataLoaderReturn {
   const setDiagrams = useSessionStore((state) => state.setDiagrams);
   const setDocuments = useSessionStore((state) => state.setDocuments);
   const setDesigns = useSessionStore((state) => state.setDesigns);
+  const setSpreadsheets = useSessionStore((state) => state.setSpreadsheets);
   const selectDiagram = useSessionStore((state) => state.selectDiagram);
   const selectDocument = useSessionStore((state) => state.selectDocument);
   const selectDesign = useSessionStore((state) => state.selectDesign);
+  const selectSpreadsheet = useSessionStore((state) => state.selectSpreadsheet);
   const updateDiagram = useSessionStore((state) => state.updateDiagram);
   const updateDocument = useSessionStore((state) => state.updateDocument);
   const updateDesign = useSessionStore((state) => state.updateDesign);
+  const updateSpreadsheet = useSessionStore((state) => state.updateSpreadsheet);
   const setCollabState = useSessionStore((state) => state.setCollabState);
 
   /**
@@ -118,12 +123,16 @@ export function useDataLoader(): UseDataLoaderReturn {
       setError(null);
 
       try {
-        const diagrams = await api.getDiagrams(project, session);
-        const documents = await api.getDocuments(project, session);
-        const designs = await api.getDesigns(project, session);
+        const [diagrams, documents, designs, spreadsheets] = await Promise.all([
+          api.getDiagrams(project, session),
+          api.getDocuments(project, session),
+          api.getDesigns(project, session),
+          api.getSpreadsheets(project, session),
+        ]);
         setDiagrams(diagrams);
         setDocuments(documents);
         setDesigns(designs);
+        setSpreadsheets(spreadsheets);
 
         // Also load collab state
         await loadCollabState(project, session);
@@ -134,7 +143,7 @@ export function useDataLoader(): UseDataLoaderReturn {
         setIsLoading(false);
       }
     },
-    [setDiagrams, setDocuments, setDesigns, loadCollabState]
+    [setDiagrams, setDocuments, setDesigns, setSpreadsheets, loadCollabState]
   );
 
   /**
@@ -143,13 +152,13 @@ export function useDataLoader(): UseDataLoaderReturn {
   const refreshSessionItems = useCallback(
     async (project: string, session: string) => {
       // Capture current selection
-      const { selectedDiagramId, selectedDocumentId, selectedDesignId } = useSessionStore.getState();
+      const { selectedDiagramId, selectedDocumentId, selectedDesignId, selectedSpreadsheetId } = useSessionStore.getState();
 
       // Load fresh data
       await loadSessionItems(project, session);
 
       // Restore selection if items still exist
-      const { diagrams: newDiagrams, documents: newDocuments, designs: newDesigns } = useSessionStore.getState();
+      const { diagrams: newDiagrams, documents: newDocuments, designs: newDesigns, spreadsheets: newSpreadsheets } = useSessionStore.getState();
 
       if (selectedDiagramId && newDiagrams.find((d) => d.id === selectedDiagramId)) {
         selectDiagram(selectedDiagramId);
@@ -157,9 +166,11 @@ export function useDataLoader(): UseDataLoaderReturn {
         selectDocument(selectedDocumentId);
       } else if (selectedDesignId && newDesigns.find((d) => d.id === selectedDesignId)) {
         selectDesign(selectedDesignId);
+      } else if (selectedSpreadsheetId && newSpreadsheets.find((s) => s.id === selectedSpreadsheetId)) {
+        selectSpreadsheet(selectedSpreadsheetId);
       }
     },
-    [loadSessionItems, selectDiagram, selectDocument, selectDesign]
+    [loadSessionItems, selectDiagram, selectDocument, selectDesign, selectSpreadsheet]
   );
 
   /**
@@ -231,6 +242,26 @@ export function useDataLoader(): UseDataLoaderReturn {
     [selectDesign, updateDesign]
   );
 
+  /**
+   * Select a spreadsheet and fetch its full content
+   */
+  const selectSpreadsheetWithContent = useCallback(
+    async (project: string, session: string, id: string) => {
+      selectSpreadsheet(id);
+
+      try {
+        const spreadsheet = await api.getSpreadsheet(project, session, id);
+        if (spreadsheet) {
+          updateSpreadsheet(id, { content: spreadsheet.content });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to load spreadsheet content';
+        setError(message);
+      }
+    },
+    [selectSpreadsheet, updateSpreadsheet]
+  );
+
   return {
     isLoading,
     error,
@@ -240,5 +271,6 @@ export function useDataLoader(): UseDataLoaderReturn {
     selectDiagramWithContent,
     selectDocumentWithContent,
     selectDesignWithContent,
+    selectSpreadsheetWithContent,
   };
 }

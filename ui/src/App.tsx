@@ -172,9 +172,11 @@ const App: React.FC = () => {
     diagrams,
     documents,
     designs,
+    spreadsheets,
     selectedDiagramId,
     selectedDocumentId,
     selectedDesignId,
+    selectedSpreadsheetId,
     taskGraphSelected,
     todosSelected,
     todosProject,
@@ -183,12 +185,15 @@ const App: React.FC = () => {
     updateDiagram,
     updateDocument,
     updateDesign,
+    updateSpreadsheet,
     addDiagram,
     addDocument,
     addDesign,
+    addSpreadsheet,
     removeDiagram,
     removeDocument,
     removeDesign,
+    removeSpreadsheet,
     setPendingDiff,
     setCollabState,
   } = useSessionStore(
@@ -199,9 +204,11 @@ const App: React.FC = () => {
       diagrams: state.diagrams,
       documents: state.documents,
       designs: state.designs,
+      spreadsheets: state.spreadsheets,
       selectedDiagramId: state.selectedDiagramId,
       selectedDocumentId: state.selectedDocumentId,
       selectedDesignId: state.selectedDesignId,
+      selectedSpreadsheetId: state.selectedSpreadsheetId,
       taskGraphSelected: state.taskGraphSelected,
       todosSelected: state.todosSelected,
       todosProject: state.todosProject,
@@ -210,12 +217,15 @@ const App: React.FC = () => {
       updateDiagram: state.updateDiagram,
       updateDocument: state.updateDocument,
       updateDesign: state.updateDesign,
+      updateSpreadsheet: state.updateSpreadsheet,
       addDiagram: state.addDiagram,
       addDocument: state.addDocument,
       addDesign: state.addDesign,
+      addSpreadsheet: state.addSpreadsheet,
       removeDiagram: state.removeDiagram,
       removeDocument: state.removeDocument,
       removeDesign: state.removeDesign,
+      removeSpreadsheet: state.removeSpreadsheet,
       setPendingDiff: state.setPendingDiff,
       setCollabState: state.setCollabState,
     }))
@@ -533,6 +543,44 @@ const App: React.FC = () => {
           break;
         }
 
+        case 'spreadsheet_created': {
+          const { id, name, content, lastModified, project, session } = message as any;
+          if (id &&
+              currentSession &&
+              project === currentSession.project &&
+              session === currentSession.name) {
+            addSpreadsheet({
+              id,
+              name: name || id,
+              content,
+              lastModified: lastModified || Date.now(),
+            });
+          }
+          break;
+        }
+
+        case 'spreadsheet_updated': {
+          const { id, content, project, session } = message as any;
+          if (id &&
+              currentSession &&
+              project === currentSession.project &&
+              session === currentSession.name) {
+            updateSpreadsheet(id, { content, lastModified: Date.now() });
+          }
+          break;
+        }
+
+        case 'spreadsheet_deleted': {
+          const { id, project, session } = message as any;
+          if (id &&
+              currentSession &&
+              project === currentSession.project &&
+              session === currentSession.name) {
+            removeSpreadsheet(id);
+          }
+          break;
+        }
+
         case 'design_export_request': {
           // Browser-side rendering for MCP export
           const { requestId, designId, format, scale } = message as any;
@@ -645,7 +693,7 @@ const App: React.FC = () => {
     return () => {
       subscription.unsubscribe();
     };
-  }, [isConnected, currentSession, updateDiagram, updateDocument, updateDesign, addDiagram, addDocument, addDesign, removeDiagram, removeDocument, removeDesign, setPendingDiff, setCollabState, receiveQuestion, restoreUIState]);
+  }, [isConnected, currentSession, updateDiagram, updateDocument, updateDesign, updateSpreadsheet, addDiagram, addDocument, addDesign, addSpreadsheet, removeDiagram, removeDocument, removeDesign, removeSpreadsheet, setPendingDiff, setCollabState, receiveQuestion, restoreUIState]);
 
   // Compute selected item from diagrams/documents/designs
   const selectedItem: Item | null = useMemo(() => {
@@ -685,8 +733,20 @@ const App: React.FC = () => {
         };
       }
     }
+    if (selectedSpreadsheetId) {
+      const spreadsheet = spreadsheets.find((s) => s.id === selectedSpreadsheetId);
+      if (spreadsheet) {
+        return {
+          id: spreadsheet.id,
+          name: spreadsheet.name,
+          type: 'spreadsheet' as const,
+          content: spreadsheet.content ?? '',
+          lastModified: spreadsheet.lastModified ?? Date.now(),
+        };
+      }
+    }
     return null;
-  }, [diagrams, documents, designs, selectedDiagramId, selectedDocumentId, selectedDesignId]);
+  }, [diagrams, documents, designs, spreadsheets, selectedDiagramId, selectedDocumentId, selectedDesignId, selectedSpreadsheetId]);
 
   // Track local content for auto-save
   const [localContent, setLocalContent] = React.useState<string>('');
@@ -725,6 +785,8 @@ const App: React.FC = () => {
         updateDiagram(selectedItem.id, { content });
       } else if (selectedItem.type === 'design') {
         updateDesign(selectedItem.id, { content });
+      } else if (selectedItem.type === 'spreadsheet') {
+        updateSpreadsheet(selectedItem.id, { content });
       } else {
         updateDocument(selectedItem.id, { content });
       }
@@ -732,7 +794,7 @@ const App: React.FC = () => {
       // Send update via WebSocket if connected
       const client = getWebSocketClient();
       if (client.isConnected()) {
-        const typeMap = { diagram: 'update_diagram', document: 'update_document', design: 'update_design' } as const;
+        const typeMap = { diagram: 'update_diagram', document: 'update_document', design: 'update_design', spreadsheet: 'update_spreadsheet' } as const;
         client.send({
           type: typeMap[selectedItem.type],
           project,
@@ -742,7 +804,7 @@ const App: React.FC = () => {
         });
       }
     },
-    [selectedItem, currentSession, updateDiagram, updateDocument, updateDesign]
+    [selectedItem, currentSession, updateDiagram, updateDocument, updateDesign, updateSpreadsheet]
   );
 
   // Auto-save hook - pass selectedItem?.id to reset when switching items
@@ -1130,7 +1192,7 @@ const App: React.FC = () => {
           onZoomIn={zoomIn}
           onZoomOut={zoomOut}
           overflowActions={overflowActions}
-          showZoom={selectedItem?.type !== 'document'}
+          showZoom={selectedItem?.type !== 'document' && selectedItem?.type !== 'spreadsheet'}
           onCenter={selectedItem?.type === 'diagram' ? handleCenter : undefined}
           onFitToView={selectedItem?.type === 'diagram' ? handleFitToView : undefined}
           itemType={selectedItem?.type}

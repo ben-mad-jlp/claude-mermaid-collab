@@ -6,7 +6,7 @@
 export interface Item {
   id: string;
   name: string;
-  type: 'diagram' | 'document' | 'design';
+  type: 'diagram' | 'document' | 'design' | 'spreadsheet';
   content: string;
   lastModified: number;
   folder?: string;

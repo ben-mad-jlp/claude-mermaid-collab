@@ -31,6 +31,7 @@ import { useExportDiagram } from '@/hooks/useExportDiagram';
 import { useProposalStore } from '@/stores/proposalStore';
 import { formatMermaid, canFormat } from '@/lib/mermaidFormatter';
 import { DesignEditor } from '@/components/design-editor/DesignEditor';
+import { SpreadsheetEditor } from '@/components/editors/SpreadsheetEditor';
 
 /**
  * Props for the UnifiedEditor component
@@ -242,6 +243,15 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
     return (
       <div className="flex-1 flex flex-col h-full">
         <DesignEditor key={item.id} designId={item.id} />
+      </div>
+    );
+  }
+
+  // Spreadsheet items get their own full-width layout
+  if (item.type === 'spreadsheet') {
+    return (
+      <div className="flex-1 flex flex-col h-full">
+        <SpreadsheetEditor key={item.id} spreadsheetId={item.id} />
       </div>
     );
   }
