@@ -102,6 +102,8 @@ import {
   handleExportDesignSvg,
   handleExportDesignCode,
   validateAndFixGraph,
+  isTreeSpec,
+  treeToGraph,
   getGraph,
   annotateNodeSchema,
   getAnnotationsSchema,
@@ -2326,22 +2328,29 @@ IMPORTANT - Common pitfalls to avoid:
           }
 
           case 'create_design': {
-            const { project, session, name, content } = args as { project: string; session: string; name: string; content: any };
-            if (!project || !session || !name || !content) throw new Error('Missing required: project, session, name, content');
-            // Validate and auto-fix graph structure (e.g. wrap bare PAGE in CANVAS)
-            if (content && content.rootId && Array.isArray(content.nodes)) {
-              validateAndFixGraph(content);
+            const { project, session, name, content: rawContent } = args as { project: string; session: string; name: string; content: any };
+            if (!project || !session || !name || !rawContent) throw new Error('Missing required: project, session, name, content');
+            // Convert tree spec ({ type, children }) to scene graph ({ rootId, nodes[] })
+            let content = rawContent
+            if (isTreeSpec(rawContent)) {
+              content = treeToGraph(rawContent)
+            } else if (rawContent && rawContent.rootId && Array.isArray(rawContent.nodes)) {
+              // Validate and auto-fix existing graph structure
+              validateAndFixGraph(rawContent);
             }
             const result = await handleCreateDesign(project, session, name, content);
             return JSON.stringify(result, null, 2);
           }
 
           case 'update_design': {
-            const { project, session, id, content } = args as { project: string; session: string; id: string; content: any };
-            if (!project || !session || !id || !content) throw new Error('Missing required: project, session, id, content');
-            // Validate and auto-fix graph structure
-            if (content && content.rootId && Array.isArray(content.nodes)) {
-              validateAndFixGraph(content);
+            const { project, session, id, content: rawContent } = args as { project: string; session: string; id: string; content: any };
+            if (!project || !session || !id || !rawContent) throw new Error('Missing required: project, session, id, content');
+            // Convert tree spec ({ type, children }) to scene graph ({ rootId, nodes[] })
+            let content = rawContent
+            if (isTreeSpec(rawContent)) {
+              content = treeToGraph(rawContent)
+            } else if (rawContent && rawContent.rootId && Array.isArray(rawContent.nodes)) {
+              validateAndFixGraph(rawContent);
             }
             const result = await handleUpdateDesign(project, session, id, content);
             return JSON.stringify(result, null, 2);

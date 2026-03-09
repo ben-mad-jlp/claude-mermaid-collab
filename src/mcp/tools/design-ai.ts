@@ -92,6 +92,54 @@ export function getGraph(content: any): SerializedGraph {
   throw new Error('Design content is not a valid scene graph. Expected { rootId, nodes[] }')
 }
 
+/**
+ * Check if an object looks like a tree spec ({ type, children?, ... })
+ * rather than a scene graph ({ rootId, nodes[] }).
+ */
+export function isTreeSpec(content: any): boolean {
+  return content && typeof content === 'object' && typeof content.type === 'string' && !content.rootId
+}
+
+/**
+ * Convert a tree-style spec into a proper scene graph.
+ * Accepts any tree node as root — if it's not CANVAS or PAGE,
+ * wraps it in CANVAS → PAGE automatically.
+ *
+ * Uses the same createDefaultNode + applyConvenienceProps as create_design_from_tree.
+ */
+export function treeToGraph(tree: Record<string, any>): SerializedGraph {
+  const nodes: SerializedNode[] = []
+
+  function buildNode(spec: Record<string, any>, parentId: string | null): string {
+    const { children, ref, type, ...rawProps } = spec
+    if (!type) throw new Error('Each tree node must have a "type" property')
+
+    const props = applyConvenienceProps(type, rawProps)
+    const node = createDefaultNode(type, props)
+    node.parentId = parentId
+    nodes.push(node)
+
+    if (parentId) {
+      const parent = nodes.find(n => n.id === parentId)
+      if (parent) parent.childIds.push(node.id)
+    }
+
+    if (children && Array.isArray(children)) {
+      for (const child of children) {
+        buildNode(child, node.id)
+      }
+    }
+
+    return node.id
+  }
+
+  const rootId = buildNode(tree, null)
+  const graph: SerializedGraph = { rootId, nodes }
+
+  // Ensure CANVAS → PAGE hierarchy
+  return validateAndFixGraph(graph)
+}
+
 function getAbsolutePosition(graph: SerializedGraph, nodeId: string): { x: number; y: number } {
   let x = 0, y = 0
   let current = graph.nodes.find(n => n.id === nodeId)
@@ -307,9 +355,25 @@ function applyConvenienceProps(type: string, props: Record<string, any>): Record
   }
 
   // Auto-layout defaults for FRAME/COMPONENT/SECTION with layoutMode
+  // Mirrors Figma behavior: auto-layout frames default to "Hug contents" on both axes
+  // unless an explicit size is provided (which implies FIXED).
   if (['FRAME', 'COMPONENT', 'SECTION'].includes(type) && result.layoutMode && result.layoutMode !== 'NONE') {
     if (result.counterAxisAlign === undefined) result.counterAxisAlign = 'CENTER'
     if (result.clipsContent === undefined) result.clipsContent = true
+
+    const isHorizontal = result.layoutMode === 'HORIZONTAL'
+
+    // Primary axis (direction of stacking): HUG unless explicit size given
+    if (result.primaryAxisSizing === undefined) {
+      const hasPrimarySize = isHorizontal ? result.width !== undefined : result.height !== undefined
+      result.primaryAxisSizing = hasPrimarySize ? 'FIXED' : 'HUG'
+    }
+
+    // Counter axis (perpendicular): HUG unless explicit size given
+    if (result.counterAxisSizing === undefined) {
+      const hasCounterSize = isHorizontal ? result.height !== undefined : result.width !== undefined
+      result.counterAxisSizing = hasCounterSize ? 'FIXED' : 'HUG'
+    }
   }
 
   // Type-specific defaults
