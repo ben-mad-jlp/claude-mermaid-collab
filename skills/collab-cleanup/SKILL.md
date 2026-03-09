@@ -146,6 +146,31 @@ If lessons were recorded during the session:
 | workflow | Process and methodology improvements |
 | gotcha | Tricky situations and their solutions |
 
+### Step 3.7: Sync Artifacts to Kodex
+
+Before archiving or deleting, sync session artifacts to the Kodex knowledge base.
+
+1. Check if Kodex is initialized for this project:
+   ```
+   Tool: mcp__plugin_mermaid-collab_mermaid__kodex_list_topics
+   Args: { "project": "<cwd>" }
+   ```
+   - If error or no topics → skip Kodex sync
+   - If topics exist → proceed
+
+2. Invoke the `kodex-sync-session` skill:
+   ```
+   /kodex-sync-session
+   ```
+   This will:
+   - Scan session artifacts (diagrams, documents, designs)
+   - Verify which artifacts were actually implemented (not just brainstormed)
+   - Update existing Kodex topics with new diagrams and content
+   - Create new topics for previously undocumented features
+   - Flag all touched topics as `needs-review`
+
+3. After kodex-sync-session completes, proceed to Step 4.
+
 ### Step 4: Execute Choice
 
 **If Archive:**

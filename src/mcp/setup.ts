@@ -1499,10 +1499,58 @@ IMPORTANT - Common pitfalls to avoid:
           properties: {
             project: { type: 'string', description: 'Absolute path to project root' },
             name: { type: 'string', description: 'Topic name' },
-            type: { type: 'string', enum: ['outdated', 'incorrect', 'incomplete', 'missing'], description: 'Flag type' },
+            type: { type: 'string', enum: ['outdated', 'incorrect', 'incomplete', 'missing', 'needs-review'], description: 'Flag type' },
             description: { type: 'string', description: 'Description of the issue' },
           },
           required: ['project', 'name', 'type', 'description'],
+        },
+      },
+      {
+        name: 'kodex_direct_update_topic',
+        description: 'Update an existing topic directly (bypasses draft). Writes to live files and flags as needs-review.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            name: { type: 'string', description: 'Topic name' },
+            content: {
+              type: 'object',
+              properties: {
+                conceptual: { type: 'string', description: 'Conceptual overview' },
+                technical: { type: 'string', description: 'Technical details' },
+                files: { type: 'string', description: 'Related files' },
+                related: { type: 'string', description: 'Related topics' },
+                diagrams: { type: 'string', description: 'Diagrams section' },
+              },
+            },
+            reason: { type: 'string', description: 'Reason for the update' },
+          },
+          required: ['project', 'name', 'content', 'reason'],
+        },
+      },
+      {
+        name: 'kodex_direct_create_topic',
+        description: 'Create a new topic directly (bypasses draft). Writes to live files with confidence=medium and flags as needs-review.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            name: { type: 'string', description: 'Topic name (kebab-case)' },
+            title: { type: 'string', description: 'Human-readable title' },
+            content: {
+              type: 'object',
+              properties: {
+                conceptual: { type: 'string', description: 'Conceptual overview' },
+                technical: { type: 'string', description: 'Technical details' },
+                files: { type: 'string', description: 'Related files' },
+                related: { type: 'string', description: 'Related topics' },
+                diagrams: { type: 'string', description: 'Diagrams section' },
+              },
+              required: ['conceptual', 'technical', 'files', 'related'],
+            },
+            reason: { type: 'string', description: 'Reason for creation' },
+          },
+          required: ['project', 'name', 'title', 'content', 'reason'],
         },
       },
       {
@@ -2888,6 +2936,33 @@ IMPORTANT - Common pitfalls to avoid:
             const kodex = getKodexManager(project);
             const draft = await kodex.updateTopic(topicName, content, reason);
             return JSON.stringify({ draft, message: 'Draft created. Requires human approval.' }, null, 2);
+          }
+
+          case 'kodex_direct_update_topic': {
+            const { project, name: topicName, content, reason } = args as {
+              project: string;
+              name: string;
+              content: Partial<TopicContent>;
+              reason: string;
+            };
+            if (!project || !topicName || !content || !reason) throw new Error('Missing required: project, name, content, reason');
+            const kodex = getKodexManager(project);
+            const result = await kodex.directUpdateTopic(topicName, content, reason);
+            return JSON.stringify({ ...result, message: 'Topic updated directly. Flagged as needs-review.' }, null, 2);
+          }
+
+          case 'kodex_direct_create_topic': {
+            const { project, name: topicName, title, content, reason } = args as {
+              project: string;
+              name: string;
+              title: string;
+              content: TopicContent;
+              reason: string;
+            };
+            if (!project || !topicName || !title || !content || !reason) throw new Error('Missing required: project, name, title, content, reason');
+            const kodex = getKodexManager(project);
+            const result = await kodex.directCreateTopic(topicName, title, content, reason);
+            return JSON.stringify({ ...result, message: 'Topic created directly with confidence=medium. Flagged as needs-review.' }, null, 2);
           }
 
           case 'kodex_flag_topic': {

@@ -16,7 +16,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, readdirSync
 // ============================================================================
 
 export type Confidence = 'low' | 'medium' | 'high';
-export type FlagType = 'outdated' | 'incorrect' | 'incomplete' | 'missing';
+export type FlagType = 'outdated' | 'incorrect' | 'incomplete' | 'missing' | 'needs-review';
 export type FlagStatus = 'open' | 'resolved' | 'dismissed';
 export type AccessSource = 'mcp' | 'api' | 'ui';
 
@@ -143,7 +143,7 @@ CREATE TABLE IF NOT EXISTS missing_topics (
 CREATE TABLE IF NOT EXISTS flags (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   topic_name TEXT NOT NULL,
-  type TEXT CHECK(type IN ('outdated', 'incorrect', 'incomplete', 'missing')) NOT NULL,
+  type TEXT CHECK(type IN ('outdated', 'incorrect', 'incomplete', 'missing', 'needs-review')) NOT NULL,
   description TEXT NOT NULL,
   status TEXT CHECK(status IN ('open', 'resolved', 'dismissed')) DEFAULT 'open',
   created_at TEXT NOT NULL,
@@ -337,6 +337,76 @@ export class KodexManager {
       createdBy: 'claude',
       reason
     };
+  }
+
+  async directUpdateTopic(name: string, content: Partial<TopicContent>, reason: string): Promise<{ updated: boolean; flagId?: number }> {
+    const db = this.ensureInitialized();
+    const existing = db.query('SELECT * FROM topics WHERE name = ?').get(name) as any;
+
+    if (!existing) {
+      throw new Error(`Topic not found: ${name}`);
+    }
+
+    // Get current content and merge
+    const currentContent = this.readTopicContent(name);
+    const mergedContent: TopicContent = {
+      conceptual: content.conceptual ?? currentContent.conceptual,
+      technical: content.technical ?? currentContent.technical,
+      files: content.files ?? currentContent.files,
+      related: content.related ?? currentContent.related,
+      diagrams: content.diagrams ?? currentContent.diagrams,
+    };
+
+    // Write directly to live files (not draft)
+    const topicDir = join(this.topicsDir, name);
+    mkdirSync(topicDir, { recursive: true });
+    writeFileSync(join(topicDir, 'conceptual.md'), mergedContent.conceptual);
+    writeFileSync(join(topicDir, 'technical.md'), mergedContent.technical);
+    writeFileSync(join(topicDir, 'files.md'), mergedContent.files);
+    writeFileSync(join(topicDir, 'related.md'), mergedContent.related);
+    if (mergedContent.diagrams) writeFileSync(join(topicDir, 'diagrams.md'), mergedContent.diagrams);
+
+    const now = this.isoTimestamp();
+    db.run('UPDATE topics SET updated_at = ?, verified = 0, verified_at = NULL, verified_by = NULL WHERE name = ?', now, name);
+
+    // Create needs-review flag
+    const flagResult = await this.createFlag(name, 'needs-review' as FlagType, reason, { dedupe: true });
+
+    return { updated: true, flagId: flagResult.created ? undefined : undefined };
+  }
+
+  async directCreateTopic(name: string, title: string, content: TopicContent, reason: string): Promise<{ created: boolean; flagId?: number }> {
+    const db = this.ensureInitialized();
+    const now = this.isoTimestamp();
+
+    // Write directly to live files (not draft)
+    const topicDir = join(this.topicsDir, name);
+    mkdirSync(topicDir, { recursive: true });
+    writeFileSync(join(topicDir, 'conceptual.md'), content.conceptual);
+    writeFileSync(join(topicDir, 'technical.md'), content.technical);
+    writeFileSync(join(topicDir, 'files.md'), content.files);
+    writeFileSync(join(topicDir, 'related.md'), content.related);
+    if (content.diagrams) writeFileSync(join(topicDir, 'diagrams.md'), content.diagrams);
+
+    // Insert topic with confidence=medium
+    db.run(`
+      INSERT INTO topics (name, title, confidence, created_at, updated_at, has_draft)
+      VALUES (?, ?, 'medium', ?, ?, 0)
+      ON CONFLICT(name) DO UPDATE SET title = ?, updated_at = ?, verified = 0, verified_at = NULL, verified_by = NULL
+    `, name, title, now, now, title, now);
+
+    // Clean up missing topic references
+    db.run('DELETE FROM missing_topics WHERE topic_name = ?', name);
+    db.run(`
+      UPDATE flags
+      SET status = 'resolved', resolved_at = ?
+      WHERE topic_name = ? AND type = 'missing' AND status = 'open'
+    `, now, name);
+
+    // Create needs-review flag
+    await this.createFlag(name, 'needs-review' as FlagType, reason, { dedupe: true });
+
+    return { created: true };
   }
 
   async deleteTopic(name: string): Promise<void> {
