@@ -47,7 +47,7 @@ export interface ListItem {
 /**
  * Document type for topic content tabs
  */
-export type DocumentType = 'conceptual' | 'technical' | 'files' | 'related';
+export type DocumentType = 'conceptual' | 'technical' | 'files' | 'related' | 'diagrams';
 
 /**
  * Summary view of a topic for list displays
@@ -70,6 +70,7 @@ export interface TopicFull extends TopicSummary {
     technical: string;
     files: string;
     related: string;
+    diagrams: string;
   };
   lastModified: string | null;
   flags: TopicFlagType[];
@@ -115,6 +116,7 @@ export interface DraftInfo {
     technical: string;
     files: string;
     related: string;
+    diagrams: string;
   };
   generatedAt: string;
   triggerType: DraftTriggerType;

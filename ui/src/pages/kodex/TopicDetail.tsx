@@ -2,11 +2,15 @@
  * Kodex TopicDetail - View a single topic
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
+import mermaid from 'mermaid';
 import { kodexApi, type Topic, type Flag, type Draft } from '@/lib/kodex-api';
 import { useKodexStore } from '@/stores/kodexStore';
 import { AliasEditor } from '@/components/kodex/AliasEditor';
+
+let mermaidInitialized = false;
+let mermaidCounter = 0;
 
 const ConfidenceBadge: React.FC<{ confidence: Topic['confidence'] }> = ({ confidence }) => {
   const colors = {
@@ -31,6 +35,116 @@ const ContentSection: React.FC<{ title: string; content?: string }> = ({ title, 
       <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300 font-sans bg-transparent">
         {content}
       </pre>
+    </div>
+  );
+};
+
+/**
+ * MermaidBlock - Renders a single mermaid diagram
+ */
+const MermaidBlock: React.FC<{ content: string }> = ({ content }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const idRef = useRef(`kodex-mmd-${Date.now()}-${++mermaidCounter}`);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!mermaidInitialized) {
+      mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose', maxEdges: 2000 });
+      mermaidInitialized = true;
+    }
+
+    let cancelled = false;
+
+    const render = async () => {
+      if (!containerRef.current || !content.trim()) return;
+      try {
+        // Remove any leftover temp element from a previous render
+        const oldEl = document.getElementById(idRef.current);
+        if (oldEl) oldEl.remove();
+
+        const { svg } = await mermaid.render(idRef.current, content.trim());
+        if (!cancelled && containerRef.current) {
+          containerRef.current.innerHTML = svg;
+        }
+        if (!cancelled) setError(null);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to render diagram');
+        }
+      }
+    };
+
+    render();
+
+    return () => { cancelled = true; };
+  }, [content]);
+
+  if (error) {
+    return (
+      <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg">
+        <p className="text-red-700 dark:text-red-300 text-xs font-medium">Diagram render error</p>
+        <pre className="text-red-600 dark:text-red-400 text-xs mt-1 overflow-x-auto">{error}</pre>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className="overflow-auto bg-white dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-700"
+    />
+  );
+};
+
+/**
+ * DiagramsSection - Renders diagrams content with mermaid blocks
+ */
+const DiagramsSection: React.FC<{ content?: string }> = ({ content }) => {
+  if (!content?.trim()) return null;
+
+  // Parse content: extract ```mermaid blocks and render them, render rest as text
+  const parts: React.ReactNode[] = [];
+  const lines = content.split('\n');
+  let inMermaid = false;
+  let mermaidLines: string[] = [];
+  let textLines: string[] = [];
+  let key = 0;
+
+  const flushText = () => {
+    if (textLines.length > 0) {
+      const text = textLines.join('\n').trim();
+      if (text) {
+        parts.push(
+          <pre key={`text-${key++}`} className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300 font-sans bg-transparent mb-3">
+            {text}
+          </pre>
+        );
+      }
+      textLines = [];
+    }
+  };
+
+  for (const line of lines) {
+    if (line.trim() === '```mermaid') {
+      flushText();
+      inMermaid = true;
+      mermaidLines = [];
+    } else if (inMermaid && line.trim() === '```') {
+      inMermaid = false;
+      parts.push(<MermaidBlock key={`mermaid-${key++}`} content={mermaidLines.join('\n')} />);
+      mermaidLines = [];
+    } else if (inMermaid) {
+      mermaidLines.push(line);
+    } else {
+      textLines.push(line);
+    }
+  }
+  flushText();
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+      <h3 className="font-medium text-gray-900 dark:text-white mb-3">Diagrams</h3>
+      <div className="space-y-4">{parts}</div>
     </div>
   );
 };
@@ -479,6 +593,11 @@ export const TopicDetail: React.FC = () => {
                 liveContent={topic.content?.related}
                 draftContent={draft.content.related}
               />
+              <DraftComparisonSection
+                title="Diagrams"
+                liveContent={topic.content?.diagrams}
+                draftContent={draft.content.diagrams}
+              />
             </>
           ) : (
             <p className="text-center py-4 text-gray-500">Draft not found</p>
@@ -493,6 +612,7 @@ export const TopicDetail: React.FC = () => {
           <ContentSection title="Technical Details" content={topic.content?.technical} />
           <ContentSection title="Related Files" content={topic.content?.files} />
           <ContentSection title="Related Topics" content={topic.content?.related} />
+          <DiagramsSection content={topic.content?.diagrams} />
         </div>
       )}
     </div>

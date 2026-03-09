@@ -5,7 +5,64 @@
  * Renders markdown content in a scrollable container.
  */
 
-import React from 'react';
+import React, { useEffect, useRef, useState, useId } from 'react';
+import mermaid from 'mermaid';
+
+let mermaidInitialized = false;
+
+/**
+ * MermaidBlock - Renders a mermaid diagram from syntax string
+ */
+const MermaidBlock: React.FC<{ content: string }> = ({ content }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const uniqueId = useId();
+  const mermaidId = `kodex-mermaid-${uniqueId.replace(/:/g, '')}`;
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!mermaidInitialized) {
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: 'default',
+        securityLevel: 'loose',
+      });
+      mermaidInitialized = true;
+    }
+
+    const render = async () => {
+      if (!containerRef.current || !content.trim()) return;
+      try {
+        const { svg } = await mermaid.render(mermaidId, content.trim());
+        if (containerRef.current) {
+          containerRef.current.innerHTML = svg;
+        }
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to render diagram');
+      }
+    };
+
+    render();
+  }, [content, mermaidId]);
+
+  if (error) {
+    return (
+      <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg">
+        <p className="text-red-700 dark:text-red-300 text-xs font-medium">Diagram render error</p>
+        <pre className="text-red-600 dark:text-red-400 text-xs mt-1 overflow-x-auto">{error}</pre>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-4">
+      <div
+        ref={containerRef}
+        className="overflow-auto bg-white dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-700"
+      />
+    </div>
+  );
+};
 
 export interface DocumentViewerProps {
   /** Markdown content to render */
@@ -43,25 +100,32 @@ function renderMarkdown(content: string): React.ReactNode {
       } else {
         // End of code block
         inCodeBlock = false;
-        elements.push(
-          <div key={getKey()} className="mb-4">
-            {codeBlockLanguage && (
-              <div className="px-4 py-1 text-xs font-mono text-gray-400 bg-gray-800 rounded-t-lg border-b border-gray-700">
-                {codeBlockLanguage}
-              </div>
-            )}
-            <pre
-              className={`
-                p-4 overflow-x-auto text-sm font-mono
-                bg-gray-100 dark:bg-gray-800
-                text-gray-800 dark:text-gray-200
-                ${codeBlockLanguage ? 'rounded-b-lg' : 'rounded-lg'}
-              `}
-            >
-              <code>{codeBlockContent.join('\n')}</code>
-            </pre>
-          </div>
-        );
+        if (codeBlockLanguage === 'mermaid') {
+          // Render mermaid diagrams with MermaidBlock
+          elements.push(
+            <MermaidBlock key={getKey()} content={codeBlockContent.join('\n')} />
+          );
+        } else {
+          elements.push(
+            <div key={getKey()} className="mb-4">
+              {codeBlockLanguage && (
+                <div className="px-4 py-1 text-xs font-mono text-gray-400 bg-gray-800 rounded-t-lg border-b border-gray-700">
+                  {codeBlockLanguage}
+                </div>
+              )}
+              <pre
+                className={`
+                  p-4 overflow-x-auto text-sm font-mono
+                  bg-gray-100 dark:bg-gray-800
+                  text-gray-800 dark:text-gray-200
+                  ${codeBlockLanguage ? 'rounded-b-lg' : 'rounded-lg'}
+                `}
+              >
+                <code>{codeBlockContent.join('\n')}</code>
+              </pre>
+            </div>
+          );
+        }
         codeBlockLanguage = '';
       }
       continue;

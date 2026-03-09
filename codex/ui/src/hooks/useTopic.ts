@@ -92,6 +92,7 @@ const memoizedCallback = useCallback(() => {
 - [Custom hooks](/topics/react-custom-hooks)
 - [React context](/topics/react-context)
 `,
+      diagrams: '',
     },
     flags: [],
   },
@@ -160,6 +161,7 @@ function getLength<T extends { length: number }>(arg: T): number {
 - [Conditional types](/topics/typescript-conditional)
 - [Mapped types](/topics/typescript-mapped)
 `,
+      diagrams: '',
     },
     flags: [
       {
@@ -227,6 +229,17 @@ docker-compose logs -f
 - [Docker networking](/topics/docker-networking)
 - [Docker volumes](/topics/docker-volumes)
 - [Kubernetes](/topics/kubernetes-basics)
+`,
+      diagrams: `## Related Diagrams
+
+### Example Architecture
+\`\`\`mermaid
+graph TD
+    A[Web App] --> B[API Gateway]
+    B --> C[Auth Service]
+    B --> D[App Service]
+    D --> E[(Database)]
+\`\`\`
 `,
     },
     flags: [],

@@ -33,8 +33,14 @@ export default defineConfig({
       },
     },
   },
+  esbuild: {
+    target: 'esnext',
+  },
   optimizeDeps: {
-    exclude: ['canvaskit-wasm'],
+    include: ['canvaskit-wasm'],
+    esbuildOptions: {
+      target: 'esnext',
+    },
   },
   assetsInclude: ['**/*.wasm'],
   build: {

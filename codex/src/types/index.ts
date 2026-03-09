@@ -45,6 +45,7 @@ export interface TopicContent {
   concepts: string;
   examples: string;
   gotchas: string;
+  diagrams: string;
 }
 
 // Query result from MCP

@@ -22,6 +22,7 @@ export interface TopicContent {
   technical: string;
   files: string;
   related: string;
+  diagrams: string;
 }
 
 export interface Topic extends TopicMetadata {

@@ -25,6 +25,7 @@ export interface TopicContent {
   technical: string;
   files: string;
   related: string;
+  diagrams: string;
 }
 
 export interface TopicMetadata {
@@ -268,6 +269,7 @@ export class KodexManager {
     writeFileSync(join(draftDir, 'technical.md'), content.technical);
     writeFileSync(join(draftDir, 'files.md'), content.files);
     writeFileSync(join(draftDir, 'related.md'), content.related);
+    if (content.diagrams) writeFileSync(join(draftDir, 'diagrams.md'), content.diagrams);
 
     // Insert or update metadata with has_draft = true
     db.run(`
@@ -311,6 +313,7 @@ export class KodexManager {
       technical: content.technical ?? currentContent.technical,
       files: content.files ?? currentContent.files,
       related: content.related ?? currentContent.related,
+      diagrams: content.diagrams ?? currentContent.diagrams,
     };
 
     // Create draft directory
@@ -322,6 +325,7 @@ export class KodexManager {
     writeFileSync(join(draftDir, 'technical.md'), mergedContent.technical);
     writeFileSync(join(draftDir, 'files.md'), mergedContent.files);
     writeFileSync(join(draftDir, 'related.md'), mergedContent.related);
+    if (mergedContent.diagrams) writeFileSync(join(draftDir, 'diagrams.md'), mergedContent.diagrams);
 
     const now = this.isoTimestamp();
     db.run('UPDATE topics SET has_draft = 1, updated_at = ? WHERE name = ?', now, name);
@@ -472,7 +476,7 @@ export class KodexManager {
     }
 
     // Move draft files to live
-    for (const file of ['conceptual.md', 'technical.md', 'files.md', 'related.md']) {
+    for (const file of ['conceptual.md', 'technical.md', 'files.md', 'related.md', 'diagrams.md']) {
       const draftFile = join(draftDir, file);
       if (existsSync(draftFile)) {
         const content = readFileSync(draftFile, 'utf-8');
@@ -661,11 +665,13 @@ export class KodexManager {
 
   private readTopicContent(name: string): TopicContent {
     const dir = join(this.topicsDir, name);
+    const diagramsMd = this.readFileOrEmpty(join(dir, 'diagrams.md'));
     return {
       conceptual: this.readFileOrEmpty(join(dir, 'conceptual.md')),
       technical: this.readFileOrEmpty(join(dir, 'technical.md')),
       files: this.readFileOrEmpty(join(dir, 'files.md')),
       related: this.readFileOrEmpty(join(dir, 'related.md')),
+      diagrams: this.resolveDiagramLinks(diagramsMd, dir),
     };
   }
 
@@ -676,7 +682,53 @@ export class KodexManager {
       technical: this.readFileOrEmpty(join(dir, 'technical.md')),
       files: this.readFileOrEmpty(join(dir, 'files.md')),
       related: this.readFileOrEmpty(join(dir, 'related.md')),
+      diagrams: this.readFileOrEmpty(join(dir, 'diagrams.md')),
     };
+  }
+
+  /**
+   * Resolve .mmd file links in diagrams.md into embedded mermaid code blocks.
+   * Converts `[Label](../../diagrams/file.mmd) — description` into:
+   * ### Label
+   * description
+   * ```mermaid
+   * <file content>
+   * ```
+   */
+  private resolveDiagramLinks(content: string, topicDir: string): string {
+    if (!content.trim()) return content;
+
+    const lines = content.replace(/\r\n/g, '\n').split('\n');
+    const result: string[] = [];
+
+    for (const line of lines) {
+      // Match markdown links to .mmd files: [Label](path.mmd) — optional description
+      const linkMatch = line.match(/^-\s*\[([^\]]+)\]\(([^)]+\.mmd)\)\s*(?:[—–-]\s*(.*))?$/);
+      if (linkMatch) {
+        const [, label, relativePath, description] = linkMatch;
+        const fullPath = join(topicDir, relativePath);
+
+        result.push(`### ${label}`);
+        if (description) {
+          result.push(description.trim());
+          result.push('');
+        }
+
+        if (existsSync(fullPath)) {
+          const mmdContent = readFileSync(fullPath, 'utf-8').trim();
+          result.push('```mermaid');
+          result.push(mmdContent);
+          result.push('```');
+        } else {
+          result.push(`*Diagram file not found: ${relativePath}*`);
+        }
+        result.push('');
+      } else {
+        result.push(line);
+      }
+    }
+
+    return result.join('\n');
   }
 
   private readFileOrEmpty(path: string): string {

@@ -19,6 +19,7 @@ export interface TopicDocuments {
   technical: string;
   files: string;
   related: string;
+  diagrams: string;
 }
 
 export interface TopicEditorProps {
@@ -53,6 +54,7 @@ const DEFAULT_DOCUMENTS: TopicDocuments = {
   technical: '',
   files: '',
   related: '',
+  diagrams: '',
 };
 
 /**
