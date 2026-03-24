@@ -364,15 +364,6 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
   const toolbarControls = useMemo(() => (
     <>
       <div className="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1" />
-      {annotations.length > 0 && (
-        <button
-          onClick={handleClearAnnotations}
-          className="px-2 py-0.5 rounded text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-          title="Clear all comments"
-        >
-          Clear
-        </button>
-      )}
       <button
         onClick={currentSelection ? handleOpenAddAnnotation : undefined}
         disabled={!currentSelection}
@@ -385,6 +376,15 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
       >
         💬 Comment
       </button>
+      {annotations.length > 0 && (
+        <button
+          onClick={handleClearAnnotations}
+          className="px-2 py-0.5 rounded text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+          title="Clear all comments"
+        >
+          Clear
+        </button>
+      )}
       <div className="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1" />
       <select
         value={selectedLanguage}
