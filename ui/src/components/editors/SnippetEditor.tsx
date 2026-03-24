@@ -341,7 +341,7 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
         <span className="text-xs text-green-600 dark:text-green-400">{applyStatus}</span>
       )}
       {filePath && (
-        <span className="text-xs text-gray-400 dark:text-gray-500 font-mono truncate max-w-[300px]" title={filePath}>
+        <span className="flex-1 text-right text-xs text-gray-400 dark:text-gray-500 font-mono truncate min-w-0" title={filePath}>
           {filePath}
         </span>
       )}

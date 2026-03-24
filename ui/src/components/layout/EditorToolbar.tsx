@@ -576,8 +576,8 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
       {/* Inline controls slot (used by snippets for language, diff, copy, apply, path) */}
       {inlineControls}
 
-      {/* Spacer */}
-      <div className="flex-1" />
+      {/* Spacer (hidden when inlineControls handles its own fill) */}
+      {!inlineControls && <div className="flex-1" />}
 
       {/* Divider before zoom controls */}
       {showZoom && itemType !== 'snippet' && <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />}
