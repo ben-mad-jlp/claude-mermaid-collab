@@ -316,16 +316,19 @@ class AnnotationWidget extends WidgetType {
       textarea.focus();
 
       // Auto-save on blur (click outside)
+      const revertToDisplay = () => {
+        wrap.classList.remove('editing');
+        textarea.replaceWith(text);
+        actions.replaceWith(lines);
+        wrap.addEventListener('click', enterEdit);
+      };
+
       const saveAndExit = () => {
         const newText = textarea.value.trim();
         if (newText && newText !== this.ann.text) {
           this.callbacks.onSave(this.ann, newText);
-        } else if (!newText) {
-          // Empty text — revert to display mode
-          wrap.classList.remove('editing');
-          textarea.replaceWith(text);
-          actions.replaceWith(lines);
-          wrap.addEventListener('click', enterEdit);
+        } else {
+          revertToDisplay();
         }
       };
 
@@ -346,11 +349,7 @@ class AnnotationWidget extends WidgetType {
         }
         if (ev.key === 'Escape') {
           ev.preventDefault();
-          // Revert without saving
-          wrap.classList.remove('editing');
-          textarea.replaceWith(text);
-          actions.replaceWith(lines);
-          wrap.addEventListener('click', enterEdit);
+          revertToDisplay();
         }
         ev.stopPropagation();
       });
