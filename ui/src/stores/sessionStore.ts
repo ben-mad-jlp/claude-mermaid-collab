@@ -269,7 +269,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const { diagrams } = get();
     // Only select if diagram exists or if clearing selection
     if (id === null || diagrams.find((d) => d.id === id)) {
-      set({ selectedDiagramId: id, selectedDocumentId: null, selectedDesignId: null, selectedSpreadsheetId: null, taskGraphSelected: false });
+      set({ selectedDiagramId: id, selectedDocumentId: null, selectedDesignId: null, selectedSpreadsheetId: null, selectedSnippetId: null, taskGraphSelected: false });
     }
   },
 
@@ -315,7 +315,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const { documents } = get();
     // Only select if document exists or if clearing selection
     if (id === null || documents.find((d) => d.id === id)) {
-      set({ selectedDocumentId: id, selectedDiagramId: null, selectedDesignId: null, selectedSpreadsheetId: null, taskGraphSelected: false });
+      set({ selectedDocumentId: id, selectedDiagramId: null, selectedDesignId: null, selectedSpreadsheetId: null, selectedSnippetId: null, taskGraphSelected: false });
     }
   },
 
@@ -361,7 +361,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const { designs } = get();
     // Only select if design exists or if clearing selection
     if (id === null || designs.find((w) => w.id === id)) {
-      set({ selectedDesignId: id, selectedDiagramId: null, selectedDocumentId: null, selectedSpreadsheetId: null, taskGraphSelected: false });
+      set({ selectedDesignId: id, selectedDiagramId: null, selectedDocumentId: null, selectedSpreadsheetId: null, selectedSnippetId: null, taskGraphSelected: false });
     }
   },
 
@@ -404,7 +404,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   selectSpreadsheet: (id: string | null) => {
     const { spreadsheets } = get();
     if (id === null || spreadsheets.find((s) => s.id === id)) {
-      set({ selectedSpreadsheetId: id, selectedDiagramId: null, selectedDocumentId: null, selectedDesignId: null, taskGraphSelected: false });
+      set({ selectedSpreadsheetId: id, selectedDiagramId: null, selectedDocumentId: null, selectedDesignId: null, selectedSnippetId: null, taskGraphSelected: false });
     }
   },
 
