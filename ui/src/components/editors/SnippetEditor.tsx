@@ -363,24 +363,28 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
   // Build toolbar controls as a memoized fragment to avoid infinite effect loops
   const toolbarControls = useMemo(() => (
     <>
+      <div className="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1" />
       {annotations.length > 0 && (
         <button
           onClick={handleClearAnnotations}
           className="px-2 py-0.5 rounded text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
           title="Clear all comments"
         >
-          Clear Comments
+          Clear
         </button>
       )}
-      {currentSelection && !annotationPopover && (
-        <button
-          onClick={handleOpenAddAnnotation}
-          className="px-2 py-0.5 rounded text-xs font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-900/50 transition-colors"
-          title={`Add comment to lines ${currentSelection.startLine}–${currentSelection.endLine}`}
-        >
-          💬 Comment
-        </button>
-      )}
+      <button
+        onClick={currentSelection ? handleOpenAddAnnotation : undefined}
+        disabled={!currentSelection}
+        className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+          currentSelection
+            ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-900/50'
+            : 'text-gray-400 dark:text-gray-600 cursor-default'
+        }`}
+        title={currentSelection ? `Add comment to lines ${currentSelection.startLine}–${currentSelection.endLine}` : 'Select lines to add a comment'}
+      >
+        💬 Comment
+      </button>
       <div className="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1" />
       <select
         value={selectedLanguage}
