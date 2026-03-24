@@ -40,6 +40,8 @@ export interface GetSnippetResult {
   id: string;
   name: string;
   content: string;
+  language?: string;
+  filePath?: string;
   lastModified: number;
 }
 
@@ -93,7 +95,7 @@ export const updateSnippetSchema = {
   properties: {
     ...sessionParamsDesc,
     id: { type: 'string', description: 'Snippet ID' },
-    content: { type: 'string', description: 'Updated snippet content' },
+    content: { type: 'string', description: 'Updated snippet content. Can be raw code — language, groupId, groupName, and other metadata from the existing JSON envelope are preserved automatically.' },
   },
   required: ['project', 'id', 'content'],
 };
@@ -255,10 +257,37 @@ export async function handleUpdateSnippet(
   id: string,
   content: string
 ): Promise<UpdateSnippetResult> {
+  // If the incoming content is raw code (not JSON), preserve the existing
+  // JSON envelope (language, groupId, groupName, filePath, etc.) by merging
+  // the new code into the existing parsed object.
+  let finalContent = content;
+  let isRawCode = false;
+  try {
+    JSON.parse(content);
+  } catch {
+    isRawCode = true;
+  }
+
+  if (isRawCode) {
+    const getResponse = await fetch(buildUrl(`/api/snippet/${id}`, project, session));
+    if (getResponse.ok) {
+      const snippetData = await getResponse.json() as any;
+      try {
+        const parsed = JSON.parse(snippetData.content);
+        if (typeof parsed.code === 'string') {
+          parsed.code = content;
+          finalContent = JSON.stringify(parsed);
+        }
+      } catch {
+        // existing content isn't JSON either — just replace as-is
+      }
+    }
+  }
+
   const response = await fetch(buildUrl(`/api/snippet/${id}`, project, session), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content: finalContent }),
   });
 
   if (!response.ok) {
@@ -281,10 +310,45 @@ export async function handleGetSnippet(
   }
 
   const data = await response.json() as any;
+
+  // Parse JSON envelope to extract code, metadata, and annotations
+  let code: string = data.content;
+  let language: string | undefined;
+  let filePath: string | undefined;
+  let annotations: Array<{ startLine: number; endLine: number; text: string }> = [];
+
+  try {
+    const parsed = JSON.parse(data.content);
+    if (typeof parsed.code === 'string') {
+      code = parsed.code;
+      if (typeof parsed.language === 'string') language = parsed.language;
+      if (typeof parsed.filePath === 'string') filePath = parsed.filePath;
+      if (Array.isArray(parsed.annotations)) annotations = parsed.annotations;
+    }
+  } catch {
+    // plain-text snippet — no envelope to parse
+  }
+
+  // Inject annotations as comment lines above their annotated ranges.
+  // Process in descending order so earlier insertions don't shift later line numbers.
+  if (annotations.length > 0) {
+    const lines = code.split('\n');
+    const sorted = [...annotations].sort((a, b) => b.startLine - a.startLine);
+    for (const ann of sorted) {
+      const insertAt = ann.startLine - 1; // convert to 0-indexed
+      if (insertAt >= 0 && insertAt <= lines.length) {
+        lines.splice(insertAt, 0, `/* [NOTE] ${ann.text} */`);
+      }
+    }
+    code = lines.join('\n');
+  }
+
   return {
     id: data.id,
     name: data.name || data.id,
-    content: data.content,
+    content: code,
+    language,
+    filePath,
     lastModified: data.lastModified,
   };
 }

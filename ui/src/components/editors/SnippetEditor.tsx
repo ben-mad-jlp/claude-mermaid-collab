@@ -12,13 +12,13 @@
  * - Loading and error states
  */
 
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { CodeMirrorWrapper } from './CodeMirrorWrapper';
 import { SplitPane } from '@/components/layout/SplitPane';
 import { useSnippet } from '@/hooks/useSnippet';
 import { useSessionStore } from '@/stores/sessionStore';
 import { api } from '@/lib/api';
-import { Snippet } from '@/types';
+import { Snippet, SnippetAnnotation } from '@/types';
 import type { Language } from './CodeMirrorWrapper';
 
 /**
@@ -115,6 +115,16 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
   const [originalCode, setOriginalCode] = useState<string>('');
   const [filePath, setFilePath] = useState<string | null>(null);
   const [parsedHighlightLines, setParsedHighlightLines] = useState<number[]>([]);
+  const [annotations, setAnnotations] = useState<SnippetAnnotation[]>([]);
+  const [currentSelection, setCurrentSelection] = useState<{ startLine: number; endLine: number } | null>(null);
+  const [annotationPopover, setAnnotationPopover] = useState<{
+    mode: 'add' | 'edit';
+    startLine: number;
+    endLine: number;
+    text: string;
+    index: number; // -1 for new
+  } | null>(null);
+  const annotationTextRef = useRef<HTMLTextAreaElement>(null);
 
   // Parse snippet JSON content → { language, code, filePath, highlightLines, originalCode }
   // Falls back gracefully if content is a plain string (not JSON)
@@ -127,9 +137,10 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
         filePath: typeof data.filePath === 'string' ? data.filePath : null,
         originalCode: typeof data.originalCode === 'string' ? data.originalCode : null,
         highlightLines: Array.isArray(data.highlightLines) ? data.highlightLines : [],
+        annotations: Array.isArray(data.annotations) ? data.annotations as SnippetAnnotation[] : [],
       };
     } catch {
-      return { code: rawContent, language: null, filePath: null, originalCode: null, highlightLines: [] };
+      return { code: rawContent, language: null, filePath: null, originalCode: null, highlightLines: [], annotations: [] };
     }
   }, []);
 
@@ -155,6 +166,7 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
       setOriginalCode(parsed.originalCode ?? parsed.code);
       setFilePath(parsed.filePath);
       setParsedHighlightLines(parsed.highlightLines);
+      setAnnotations(parsed.annotations);
     }
   }, [snippet, parseSnippetData]);
 
@@ -247,6 +259,63 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
     setShowDiff(false);
   }, [originalCode]);
 
+  // ─── Annotation handlers ────────────────────────────────────────────────────
+
+  const saveAnnotations = useCallback(async (newAnnotations: SnippetAnnotation[]) => {
+    if (!snippet) return;
+    setAnnotations(newAnnotations);
+    try {
+      const data = JSON.parse(snippet.content ?? '{}');
+      await updateSnippet(snippet.id, JSON.stringify({ ...data, annotations: newAnnotations }));
+    } catch {
+      // not JSON — annotations can't be persisted in plain-text snippets
+    }
+  }, [snippet, updateSnippet]);
+
+  const handleAnnotationClick = useCallback((ann: SnippetAnnotation) => {
+    const index = annotations.findIndex(
+      (a) => a.startLine === ann.startLine && a.endLine === ann.endLine && a.text === ann.text
+    );
+    setAnnotationPopover({ mode: 'edit', startLine: ann.startLine, endLine: ann.endLine, text: ann.text, index });
+  }, [annotations]);
+
+  const handleOpenAddAnnotation = useCallback(() => {
+    if (!currentSelection) return;
+    setAnnotationPopover({
+      mode: 'add',
+      startLine: currentSelection.startLine,
+      endLine: currentSelection.endLine,
+      text: '',
+      index: -1,
+    });
+  }, [currentSelection]);
+
+  const handleAnnotationSave = useCallback(async () => {
+    if (!annotationPopover || !annotationPopover.text.trim()) return;
+    const newAnn: SnippetAnnotation = {
+      startLine: annotationPopover.startLine,
+      endLine: annotationPopover.endLine,
+      text: annotationPopover.text.trim(),
+    };
+    const updated = [...annotations];
+    if (annotationPopover.index === -1) {
+      updated.push(newAnn);
+    } else {
+      updated[annotationPopover.index] = newAnn;
+    }
+    await saveAnnotations(updated);
+    setAnnotationPopover(null);
+    setCurrentSelection(null);
+  }, [annotationPopover, annotations, saveAnnotations]);
+
+  const handleAnnotationDelete = useCallback(async () => {
+    if (!annotationPopover || annotationPopover.index === -1) return;
+    await saveAnnotations(annotations.filter((_, i) => i !== annotationPopover.index));
+    setAnnotationPopover(null);
+  }, [annotationPopover, annotations, saveAnnotations]);
+
+  // ────────────────────────────────────────────────────────────────────────────
+
   // Keyboard shortcut for save (Ctrl+S)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -273,6 +342,15 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
   // Build toolbar controls as a memoized fragment to avoid infinite effect loops
   const toolbarControls = useMemo(() => (
     <>
+      {currentSelection && !annotationPopover && (
+        <button
+          onClick={handleOpenAddAnnotation}
+          className="px-2 py-0.5 rounded text-xs font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-900/50 transition-colors"
+          title={`Add comment to lines ${currentSelection.startLine}–${currentSelection.endLine}`}
+        >
+          💬 Comment
+        </button>
+      )}
       <div className="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1" />
       <select
         value={selectedLanguage}
@@ -349,7 +427,7 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
   ), [
     selectedLanguage, handleLanguageChange, showDiff, handleDiffToggle, handleCopy,
     filePath, handleApply, isApplying, showButtons, hasChanges, handleCancel,
-    handleSave, isSaving, applyStatus,
+    handleSave, isSaving, applyStatus, currentSelection, annotationPopover, handleOpenAddAnnotation,
   ]);
 
   // Push controls to parent if callback provided
@@ -417,7 +495,7 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
         </div>
       ) : (
         /* Full Editor */
-        <div className="flex-1 overflow-hidden p-4 bg-gray-50 dark:bg-gray-900">
+        <div className="relative flex-1 overflow-hidden p-4 bg-gray-50 dark:bg-gray-900">
           <CodeMirrorWrapper
             value={content}
             onChange={handleContentChange}
@@ -425,7 +503,62 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
             height="100%"
             placeholder="Paste your code here..."
             highlightLines={effectiveHighlightLines}
+            annotations={annotations}
+            onAnnotationClick={handleAnnotationClick}
+            onSelectionChange={setCurrentSelection}
           />
+          {/* Annotation popover */}
+          {annotationPopover && (
+            <div className="absolute inset-0 flex items-center justify-center z-20 bg-black/10 dark:bg-black/20">
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-600 p-4 w-80">
+                <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">
+                  {annotationPopover.startLine === annotationPopover.endLine
+                    ? `Line ${annotationPopover.startLine}`
+                    : `Lines ${annotationPopover.startLine}–${annotationPopover.endLine}`}
+                </div>
+                <textarea
+                  ref={annotationTextRef}
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 text-sm bg-white dark:bg-gray-700 dark:text-gray-100 resize-none focus:outline-none focus:ring-1 focus:ring-amber-400"
+                  rows={3}
+                  placeholder="Add a comment for Claude..."
+                  value={annotationPopover.text}
+                  onChange={(e) => setAnnotationPopover((p) => p ? { ...p, text: e.target.value } : p)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleAnnotationSave();
+                    if (e.key === 'Escape') setAnnotationPopover(null);
+                  }}
+                  autoFocus
+                />
+                <div className="flex items-center justify-between mt-2">
+                  <div>
+                    {annotationPopover.mode === 'edit' && (
+                      <button
+                        onClick={handleAnnotationDelete}
+                        className="text-xs text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300"
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setAnnotationPopover(null)}
+                      className="px-2 py-1 text-xs rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleAnnotationSave}
+                      disabled={!annotationPopover.text.trim()}
+                      className="px-2 py-1 text-xs rounded bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-40 transition-colors"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
