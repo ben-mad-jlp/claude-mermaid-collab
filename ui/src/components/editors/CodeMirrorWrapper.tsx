@@ -242,24 +242,6 @@ const annotationTheme = EditorView.baseTheme({
     fontWeight: '500',
     lineHeight: '1.4',
   },
-  '.cm-annotation-btn-save': {
-    backgroundColor: '#f59e0b',
-    color: 'white',
-  },
-  '.cm-annotation-btn-save:hover': {
-    backgroundColor: '#d97706',
-  },
-  '.cm-annotation-btn-cancel': {
-    backgroundColor: '#e5e7eb',
-    color: '#374151',
-  },
-  '&dark .cm-annotation-btn-cancel': {
-    backgroundColor: '#4b5563',
-    color: '#d1d5db',
-  },
-  '.cm-annotation-btn-cancel:hover': {
-    backgroundColor: '#d1d5db',
-  },
   '.cm-annotation-btn-delete': {
     backgroundColor: 'transparent',
     color: '#ef4444',
@@ -316,7 +298,7 @@ class AnnotationWidget extends WidgetType {
       text.replaceWith(textarea);
       lines.remove();
 
-      // Add action buttons
+      // Add delete button only
       const actions = document.createElement('div');
       actions.className = 'cm-annotation-actions';
 
@@ -328,47 +310,49 @@ class AnnotationWidget extends WidgetType {
         this.callbacks.onDelete(this.ann);
       });
 
-      const cancelBtn = document.createElement('button');
-      cancelBtn.className = 'cm-annotation-btn cm-annotation-btn-cancel';
-      cancelBtn.textContent = 'Cancel';
-      cancelBtn.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        // Revert to display mode
-        wrap.classList.remove('editing');
-        textarea.replaceWith(text);
-        actions.replaceWith(lines);
-        wrap.addEventListener('click', enterEdit);
-      });
-
-      const saveBtn = document.createElement('button');
-      saveBtn.className = 'cm-annotation-btn cm-annotation-btn-save';
-      saveBtn.textContent = 'Save';
-      saveBtn.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        const newText = textarea.value.trim();
-        if (newText) {
-          this.callbacks.onSave(this.ann, newText);
-        }
-      });
-
       actions.appendChild(deleteBtn);
-      actions.appendChild(cancelBtn);
-      actions.appendChild(saveBtn);
       wrap.appendChild(actions);
 
       textarea.focus();
+
+      // Auto-save on blur (click outside)
+      const saveAndExit = () => {
+        const newText = textarea.value.trim();
+        if (newText && newText !== this.ann.text) {
+          this.callbacks.onSave(this.ann, newText);
+        } else if (!newText) {
+          // Empty text — revert to display mode
+          wrap.classList.remove('editing');
+          textarea.replaceWith(text);
+          actions.replaceWith(lines);
+          wrap.addEventListener('click', enterEdit);
+        }
+      };
+
+      textarea.addEventListener('blur', (ev) => {
+        // Delay slightly so delete button click registers before blur fires
+        setTimeout(() => {
+          if (document.activeElement !== textarea) {
+            saveAndExit();
+          }
+        }, 150);
+      });
 
       // Keyboard shortcuts
       textarea.addEventListener('keydown', (ev) => {
         if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
           ev.preventDefault();
-          saveBtn.click();
+          textarea.blur();
         }
         if (ev.key === 'Escape') {
           ev.preventDefault();
-          cancelBtn.click();
+          // Revert without saving
+          wrap.classList.remove('editing');
+          textarea.replaceWith(text);
+          actions.replaceWith(lines);
+          wrap.addEventListener('click', enterEdit);
         }
-        ev.stopPropagation(); // Prevent CodeMirror from handling keys
+        ev.stopPropagation();
       });
     };
 
