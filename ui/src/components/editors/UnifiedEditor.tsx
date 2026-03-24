@@ -38,6 +38,7 @@ import { formatMermaid, canFormat } from '@/lib/mermaidFormatter';
 import { DesignEditor } from '@/components/design-editor/DesignEditor';
 import { SpreadsheetEditor } from '@/components/editors/SpreadsheetEditor';
 import { SnippetEditor } from '@/components/editors/SnippetEditor';
+import { useSessionStore } from '@/stores/sessionStore';
 
 /**
  * Props for the UnifiedEditor component
@@ -129,6 +130,91 @@ export interface UnifiedEditorProps {
  * }
  * ```
  */
+/**
+ * SnippetGroupView — renders a single snippet or a tabbed group of linked snippets
+ */
+const SnippetGroupView: React.FC<{
+  item: Item;
+  onSnippetSave?: (id: string, content: string) => void;
+  onContentChange?: (content: string) => void;
+}> = ({ item, onSnippetSave, onContentChange }) => {
+  const snippets = useSessionStore((state) => state.snippets);
+  const selectSnippet = useSessionStore((state) => state.selectSnippet);
+
+  // Parse the selected snippet's groupId
+  const groupId = useMemo(() => {
+    try {
+      const parsed = JSON.parse(item.content || '');
+      return typeof parsed.groupId === 'string' ? parsed.groupId : null;
+    } catch {
+      return null;
+    }
+  }, [item.content]);
+
+  // Find all snippets in the same group
+  const groupSnippets = useMemo(() => {
+    if (!groupId) return [item];
+    return snippets
+      .filter((s) => {
+        try {
+          const parsed = JSON.parse(s.content || '');
+          return parsed.groupId === groupId;
+        } catch {
+          return false;
+        }
+      })
+      .map((s) => ({ ...s, type: 'snippet' as const }));
+  }, [groupId, snippets, item]);
+
+  if (groupSnippets.length <= 1) {
+    // Single snippet — no tabs
+    return (
+      <div className="flex-1 flex flex-col h-full" data-testid="unified-editor-snippet">
+        <SnippetEditor
+          key={item.id}
+          snippetId={item.id}
+          onSave={(snippet) => onSnippetSave?.(snippet.id, snippet.content)}
+          onChange={onContentChange}
+        />
+      </div>
+    );
+  }
+
+  // Grouped snippets — tabs
+  return (
+    <div className="flex-1 flex flex-col h-full" data-testid="unified-editor-snippet-group">
+      {/* Tab bar */}
+      <div className="flex border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 overflow-x-auto">
+        {groupSnippets.map((s) => {
+          const isActive = s.id === item.id;
+          return (
+            <button
+              key={s.id}
+              onClick={() => selectSnippet(s.id)}
+              className={`px-4 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                isActive
+                  ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300'
+              }`}
+            >
+              {s.name}
+            </button>
+          );
+        })}
+      </div>
+      {/* Active editor */}
+      <div className="flex-1 min-h-0">
+        <SnippetEditor
+          key={item.id}
+          snippetId={item.id}
+          onSave={(snippet) => onSnippetSave?.(snippet.id, snippet.content)}
+          onChange={onContentChange}
+        />
+      </div>
+    </div>
+  );
+};
+
 export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
   item,
   editMode,
@@ -268,22 +354,9 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
     );
   }
 
-  // Snippet items render with SnippetEditor
+  // Snippet items render with SnippetEditor (with group support)
   if (item.type === 'snippet') {
-    return (
-      <div className="flex-1 flex flex-col h-full" data-testid="unified-editor-snippet">
-        <SnippetEditor
-          key={item.id}
-          snippetId={item.id}
-          onSave={(snippet) => {
-            if (onSnippetSave) {
-              onSnippetSave(snippet.id, snippet.content);
-            }
-          }}
-          onChange={onContentChange}
-        />
-      </div>
-    );
+    return <SnippetGroupView item={item} onSnippetSave={onSnippetSave} onContentChange={onContentChange} />;
   }
 
   // Determine editor language based on item type

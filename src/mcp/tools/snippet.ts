@@ -82,6 +82,7 @@ export const createSnippetSchema = {
     sourcePath: { type: 'string', description: 'Absolute path to source file. Reads the file, auto-detects language, and sets originalCode.' },
     startLine: { type: 'number', description: 'Start line (1-indexed) for showing a slice of the file. Requires sourcePath.' },
     endLine: { type: 'number', description: 'End line (1-indexed, inclusive) for showing a slice of the file. Requires sourcePath.' },
+    groupId: { type: 'string', description: 'Group ID to link related snippets together. Snippets with the same groupId display as tabs in the UI.' },
   },
   required: ['project'],
 };
@@ -170,6 +171,7 @@ export async function handleCreateSnippet(
   sourcePath?: string,
   startLine?: number,
   endLine?: number,
+  groupId?: string,
 ): Promise<CreateSnippetResult> {
   let finalName = name;
   let finalContent = content;
@@ -201,6 +203,7 @@ export async function handleCreateSnippet(
       code,
       filePath: sourcePath,
       originalCode: code,
+      ...(groupId && { groupId }),
     };
 
     if (lineOffset !== undefined) {
@@ -215,6 +218,18 @@ export async function handleCreateSnippet(
     throw new Error('Either provide name+content, or sourcePath to auto-load from file');
   }
 
+  // Inject groupId into JSON content if provided and content is JSON
+  if (groupId && finalContent && !sourcePath) {
+    try {
+      const parsed = JSON.parse(finalContent);
+      parsed.groupId = groupId;
+      finalContent = JSON.stringify(parsed);
+    } catch {
+      // Content isn't JSON — wrap it
+      finalContent = JSON.stringify({ code: finalContent, groupId });
+    }
+  }
+
   const response = await fetch(buildUrl('/api/snippet', project, session), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -222,11 +237,11 @@ export async function handleCreateSnippet(
   });
 
   if (!response.ok) {
-    const error = await response.json();
+    const error = await response.json() as any;
     throw new Error(`Failed to create snippet: ${error.error || response.statusText}`);
   }
 
-  const data = await response.json();
+  const data = await response.json() as any;
   return { success: true, id: data.id };
 }
 
@@ -243,7 +258,7 @@ export async function handleUpdateSnippet(
   });
 
   if (!response.ok) {
-    const error = await response.json();
+    const error = await response.json() as any;
     throw new Error(`Failed to update snippet: ${error.error || response.statusText}`);
   }
 
@@ -261,7 +276,7 @@ export async function handleGetSnippet(
     throw new Error(`Snippet not found: ${id}`);
   }
 
-  const data = await response.json();
+  const data = await response.json() as any;
   return {
     id: data.id,
     name: data.name || data.id,
@@ -280,7 +295,7 @@ export async function handleListSnippets(
     throw new Error(`Failed to list snippets: ${response.statusText}`);
   }
 
-  const data = await response.json();
+  const data = await response.json() as any;
   return { snippets: data.snippets || [] };
 }
 
@@ -294,7 +309,7 @@ export async function handleDeleteSnippet(
   });
 
   if (!response.ok) {
-    const error = await response.json();
+    const error = await response.json() as any;
     throw new Error(`Failed to delete snippet: ${error.error || response.statusText}`);
   }
 
