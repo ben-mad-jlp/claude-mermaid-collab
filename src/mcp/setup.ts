@@ -3530,13 +3530,13 @@ IMPORTANT - Common pitfalls to avoid:
 
           case 'create_snippet':
           case 'add_design_snippet': {
-            const { project, session, name, content, sourcePath, startLine, endLine, groupId } = args as {
+            const { project, session, name, content, sourcePath, startLine, endLine, groupId, groupName } = args as {
               project: string; session: string; name?: string; content?: string;
-              sourcePath?: string; startLine?: number; endLine?: number; groupId?: string;
+              sourcePath?: string; startLine?: number; endLine?: number; groupId?: string; groupName?: string;
             };
             if (!project || !session) throw new Error('Missing required: project, session');
             if (!sourcePath && (!name || content === undefined)) throw new Error('Either provide name+content, or sourcePath');
-            const result = await handleCreateSnippet(project, session, name, content, sourcePath, startLine, endLine, groupId);
+            const result = await handleCreateSnippet(project, session, name, content, sourcePath, startLine, endLine, groupId, groupName);
             return JSON.stringify(result, null, 2);
           }
 

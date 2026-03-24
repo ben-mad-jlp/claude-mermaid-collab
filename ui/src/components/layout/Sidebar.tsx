@@ -212,10 +212,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
             } catch { /* not JSON, show it */ }
             return true;
           })
-          .map((snip) => ({
-            ...snip,
-            type: 'snippet' as const,
-          }));
+          .map((snip) => {
+            // Use groupName as display name for grouped snippets
+            let displayName = snip.name;
+            try {
+              const parsed = JSON.parse(snip.content || '');
+              if (parsed.groupName) displayName = parsed.groupName;
+            } catch { /* keep original name */ }
+            return {
+              ...snip,
+              name: displayName,
+              type: 'snippet' as const,
+            };
+          });
       })(),
     ];
 

@@ -791,9 +791,15 @@ const App: React.FC = () => {
     if (selectedSnippetId) {
       const snippet = snippets.find((s) => s.id === selectedSnippetId);
       if (snippet) {
+        // Use groupName as display name if this snippet is part of a group
+        let displayName = snippet.name;
+        try {
+          const parsed = JSON.parse(snippet.content || '');
+          if (parsed.groupName) displayName = parsed.groupName;
+        } catch { /* keep original */ }
         return {
           id: snippet.id,
-          name: snippet.name,
+          name: displayName,
           type: 'snippet' as const,
           content: snippet.content ?? '',
           lastModified: snippet.lastModified ?? Date.now(),

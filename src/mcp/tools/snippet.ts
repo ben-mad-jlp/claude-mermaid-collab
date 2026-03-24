@@ -83,6 +83,7 @@ export const createSnippetSchema = {
     startLine: { type: 'number', description: 'Start line (1-indexed) for showing a slice of the file. Requires sourcePath.' },
     endLine: { type: 'number', description: 'End line (1-indexed, inclusive) for showing a slice of the file. Requires sourcePath.' },
     groupId: { type: 'string', description: 'Group ID to link related snippets together. Snippets with the same groupId display as tabs in the UI.' },
+    groupName: { type: 'string', description: 'Display name for the snippet group shown in the sidebar (e.g. "Auth Feature"). All snippets in a group should use the same groupName.' },
   },
   required: ['project'],
 };
@@ -172,6 +173,7 @@ export async function handleCreateSnippet(
   startLine?: number,
   endLine?: number,
   groupId?: string,
+  groupName?: string,
 ): Promise<CreateSnippetResult> {
   let finalName = name;
   let finalContent = content;
@@ -204,6 +206,7 @@ export async function handleCreateSnippet(
       filePath: sourcePath,
       originalCode: code,
       ...(groupId && { groupId }),
+      ...(groupName && { groupName }),
     };
 
     if (lineOffset !== undefined) {
@@ -218,15 +221,16 @@ export async function handleCreateSnippet(
     throw new Error('Either provide name+content, or sourcePath to auto-load from file');
   }
 
-  // Inject groupId into JSON content if provided and content is JSON
+  // Inject groupId/groupName into JSON content if provided and content is JSON
   if (groupId && finalContent && !sourcePath) {
     try {
       const parsed = JSON.parse(finalContent);
       parsed.groupId = groupId;
+      if (groupName) parsed.groupName = groupName;
       finalContent = JSON.stringify(parsed);
     } catch {
       // Content isn't JSON — wrap it
-      finalContent = JSON.stringify({ code: finalContent, groupId });
+      finalContent = JSON.stringify({ code: finalContent, groupId, ...(groupName && { groupName }) });
     }
   }
 
