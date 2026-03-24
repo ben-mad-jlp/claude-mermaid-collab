@@ -11,7 +11,8 @@
 
 import React, { useMemo, useCallback, useEffect, useState, useRef } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
-import { EditorView } from '@codemirror/view';
+import { EditorView, Decoration, type DecorationSet, ViewPlugin, type ViewUpdate } from '@codemirror/view';
+import { RangeSetBuilder } from '@codemirror/state';
 
 // Language support imports
 import { javascript } from '@codemirror/lang-javascript';
@@ -56,6 +57,8 @@ export interface CodeMirrorWrapperProps {
   wordWrap?: boolean;
   /** Callback fired when CodeMirror editor is ready with EditorView instance */
   onEditorReady?: (view: EditorView | null) => void;
+  /** Lines to highlight with a subtle background (1-indexed) */
+  highlightLines?: number[];
 }
 
 /**
@@ -88,6 +91,53 @@ const getLanguageExtension = (language: Language) => {
       return [];
   }
 };
+
+const highlightLineDecoration = Decoration.line({ class: 'cm-highlighted-line' });
+
+const highlightLinesThemeLight = EditorView.baseTheme({
+  '.cm-highlighted-line': {
+    backgroundColor: 'rgba(254, 249, 195, 0.5)',
+  },
+});
+
+const highlightLinesThemeDark = EditorView.baseTheme({
+  '&dark .cm-highlighted-line': {
+    backgroundColor: 'rgba(113, 63, 18, 0.3)',
+  },
+});
+
+function buildHighlightExtension(lines: number[]) {
+  if (!lines.length) return [];
+  const lineSet = new Set(lines);
+  return [
+    highlightLinesThemeLight,
+    highlightLinesThemeDark,
+    ViewPlugin.fromClass(
+      class {
+        decorations: DecorationSet;
+        constructor(view: EditorView) {
+          this.decorations = this.buildDecorations(view);
+        }
+        update(update: ViewUpdate) {
+          if (update.docChanged || update.viewportChanged) {
+            this.decorations = this.buildDecorations(update.view);
+          }
+        }
+        buildDecorations(view: EditorView): DecorationSet {
+          const builder = new RangeSetBuilder<Decoration>();
+          for (let i = 1; i <= view.state.doc.lines; i++) {
+            if (lineSet.has(i)) {
+              const line = view.state.doc.line(i);
+              builder.add(line.from, line.from, highlightLineDecoration);
+            }
+          }
+          return builder.finish();
+        }
+      },
+      { decorations: (v) => v.decorations }
+    ),
+  ];
+}
 
 /**
  * CodeMirrorWrapper Component
@@ -126,6 +176,7 @@ export const CodeMirrorWrapper: React.FC<CodeMirrorWrapperProps> = ({
   placeholder = '',
   wordWrap = true,
   onEditorReady,
+  highlightLines = [],
 }) => {
   const { theme } = useTheme();
   const [isLoaded, setIsLoaded] = useState(false);
@@ -167,11 +218,15 @@ export const CodeMirrorWrapper: React.FC<CodeMirrorWrapperProps> = ({
       : 'cm-theme-light bg-white text-gray-900';
   }, [theme]);
 
+  // Memoize highlight extension
+  const highlightExtension = useMemo(() => {
+    return buildHighlightExtension(highlightLines);
+  }, [highlightLines]);
+
   // Memoize the editor extensions to prevent unnecessary re-initialization
   const extensions = useMemo(() => {
-    const exts = [languageExtension];
-    return exts;
-  }, [languageExtension]);
+    return [languageExtension, ...highlightExtension];
+  }, [languageExtension, highlightExtension]);
 
   // Memoize onChange callback to prevent unnecessary re-renders
   const handleChange = useCallback(

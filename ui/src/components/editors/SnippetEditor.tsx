@@ -103,6 +103,8 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
   const [selectedLanguage, setSelectedLanguage] = useState<Language>('text');
   const [showDiff, setShowDiff] = useState(showDiffByDefault);
   const [originalCode, setOriginalCode] = useState<string>('');
+  const [filePath, setFilePath] = useState<string | null>(null);
+  const [parsedHighlightLines, setParsedHighlightLines] = useState<number[]>([]);
 
   // Parse snippet JSON content → { language, code, filePath, highlightLines, originalCode }
   // Falls back gracefully if content is a plain string (not JSON)
@@ -141,6 +143,8 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
       setSelectedLanguage(detected);
       setContent(parsed.code);
       setOriginalCode(parsed.originalCode ?? parsed.code);
+      setFilePath(parsed.filePath);
+      setParsedHighlightLines(parsed.highlightLines);
     }
   }, [snippet, parseSnippetData]);
 
@@ -224,9 +228,8 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
   // Determine if content has changed
   const hasChanges = content !== originalCode;
 
-  // Note: highlightLines support would require CodeMirror extensions
-  // Currently lines can be highlighted via CSS/extensions at CodeMirrorWrapper level
-  const _highlightLines = highlightLines; // Prevent unused prop warning
+  // Merge prop highlightLines with parsed ones from JSON content
+  const effectiveHighlightLines = highlightLines.length > 0 ? highlightLines : parsedHighlightLines;
 
   if (!snippet) {
     return <div className={`p-4 text-gray-500 ${className}`}>No snippet selected</div>;
@@ -255,6 +258,13 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
           <option value="markdown">Markdown</option>
           <option value="yaml">YAML</option>
         </select>
+
+        {/* File Path Badge */}
+        {filePath && (
+          <span className="px-2 py-1 text-xs text-gray-500 dark:text-gray-400 font-mono truncate max-w-[200px]" title={filePath}>
+            {filePath}
+          </span>
+        )}
 
         {/* Diff Toggle Button */}
         <button
@@ -346,6 +356,7 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
             language={selectedLanguage}
             height="100%"
             placeholder="Paste your code here..."
+            highlightLines={effectiveHighlightLines}
           />
         </div>
       )}
