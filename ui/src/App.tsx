@@ -177,6 +177,8 @@ const App: React.FC = () => {
     selectedDocumentId,
     selectedDesignId,
     selectedSpreadsheetId,
+    snippets,
+    selectedSnippetId,
     taskGraphSelected,
     todosSelected,
     todosProject,
@@ -212,6 +214,8 @@ const App: React.FC = () => {
       selectedDocumentId: state.selectedDocumentId,
       selectedDesignId: state.selectedDesignId,
       selectedSpreadsheetId: state.selectedSpreadsheetId,
+      snippets: state.snippets,
+      selectedSnippetId: state.selectedSnippetId,
       taskGraphSelected: state.taskGraphSelected,
       todosSelected: state.todosSelected,
       todosProject: state.todosProject,
@@ -784,8 +788,20 @@ const App: React.FC = () => {
         };
       }
     }
+    if (selectedSnippetId) {
+      const snippet = snippets.find((s) => s.id === selectedSnippetId);
+      if (snippet) {
+        return {
+          id: snippet.id,
+          name: snippet.name,
+          type: 'snippet' as const,
+          content: snippet.content ?? '',
+          lastModified: snippet.lastModified ?? Date.now(),
+        };
+      }
+    }
     return null;
-  }, [diagrams, documents, designs, spreadsheets, selectedDiagramId, selectedDocumentId, selectedDesignId, selectedSpreadsheetId]);
+  }, [diagrams, documents, designs, spreadsheets, snippets, selectedDiagramId, selectedDocumentId, selectedDesignId, selectedSpreadsheetId, selectedSnippetId]);
 
   // Track local content for auto-save
   const [localContent, setLocalContent] = React.useState<string>('');

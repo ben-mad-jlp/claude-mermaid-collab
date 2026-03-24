@@ -67,15 +67,26 @@ export class SnippetManager {
   /**
    * List all snippets in the session
    */
-  async listSnippets(): Promise<SnippetListItem[]> {
-    const snippets: SnippetListItem[] = [];
+  async listSnippets(): Promise<Snippet[]> {
+    const snippets: Snippet[] = [];
 
     for (const [id, meta] of this.index.entries()) {
-      snippets.push({
-        id,
-        name: meta.name,
-        lastModified: meta.lastModified,
-      });
+      try {
+        const content = await readFile(meta.path, 'utf-8');
+        snippets.push({
+          id,
+          name: meta.name,
+          content,
+          lastModified: meta.lastModified,
+        });
+      } catch {
+        snippets.push({
+          id,
+          name: meta.name,
+          content: '',
+          lastModified: meta.lastModified,
+        });
+      }
     }
 
     return snippets.sort((a, b) => b.lastModified - a.lastModified);

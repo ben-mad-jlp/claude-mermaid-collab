@@ -88,9 +88,17 @@ interface SnippetMetadata {
 }
 
 function getSnippetMetadata(item: Item): SnippetMetadata {
-  const language = detectLanguage(item.name);
-  const lines = (item.content ?? '').split('\n').length;
-  const bytes = new Blob([item.content ?? '']).size;
+  // Parse JSON content envelope to extract code and language
+  let code = item.content ?? '';
+  let language = detectLanguage(item.name);
+  try {
+    const parsed = JSON.parse(code);
+    if (typeof parsed.code === 'string') code = parsed.code;
+    if (typeof parsed.language === 'string') language = parsed.language;
+    if (typeof parsed.filePath === 'string') language = detectLanguage(parsed.filePath) || language;
+  } catch { /* use raw content as fallback */ }
+  const lines = code.split('\n').length;
+  const bytes = new Blob([code]).size;
 
   let size: string;
   if (bytes < 1024) {
