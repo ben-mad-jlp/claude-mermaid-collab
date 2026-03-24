@@ -197,10 +197,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
         content: s.content ?? '',
         lastModified: s.lastModified ?? Date.now(),
       })),
-      ...snippets.map((snip) => ({
-        ...snip,
-        type: 'snippet' as const,
-      })),
+      ...(() => {
+        // Deduplicate grouped snippets — show only the most recently modified per groupId
+        const seenGroups = new Set<string>();
+        return snippets
+          .sort((a, b) => b.lastModified - a.lastModified)
+          .filter((snip) => {
+            try {
+              const parsed = JSON.parse(snip.content || '');
+              if (parsed.groupId) {
+                if (seenGroups.has(parsed.groupId)) return false;
+                seenGroups.add(parsed.groupId);
+              }
+            } catch { /* not JSON, show it */ }
+            return true;
+          })
+          .map((snip) => ({
+            ...snip,
+            type: 'snippet' as const,
+          }));
+      })(),
     ];
 
     items.sort((a, b) => b.lastModified - a.lastModified);
