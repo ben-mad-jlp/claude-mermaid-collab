@@ -19,13 +19,18 @@ import { markdown } from '@codemirror/lang-markdown';
 import { html } from '@codemirror/lang-html';
 import { json } from '@codemirror/lang-json';
 import { yaml } from '@codemirror/lang-yaml';
+import { python } from '@codemirror/lang-python';
+import { cpp } from '@codemirror/lang-cpp';
+import { css } from '@codemirror/lang-css';
+import { StreamLanguage } from '@codemirror/language';
+import { csharp } from '@codemirror/legacy-modes/mode/clike';
 
 import { useTheme } from '@/hooks/useTheme';
 
 /**
  * Supported language types for syntax highlighting
  */
-export type Language = 'javascript' | 'markdown' | 'yaml' | 'html' | 'json' | 'text';
+export type Language = 'javascript' | 'typescript' | 'markdown' | 'yaml' | 'html' | 'json' | 'python' | 'cpp' | 'csharp' | 'css' | 'text';
 
 /**
  * Props for the CodeMirrorWrapper component
@@ -60,6 +65,8 @@ const getLanguageExtension = (language: Language) => {
   switch (language) {
     case 'javascript':
       return javascript();
+    case 'typescript':
+      return javascript({ typescript: true });
     case 'markdown':
       return markdown();
     case 'yaml':
@@ -68,6 +75,14 @@ const getLanguageExtension = (language: Language) => {
       return html();
     case 'json':
       return json();
+    case 'python':
+      return python();
+    case 'cpp':
+      return cpp();
+    case 'csharp':
+      return StreamLanguage.define(csharp);
+    case 'css':
+      return css();
     case 'text':
     default:
       return [];

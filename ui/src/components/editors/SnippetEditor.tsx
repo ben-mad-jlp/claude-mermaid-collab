@@ -48,9 +48,18 @@ const detectLanguage = (fileName: string, content?: string): Language => {
 
   const langMap: Record<string, Language> = {
     'js': 'javascript',
-    'ts': 'javascript',
     'jsx': 'javascript',
-    'tsx': 'javascript',
+    'ts': 'typescript',
+    'tsx': 'typescript',
+    'py': 'python',
+    'cpp': 'cpp',
+    'cc': 'cpp',
+    'cxx': 'cpp',
+    'c': 'cpp',
+    'h': 'cpp',
+    'hpp': 'cpp',
+    'cs': 'csharp',
+    'css': 'css',
     'md': 'markdown',
     'markdown': 'markdown',
     'yaml': 'yaml',
@@ -235,11 +244,16 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
           title="Select code language"
         >
           <option value="text">Plain Text</option>
-          <option value="javascript">JavaScript/TypeScript</option>
-          <option value="markdown">Markdown</option>
-          <option value="yaml">YAML</option>
+          <option value="javascript">JavaScript</option>
+          <option value="typescript">TypeScript</option>
+          <option value="python">Python</option>
+          <option value="csharp">C#</option>
+          <option value="cpp">C/C++</option>
+          <option value="css">CSS</option>
           <option value="html">HTML</option>
           <option value="json">JSON</option>
+          <option value="markdown">Markdown</option>
+          <option value="yaml">YAML</option>
         </select>
 
         {/* Diff Toggle Button */}

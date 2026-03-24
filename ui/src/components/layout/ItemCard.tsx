@@ -94,8 +94,16 @@ function getSnippetMetadata(item: Item): SnippetMetadata {
   try {
     const parsed = JSON.parse(code);
     if (typeof parsed.code === 'string') code = parsed.code;
-    if (typeof parsed.language === 'string') language = parsed.language;
     if (typeof parsed.filePath === 'string') language = detectLanguage(parsed.filePath) || language;
+    // Map language identifiers to display names
+    if (typeof parsed.language === 'string') {
+      const displayNames: Record<string, string> = {
+        javascript: 'JavaScript', typescript: 'TypeScript', python: 'Python',
+        csharp: 'C#', cpp: 'C++', css: 'CSS', html: 'HTML', json: 'JSON',
+        markdown: 'Markdown', yaml: 'YAML', text: 'Text',
+      };
+      language = displayNames[parsed.language] || parsed.language;
+    }
   } catch { /* use raw content as fallback */ }
   const lines = code.split('\n').length;
   const bytes = new Blob([code]).size;
