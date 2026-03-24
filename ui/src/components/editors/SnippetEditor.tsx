@@ -371,35 +371,45 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
 
       {/* Diff View or Editor */}
       {showDiff ? (
-        <div className="flex-1 overflow-hidden flex gap-4 p-4 bg-gray-50 dark:bg-gray-900">
-          {/* Original Code */}
-          <div className="flex-1 flex flex-col min-w-0 border border-gray-200 dark:border-gray-700 rounded">
-            <div className="px-3 py-2 bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-300">
-              Original
-            </div>
-            <CodeMirrorWrapper
-              value={originalCode}
-              onChange={() => {}}
-              language={selectedLanguage}
-              readOnly={true}
-              height="100%"
-              className="flex-1"
-            />
-          </div>
-
-          {/* Current Code */}
-          <div className="flex-1 flex flex-col min-w-0 border border-gray-200 dark:border-gray-700 rounded">
-            <div className="px-3 py-2 bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-300">
-              Current
-            </div>
-            <CodeMirrorWrapper
-              value={content}
-              onChange={handleContentChange}
-              language={selectedLanguage}
-              height="100%"
-              className="flex-1"
-            />
-          </div>
+        <div className="flex-1 overflow-hidden">
+          <SplitPane
+            direction="horizontal"
+            defaultPrimarySize={50}
+            minPrimarySize={20}
+            minSecondarySize={20}
+            storageId="snippet-diff-split"
+            primaryContent={
+              <div className="flex flex-col h-full">
+                <div className="px-3 py-1.5 bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 text-xs font-medium text-gray-500 dark:text-gray-400">
+                  Current
+                </div>
+                <div className="flex-1 min-h-0">
+                  <CodeMirrorWrapper
+                    value={content}
+                    onChange={handleContentChange}
+                    language={selectedLanguage}
+                    height="100%"
+                  />
+                </div>
+              </div>
+            }
+            secondaryContent={
+              <div className="flex flex-col h-full">
+                <div className="px-3 py-1.5 bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 text-xs font-medium text-gray-500 dark:text-gray-400">
+                  Original
+                </div>
+                <div className="flex-1 min-h-0">
+                  <CodeMirrorWrapper
+                    value={originalCode}
+                    onChange={() => {}}
+                    language={selectedLanguage}
+                    readOnly={true}
+                    height="100%"
+                  />
+                </div>
+              </div>
+            }
+          />
         </div>
       ) : (
         /* Full Editor */
