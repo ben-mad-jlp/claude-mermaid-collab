@@ -62,8 +62,12 @@ export interface CodeMirrorWrapperProps {
   highlightLines?: number[];
   /** Annotations to render as gutter markers + left border */
   annotations?: SnippetAnnotation[];
-  /** Called when an annotation gutter marker is clicked */
+  /** Called when an annotation is clicked (for external handling) */
   onAnnotationClick?: (annotation: SnippetAnnotation) => void;
+  /** Called when an annotation is saved inline (new text) */
+  onAnnotationSave?: (original: SnippetAnnotation, newText: string) => void;
+  /** Called when an annotation is deleted inline */
+  onAnnotationDelete?: (annotation: SnippetAnnotation) => void;
   /** Called when the editor selection changes; null when selection is cleared */
   onSelectionChange?: (selection: { startLine: number; endLine: number } | null) => void;
 }
@@ -173,6 +177,14 @@ const annotationTheme = EditorView.baseTheme({
   '&dark .cm-annotation-widget:hover': {
     backgroundColor: 'rgba(245, 158, 11, 0.16)',
   },
+  '.cm-annotation-widget.editing': {
+    cursor: 'default',
+    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+    padding: '6px 8px 6px 12px',
+  },
+  '&dark .cm-annotation-widget.editing': {
+    backgroundColor: 'rgba(245, 158, 11, 0.14)',
+  },
   '.cm-annotation-icon': {
     flexShrink: '0',
     fontSize: '13px',
@@ -181,6 +193,8 @@ const annotationTheme = EditorView.baseTheme({
   '.cm-annotation-text': {
     whiteSpace: 'pre-wrap',
     wordBreak: 'break-word',
+    flex: '1',
+    minWidth: '0',
   },
   '.cm-annotation-lines': {
     flexShrink: '0',
@@ -189,21 +203,87 @@ const annotationTheme = EditorView.baseTheme({
     marginLeft: 'auto',
     paddingLeft: '8px',
   },
+  '.cm-annotation-textarea': {
+    flex: '1',
+    minWidth: '0',
+    border: '1px solid #d4d4d4',
+    borderRadius: '3px',
+    padding: '3px 6px',
+    fontSize: '12px',
+    lineHeight: '1.4',
+    fontFamily: 'inherit',
+    resize: 'vertical',
+    minHeight: '24px',
+    backgroundColor: 'white',
+    color: '#1f2937',
+    outline: 'none',
+  },
+  '&dark .cm-annotation-textarea': {
+    backgroundColor: '#374151',
+    borderColor: '#4b5563',
+    color: '#f3f4f6',
+  },
+  '.cm-annotation-textarea:focus': {
+    borderColor: '#f59e0b',
+    boxShadow: '0 0 0 1px #f59e0b',
+  },
+  '.cm-annotation-actions': {
+    display: 'flex',
+    gap: '4px',
+    alignItems: 'center',
+    flexShrink: '0',
+  },
+  '.cm-annotation-btn': {
+    padding: '2px 8px',
+    fontSize: '11px',
+    borderRadius: '3px',
+    border: 'none',
+    cursor: 'pointer',
+    fontWeight: '500',
+    lineHeight: '1.4',
+  },
+  '.cm-annotation-btn-save': {
+    backgroundColor: '#f59e0b',
+    color: 'white',
+  },
+  '.cm-annotation-btn-save:hover': {
+    backgroundColor: '#d97706',
+  },
+  '.cm-annotation-btn-cancel': {
+    backgroundColor: '#e5e7eb',
+    color: '#374151',
+  },
+  '&dark .cm-annotation-btn-cancel': {
+    backgroundColor: '#4b5563',
+    color: '#d1d5db',
+  },
+  '.cm-annotation-btn-cancel:hover': {
+    backgroundColor: '#d1d5db',
+  },
+  '.cm-annotation-btn-delete': {
+    backgroundColor: 'transparent',
+    color: '#ef4444',
+    padding: '2px 4px',
+  },
+  '.cm-annotation-btn-delete:hover': {
+    color: '#dc2626',
+  },
 });
+
+interface AnnotationCallbacks {
+  onSave: (original: SnippetAnnotation, newText: string) => void;
+  onDelete: (ann: SnippetAnnotation) => void;
+}
 
 class AnnotationWidget extends WidgetType {
   constructor(
     private ann: SnippetAnnotation,
-    private onClick: (ann: SnippetAnnotation) => void,
+    private callbacks: AnnotationCallbacks,
   ) { super(); }
 
   toDOM() {
     const wrap = document.createElement('div');
     wrap.className = 'cm-annotation-widget';
-    wrap.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.onClick(this.ann);
-    });
 
     const icon = document.createElement('span');
     icon.className = 'cm-annotation-icon';
@@ -222,6 +302,77 @@ class AnnotationWidget extends WidgetType {
       : `L${this.ann.startLine}–${this.ann.endLine}`;
     wrap.appendChild(lines);
 
+    // Click to enter edit mode
+    const enterEdit = (e: Event) => {
+      e.stopPropagation();
+      wrap.classList.add('editing');
+      wrap.removeEventListener('click', enterEdit);
+
+      // Replace text span with textarea
+      const textarea = document.createElement('textarea');
+      textarea.className = 'cm-annotation-textarea';
+      textarea.value = this.ann.text;
+      textarea.rows = Math.max(1, this.ann.text.split('\n').length);
+      text.replaceWith(textarea);
+      lines.remove();
+
+      // Add action buttons
+      const actions = document.createElement('div');
+      actions.className = 'cm-annotation-actions';
+
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'cm-annotation-btn cm-annotation-btn-delete';
+      deleteBtn.textContent = 'Delete';
+      deleteBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        this.callbacks.onDelete(this.ann);
+      });
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'cm-annotation-btn cm-annotation-btn-cancel';
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        // Revert to display mode
+        wrap.classList.remove('editing');
+        textarea.replaceWith(text);
+        actions.replaceWith(lines);
+        wrap.addEventListener('click', enterEdit);
+      });
+
+      const saveBtn = document.createElement('button');
+      saveBtn.className = 'cm-annotation-btn cm-annotation-btn-save';
+      saveBtn.textContent = 'Save';
+      saveBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const newText = textarea.value.trim();
+        if (newText) {
+          this.callbacks.onSave(this.ann, newText);
+        }
+      });
+
+      actions.appendChild(deleteBtn);
+      actions.appendChild(cancelBtn);
+      actions.appendChild(saveBtn);
+      wrap.appendChild(actions);
+
+      textarea.focus();
+
+      // Keyboard shortcuts
+      textarea.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
+          ev.preventDefault();
+          saveBtn.click();
+        }
+        if (ev.key === 'Escape') {
+          ev.preventDefault();
+          cancelBtn.click();
+        }
+        ev.stopPropagation(); // Prevent CodeMirror from handling keys
+      });
+    };
+
+    wrap.addEventListener('click', enterEdit);
     return wrap;
   }
 
@@ -233,46 +384,36 @@ class AnnotationWidget extends WidgetType {
   }
 
   get estimatedHeight() { return 28; }
+  ignoreEvent() { return true; }
 }
 
 function buildAnnotationExtension(
   annotations: SnippetAnnotation[],
-  onAnnotationClick: (ann: SnippetAnnotation) => void,
+  callbacks: AnnotationCallbacks,
 ) {
   if (!annotations.length) return [];
 
   const sorted = [...annotations].sort((a, b) => a.startLine - b.startLine);
 
+  function makeDecorations(docLines: number, doc: { line: (n: number) => { from: number } }) {
+    const builder = new RangeSetBuilder<Decoration>();
+    for (const ann of sorted) {
+      if (ann.startLine >= 1 && ann.startLine <= docLines) {
+        const line = doc.line(ann.startLine);
+        builder.add(line.from, line.from, Decoration.widget({
+          widget: new AnnotationWidget(ann, callbacks),
+          block: true,
+          side: -1,
+        }));
+      }
+    }
+    return builder.finish();
+  }
+
   const annotationField = StateField.define<DecorationSet>({
-    create(state) {
-      const builder = new RangeSetBuilder<Decoration>();
-      for (const ann of sorted) {
-        if (ann.startLine >= 1 && ann.startLine <= state.doc.lines) {
-          const line = state.doc.line(ann.startLine);
-          builder.add(line.from, line.from, Decoration.widget({
-            widget: new AnnotationWidget(ann, onAnnotationClick),
-            block: true,
-            side: -1,
-          }));
-        }
-      }
-      return builder.finish();
-    },
+    create(state) { return makeDecorations(state.doc.lines, state.doc); },
     update(decorations, tr) {
-      if (tr.docChanged) {
-        const builder = new RangeSetBuilder<Decoration>();
-        for (const ann of sorted) {
-          if (ann.startLine >= 1 && ann.startLine <= tr.state.doc.lines) {
-            const line = tr.state.doc.line(ann.startLine);
-            builder.add(line.from, line.from, Decoration.widget({
-              widget: new AnnotationWidget(ann, onAnnotationClick),
-              block: true,
-              side: -1,
-            }));
-          }
-        }
-        return builder.finish();
-      }
+      if (tr.docChanged) return makeDecorations(tr.state.doc.lines, tr.state.doc);
       return decorations;
     },
     provide: (f) => EditorView.decorations.from(f),
@@ -347,6 +488,8 @@ export const CodeMirrorWrapper: React.FC<CodeMirrorWrapperProps> = ({
   highlightLines = [],
   annotations = [],
   onAnnotationClick,
+  onAnnotationSave,
+  onAnnotationDelete,
   onSelectionChange,
 }) => {
   const { theme } = useTheme();
@@ -396,8 +539,11 @@ export const CodeMirrorWrapper: React.FC<CodeMirrorWrapperProps> = ({
 
   // Memoize annotation extension
   const annotationExtension = useMemo(() => {
-    return buildAnnotationExtension(annotations, onAnnotationClick ?? (() => {}));
-  }, [annotations, onAnnotationClick]);
+    return buildAnnotationExtension(annotations, {
+      onSave: onAnnotationSave ?? (() => {}),
+      onDelete: onAnnotationDelete ?? (() => {}),
+    });
+  }, [annotations, onAnnotationSave, onAnnotationDelete]);
 
   // Memoize selection listener extension
   const selectionListenerExtension = useMemo(() => {

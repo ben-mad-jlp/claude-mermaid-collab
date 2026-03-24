@@ -314,6 +314,23 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
     setAnnotationPopover(null);
   }, [annotationPopover, annotations, saveAnnotations]);
 
+  // Inline annotation save/delete (called from CodeMirror widget, no popover)
+  const handleInlineAnnotationSave = useCallback(async (original: SnippetAnnotation, newText: string) => {
+    const index = annotations.findIndex(
+      (a) => a.startLine === original.startLine && a.endLine === original.endLine && a.text === original.text
+    );
+    if (index === -1) return;
+    const updated = [...annotations];
+    updated[index] = { ...original, text: newText };
+    await saveAnnotations(updated);
+  }, [annotations, saveAnnotations]);
+
+  const handleInlineAnnotationDelete = useCallback(async (ann: SnippetAnnotation) => {
+    await saveAnnotations(annotations.filter(
+      (a) => !(a.startLine === ann.startLine && a.endLine === ann.endLine && a.text === ann.text)
+    ));
+  }, [annotations, saveAnnotations]);
+
   // ────────────────────────────────────────────────────────────────────────────
 
   // Keyboard shortcut for save (Ctrl+S)
@@ -504,61 +521,10 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
             placeholder="Paste your code here..."
             highlightLines={effectiveHighlightLines}
             annotations={annotations}
-            onAnnotationClick={handleAnnotationClick}
+            onAnnotationSave={handleInlineAnnotationSave}
+            onAnnotationDelete={handleInlineAnnotationDelete}
             onSelectionChange={setCurrentSelection}
           />
-          {/* Annotation popover */}
-          {annotationPopover && (
-            <div className="absolute inset-0 flex items-center justify-center z-20 bg-black/10 dark:bg-black/20">
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-600 p-4 w-80">
-                <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">
-                  {annotationPopover.startLine === annotationPopover.endLine
-                    ? `Line ${annotationPopover.startLine}`
-                    : `Lines ${annotationPopover.startLine}–${annotationPopover.endLine}`}
-                </div>
-                <textarea
-                  ref={annotationTextRef}
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 text-sm bg-white dark:bg-gray-700 dark:text-gray-100 resize-none focus:outline-none focus:ring-1 focus:ring-amber-400"
-                  rows={3}
-                  placeholder="Add a comment for Claude..."
-                  value={annotationPopover.text}
-                  onChange={(e) => setAnnotationPopover((p) => p ? { ...p, text: e.target.value } : p)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleAnnotationSave();
-                    if (e.key === 'Escape') setAnnotationPopover(null);
-                  }}
-                  autoFocus
-                />
-                <div className="flex items-center justify-between mt-2">
-                  <div>
-                    {annotationPopover.mode === 'edit' && (
-                      <button
-                        onClick={handleAnnotationDelete}
-                        className="text-xs text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300"
-                      >
-                        Delete
-                      </button>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setAnnotationPopover(null)}
-                      className="px-2 py-1 text-xs rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={handleAnnotationSave}
-                      disabled={!annotationPopover.text.trim()}
-                      className="px-2 py-1 text-xs rounded bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-40 transition-colors"
-                    >
-                      Save
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
