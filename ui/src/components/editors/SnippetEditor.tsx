@@ -331,6 +331,10 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
     ));
   }, [annotations, saveAnnotations]);
 
+  const handleClearAnnotations = useCallback(async () => {
+    if (annotations.length > 0) await saveAnnotations([]);
+  }, [annotations, saveAnnotations]);
+
   // ────────────────────────────────────────────────────────────────────────────
 
   // Keyboard shortcut for save (Ctrl+S)
@@ -359,6 +363,15 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
   // Build toolbar controls as a memoized fragment to avoid infinite effect loops
   const toolbarControls = useMemo(() => (
     <>
+      {annotations.length > 0 && (
+        <button
+          onClick={handleClearAnnotations}
+          className="px-2 py-0.5 rounded text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+          title="Clear all comments"
+        >
+          Clear Comments
+        </button>
+      )}
       {currentSelection && !annotationPopover && (
         <button
           onClick={handleOpenAddAnnotation}
@@ -445,6 +458,7 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
     selectedLanguage, handleLanguageChange, showDiff, handleDiffToggle, handleCopy,
     filePath, handleApply, isApplying, showButtons, hasChanges, handleCancel,
     handleSave, isSaving, applyStatus, currentSelection, annotationPopover, handleOpenAddAnnotation,
+    annotations, handleClearAnnotations,
   ]);
 
   // Push controls to parent if callback provided
