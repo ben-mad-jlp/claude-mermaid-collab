@@ -8,7 +8,7 @@ A design-to-implementation toolkit for Claude Code that transforms ideas into wo
 
 Mermaid Collab is a Claude Code plugin that provides:
 
-1. **Collaboration Server** - Real-time Mermaid diagrams, wireframes, and documents with a React GUI
+1. **Collaboration Server** - Real-time Mermaid diagrams, code snippets, wireframes, and documents with a React GUI
 2. **Structured Workflow** - A state machine that guides you from idea to implementation
 3. **40+ Skills** - Orchestrated design patterns for brainstorming, planning, and development
 
@@ -163,6 +163,17 @@ Create UI mockups with a JSON-based component system:
 - Hand-drawn "rough" style for sketching
 - Export to SVG/PNG
 
+### Code Snippets
+
+Share and review code snippets with full editor support:
+- **10 languages** - JavaScript, TypeScript, Python, C#, C++, CSS, HTML, JSON, Markdown, YAML
+- CodeMirror editor with syntax highlighting and line numbers
+- **Line highlighting** - Subtle yellow background on specified lines
+- **Diff view** - Side-by-side comparison of original vs current code
+- File path display and language auto-detection from file extensions
+- Real-time sync between Claude Code (MCP) and browser (WebSocket)
+- Version history with revert support
+
 ### Diagrams
 
 Full Mermaid support with:
@@ -219,6 +230,7 @@ One server instance serves all projects. Sessions are stored in each project's `
 │   └── session-name/
 │       ├── diagrams/        # .mmd files
 │       ├── documents/       # .md files
+│       ├── snippets/        # .snippet.json files
 │       ├── wireframes/      # .json files
 │       └── collab-state.json
 └── .kodex/                  # Knowledge base
@@ -244,9 +256,12 @@ All tools are available to Claude Code via the MCP protocol.
 |------|-------------|
 | `create_diagram` | New Mermaid diagram |
 | `create_document` | New markdown document |
+| `create_snippet` | New code snippet with language, highlighting |
 | `create_wireframe` | New UI wireframe |
 | `update_*` / `patch_*` | Modify existing content |
 | `validate_diagram` | Check Mermaid syntax |
+| `snippet_history` | Version history for a snippet |
+| `revert_snippet` | Restore snippet to previous version |
 
 ### Workflow
 | Tool | Description |
