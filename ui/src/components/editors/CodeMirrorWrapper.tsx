@@ -11,8 +11,8 @@
 
 import React, { useMemo, useCallback, useEffect, useState, useRef } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
-import { EditorView, Decoration, type DecorationSet, ViewPlugin, type ViewUpdate, gutter, GutterMarker } from '@codemirror/view';
-import { RangeSetBuilder } from '@codemirror/state';
+import { EditorView, Decoration, type DecorationSet, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view';
+import { RangeSetBuilder, StateField, StateEffect } from '@codemirror/state';
 import type { SnippetAnnotation } from '@/types/snippet';
 
 // Language support imports
@@ -146,56 +146,93 @@ function buildHighlightExtension(lines: number[]) {
   ];
 }
 
-// ─── Annotation extension ────────────────────────────────────────────────────
+// ─── Annotation extension (inline comment blocks) ───────────────────────────
 
 const annotationTheme = EditorView.baseTheme({
-  '.cm-annotation-range': {
+  '.cm-annotation-widget': {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '6px',
+    padding: '4px 8px 4px 12px',
+    margin: '2px 0',
     borderLeft: '3px solid #f59e0b',
-    paddingLeft: '1px',
-    backgroundColor: 'rgba(245, 158, 11, 0.05)',
-  },
-  '&dark .cm-annotation-range': {
-    backgroundColor: 'rgba(245, 158, 11, 0.09)',
-  },
-  '.cm-annotation-gutter': {
-    width: '14px',
-    cursor: 'default',
-  },
-  '.cm-annotation-dot': {
-    width: '8px',
-    height: '8px',
-    borderRadius: '50%',
-    backgroundColor: '#f59e0b',
+    backgroundColor: 'rgba(245, 158, 11, 0.06)',
+    fontSize: '12px',
+    lineHeight: '1.4',
+    color: '#92400e',
     cursor: 'pointer',
-    margin: '0 auto',
-    display: 'block',
-    transition: 'background-color 0.15s',
+    borderRadius: '0 4px 4px 0',
   },
-  '.cm-annotation-dot:hover': {
-    backgroundColor: '#d97706',
+  '&dark .cm-annotation-widget': {
+    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+    color: '#fbbf24',
+  },
+  '.cm-annotation-widget:hover': {
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+  },
+  '&dark .cm-annotation-widget:hover': {
+    backgroundColor: 'rgba(245, 158, 11, 0.16)',
+  },
+  '.cm-annotation-icon': {
+    flexShrink: '0',
+    fontSize: '13px',
+    lineHeight: '1.4',
+  },
+  '.cm-annotation-text': {
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+  },
+  '.cm-annotation-lines': {
+    flexShrink: '0',
+    fontSize: '10px',
+    opacity: '0.6',
+    marginLeft: 'auto',
+    paddingLeft: '8px',
   },
 });
 
-class AnnotationMarker extends GutterMarker {
+class AnnotationWidget extends WidgetType {
   constructor(
-    private annText: string,
-    private clickHandler: () => void,
+    private ann: SnippetAnnotation,
+    private onClick: (ann: SnippetAnnotation) => void,
   ) { super(); }
 
   toDOM() {
-    const el = document.createElement('div');
-    el.className = 'cm-annotation-dot';
-    el.title = this.annText;
-    el.addEventListener('click', (e) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'cm-annotation-widget';
+    wrap.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.clickHandler();
+      this.onClick(this.ann);
     });
-    return el;
+
+    const icon = document.createElement('span');
+    icon.className = 'cm-annotation-icon';
+    icon.textContent = '💬';
+    wrap.appendChild(icon);
+
+    const text = document.createElement('span');
+    text.className = 'cm-annotation-text';
+    text.textContent = this.ann.text;
+    wrap.appendChild(text);
+
+    const lines = document.createElement('span');
+    lines.className = 'cm-annotation-lines';
+    lines.textContent = this.ann.startLine === this.ann.endLine
+      ? `L${this.ann.startLine}`
+      : `L${this.ann.startLine}–${this.ann.endLine}`;
+    wrap.appendChild(lines);
+
+    return wrap;
   }
 
-  eq(other: GutterMarker): boolean {
-    return other instanceof AnnotationMarker && other.annText === this.annText;
+  eq(other: WidgetType): boolean {
+    return other instanceof AnnotationWidget
+      && other.ann.startLine === this.ann.startLine
+      && other.ann.endLine === this.ann.endLine
+      && other.ann.text === this.ann.text;
   }
+
+  get estimatedHeight() { return 28; }
 }
 
 function buildAnnotationExtension(
@@ -204,52 +241,44 @@ function buildAnnotationExtension(
 ) {
   if (!annotations.length) return [];
 
-  // Collect all annotated lines for border decoration
-  const annotatedLines = new Set<number>();
-  for (const ann of annotations) {
-    for (let l = ann.startLine; l <= ann.endLine; l++) annotatedLines.add(l);
-  }
+  const sorted = [...annotations].sort((a, b) => a.startLine - b.startLine);
 
-  // Map startLine → annotation for gutter markers
-  const markerMap = new Map<number, SnippetAnnotation>();
-  for (const ann of annotations) markerMap.set(ann.startLine, ann);
-
-  const borderDecoration = Decoration.line({ class: 'cm-annotation-range' });
-
-  const decorPlugin = ViewPlugin.fromClass(
-    class {
-      decorations: DecorationSet;
-      constructor(view: EditorView) { this.decorations = this.build(view); }
-      update(update: ViewUpdate) {
-        if (update.docChanged || update.viewportChanged) this.decorations = this.build(update.view);
+  const annotationField = StateField.define<DecorationSet>({
+    create(state) {
+      const builder = new RangeSetBuilder<Decoration>();
+      for (const ann of sorted) {
+        if (ann.startLine >= 1 && ann.startLine <= state.doc.lines) {
+          const line = state.doc.line(ann.startLine);
+          builder.add(line.from, line.from, Decoration.widget({
+            widget: new AnnotationWidget(ann, onAnnotationClick),
+            block: true,
+            side: -1,
+          }));
+        }
       }
-      build(view: EditorView): DecorationSet {
+      return builder.finish();
+    },
+    update(decorations, tr) {
+      if (tr.docChanged) {
         const builder = new RangeSetBuilder<Decoration>();
-        for (let i = 1; i <= view.state.doc.lines; i++) {
-          if (annotatedLines.has(i)) {
-            const line = view.state.doc.line(i);
-            builder.add(line.from, line.from, borderDecoration);
+        for (const ann of sorted) {
+          if (ann.startLine >= 1 && ann.startLine <= tr.state.doc.lines) {
+            const line = tr.state.doc.line(ann.startLine);
+            builder.add(line.from, line.from, Decoration.widget({
+              widget: new AnnotationWidget(ann, onAnnotationClick),
+              block: true,
+              side: -1,
+            }));
           }
         }
         return builder.finish();
       }
+      return decorations;
     },
-    { decorations: (v) => v.decorations },
-  );
-
-  const gutterExt = gutter({
-    class: 'cm-annotation-gutter',
-    lineMarker(view, line) {
-      const lineNum = view.state.doc.lineAt(line.from).number;
-      const ann = markerMap.get(lineNum);
-      if (ann) return new AnnotationMarker(ann.text, () => onAnnotationClick(ann));
-      return null;
-    },
-    lineMarkerChange: (update) => update.docChanged,
-    initialSpacer: () => new AnnotationMarker('', () => {}),
+    provide: (f) => EditorView.decorations.from(f),
   });
 
-  return [annotationTheme, decorPlugin, gutterExt];
+  return [annotationTheme, annotationField];
 }
 
 // ─── Selection listener extension ────────────────────────────────────────────
