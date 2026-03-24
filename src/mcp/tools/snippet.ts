@@ -257,30 +257,37 @@ export async function handleUpdateSnippet(
   id: string,
   content: string
 ): Promise<UpdateSnippetResult> {
-  // If the incoming content is raw code (not JSON), preserve the existing
-  // JSON envelope (language, groupId, groupName, filePath, etc.) by merging
-  // the new code into the existing parsed object.
+  // Preserve the existing JSON envelope (groupId, groupName, filePath, etc.)
+  // by merging into the existing object rather than replacing it entirely.
   let finalContent = content;
   let isRawCode = false;
+  let incomingParsed: Record<string, unknown> | null = null;
   try {
-    JSON.parse(content);
+    incomingParsed = JSON.parse(content);
   } catch {
     isRawCode = true;
   }
 
-  if (isRawCode) {
-    const getResponse = await fetch(buildUrl(`/api/snippet/${id}`, project, session));
-    if (getResponse.ok) {
-      const snippetData = await getResponse.json() as any;
-      try {
-        const parsed = JSON.parse(snippetData.content);
-        if (typeof parsed.code === 'string') {
-          parsed.code = content;
-          finalContent = JSON.stringify(parsed);
+  const getResponse = await fetch(buildUrl(`/api/snippet/${id}`, project, session));
+  if (getResponse.ok) {
+    const snippetData = await getResponse.json() as any;
+    try {
+      const existing = JSON.parse(snippetData.content);
+      if (typeof existing === 'object' && existing !== null) {
+        if (isRawCode) {
+          // Raw code — merge into existing envelope
+          if (typeof existing.code === 'string') {
+            existing.code = content;
+            finalContent = JSON.stringify(existing);
+          }
+        } else if (incomingParsed && typeof incomingParsed === 'object') {
+          // JSON content — merge: preserve existing fields not in incoming
+          const merged = { ...existing, ...incomingParsed };
+          finalContent = JSON.stringify(merged);
         }
-      } catch {
-        // existing content isn't JSON either — just replace as-is
       }
+    } catch {
+      // existing content isn't JSON — just replace as-is
     }
   }
 
