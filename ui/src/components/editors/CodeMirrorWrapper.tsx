@@ -314,6 +314,7 @@ class AnnotationWidget extends WidgetType {
       wrap.appendChild(actions);
 
       textarea.focus();
+      textarea.select();
 
       // Auto-save on blur (click outside)
       const revertToDisplay = () => {

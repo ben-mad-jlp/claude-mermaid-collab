@@ -144,15 +144,15 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
     }
   }, []);
 
-  // Serialize code changes back into the JSON content envelope
+  // Serialize code changes back into the JSON content envelope, including current annotations
   const serializeSnippetData = useCallback((newCode: string, rawContent: string): string => {
     try {
       const data = JSON.parse(rawContent);
-      return JSON.stringify({ ...data, code: newCode });
+      return JSON.stringify({ ...data, code: newCode, annotations });
     } catch {
       return newCode;
     }
-  }, []);
+  }, [annotations]);
 
   // Initialize language and code from parsed JSON content
   useEffect(() => {
