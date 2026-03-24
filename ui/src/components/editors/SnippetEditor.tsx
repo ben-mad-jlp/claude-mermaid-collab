@@ -15,6 +15,8 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { CodeMirrorWrapper } from './CodeMirrorWrapper';
 import { useSnippet } from '@/hooks/useSnippet';
+import { useSessionStore } from '@/stores/sessionStore';
+import { api } from '@/lib/api';
 import { Snippet } from '@/types';
 import type { Language } from './CodeMirrorWrapper';
 
@@ -96,9 +98,13 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
   // Determine which snippet to use — must not call hook conditionally
   const snippet = snippetId ? getSnippetById(snippetId) : selectedSnippet;
 
+  const currentSession = useSessionStore((state) => state.currentSession);
+
   // Local state for editor
   const [content, setContent] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isApplying, setIsApplying] = useState(false);
+  const [applyStatus, setApplyStatus] = useState<string | null>(null);
   const [detectedLanguage, setDetectedLanguage] = useState<Language>('text');
   const [selectedLanguage, setSelectedLanguage] = useState<Language>('text');
   const [showDiff, setShowDiff] = useState(showDiffByDefault);
@@ -206,6 +212,31 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
     }
   }, [snippet, content, updateSnippet, onSave, serializeSnippetData]);
 
+  // Handle apply — save first, then write to disk via API
+  const handleApply = useCallback(async () => {
+    if (!snippet || !currentSession || !filePath) return;
+
+    setIsApplying(true);
+    setApplyStatus(null);
+    try {
+      // Save first to persist any edits
+      const serialized = serializeSnippetData(content, snippet.content ?? '');
+      await updateSnippet(snippet.id, serialized);
+      setOriginalCode(content);
+
+      // Apply to disk
+      const result = await api.applySnippet(currentSession.project, currentSession.name, snippet.id);
+      setApplyStatus(`Applied to ${result.filePath} (${result.linesWritten} lines)`);
+      setTimeout(() => setApplyStatus(null), 3000);
+    } catch (error) {
+      console.error('Failed to apply snippet:', error);
+      setApplyStatus('Apply failed');
+      setTimeout(() => setApplyStatus(null), 3000);
+    } finally {
+      setIsApplying(false);
+    }
+  }, [snippet, currentSession, filePath, content, updateSnippet, serializeSnippetData]);
+
   // Handle cancel
   const handleCancel = useCallback(() => {
     setContent(originalCode);
@@ -287,6 +318,23 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
         >
           Copy
         </button>
+
+        {/* Apply Button — only shown when snippet has a filePath */}
+        {filePath && (
+          <button
+            onClick={handleApply}
+            disabled={isApplying}
+            className="px-3 py-1 rounded text-sm font-medium bg-indigo-500 text-white hover:bg-indigo-600 disabled:opacity-50 transition-colors"
+            title={`Apply to ${filePath}`}
+          >
+            {isApplying ? 'Applying...' : 'Apply'}
+          </button>
+        )}
+
+        {/* Apply Status */}
+        {applyStatus && (
+          <span className="text-xs text-green-600 dark:text-green-400 self-center">{applyStatus}</span>
+        )}
 
         {/* Spacer */}
         <div className="flex-1" />

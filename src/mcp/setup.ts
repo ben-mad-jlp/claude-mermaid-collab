@@ -159,6 +159,8 @@ import {
   handleListSnippets,
   handleDeleteSnippet,
   handleExportSnippet,
+  handleApplySnippet,
+  applySnippetSchema,
 } from './tools/snippet.js';
 
 // Configuration
@@ -1996,6 +1998,11 @@ IMPORTANT - Common pitfalls to avoid:
           required: ['project', 'session', 'id', 'timestamp'],
         },
       },
+      {
+        name: 'apply_snippet',
+        description: 'Apply a snippet back to its source file on disk. Writes the code field to filePath. Supports line-range writes if startLine/endLine were set during creation.',
+        inputSchema: applySnippetSchema,
+      },
     ],
   }));
 
@@ -3523,9 +3530,13 @@ IMPORTANT - Common pitfalls to avoid:
 
           case 'create_snippet':
           case 'add_design_snippet': {
-            const { project, session, name, content } = args as { project: string; session: string; name: string; content: string };
-            if (!project || !session || !name || content === undefined) throw new Error('Missing required: project, session, name, content');
-            const result = await handleCreateSnippet(project, session, name, content);
+            const { project, session, name, content, sourcePath, startLine, endLine } = args as {
+              project: string; session: string; name?: string; content?: string;
+              sourcePath?: string; startLine?: number; endLine?: number;
+            };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            if (!sourcePath && (!name || content === undefined)) throw new Error('Either provide name+content, or sourcePath');
+            const result = await handleCreateSnippet(project, session, name, content, sourcePath, startLine, endLine);
             return JSON.stringify(result, null, 2);
           }
 
@@ -3547,6 +3558,13 @@ IMPORTANT - Common pitfalls to avoid:
             const { project, session, id, format, outputPath } = args as { project: string; session: string; id: string; format?: string; outputPath?: string };
             if (!project || !session || !id) throw new Error('Missing required: project, session, id');
             const result = await handleExportSnippet(project, session, id, format, outputPath);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'apply_snippet': {
+            const { project, session, id } = args as { project: string; session: string; id: string };
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            const result = await handleApplySnippet(project, session, id);
             return JSON.stringify(result, null, 2);
           }
 

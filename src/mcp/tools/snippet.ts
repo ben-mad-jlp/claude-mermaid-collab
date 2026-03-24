@@ -4,8 +4,8 @@
  * CRUD operations for code snippets stored as .snippet files in session folders.
  */
 
-import { writeFile } from 'fs/promises';
-import { join } from 'path';
+import { readFile, writeFile } from 'fs/promises';
+import { join, extname, basename } from 'path';
 import { tmpdir } from 'os';
 
 const API_PORT = parseInt(process.env.PORT || '3737', 10);
@@ -58,6 +58,13 @@ export interface ExportSnippetResult {
   size: number;
 }
 
+export interface ApplySnippetResult {
+  success: boolean;
+  filePath: string;
+  linesWritten: number;
+  range?: { startLine: number; endLine: number };
+}
+
 // ============= Schemas =============
 
 const sessionParamsDesc = {
@@ -70,10 +77,13 @@ export const createSnippetSchema = {
   type: 'object',
   properties: {
     ...sessionParamsDesc,
-    name: { type: 'string', description: 'Snippet name' },
-    content: { type: 'string', description: 'Snippet content (code)' },
+    name: { type: 'string', description: 'Snippet name. If sourcePath is provided and name is omitted, uses the filename.' },
+    content: { type: 'string', description: 'Snippet content (JSON or raw code). Not required if sourcePath is provided.' },
+    sourcePath: { type: 'string', description: 'Absolute path to source file. Reads the file, auto-detects language, and sets originalCode.' },
+    startLine: { type: 'number', description: 'Start line (1-indexed) for showing a slice of the file. Requires sourcePath.' },
+    endLine: { type: 'number', description: 'End line (1-indexed, inclusive) for showing a slice of the file. Requires sourcePath.' },
   },
-  required: ['project', 'name', 'content'],
+  required: ['project'],
 };
 
 export const updateSnippetSchema = {
@@ -123,18 +133,92 @@ export const exportSnippetSchema = {
   required: ['project', 'id'],
 };
 
+export const applySnippetSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    id: { type: 'string', description: 'Snippet ID to apply' },
+  },
+  required: ['project', 'id'],
+};
+
+// ============= Helpers =============
+
+const EXT_TO_LANGUAGE: Record<string, string> = {
+  '.js': 'javascript', '.jsx': 'javascript',
+  '.ts': 'typescript', '.tsx': 'typescript',
+  '.py': 'python',
+  '.cs': 'csharp',
+  '.cpp': 'cpp', '.cc': 'cpp', '.cxx': 'cpp', '.c': 'cpp', '.h': 'cpp', '.hpp': 'cpp',
+  '.css': 'css',
+  '.html': 'html', '.htm': 'html',
+  '.json': 'json',
+  '.md': 'markdown',
+  '.yaml': 'yaml', '.yml': 'yaml',
+  '.sh': 'shell', '.bash': 'shell',
+  '.sql': 'sql',
+  '.go': 'go', '.rs': 'rust', '.rb': 'ruby', '.php': 'php',
+};
+
 // ============= Handlers =============
 
 export async function handleCreateSnippet(
   project: string,
   session: string,
-  name: string,
-  content: string
+  name?: string,
+  content?: string,
+  sourcePath?: string,
+  startLine?: number,
+  endLine?: number,
 ): Promise<CreateSnippetResult> {
+  let finalName = name;
+  let finalContent = content;
+
+  // If sourcePath is provided, read the file and build JSON content
+  if (sourcePath) {
+    const fileContent = await readFile(sourcePath, 'utf-8');
+    const ext = extname(sourcePath).toLowerCase();
+    const language = EXT_TO_LANGUAGE[ext] || 'text';
+
+    if (!finalName) {
+      finalName = basename(sourcePath);
+    }
+
+    let code = fileContent;
+    let lineOffset: number | undefined;
+
+    // Handle line range slicing
+    if (startLine !== undefined || endLine !== undefined) {
+      const lines = fileContent.split('\n');
+      const start = Math.max(1, startLine ?? 1);
+      const end = Math.min(lines.length, endLine ?? lines.length);
+      code = lines.slice(start - 1, end).join('\n');
+      lineOffset = start;
+    }
+
+    const snippetData: Record<string, unknown> = {
+      language,
+      code,
+      filePath: sourcePath,
+      originalCode: code,
+    };
+
+    if (lineOffset !== undefined) {
+      snippetData.startLine = startLine;
+      snippetData.endLine = endLine;
+    }
+
+    finalContent = JSON.stringify(snippetData);
+  }
+
+  if (!finalName || finalContent === undefined) {
+    throw new Error('Either provide name+content, or sourcePath to auto-load from file');
+  }
+
   const response = await fetch(buildUrl('/api/snippet', project, session), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, content }),
+    body: JSON.stringify({ name: finalName, content: finalContent }),
   });
 
   if (!response.ok) {
@@ -247,4 +331,59 @@ export async function handleExportSnippet(
   await writeFile(filePath, fileContent);
 
   return { success: true, filePath, format: ext, size: fileContent.length };
+}
+
+export async function handleApplySnippet(
+  project: string,
+  session: string,
+  id: string,
+): Promise<ApplySnippetResult> {
+  // Get the snippet
+  const snippet = await handleGetSnippet(project, session, id);
+
+  // Parse JSON content to extract code and filePath
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(snippet.content);
+  } catch {
+    throw new Error('Snippet content is not valid JSON — cannot determine filePath');
+  }
+
+  const filePath = parsed.filePath as string;
+  const code = parsed.code as string;
+  if (!filePath || typeof filePath !== 'string') {
+    throw new Error('Snippet has no filePath — cannot apply to disk');
+  }
+  if (code === undefined || typeof code !== 'string') {
+    throw new Error('Snippet has no code field');
+  }
+
+  const startLine = parsed.startLine as number | undefined;
+  const endLine = parsed.endLine as number | undefined;
+
+  // If line range, splice into the original file
+  if (startLine !== undefined && endLine !== undefined) {
+    const originalFile = await readFile(filePath, 'utf-8');
+    const lines = originalFile.split('\n');
+    const start = Math.max(1, startLine);
+    const end = Math.min(lines.length, endLine);
+    const newLines = code.split('\n');
+
+    // Replace the range
+    lines.splice(start - 1, end - start + 1, ...newLines);
+    await writeFile(filePath, lines.join('\n'));
+
+    return {
+      success: true,
+      filePath,
+      linesWritten: newLines.length,
+      range: { startLine: start, endLine: start + newLines.length - 1 },
+    };
+  }
+
+  // Full file write
+  await writeFile(filePath, code);
+  const linesWritten = code.split('\n').length;
+
+  return { success: true, filePath, linesWritten };
 }

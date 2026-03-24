@@ -83,6 +83,7 @@ export interface ApiClient {
   getSnippet(project: string, session: string, id: string): Promise<Snippet | null>;
   updateSnippet(project: string, session: string, id: string, content: string): Promise<void>;
   deleteSnippet(project: string, session: string, id: string): Promise<void>;
+  applySnippet(project: string, session: string, id: string): Promise<{ success: boolean; filePath: string; linesWritten: number }>;
   getTodos(project: string): Promise<ProjectTodo[]>;
   addTodo(project: string, title: string, description: string): Promise<ProjectTodo>;
   updateTodo(project: string, id: number, updates: { title?: string }): Promise<ProjectTodo>;
@@ -649,6 +650,16 @@ export const api: ApiClient = {
     if (!response.ok) {
       throw new Error(response.statusText);
     }
+  },
+
+  async applySnippet(project: string, session: string, id: string): Promise<{ success: boolean; filePath: string; linesWritten: number }> {
+    const url = `/api/snippet/${encodeURIComponent(id)}/apply?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const response = await fetch(url, { method: 'POST' });
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || response.statusText);
+    }
+    return response.json();
   },
 
   /**
