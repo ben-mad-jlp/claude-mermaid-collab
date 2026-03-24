@@ -29,7 +29,7 @@ import { MermaidPreview, MermaidPreviewRef } from '@/components/editors/MermaidP
 import { MarkdownPreview } from '@/components/editors/MarkdownPreview';
 import { DiffView } from '@/components/ai-ui/display/DiffView';
 import { DiagramHistoryPreview } from '@/components/editors/DiagramHistoryPreview';
-import { Item, isDiagram, isDocument, isDesign, isSpreadsheet, isSnippet } from '@/types';
+import { Item, isDiagram, isDocument, isDesign, isSpreadsheet, isSnippet, Snippet } from '@/types';
 import { useUIStore } from '@/stores/uiStore';
 import { useEditorHistory } from '@/hooks/useEditorHistory';
 import { useExportDiagram } from '@/hooks/useExportDiagram';
@@ -144,6 +144,11 @@ const SnippetGroupView: React.FC<{
   const snippets = useSessionStore((state) => state.snippets);
   const selectSnippet = useSessionStore((state) => state.selectSnippet);
 
+  const handleSnippetSave = useCallback(
+    (snippet: Snippet) => onSnippetSave?.(snippet.id, snippet.content),
+    [onSnippetSave]
+  );
+
   // Parse the selected snippet's groupId
   const groupId = useMemo(() => {
     try {
@@ -176,7 +181,7 @@ const SnippetGroupView: React.FC<{
         <SnippetEditor
           key={item.id}
           snippetId={item.id}
-          onSave={(snippet) => onSnippetSave?.(snippet.id, snippet.content)}
+          onSave={handleSnippetSave}
           onChange={onContentChange}
           onToolbarControls={onToolbarControls}
         />
@@ -211,7 +216,7 @@ const SnippetGroupView: React.FC<{
         <SnippetEditor
           key={item.id}
           snippetId={item.id}
-          onSave={(snippet) => onSnippetSave?.(snippet.id, snippet.content)}
+          onSave={handleSnippetSave}
           onChange={onContentChange}
           onToolbarControls={onToolbarControls}
         />

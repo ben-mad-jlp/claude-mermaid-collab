@@ -630,6 +630,76 @@ async function patchDiagram(project: string, session: string, id: string, oldStr
   }, null, 2);
 }
 
+async function patchSnippet(project: string, session: string, id: string, oldString: string, newString: string): Promise<string> {
+  const getResponse = await fetch(buildUrl(`/api/snippet/${id}`, project, session));
+  if (!getResponse.ok) {
+    if (getResponse.status === 404) {
+      throw new Error(`Snippet not found: ${id}`);
+    }
+    throw new Error(`Failed to get snippet: ${getResponse.statusText}`);
+  }
+
+  const snippetData = await getResponse.json();
+  const rawContent: string = snippetData.content;
+
+  // Snippets store code inside a JSON envelope: { code, language, filePath, ... }
+  // Apply the patch to the code field if parseable, otherwise patch raw content.
+  let updatedContent: string;
+  let searchTarget: string;
+  try {
+    const parsed = JSON.parse(rawContent);
+    if (typeof parsed.code === 'string') {
+      searchTarget = parsed.code;
+      const occurrences = searchTarget.split(oldString).length - 1;
+      if (occurrences === 0) {
+        throw new Error(`old_string not found in snippet code: "${oldString.slice(0, 50)}"`);
+      }
+      if (occurrences > 1) {
+        throw new Error(`old_string found ${occurrences} times - must be unique. Add more context to make it unique.`);
+      }
+      parsed.code = searchTarget.replace(oldString, newString);
+      updatedContent = JSON.stringify(parsed);
+    } else {
+      throw new Error('no code field');
+    }
+  } catch (e: any) {
+    if (e.message.startsWith('old_string') || e.message.startsWith('no code')) throw e;
+    // Plain text snippet — patch raw content directly
+    searchTarget = rawContent;
+    const occurrences = searchTarget.split(oldString).length - 1;
+    if (occurrences === 0) {
+      throw new Error(`old_string not found in snippet: "${oldString.slice(0, 50)}"`);
+    }
+    if (occurrences > 1) {
+      throw new Error(`old_string found ${occurrences} times - must be unique. Add more context to make it unique.`);
+    }
+    updatedContent = searchTarget.replace(oldString, newString);
+  }
+
+  const updateResponse = await fetch(buildUrl(`/api/snippet/${id}`, project, session), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: updatedContent }),
+  });
+
+  if (!updateResponse.ok) {
+    const error = await updateResponse.json();
+    throw new Error(`Failed to patch snippet: ${error.error || updateResponse.statusText}`);
+  }
+
+  const changeIndex = updatedContent.indexOf(newString);
+  const previewStart = Math.max(0, changeIndex - 50);
+  const previewEnd = Math.min(updatedContent.length, changeIndex + newString.length + 50);
+  const preview = updatedContent.slice(previewStart, previewEnd);
+
+  return JSON.stringify({
+    success: true,
+    id,
+    message: 'Snippet patched successfully',
+    preview: `...${preview}...`,
+  }, null, 2);
+}
+
 async function previewDocument(project: string, session: string, id: string): Promise<string> {
   const response = await fetch(buildUrl(`/api/document/${id}`, project, session));
   if (!response.ok) {
@@ -2002,6 +2072,20 @@ IMPORTANT - Common pitfalls to avoid:
         name: 'apply_snippet',
         description: 'Apply a snippet back to its source file on disk. Writes the code field to filePath. Supports line-range writes if startLine/endLine were set during creation.',
         inputSchema: applySnippetSchema,
+      },
+      {
+        name: 'patch_snippet',
+        description: 'Apply a search-replace patch to a snippet\'s code. More efficient than update_snippet for small changes. Fails if old_string is not found or matches multiple locations.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            ...sessionParamsDesc,
+            id: { type: 'string', description: 'Snippet ID' },
+            old_string: { type: 'string', description: 'Text to find in the code (must be unique)' },
+            new_string: { type: 'string', description: 'Text to replace with' },
+          },
+          required: ['project', 'id', 'old_string', 'new_string'],
+        },
       },
     ],
   }));
@@ -3577,6 +3661,12 @@ IMPORTANT - Common pitfalls to avoid:
             const resp = await fetch(url.toString());
             if (!resp.ok) throw new Error(`Failed to get snippet history: ${resp.statusText}`);
             return JSON.stringify(await resp.json(), null, 2);
+          }
+
+          case 'patch_snippet': {
+            const { project, session, id, old_string, new_string } = args as { project: string; session: string; id: string; old_string: string; new_string: string };
+            if (!project || !session || !id || old_string === undefined || new_string === undefined) throw new Error('Missing required: project, session, id, old_string, new_string');
+            return await patchSnippet(project, session, id, old_string, new_string);
           }
 
           case 'revert_snippet': {

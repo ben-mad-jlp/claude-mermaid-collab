@@ -12,7 +12,7 @@
  * - Loading and error states
  */
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { CodeMirrorWrapper } from './CodeMirrorWrapper';
 import { SplitPane } from '@/components/layout/SplitPane';
 import { useSnippet } from '@/hooks/useSnippet';
@@ -270,8 +270,8 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
     return <div className={`p-4 text-gray-500 ${className}`}>No snippet selected</div>;
   }
 
-  // Build toolbar controls as a fragment
-  const toolbarControls = (
+  // Build toolbar controls as a memoized fragment to avoid infinite effect loops
+  const toolbarControls = useMemo(() => (
     <>
       <div className="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1" />
       <select
@@ -317,7 +317,7 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
           className="px-2 py-0.5 rounded text-xs font-medium bg-indigo-500 text-white hover:bg-indigo-600 disabled:opacity-50 transition-colors"
           title={`Apply to ${filePath}`}
         >
-          {isApplying ? 'Applying...' : 'Apply'}
+          {isApplying ? 'Applying...' : 'Apply to File'}
         </button>
       )}
       {showButtons && hasChanges && (
@@ -346,14 +346,18 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
         </span>
       )}
     </>
-  );
+  ), [
+    selectedLanguage, handleLanguageChange, showDiff, handleDiffToggle, handleCopy,
+    filePath, handleApply, isApplying, showButtons, hasChanges, handleCancel,
+    handleSave, isSaving, applyStatus,
+  ]);
 
   // Push controls to parent if callback provided
   useEffect(() => {
     if (onToolbarControls) {
       onToolbarControls(toolbarControls);
     }
-  });
+  }, [onToolbarControls, toolbarControls]);
 
   return (
     <div className={`flex flex-col h-full bg-white dark:bg-gray-900 ${className}`}>
