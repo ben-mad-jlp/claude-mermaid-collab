@@ -294,6 +294,91 @@ describe('WebSocketHandler', () => {
     });
   });
 
+  describe('broadcastToSnippet()', () => {
+    it('should broadcast only to snippet subscribers', () => {
+      const ws1 = createMockWS();
+      const ws2 = createMockWS();
+
+      handler.handleConnection(ws1);
+      handler.handleConnection(ws2);
+
+      ws1.data.subscriptions.add('snippet_1');
+
+      const message: WSMessage = {
+        type: 'snippet_updated',
+        id: 'snippet_1',
+        content: 'console.log("test");',
+        lastModified: Date.now(),
+        project: '/test/project',
+        session: 'test-session',
+      };
+
+      handler.broadcastToSnippet('snippet_1', message);
+
+      expect(mockWebSockets[0].send).toHaveBeenCalledOnce();
+      expect(mockWebSockets[1].send).not.toHaveBeenCalled();
+    });
+
+    it('should handle errors in broadcastToSnippet', () => {
+      const ws1 = createMockWS();
+      const ws2 = createMockWS({ shouldThrow: true });
+
+      handler.handleConnection(ws1);
+      handler.handleConnection(ws2);
+
+      ws1.data.subscriptions.add('snippet_1');
+      ws2.data.subscriptions.add('snippet_1');
+
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const message: WSMessage = {
+        type: 'snippet_created',
+        id: 'snippet_1',
+        name: 'new-snippet.js',
+        content: 'code content',
+        lastModified: Date.now(),
+        project: '/test/project',
+        session: 'test-session',
+      };
+
+      handler.broadcastToSnippet('snippet_1', message);
+
+      expect(mockWebSockets[0].send).toHaveBeenCalled();
+      expect(handler.getConnectionCount()).toBe(1);
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('should clean up disconnected clients in broadcastToSnippet', () => {
+      const ws1 = createMockWS();
+      const ws2 = createMockWS({ shouldThrow: true });
+
+      handler.handleConnection(ws1);
+      handler.handleConnection(ws2);
+
+      ws1.data.subscriptions.add('snippet_1');
+      ws2.data.subscriptions.add('snippet_1');
+
+      expect(handler.getConnectionCount()).toBe(2);
+
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const message: WSMessage = {
+        type: 'snippet_deleted',
+        id: 'snippet_1',
+        project: '/test/project',
+        session: 'test-session',
+      };
+
+      handler.broadcastToSnippet('snippet_1', message);
+
+      expect(handler.getConnectionCount()).toBe(1); // ws2 removed
+      expect(mockWebSockets[0].send).toHaveBeenCalled();
+
+      consoleErrorSpy.mockRestore();
+    });
+  });
+
   describe('handleConnection() and handleDisconnection()', () => {
     it('should track connection count correctly', () => {
       expect(handler.getConnectionCount()).toBe(0);

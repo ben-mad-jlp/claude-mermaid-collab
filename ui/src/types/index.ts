@@ -6,6 +6,7 @@
 export * from './session';
 export * from './diagram';
 export * from './document';
+export * from './snippet';
 export * from './question';
 export * from './item';
 export * from './proposal';

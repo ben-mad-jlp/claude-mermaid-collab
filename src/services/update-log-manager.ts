@@ -127,7 +127,7 @@ export class UpdateLogManager {
   private async loadLog(): Promise<UpdateLog> {
     try {
       if (!existsSync(this.logFilePath)) {
-        return { documents: {}, diagrams: {}, designs: {} };
+        return { documents: {}, diagrams: {}, designs: {}, spreadsheets: {}, snippets: {} };
       }
 
       const content = readFileSync(this.logFilePath, 'utf-8');
@@ -136,11 +136,13 @@ export class UpdateLogManager {
       if (!log.diagrams) log.diagrams = {};
       if (!log.designs) log.designs = {};
       if (!log.documents) log.documents = {};
+      if (!log.spreadsheets) log.spreadsheets = {};
+      if (!log.snippets) log.snippets = {};
       return log;
     } catch (error) {
       // File read or JSON parse error - return empty log
       console.warn('Failed to load update log, returning empty log:', error);
-      return { documents: {}, diagrams: {}, designs: {} };
+      return { documents: {}, diagrams: {}, designs: {}, spreadsheets: {}, snippets: {} };
     }
   }
 

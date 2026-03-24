@@ -6,12 +6,13 @@
  * - Item type and relative time as subtitle
  * - Selected state styling
  * - Click handler for selection
+ * - Snippet-specific metadata (language, line count, size)
  *
- * Used in the sidebar to display diagrams and documents.
+ * Used in the sidebar to display diagrams, documents, designs, spreadsheets, and snippets.
  */
 
-import React from 'react';
-import { Item } from '@/types';
+import React, { useMemo } from 'react';
+import { Item, isSnippet } from '@/types';
 
 export interface ItemCardProps {
   /** Item to display */
@@ -45,9 +46,68 @@ function formatRelativeTime(timestamp: number): string {
 }
 
 /**
+ * Detect language from snippet name/filename
+ */
+function detectLanguage(name: string): string {
+  const ext = name.split('.').pop()?.toLowerCase() || 'text';
+  const langMap: Record<string, string> = {
+    'js': 'JavaScript',
+    'ts': 'TypeScript',
+    'jsx': 'JSX',
+    'tsx': 'TSX',
+    'py': 'Python',
+    'java': 'Java',
+    'cpp': 'C++',
+    'c': 'C',
+    'rs': 'Rust',
+    'go': 'Go',
+    'rb': 'Ruby',
+    'php': 'PHP',
+    'sql': 'SQL',
+    'html': 'HTML',
+    'css': 'CSS',
+    'scss': 'SCSS',
+    'json': 'JSON',
+    'yaml': 'YAML',
+    'yml': 'YAML',
+    'md': 'Markdown',
+    'sh': 'Shell',
+    'bash': 'Bash',
+    'xml': 'XML',
+  };
+  return langMap[ext] || 'Text';
+}
+
+/**
+ * Get snippet-specific metadata
+ */
+interface SnippetMetadata {
+  language: string;
+  lines: number;
+  size: string;
+}
+
+function getSnippetMetadata(item: Item): SnippetMetadata {
+  const language = detectLanguage(item.name);
+  const lines = (item.content ?? '').split('\n').length;
+  const bytes = new Blob([item.content ?? '']).size;
+
+  let size: string;
+  if (bytes < 1024) {
+    size = `${bytes}B`;
+  } else if (bytes < 1024 * 1024) {
+    size = `${(bytes / 1024).toFixed(1)}KB`;
+  } else {
+    size = `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+  }
+
+  return { language, lines, size };
+}
+
+/**
  * Get icon for item type
  */
-function getItemIcon(type: 'diagram' | 'document' | 'design' | 'spreadsheet'): React.ReactNode {
+function getItemIcon(type: 'diagram' | 'document' | 'design' | 'spreadsheet' | 'snippet'): React.ReactNode {
   if (type === 'diagram') {
     return (
       <svg
@@ -92,6 +152,22 @@ function getItemIcon(type: 'diagram' | 'document' | 'design' | 'spreadsheet'): R
       </svg>
     );
   }
+  if (type === 'snippet') {
+    return (
+      <svg
+        className="w-4 h-4"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        aria-hidden="true"
+      >
+        <polyline points="16 18 22 12 16 6" />
+        <polyline points="8 6 2 12 8 18" />
+      </svg>
+    );
+  }
+  // Default document icon
   return (
     <svg
       className="w-4 h-4"
@@ -117,7 +193,12 @@ export const ItemCard: React.FC<ItemCardProps> = ({
   showDelete,
 }) => {
   const relativeTime = formatRelativeTime(item.lastModified);
-  const typeLabel = item.type === 'diagram' ? 'Diagram' : item.type === 'design' ? 'Design' : item.type === 'spreadsheet' ? 'Spreadsheet' : 'Document';
+  const typeLabel = item.type === 'diagram' ? 'Diagram' : item.type === 'design' ? 'Design' : item.type === 'spreadsheet' ? 'Spreadsheet' : item.type === 'snippet' ? 'Snippet' : 'Document';
+
+  // Get snippet-specific metadata if this is a snippet
+  const snippetMetadata = useMemo(() => {
+    return isSnippet(item) ? getSnippetMetadata(item) : null;
+  }, [item]);
 
   return (
     <div
@@ -183,6 +264,13 @@ export const ItemCard: React.FC<ItemCardProps> = ({
           >
             {item.name}
           </h3>
+
+          {/* Snippet Metadata (language, lines, size) */}
+          {snippetMetadata && (
+            <p className="text-xs text-gray-500 dark:text-gray-400 truncate mt-1">
+              {snippetMetadata.language} &bull; {snippetMetadata.lines} lines &bull; {snippetMetadata.size}
+            </p>
+          )}
 
           {/* Type and Relative Time */}
           <p

@@ -2,7 +2,7 @@
  * API Client - HTTP fetch methods for communicating with the backend
  */
 
-import type { Session, Diagram, Document, CollabState, ProjectTodo } from '@/types';
+import type { Session, Diagram, Document, CollabState, ProjectTodo, Snippet } from '@/types';
 import type { TerminalSession, CreateSessionResult } from '@/types/terminal';
 import type { Design, Spreadsheet } from '@/stores/sessionStore';
 
@@ -78,6 +78,11 @@ export interface ApiClient {
   getSpreadsheet(project: string, session: string, id: string): Promise<Spreadsheet | null>;
   updateSpreadsheet(project: string, session: string, id: string, content: string): Promise<void>;
   deleteSpreadsheet(project: string, session: string, id: string): Promise<void>;
+  createSnippet(project: string, session: string, name: string, content: string): Promise<{ id: string; success: boolean }>;
+  getSnippets(project: string, session: string): Promise<Snippet[]>;
+  getSnippet(project: string, session: string, id: string): Promise<Snippet | null>;
+  updateSnippet(project: string, session: string, id: string, content: string): Promise<void>;
+  deleteSnippet(project: string, session: string, id: string): Promise<void>;
   getTodos(project: string): Promise<ProjectTodo[]>;
   addTodo(project: string, title: string, description: string): Promise<ProjectTodo>;
   updateTodo(project: string, id: number, updates: { title?: string }): Promise<ProjectTodo>;
@@ -568,6 +573,78 @@ export const api: ApiClient = {
    */
   async deleteSpreadsheet(project: string, session: string, id: string): Promise<void> {
     const url = `/api/spreadsheet/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const response = await fetch(url, { method: 'DELETE' });
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+  },
+
+  /**
+   * Create a new snippet
+   */
+  async createSnippet(project: string, session: string, name: string, content: string): Promise<{ id: string; success: boolean }> {
+    const url = `/api/snippet?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, content }),
+    });
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+    return response.json();
+  },
+
+  /**
+   * Fetch snippets for a specific session
+   */
+  async getSnippets(project: string, session: string): Promise<Snippet[]> {
+    const url = `/api/snippets?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+    const data = await response.json();
+    return data.snippets || [];
+  },
+
+  /**
+   * Fetch a single snippet with full content
+   */
+  async getSnippet(project: string, session: string, id: string): Promise<Snippet | null> {
+    const url = `/api/snippet/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const response = await fetch(url);
+    if (response.status === 404) {
+      return null;
+    }
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+    return response.json();
+  },
+
+  /**
+   * Update a snippet's content
+   */
+  async updateSnippet(project: string, session: string, id: string, content: string): Promise<void> {
+    const url = `/api/snippet/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ content }),
+    });
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+  },
+
+  /**
+   * Delete a snippet
+   */
+  async deleteSnippet(project: string, session: string, id: string): Promise<void> {
+    const url = `/api/snippet/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
     const response = await fetch(url, { method: 'DELETE' });
     if (!response.ok) {
       throw new Error(response.statusText);

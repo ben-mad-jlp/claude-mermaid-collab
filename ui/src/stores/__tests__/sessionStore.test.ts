@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useSessionStore, type SessionState } from '../sessionStore';
-import { Session, Diagram, Document, CollabState } from '../../types';
+import { Session, Diagram, Document, CollabState, Snippet } from '../../types';
 
 describe('useSessionStore', () => {
   beforeEach(() => {
@@ -40,6 +40,16 @@ describe('useSessionStore', () => {
   const createMockCollabState = (overrides?: Partial<CollabState>): CollabState => ({
     lastActivity: new Date().toISOString(),
     currentItem: 1,
+    ...overrides,
+  });
+
+  const createMockSnippet = (overrides?: Partial<Snippet>): Snippet => ({
+    id: 'snippet-1',
+    name: 'Test Snippet',
+    content: 'const x = 42;',
+    lastModified: Date.now(),
+    folder: 'snippets',
+    locked: false,
     ...overrides,
   });
 
@@ -800,6 +810,400 @@ describe('useSessionStore', () => {
       useSessionStore.getState().clearSession();
 
       expect(useSessionStore.getState().taskGraphSelected).toBe(false);
+    });
+  });
+
+  describe('Snippet Management', () => {
+    it('should add single snippet', () => {
+      const snippet = createMockSnippet();
+      useSessionStore.getState().addSnippet(snippet);
+      expect(useSessionStore.getState().snippets).toContainEqual(snippet);
+    });
+
+    it('should add multiple snippets', () => {
+      const snippet1 = createMockSnippet({ id: 'snippet-1' });
+      const snippet2 = createMockSnippet({ id: 'snippet-2' });
+      useSessionStore.getState().addSnippet(snippet1);
+      useSessionStore.getState().addSnippet(snippet2);
+
+      const snippets = useSessionStore.getState().snippets;
+      expect(snippets).toHaveLength(2);
+      expect(snippets).toContainEqual(snippet1);
+      expect(snippets).toContainEqual(snippet2);
+    });
+
+    it('should prevent duplicate snippets', () => {
+      const snippet = createMockSnippet();
+      useSessionStore.getState().addSnippet(snippet);
+      useSessionStore.getState().addSnippet(snippet);
+
+      expect(useSessionStore.getState().snippets).toHaveLength(1);
+    });
+
+    it('should set snippets array', () => {
+      const snippets = [
+        createMockSnippet({ id: 'snippet-1' }),
+        createMockSnippet({ id: 'snippet-2' }),
+      ];
+      useSessionStore.getState().setSnippets(snippets);
+
+      expect(useSessionStore.getState().snippets).toEqual(snippets);
+    });
+
+    it('should update snippet properties', () => {
+      const snippet = createMockSnippet();
+      useSessionStore.getState().addSnippet(snippet);
+
+      const newName = 'Updated Snippet';
+      useSessionStore.getState().updateSnippet(snippet.id, { name: newName });
+
+      const updated = useSessionStore.getState().snippets[0];
+      expect(updated.name).toBe(newName);
+      expect(updated.id).toBe(snippet.id);
+      expect(updated.content).toBe(snippet.content);
+    });
+
+    it('should update snippet content', () => {
+      const snippet = createMockSnippet();
+      useSessionStore.getState().addSnippet(snippet);
+
+      const newContent = 'const y = 100;';
+      useSessionStore.getState().updateSnippet(snippet.id, { content: newContent, lastModified: Date.now() });
+
+      const updated = useSessionStore.getState().snippets[0];
+      expect(updated.content).toBe(newContent);
+      expect(updated.id).toBe(snippet.id);
+    });
+
+    it('should remove snippet by id', () => {
+      const snippet1 = createMockSnippet({ id: 'snippet-1' });
+      const snippet2 = createMockSnippet({ id: 'snippet-2' });
+      useSessionStore.getState().addSnippet(snippet1);
+      useSessionStore.getState().addSnippet(snippet2);
+
+      useSessionStore.getState().removeSnippet('snippet-1');
+
+      const snippets = useSessionStore.getState().snippets;
+      expect(snippets).toHaveLength(1);
+      expect(snippets[0].id).toBe('snippet-2');
+    });
+
+    it('should clear snippet selection when removing selected snippet', () => {
+      const snippet = createMockSnippet();
+      useSessionStore.getState().addSnippet(snippet);
+      useSessionStore.getState().selectSnippet(snippet.id);
+
+      expect(useSessionStore.getState().selectedSnippetId).toBe(snippet.id);
+
+      useSessionStore.getState().removeSnippet(snippet.id);
+      expect(useSessionStore.getState().selectedSnippetId).toBeNull();
+    });
+
+    it('should clear selected snippet if not in new list when setting snippets', () => {
+      const snippet1 = createMockSnippet({ id: 'snippet-1' });
+      const snippet2 = createMockSnippet({ id: 'snippet-2' });
+      useSessionStore.getState().addSnippet(snippet1);
+      useSessionStore.getState().selectSnippet('snippet-1');
+
+      useSessionStore.getState().setSnippets([snippet2]);
+      expect(useSessionStore.getState().selectedSnippetId).toBeNull();
+    });
+  });
+
+  describe('Snippet Selection', () => {
+    it('should select snippet by id', () => {
+      const snippet = createMockSnippet();
+      useSessionStore.getState().addSnippet(snippet);
+      useSessionStore.getState().selectSnippet(snippet.id);
+
+      expect(useSessionStore.getState().selectedSnippetId).toBe(snippet.id);
+    });
+
+    it('should clear snippet selection with null', () => {
+      const snippet = createMockSnippet();
+      useSessionStore.getState().addSnippet(snippet);
+      useSessionStore.getState().selectSnippet(snippet.id);
+      useSessionStore.getState().selectSnippet(null);
+
+      expect(useSessionStore.getState().selectedSnippetId).toBeNull();
+    });
+
+    it('should not select non-existent snippet', () => {
+      useSessionStore.getState().selectSnippet('non-existent');
+      expect(useSessionStore.getState().selectedSnippetId).toBeNull();
+    });
+
+    it('should get selected snippet', () => {
+      const snippet = createMockSnippet();
+      useSessionStore.getState().addSnippet(snippet);
+      useSessionStore.getState().selectSnippet(snippet.id);
+
+      const selected = useSessionStore.getState().getSelectedSnippet();
+      expect(selected).toEqual(snippet);
+    });
+
+    it('should return undefined if no snippet selected', () => {
+      const selected = useSessionStore.getState().getSelectedSnippet();
+      expect(selected).toBeUndefined();
+    });
+
+    it('should switch snippet selection', () => {
+      const snippet1 = createMockSnippet({ id: 'snippet-1' });
+      const snippet2 = createMockSnippet({ id: 'snippet-2' });
+      useSessionStore.getState().addSnippet(snippet1);
+      useSessionStore.getState().addSnippet(snippet2);
+
+      useSessionStore.getState().selectSnippet('snippet-1');
+      expect(useSessionStore.getState().selectedSnippetId).toBe('snippet-1');
+
+      useSessionStore.getState().selectSnippet('snippet-2');
+      expect(useSessionStore.getState().selectedSnippetId).toBe('snippet-2');
+    });
+
+    it('should clear other selections when selecting snippet', () => {
+      const diagram = createMockDiagram();
+      const document = createMockDocument();
+      const snippet = createMockSnippet();
+
+      useSessionStore.getState().addDiagram(diagram);
+      useSessionStore.getState().addDocument(document);
+      useSessionStore.getState().addSnippet(snippet);
+
+      useSessionStore.getState().selectDiagram(diagram.id);
+      expect(useSessionStore.getState().selectedDiagramId).toBe(diagram.id);
+
+      useSessionStore.getState().selectSnippet(snippet.id);
+
+      const state = useSessionStore.getState();
+      expect(state.selectedSnippetId).toBe(snippet.id);
+      expect(state.selectedDiagramId).toBeNull();
+      expect(state.selectedDocumentId).toBeNull();
+    });
+  });
+
+  describe('Snippet Bulk Operations', () => {
+    it('should replace all snippets with setSnippets', () => {
+      const snippet1 = createMockSnippet({ id: 'snippet-1' });
+      useSessionStore.getState().addSnippet(snippet1);
+
+      const newSnippets = [
+        createMockSnippet({ id: 'snippet-2', name: 'New Snippet 1' }),
+        createMockSnippet({ id: 'snippet-3', name: 'New Snippet 2' }),
+      ];
+      useSessionStore.getState().setSnippets(newSnippets);
+
+      const state = useSessionStore.getState();
+      expect(state.snippets).toEqual(newSnippets);
+      expect(state.snippets).toHaveLength(2);
+      expect(state.snippets[0].id).toBe('snippet-2');
+    });
+
+    it('should handle empty snippets array', () => {
+      const snippet = createMockSnippet();
+      useSessionStore.getState().addSnippet(snippet);
+
+      useSessionStore.getState().setSnippets([]);
+      expect(useSessionStore.getState().snippets).toEqual([]);
+    });
+
+    it('should preserve snippet content during bulk operations', () => {
+      const content = 'function test() {\n  return 42;\n}';
+      const snippet = createMockSnippet({ content });
+      const snippets = [snippet];
+
+      useSessionStore.getState().setSnippets(snippets);
+
+      const state = useSessionStore.getState();
+      expect(state.snippets[0].content).toBe(content);
+    });
+  });
+
+  describe('Snippet Integration with Session Lifecycle', () => {
+    it('should clear snippets when session changes', () => {
+      const snippet = createMockSnippet();
+      useSessionStore.getState().addSnippet(snippet);
+      expect(useSessionStore.getState().snippets).toHaveLength(1);
+
+      const session = createMockSession();
+      useSessionStore.getState().setCurrentSession(session);
+
+      expect(useSessionStore.getState().snippets).toEqual([]);
+      expect(useSessionStore.getState().selectedSnippetId).toBeNull();
+    });
+
+    it('should clear snippets when clearing session', () => {
+      const snippet = createMockSnippet();
+      useSessionStore.getState().addSnippet(snippet);
+      useSessionStore.getState().selectSnippet(snippet.id);
+
+      useSessionStore.getState().clearSession();
+
+      expect(useSessionStore.getState().snippets).toEqual([]);
+      expect(useSessionStore.getState().selectedSnippetId).toBeNull();
+    });
+
+    it('should initialize snippets as empty array on reset', () => {
+      const snippet = createMockSnippet();
+      useSessionStore.getState().addSnippet(snippet);
+
+      useSessionStore.getState().reset();
+
+      expect(useSessionStore.getState().snippets).toEqual([]);
+      expect(useSessionStore.getState().selectedSnippetId).toBeNull();
+    });
+
+    it('should clear snippets when selecting todos', () => {
+      const snippet = createMockSnippet();
+      useSessionStore.getState().addSnippet(snippet);
+      useSessionStore.getState().selectSnippet(snippet.id);
+
+      useSessionStore.getState().selectTodos('test-project');
+
+      expect(useSessionStore.getState().snippets).toEqual([]);
+      expect(useSessionStore.getState().selectedSnippetId).toBeNull();
+    });
+  });
+
+  describe('Snippet with Metadata', () => {
+    it('should preserve snippet folder information', () => {
+      const snippet = createMockSnippet({ folder: 'utils' });
+      useSessionStore.getState().addSnippet(snippet);
+
+      const stored = useSessionStore.getState().snippets[0];
+      expect(stored.folder).toBe('utils');
+    });
+
+    it('should preserve snippet locked status', () => {
+      const snippet = createMockSnippet({ locked: true });
+      useSessionStore.getState().addSnippet(snippet);
+
+      const stored = useSessionStore.getState().snippets[0];
+      expect(stored.locked).toBe(true);
+    });
+
+    it('should update snippet timestamp', () => {
+      const snippet = createMockSnippet();
+      useSessionStore.getState().addSnippet(snippet);
+
+      const newTimestamp = Date.now() + 10000;
+      useSessionStore.getState().updateSnippet(snippet.id, { lastModified: newTimestamp });
+
+      const updated = useSessionStore.getState().snippets[0];
+      expect(updated.lastModified).toBe(newTimestamp);
+    });
+  });
+
+  describe('Store API - Snippet Methods', () => {
+    it('should have snippet methods in store', () => {
+      const state = useSessionStore.getState();
+      expect(typeof state.setSnippets).toBe('function');
+      expect(typeof state.addSnippet).toBe('function');
+      expect(typeof state.updateSnippet).toBe('function');
+      expect(typeof state.removeSnippet).toBe('function');
+      expect(typeof state.selectSnippet).toBe('function');
+      expect(typeof state.getSelectedSnippet).toBe('function');
+    });
+
+    it('should have snippet state properties', () => {
+      const state = useSessionStore.getState();
+      expect(state).toHaveProperty('snippets');
+      expect(state).toHaveProperty('selectedSnippetId');
+    });
+  });
+
+  describe('Complex Snippet Scenarios', () => {
+    it('should handle multiple snippet CRUD operations in sequence', () => {
+      const snippet1 = createMockSnippet({ id: 'snippet-1', name: 'First' });
+      const snippet2 = createMockSnippet({ id: 'snippet-2', name: 'Second' });
+      const snippet3 = createMockSnippet({ id: 'snippet-3', name: 'Third' });
+
+      // Add three snippets
+      useSessionStore.getState().addSnippet(snippet1);
+      useSessionStore.getState().addSnippet(snippet2);
+      useSessionStore.getState().addSnippet(snippet3);
+      expect(useSessionStore.getState().snippets).toHaveLength(3);
+
+      // Update one
+      useSessionStore.getState().updateSnippet('snippet-2', { name: 'Updated Second' });
+      expect(useSessionStore.getState().snippets[1].name).toBe('Updated Second');
+
+      // Select it
+      useSessionStore.getState().selectSnippet('snippet-2');
+      expect(useSessionStore.getState().selectedSnippetId).toBe('snippet-2');
+
+      // Remove another
+      useSessionStore.getState().removeSnippet('snippet-1');
+      expect(useSessionStore.getState().snippets).toHaveLength(2);
+
+      // Selection still valid
+      expect(useSessionStore.getState().selectedSnippetId).toBe('snippet-2');
+    });
+
+    it('should handle snippet bulk replace with selection clearing', () => {
+      const initial = [
+        createMockSnippet({ id: 'snippet-1' }),
+        createMockSnippet({ id: 'snippet-2' }),
+      ];
+      useSessionStore.getState().setSnippets(initial);
+      useSessionStore.getState().selectSnippet('snippet-1');
+
+      const replacement = [
+        createMockSnippet({ id: 'snippet-3' }),
+        createMockSnippet({ id: 'snippet-4' }),
+      ];
+      useSessionStore.getState().setSnippets(replacement);
+
+      const state = useSessionStore.getState();
+      expect(state.snippets).toEqual(replacement);
+      expect(state.selectedSnippetId).toBeNull(); // Selection cleared since snippet-1 no longer exists
+    });
+
+    it('should maintain snippet state across multiple selections', () => {
+      const snippets = [
+        createMockSnippet({ id: 'snippet-1', name: 'First' }),
+        createMockSnippet({ id: 'snippet-2', name: 'Second' }),
+        createMockSnippet({ id: 'snippet-3', name: 'Third' }),
+      ];
+      useSessionStore.getState().setSnippets(snippets);
+
+      // Select first
+      useSessionStore.getState().selectSnippet('snippet-1');
+      let selected = useSessionStore.getState().getSelectedSnippet();
+      expect(selected?.name).toBe('First');
+
+      // Select second
+      useSessionStore.getState().selectSnippet('snippet-2');
+      selected = useSessionStore.getState().getSelectedSnippet();
+      expect(selected?.name).toBe('Second');
+
+      // Select third
+      useSessionStore.getState().selectSnippet('snippet-3');
+      selected = useSessionStore.getState().getSelectedSnippet();
+      expect(selected?.name).toBe('Third');
+
+      // All snippets still there
+      expect(useSessionStore.getState().snippets).toHaveLength(3);
+    });
+
+    it('should handle concurrent snippet operations correctly', () => {
+      const snippet1 = createMockSnippet({ id: 'snippet-1' });
+      const snippet2 = createMockSnippet({ id: 'snippet-2' });
+
+      useSessionStore.getState().addSnippet(snippet1);
+      useSessionStore.getState().addSnippet(snippet2);
+      useSessionStore.getState().selectSnippet('snippet-1');
+
+      // Update selected snippet
+      useSessionStore.getState().updateSnippet('snippet-1', { content: 'updated' });
+
+      // Add another
+      const snippet3 = createMockSnippet({ id: 'snippet-3' });
+      useSessionStore.getState().addSnippet(snippet3);
+
+      const state = useSessionStore.getState();
+      expect(state.snippets).toHaveLength(3);
+      expect(state.selectedSnippetId).toBe('snippet-1');
+      expect(state.snippets[0].content).toBe('updated');
     });
   });
 });

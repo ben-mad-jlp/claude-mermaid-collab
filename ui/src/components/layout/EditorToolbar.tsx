@@ -73,7 +73,7 @@ export interface EditorToolbarProps {
   /** Whether there are proposals to manage */
   hasProposals?: boolean;
   /** Type of item being edited (for context-specific actions) */
-  itemType?: 'diagram' | 'document' | 'design' | 'spreadsheet';
+  itemType?: 'diagram' | 'document' | 'design' | 'spreadsheet' | 'snippet';
   /** Callback for rotate/direction toggle action */
   onRotate?: () => void;
   /** Whether rotate is enabled (true for diagrams only) */
@@ -96,6 +96,8 @@ export interface EditorToolbarProps {
   onClearHistoryDiff?: () => void;
   /** Callback when history diff settings change */
   onHistorySettingsChange?: (viewMode: 'inline' | 'side-by-side', compareMode: 'vs-current' | 'vs-previous') => void;
+  /** Callback for copy snippet to clipboard action */
+  onCopySnippet?: () => void;
 }
 
 /**
@@ -138,6 +140,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   historyDiff,
   onClearHistoryDiff,
   onHistorySettingsChange,
+  onCopySnippet,
 }) => {
   const [isOverflowOpen, setIsOverflowOpen] = useState(false);
   const overflowRef = useRef<HTMLDivElement>(null);
@@ -272,6 +275,30 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
       });
     }
 
+    // Add copy action (snippet only)
+    if (itemType === 'snippet' && onCopySnippet) {
+      actions.push({
+        id: 'copy-snippet',
+        label: 'Copy Code',
+        icon: (
+          <svg
+            className="w-4 h-4"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+            <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+          </svg>
+        ),
+        onClick: () => onCopySnippet?.(),
+        disabled: false,
+      });
+    }
+
     // Add collaboration section (if hasProposals is defined)
     if (hasProposals !== undefined) {
       // Add comment button
@@ -370,7 +397,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
     }
 
     return actions;
-  }, [overflowActions, canExport, onExportSVG, onExportPNG, canFormat, itemType, onFormat, hasProposals, onAddComment, onApproveAll, onRejectAll, onClearProposals]);
+  }, [overflowActions, canExport, onExportSVG, onExportPNG, canFormat, itemType, onFormat, hasProposals, onAddComment, onApproveAll, onRejectAll, onClearProposals, onCopySnippet]);
 
   const finalActions = allActions();
 
@@ -428,7 +455,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           currentContent={documentContent || ''}
           onVersionSelect={onHistoryVersionSelect}
         />
-      ) : (
+      ) : itemType !== 'snippet' ? (
         <>
           {/* Undo Button */}
           <button
@@ -512,7 +539,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             />
           )}
         </>
-      )}
+      ) : null}
 
       {/* Divider after history/undo-redo controls */}
       <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
@@ -547,10 +574,10 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
       <div className="flex-1" />
 
       {/* Divider before zoom controls */}
-      {showZoom && <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />}
+      {showZoom && itemType !== 'snippet' && <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />}
 
-      {/* Zoom Controls (hidden for documents) */}
-      {showZoom && (
+      {/* Zoom Controls (hidden for documents and snippets) */}
+      {showZoom && itemType !== 'snippet' && (
         <>
           {/* Zoom Out Button */}
           <button

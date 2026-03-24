@@ -1,9 +1,14 @@
 /**
  * UnifiedEditor Component
  *
- * A unified editor that combines diagram and document editing capabilities:
- * - Automatically detects item type (diagram or document) and renders appropriate preview
- * - Split pane layout with CodeMirror editor and live preview
+ * A unified editor that handles all artifact types:
+ * - Diagrams: Renders with CodeMirror + MermaidPreview in split pane
+ * - Documents: Renders with CodeMirror + MarkdownPreview in split pane
+ * - Snippets: Delegates to SnippetEditor for full-width code editing
+ * - Designs: Delegates to DesignEditor for visual design editing
+ * - Spreadsheets: Delegates to SpreadsheetEditor for tabular data editing
+ * - Automatically detects item type and renders appropriate editor
+ * - Split pane layout with CodeMirror editor and live preview (diagrams/documents)
  * - Supports toggling between raw/preview and preview-only modes
  * - Persists split position via uiStore
  * - Placeholder state when no item is selected
@@ -12,8 +17,8 @@
  * - Integrates Mermaid syntax formatting
  * - Integrates collaborative proposal/comment system
  *
- * This component provides a single editing interface for both Mermaid diagrams
- * and Markdown documents, reducing code duplication and simplifying the UI.
+ * This component provides a unified editing interface for all artifact types,
+ * reducing code duplication and simplifying the UI.
  */
 
 import React, { useCallback, useRef, useMemo } from 'react';
@@ -24,7 +29,7 @@ import { MermaidPreview, MermaidPreviewRef } from '@/components/editors/MermaidP
 import { MarkdownPreview } from '@/components/editors/MarkdownPreview';
 import { DiffView } from '@/components/ai-ui/display/DiffView';
 import { DiagramHistoryPreview } from '@/components/editors/DiagramHistoryPreview';
-import { Item } from '@/types';
+import { Item, isDiagram, isDocument, isDesign, isSpreadsheet, isSnippet } from '@/types';
 import { useUIStore } from '@/stores/uiStore';
 import { useEditorHistory } from '@/hooks/useEditorHistory';
 import { useExportDiagram } from '@/hooks/useExportDiagram';
@@ -32,6 +37,7 @@ import { useProposalStore } from '@/stores/proposalStore';
 import { formatMermaid, canFormat } from '@/lib/mermaidFormatter';
 import { DesignEditor } from '@/components/design-editor/DesignEditor';
 import { SpreadsheetEditor } from '@/components/editors/SpreadsheetEditor';
+import { SnippetEditor } from '@/components/editors/SnippetEditor';
 
 /**
  * Props for the UnifiedEditor component
@@ -85,16 +91,21 @@ export interface UnifiedEditorProps {
   onDesignRevert?: () => void;
   /** Callback to clear design history preview */
   onClearDesignHistoryPreview?: () => void;
+  /** Callback when snippet is saved */
+  onSnippetSave?: (id: string, content: string) => void;
 }
 
 /**
  * UnifiedEditor Component
  *
- * Combines diagram and document editing into a single component that:
+ * Unified editor for all artifact types:
  * - Shows a placeholder when no item is selected
- * - Renders CodeMirror + preview in split pane when editMode is true
- * - Renders full-width preview when editMode is false
- * - Automatically selects MermaidPreview or MarkdownPreview based on item type
+ * - For diagrams/documents: Renders CodeMirror + preview in split pane when editMode is true
+ * - For snippets: Delegates to SnippetEditor with full-width layout
+ * - For designs: Delegates to DesignEditor with full-width layout
+ * - For spreadsheets: Delegates to SpreadsheetEditor with full-width layout
+ * - Renders full-width preview when editMode is false (diagrams/documents)
+ * - Automatically selects appropriate editor based on item type
  *
  * @example
  * ```tsx
@@ -137,6 +148,7 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
   designHistoryPreview,
   onDesignRevert,
   onClearDesignHistoryPreview,
+  onSnippetSave,
 }) => {
   const { editorSplitPosition, setEditorSplitPosition } = useUIStore();
 
@@ -252,6 +264,24 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
     return (
       <div className="flex-1 flex flex-col h-full">
         <SpreadsheetEditor key={item.id} spreadsheetId={item.id} />
+      </div>
+    );
+  }
+
+  // Snippet items render with SnippetEditor
+  if (item.type === 'snippet') {
+    return (
+      <div className="flex-1 flex flex-col h-full" data-testid="unified-editor-snippet">
+        <SnippetEditor
+          key={item.id}
+          snippetId={item.id}
+          onSave={(snippet) => {
+            if (onSnippetSave) {
+              onSnippetSave(snippet.id, snippet.content);
+            }
+          }}
+          onChange={onContentChange}
+        />
       </div>
     );
   }

@@ -6,11 +6,13 @@ import { tmpdir } from 'os';
 import { handleAPI } from './api';
 import { DiagramManager } from '../services/diagram-manager';
 import { DocumentManager } from '../services/document-manager';
+import { SnippetManager } from '../services/snippet-manager';
 import { MetadataManager } from '../services/metadata-manager';
 import { Validator } from '../services/validator';
 import { Renderer } from '../services/renderer';
 import { WebSocketHandler } from '../websocket/handler';
 import { ProjectRegistry, projectRegistry } from '../services/project-registry';
+import { sessionRegistry } from '../services/session-registry';
 import { uiManager, type UIResponse } from '../services/ui-manager';
 
 describe('API Projects Endpoints', () => {
@@ -504,6 +506,286 @@ describe('API Projects Endpoints', () => {
         expect(response.status).toBe(404);
         const data = await response.json();
         expect(data.error).toContain('not found');
+      });
+    });
+  });
+
+  describe('Snippet API Endpoints', () => {
+    let testRegistryPath: string;
+    let testProjectPath: string;
+    let mockValidator: Validator;
+    let mockRenderer: Renderer;
+    let mockWSHandler: WebSocketHandler;
+
+    beforeEach(async () => {
+      testRegistryPath = join(tmpdir(), `test-api-snippets-${Date.now()}.json`);
+      Object.defineProperty(projectRegistry, 'registryPath', {
+        value: testRegistryPath,
+        writable: true,
+        configurable: true,
+      });
+
+      testProjectPath = join(tmpdir(), `test-api-snippet-project-${Date.now()}`);
+      await mkdir(testProjectPath, { recursive: true });
+
+      // Create snippet session directory
+      const sessionPath = join(testProjectPath, '.collab', 'test-session');
+      await mkdir(sessionPath, { recursive: true });
+      const snippetsPath = join(sessionPath, 'snippets');
+      await mkdir(snippetsPath, { recursive: true });
+
+      // Register project and session
+      await projectRegistry.register(testProjectPath);
+      await sessionRegistry.register(testProjectPath, 'test-session');
+
+      mockValidator = {} as Validator;
+      mockRenderer = {} as Renderer;
+      mockWSHandler = {
+        broadcast: vi.fn(),
+        getConnectionCount: () => 1,
+      } as any;
+    });
+
+    afterEach(async () => {
+      if (fs.existsSync(testRegistryPath)) {
+        await rm(testRegistryPath, { force: true });
+      }
+      if (fs.existsSync(testProjectPath)) {
+        await rm(testProjectPath, { recursive: true, force: true });
+      }
+    });
+
+    describe('POST /api/snippet (create)', () => {
+      it('should require project and session query params', async () => {
+        const req = new Request('http://localhost/api/snippet', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'test', content: '{}' }),
+        });
+        const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
+
+        expect(response.status).toBe(400);
+        const data = await response.json();
+        expect(data.error).toContain('project and session');
+      });
+
+      it('should require name and content fields', async () => {
+        const req = new Request(`http://localhost/api/snippet?project=${encodeURIComponent(testProjectPath)}&session=test-session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'test' }),
+        });
+        const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
+
+        expect(response.status).toBe(400);
+        const data = await response.json();
+        expect(data.error).toContain('Name and content');
+      });
+
+      it('should create a snippet successfully', async () => {
+        const req = new Request(`http://localhost/api/snippet?project=${encodeURIComponent(testProjectPath)}&session=test-session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'test-snippet', content: 'console.log("test");' }),
+        });
+        const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
+
+        expect(response.status).toBe(200);
+        const data = await response.json();
+        expect(data.success).toBe(true);
+        expect(data.id).toBeDefined();
+        expect(mockWSHandler.broadcast).toHaveBeenCalled();
+      });
+    });
+
+    describe('GET /api/snippets (list)', () => {
+      it('should require project and session query params', async () => {
+        const req = new Request('http://localhost/api/snippets', { method: 'GET' });
+        const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
+
+        expect(response.status).toBe(400);
+        const data = await response.json();
+        expect(data.error).toContain('project and session');
+      });
+
+      it('should return empty list when no snippets exist', async () => {
+        const req = new Request(`http://localhost/api/snippets?project=${encodeURIComponent(testProjectPath)}&session=test-session`, {
+          method: 'GET',
+        });
+        const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
+
+        expect(response.status).toBe(200);
+        const data = await response.json();
+        expect(data.snippets).toEqual([]);
+      });
+
+      it('should list created snippets', async () => {
+        // Create a snippet first
+        const createReq = new Request(`http://localhost/api/snippet?project=${encodeURIComponent(testProjectPath)}&session=test-session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'test-snippet', content: 'console.log("test");' }),
+        });
+        await handleAPI(createReq, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
+
+        // List snippets
+        const listReq = new Request(`http://localhost/api/snippets?project=${encodeURIComponent(testProjectPath)}&session=test-session`, {
+          method: 'GET',
+        });
+        const response = await handleAPI(listReq, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
+
+        expect(response.status).toBe(200);
+        const data = await response.json();
+        expect(Array.isArray(data.snippets)).toBe(true);
+        expect(data.snippets.length).toBe(1);
+        expect(data.snippets[0].id).toBe('test-snippet');
+      });
+    });
+
+    describe('GET /api/snippet/:id (get)', () => {
+      it('should require project and session query params', async () => {
+        const req = new Request('http://localhost/api/snippet/test', { method: 'GET' });
+        const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
+
+        expect(response.status).toBe(400);
+        const data = await response.json();
+        expect(data.error).toContain('project and session');
+      });
+
+      it('should return 404 for non-existent snippet', async () => {
+        const req = new Request(`http://localhost/api/snippet/nonexistent?project=${encodeURIComponent(testProjectPath)}&session=test-session`, {
+          method: 'GET',
+        });
+        const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
+
+        expect(response.status).toBe(404);
+        const data = await response.json();
+        expect(data.error).toContain('not found');
+      });
+
+      it('should retrieve a snippet by id', async () => {
+        // Create a snippet first
+        const createReq = new Request(`http://localhost/api/snippet?project=${encodeURIComponent(testProjectPath)}&session=test-session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'test-snippet', content: 'console.log("test");' }),
+        });
+        await handleAPI(createReq, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
+
+        // Get the snippet
+        const getReq = new Request(`http://localhost/api/snippet/test-snippet?project=${encodeURIComponent(testProjectPath)}&session=test-session`, {
+          method: 'GET',
+        });
+        const response = await handleAPI(getReq, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
+
+        expect(response.status).toBe(200);
+        const data = await response.json();
+        expect(data.id).toBe('test-snippet');
+        expect(data.content).toBe('console.log("test");');
+        expect(data.lastModified).toBeDefined();
+      });
+    });
+
+    describe('POST /api/snippet/:id (update)', () => {
+      it('should require project and session query params', async () => {
+        const req = new Request('http://localhost/api/snippet/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: 'updated' }),
+        });
+        const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
+
+        expect(response.status).toBe(400);
+        const data = await response.json();
+        expect(data.error).toContain('project and session');
+      });
+
+      it('should require content field', async () => {
+        const createReq = new Request(`http://localhost/api/snippet?project=${encodeURIComponent(testProjectPath)}&session=test-session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'test-snippet', content: 'original' }),
+        });
+        await handleAPI(createReq, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
+
+        const updateReq = new Request(`http://localhost/api/snippet/test-snippet?project=${encodeURIComponent(testProjectPath)}&session=test-session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+        const response = await handleAPI(updateReq, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
+
+        expect(response.status).toBe(400);
+        const data = await response.json();
+        expect(data.error).toContain('Content');
+      });
+
+      it('should update snippet content', async () => {
+        // Create a snippet first
+        const createReq = new Request(`http://localhost/api/snippet?project=${encodeURIComponent(testProjectPath)}&session=test-session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'test-snippet', content: 'original' }),
+        });
+        await handleAPI(createReq, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
+
+        // Update the snippet
+        const updateReq = new Request(`http://localhost/api/snippet/test-snippet?project=${encodeURIComponent(testProjectPath)}&session=test-session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: 'updated content' }),
+        });
+        const response = await handleAPI(updateReq, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
+
+        expect(response.status).toBe(200);
+        const data = await response.json();
+        expect(data.success).toBe(true);
+
+        // Verify the update
+        const getReq = new Request(`http://localhost/api/snippet/test-snippet?project=${encodeURIComponent(testProjectPath)}&session=test-session`, {
+          method: 'GET',
+        });
+        const getResponse = await handleAPI(getReq, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
+        const getData = await getResponse.json();
+        expect(getData.content).toBe('updated content');
+      });
+    });
+
+    describe('DELETE /api/snippet/:id (delete)', () => {
+      it('should require project and session query params', async () => {
+        const req = new Request('http://localhost/api/snippet/test', { method: 'DELETE' });
+        const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
+
+        expect(response.status).toBe(400);
+        const data = await response.json();
+        expect(data.error).toContain('project and session');
+      });
+
+      it('should delete a snippet', async () => {
+        // Create a snippet first
+        const createReq = new Request(`http://localhost/api/snippet?project=${encodeURIComponent(testProjectPath)}&session=test-session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'test-snippet', content: 'content' }),
+        });
+        await handleAPI(createReq, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
+
+        // Delete the snippet
+        const deleteReq = new Request(`http://localhost/api/snippet/test-snippet?project=${encodeURIComponent(testProjectPath)}&session=test-session`, {
+          method: 'DELETE',
+        });
+        const response = await handleAPI(deleteReq, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
+
+        expect(response.status).toBe(200);
+        const data = await response.json();
+        expect(data.success).toBe(true);
+
+        // Verify deletion
+        const getReq = new Request(`http://localhost/api/snippet/test-snippet?project=${encodeURIComponent(testProjectPath)}&session=test-session`, {
+          method: 'GET',
+        });
+        const getResponse = await handleAPI(getReq, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
+        expect(getResponse.status).toBe(404);
       });
     });
   });

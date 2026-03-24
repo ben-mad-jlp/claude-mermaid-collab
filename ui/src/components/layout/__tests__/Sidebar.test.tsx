@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
-import { vi } from 'vitest';
+import { vi, beforeEach, afterEach } from 'vitest';
 import { Sidebar } from '../Sidebar';
 import * as useSessionStoreModule from '@/stores/sessionStore';
 import * as useDataLoaderModule from '@/hooks/useDataLoader';
@@ -15,6 +15,39 @@ describe('Sidebar', () => {
   // Mock the data loader hook
   const mockUseDataLoader = vi.spyOn(useDataLoaderModule, 'useDataLoader');
 
+  // Helper to create mock session store state
+  const createMockState = (overrides: any = {}) => ({
+    diagrams: [],
+    documents: [],
+    designs: [],
+    spreadsheets: [],
+    snippets: [],
+    selectedDiagramId: null,
+    selectedDocumentId: null,
+    selectedDesignId: null,
+    selectedSpreadsheetId: null,
+    selectedSnippetId: null,
+    taskGraphSelected: false,
+    selectTaskGraph: vi.fn(),
+    removeDiagram: vi.fn(),
+    removeDocument: vi.fn(),
+    removeDesign: vi.fn(),
+    removeSpreadsheet: vi.fn(),
+    removeSnippet: vi.fn(),
+    selectSnippet: vi.fn(),
+    todosSelected: false,
+    todosProject: null,
+    todos: [],
+    selectedTodoId: null,
+    selectTodo: vi.fn(),
+    removeTodo: vi.fn(),
+    setTodos: vi.fn(),
+    addTodo: vi.fn(),
+    collabState: null,
+    currentSession: null,
+    ...overrides,
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
 
@@ -23,6 +56,7 @@ describe('Sidebar', () => {
       selectDiagramWithContent: vi.fn(),
       selectDocumentWithContent: vi.fn(),
       selectDesignWithContent: vi.fn(),
+      selectSpreadsheetWithContent: vi.fn(),
       isLoading: false,
     } as any);
   });
@@ -36,13 +70,7 @@ describe('Sidebar', () => {
    */
   it('should not render SessionStatusPanel', () => {
     mockUseSessionStore.mockImplementation((selector) =>
-      selector({
-        diagrams: [],
-        documents: [],
-        designs: [],
-        selectedDiagramId: null,
-        selectedDocumentId: null,
-        selectedDesignId: null,
+      selector(createMockState({
         currentSession: { project: '/test', name: 'test-session' } as any,
         collabState: {
           state: 'execute-batch',
@@ -51,7 +79,7 @@ describe('Sidebar', () => {
           completedTasks: [],
           pendingTasks: ['task-1'],
         } as any,
-      } as any)
+      }))
     );
 
     const { container } = render(
@@ -70,15 +98,9 @@ describe('Sidebar', () => {
    */
   it('should render search input', () => {
     mockUseSessionStore.mockImplementation((selector) =>
-      selector({
-        diagrams: [],
-        documents: [],
-        designs: [],
-        selectedDiagramId: null,
-        selectedDocumentId: null,
-        selectedDesignId: null,
+      selector(createMockState({
         currentSession: { project: '/test', name: 'test-session' } as any,
-      } as any)
+      }))
     );
 
     render(
@@ -97,15 +119,9 @@ describe('Sidebar', () => {
    */
   it('should render Kodex link', () => {
     mockUseSessionStore.mockImplementation((selector) =>
-      selector({
-        diagrams: [],
-        documents: [],
-        designs: [],
-        selectedDiagramId: null,
-        selectedDocumentId: null,
-        selectedDesignId: null,
+      selector(createMockState({
         currentSession: { project: '/test', name: 'test-session' } as any,
-      } as any)
+      }))
     );
 
     render(
@@ -124,15 +140,9 @@ describe('Sidebar', () => {
    */
   it('should show empty state when no session is selected', () => {
     mockUseSessionStore.mockImplementation((selector) =>
-      selector({
-        diagrams: [],
-        documents: [],
-        designs: [],
-        selectedDiagramId: null,
-        selectedDocumentId: null,
-        selectedDesignId: null,
+      selector(createMockState({
         currentSession: null,
-      } as any)
+      }))
     );
 
     render(
@@ -149,15 +159,9 @@ describe('Sidebar', () => {
    */
   it('should have sidebar data-testid', () => {
     mockUseSessionStore.mockImplementation((selector) =>
-      selector({
-        diagrams: [],
-        documents: [],
-        designs: [],
-        selectedDiagramId: null,
-        selectedDocumentId: null,
-        selectedDesignId: null,
+      selector(createMockState({
         currentSession: { project: '/test', name: 'test-session' } as any,
-      } as any)
+      }))
     );
 
     render(
@@ -174,15 +178,9 @@ describe('Sidebar', () => {
    */
   it('should have proper flex layout structure', () => {
     mockUseSessionStore.mockImplementation((selector) =>
-      selector({
-        diagrams: [],
-        documents: [],
-        designs: [],
-        selectedDiagramId: null,
-        selectedDocumentId: null,
-        selectedDesignId: null,
+      selector(createMockState({
         currentSession: { project: '/test', name: 'test-session' } as any,
-      } as any)
+      }))
     );
 
     const { container } = render(
@@ -201,18 +199,11 @@ describe('Sidebar', () => {
   describe('Task Graph Entry', () => {
     it('should show Task Graph entry when in execute-batch state', () => {
       mockUseSessionStore.mockImplementation((selector) =>
-        selector({
-          diagrams: [],
-          documents: [],
-          designs: [],
-          selectedDiagramId: null,
-          selectedDocumentId: null,
-          selectedDesignId: null,
+        selector(createMockState({
           taskGraphSelected: false,
           currentSession: { project: '/test', name: 'test-session' } as any,
           collabState: { state: 'execute-batch' } as any,
-          selectTaskGraph: vi.fn(),
-        } as any)
+        }))
       );
 
       render(
@@ -227,18 +218,11 @@ describe('Sidebar', () => {
 
     it('should show Task Graph entry when in ready-to-implement state', () => {
       mockUseSessionStore.mockImplementation((selector) =>
-        selector({
-          diagrams: [],
-          documents: [],
-          designs: [],
-          selectedDiagramId: null,
-          selectedDocumentId: null,
-          selectedDesignId: null,
+        selector(createMockState({
           taskGraphSelected: false,
           currentSession: { project: '/test', name: 'test-session' } as any,
           collabState: { state: 'ready-to-implement' } as any,
-          selectTaskGraph: vi.fn(),
-        } as any)
+        }))
       );
 
       render(
@@ -252,18 +236,11 @@ describe('Sidebar', () => {
 
     it('should NOT show Task Graph entry when not in implementation phase', () => {
       mockUseSessionStore.mockImplementation((selector) =>
-        selector({
-          diagrams: [],
-          documents: [],
-          designs: [],
-          selectedDiagramId: null,
-          selectedDocumentId: null,
-          selectedDesignId: null,
+        selector(createMockState({
           taskGraphSelected: false,
           currentSession: { project: '/test', name: 'test-session' } as any,
           collabState: { state: 'brainstorming' } as any,
-          selectTaskGraph: vi.fn(),
-        } as any)
+        }))
       );
 
       render(
@@ -277,18 +254,11 @@ describe('Sidebar', () => {
 
     it('should NOT show Task Graph entry when no session is selected', () => {
       mockUseSessionStore.mockImplementation((selector) =>
-        selector({
-          diagrams: [],
-          documents: [],
-          designs: [],
-          selectedDiagramId: null,
-          selectedDocumentId: null,
-          selectedDesignId: null,
+        selector(createMockState({
           taskGraphSelected: false,
           currentSession: null,
           collabState: { state: 'execute-batch' } as any,
-          selectTaskGraph: vi.fn(),
-        } as any)
+        }))
       );
 
       render(
@@ -302,18 +272,11 @@ describe('Sidebar', () => {
 
     it('should highlight Task Graph entry when selected', () => {
       mockUseSessionStore.mockImplementation((selector) =>
-        selector({
-          diagrams: [],
-          documents: [],
-          designs: [],
-          selectedDiagramId: null,
-          selectedDocumentId: null,
-          selectedDesignId: null,
+        selector(createMockState({
           taskGraphSelected: true,
           currentSession: { project: '/test', name: 'test-session' } as any,
           collabState: { state: 'execute-batch' } as any,
-          selectTaskGraph: vi.fn(),
-        } as any)
+        }))
       );
 
       render(
@@ -329,18 +292,12 @@ describe('Sidebar', () => {
     it('should call selectTaskGraph when clicked', () => {
       const mockSelectTaskGraph = vi.fn();
       mockUseSessionStore.mockImplementation((selector) =>
-        selector({
-          diagrams: [],
-          documents: [],
-          designs: [],
-          selectedDiagramId: null,
-          selectedDocumentId: null,
-          selectedDesignId: null,
+        selector(createMockState({
           taskGraphSelected: false,
           currentSession: { project: '/test', name: 'test-session' } as any,
           collabState: { state: 'execute-batch' } as any,
           selectTaskGraph: mockSelectTaskGraph,
-        } as any)
+        }))
       );
 
       render(

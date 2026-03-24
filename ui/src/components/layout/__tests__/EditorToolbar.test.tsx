@@ -475,6 +475,94 @@ describe('EditorToolbar', () => {
     });
   });
 
+  describe('Snippet Support', () => {
+    it('should not show undo/redo buttons for snippets', () => {
+      render(
+        <EditorToolbar
+          {...defaultProps}
+          itemType="snippet"
+          onUndo={mockCallbacks.onUndo}
+          onRedo={mockCallbacks.onRedo}
+          onZoomIn={mockCallbacks.onZoomIn}
+          onZoomOut={mockCallbacks.onZoomOut}
+        />
+      );
+
+      const undoButton = screen.queryByTestId('editor-toolbar-undo');
+      expect(undoButton).toBeNull();
+    });
+
+    it('should not show zoom controls for snippets', () => {
+      render(
+        <EditorToolbar
+          {...defaultProps}
+          itemType="snippet"
+          showZoom={true}
+          onUndo={mockCallbacks.onUndo}
+          onRedo={mockCallbacks.onRedo}
+          onZoomIn={mockCallbacks.onZoomIn}
+          onZoomOut={mockCallbacks.onZoomOut}
+        />
+      );
+
+      const zoomLevel = screen.queryByTestId('editor-toolbar-zoom-level');
+      expect(zoomLevel).toBeNull();
+    });
+
+    it('should show copy snippet action for snippets', async () => {
+      const onCopySnippet = vi.fn();
+
+      render(
+        <EditorToolbar
+          {...defaultProps}
+          itemType="snippet"
+          onCopySnippet={onCopySnippet}
+          onUndo={mockCallbacks.onUndo}
+          onRedo={mockCallbacks.onRedo}
+          onZoomIn={mockCallbacks.onZoomIn}
+          onZoomOut={mockCallbacks.onZoomOut}
+        />
+      );
+
+      const overflowButton = screen.getByTestId('editor-toolbar-overflow');
+      fireEvent.click(overflowButton);
+
+      await waitFor(() => {
+        const copyAction = screen.getByTestId('overflow-action-copy-snippet');
+        expect(copyAction).toBeInTheDocument();
+      });
+    });
+
+    it('should call onCopySnippet when copy action is clicked', async () => {
+      const onCopySnippet = vi.fn();
+
+      render(
+        <EditorToolbar
+          {...defaultProps}
+          itemType="snippet"
+          onCopySnippet={onCopySnippet}
+          onUndo={mockCallbacks.onUndo}
+          onRedo={mockCallbacks.onRedo}
+          onZoomIn={mockCallbacks.onZoomIn}
+          onZoomOut={mockCallbacks.onZoomOut}
+        />
+      );
+
+      const overflowButton = screen.getByTestId('editor-toolbar-overflow');
+      fireEvent.click(overflowButton);
+
+      await waitFor(() => {
+        const copyAction = screen.getByTestId('overflow-action-copy-snippet');
+        expect(copyAction).toBeInTheDocument();
+      });
+
+      const copyButton = screen.getByTestId('overflow-action-copy-snippet');
+      fireEvent.click(copyButton);
+
+      expect(onCopySnippet).toHaveBeenCalledOnce();
+    });
+  });
+
   describe('Center and Fit buttons', () => {
     it('should render center button when onCenter is provided', () => {
       const onCenter = vi.fn();

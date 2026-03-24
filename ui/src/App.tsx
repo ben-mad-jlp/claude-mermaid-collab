@@ -194,6 +194,9 @@ const App: React.FC = () => {
     removeDocument,
     removeDesign,
     removeSpreadsheet,
+    addSnippet,
+    updateSnippet,
+    removeSnippet,
     setPendingDiff,
     setCollabState,
   } = useSessionStore(
@@ -226,6 +229,9 @@ const App: React.FC = () => {
       removeDocument: state.removeDocument,
       removeDesign: state.removeDesign,
       removeSpreadsheet: state.removeSpreadsheet,
+      addSnippet: state.addSnippet,
+      updateSnippet: state.updateSnippet,
+      removeSnippet: state.removeSnippet,
       setPendingDiff: state.setPendingDiff,
       setCollabState: state.setCollabState,
     }))
@@ -581,6 +587,39 @@ const App: React.FC = () => {
           break;
         }
 
+        case 'snippet_created': {
+          const { id, name, content, lastModified, project, session } = message as any;
+          if (id && name !== undefined &&
+              currentSession &&
+              project === currentSession.project &&
+              session === currentSession.name) {
+            addSnippet({ id, name, content: content ?? '', lastModified: lastModified || Date.now() });
+          }
+          break;
+        }
+
+        case 'snippet_updated': {
+          const { id, content, project, session } = message as any;
+          if (id &&
+              currentSession &&
+              project === currentSession.project &&
+              session === currentSession.name) {
+            updateSnippet(id, { content, lastModified: Date.now() });
+          }
+          break;
+        }
+
+        case 'snippet_deleted': {
+          const { id, project, session } = message as any;
+          if (id &&
+              currentSession &&
+              project === currentSession.project &&
+              session === currentSession.name) {
+            removeSnippet(id);
+          }
+          break;
+        }
+
         case 'design_export_request': {
           // Browser-side rendering for MCP export
           const { requestId, designId, format, scale } = message as any;
@@ -693,7 +732,7 @@ const App: React.FC = () => {
     return () => {
       subscription.unsubscribe();
     };
-  }, [isConnected, currentSession, updateDiagram, updateDocument, updateDesign, updateSpreadsheet, addDiagram, addDocument, addDesign, addSpreadsheet, removeDiagram, removeDocument, removeDesign, removeSpreadsheet, setPendingDiff, setCollabState, receiveQuestion, restoreUIState]);
+  }, [isConnected, currentSession, updateDiagram, updateDocument, updateDesign, updateSpreadsheet, addDiagram, addDocument, addDesign, addSpreadsheet, removeDiagram, removeDocument, removeDesign, removeSpreadsheet, addSnippet, updateSnippet, removeSnippet, setPendingDiff, setCollabState, receiveQuestion, restoreUIState]);
 
   // Compute selected item from diagrams/documents/designs
   const selectedItem: Item | null = useMemo(() => {
@@ -794,14 +833,17 @@ const App: React.FC = () => {
       // Send update via WebSocket if connected
       const client = getWebSocketClient();
       if (client.isConnected()) {
-        const typeMap = { diagram: 'update_diagram', document: 'update_document', design: 'update_design', spreadsheet: 'update_spreadsheet' } as const;
-        client.send({
-          type: typeMap[selectedItem.type],
-          project,
-          session,
-          id: selectedItem.id,
-          content,
-        });
+        const typeMap = { diagram: 'update_diagram', document: 'update_document', design: 'update_design', spreadsheet: 'update_spreadsheet', snippet: 'snippet_updated' } as const;
+        const messageType = typeMap[selectedItem.type];
+        if (messageType) {
+          client.send({
+            type: messageType,
+            project,
+            session,
+            id: selectedItem.id,
+            content,
+          });
+        }
       }
     },
     [selectedItem, currentSession, updateDiagram, updateDocument, updateDesign, updateSpreadsheet]
@@ -1192,7 +1234,7 @@ const App: React.FC = () => {
           onZoomIn={zoomIn}
           onZoomOut={zoomOut}
           overflowActions={overflowActions}
-          showZoom={selectedItem?.type !== 'document' && selectedItem?.type !== 'spreadsheet'}
+          showZoom={selectedItem?.type !== 'document' && selectedItem?.type !== 'spreadsheet' && selectedItem?.type !== 'snippet'}
           onCenter={selectedItem?.type === 'diagram' ? handleCenter : undefined}
           onFitToView={selectedItem?.type === 'diagram' ? handleFitToView : undefined}
           itemType={selectedItem?.type}

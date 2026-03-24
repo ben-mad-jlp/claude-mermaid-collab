@@ -1,6 +1,7 @@
 import { DiagramManager } from '../services/diagram-manager';
 import { DocumentManager } from '../services/document-manager';
 import { SpreadsheetManager } from '../services/spreadsheet-manager';
+import { SnippetManager } from '../services/snippet-manager';
 import { MetadataManager } from '../services/metadata-manager';
 import { Validator } from '../services/validator';
 import { Renderer, type Theme } from '../services/renderer';
@@ -116,18 +117,21 @@ async function createManagers(project: string, session: string) {
   const diagramsDir = sessionRegistry.resolvePath(project, session, 'diagrams');
   const documentsDir = sessionRegistry.resolvePath(project, session, 'documents');
   const spreadsheetsDir = sessionRegistry.resolvePath(project, session, 'spreadsheets');
+  const snippetsDir = sessionRegistry.resolvePath(project, session, 'snippets');
 
   const diagramManager = new DiagramManager(diagramsDir);
   const documentManager = new DocumentManager(documentsDir);
   const spreadsheetManager = new SpreadsheetManager(spreadsheetsDir);
+  const snippetManager = new SnippetManager(snippetsDir);
   const metadataManager = new MetadataManager(join(project, '.collab', session));
 
   // Initialize managers (creates directories, builds index)
   await diagramManager.initialize();
   await documentManager.initialize();
   await spreadsheetManager.initialize();
+  await snippetManager.initialize();
 
-  return { diagramManager, documentManager, spreadsheetManager, metadataManager };
+  return { diagramManager, documentManager, spreadsheetManager, snippetManager, metadataManager };
 }
 
 export async function handleAPI(
@@ -1655,6 +1659,263 @@ export async function handleAPI(
 
       wsHandler.broadcast({
         type: 'spreadsheet_deleted',
+        id,
+        project: params.project,
+        session: params.session,
+      });
+
+      return Response.json({ success: true });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 404 });
+    }
+  }
+
+  // ============================================
+  // Snippets Routes
+  // ============================================
+
+  // GET /api/snippets?project=...&session=...
+  if (path === '/api/snippets' && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const { snippetManager } = await createManagers(params.project, params.session);
+    const snippets = await snippetManager.listSnippets();
+    return Response.json({ snippets });
+  }
+
+  // GET /api/snippet/:id/history?project=...&session=...
+  if (path.match(/^\/api\/snippet\/[^/]+\/history$/) && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const id = decodeURIComponent(path.split('/')[3]);
+
+    try {
+      const snippetsPath = sessionRegistry.resolvePath(params.project, params.session, 'snippets');
+      const sessionPath = join(snippetsPath, '..');
+      const updateLogManager = new UpdateLogManager(sessionPath);
+      const history = await updateLogManager.getHistory('snippets', id);
+
+      if (!history) {
+        return Response.json({ original: null, changes: [] });
+      }
+
+      return Response.json({ original: history.original, changes: history.changes });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // GET /api/snippet/:id/version?project=...&session=...&timestamp=...
+  if (path.match(/^\/api\/snippet\/[^/]+\/version$/) && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const timestamp = url.searchParams.get('timestamp');
+    if (!timestamp) {
+      return Response.json({ error: 'timestamp query param required' }, { status: 400 });
+    }
+
+    const id = decodeURIComponent(path.split('/')[3]);
+
+    try {
+      const snippetsPath = sessionRegistry.resolvePath(params.project, params.session, 'snippets');
+      const sessionPath = join(snippetsPath, '..');
+      const updateLogManager = new UpdateLogManager(sessionPath);
+      const content = await updateLogManager.replayToTimestamp('snippets', id, timestamp);
+
+      return Response.json({ content, timestamp });
+    } catch (error: any) {
+      if (error.message.includes('No history found')) {
+        return Response.json({ error: error.message }, { status: 404 });
+      }
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // GET /api/snippet/:id?project=...&session=...
+  if (path.startsWith('/api/snippet/') && !path.includes('/history') && !path.includes('/version') && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const id = decodeURIComponent(path.split('/').pop()!);
+    const { snippetManager } = await createManagers(params.project, params.session);
+    const snippet = await snippetManager.getSnippet(id);
+
+    if (!snippet) {
+      return Response.json({ error: 'Snippet not found' }, { status: 404 });
+    }
+
+    return Response.json(snippet);
+  }
+
+  // POST /api/snippet?project=...&session=... (create new)
+  if (path === '/api/snippet' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const { name, content } = await req.json() as { name?: string; content?: string };
+
+    if (!name || content === undefined) {
+      return Response.json({ error: 'Name and content required' }, { status: 400 });
+    }
+
+    try {
+      // Register session if not already registered
+      const result = await sessionRegistry.register(params.project, params.session);
+      if (result.created) {
+        wsHandler.broadcast({ type: 'session_created', project: params.project, session: params.session });
+      }
+
+      const { snippetManager } = await createManagers(params.project, params.session);
+      const id = await snippetManager.createSnippet(name, content);
+
+      wsHandler.broadcast({
+        type: 'snippet_created',
+        id,
+        name,
+        content,
+        lastModified: Date.now(),
+        project: params.project,
+        session: params.session,
+      });
+
+      return Response.json({ id, success: true });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // POST /api/snippet/:id?project=...&session=... (update - deprecated, use PUT)
+  if (path.match(/^\/api\/snippet\/[^/]+$/) && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const id = decodeURIComponent(path.split('/').pop()!);
+    const { content } = await req.json() as { content?: string };
+
+    if (content === undefined) {
+      return Response.json({ error: 'Content required' }, { status: 400 });
+    }
+
+    try {
+      const { snippetManager } = await createManagers(params.project, params.session);
+
+      // Get old content before saving (for history logging)
+      const oldSnippet = await snippetManager.getSnippet(id);
+      const oldContent = oldSnippet?.content ?? '';
+
+      await snippetManager.saveSnippet(id, content);
+
+      // Log the update
+      try {
+        const snippetsPath = sessionRegistry.resolvePath(params.project, params.session, 'snippets');
+        const sessionPath = join(snippetsPath, '..');
+        const updateLogManager = new UpdateLogManager(sessionPath);
+        await updateLogManager.logUpdate('snippets', id, oldContent, content);
+      } catch (logError) {
+        console.warn('Failed to log snippet update:', logError);
+      }
+
+      // Broadcast update
+      const snippet = await snippetManager.getSnippet(id);
+      if (snippet) {
+        wsHandler.broadcast({
+          type: 'snippet_updated',
+          id,
+          content: snippet.content,
+          lastModified: snippet.lastModified,
+          project: params.project,
+          session: params.session,
+        });
+      }
+
+      return Response.json({ success: true });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 404 });
+    }
+  }
+
+  // PUT /api/snippet/:id?project=...&session=... (update)
+  if (path.match(/^\/api\/snippet\/[^/]+$/) && req.method === 'PUT') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const id = decodeURIComponent(path.split('/').pop()!);
+    const { content } = await req.json() as { content?: string };
+
+    if (content === undefined) {
+      return Response.json({ error: 'Content required' }, { status: 400 });
+    }
+
+    try {
+      const { snippetManager } = await createManagers(params.project, params.session);
+
+      // Get old content before saving (for history logging)
+      const oldSnippet = await snippetManager.getSnippet(id);
+      const oldContent = oldSnippet?.content ?? '';
+
+      await snippetManager.saveSnippet(id, content);
+
+      // Log the update
+      try {
+        const snippetsPath = sessionRegistry.resolvePath(params.project, params.session, 'snippets');
+        const sessionPath = join(snippetsPath, '..');
+        const updateLogManager = new UpdateLogManager(sessionPath);
+        await updateLogManager.logUpdate('snippets', id, oldContent, content);
+      } catch (logError) {
+        console.warn('Failed to log snippet update:', logError);
+      }
+
+      // Broadcast update
+      const snippet = await snippetManager.getSnippet(id);
+      if (snippet) {
+        wsHandler.broadcast({
+          type: 'snippet_updated',
+          id,
+          content: snippet.content,
+          lastModified: snippet.lastModified,
+          project: params.project,
+          session: params.session,
+        });
+      }
+
+      return Response.json({ success: true });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 404 });
+    }
+  }
+
+  // DELETE /api/snippet/:id?project=...&session=...
+  if (path.match(/^\/api\/snippet\/[^/]+$/) && req.method === 'DELETE') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const id = decodeURIComponent(path.split('/').pop()!);
+
+    try {
+      const { snippetManager } = await createManagers(params.project, params.session);
+      await snippetManager.deleteSnippet(id);
+
+      wsHandler.broadcast({
+        type: 'snippet_deleted',
         id,
         project: params.project,
         session: params.session,

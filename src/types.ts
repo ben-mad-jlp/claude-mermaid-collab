@@ -55,6 +55,25 @@ export interface SpreadsheetListItem {
   lastModified: number;
 }
 
+export interface Snippet {
+  id: string;
+  name: string;
+  content: string;
+  lastModified: number;
+}
+
+export interface SnippetMeta {
+  name: string;
+  path: string;
+  lastModified: number;
+}
+
+export interface SnippetListItem {
+  id: string;
+  name: string;
+  lastModified: number;
+}
+
 export interface ItemMetadata {
   folder: string | null;
   locked: boolean;

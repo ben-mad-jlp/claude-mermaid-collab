@@ -20,10 +20,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     documents,
     designs,
     spreadsheets,
+    snippets,
     selectedDiagramId,
     selectedDocumentId,
     selectedDesignId,
     selectedSpreadsheetId,
+    selectedSnippetId,
     taskGraphSelected,
     currentSession,
     collabState,
@@ -32,6 +34,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     removeDocument,
     removeDesign,
     removeSpreadsheet,
+    removeSnippet,
+    selectSnippet,
     todosSelected,
     todosProject,
     todos,
@@ -46,10 +50,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       documents: state.documents,
       designs: state.designs,
       spreadsheets: state.spreadsheets,
+      snippets: state.snippets,
       selectedDiagramId: state.selectedDiagramId,
       selectedDocumentId: state.selectedDocumentId,
       selectedDesignId: state.selectedDesignId,
       selectedSpreadsheetId: state.selectedSpreadsheetId,
+      selectedSnippetId: state.selectedSnippetId,
       taskGraphSelected: state.taskGraphSelected,
       currentSession: state.currentSession,
       collabState: state.collabState,
@@ -58,6 +64,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       removeDocument: state.removeDocument,
       removeDesign: state.removeDesign,
       removeSpreadsheet: state.removeSpreadsheet,
+      removeSnippet: state.removeSnippet,
+      selectSnippet: state.selectSnippet,
       todosSelected: state.todosSelected,
       todosProject: state.todosProject,
       todos: state.todos,
@@ -81,7 +89,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     async (item: Item) => {
       if (!currentSession) return;
 
-      const typeLabel = item.type === 'diagram' ? 'diagram' : item.type === 'design' ? 'design' : item.type === 'spreadsheet' ? 'spreadsheet' : 'document';
+      const typeLabel = item.type === 'diagram' ? 'diagram' : item.type === 'design' ? 'design' : item.type === 'spreadsheet' ? 'spreadsheet' : item.type === 'snippet' ? 'snippet' : 'document';
       if (!window.confirm(`Delete ${typeLabel} "${item.name}"?`)) {
         return;
       }
@@ -99,12 +107,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
         } else if (item.type === 'spreadsheet') {
           await api.deleteSpreadsheet(currentSession.project, currentSession.name, item.id);
           removeSpreadsheet(item.id);
+        } else if (item.type === 'snippet') {
+          await api.deleteSnippet(currentSession.project, currentSession.name, item.id);
+          removeSnippet(item.id);
         }
       } catch (error) {
         console.error('Failed to delete item:', error);
       }
     },
-    [currentSession, removeDiagram, removeDocument, removeDesign, removeSpreadsheet]
+    [currentSession, removeDiagram, removeDocument, removeDesign, removeSpreadsheet, removeSnippet]
   );
 
   const handleItemClick = useCallback(
@@ -117,11 +128,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
         selectDesignWithContent(currentSession.project, currentSession.name, item.id);
       } else if (item.type === 'spreadsheet') {
         selectSpreadsheetWithContent(currentSession.project, currentSession.name, item.id);
+      } else if (item.type === 'snippet') {
+        selectSnippet(item.id);
       } else {
         selectDocumentWithContent(currentSession.project, currentSession.name, item.id);
       }
     },
-    [currentSession, selectDiagramWithContent, selectDocumentWithContent, selectDesignWithContent, selectSpreadsheetWithContent]
+    [currentSession, selectDiagramWithContent, selectDocumentWithContent, selectDesignWithContent, selectSpreadsheetWithContent, selectSnippet]
   );
 
   const handleSearchChange = useCallback(
@@ -184,6 +197,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
         content: s.content ?? '',
         lastModified: s.lastModified ?? Date.now(),
       })),
+      ...snippets.map((snip) => ({
+        ...snip,
+        type: 'snippet' as const,
+      })),
     ];
 
     items.sort((a, b) => b.lastModified - a.lastModified);
@@ -194,16 +211,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
 
     return items;
-  }, [diagrams, documents, designs, spreadsheets, searchQuery]);
+  }, [diagrams, documents, designs, spreadsheets, snippets, searchQuery]);
 
   const isItemSelected = useCallback(
     (item: Item) => {
       if (item.type === 'diagram') return item.id === selectedDiagramId;
       if (item.type === 'design') return item.id === selectedDesignId;
       if (item.type === 'spreadsheet') return item.id === selectedSpreadsheetId;
+      if (item.type === 'snippet') return item.id === selectedSnippetId;
       return item.id === selectedDocumentId;
     },
-    [selectedDiagramId, selectedDocumentId, selectedDesignId, selectedSpreadsheetId]
+    [selectedDiagramId, selectedDocumentId, selectedDesignId, selectedSpreadsheetId, selectedSnippetId]
   );
 
   const isDisabled = !currentSession && !todosSelected;

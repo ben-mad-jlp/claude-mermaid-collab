@@ -106,6 +106,7 @@ export class SessionRegistry {
     await mkdir(join(sessionPath, 'documents'), { recursive: true });
     await mkdir(join(sessionPath, 'designs'), { recursive: true });
     await mkdir(join(sessionPath, 'spreadsheets'), { recursive: true });
+    await mkdir(join(sessionPath, 'snippets'), { recursive: true });
 
     // Create session files if they don't exist
     const collabStatePath = join(sessionPath, 'collab-state.json');
@@ -176,18 +177,18 @@ export class SessionRegistry {
   }
 
   /**
-   * Resolve the path for a session's diagrams or documents folder.
+   * Resolve the path for a session's artifact folder (diagrams, documents, designs, spreadsheets, or snippets).
    * Checks new location first, then old location for backwards compatibility.
    */
-  resolvePath(project: string, session: string, type: 'diagrams' | 'documents' | 'designs' | 'spreadsheets' | '.'): string {
+  resolvePath(project: string, session: string, type: 'diagrams' | 'documents' | 'designs' | 'spreadsheets' | 'snippets' | '.'): string {
     if (!project || !project.startsWith('/')) {
       throw new Error('Invalid project path: must be an absolute path');
     }
     if (!session) {
       throw new Error('Invalid session name');
     }
-    if (type !== 'diagrams' && type !== 'documents' && type !== 'designs' && type !== 'spreadsheets' && type !== '.') {
-      throw new Error('Invalid type: must be "diagrams", "documents", "designs", "spreadsheets", or "."');
+    if (type !== 'diagrams' && type !== 'documents' && type !== 'designs' && type !== 'spreadsheets' && type !== 'snippets' && type !== '.') {
+      throw new Error('Invalid type: must be "diagrams", "documents", "designs", "spreadsheets", "snippets", or "."');
     }
 
     // Check regular sessions first
@@ -210,6 +211,86 @@ export class SessionRegistry {
 
     // Default to regular sessions location
     return newPath;
+  }
+
+  /**
+   * Ensure snippet directories exist for a session.
+   * Creates the snippets folder if it doesn't exist.
+   */
+  async ensureSnippetsDir(project: string, session: string): Promise<void> {
+    if (!project || !project.startsWith('/')) {
+      throw new Error('Invalid project path: must be an absolute path');
+    }
+    if (!session || !/^[a-zA-Z0-9-]+$/.test(session)) {
+      throw new Error('Invalid session name: must be alphanumeric with hyphens only');
+    }
+
+    const snippetsPath = join(project, '.collab', 'sessions', session, 'snippets');
+    await mkdir(snippetsPath, { recursive: true });
+  }
+
+  /**
+   * Get the snippets directory path for a session.
+   * Automatically resolves to the correct location (new or old structure).
+   */
+  getSnippetsPath(project: string, session: string): string {
+    return this.resolvePath(project, session, 'snippets');
+  }
+
+  /**
+   * Register a new snippet artifact in a session.
+   * Creates snippet metadata and ensures directory structure exists.
+   * Returns the snippet ID for reference.
+   */
+  async registerSnippet(
+    project: string,
+    session: string,
+    snippetId: string,
+    metadata: {
+      name: string;
+      type?: string;
+      locked?: boolean;
+      folder?: string;
+    }
+  ): Promise<{ success: boolean; id: string }> {
+    if (!project || !project.startsWith('/')) {
+      throw new Error('Invalid project path: must be an absolute path');
+    }
+    if (!session || !/^[a-zA-Z0-9-]+$/.test(session)) {
+      throw new Error('Invalid session name: must be alphanumeric with hyphens only');
+    }
+    if (!snippetId || typeof snippetId !== 'string') {
+      throw new Error('Invalid snippet ID: must be a non-empty string');
+    }
+    if (!metadata.name || typeof metadata.name !== 'string') {
+      throw new Error('Invalid snippet name: must be a non-empty string');
+    }
+
+    // Ensure snippets directory exists
+    await this.ensureSnippetsDir(project, session);
+
+    // Snippet registration is complete - metadata is typically managed by a snippet manager
+    // This method ensures the directory structure is in place
+    return { success: true, id: snippetId };
+  }
+
+  /**
+   * Unregister a snippet artifact (does not delete files, just registration).
+   */
+  async unregisterSnippet(project: string, session: string, snippetId: string): Promise<boolean> {
+    if (!project || !project.startsWith('/')) {
+      throw new Error('Invalid project path: must be an absolute path');
+    }
+    if (!session || !/^[a-zA-Z0-9-]+$/.test(session)) {
+      throw new Error('Invalid session name: must be alphanumeric with hyphens only');
+    }
+    if (!snippetId || typeof snippetId !== 'string') {
+      throw new Error('Invalid snippet ID: must be a non-empty string');
+    }
+
+    // Snippet unregistration is a no-op at the registry level
+    // The actual file management is handled by the snippet manager
+    return true;
   }
 
   /**

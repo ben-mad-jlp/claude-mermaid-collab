@@ -33,7 +33,7 @@ export interface DocumentLogEntry {
 /**
  * Resource types that can have history tracked
  */
-export type ResourceType = 'documents' | 'diagrams' | 'designs';
+export type ResourceType = 'documents' | 'diagrams' | 'designs' | 'spreadsheets' | 'snippets';
 
 /**
  * The complete update log structure
@@ -46,6 +46,10 @@ export interface UpdateLog {
   diagrams: Record<string, DocumentLogEntry>;
   /** Map of design ID to its log entry */
   designs: Record<string, DocumentLogEntry>;
+  /** Map of spreadsheet ID to its log entry */
+  spreadsheets: Record<string, DocumentLogEntry>;
+  /** Map of snippet ID to its log entry */
+  snippets: Record<string, DocumentLogEntry>;
 }
 
 /**

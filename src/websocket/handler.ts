@@ -22,6 +22,9 @@ export type WSMessage =
   | { type: 'spreadsheet_updated'; id: string; content: string; lastModified: number; project: string; session: string }
   | { type: 'spreadsheet_created'; id: string; name: string; content: string; lastModified: number; project: string; session: string }
   | { type: 'spreadsheet_deleted'; id: string; project: string; session: string }
+  | { type: 'snippet_updated'; id: string; content: string; lastModified: number; project: string; session: string }
+  | { type: 'snippet_created'; id: string; name: string; content: string; lastModified: number; project: string; session: string }
+  | { type: 'snippet_deleted'; id: string; project: string; session: string }
   | { type: 'metadata_updated'; itemId?: string; updates?: Record<string, unknown>; foldersChanged?: boolean }
   | { type: 'subscribe'; id?: string; channel?: string }
   | { type: 'unsubscribe'; id?: string; channel?: string }
@@ -143,6 +146,27 @@ export class WebSocketHandler {
         } catch (error) {
           deadConnections.push(ws);
           console.error('Failed to send spreadsheet message:', error);
+        }
+      }
+    }
+
+    // Clean up disconnected clients
+    for (const ws of deadConnections) {
+      this.connections.delete(ws);
+    }
+  }
+
+  broadcastToSnippet(id: string, message: WSMessage): void {
+    const json = JSON.stringify(message);
+    const deadConnections: ServerWebSocket<{ subscriptions: Set<string> }>[] = [];
+
+    for (const ws of this.connections) {
+      if (ws.data.subscriptions.has(id)) {
+        try {
+          ws.send(json);
+        } catch (error) {
+          deadConnections.push(ws);
+          console.error('Failed to send snippet message:', error);
         }
       }
     }

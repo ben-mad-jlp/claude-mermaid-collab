@@ -146,6 +146,20 @@ import {
   diagramFromCodeSchema,
   handleDiagramFromCode,
 } from './tools/diagram-codegen.js';
+import {
+  createSnippetSchema,
+  updateSnippetSchema,
+  getSnippetSchema,
+  listSnippetsSchema,
+  deleteSnippetSchema,
+  exportSnippetSchema,
+  handleCreateSnippet,
+  handleUpdateSnippet,
+  handleGetSnippet,
+  handleListSnippets,
+  handleDeleteSnippet,
+  handleExportSnippet,
+} from './tools/snippet.js';
 
 // Configuration
 const API_PORT = parseInt(process.env.PORT || '3737', 10);
@@ -1922,6 +1936,66 @@ IMPORTANT - Common pitfalls to avoid:
           required: ['project', 'id'],
         },
       },
+      {
+        name: 'create_snippet',
+        description: 'Create a new code snippet artifact.',
+        inputSchema: createSnippetSchema,
+      },
+      {
+        name: 'list_snippets',
+        description: 'List all snippets in a session.',
+        inputSchema: listSnippetsSchema,
+      },
+      {
+        name: 'get_snippet',
+        description: 'Retrieve a snippet by ID.',
+        inputSchema: getSnippetSchema,
+      },
+      {
+        name: 'add_design_snippet',
+        description: 'Create a snippet artifact.',
+        inputSchema: createSnippetSchema,
+      },
+      {
+        name: 'update_snippet',
+        description: 'Update snippet content.',
+        inputSchema: updateSnippetSchema,
+      },
+      {
+        name: 'delete_snippet',
+        description: 'Delete a snippet.',
+        inputSchema: deleteSnippetSchema,
+      },
+      {
+        name: 'export_snippet',
+        description: 'Export snippet to code or other formats.',
+        inputSchema: exportSnippetSchema,
+      },
+      {
+        name: 'snippet_history',
+        description: 'Get version history for a snippet.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            ...sessionParamsDesc,
+            id: { type: 'string', description: 'Snippet ID' },
+          },
+          required: ['project', 'session', 'id'],
+        },
+      },
+      {
+        name: 'revert_snippet',
+        description: 'Revert a snippet to a previous version by timestamp.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            ...sessionParamsDesc,
+            id: { type: 'string', description: 'Snippet ID' },
+            timestamp: { type: 'number', description: 'Timestamp to revert to' },
+          },
+          required: ['project', 'session', 'id', 'timestamp'],
+        },
+      },
     ],
   }));
 
@@ -3431,6 +3505,83 @@ IMPORTANT - Common pitfalls to avoid:
 
             const csv = [header, ...rows].join('\n');
             return JSON.stringify({ success: true, id, csv }, null, 2);
+          }
+
+          case 'list_snippets': {
+            const { project, session } = args as { project: string; session: string };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            const result = await handleListSnippets(project, session);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'get_snippet': {
+            const { project, session, id } = args as { project: string; session: string; id: string };
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            const result = await handleGetSnippet(project, session, id);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'create_snippet':
+          case 'add_design_snippet': {
+            const { project, session, name, content } = args as { project: string; session: string; name: string; content: string };
+            if (!project || !session || !name || content === undefined) throw new Error('Missing required: project, session, name, content');
+            const result = await handleCreateSnippet(project, session, name, content);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'update_snippet': {
+            const { project, session, id, content } = args as { project: string; session: string; id: string; content: string };
+            if (!project || !session || !id || content === undefined) throw new Error('Missing required: project, session, id, content');
+            const result = await handleUpdateSnippet(project, session, id, content);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'delete_snippet': {
+            const { project, session, id } = args as { project: string; session: string; id: string };
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            const result = await handleDeleteSnippet(project, session, id);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'export_snippet': {
+            const { project, session, id, format, outputPath } = args as { project: string; session: string; id: string; format?: string; outputPath?: string };
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            const result = await handleExportSnippet(project, session, id, format, outputPath);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'snippet_history': {
+            const { project, session, id } = args as { project: string; session: string; id: string };
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            const url = new URL(`/api/snippet/${encodeURIComponent(id)}/history`, API_BASE_URL);
+            url.searchParams.set('project', project);
+            url.searchParams.set('session', session);
+            const resp = await fetch(url.toString());
+            if (!resp.ok) throw new Error(`Failed to get snippet history: ${resp.statusText}`);
+            return JSON.stringify(await resp.json(), null, 2);
+          }
+
+          case 'revert_snippet': {
+            const { project, session, id, timestamp } = args as { project: string; session: string; id: string; timestamp: number };
+            if (!project || !session || !id || timestamp === undefined) throw new Error('Missing required: project, session, id, timestamp');
+            const url = new URL(`/api/snippet/${encodeURIComponent(id)}/version`, API_BASE_URL);
+            url.searchParams.set('project', project);
+            url.searchParams.set('session', session);
+            url.searchParams.set('timestamp', String(timestamp));
+            const resp = await fetch(url.toString());
+            if (!resp.ok) throw new Error(`Failed to get snippet version: ${resp.statusText}`);
+            const { content } = await resp.json() as { content: string; timestamp: number };
+            // Revert by saving the historical content
+            const saveUrl = new URL(`/api/snippet/${encodeURIComponent(id)}`, API_BASE_URL);
+            saveUrl.searchParams.set('project', project);
+            saveUrl.searchParams.set('session', session);
+            const saveResp = await fetch(saveUrl.toString(), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ content }),
+            });
+            if (!saveResp.ok) throw new Error(`Failed to revert snippet: ${saveResp.statusText}`);
+            return JSON.stringify({ success: true, revertedTo: timestamp }, null, 2);
           }
 
           default:

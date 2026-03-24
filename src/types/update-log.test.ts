@@ -80,6 +80,10 @@ describe('update-log types', () => {
             ],
           },
         },
+        diagrams: {},
+        designs: {},
+        spreadsheets: {},
+        snippets: {},
       };
 
       expect(Object.keys(updateLog.documents)).toHaveLength(2);
@@ -90,6 +94,10 @@ describe('update-log types', () => {
     it('should allow empty documents', () => {
       const updateLog: UpdateLog = {
         documents: {},
+        diagrams: {},
+        designs: {},
+        spreadsheets: {},
+        snippets: {},
       };
 
       expect(Object.keys(updateLog.documents)).toHaveLength(0);
