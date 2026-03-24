@@ -812,6 +812,9 @@ const App: React.FC = () => {
   // Track local content for auto-save
   const [localContent, setLocalContent] = React.useState<string>('');
 
+  // Snippet inline toolbar controls (pushed up from SnippetEditor)
+  const [snippetToolbarControls, setSnippetToolbarControls] = React.useState<React.ReactNode>(null);
+
   // Item 4: Use useMemo to compute effective content based on selectedItem
   // This ensures type switches get fresh content immediately without async race condition
   const effectiveContent = useMemo(() => {
@@ -1270,6 +1273,7 @@ const App: React.FC = () => {
           onDiagramHistorySelect={selectedItem?.type === 'diagram' ? handleDiagramHistorySelect : undefined}
           designId={selectedItem?.type === 'design' ? selectedItem.id : undefined}
           onDesignHistorySelect={selectedItem?.type === 'design' ? handleDesignHistorySelect : undefined}
+          inlineControls={selectedItem?.type === 'snippet' ? snippetToolbarControls : undefined}
         />
 
         {/* Unified Editor */}
@@ -1293,6 +1297,7 @@ const App: React.FC = () => {
             designHistoryPreview={selectedItem?.type === 'design' ? designHistoryPreview : null}
             onDesignRevert={handleDesignRevert}
             onClearDesignHistoryPreview={handleClearDesignHistoryPreview}
+            onSnippetToolbarControls={setSnippetToolbarControls}
           />
         </div>
       </div>

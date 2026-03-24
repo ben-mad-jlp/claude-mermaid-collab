@@ -14,6 +14,7 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 import { CodeMirrorWrapper } from './CodeMirrorWrapper';
+import { SplitPane } from '@/components/layout/SplitPane';
 import { useSnippet } from '@/hooks/useSnippet';
 import { useSessionStore } from '@/stores/sessionStore';
 import { api } from '@/lib/api';
@@ -37,6 +38,8 @@ export interface SnippetEditorProps {
   /** Lines to highlight (1-indexed array of line numbers) */
   highlightLines?: number[];
   /** Whether to show diff view by default */
+  /** Callback to provide inline toolbar controls to the parent (rendered in EditorToolbar header) */
+  onToolbarControls?: (controls: React.ReactNode) => void;
   showDiffByDefault?: boolean;
 }
 
@@ -92,6 +95,7 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
   className = '',
   highlightLines = [],
   showDiffByDefault = false,
+  onToolbarControls,
 }) => {
   const { selectedSnippet, updateSnippet, getSnippetById } = useSnippet();
 
@@ -266,95 +270,104 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
     return <div className={`p-4 text-gray-500 ${className}`}>No snippet selected</div>;
   }
 
+  // Build toolbar controls as a fragment
+  const toolbarControls = (
+    <>
+      <div className="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1" />
+      <select
+        value={selectedLanguage}
+        onChange={handleLanguageChange}
+        className="px-2 py-0.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-xs font-medium"
+        title="Select code language"
+      >
+        <option value="text">Plain Text</option>
+        <option value="javascript">JavaScript</option>
+        <option value="typescript">TypeScript</option>
+        <option value="python">Python</option>
+        <option value="csharp">C#</option>
+        <option value="cpp">C/C++</option>
+        <option value="css">CSS</option>
+        <option value="html">HTML</option>
+        <option value="json">JSON</option>
+        <option value="markdown">Markdown</option>
+        <option value="yaml">YAML</option>
+      </select>
+      <button
+        onClick={handleDiffToggle}
+        className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+          showDiff
+            ? 'bg-blue-500 text-white'
+            : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+        }`}
+        title="Toggle diff view"
+      >
+        Diff
+      </button>
+      <button
+        onClick={handleCopy}
+        className="px-2 py-0.5 rounded text-xs font-medium bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+        title="Copy code to clipboard"
+      >
+        Copy
+      </button>
+      {filePath && (
+        <button
+          onClick={handleApply}
+          disabled={isApplying}
+          className="px-2 py-0.5 rounded text-xs font-medium bg-indigo-500 text-white hover:bg-indigo-600 disabled:opacity-50 transition-colors"
+          title={`Apply to ${filePath}`}
+        >
+          {isApplying ? 'Applying...' : 'Apply'}
+        </button>
+      )}
+      {showButtons && hasChanges && (
+        <>
+          <button
+            onClick={handleCancel}
+            className="px-2 py-0.5 rounded text-xs font-medium bg-gray-300 dark:bg-gray-600 text-gray-800 dark:text-gray-200 hover:bg-gray-400 dark:hover:bg-gray-700 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={isSaving}
+            className="px-2 py-0.5 rounded text-xs font-medium bg-green-500 text-white hover:bg-green-600 disabled:opacity-50 transition-colors"
+          >
+            {isSaving ? 'Saving...' : 'Save'}
+          </button>
+        </>
+      )}
+      {applyStatus && (
+        <span className="text-xs text-green-600 dark:text-green-400">{applyStatus}</span>
+      )}
+      {filePath && (
+        <span className="text-xs text-gray-400 dark:text-gray-500 font-mono truncate max-w-[300px]" title={filePath}>
+          {filePath}
+        </span>
+      )}
+    </>
+  );
+
+  // Push controls to parent if callback provided
+  useEffect(() => {
+    if (onToolbarControls) {
+      onToolbarControls(toolbarControls);
+    }
+  });
+
   return (
     <div className={`flex flex-col h-full bg-white dark:bg-gray-900 ${className}`}>
-      {/* Compact toolbar — sits inline below the artifact name header */}
-      <div className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-1.5 flex items-center gap-1.5">
-        {/* Language Dropdown */}
-        <select
-          value={selectedLanguage}
-          onChange={handleLanguageChange}
-          className="px-2 py-0.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-xs font-medium"
-          title="Select code language"
-        >
-          <option value="text">Plain Text</option>
-          <option value="javascript">JavaScript</option>
-          <option value="typescript">TypeScript</option>
-          <option value="python">Python</option>
-          <option value="csharp">C#</option>
-          <option value="cpp">C/C++</option>
-          <option value="css">CSS</option>
-          <option value="html">HTML</option>
-          <option value="json">JSON</option>
-          <option value="markdown">Markdown</option>
-          <option value="yaml">YAML</option>
-        </select>
-
-        {/* Diff Toggle Button */}
-        <button
-          onClick={handleDiffToggle}
-          className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
-            showDiff
-              ? 'bg-blue-500 text-white'
-              : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-          }`}
-          title="Toggle diff view"
-        >
-          Diff
-        </button>
-
-        {/* Copy Button */}
-        <button
-          onClick={handleCopy}
-          className="px-2 py-0.5 rounded text-xs font-medium bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-          title="Copy code to clipboard"
-        >
-          Copy
-        </button>
-
-        {/* Apply Button */}
-        {filePath && (
-          <button
-            onClick={handleApply}
-            disabled={isApplying}
-            className="px-2 py-0.5 rounded text-xs font-medium bg-indigo-500 text-white hover:bg-indigo-600 disabled:opacity-50 transition-colors"
-            title={`Apply to ${filePath}`}
-          >
-            {isApplying ? 'Applying...' : 'Apply'}
-          </button>
-        )}
-
-        {/* Save/Cancel */}
-        {showButtons && hasChanges && (
-          <>
-            <button
-              onClick={handleCancel}
-              className="px-2 py-0.5 rounded text-xs font-medium bg-gray-300 dark:bg-gray-600 text-gray-800 dark:text-gray-200 hover:bg-gray-400 dark:hover:bg-gray-700 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={isSaving}
-              className="px-2 py-0.5 rounded text-xs font-medium bg-green-500 text-white hover:bg-green-600 disabled:opacity-50 transition-colors"
-            >
-              {isSaving ? 'Saving...' : 'Save'}
-            </button>
-          </>
-        )}
-
-        {/* Apply Status */}
-        {applyStatus && (
-          <span className="text-xs text-green-600 dark:text-green-400">{applyStatus}</span>
-        )}
-
-        {/* File Path — fills remaining space */}
-        {filePath && (
-          <span className="ml-auto text-xs text-gray-400 dark:text-gray-500 font-mono truncate" title={filePath}>
-            {filePath}
-          </span>
-        )}
-      </div>
+      {/* Only render toolbar row if NOT pushed to parent */}
+      {!onToolbarControls && (
+        <div className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-1.5 flex items-center gap-1.5">
+          {toolbarControls}
+          {filePath && (
+            <span className="ml-auto text-xs text-gray-400 dark:text-gray-500 font-mono truncate" title={filePath}>
+              {filePath}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Diff View or Editor */}
       {showDiff ? (

@@ -98,6 +98,8 @@ export interface EditorToolbarProps {
   onHistorySettingsChange?: (viewMode: 'inline' | 'side-by-side', compareMode: 'vs-current' | 'vs-previous') => void;
   /** Callback for copy snippet to clipboard action */
   onCopySnippet?: () => void;
+  /** Custom controls to render inline after the item name (used by snippets) */
+  inlineControls?: React.ReactNode;
 }
 
 /**
@@ -141,6 +143,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   onClearHistoryDiff,
   onHistorySettingsChange,
   onCopySnippet,
+  inlineControls,
 }) => {
   const [isOverflowOpen, setIsOverflowOpen] = useState(false);
   const overflowRef = useRef<HTMLDivElement>(null);
@@ -569,6 +572,9 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           </span>
         )}
       </div>
+
+      {/* Inline controls slot (used by snippets for language, diff, copy, apply, path) */}
+      {inlineControls}
 
       {/* Spacer */}
       <div className="flex-1" />

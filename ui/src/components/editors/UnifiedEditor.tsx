@@ -94,6 +94,8 @@ export interface UnifiedEditorProps {
   onClearDesignHistoryPreview?: () => void;
   /** Callback when snippet is saved */
   onSnippetSave?: (id: string, content: string) => void;
+  /** Callback for snippet toolbar controls to be rendered in EditorToolbar */
+  onSnippetToolbarControls?: (controls: React.ReactNode) => void;
 }
 
 /**
@@ -137,7 +139,8 @@ const SnippetGroupView: React.FC<{
   item: Item;
   onSnippetSave?: (id: string, content: string) => void;
   onContentChange?: (content: string) => void;
-}> = ({ item, onSnippetSave, onContentChange }) => {
+  onToolbarControls?: (controls: React.ReactNode) => void;
+}> = ({ item, onSnippetSave, onContentChange, onToolbarControls }) => {
   const snippets = useSessionStore((state) => state.snippets);
   const selectSnippet = useSessionStore((state) => state.selectSnippet);
 
@@ -175,6 +178,7 @@ const SnippetGroupView: React.FC<{
           snippetId={item.id}
           onSave={(snippet) => onSnippetSave?.(snippet.id, snippet.content)}
           onChange={onContentChange}
+          onToolbarControls={onToolbarControls}
         />
       </div>
     );
@@ -209,6 +213,7 @@ const SnippetGroupView: React.FC<{
           snippetId={item.id}
           onSave={(snippet) => onSnippetSave?.(snippet.id, snippet.content)}
           onChange={onContentChange}
+          onToolbarControls={onToolbarControls}
         />
       </div>
     </div>
@@ -235,6 +240,7 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
   onDesignRevert,
   onClearDesignHistoryPreview,
   onSnippetSave,
+  onSnippetToolbarControls,
 }) => {
   const { editorSplitPosition, setEditorSplitPosition } = useUIStore();
 
@@ -356,7 +362,7 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
 
   // Snippet items render with SnippetEditor (with group support)
   if (item.type === 'snippet') {
-    return <SnippetGroupView item={item} onSnippetSave={onSnippetSave} onContentChange={onContentChange} />;
+    return <SnippetGroupView item={item} onSnippetSave={onSnippetSave} onContentChange={onContentChange} onToolbarControls={onSnippetToolbarControls} />;
   }
 
   // Determine editor language based on item type
