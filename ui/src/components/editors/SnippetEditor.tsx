@@ -279,16 +279,16 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
     setAnnotationPopover({ mode: 'edit', startLine: ann.startLine, endLine: ann.endLine, text: ann.text, index });
   }, [annotations]);
 
-  const handleOpenAddAnnotation = useCallback(() => {
+  const handleOpenAddAnnotation = useCallback(async () => {
     if (!currentSelection) return;
-    setAnnotationPopover({
-      mode: 'add',
+    const newAnn: SnippetAnnotation = {
       startLine: currentSelection.startLine,
       endLine: currentSelection.endLine,
-      text: '',
-      index: -1,
-    });
-  }, [currentSelection]);
+      text: 'New comment',
+    };
+    await saveAnnotations([...annotations, newAnn]);
+    setCurrentSelection(null);
+  }, [currentSelection, annotations, saveAnnotations]);
 
   const handleAnnotationSave = useCallback(async () => {
     if (!annotationPopover || !annotationPopover.text.trim()) return;
