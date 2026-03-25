@@ -46,6 +46,30 @@ export interface SnippetEditorProps {
 /**
  * Language detection from file extension or content
  */
+/**
+ * Normalize a language string from stored snippet data to a valid Language value.
+ * Handles aliases like "c#" -> "csharp", "js" -> "javascript", etc.
+ */
+const normalizeLanguage = (lang: string): Language => {
+  const aliases: Record<string, Language> = {
+    'c#': 'csharp',
+    'cs': 'csharp',
+    'js': 'javascript',
+    'ts': 'typescript',
+    'py': 'python',
+    'c++': 'cpp',
+    'c': 'cpp',
+    'yml': 'yaml',
+    'md': 'markdown',
+    'htm': 'html',
+  };
+  const valid: Language[] = ['javascript', 'typescript', 'python', 'csharp', 'cpp', 'css', 'html', 'json', 'markdown', 'yaml', 'text'];
+  const lower = lang.toLowerCase().trim();
+  if (aliases[lower]) return aliases[lower];
+  if (valid.includes(lower as Language)) return lower as Language;
+  return 'text';
+};
+
 const detectLanguage = (fileName: string, content?: string): Language => {
   if (!fileName) return 'text';
 
@@ -158,7 +182,7 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
   useEffect(() => {
     if (snippet) {
       const parsed = parseSnippetData(snippet.content ?? '');
-      const detected = parsed.language as Language
+      const detected = (parsed.language ? normalizeLanguage(parsed.language) : null)
         || (parsed.filePath ? detectLanguage(parsed.filePath) : detectLanguage(snippet.name));
       setDetectedLanguage(detected);
       setSelectedLanguage(detected);
