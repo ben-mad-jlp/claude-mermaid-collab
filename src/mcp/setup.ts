@@ -630,7 +630,7 @@ async function patchDiagram(project: string, session: string, id: string, oldStr
   }, null, 2);
 }
 
-async function patchSnippet(project: string, session: string, id: string, oldString: string, newString: string): Promise<string> {
+async function patchSnippet(project: string, session: string, id: string, startLine: number, endLine: number, newContent: string): Promise<string> {
   const getResponse = await fetch(buildUrl(`/api/snippet/${id}`, project, session));
   if (!getResponse.ok) {
     if (getResponse.status === 404) {
@@ -643,37 +643,37 @@ async function patchSnippet(project: string, session: string, id: string, oldStr
   const rawContent: string = snippetData.content;
 
   // Snippets store code inside a JSON envelope: { code, language, filePath, ... }
-  // Apply the patch to the code field if parseable, otherwise patch raw content.
+  // Replace the specified line range in code field; fall back to raw content for plain-text snippets.
   let updatedContent: string;
-  let searchTarget: string;
+  let linesReplaced: number;
+
+  const replaceLines = (code: string): string => {
+    const lines = code.split('\n');
+    const start = Math.max(1, startLine);
+    const end = Math.min(lines.length, endLine);
+    if (start > lines.length) {
+      throw new Error(`startLine ${startLine} is beyond the snippet length (${lines.length} lines)`);
+    }
+    const newLines = newContent === '' ? [] : newContent.split('\n');
+    linesReplaced = end - start + 1;
+    lines.splice(start - 1, end - start + 1, ...newLines);
+    return lines.join('\n');
+  };
+
   try {
     const parsed = JSON.parse(rawContent);
     if (typeof parsed.code === 'string') {
-      searchTarget = parsed.code;
-      const occurrences = searchTarget.split(oldString).length - 1;
-      if (occurrences === 0) {
-        throw new Error(`old_string not found in snippet code: "${oldString.slice(0, 50)}"`);
-      }
-      if (occurrences > 1) {
-        throw new Error(`old_string found ${occurrences} times - must be unique. Add more context to make it unique.`);
-      }
-      parsed.code = searchTarget.replace(oldString, newString);
+      parsed.code = replaceLines(parsed.code);
+      parsed.originalCode = parsed.code;
       updatedContent = JSON.stringify(parsed);
     } else {
       throw new Error('no code field');
     }
   } catch (e: any) {
-    if (e.message.startsWith('old_string') || e.message.startsWith('no code')) throw e;
-    // Plain text snippet — patch raw content directly
-    searchTarget = rawContent;
-    const occurrences = searchTarget.split(oldString).length - 1;
-    if (occurrences === 0) {
-      throw new Error(`old_string not found in snippet: "${oldString.slice(0, 50)}"`);
-    }
-    if (occurrences > 1) {
-      throw new Error(`old_string found ${occurrences} times - must be unique. Add more context to make it unique.`);
-    }
-    updatedContent = searchTarget.replace(oldString, newString);
+    if (e.message.startsWith('startLine') || e.message.startsWith('no code')) throw e;
+    // Plain text snippet
+    const patched = replaceLines(rawContent);
+    updatedContent = patched;
   }
 
   const updateResponse = await fetch(buildUrl(`/api/snippet/${id}`, project, session), {
@@ -687,16 +687,10 @@ async function patchSnippet(project: string, session: string, id: string, oldStr
     throw new Error(`Failed to patch snippet: ${error.error || updateResponse.statusText}`);
   }
 
-  const changeIndex = updatedContent.indexOf(newString);
-  const previewStart = Math.max(0, changeIndex - 50);
-  const previewEnd = Math.min(updatedContent.length, changeIndex + newString.length + 50);
-  const preview = updatedContent.slice(previewStart, previewEnd);
-
   return JSON.stringify({
     success: true,
     id,
-    message: 'Snippet patched successfully',
-    preview: `...${preview}...`,
+    message: `Snippet patched: replaced ${linesReplaced!} line(s) at ${startLine}–${endLine} with ${newContent.split('\n').length} line(s)`,
   }, null, 2);
 }
 
@@ -2075,16 +2069,17 @@ IMPORTANT - Common pitfalls to avoid:
       },
       {
         name: 'patch_snippet',
-        description: 'Apply a search-replace patch to a snippet\'s code. More efficient than update_snippet for small changes. Fails if old_string is not found or matches multiple locations.',
+        description: 'Replace a range of lines in a snippet. More precise than update_snippet for targeted edits.',
         inputSchema: {
           type: 'object',
           properties: {
             ...sessionParamsDesc,
             id: { type: 'string', description: 'Snippet ID' },
-            old_string: { type: 'string', description: 'Text to find in the code (must be unique)' },
-            new_string: { type: 'string', description: 'Text to replace with' },
+            startLine: { type: 'number', description: 'First line to replace (1-indexed)' },
+            endLine: { type: 'number', description: 'Last line to replace (1-indexed, inclusive)' },
+            newContent: { type: 'string', description: 'Replacement lines. Use empty string to delete lines.' },
           },
-          required: ['project', 'id', 'old_string', 'new_string'],
+          required: ['project', 'id', 'startLine', 'endLine', 'newContent'],
         },
       },
     ],
@@ -3664,9 +3659,9 @@ IMPORTANT - Common pitfalls to avoid:
           }
 
           case 'patch_snippet': {
-            const { project, session, id, old_string, new_string } = args as { project: string; session: string; id: string; old_string: string; new_string: string };
-            if (!project || !session || !id || old_string === undefined || new_string === undefined) throw new Error('Missing required: project, session, id, old_string, new_string');
-            return await patchSnippet(project, session, id, old_string, new_string);
+            const { project, session, id, startLine, endLine, newContent } = args as { project: string; session: string; id: string; startLine: number; endLine: number; newContent: string };
+            if (!project || !session || !id || startLine === undefined || endLine === undefined || newContent === undefined) throw new Error('Missing required: project, session, id, startLine, endLine, newContent');
+            return await patchSnippet(project, session, id, startLine, endLine, newContent);
           }
 
           case 'revert_snippet': {

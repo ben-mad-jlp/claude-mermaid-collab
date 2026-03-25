@@ -1683,7 +1683,15 @@ export async function handleAPI(
 
     const { snippetManager } = await createManagers(params.project, params.session);
     const snippets = await snippetManager.listSnippets();
-    return Response.json({ snippets });
+    const meta = snippets.map(s => {
+      let description: string | undefined;
+      try {
+        const parsed = JSON.parse(s.content);
+        if (typeof parsed.description === 'string') description = parsed.description;
+      } catch { /* plain-text snippet */ }
+      return { id: s.id, name: s.name, ...(description !== undefined && { description }), lastModified: s.lastModified };
+    });
+    return Response.json({ snippets: meta });
   }
 
   // GET /api/snippet/:id/history?project=...&session=...

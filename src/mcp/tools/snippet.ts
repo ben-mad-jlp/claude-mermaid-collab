@@ -278,11 +278,13 @@ export async function handleUpdateSnippet(
           // Raw code — merge into existing envelope
           if (typeof existing.code === 'string') {
             existing.code = content;
+            existing.originalCode = content;
             finalContent = JSON.stringify(existing);
           }
         } else if (incomingParsed && typeof incomingParsed === 'object') {
           // JSON content — merge: preserve existing fields not in incoming
           const merged = { ...existing, ...incomingParsed };
+          if (typeof merged.code === 'string') merged.originalCode = merged.code;
           finalContent = JSON.stringify(merged);
         }
       }

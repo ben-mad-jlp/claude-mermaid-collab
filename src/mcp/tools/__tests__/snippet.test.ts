@@ -32,8 +32,7 @@ describe('Snippet MCP Tools', () => {
     it('should have valid createSnippetSchema', () => {
       expect(createSnippetSchema.type).toBe('object');
       expect(createSnippetSchema.required).toContain('project');
-      expect(createSnippetSchema.required).toContain('name');
-      expect(createSnippetSchema.required).toContain('content');
+      // name and content are optional — sourcePath can substitute for both
     });
 
     it('should have valid updateSnippetSchema', () => {
@@ -173,6 +172,12 @@ describe('Snippet MCP Tools', () => {
 
   describe('handleUpdateSnippet', () => {
     it('should update a snippet successfully', async () => {
+      // First call: GET existing snippet (for envelope merge)
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: 'my-snippet', name: 'my-snippet', content: JSON.stringify({ code: 'old code', language: 'typescript', originalCode: 'old code' }) }),
+      });
+      // Second call: POST update
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({ success: true }),
@@ -188,7 +193,34 @@ describe('Snippet MCP Tools', () => {
       expect(result).toEqual({ success: true, id: 'my-snippet' });
     });
 
+    it('should preserve JSON envelope and reset originalCode on update', async () => {
+      const existing = { code: 'old', language: 'typescript', filePath: '/src/foo.ts', originalCode: 'old' };
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: 's', name: 's', content: JSON.stringify(existing) }),
+      });
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ success: true }),
+      });
+
+      await handleUpdateSnippet('/Users/test/project', 'my-session', 's', 'new code');
+
+      const postCall = mockFetch.mock.calls[1];
+      const body = JSON.parse(postCall[1].body);
+      const saved = JSON.parse(body.content);
+      expect(saved.code).toBe('new code');
+      expect(saved.originalCode).toBe('new code');
+      expect(saved.language).toBe('typescript');
+      expect(saved.filePath).toBe('/src/foo.ts');
+    });
+
     it('should handle update errors', async () => {
+      // GET succeeds, POST fails
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: 'nonexistent', content: 'raw' }),
+      });
       mockFetch.mockResolvedValueOnce({
         ok: false,
         json: async () => ({ error: 'Snippet not found' }),
