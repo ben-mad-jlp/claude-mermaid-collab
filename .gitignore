@@ -1,8 +1,13 @@
-# Claude Code local settings
-.claude/
+# Claude Code local settings (settings.json is committed for team hooks)
+.claude/settings.local.json
+.claude/projects/
+.claude/worktrees/
 
 # Worktrees
 .worktrees/
+
+# Pseudo file staleness manifest (local, not committed)
+.pseudo-needs-update
 
 # Dependencies
 node_modules/

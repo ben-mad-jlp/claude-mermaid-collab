@@ -20,6 +20,8 @@ The user may specify:
 - **A directory**: `/pseudocode src/mcp/` — generate/update for all qualifying files in that directory
 - **No argument**: generate/update for all files changed since the last commit (use `git diff --name-only HEAD`)
 - **"all"**: `/pseudocode all` — backfill the entire codebase
+- **"sync"**: `/pseudocode sync` — process the `.pseudo-needs-update` manifest (see Sync section)
+- **"install"**: `/pseudocode install` — set up commit tracking in this project (see Install section)
 
 For each candidate file, check the spec's skip rules:
 - Skip index/barrel files (only re-exports)
@@ -57,6 +59,93 @@ For each candidate file, check the spec's skip rules:
 After processing, report:
 - How many files were processed
 - How many `.pseudo` files were created vs updated vs skipped
+
+## Sync
+
+When invoked as `/pseudocode sync`:
+
+1. Check if `.pseudo-needs-update` exists and is non-empty:
+   ```bash
+   cat .pseudo-needs-update
+   ```
+   If empty or missing, report "Nothing to sync — pseudo files are up to date." and stop.
+
+2. Read the manifest — each line is a relative source file path (e.g. `src/routes/api.ts`).
+
+3. For each file in the manifest, run the normal **Step 3** update logic (generate or update its `.pseudo` file). Process files one at a time so failures don't block the rest.
+
+4. After all files are processed, clear the manifest:
+   ```bash
+   rm .pseudo-needs-update
+   ```
+
+5. Stage and commit the updated pseudo files:
+   ```bash
+   git add '*.pseudo'
+   git commit -m "chore: sync pseudo files after recent commits"
+   ```
+
+6. Report: how many pseudo files were created, updated, skipped, and failed.
+
+## Install
+
+When invoked as `/pseudocode install`:
+
+This sets up automatic pseudo-staleness tracking in the current project so that every future commit automatically records which source files changed.
+
+**Step 1 — Install the git post-commit hook:**
+
+```bash
+cp scripts/post-commit .git/hooks/post-commit
+chmod +x .git/hooks/post-commit
+```
+
+Verify it installed:
+```bash
+ls -la .git/hooks/post-commit
+```
+
+**Step 2 — Make hook scripts executable:**
+
+```bash
+chmod +x scripts/pseudo-track-commit.sh
+chmod +x scripts/pseudo-hook-check.sh
+chmod +x scripts/post-commit
+```
+
+**Step 3 — Verify `.claude/settings.json` has the PostToolUse hook.**
+
+Read `.claude/settings.json`. If the `pseudo-hook-check.sh` hook is already present, skip. If the file doesn't exist or the hook is missing, add it:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/pseudo-hook-check.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+If the file already has other hooks, merge carefully — don't overwrite existing entries.
+
+**Step 4 — Report:**
+
+```
+Pseudo tracking installed:
+  ✓ .git/hooks/post-commit (direct commits from terminal)
+  ✓ .claude/settings.json PostToolUse hook (Claude-initiated commits)
+
+Run /pseudocode sync after your next commit to update stale pseudo files.
+```
 
 ## Language-Specific Guidance
 
