@@ -11,7 +11,6 @@
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useSessionStore } from '@/stores/sessionStore';
 import { buildTree, deepSortTree, filterTree, type TreeNode } from './tree.utils';
 
 // Re-export TreeNode for public API
@@ -22,7 +21,7 @@ export type PseudoFileTreeProps = {
   currentPath: string;
   onNavigate: (stem: string) => void;
   project: string;
-  onProjectChange: (project: string) => void;
+  onProjectChange?: (project: string) => void;
 };
 
 /**
@@ -139,22 +138,7 @@ export function PseudoFileTree({
   currentPath,
   onNavigate,
   project,
-  onProjectChange,
 }: PseudoFileTreeProps) {
-  const sessions = useSessionStore((s) => s.sessions);
-
-  // Derive unique project paths from sessions
-  const projects = useMemo(() => {
-    const seen = new Set<string>();
-    const result: string[] = [];
-    for (const s of sessions) {
-      if (s.project && !seen.has(s.project)) {
-        seen.add(s.project);
-        result.push(s.project);
-      }
-    }
-    return result;
-  }, [sessions]);
 
   const [filter, setFilter] = useState('');
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
@@ -212,7 +196,7 @@ export function PseudoFileTree({
   // Render empty state
   if (fileList.length === 0) {
     return (
-      <div className="w-64 border-r border-gray-200 p-4 flex flex-col">
+      <div className="w-full h-full p-4 flex flex-col">
         <div className="text-sm font-semibold text-gray-700 mb-4">Files</div>
         <p className="text-sm text-gray-500">No files</p>
       </div>
@@ -220,23 +204,10 @@ export function PseudoFileTree({
   }
 
   return (
-    <div className="w-64 border-r border-gray-200 p-4 flex flex-col h-full overflow-hidden">
-      {/* Header with project dropdown */}
+    <div className="w-full p-4 flex flex-col h-full overflow-hidden">
+      {/* Header */}
       <div className="mb-4">
-        <div className="text-sm font-semibold text-gray-700 mb-2">Files</div>
-        {projects.length > 1 && (
-          <select
-            value={project}
-            onChange={(e) => onProjectChange(e.target.value)}
-            className="w-full text-xs border border-gray-300 rounded px-2 py-1 mb-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
-          >
-            {projects.map((p) => (
-              <option key={p} value={p}>
-                {p.split('/').pop() || p}
-              </option>
-            ))}
-          </select>
-        )}
+        <div className="text-sm font-semibold text-gray-700">Files</div>
       </div>
 
       {/* Filter Input */}

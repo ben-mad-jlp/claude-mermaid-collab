@@ -10,8 +10,12 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { useSessionStore } from '@/stores/sessionStore';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
+import { useKodexStore } from '@/stores/kodexStore';
+import { ProjectSelector } from '@/components/kodex/ProjectSelector';
+import { useWebSocket } from '@/hooks/useWebSocket';
+import { useTheme } from '@/hooks/useTheme';
 import { fetchPseudoFiles } from '@/lib/pseudo-api';
 import { PseudoFileTree } from './PseudoFileTree';
 import { PseudoViewer, type PseudoViewerHandle } from './PseudoViewer';
@@ -38,10 +42,35 @@ export default function PseudoPage(): JSX.Element {
   // Get navigation function
   const navigate = useNavigate();
 
-  // Get project and session switcher from session store
-  const project = useSessionStore((s) => s.currentSession?.project || '');
-  const sessions = useSessionStore((s) => s.sessions);
-  const setCurrentSession = useSessionStore((s) => s.setCurrentSession);
+  const { selectedProject: project, fetchProjects, setSelectedProject } = useKodexStore();
+  const { isConnected, isConnecting } = useWebSocket();
+  const { theme, toggleTheme } = useTheme();
+
+  // Fetch projects on mount
+  useEffect(() => {
+    fetchProjects();
+  }, [fetchProjects]);
+
+  const handleAddProject = useCallback(async () => {
+    const projectPath = window.prompt('Enter project path:', '/Users');
+    if (!projectPath?.trim()) return;
+    try {
+      const response = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: projectPath.trim() }),
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        alert(data.error || 'Failed to add project');
+        return;
+      }
+      await fetchProjects();
+      setSelectedProject(projectPath.trim());
+    } catch {
+      alert('Failed to add project');
+    }
+  }, [fetchProjects, setSelectedProject]);
 
   // State management
   const [fileList, setFileList] = useState<string[]>([]);
@@ -162,35 +191,151 @@ export default function PseudoPage(): JSX.Element {
   );
 
   return (
-    <div className="flex h-screen w-full bg-white dark:bg-gray-900">
-      {/* Left Column: File Tree (280px) */}
-      <div className="w-[280px] border-r border-gray-200 dark:border-gray-700 flex-shrink-0 overflow-hidden">
-        <PseudoFileTree
-          fileList={fileList}
-          currentPath={currentPath}
-          onNavigate={handleNavigate}
-          project={project}
-          onProjectChange={(newProject) => {
-            const match = sessions.find((s) => s.project === newProject);
-            if (match) setCurrentSession(match);
-          }}
-        />
-      </div>
+    <div className="flex flex-col h-screen w-full bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+      {/* Full-width top header */}
+      <header className="h-12 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-4 flex-shrink-0">
+        <div className="flex items-center gap-3">
+          {/* Title */}
+          <span className="text-sm font-semibold text-gray-900 dark:text-white">Pseudo</span>
 
-      {/* Center Column: Viewer (flex-1) */}
-      <div className="flex-1 min-w-0 overflow-hidden">
-        <PseudoViewer
-          ref={viewerRef}
-          path={currentPath}
-          project={project}
-          onFunctionsChange={setFunctions}
-        />
-      </div>
+          {/* Connection Status Badge */}
+          <div
+            className={`flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-full ${
+              isConnected
+                ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300'
+                : isConnecting
+                ? 'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300'
+                : 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300'
+            }`}
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                isConnected ? 'bg-green-500' : isConnecting ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'
+              }`}
+            />
+            <span>{isConnected ? 'Connected' : isConnecting ? 'Connecting' : 'Disconnected'}</span>
+          </div>
 
-      {/* Right Column: Function Jump Panel (220px) */}
-      <div className="w-[220px] border-l border-gray-200 dark:border-gray-700 flex-shrink-0 overflow-hidden">
-        <FunctionJumpPanel functions={functions} viewerRef={viewerRef} />
-      </div>
+          {/* Refresh Button */}
+          <button
+            onClick={loadPseudoFiles}
+            aria-label="Refresh files"
+            title="Refresh files"
+            className="p-2 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M23 4v6h-6" />
+              <path d="M1 20v-6h6" />
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10" />
+              <path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14" />
+            </svg>
+          </button>
+
+          {/* Project Selector */}
+          <ProjectSelector className="w-[400px]" onAddProject={handleAddProject} />
+
+          {/* Search Button */}
+          <button
+            onClick={() => setSearchOpen(true)}
+            title="Search pseudocode (⌘K)"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <span>Search</span>
+            <kbd className="ml-1 text-gray-400 dark:text-gray-500">⌘K</kbd>
+          </button>
+        </div>
+
+        {/* Theme Toggle */}
+        <button
+          onClick={toggleTheme}
+          className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+          title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+        >
+          {theme === 'dark' ? (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+            </svg>
+          ) : (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+            </svg>
+          )}
+        </button>
+      </header>
+
+      {/* Body: resizable file tree + viewer + jump panel */}
+      <PanelGroup direction="horizontal" id="pseudo-layout" className="flex-1">
+        {/* Left column: File Tree + cross-nav links */}
+        <Panel defaultSize={28} minSize={12} id="pseudo-tree">
+          <div className="flex flex-col h-full border-r border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div className="flex-1 overflow-hidden">
+              <PseudoFileTree
+                fileList={fileList}
+                currentPath={currentPath}
+                onNavigate={handleNavigate}
+                project={project || ''}
+              />
+            </div>
+
+            {/* Cross-navigation links */}
+            <div className="p-2 border-t border-gray-200 dark:border-gray-700 space-y-1 flex-shrink-0">
+              <Link
+                to="/"
+                className="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
+                <span className="text-sm">Collab</span>
+              </Link>
+              <Link
+                to="/kodex"
+                className="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                </svg>
+                <span className="text-sm">Kodex</span>
+              </Link>
+              <Link
+                to="/onboarding"
+                className="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                <span className="text-sm">Onboarding</span>
+              </Link>
+            </div>
+          </div>
+        </Panel>
+
+        <PanelResizeHandle className="w-1 bg-gray-200 dark:bg-gray-700 hover:bg-purple-400 dark:hover:bg-purple-600 transition-colors cursor-col-resize" />
+
+        {/* Viewer */}
+        <Panel defaultSize={57} minSize={30} id="pseudo-viewer">
+          <div className="h-full overflow-hidden">
+            <PseudoViewer
+              ref={viewerRef}
+              path={currentPath}
+              project={project || ''}
+              onFunctionsChange={setFunctions}
+            />
+          </div>
+        </Panel>
+
+        <PanelResizeHandle className="w-1 bg-gray-200 dark:bg-gray-700 hover:bg-purple-400 dark:hover:bg-purple-600 transition-colors cursor-col-resize" />
+
+        {/* Function Jump Panel */}
+        <Panel defaultSize={15} minSize={8} id="pseudo-jump">
+          <div className="h-full overflow-hidden">
+            <FunctionJumpPanel functions={functions} viewerRef={viewerRef} />
+          </div>
+        </Panel>
+      </PanelGroup>
 
       {/* Search Overlay */}
       <PseudoSearch

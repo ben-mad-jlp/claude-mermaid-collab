@@ -182,17 +182,62 @@ export const OnboardingLayout: React.FC = () => {
 
   return (
     <OnboardingContext.Provider value={contextValue}>
-      <div className="flex h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+      <div className="flex flex-col h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+        {/* Full-width top header */}
+        <header className="h-12 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-4 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-semibold text-gray-900 dark:text-white">Onboarding</span>
+            {/* Refresh Button */}
+            <button
+              onClick={handleRefresh}
+              aria-label="Refresh"
+              title="Refresh"
+              className="p-2 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M23 4v6h-6" />
+                <path d="M1 20v-6h6" />
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10" />
+                <path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14" />
+              </svg>
+            </button>
+            {/* Project Selector */}
+            <ProjectSelector className="w-[400px]" />
+            {/* Search */}
+            {selectedProject && (
+              <form onSubmit={handleSearch} className="flex-1 max-w-md">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="Search topics..."
+                  className="w-full px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </form>
+            )}
+          </div>
+          {/* Theme Toggle */}
+          <button
+            onClick={toggleTheme}
+            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+          >
+            {theme === 'dark' ? (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+              </svg>
+            )}
+          </button>
+        </header>
+
+        {/* Body: sidebar + content */}
+        <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
         <aside className="w-56 h-full bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col">
-          {/* Header */}
-          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-            <h1 className="text-lg font-semibold text-gray-900 dark:text-white">Onboarding</h1>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              {config?.title || 'Project Knowledge'}
-            </p>
-          </div>
-
           {/* Mode toggle */}
           {selectedProject && (
             <div className="px-3 pt-3 pb-1">
@@ -265,6 +310,15 @@ export const OnboardingLayout: React.FC = () => {
               <span className="text-sm">Kodex</span>
             </Link>
             <Link
+              to="/pseudo"
+              className="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+              </svg>
+              <span className="text-sm">Pseudo</span>
+            </Link>
+            <Link
               to="/"
               className="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
             >
@@ -278,59 +332,6 @@ export const OnboardingLayout: React.FC = () => {
 
         {/* Main Content */}
         <div className="flex-1 flex flex-col min-w-0">
-          {/* Header */}
-          <header className="h-12 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-4">
-            <div className="flex items-center gap-3">
-              {/* Refresh Button */}
-              <button
-                onClick={handleRefresh}
-                aria-label="Refresh"
-                title="Refresh"
-                className="p-2 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-              >
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M23 4v6h-6" />
-                  <path d="M1 20v-6h6" />
-                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10" />
-                  <path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14" />
-                </svg>
-              </button>
-
-              {/* Project Selector */}
-              <ProjectSelector className="w-[400px]" />
-
-              {/* Search */}
-              {selectedProject && (
-                <form onSubmit={handleSearch} className="flex-1 max-w-md">
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
-                    placeholder="Search topics..."
-                    className="w-full px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </form>
-              )}
-            </div>
-
-            {/* Theme Toggle */}
-            <button
-              onClick={toggleTheme}
-              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-              title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-            >
-              {theme === 'dark' ? (
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-                </svg>
-              ) : (
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-                </svg>
-              )}
-            </button>
-          </header>
-
           {/* Page Content */}
           {!selectedProject ? (
             <div className="flex-1 flex items-center justify-center text-gray-500">
@@ -347,6 +348,7 @@ export const OnboardingLayout: React.FC = () => {
               <Outlet />
             </main>
           )}
+        </div>
         </div>
       </div>
     </OnboardingContext.Provider>

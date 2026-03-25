@@ -71,12 +71,6 @@ export const KodexSidebar: React.FC = () => {
 
   return (
     <aside className="w-56 h-full bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col">
-      {/* Header */}
-      <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-        <h1 className="text-lg font-semibold text-gray-900 dark:text-white">Kodex</h1>
-        <p className="text-xs text-gray-500 dark:text-gray-400">Project Knowledge</p>
-      </div>
-
       {/* Navigation */}
       <nav className="flex-1 p-2 space-y-1">
         {navItems.map((item) => (
@@ -107,6 +101,15 @@ export const KodexSidebar: React.FC = () => {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
           </svg>
           <span className="text-sm">Onboarding</span>
+        </Link>
+        <Link
+          to="/pseudo"
+          className="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+          </svg>
+          <span className="text-sm">Pseudo</span>
         </Link>
         <Link
           to="/"

@@ -229,7 +229,7 @@ describe('PseudoBlock', () => {
         <PseudoBlock func={func} project="/test-project" onNavigate={mockOnNavigate} />
       );
 
-      const callsDiv = container.querySelector('[style*="color: rgb(120, 113, 108)"]');
+      const callsDiv = container.querySelector('[data-testid="pseudo-calls-section"]');
       expect(callsDiv?.textContent).toContain('CALLS');
     });
 
@@ -247,7 +247,7 @@ describe('PseudoBlock', () => {
         <PseudoBlock func={func} project="/test-project" onNavigate={mockOnNavigate} />
       );
 
-      const label = container.querySelector('[style*="color: rgb(120, 113, 108)"]');
+      const label = container.querySelector('[data-testid="pseudo-calls-section"]');
       expect(label).toHaveClass('text-xs');
       expect(label).toHaveStyle('color: rgb(120, 113, 108)');
     });
@@ -330,14 +330,14 @@ describe('PseudoBlock', () => {
       expect(screen.getByText('line3')).toBeInTheDocument();
     });
 
-    it('should render body with pl-5 indentation', () => {
+    it('should render body lines with indentation applied via paddingLeft', () => {
       const func: ParsedFunction = {
         name: 'indented',
         params: '',
         returnType: '',
         isExport: false,
         calls: [],
-        body: ['indented line'],
+        body: ['top level', '  indented line'],
       };
 
       const { container } = render(
@@ -345,7 +345,12 @@ describe('PseudoBlock', () => {
       );
 
       const bodyDiv = container.querySelector('[data-testid="pseudo-block-body"]');
-      expect(bodyDiv).toHaveClass('pl-5');
+      expect(bodyDiv).toBeInTheDocument();
+      // Indented line should have more padding than top-level line
+      const lines = bodyDiv!.querySelectorAll('div[style*="paddingLeft"], div[style*="padding-left"]');
+      const topPadding = parseInt((lines[0] as HTMLElement).style.paddingLeft || '0');
+      const indentedPadding = parseInt((lines[1] as HTMLElement).style.paddingLeft || '0');
+      expect(indentedPadding).toBeGreaterThan(topPadding);
     });
 
     it('should render body text in stone-dark color and text-sm', () => {
@@ -406,7 +411,7 @@ describe('PseudoBlock', () => {
       expect(elseKeyword).toBeInTheDocument();
     });
 
-    it('should make IF/ELSE keywords slightly bold', () => {
+    it('should make IF/ELSE keywords bold using strong elements', () => {
       const func: ParsedFunction = {
         name: 'conditional',
         params: '',
@@ -420,10 +425,10 @@ describe('PseudoBlock', () => {
         <PseudoBlock func={func} project="/test-project" onNavigate={mockOnNavigate} />
       );
 
-      const ifElements = container.querySelectorAll('[data-testid="keyword-if"]');
-      ifElements.forEach((el) => {
-        expect(el).toHaveStyle('font-weight: 600');
-      });
+      const strongElements = container.querySelectorAll('[data-testid="pseudo-block-body"] strong');
+      const boldTexts = Array.from(strongElements).map((el) => el.textContent);
+      expect(boldTexts).toContain('IF');
+      expect(boldTexts).toContain('ELSE');
     });
   });
 

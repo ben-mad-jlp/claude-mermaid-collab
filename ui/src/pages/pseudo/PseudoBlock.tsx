@@ -10,55 +10,96 @@
  * - Full type annotations for params and return types
  */
 
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import { ParsedFunction } from './parsePseudo';
+import { fetchPseudoReferences, type Reference } from '@/lib/pseudo-api';
 import CallsLink from './CallsLink';
 
 export type PseudoBlockProps = {
   func: ParsedFunction;
   project: string;
+  currentFileStem: string;
   onNavigate: (stem: string) => void;
 };
 
+const KEYWORD_PATTERN = /\b(ELSE IF|IF|ELSE|FOREACH|FOR|WHILE|RETURN|END|TRY|CATCH|FINALLY|THROW|BREAK|CONTINUE|EACH|CALL|SET)\b/g;
+
 /**
- * Helper to render body text with IF/ELSE keyword formatting
+ * Splits a line of text into plain/keyword segments for bold rendering
+ */
+function tokenizeLine(text: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  KEYWORD_PATTERN.lastIndex = 0;
+  while ((match = KEYWORD_PATTERN.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    parts.push(<strong key={match.index}>{match[0]}</strong>);
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+  return parts;
+}
+
+/**
+ * Renders a single body line with indentation, bullet, and keyword bolding
  */
 function renderBodyLine(line: string, index: number) {
-  const trimmed = line.trim();
+  const leadingSpaces = line.length - line.trimStart().length;
+  const trimmed = line.trimStart();
 
-  // Check if line starts with IF or ELSE
-  if (trimmed.startsWith('IF ')) {
-    const rest = trimmed.slice(3);
-    return (
-      <p key={index}>
-        <span data-testid="keyword-if" style={{ fontWeight: 600 }}>
-          IF
-        </span>{' '}
-        {rest}
-      </p>
-    );
-  }
+  if (!trimmed) return <div key={index} style={{ height: '0.5em' }} />;
 
-  if (trimmed === 'ELSE' || trimmed.startsWith('ELSE ')) {
-    const rest = trimmed.slice(4);
-    return (
-      <p key={index}>
-        <span data-testid="keyword-else" style={{ fontWeight: 600 }}>
-          ELSE
-        </span>{' '}
-        {rest}
-      </p>
-    );
-  }
+  // data-testid markers for existing tests
+  const firstWord = trimmed.split(' ')[0];
+  const testId = firstWord === 'IF' ? 'keyword-if' : firstWord === 'ELSE' ? 'keyword-else' : undefined;
 
-  return <p key={index}>{line}</p>;
+  const content = testId ? (
+    <span data-testid={testId}>{tokenizeLine(trimmed)}</span>
+  ) : (
+    tokenizeLine(trimmed)
+  );
+
+  return (
+    <div
+      key={index}
+      style={{ paddingLeft: `${20 + leadingSpaces * 8}px`, display: 'flex', gap: '6px', marginBottom: '3px' }}
+    >
+      <span style={{ flexShrink: 0, color: '#c4b5a8', userSelect: 'none', marginTop: '1px' }}>–</span>
+      <span style={{ flex: 1 }}>{content}</span>
+    </div>
+  );
 }
 
 export default function PseudoBlock({
   func,
   project,
+  currentFileStem,
   onNavigate,
 }: PseudoBlockProps): JSX.Element {
+  const [refsOpen, setRefsOpen] = useState(false);
+  const [refs, setRefs] = useState<Reference[] | null>(null);
+  const [loadingRefs, setLoadingRefs] = useState(false);
+
+  const handleToggleRefs = useCallback(async () => {
+    if (!refsOpen && refs === null) {
+      setLoadingRefs(true);
+      try {
+        const result = await fetchPseudoReferences(project, func.name, currentFileStem);
+        setRefs(result);
+      } catch {
+        setRefs([]);
+      } finally {
+        setLoadingRefs(false);
+      }
+    }
+    setRefsOpen((prev) => !prev);
+  }, [refsOpen, refs, project, func.name, currentFileStem]);
+
   return (
     <div className="mb-6" data-function={func.name}>
       {/* Header: FUNCTION keyword, name, params, return type, and EXPORT badge */}
@@ -78,18 +119,57 @@ export default function PseudoBlock({
           )}
         </div>
 
-        {/* EXPORT badge (right-aligned) */}
-        {func.isExport && (
-          <span className="bg-green-100 text-green-700 text-xs rounded px-1 ml-2 flex-shrink-0">
-            EXPORT
-          </span>
-        )}
+        {/* Right-side badges */}
+        <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+          {func.isExport && (
+            <span className="bg-green-100 text-green-700 text-xs rounded px-1">
+              EXPORT
+            </span>
+          )}
+          <button
+            onClick={handleToggleRefs}
+            className="text-xs rounded px-1 py-0.5 transition-colors"
+            style={{
+              color: refsOpen ? '#7c3aed' : '#78716c',
+              background: refsOpen ? '#ede9fe' : 'transparent',
+            }}
+            title="Show functions that call this"
+          >
+            {loadingRefs ? '…' : 'refs'}
+          </button>
+        </div>
       </div>
+
+      {/* USED BY section (lazy-loaded references) */}
+      {refsOpen && (
+        <div className="mb-2">
+          <div className="text-xs" style={{ color: '#78716c' }}>
+            <span className="font-medium mr-1">USED BY</span>
+            {loadingRefs ? (
+              <span>loading…</span>
+            ) : refs && refs.length > 0 ? (
+              refs.map((ref, idx) => (
+                <React.Fragment key={idx}>
+                  {idx > 0 && ', '}
+                  <CallsLink
+                    name={ref.callerFunction}
+                    fileStem={ref.file}
+                    project={project}
+                    onNavigate={onNavigate}
+                  />
+                </React.Fragment>
+              ))
+            ) : (
+              <span style={{ color: '#a8a29e' }}>no references found</span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* CALLS section */}
       {func.calls.length > 0 && (
         <div className="mb-2">
-          <div className="text-xs" style={{ color: '#78716c' }}>
+          <div data-testid="pseudo-calls-section" className="text-xs" style={{ color: '#78716c' }}>
             <span className="font-medium mr-1">CALLS</span>
             {func.calls.map((call, idx) => (
               <React.Fragment key={idx}>
@@ -113,7 +193,7 @@ export default function PseudoBlock({
       {func.body.length > 0 && (
         <div
           data-testid="pseudo-block-body"
-          className="pl-5 text-sm"
+          className="text-sm"
           style={{ color: '#44403c' }}
         >
           {func.body.map((line, idx) => renderBodyLine(line, idx))}

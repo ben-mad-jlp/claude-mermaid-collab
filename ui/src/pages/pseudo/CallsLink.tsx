@@ -120,7 +120,7 @@ export default function CallsLink({
           font: 'inherit',
         }}
       >
-        {name} ({fileStem})
+        {name} ({fileStem.split('/').pop()})
       </button>
 
       {popoverState.visible && popoverState.anchorRect && (

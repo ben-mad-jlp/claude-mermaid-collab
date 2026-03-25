@@ -80,7 +80,7 @@ export default function FunctionJumpPanel(
   return (
     <div
       data-testid="function-jump-panel"
-      className="w-[220px] shrink-0 border-l overflow-y-auto px-3 py-4"
+      className="w-full h-full border-l overflow-y-auto px-3 py-4"
     >
       {/* Header */}
       <div className="text-[11px] uppercase font-semibold text-stone-600 mb-3">

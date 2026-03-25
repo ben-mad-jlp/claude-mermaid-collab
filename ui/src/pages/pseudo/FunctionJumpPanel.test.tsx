@@ -89,8 +89,8 @@ describe('FunctionJumpPanel', () => {
 
       const panel = container.querySelector('[data-testid="function-jump-panel"]');
       expect(panel).toBeInTheDocument();
-      expect(panel).toHaveClass('w-[220px]');
-      expect(panel).toHaveClass('shrink-0');
+      expect(panel).toHaveClass('w-full');
+      expect(panel).toHaveClass('h-full');
       expect(panel).toHaveClass('border-l');
       expect(panel).toHaveClass('overflow-y-auto');
       expect(panel).toHaveClass('px-3');

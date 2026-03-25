@@ -2,6 +2,11 @@
  * Pseudo API Client - HTTP fetch methods for pseudocode files
  */
 
+export type Reference = {
+  file: string;
+  callerFunction: string;
+};
+
 export type SearchMatch = {
   functionName: string | null;
   line: string;
@@ -59,6 +64,24 @@ export async function fetchPseudoFile(project: string, file: string): Promise<st
   } catch (error) {
     throw error;
   }
+}
+
+/**
+ * Find all functions that reference (CALL) a given function
+ * GET /api/pseudo/references?project=...&functionName=...&fileStem=...
+ */
+export async function fetchPseudoReferences(
+  project: string,
+  functionName: string,
+  fileStem: string
+): Promise<Reference[]> {
+  const params = new URLSearchParams({ project, functionName, fileStem });
+  const response = await fetch(`${API_BASE}/api/pseudo/references?${params}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch references: ${response.statusText}`);
+  }
+  const data = await response.json();
+  return data.references || [];
 }
 
 /**

@@ -36,9 +36,24 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
-// Mock the session store
-vi.mock('@/stores/sessionStore', () => ({
-  useSessionStore: vi.fn(),
+// Mock the kodex store
+vi.mock('@/stores/kodexStore', () => ({
+  useKodexStore: vi.fn(),
+}));
+
+// Mock useWebSocket
+vi.mock('@/hooks/useWebSocket', () => ({
+  useWebSocket: vi.fn(() => ({ isConnected: true, isConnecting: false })),
+}));
+
+// Mock useTheme
+vi.mock('@/hooks/useTheme', () => ({
+  useTheme: vi.fn(() => ({ theme: 'light', toggleTheme: vi.fn() })),
+}));
+
+// Mock ProjectSelector to avoid full kodex store dependency
+vi.mock('@/components/kodex/ProjectSelector', () => ({
+  ProjectSelector: () => <div data-testid="project-selector">Project Selector</div>,
 }));
 
 // Mock child components
@@ -77,7 +92,7 @@ vi.mock('./PseudoSearch', () => ({
 }));
 
 import { useParams, useNavigate } from 'react-router-dom';
-import { useSessionStore } from '@/stores/sessionStore';
+import { useKodexStore } from '@/stores/kodexStore';
 
 describe('PseudoPage', () => {
   const mockNavigate = vi.fn();
@@ -90,13 +105,11 @@ describe('PseudoPage', () => {
     (useParams as ReturnType<typeof vi.fn>).mockReturnValue({ '*': '' });
     (useNavigate as ReturnType<typeof vi.fn>).mockReturnValue(mockNavigate);
 
-    // useSessionStore is a zustand hook that takes a selector function
-    (useSessionStore as ReturnType<typeof vi.fn>).mockImplementation((selector: any) => {
-      const state = { currentSession: { project: '/test-project' } };
-      if (typeof selector === 'function') {
-        return selector(state);
-      }
-      return state;
+    // useKodexStore returns project selection state
+    (useKodexStore as ReturnType<typeof vi.fn>).mockReturnValue({
+      selectedProject: '/test-project',
+      fetchProjects: vi.fn().mockResolvedValue(undefined),
+      setSelectedProject: vi.fn(),
     });
 
     mockFetchPseudoFiles.mockResolvedValue(['file1.pseudo', 'file2.pseudo', 'dir/file3.pseudo']);
@@ -167,12 +180,10 @@ describe('PseudoPage', () => {
 
     it('should handle missing project gracefully', async () => {
       // Start with no project
-      (useSessionStore as ReturnType<typeof vi.fn>).mockImplementation((selector: any) => {
-        const state = { currentSession: { project: '' } };
-        if (typeof selector === 'function') {
-          return selector(state);
-        }
-        return state;
+      (useKodexStore as ReturnType<typeof vi.fn>).mockReturnValue({
+        selectedProject: null,
+        fetchProjects: vi.fn().mockResolvedValue(undefined),
+        setSelectedProject: vi.fn(),
       });
 
       renderPseudoPage();

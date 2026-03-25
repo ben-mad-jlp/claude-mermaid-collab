@@ -128,15 +128,15 @@ export const PseudoViewer = forwardRef<PseudoViewerHandle, PseudoViewerProps>(
         <div ref={contentRef} className="flex-1 overflow-auto p-4">
           {/* Module header: title, subtitle, prose */}
           {(parsed.titleLine || parsed.subtitleLine || parsed.moduleProse.length > 0) && (
-            <div className="mb-6" style={{ color: '#a8a29e' }}>
+            <div className="mb-6 pb-4 border-b border-purple-100 dark:border-purple-900">
               {parsed.titleLine && (
-                <div className="text-base font-semibold mb-1">{parsed.titleLine}</div>
+                <div className="text-lg font-bold mb-1" style={{ color: '#7c3aed' }}>{parsed.titleLine}</div>
               )}
               {parsed.subtitleLine && (
-                <div className="text-sm mb-2">{parsed.subtitleLine}</div>
+                <div className="text-sm font-medium mb-2" style={{ color: '#44403c' }}>{parsed.subtitleLine}</div>
               )}
               {parsed.moduleProse.filter(l => l.trim()).map((line, idx) => (
-                <p key={idx} className="text-sm">{line}</p>
+                <p key={idx} className="text-sm" style={{ color: '#57534e' }}>{line}</p>
               ))}
             </div>
           )}
@@ -150,6 +150,7 @@ export const PseudoViewer = forwardRef<PseudoViewerHandle, PseudoViewerProps>(
                   key={idx}
                   func={func}
                   project={project}
+                  currentFileStem={path.split('/').pop() || path}
                   onNavigate={(stem) => {
                     navigate(`/pseudo/${stem}`);
                   }}

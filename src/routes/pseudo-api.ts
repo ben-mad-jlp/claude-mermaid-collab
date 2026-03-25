@@ -42,6 +42,15 @@ export async function handlePseudoAPI(req: Request): Promise<Response> {
       return await handleSearch(project, query);
     }
 
+    if (path === '/references' && req.method === 'GET') {
+      const functionName = url.searchParams.get('functionName');
+      const fileStem = url.searchParams.get('fileStem');
+      if (!functionName || !fileStem) {
+        return jsonError('Missing required query parameters: functionName, fileStem', 400);
+      }
+      return await handleGetReferences(project, functionName, fileStem);
+    }
+
     return jsonError('Not found', 404);
   } catch (error) {
     console.error('[Pseudo API] Error:', error);
@@ -96,6 +105,8 @@ async function handleListFiles(project: string): Promise<Response> {
 
 /**
  * Get content of a single .pseudo file
+ * Falls back to basename search if the exact path doesn't exist
+ * (supports CALLS annotations that use bare filenames like "diagram-codegen")
  */
 async function handleGetFile(project: string, file: string): Promise<Response> {
   try {
@@ -103,23 +114,47 @@ async function handleGetFile(project: string, file: string): Promise<Response> {
     const filePath = file.endsWith('.pseudo') ? file : `${file}.pseudo`;
     const fullPath = join(project, filePath);
 
-    // Check if file exists
-    if (!existsSync(fullPath)) {
-      return jsonError('File not found', 404);
+    // Fast path: exact match
+    if (existsSync(fullPath)) {
+      const content = await readFile(fullPath, 'utf-8');
+      return Response.json({ content, path: fullPath });
     }
 
-    // Read file content
-    const content = await readFile(fullPath, 'utf-8');
+    // Fallback: search for a .pseudo file whose basename matches
+    const basename = file.split('/').pop() || file;
+    const found = await findPseudoByBasename(project, basename);
+    if (found) {
+      const content = await readFile(found, 'utf-8');
+      return Response.json({ content, path: found });
+    }
 
-    return Response.json({
-      content,
-      path: fullPath,
-    });
+    return jsonError('File not found', 404);
   } catch (error) {
     console.error('[Pseudo API] Error reading file:', error);
     const message = error instanceof Error ? error.message : 'Failed to read file';
     return jsonError(message, 500);
   }
+}
+
+/**
+ * Recursively search for a .pseudo file whose stem matches the given basename
+ */
+async function findPseudoByBasename(dir: string, basename: string): Promise<string | null> {
+  try {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        const result = await findPseudoByBasename(fullPath, basename);
+        if (result) return result;
+      } else if (entry.isFile() && entry.name === `${basename}.pseudo`) {
+        return fullPath;
+      }
+    }
+  } catch {
+    // ignore unreadable directories
+  }
+  return null;
 }
 
 /**
@@ -212,6 +247,58 @@ async function handleSearch(project: string, query: string): Promise<Response> {
     // Return empty matches on error
     return Response.json({ matches: {} });
   }
+}
+
+/**
+ * Find all functions across the project that CALL a given function
+ * Searches for lines matching: CALLS: functionName (fileStem)
+ */
+async function handleGetReferences(project: string, functionName: string, fileStem: string): Promise<Response> {
+  const references: Array<{ file: string; callerFunction: string }> = [];
+  const callsPattern = `CALLS: ${functionName} (${fileStem})`;
+
+  async function walkDir(dir: string): Promise<void> {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walkDir(fullPath);
+      } else if (entry.isFile() && entry.name.endsWith('.pseudo')) {
+        try {
+          const content = await readFile(fullPath, 'utf-8');
+          const lines = content.split('\n');
+          let currentFunction: string | null = null;
+
+          const relPath = relative(project, fullPath).replace(/\.pseudo$/, '');
+          for (const line of lines) {
+            const funcMatch = line.match(/^FUNCTION\s+(\w[\w.]*)/);
+            if (funcMatch) {
+              currentFunction = funcMatch[1];
+            }
+            if (line.includes(callsPattern) && currentFunction) {
+              // Avoid duplicate entries for the same caller function
+              const alreadyFound = references.some(
+                (r) => r.file === relPath && r.callerFunction === currentFunction
+              );
+              if (!alreadyFound) {
+                references.push({ file: relPath, callerFunction: currentFunction });
+              }
+            }
+          }
+        } catch {
+          // skip unreadable files
+        }
+      }
+    }
+  }
+
+  try {
+    await walkDir(project);
+  } catch {
+    // return empty on error
+  }
+
+  return Response.json({ references });
 }
 
 // ============================================================================

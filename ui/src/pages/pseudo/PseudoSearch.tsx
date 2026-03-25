@@ -221,58 +221,45 @@ export default function PseudoSearch({
 
               {!loading && flatResults.length > 0 && (
                 <div>
-                  {groupedResults.map((fileResult) => {
-                    const fileStem = getFileStem(fileResult.file);
-                    const limitedMatches = fileResult.matches.slice(0, 3);
-
-                    return (
-                      <div key={fileResult.file}>
-                        {/* File Header */}
-                        <div
-                          className="px-4 py-2 text-xs font-medium"
-                          style={{ color: '#a8a29e' }}
-                        >
-                          {fileStem}.pseudo
-                        </div>
-
-                        {/* Matches for this file */}
-                        {limitedMatches.map((match, matchIdx) => {
-                          const globalIdx = flatResults.findIndex(
-                            (r) =>
-                              r.file === fileResult.file && r.match === match
-                          );
-
-                          return (
-                            <button
-                              key={`${fileResult.file}-${matchIdx}`}
-                              onClick={() => {
-                                onNavigate(fileStem, match.functionName ?? undefined);
-                                onClose();
-                              }}
-                              className={`w-full text-left px-4 py-2 border-b border-stone-100 text-sm transition-colors ${
-                                globalIdx === highlightedIndex
-                                  ? 'bg-purple-50'
-                                  : 'hover:bg-stone-50'
-                              }`}
-                              style={{
-                                color: '#44403c',
-                              }}
-                            >
-                              <div className="font-medium">
-                                {match.functionName}
-                              </div>
-                              <div
-                                className="text-xs truncate"
-                                style={{ color: '#78716c' }}
-                              >
-                                {truncateLine(match.line)}
-                              </div>
-                            </button>
-                          );
-                        })}
+                  {flatResults.map((item) => (
+                    <button
+                      key={`${item.file}-${item.globalIndex}`}
+                      onClick={() => {
+                        onNavigate(item.fileStem, item.match.functionName ?? undefined);
+                        onClose();
+                      }}
+                      className={`w-full text-left px-4 py-2.5 border-b border-stone-100 text-sm transition-colors ${
+                        item.globalIndex === highlightedIndex
+                          ? 'bg-purple-50'
+                          : 'hover:bg-stone-50'
+                      }`}
+                    >
+                      {/* File path */}
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <svg className="w-3 h-3 flex-shrink-0" style={{ color: '#a8a29e' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <span className="text-xs font-mono" style={{ color: '#78716c' }}>
+                          {item.fileStem}.pseudo
+                        </span>
                       </div>
-                    );
-                  })}
+
+                      {/* Function name (if applicable) */}
+                      {item.match.functionName && (
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <span className="text-xs font-medium" style={{ color: '#7c3aed' }}>fn</span>
+                          <span className="text-xs font-medium" style={{ color: '#44403c' }}>
+                            {item.match.functionName}
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Matching line */}
+                      <div className="text-xs truncate font-mono pl-0.5" style={{ color: '#a8a29e' }}>
+                        {truncateLine(item.match.line.trim(), 80)}
+                      </div>
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
