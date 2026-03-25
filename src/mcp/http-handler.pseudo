@@ -13,6 +13,7 @@ FUNCTION handleMCPRequest(req) -> Response                               EXPORT
 ---
 
 FUNCTION handlePost(req, sessionId) -> Response
+  CALLS: StreamableHttpTransport (http-transport), setupMCPServer (setup)
   1. Resolve the session:
      IF sessionId provided and session exists, reuse it and update last activity.
      IF sessionId provided but session is gone, auto-reconnect (create new session).

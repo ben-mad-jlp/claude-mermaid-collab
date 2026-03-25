@@ -11,7 +11,7 @@ Generate or update `.pseudo` files that summarize code files in plain English, f
 
 ## Step 1: Read the Spec
 
-Read `PSEUDOCODE_SPEC.md` from the project root. This is the authoritative format reference. If it doesn't exist, inform the user they need a spec first.
+Look for `PSEUDOCODE_SPEC.md` in the project root first (allows per-project customization). If it doesn't exist there, read the bundled default from this skill's directory at `PSEUDOCODE_SPEC.md` (sibling to this SKILL.md). This is the authoritative format reference.
 
 ## Step 2: Determine Target Files
 
@@ -40,6 +40,7 @@ For each candidate file, check the spec's skip rules:
    - FUNCTION blocks for each named function/method/callback
    - `---` separators between blocks
    - `EXPORT` markers on public API
+   - `CALLS:` lines for cross-file function references (check the code's imports to determine these)
 4. Apply the 30-second rule: re-read the pseudocode and verify someone could understand the file's purpose quickly.
 
 ### If `.pseudo` file already exists — Update
@@ -75,3 +76,4 @@ The pseudocode format is language-agnostic. Apply it to any language:
 - **Specific where it matters.** Error codes, key field names, behavioral quirks. Vague everywhere else.
 - **Every named function gets its own block.** Don't inline function logic into parent descriptions.
 - **30-second rule.** If the pseudocode takes longer than 30 seconds to understand the file, it's too detailed.
+- **CALLS annotation.** Add `CALLS: functionName (file-stem)` for cross-file dependencies. Derive from the code's imports. Omit stdlib/framework calls.
