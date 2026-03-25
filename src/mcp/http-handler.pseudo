@@ -1,0 +1,53 @@
+// MCP Streamable HTTP Handler
+// Single endpoint for all MCP communication with session management over HTTP transport.
+
+Sessions expire after 30 minutes of inactivity.
+A background timer checks every 60 seconds and cleans up expired sessions.
+Active sessions are stored in a map keyed by transport.sessionId.
+
+FUNCTION handleMCPRequest(req) -> Response                               EXPORT
+  Read the Mcp-Session-Id header from the request.
+  Route by HTTP method: POST, GET, DELETE.
+  Any other method returns 405.
+
+---
+
+FUNCTION handlePost(req, sessionId) -> Response
+  1. Resolve the session:
+     IF sessionId provided and session exists, reuse it and update last activity.
+     IF sessionId provided but session is gone, auto-reconnect (create new session).
+     IF no sessionId, create a brand new session (expected to be an Initialize request).
+     Session creation: new transport + await setupMCPServer, connect them, store by transport.sessionId.
+  2. Detect blocking render_ui calls:
+     Parse request body as JSON. Normalize to array of messages.
+     IF any message is a tools/call for render_ui with blocking != false, set timeout = -1 (no timeout).
+     If body can't be parsed, proceed normally with the original request.
+  3. Forward to transport:
+     Reconstruct the request (body was consumed by parsing).
+     Forward to session.transport.handlePost with timeout options.
+     Ensure response includes the Mcp-Session-Id header, add it if missing.
+
+---
+
+FUNCTION handleGet(req, sessionId) -> Response
+  IF no sessionId, return 400.
+  IF session not found, return 404.
+  Update last activity.
+  Return SSE stream from the transport.
+
+---
+
+FUNCTION handleDelete(req, sessionId) -> Response
+  IF no sessionId, return 400.
+  IF session already gone, return 204 (that's fine).
+  Close transport, remove session, return 204.
+
+---
+
+FUNCTION getActiveSessionCount() -> number                               EXPORT
+  Return the number of active sessions.
+
+---
+
+FUNCTION getSessionInfo() -> Array                                       EXPORT
+  Return sessionId, createdAt, and lastActivity for each active session.
