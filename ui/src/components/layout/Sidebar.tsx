@@ -441,6 +441,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </svg>
           <span className="text-sm">Onboarding</span>
         </Link>
+        <Link
+          to="/pseudo"
+          className="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+          </svg>
+          <span className="text-sm">Pseudo</span>
+        </Link>
       </div>
 
       {/* Add Todo Dialog */}

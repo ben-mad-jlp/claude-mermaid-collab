@@ -10,6 +10,7 @@ import { Renderer } from './services/renderer';
 import { WebSocketHandler } from './websocket/handler';
 import { handleAPI } from './routes/api';
 import { handleKodexAPI } from './routes/kodex-api';
+import { handlePseudoAPI } from './routes/pseudo-api';
 import { handleOnboardingAPI } from './routes/onboarding-api';
 import { sessionRegistry } from './services/session-registry';
 import { statusManager } from './services/status-manager';
@@ -91,6 +92,11 @@ const server = Bun.serve({
     // Kodex API routes
     if (url.pathname.startsWith('/api/kodex')) {
       return handleKodexAPI(req);
+    }
+
+    // Pseudo API routes
+    if (url.pathname.startsWith('/api/pseudo')) {
+      return handlePseudoAPI(req);
     }
 
     // Onboarding API routes

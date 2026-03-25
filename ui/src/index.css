@@ -90,3 +90,13 @@ body {
   scrollbar-width: thin;
   scrollbar-color: #555 #1e1e1e;
 }
+
+/* Pseudo-viewer: function highlight flash animation */
+@keyframes function-flash-kf {
+  0% { background-color: #fef08a; }
+  100% { background-color: transparent; }
+}
+
+.function-flash {
+  animation: function-flash-kf 1.5s ease-out;
+}

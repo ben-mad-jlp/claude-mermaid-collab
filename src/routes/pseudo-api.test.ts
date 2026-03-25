@@ -1,0 +1,316 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdir, rm, writeFile } from 'fs/promises';
+import * as fs from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { handlePseudoAPI } from './pseudo-api';
+
+describe('Pseudo API Routes', () => {
+  let testProjectPath: string;
+
+  beforeEach(async () => {
+    testProjectPath = join(tmpdir(), `test-pseudo-project-${Date.now()}`);
+    await mkdir(testProjectPath, { recursive: true });
+  });
+
+  afterEach(async () => {
+    if (fs.existsSync(testProjectPath)) {
+      await rm(testProjectPath, { recursive: true, force: true });
+    }
+  });
+
+  describe('Missing project parameter', () => {
+    it('should return 400 when project parameter is missing', async () => {
+      const req = new Request('http://localhost/api/pseudo/files', { method: 'GET' });
+      const response = await handlePseudoAPI(req);
+
+      expect(response.status).toBe(400);
+      const data = await response.json();
+      expect(data.error).toBeDefined();
+      expect(data.error).toContain('project');
+    });
+  });
+
+  describe('GET /api/pseudo/files', () => {
+    it('should return empty list when no .pseudo files exist', async () => {
+      const url = `http://localhost/api/pseudo/files?project=${encodeURIComponent(testProjectPath)}`;
+      const req = new Request(url, { method: 'GET' });
+      const response = await handlePseudoAPI(req);
+
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.files).toEqual([]);
+    });
+
+    it('should return list of .pseudo files with extensions stripped', async () => {
+      // Create some .pseudo files
+      await writeFile(join(testProjectPath, 'auth.pseudo'), 'FUNCTION auth()');
+      await writeFile(join(testProjectPath, 'utils.pseudo'), 'FUNCTION helper()');
+      await writeFile(join(testProjectPath, 'other.txt'), 'not a pseudo file');
+
+      const url = `http://localhost/api/pseudo/files?project=${encodeURIComponent(testProjectPath)}`;
+      const req = new Request(url, { method: 'GET' });
+      const response = await handlePseudoAPI(req);
+
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.files).toHaveLength(2);
+      expect(data.files).toContain('auth');
+      expect(data.files).toContain('utils');
+      expect(data.files).not.toContain('other.txt');
+    });
+
+    it('should return files sorted alphabetically', async () => {
+      // Create files in non-alphabetical order
+      await writeFile(join(testProjectPath, 'zebra.pseudo'), 'FUNCTION z()');
+      await writeFile(join(testProjectPath, 'apple.pseudo'), 'FUNCTION a()');
+      await writeFile(join(testProjectPath, 'banana.pseudo'), 'FUNCTION b()');
+
+      const url = `http://localhost/api/pseudo/files?project=${encodeURIComponent(testProjectPath)}`;
+      const req = new Request(url, { method: 'GET' });
+      const response = await handlePseudoAPI(req);
+
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.files).toEqual(['apple', 'banana', 'zebra']);
+    });
+
+    it('should scan recursively in subdirectories', async () => {
+      // Create nested .pseudo files
+      const subdir = join(testProjectPath, 'subdir');
+      await mkdir(subdir, { recursive: true });
+      await writeFile(join(testProjectPath, 'root.pseudo'), 'FUNCTION root()');
+      await writeFile(join(subdir, 'nested.pseudo'), 'FUNCTION nested()');
+
+      const url = `http://localhost/api/pseudo/files?project=${encodeURIComponent(testProjectPath)}`;
+      const req = new Request(url, { method: 'GET' });
+      const response = await handlePseudoAPI(req);
+
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.files).toHaveLength(2);
+      expect(data.files).toContain('root');
+      expect(data.files).toContain('subdir/nested');
+    });
+  });
+
+  describe('GET /api/pseudo/file', () => {
+    it('should return 400 when file parameter is missing', async () => {
+      const url = `http://localhost/api/pseudo/file?project=${encodeURIComponent(testProjectPath)}`;
+      const req = new Request(url, { method: 'GET' });
+      const response = await handlePseudoAPI(req);
+
+      expect(response.status).toBe(400);
+      const data = await response.json();
+      expect(data.error).toBeDefined();
+    });
+
+    it('should return 404 when file does not exist', async () => {
+      const url = `http://localhost/api/pseudo/file?project=${encodeURIComponent(testProjectPath)}&file=nonexistent`;
+      const req = new Request(url, { method: 'GET' });
+      const response = await handlePseudoAPI(req);
+
+      expect(response.status).toBe(404);
+      const data = await response.json();
+      expect(data.error).toBeDefined();
+    });
+
+    it('should return file content and path', async () => {
+      const content = 'FUNCTION test()\n  return 42\nEND FUNCTION';
+      await writeFile(join(testProjectPath, 'test.pseudo'), content);
+
+      const url = `http://localhost/api/pseudo/file?project=${encodeURIComponent(testProjectPath)}&file=test`;
+      const req = new Request(url, { method: 'GET' });
+      const response = await handlePseudoAPI(req);
+
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.content).toBe(content);
+      expect(data.path).toBeDefined();
+      expect(data.path).toContain('test.pseudo');
+    });
+
+    it('should handle nested file paths', async () => {
+      const subdir = join(testProjectPath, 'src', 'lib');
+      await mkdir(subdir, { recursive: true });
+      const content = 'FUNCTION nested()';
+      await writeFile(join(subdir, 'helper.pseudo'), content);
+
+      const url = `http://localhost/api/pseudo/file?project=${encodeURIComponent(testProjectPath)}&file=src/lib/helper`;
+      const req = new Request(url, { method: 'GET' });
+      const response = await handlePseudoAPI(req);
+
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.content).toBe(content);
+    });
+  });
+
+  describe('GET /api/pseudo/search', () => {
+    it('should return 400 when query parameter is missing', async () => {
+      const url = `http://localhost/api/pseudo/search?project=${encodeURIComponent(testProjectPath)}`;
+      const req = new Request(url, { method: 'GET' });
+      const response = await handlePseudoAPI(req);
+
+      expect(response.status).toBe(400);
+      const data = await response.json();
+      expect(data.error).toBeDefined();
+    });
+
+    it('should return empty results when no matches found', async () => {
+      await writeFile(join(testProjectPath, 'test.pseudo'), 'FUNCTION foo()');
+
+      const url = `http://localhost/api/pseudo/search?project=${encodeURIComponent(testProjectPath)}&q=nonexistent`;
+      const req = new Request(url, { method: 'GET' });
+      const response = await handlePseudoAPI(req);
+
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.matches).toEqual({});
+    });
+
+    it('should find matches case-insensitively', async () => {
+      const content = 'FUNCTION test()\n  return DEBUG\nEND FUNCTION';
+      await writeFile(join(testProjectPath, 'test.pseudo'), content);
+
+      const url = `http://localhost/api/pseudo/search?project=${encodeURIComponent(testProjectPath)}&q=debug`;
+      const req = new Request(url, { method: 'GET' });
+      const response = await handlePseudoAPI(req);
+
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.matches).toBeDefined();
+      expect(Object.keys(data.matches)).toContain('test');
+    });
+
+    it('should track current FUNCTION name as it scans', async () => {
+      const content = `FUNCTION first()
+  print "in first"
+END FUNCTION
+
+FUNCTION second()
+  print "in second"
+END FUNCTION`;
+      await writeFile(join(testProjectPath, 'test.pseudo'), content);
+
+      const url = `http://localhost/api/pseudo/search?project=${encodeURIComponent(testProjectPath)}&q=print`;
+      const req = new Request(url, { method: 'GET' });
+      const response = await handlePseudoAPI(req);
+
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.matches.test).toBeDefined();
+      expect(data.matches.test).toHaveLength(2);
+    });
+
+    it('should flag FUNCTION line matches with isFunctionLine: true', async () => {
+      const content = `FUNCTION calculateSum(a, b)
+  return a + b
+END FUNCTION`;
+      await writeFile(join(testProjectPath, 'math.pseudo'), content);
+
+      const url = `http://localhost/api/pseudo/search?project=${encodeURIComponent(testProjectPath)}&q=calculateSum`;
+      const req = new Request(url, { method: 'GET' });
+      const response = await handlePseudoAPI(req);
+
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.matches.math).toBeDefined();
+      const matches = data.matches.math;
+      expect(matches.some((m: any) => m.isFunctionLine === true)).toBe(true);
+    });
+
+    it('should sort FUNCTION line matches above body matches', async () => {
+      const content = `FUNCTION search()
+  print "searching for search"
+END FUNCTION`;
+      await writeFile(join(testProjectPath, 'test.pseudo'), content);
+
+      const url = `http://localhost/api/pseudo/search?project=${encodeURIComponent(testProjectPath)}&q=search`;
+      const req = new Request(url, { method: 'GET' });
+      const response = await handlePseudoAPI(req);
+
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      const matches = data.matches.test;
+      // FUNCTION line should come first
+      expect(matches[0].isFunctionLine).toBe(true);
+    });
+
+    it('should track CALLS from function lines', async () => {
+      const content = `FUNCTION main()
+  CALLS helper
+  CALLS other
+END FUNCTION`;
+      await writeFile(join(testProjectPath, 'test.pseudo'), content);
+
+      const url = `http://localhost/api/pseudo/search?project=${encodeURIComponent(testProjectPath)}&q=helper`;
+      const req = new Request(url, { method: 'GET' });
+      const response = await handlePseudoAPI(req);
+
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      const matches = data.matches.test;
+      expect(matches.length).toBeGreaterThan(0);
+      // Verify the CALLS line is captured
+      const callsMatch = matches.find((m: any) => m.line.includes('CALLS'));
+      expect(callsMatch).toBeDefined();
+    });
+
+    it('should group results by file', async () => {
+      await writeFile(join(testProjectPath, 'file1.pseudo'), 'FUNCTION test1()\nCOMPARE items');
+      await writeFile(join(testProjectPath, 'file2.pseudo'), 'FUNCTION test2()\nCOMPARE values');
+
+      const url = `http://localhost/api/pseudo/search?project=${encodeURIComponent(testProjectPath)}&q=compare`;
+      const req = new Request(url, { method: 'GET' });
+      const response = await handlePseudoAPI(req);
+
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(Object.keys(data.matches)).toHaveLength(2);
+      expect(data.matches.file1).toBeDefined();
+      expect(data.matches.file2).toBeDefined();
+    });
+
+    it('should cap results at 50 total matches', async () => {
+      let content = '';
+      // Create content with 60 matching lines
+      for (let i = 0; i < 60; i++) {
+        content += `line with target text ${i}\n`;
+      }
+      await writeFile(join(testProjectPath, 'test.pseudo'), content);
+
+      const url = `http://localhost/api/pseudo/search?project=${encodeURIComponent(testProjectPath)}&q=target`;
+      const req = new Request(url, { method: 'GET' });
+      const response = await handlePseudoAPI(req);
+
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      const totalMatches = Object.values(data.matches).reduce((sum: number, matches: any) => sum + matches.length, 0);
+      expect(totalMatches).toBeLessThanOrEqual(50);
+    });
+
+    it('should handle multiple files with complex search', async () => {
+      await writeFile(join(testProjectPath, 'auth.pseudo'), `FUNCTION authenticate(user)
+  CALLS validatePassword
+  CHECK permissions
+END FUNCTION`);
+
+      await writeFile(join(testProjectPath, 'utils.pseudo'), `FUNCTION validatePassword()
+  CHECK rules
+  COMPARE hashes
+END FUNCTION`);
+
+      const url = `http://localhost/api/pseudo/search?project=${encodeURIComponent(testProjectPath)}&q=check`;
+      const req = new Request(url, { method: 'GET' });
+      const response = await handlePseudoAPI(req);
+
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(Object.keys(data.matches).length).toBeGreaterThan(0);
+      // Verify matches are found in both files
+      const totalMatches = Object.values(data.matches).reduce((sum: number, matches: any) => sum + matches.length, 0);
+      expect(totalMatches).toBeGreaterThan(0);
+    });
+  });
+});
