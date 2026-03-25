@@ -1,0 +1,142 @@
+// HTTP API Client
+// Type-safe HTTP client for communicating with the mermaid-collab server.
+// Wraps REST endpoints for sessions, diagrams, documents, spreadsheets,
+// validation, rendering, and metadata. A singleton instance is exported
+// for convenience.
+
+Default base URL is http://localhost:3737.
+All methods throw an APIError (with status and data fields) on non-2xx
+responses or network failures.
+
+FUNCTION APIClient.constructor(baseUrl)
+  Store the base URL. Defaults to http://localhost:3737.
+
+---
+
+FUNCTION APIClient.request(method, path, options) -> T
+  Build the full URL from baseUrl + path, appending any query params.
+  Set Content-Type to application/json; include body as JSON if provided.
+  Make the fetch call. IF the network request throws, wrap in APIError with status 0.
+  Parse response as JSON. IF parsing fails, throw APIError with the HTTP status.
+  IF response is not ok, throw APIError with the error message from response body.
+  Return the parsed data.
+
+---
+
+FUNCTION APIClient.getSessions() -> Session[]                              EXPORT
+  GET /api/sessions; return the sessions array from the response.
+
+---
+
+FUNCTION APIClient.createSession(project, session) -> Session              EXPORT
+  POST /api/sessions with { project, session }; return a Session object built
+  from the inputs plus the current timestamp as lastAccess.
+
+---
+
+FUNCTION APIClient.deleteSession(project, session) -> boolean              EXPORT
+  DELETE /api/sessions with { project, session }; return success flag.
+
+---
+
+FUNCTION APIClient.getDiagram(project, session, id) -> Diagram             EXPORT
+  GET /api/diagram/:id with project and session as query params.
+
+---
+
+FUNCTION APIClient.listDiagrams(project, session) -> DiagramListItem[]     EXPORT
+  GET /api/diagrams; return the diagrams array from the response.
+
+---
+
+FUNCTION APIClient.createDiagram(project, session, name, content) -> string EXPORT
+  POST /api/diagram with name and content in the body; return the new diagram id.
+
+---
+
+FUNCTION APIClient.updateDiagram(project, session, id, content) -> void    EXPORT
+  POST /api/diagram/:id with content in the body.
+
+---
+
+FUNCTION APIClient.patchDiagram(project, session, id, oldString, newString) -> void EXPORT
+  POST /api/diagram/:id with content: null and a patch object containing
+  oldString and newString. The server handles the search-replace.
+
+---
+
+FUNCTION APIClient.deleteDiagram(project, session, id) -> void             EXPORT
+  DELETE /api/diagram/:id.
+
+---
+
+FUNCTION APIClient.getDocument(project, session, id) -> Document           EXPORT
+  GET /api/document/:id.
+
+---
+
+FUNCTION APIClient.getDocumentClean(project, session, id) -> string        EXPORT
+  GET /api/document/:id/clean; return the content string.
+
+---
+
+FUNCTION APIClient.listDocuments(project, session) -> DocumentListItem[]   EXPORT
+  GET /api/documents; return the documents array.
+
+---
+
+FUNCTION APIClient.createDocument(project, session, name, content) -> string EXPORT
+  POST /api/document; return the new document id.
+
+---
+
+FUNCTION APIClient.updateDocument(project, session, id, content) -> void   EXPORT
+  POST /api/document/:id with content.
+
+---
+
+FUNCTION APIClient.patchDocument(project, session, id, oldString, newString) -> void EXPORT
+  POST /api/document/:id with content: null and a patch object.
+
+---
+
+FUNCTION APIClient.deleteDocument(project, session, id) -> void            EXPORT
+  DELETE /api/document/:id.
+
+---
+
+FUNCTION APIClient.validateDiagram(content) -> ValidationResult            EXPORT
+  POST /api/validate with the diagram content; return the validation result.
+
+---
+
+FUNCTION APIClient.renderDiagramSVG(project, session, id, theme) -> string EXPORT
+  GET /api/render/:id with project, session, and theme as query params.
+  Fetch directly (not via request helper) to receive the SVG text response.
+  IF not ok, parse error body and throw APIError. Return the SVG string.
+
+---
+
+FUNCTION APIClient.getDiagramThumbnail(project, session, id) -> string     EXPORT
+  GET /api/thumbnail/:id; return SVG string. Same direct-fetch pattern as renderDiagramSVG.
+
+---
+
+FUNCTION APIClient.transpileDiagram(project, session, id) -> string        EXPORT
+  GET /api/transpile/:id; return the mermaid string from the response.
+
+---
+
+FUNCTION APIClient.getMetadata(project, session)                           EXPORT
+  GET /api/metadata; return the raw metadata object.
+
+---
+
+FUNCTION APIClient.updateItemMetadata(project, session, id, updates) -> void EXPORT
+  POST /api/metadata/item/:id with folder and/or locked fields.
+
+---
+
+FUNCTION APIClient.manageFolders(project, session, action, name, newName) -> object EXPORT
+  POST /api/metadata/folders with action, name, and optional newName.
+  Return { success, folders }.

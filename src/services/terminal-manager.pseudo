@@ -1,0 +1,63 @@
+// Terminal Manager
+// Manages tmux terminal sessions: storage I/O, tmux lifecycle, and reconciliation with stored state.
+
+Session metadata is stored at .collab/sessions/{session}/terminal-sessions.json (new) or
+.collab/{session}/terminal-sessions.json (legacy).
+A singleton instance (terminalManager) is exported for convenience.
+
+FUNCTION getStoragePath(project, session) -> string
+  Private. Check new location first; if it or its parent directory exists, return it.
+  Otherwise check old location. Default to new location.
+
+---
+
+FUNCTION readSessions(project, session) -> TerminalSessionsState
+  CALLS: getStoragePath (terminal-manager)
+  Read and parse the JSON file at the storage path.
+  IF file does not exist or read fails, return an empty sessions state with a fresh timestamp.
+
+---
+
+FUNCTION writeSessions(project, session, state) -> void
+  CALLS: getStoragePath (terminal-manager)
+  Create the directory if needed. Update state.lastModified to now. Write JSON to disk.
+
+---
+
+FUNCTION generateTmuxSessionName(collabSession) -> string
+  Extract the last segment of the collabSession name (split by ':' or '/').
+  Sanitize to lowercase alphanumeric only, truncate to 20 chars.
+  Append a 4-character random hex suffix.
+  Return "mc-{sanitized}-{suffix}".
+
+---
+
+FUNCTION createTmuxSession(tmuxSessionName, cwd) -> void
+  Run tmux new-session -d with optional -c for working directory.
+  Enable mouse mode on the new session.
+  Attempt to unbind split keys (Ctrl+B % and Ctrl+B "); failures are non-fatal.
+  IF a "duplicate session" error occurs, treat as success: apply mouse mode and attempt key unbinds.
+  Other errors are rethrown.
+
+---
+
+FUNCTION killTmuxSession(tmuxSessionName) -> void
+  Run tmux kill-session. IF the session does not exist ("no session" error), treat as success.
+  Other errors are rethrown.
+
+---
+
+FUNCTION listActiveTmuxSessions(prefix) -> string[]
+  Run tmux list-sessions and parse the output.
+  Filter to session names starting with the given prefix.
+  Return empty array if tmux is not running.
+
+---
+
+FUNCTION reconcileSessions(project, session) -> void
+  CALLS: readSessions (terminal-manager), listActiveTmuxSessions (terminal-manager),
+         killTmuxSession (terminal-manager), writeSessions (terminal-manager)
+  Read stored sessions and list active tmux sessions with the "mc-{session}-" prefix.
+  Remove stored entries whose tmux sessions are no longer active (orphaned records).
+  Kill active tmux sessions that have no corresponding stored entry (orphaned tmux sessions).
+  Write the cleaned state and log a reconciliation summary.

@@ -1,0 +1,184 @@
+// Kodex Manager
+// Manages a project knowledge base with SQLite metadata and Markdown content files.
+
+Each project gets a .collab/kodex/ directory: a SQLite database (kodex.db) for metadata,
+access logs, flags, and analytics; and a topics/ subdirectory where each topic has its
+own folder with conceptual.md, technical.md, files.md, related.md, and diagrams.md.
+A draft workflow allows AI-generated content to be staged in a topic/draft/ subdirectory
+before being approved (promoted to live) or rejected (deleted).
+The database is opened lazily on first use. A module-level Map provides one KodexManager
+instance per project path.
+
+FUNCTION KodexManager.constructor(projectPath)                                     EXPORT
+  Set paths for kodexDir (.collab/kodex), topicsDir, and dbPath.
+
+---
+
+FUNCTION KodexManager.ensureInitialized() -> Database
+  IF database is already open, return it.
+  Create kodexDir and topicsDir if they don't exist. Open SQLite, run CREATE TABLE IF NOT
+  EXISTS for all schema tables and indexes, and return the database.
+
+---
+
+FUNCTION KodexManager.listTopics() -> TopicMetadata[]
+  Query all topics ordered by updated_at descending. Map rows to TopicMetadata objects.
+
+---
+
+FUNCTION KodexManager.getTopic(name, includeContent) -> Topic | null
+  Look up by exact name first, then scan all topics' aliases arrays for a match.
+  IF not found, log the miss and return null.
+  Log access using the actual topic name (not the alias). IF includeContent is false,
+  return metadata with empty content fields. Otherwise read and return full content.
+
+---
+
+FUNCTION KodexManager.createTopic(name, title, content, createdBy) -> Draft
+  Write all content sections into a draft/ subdirectory. Insert or update the topics row
+  with has_draft=1. Clean up missing_topics records and auto-resolve open "missing" flags
+  for this topic. Return a Draft object.
+
+---
+
+FUNCTION KodexManager.updateTopic(name, content, reason) -> Draft
+  Verify the topic exists. Merge provided fields with the current live content.
+  Write the merged content to the draft/ subdirectory. Set has_draft=1. Return a Draft object.
+
+---
+
+FUNCTION KodexManager.directUpdateTopic(name, content, reason) -> { updated, flagId }
+  Merge provided fields with current content and write directly to live files (no draft).
+  Clear verification fields on the topics row. Create a "needs-review" flag (deduplicated).
+  Return { updated: true }.
+
+---
+
+FUNCTION KodexManager.directCreateTopic(name, title, content, reason) -> { created }
+  Write content directly to live files. Insert topic with confidence="medium".
+  Clean up missing_topics records and auto-resolve open "missing" flags.
+  Create a "needs-review" flag (deduplicated). Return { created: true }.
+
+---
+
+FUNCTION KodexManager.deleteTopic(name) -> void
+  Remove the topic's directory from disk. Delete the topics row and all flags for the topic.
+
+---
+
+FUNCTION KodexManager.verifyTopic(name, verifiedBy) -> void
+  Set verified=1, verified_at, verified_by, and confidence="high" on the topics row.
+
+---
+
+FUNCTION KodexManager.addAlias(topicName, alias) -> void
+  Verify the topic exists. Throw if alias already present. Append alias to the stored JSON
+  aliases array and persist.
+
+---
+
+FUNCTION KodexManager.removeAlias(topicName, alias) -> void
+  Verify the topic exists. Throw if alias not found. Filter out the alias and persist.
+
+---
+
+FUNCTION KodexManager.listDrafts() -> Draft[]
+  Query all topics with has_draft=1. Read draft content from each topic's draft/ directory.
+
+---
+
+FUNCTION KodexManager.listDraftsSummary() -> { topicName, title, createdAt }[]
+  Return lightweight summary rows for topics with pending drafts, sorted by updated_at.
+
+---
+
+FUNCTION KodexManager.getDraft(topicName) -> Draft | null
+  Check if the topic has has_draft=1. IF so, read and return its draft content.
+
+---
+
+FUNCTION KodexManager.approveDraft(topicName) -> Topic
+  CALLS: KodexManager.getTopic (kodex-manager), KodexManager.updateFlagStatus (kodex-manager)
+  Copy all draft content files over the live content files. Delete the draft/ directory.
+  Set has_draft=0. Auto-resolve all open flags for the topic. Return the updated topic.
+
+---
+
+FUNCTION KodexManager.rejectDraft(topicName) -> void
+  Delete the draft/ directory. Set has_draft=0.
+
+---
+
+FUNCTION KodexManager.listFlags(status) -> Flag[]
+  Query flags, optionally filtered by status, ordered by created_at descending.
+
+---
+
+FUNCTION KodexManager.hasFlag(topicName, type) -> boolean
+  Check open flags for a matching topicName + type combination.
+
+---
+
+FUNCTION KodexManager.createFlag(topicName, type, description, options) -> { created, reason }
+  CALLS: KodexManager.hasFlag (kodex-manager)
+  IF dedupe is enabled, check for an existing open flag of the same type; skip if found.
+  Optionally append context to the description. Insert the flag row.
+
+---
+
+FUNCTION KodexManager.updateFlagStatus(id, status) -> void
+  Update flag status and set resolved_at (null if reopening, current time otherwise).
+
+---
+
+FUNCTION KodexManager.logAccess(topicName, source, context) -> void
+  Insert a row into access_log. Upsert access_counts to increment count and update last_accessed.
+
+---
+
+FUNCTION KodexManager.logMissing(topicName, context) -> void
+  Upsert missing_topics to increment count and update requested_at.
+
+---
+
+FUNCTION KodexManager.getDashboardStats() -> DashboardStats
+  Query counts for total topics, verified topics, pending drafts, and open flags.
+  Fetch the 10 most recent access log entries and the 10 most-requested missing topics.
+
+---
+
+FUNCTION KodexManager.getMissingTopics() -> MissingTopicEntry[]
+  Return all missing_topics rows ordered by count descending.
+
+---
+
+FUNCTION KodexManager.readTopicContent(name) -> TopicContent
+  Read all five content files from the topic's live directory.
+  Pass diagrams.md through resolveDiagramLinks before returning.
+
+---
+
+FUNCTION KodexManager.readDraftContent(name) -> TopicContent
+  Read all five content files from the topic's draft/ directory.
+
+---
+
+FUNCTION KodexManager.resolveDiagramLinks(content, topicDir) -> string
+  For each line in content that matches a markdown link to a .mmd file, replace the
+  link with a ### heading, optional description, and a fenced mermaid code block
+  containing the file's contents. Lines that don't match are passed through unchanged.
+
+---
+
+FUNCTION KodexManager.readFileOrEmpty(path) -> string
+  Return file contents if the file exists, otherwise return an empty string.
+
+---
+
+FUNCTION KodexManager.close() -> void
+  Close the SQLite database and null out the reference.
+
+---
+
+FUNCTION getKodexManager(projectPath) -> KodexManager                             EXPORT
+  Return a cached KodexManager for the given project path, creating one if needed.

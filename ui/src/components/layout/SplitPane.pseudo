@@ -1,0 +1,35 @@
+// SplitPane
+// Resizable split-pane layout components using react-resizable-panels.
+// SplitPane: two-panel with optional collapse support.
+// ThreeWaySplitPane: three-panel with two resize handles, left and right
+// panels collapsible independently.
+
+FUNCTION SplitPane(primary, secondary, direction, defaultSize, collapsible, onSizeChange, ...) -> JSX  EXPORT
+  Two-panel PanelGroup. Primary panel holds primaryPanelRef for
+  programmatic collapse/expand.
+  Drag handle between panels.
+  Exposes collapsePrimary/expandPrimary methods via ref.
+
+---
+
+FUNCTION handleLayout(sizes) -> void
+  Extracts primarySize from sizes[0].sizePercentage.
+  Fires onSizeChange(primarySize).
+  Detects collapse/expand transitions and updates collapsed state.
+
+---
+
+FUNCTION collapsePrimary() -> void
+  Calls primaryPanelRef.current.collapse().
+
+---
+
+FUNCTION expandPrimary() -> void
+  Calls primaryPanelRef.current.expand().
+
+---
+
+FUNCTION ThreeWaySplitPane(left, center, right, ...) -> JSX            EXPORT
+  Three-panel PanelGroup with two resize handles.
+  Left and right panels are independently collapsible.
+  Handles layout change to track each panel's collapsed state.

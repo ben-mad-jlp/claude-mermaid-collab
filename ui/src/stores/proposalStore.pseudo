@@ -1,0 +1,48 @@
+// Proposal Store
+// Zustand store for managing collaborative review proposals and comments per document item.
+// Proposals track suggested changes with approve/reject lifecycle.
+
+State shape:
+  proposals: Record<itemId, Proposal[]>
+  Each Proposal has: id, timestamp, type ('pending' | 'approved' | 'rejected'), plus caller-supplied fields.
+
+FUNCTION generateId() -> string
+  Combines current timestamp (base-36) and a random suffix to produce a unique ID.
+
+---
+
+FUNCTION addProposal(itemId, proposal) -> id                            EXPORT
+  Generate a unique ID and timestamp.
+  Append a new Proposal to proposals[itemId] (creating the array if absent).
+  Return the new ID.
+
+---
+
+FUNCTION updateProposal(itemId, proposalId, updates)                    EXPORT
+  IF the proposal does not exist under itemId, do nothing (silent no-op).
+  ELSE merge the updates into the matching proposal.
+
+---
+
+FUNCTION removeProposal(itemId, proposalId)                             EXPORT
+  Filter out the proposal with the given ID from proposals[itemId].
+
+---
+
+FUNCTION approveProposal(itemId, proposalId)                            EXPORT
+  Call updateProposal with type = 'approved'.
+
+---
+
+FUNCTION rejectProposal(itemId, proposalId)                             EXPORT
+  Call updateProposal with type = 'rejected'.
+
+---
+
+FUNCTION clearProposals(itemId)                                         EXPORT
+  Set proposals[itemId] to an empty array.
+
+---
+
+FUNCTION getProposalsForItem(itemId) -> Proposal[]                      EXPORT
+  Return proposals[itemId], or an empty array if none exist.

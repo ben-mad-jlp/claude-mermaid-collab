@@ -1,0 +1,15 @@
+// ApprovalButtons
+// A row of action buttons with primary, destructive, and default styling.
+// Each button briefly shows a loading state for 300ms after being clicked.
+
+FUNCTION handleAction(actionId)
+  Sets the loading button to the clicked actionId.
+  Calls the onAction callback with the actionId.
+  After 300ms, clears the loading state.
+
+---
+
+FUNCTION ApprovalButtons(props) -> ReactNode                              EXPORT
+  Renders one button per action in the actions array.
+  Button variant (primary/destructive/default) controls color styling.
+  The most recently clicked button shows a loading/spinner state for 300ms.

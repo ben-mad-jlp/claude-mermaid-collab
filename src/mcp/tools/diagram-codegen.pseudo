@@ -1,0 +1,61 @@
+// Diagram from Code Generator
+// Parses TypeScript/JavaScript source files using regex to generate three types of
+// Mermaid diagrams: class hierarchies, import dependency graphs, and module maps.
+
+FUNCTION readFiles(filePaths) -> FileContent[]
+  Attempt to read each file at the provided paths. Skip unreadable files silently.
+  Return array of { path, content } for all successfully read files.
+
+---
+
+FUNCTION extractClasses(files) -> ClassInfo[]
+  Scan each file's content for class and interface declarations using regex.
+  For each match, extract: name, extends parent, implements list.
+  Find the class body by locating the opening brace and tracking depth.
+  Within the body, extract method signatures (up to 10) and property declarations (up to 10).
+  Skip false positives in method/property patterns (control flow keywords).
+  Return list of ClassInfo objects.
+
+---
+
+FUNCTION generateClassDiagram(files) -> string
+  CALLS: extractClasses (diagram-codegen)
+  Extract all class info from files. IF none found, return a placeholder diagram.
+  Build classDiagram Mermaid syntax: emit each class with its properties and methods,
+  then emit inheritance (--|>) and implementation (..|>) relationships.
+
+---
+
+FUNCTION extractImports(files, projectRoot) -> ImportInfo[]
+  Scan each file for import statements. Only include relative imports (starting with ".").
+  Resolve relative import paths to project-root-relative paths.
+  Return list of { from, to } import relationships.
+
+---
+
+FUNCTION sanitizeMermaidId(str) -> string
+  Replace non-alphanumeric characters with underscores, strip leading/trailing underscores.
+  Prefix digit-leading IDs with "f". Return a fallback random ID for empty strings.
+
+---
+
+FUNCTION generateDependencyDiagram(files, projectRoot) -> string
+  CALLS: extractImports (diagram-codegen)
+  Extract all import relationships. IF none, return a placeholder.
+  Emit graph LR with node definitions using basenames as labels,
+  then edges for each import relationship.
+
+---
+
+FUNCTION generateModuleDiagram(files, projectRoot) -> string
+  CALLS: extractImports (diagram-codegen)
+  Group files by their directory. Build graph TD with one subgraph per directory.
+  Add edges only for cross-directory imports (intra-directory imports are omitted).
+
+---
+
+FUNCTION handleDiagramFromCode(project, filePaths, diagramType) -> { mermaidSource }  EXPORT
+  CALLS: readFiles (diagram-codegen), generateClassDiagram (diagram-codegen), generateDependencyDiagram (diagram-codegen), generateModuleDiagram (diagram-codegen)
+  Read all provided files. Throw if none could be read.
+  Dispatch to the appropriate diagram generator based on diagramType (class, dependency, module).
+  Return { success: true, mermaidSource }.

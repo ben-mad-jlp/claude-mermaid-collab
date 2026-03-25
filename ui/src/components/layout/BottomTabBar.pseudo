@@ -1,0 +1,9 @@
+// BottomTabBar
+// Fixed bottom navigation bar for mobile with three tabs: preview, chat,
+// terminal. Each tab has an SVG icon and label. Fixed to viewport bottom
+// with iOS safe-area padding.
+
+FUNCTION BottomTabBar(activeTab, onTabChange) -> JSX                   EXPORT
+  Renders three tab buttons (preview, chat, terminal).
+  Active tab is highlighted with accent color; inactive tabs are gray.
+  Calls onTabChange with the tab name on click.

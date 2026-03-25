@@ -1,0 +1,34 @@
+// Onboarding Layout
+// Shell for all onboarding pages. Provides OnboardingContext (mode, user, project, config),
+// a sidebar with mode toggle and navigation, a header with project selector and search,
+// and a main content area for child routes.
+
+OnboardingContext carries: mode ('browse' | 'onboard'), currentUser, setMode, setUser, project, config.
+Sidebar nav items: Browse, Graph, Dashboard (onboard only), Team (onboard only).
+
+FUNCTION useOnboarding() -> OnboardingContextValue                      EXPORT
+  Return the OnboardingContext value. Used by child pages to access mode, user, and project.
+
+---
+
+FUNCTION OnboardingLayout()                                             EXPORT
+  CALLS: fetchProjects (kodexStore), getConfig (onboarding-api)
+  On mount: fetch registered projects.
+  When selectedProject changes: fetch onboarding config via onboardingApi.getConfig.
+
+  handleRefresh: re-fetch projects and config.
+
+  handleModeToggle(newMode): update mode.
+    IF switching to 'onboard' with no current user, navigate to /onboarding/welcome.
+    IF switching to 'browse', navigate to /onboarding.
+
+  handleSearch: on form submit, navigate to /onboarding/search?q=<query>.
+
+  isActive(path): return true if location.pathname matches the nav item path.
+
+  Render:
+    - OnboardingContext.Provider wrapping the full layout.
+    - Left sidebar with: title, mode toggle (Browse/Onboard), nav links filtered by mode,
+      user chip (onboard mode only), and cross-links to Kodex and Collab.
+    - Header with: refresh button, ProjectSelector, search input (when project selected), theme toggle.
+    - Main content: Outlet if project selected, else a "no project selected" placeholder.

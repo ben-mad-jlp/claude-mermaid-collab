@@ -1,0 +1,9 @@
+// EmbeddedTerminal
+// Thin wrapper that mounts an xterm.js terminal connected to a PTY session via WebSocket.
+// Derives the WebSocket URL from the config and falls back to "default" if no session ID is provided.
+
+FUNCTION EmbeddedTerminal(props) -> ReactNode                             EXPORT
+  CALLS: XTermTerminal (XTermTerminal)
+  Reads wsUrl from config.
+  Uses provided sessionId or "default" as the terminal session identifier.
+  Renders a flex container wrapping XTermTerminal with the resolved wsUrl and sessionId.

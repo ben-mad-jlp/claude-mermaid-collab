@@ -1,0 +1,109 @@
+// SnippetEditor
+// Editor for code snippets stored in a JSON envelope.
+// Displays syntax-highlighted code with optional diff view, annotation support,
+// and an "Apply" action that sends the snippet to the file system via the API.
+
+Snippet content is a JSON envelope: {code, language, filePath, originalCode,
+highlightLines, annotations, groupId}. The editor parses this on load and
+re-serializes on save, preserving all non-code fields.
+
+FUNCTION detectLanguage(fileName) -> Language                          EXPORT
+  Maps file extension (ts, tsx, py, rs, go, etc.) to Language enum values.
+
+---
+
+FUNCTION parseSnippetData(rawContent) -> SnippetData                  EXPORT
+  Attempts JSON.parse on rawContent. Extracts code, language, filePath,
+  originalCode, highlightLines, annotations. Falls back gracefully if not JSON.
+
+---
+
+FUNCTION serializeSnippetData(newCode, rawContent) -> string           EXPORT
+  Re-encodes the JSON envelope with updated code and current annotations,
+  preserving all other fields from the original envelope.
+
+---
+
+FUNCTION SnippetEditor(snippet, onChange, onSave, onToolbarControls, ...) -> JSX  EXPORT
+  CALLS: CodeMirrorWrapper (CodeMirrorWrapper)
+  Parses snippet content via parseSnippetData on load.
+  Pushes memoized toolbarControls JSX to parent via onToolbarControls in effect.
+  Renders CodeMirrorWrapper with annotation support.
+  Renders annotation popover when a dot is clicked.
+
+---
+
+FUNCTION handleContentChange(newContent) -> void
+  Updates content state, calls onChange.
+
+---
+
+FUNCTION handleLanguageChange(lang) -> void
+  Updates selectedLanguage state.
+
+---
+
+FUNCTION handleDiffToggle() -> void
+  Toggles showDiff.
+
+---
+
+FUNCTION handleCopy() -> void
+  Copies current code to clipboard. Flashes button text to "Copied!" for 1.5s.
+
+---
+
+FUNCTION handleSave() -> void
+  Serializes content via serializeSnippetData. Calls updateSnippet.
+  Updates originalCode ref. Calls onSave.
+
+---
+
+FUNCTION handleApply() -> void
+  Saves first (calls handleSave), then calls api.applySnippet(snippet.id).
+  Shows apply status message for 3s.
+
+---
+
+FUNCTION handleCancel() -> void
+  Resets content to originalCode. Hides diff.
+
+---
+
+FUNCTION saveAnnotations(newAnnotations) -> void
+  Updates annotations state and persists via updateSnippet.
+
+---
+
+FUNCTION handleAnnotationClick(index) -> void
+  Opens edit popover for the clicked annotation index.
+
+---
+
+FUNCTION handleOpenAddAnnotation() -> void
+  Creates a new annotation from currentSelection. Calls saveAnnotations.
+
+---
+
+FUNCTION handleAnnotationSave(annotation) -> void
+  Saves new or updated annotation from the popover via saveAnnotations.
+
+---
+
+FUNCTION handleAnnotationDelete(index) -> void
+  Removes annotation at index via saveAnnotations.
+
+---
+
+FUNCTION handleInlineAnnotationSave(index, annotation) -> void
+  Direct save from CodeMirror inline widget without opening popover.
+
+---
+
+FUNCTION handleInlineAnnotationDelete(index) -> void
+  Direct delete from CodeMirror inline widget.
+
+---
+
+FUNCTION handleClearAnnotations() -> void
+  Clears all annotations via saveAnnotations([]).

@@ -1,0 +1,16 @@
+// SessionCleanupDialog
+// Modal dialog for deciding what to do with a session on closure: archive,
+// delete, keep, or archive-and-continue. Disables all actions while processing.
+
+FUNCTION SessionCleanupDialog(onAction, isProcessing) -> JSX           EXPORT
+  Manages selectedAction state.
+  Action options: archive, delete, keep, archive-continue (each with icon and
+  description).
+  Confirm button calls handleConfirm; disabled when isProcessing or no action
+  selected.
+  Shows spinner on confirm button when isProcessing.
+
+---
+
+FUNCTION handleConfirm() -> void
+  Calls onAction(selectedAction) if an action is selected.

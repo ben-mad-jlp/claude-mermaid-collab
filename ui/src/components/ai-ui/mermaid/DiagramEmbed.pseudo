@@ -1,0 +1,10 @@
+// DiagramEmbed
+// AI-UI component that renders a named diagram from the session inside a chat
+// message. Looks up the diagram by name from the session store and passes its
+// content to MermaidPreview.
+
+FUNCTION DiagramEmbed(diagramName, height) -> JSX                      EXPORT
+  CALLS: MermaidPreview (MermaidPreview)
+  Reads diagrams from sessionStore. Finds the diagram matching diagramName.
+  IF not found: shows "Diagram not found" placeholder.
+  ELSE: renders MermaidPreview with the diagram content and fixed height.

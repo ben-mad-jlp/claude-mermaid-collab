@@ -1,0 +1,47 @@
+// MCP Design Tools
+// CRUD operations for design files (.design.json) stored in session folders.
+// All operations proxy through the HTTP API at {API_BASE_URL}/api/design*.
+
+API base URL is configured via PORT (default 3737) and HOST (default localhost) environment variables.
+
+FUNCTION buildUrl(path, project, session, extraParams?) -> string
+  Construct an absolute URL from the API base, appending project, session,
+  and any extra query parameters.
+
+---
+
+FUNCTION handleCreateDesign(project, session, name, content) -> { id }           EXPORT
+  POST to /api/design with name and content JSON.
+  Throw if response is not OK. Return { success: true, id }.
+
+---
+
+FUNCTION handleUpdateDesign(project, session, id, content) -> { id }             EXPORT
+  POST to /api/design/{id} with updated content JSON.
+  Throw if response is not OK. Return { success: true, id }.
+
+---
+
+FUNCTION handleGetDesign(project, session, id) -> GetDesignResult                EXPORT
+  GET /api/design/{id}.
+  Throw if not found. Parse content if it is a string. Return { id, name, content, lastModified }.
+
+---
+
+FUNCTION handleListDesigns(project, session) -> { designs }                      EXPORT
+  GET /api/designs.
+  Throw if response fails. Return { designs: [...] }.
+
+---
+
+FUNCTION handleDeleteDesign(project, session, id) -> { success }                 EXPORT
+  DELETE /api/design/{id}.
+  Throw if response fails. Return { success: true }.
+
+---
+
+FUNCTION handleExportDesign(project, session, id, format?, scale?, outputPath?) -> { filePath, format, size }  EXPORT
+  POST to /api/design/{id}/export with format and scale parameters.
+  Receive binary image data in the response.
+  Write image bytes to outputPath (or a temp file if none provided).
+  Return { success: true, filePath, format, size }.

@@ -1,0 +1,35 @@
+// Design Component Library File I/O
+// Saves and loads COMPONENT subtrees to/from per-session component library files.
+// Components are stored as .component.json files in {project}/.collab/sessions/{session}/components/.
+
+FUNCTION getComponentsDir(project, session) -> string
+  Returns the path to the components directory for a session.
+
+---
+
+FUNCTION sanitizeFilename(name) -> string
+  Replace non-alphanumeric characters with underscores and lowercase the result,
+  producing a safe filename from a component name.
+
+---
+
+FUNCTION saveComponentToLibrary(project, session, name, nodes) -> { success, path }  EXPORT
+  Ensure the components directory exists.
+  Write a .component.json file containing the name, current timestamp, and nodes array.
+  Return the file path.
+
+---
+
+FUNCTION loadComponentFromLibrary(project, session, name) -> { name, nodes }     EXPORT
+  Read the .component.json file for the given component name.
+  IF file does not exist, throw a descriptive error suggesting list_library_components.
+  IF file content is invalid JSON, throw a corrupted-data error.
+  IF nodes array is missing or not an array, throw an invalid-format error.
+  Return the component name and nodes array.
+
+---
+
+FUNCTION listLibraryComponents(project, session) -> Array<{ name, filename, savedAt }>  EXPORT
+  Read the components directory. IF it doesn't exist, return empty array.
+  For each .component.json file, parse and extract name, filename, and savedAt.
+  Skip files with invalid content. Return the collected component metadata.

@@ -1,0 +1,180 @@
+// Root Application Component
+// Top-level React component wrapping the entire UI.
+// Manages: theme, session selection, per-item auto-save, WebSocket subscription and message dispatch,
+// history diff state, project/session CRUD, notification permission, and layout switching
+// (desktop vs. mobile). Wrapped in ErrorBoundary and LoadingOverlay.
+
+---
+
+CLASS ErrorBoundary [private]
+  React class component that catches render errors in its child tree.
+  State: { hasError: boolean, error: Error | null }.
+  getDerivedStateFromError: sets hasError=true and stores the error.
+  componentDidCatch: logs error and errorInfo.
+  render: IF hasError show a centered "Something went wrong" screen with a page-reload button.
+          ELSE render children normally.
+
+---
+
+FUNCTION LoadingOverlay(show) [private]
+  If show is false, render nothing.
+  Else render a fullscreen semi-transparent overlay with a spinning indicator.
+
+---
+
+FUNCTION App()                                                          EXPORT
+  CALLS: useIsMobile, useTheme, useUIStore, useSessionStore, useDataLoader, useAutoSave,
+         useWebSocket, useSessionPolling, useQuestionStore, useChatStore,
+         api.getUIState (App), api.createSession (App), api.archiveSession (App),
+         api.deleteSession (App), requestNotificationPermission (notification-service),
+         showUserInputNotification (notification-service), getWebSocketClient (websocket),
+         generateSessionName (api)
+
+  // --- State ---
+  isMobile from useIsMobile.
+  theme from useTheme.
+  editMode, zoomLevel, zoom actions, chatPanelVisible, terminalPanelVisible from useUIStore.
+  showSecondaryPanel = chatPanelVisible OR terminalPanelVisible.
+
+  Full session state from useSessionStore: sessions, currentSession, setCurrentSession,
+    diagrams, documents, designs, spreadsheets, snippets, todos, taskGraphSelected, todosSelected,
+    todosProject, selectedTodo/Diagram/Document/Design/Spreadsheet/SnippetId,
+    plus all add/update/remove actions and setPendingDiff, setCollabState.
+
+  isLoading, dataError, loadSessions, loadSessionItems from useDataLoader.
+  mermaidPreviewRef (imperative handle for center/fitToView).
+
+  historyDiff: { timestamp, historicalContent, viewMode, compareMode, previousContent? } | null
+  diagramHistoryPreview: { timestamp, historicalContent } | null
+  designHistoryPreview: { timestamp, historicalContent } | null
+  registeredProjects: string[]
+  cleanupSession: Session | null
+  isCleanupProcessing: boolean
+  createSessionDialog: { project, suggestedName } | null
+  localContent: string (mirrors selectedItem.content, updated by handleContentChange and useEffect)
+  snippetToolbarControls: ReactNode (pushed up from SnippetEditor via onSnippetToolbarControls)
+
+  currentQuestion, receiveQuestion from useQuestionStore.
+  isConnected, isConnecting from useWebSocket.
+
+  // --- On mount ---
+  1. Call requestNotificationPermission (silently ignore failure).
+  2. Call loadSessions and loadProjects.
+  useSessionPolling on the current session's project+name every 5 seconds.
+
+  // --- Session auto-select ---
+  On first render when sessions are available and no currentSession: auto-select sessions[0].
+  Only fires once (guarded by hasAutoSelectedRef).
+
+  // --- Session items ---
+  Whenever currentSession changes: call loadSessionItems(project, name).
+
+  // --- Theme ---
+  Apply/remove 'dark' class on documentElement when theme changes.
+
+  // --- Page title ---
+  Set document.title to "<project-leaf>/<session> - Mermaid Collab"; fallback to 'Mermaid Collab'.
+
+  // --- WebSocket subscription ---
+  When isConnected and currentSession: call client.subscribe('updates') and call restoreUIState.
+  Subscribe to WebSocket messages. For each message, check project/session match then dispatch:
+
+  diagram_updated       → updateDiagram(id, { content, lastModified })
+  document_updated      → updateDocument; IF patchInfo present, also call setPendingDiff
+  diagram_created       → addDiagram (only if project+session match)
+  document_created      → addDocument (only if project+session match)
+  diagram_deleted       → removeDiagram (only if project+session match)
+  document_deleted      → removeDocument (only if project+session match)
+  design_created        → addDesign
+  design_updated        → updateDesign
+  design_deleted        → removeDesign
+  spreadsheet_created   → addSpreadsheet
+  spreadsheet_updated   → updateSpreadsheet
+  spreadsheet_deleted   → removeSpreadsheet
+  snippet_created       → addSnippet
+  snippet_updated       → updateSnippet
+  snippet_deleted       → removeSnippet
+  design_export_request → async: dynamically import designEditorRefs, renderNodesToImage, useDesignEditorStore;
+                          call renderNodesToImage on the current page's children with the requested scale/format;
+                          POST the binary result to /api/design-export-result/:requestId
+  claude_question       → call receiveQuestion(question)
+  ui_render             → call useChatStore.getState().addMessage; IF blocking, call showUserInputNotification
+  session_state_updated → call setCollabState(state)
+  session_created       → call loadSessions; IF no currentSession, auto-select the new session
+
+  Unsubscribe from messages on cleanup.
+
+  // --- restoreUIState ---
+  If currentSession: call api.getUIState(project, name); if result is non-null,
+  call useChatStore.getState().restoreUIFromCache with the cached state.
+
+  // --- selectedItem ---
+  Computed (useMemo) from the selected id across diagrams/documents/designs/spreadsheets/snippets.
+  For snippets: try parsing content as JSON to extract groupName for display name.
+  Returns null if nothing is selected.
+
+  // --- effectiveContent ---
+  useMemo that returns selectedItem.content (keyed on selectedItem.id and content).
+  Used to prevent type mismatch when switching item types before localContent updates.
+
+  // --- localContent sync ---
+  useEffect: when selectedItem.id or content changes, update localContent.
+  useEffect: when selectedItem.id changes, clear historyDiff, diagramHistoryPreview, designHistoryPreview.
+
+  // --- Auto-save ---
+  handleSave(content):
+    1. Update the local store (updateDiagram/Document/Design/Spreadsheet).
+    2. If WebSocket is connected, send update_diagram/update_document/update_design/update_spreadsheet/snippet_updated.
+  useAutoSave(localContent, handleSave, 2000ms, selectedItem?.id).
+
+  // --- History handlers ---
+  handleHistoryVersionSelect(timestamp, content, previousContent):
+    IF timestamp === 'current': clear historyDiff.
+    ELSE: set historyDiff, preserving existing viewMode and compareMode.
+  handleHistorySettingsChange(viewMode, compareMode): update historyDiff in-place.
+  handleClearHistoryDiff: clear historyDiff.
+  handleDiagramHistorySelect / handleDesignHistorySelect: set the respective preview state.
+  handleDiagramRevert / handleDesignRevert: copy historicalContent into localContent, clear preview.
+
+  // --- Project/session management ---
+  loadProjects: GET /api/projects, extract project paths into registeredProjects.
+  handleSessionSelect(session): call setCurrentSession.
+  handleCreateSession(project): generate a session name, open the CreateSessionDialog.
+  handleCreateSessionConfirm(name, type, useRenderUI): call api.createSession, reload sessions, select new session.
+  handleAddProject: prompt user for a path; POST /api/projects; reload projects and sessions.
+  handleRemoveProject(path): DELETE /api/projects?path=...; if current session belongs to it, clear it; reload.
+  handleRefreshAll: reload projects, sessions, and current session items.
+  handleDeleteSession(session): open the SessionCleanupDialog.
+  handleCleanupAction(action):
+    archive → api.archiveSession(project, name, { deleteSession: true, timestamp: false })
+    delete  → api.deleteSession
+    keep    → no-op
+    archive-continue → api.archiveSession(project, name, { deleteSession: false, timestamp: true })
+    After archive/delete: clear currentSession if it was the one cleaned up; reload sessions.
+
+  // --- Toolbar overflow actions ---
+  overflowActions (useMemo on selectedItem):
+    Always: Copy (copy localContent to clipboard), Refresh (reload session items).
+    Diagram: Format (disabled placeholder), Export Image (disabled placeholder).
+
+  // --- renderMainContent ---
+  IF isLoading: show spinner.
+  IF dataError: show error message.
+  IF todosSelected and no selectedTodoId: render TodosView.
+  IF taskGraphSelected: render EditorToolbar (no save/undo) + TaskGraphView.
+  ELSE: render EditorToolbar + UnifiedEditor with all history props threaded through.
+
+  // --- Layout ---
+  IF isMobile: render MobileLayout + QuestionPanel overlay + SessionCleanupDialog + CreateSessionDialog + ToastContainer, all inside ErrorBoundary.
+  ELSE (desktop): render a flex-column full-screen layout:
+    Header (session dropdown, project management, WS status)
+    Flex row:
+      Sidebar (fixed width)
+      IF showSecondaryPanel: SplitPane(main | ChatPanel) with main containing renderMainContent()
+      ELSE: plain main containing renderMainContent()
+    QuestionPanel overlay (when currentQuestion is set)
+    LoadingOverlay
+    SessionCleanupDialog (when cleanupSession is set)
+    CreateSessionDialog (when createSessionDialog is set)
+    ToastContainer
+  All inside ErrorBoundary.

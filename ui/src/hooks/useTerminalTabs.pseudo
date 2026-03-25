@@ -1,0 +1,55 @@
+// useTerminalTabs
+// Manages a list of terminal sessions (tabs) for a given project/session, with persistence of the active tab.
+
+The active tab ID is persisted to localStorage under the key "terminal-active-tab:{project}:{session}".
+On load, the saved tab is restored if it still exists; otherwise the first tab is selected.
+reorderTabs applies an optimistic update and reverts on API failure.
+
+FUNCTION useTerminalTabs({ project, session }) -> UseTerminalTabsReturn         EXPORT
+  CALLS: api (api)
+  Manages state: tabs, activeTabId, isLoading, error.
+  On mount (and when project/session changes), calls refresh to load the terminal session list.
+
+---
+
+FUNCTION refresh()
+  CALLS: api (api)
+  Fetches the current terminal sessions from the API.
+  Restores the active tab from localStorage if the saved ID still exists, or defaults to the first tab.
+  On failure, clears tabs and activeTabId.
+
+---
+
+FUNCTION addTab()
+  CALLS: api (api)
+  Creates a new terminal session via the API, refreshes the tab list, auto-selects the new tab,
+  and persists the selection to localStorage.
+
+---
+
+FUNCTION removeTab(id)
+  CALLS: api (api)
+  Deletes the terminal session via the API, then refreshes the tab list.
+
+---
+
+FUNCTION renameTab(id, name)
+  CALLS: api (api)
+  Renames the terminal session via the API, then refreshes the tab list.
+
+---
+
+FUNCTION reorderTabs(fromIndex, toIndex)
+  CALLS: api (api)
+  Validates the indices, applies the reorder optimistically to local state, then calls the API.
+  If the API call fails, reverts the local state to the original order.
+
+---
+
+FUNCTION handleSetActiveTab(id)
+  Sets the active tab if the given id exists in the current tab list, and persists the selection to localStorage.
+
+---
+
+FUNCTION getStorageKey(project, session) -> string
+  Returns the localStorage key used to persist the active tab for a given project and session.

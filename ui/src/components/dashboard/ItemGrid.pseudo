@@ -1,0 +1,20 @@
+// ItemGrid
+// Responsive grid of item cards with search filtering and loading/error/empty states.
+
+FUNCTION handleItemClick(item)
+  Calls the onItemClick callback with the selected item.
+
+---
+
+FUNCTION handleSearchChange(e)
+  Updates the search query state, which filters the displayed items.
+
+---
+
+FUNCTION ItemGrid(props) -> ReactNode                                     EXPORT
+  Renders a search input and a grid of ItemCard components.
+  Filters items by name using the current search query.
+  IF loading, shows a spinner/skeleton.
+  IF error, shows an error message.
+  IF no items match, shows an empty-state message.
+  Calls handleItemClick when a card is selected.

@@ -1,0 +1,31 @@
+// useDesignKeyboard
+// Registers global keyboard shortcuts for the design editor.
+
+Shortcuts are ignored when the focused element is a text input or textarea.
+Tool shortcuts (single key, no modifiers): v=SELECT, r=RECTANGLE, f=FRAME, o=ELLIPSE,
+l=LINE, t=TEXT, p=PEN, h=HAND, s=SECTION.
+
+FUNCTION useDesignKeyboard()                                                    EXPORT
+  CALLS: useDesignEditorStore (designEditorStore)
+  On mount, attaches a keydown listener to the window. Removes it on unmount.
+
+---
+
+FUNCTION onKeyDown(e)
+  Ignores events when an input/textarea is focused.
+  Single-key shortcuts (no modifiers): activate the corresponding tool.
+  Cmd/Ctrl+Z: undo. Cmd/Ctrl+Shift+Z or Cmd/Ctrl+Y: redo.
+  Cmd/Ctrl+D: duplicate selection. Cmd/Ctrl+A: select all.
+  Cmd/Ctrl+G: group selection. Cmd/Ctrl+Shift+G: ungroup selection.
+  Shift+! (Shift+1): zoom to fit all. Shift+@ (Shift+2): zoom to selection.
+  Shift+A: toggle auto-layout on the selected frame (NONE <-> VERTICAL).
+  ]: bring to front. [: send to back.
+  Backspace/Delete: delete selection.
+  Enter (while pen active): commit the pen path.
+  Escape: dismiss context menu, cancel pen, commit text edit, or clear selection and reset to SELECT tool.
+  Arrow keys: nudge selected nodes by 1px (or 10px with Shift).
+
+---
+
+FUNCTION isEditing(e) -> boolean
+  Returns true if the event target is an input or textarea element.

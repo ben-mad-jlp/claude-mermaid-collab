@@ -1,0 +1,67 @@
+// HTTP Server Entry Point
+// Bootstraps the Bun HTTP server, registers the scratch session, initializes
+// shared services, and wires up HTTP routing and WebSocket handling. Also
+// registers process signal handlers for graceful shutdown.
+
+On startup, a scratch session is registered at ~/.mermaid-collab/scratch.
+Shared stateless services (Validator, Renderer, WebSocketHandler) are
+instantiated once and passed into route handlers.
+The WebSocket handler manager is initialized for global access by other modules.
+Placeholder managers are created at /tmp to satisfy the handleAPI signature;
+real per-session managers are created inside handleAPI on each request.
+
+FUNCTION fetch(req, server) -> Response
+  CALLS: handleMCPRequest (http-handler), handleKodexAPI (kodex-api), handleOnboardingAPI (onboarding-api), handleAPI (api)
+  Parse the request URL.
+  IF path is "/ws", upgrade to a collaboration WebSocket; return 500 if upgrade fails.
+  IF path starts with "/terminal/", extract sessionId from path and upgrade to a
+  terminal WebSocket with { type: "terminal", sessionId } attached; return 500 if fails.
+  IF path is "/mcp", forward to handleMCPRequest.
+  IF path starts with "/api/kodex", forward to handleKodexAPI.
+  IF path starts with "/api/onboarding", forward to handleOnboardingAPI.
+  IF path starts with "/api/", forward to handleAPI.
+  IF the UI dist directory exists, attempt to serve the file from ui/dist/.
+  IF the file exists, return it with the appropriate MIME type.
+  IF the path is not a static asset extension, serve index.html as SPA fallback.
+  Return 404 if nothing matched.
+
+---
+
+FUNCTION websocket.open(ws)
+  CALLS: handleTerminalOpen (websocket), WebSocketHandler.handleConnection (handler)
+  IF connection type is "terminal", call handleTerminalOpen.
+  ELSE treat as collaboration connection: call wsHandler.handleConnection and
+  send a "connected" message with the current connection count.
+
+---
+
+FUNCTION websocket.message(ws, message)
+  CALLS: handleTerminalMessage (websocket), WebSocketHandler.handleMessage (handler)
+  IF connection type is "terminal", call handleTerminalMessage.
+  ELSE forward the string message to wsHandler.handleMessage.
+
+---
+
+FUNCTION websocket.close(ws)
+  CALLS: handleTerminalClose (websocket), WebSocketHandler.handleDisconnection (handler)
+  IF connection type is "terminal", call handleTerminalClose.
+  ELSE call wsHandler.handleDisconnection.
+
+---
+
+FUNCTION websocket.error(ws, error)
+  CALLS: handleTerminalError (websocket)
+  IF connection type is "terminal", call handleTerminalError.
+  Collaboration errors are handled elsewhere.
+
+---
+
+FUNCTION SIGINT handler
+  CALLS: ptyManager.killAll (terminal/index)
+  Kill all active PTY sessions and exit with code 0.
+
+---
+
+FUNCTION SIGTERM handler
+  CALLS: ptyManager.killAll (terminal/index)
+  Kill all active PTY sessions and exit with code 0.

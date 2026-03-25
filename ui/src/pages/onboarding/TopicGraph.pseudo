@@ -1,0 +1,38 @@
+// Topic Graph
+// Interactive force-directed graph visualization of onboarding topics using React Flow.
+// Nodes are colored by category; in onboarding mode, explored nodes are filled and unexplored are hollow.
+
+FUNCTION forceLayout(apiNodes, apiEdges, colorMap, exploredSet, onboardMode) -> { nodes, edges }
+  Run a synchronous force-directed simulation (300 iterations) with:
+    - Pairwise repulsion between all nodes.
+    - Spring attraction along edges toward an ideal length.
+    - Weak center gravity.
+    - Exponential velocity damping per iteration.
+  Convert final positions to React Flow node format with TopicNodeData (label, color, explored, onboardMode).
+  Return React Flow nodes and edges.
+
+---
+
+FUNCTION TopicNode(data)
+  Render a small colored circle node.
+  IF onboarding mode and not explored: render as a hollow circle (white fill, colored border).
+  Show the topic label as a tooltip on hover.
+
+---
+
+FUNCTION TopicGraph()                                                   EXPORT
+  CALLS: getGraph (onboarding-api), getCategories (onboarding-api), getProgress (onboarding-api), forceLayout (TopicGraph)
+  Read project, mode, currentUser from OnboardingContext.
+  On mount: fetch graph data and categories. In onboarding mode, also fetch user progress.
+  Assign a color to each category from a fixed palette.
+  Run forceLayout to compute initial node positions.
+
+  onNodeClick: navigate to /onboarding/topic/:nodeId.
+
+  toggleCategory: add/remove a category from the selectedCategories set.
+
+  Compute visibleNodes and visibleEdges: when categories are selected, hide nodes/edges
+    that don't belong to the selected categories.
+
+  Render a React Flow canvas with custom TopicNode type, Background, Controls, and MiniMap.
+  Above the canvas: category filter toggle buttons colored by their category.

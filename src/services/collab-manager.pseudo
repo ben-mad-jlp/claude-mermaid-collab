@@ -1,0 +1,84 @@
+// Collab Manager
+// Creates and manages collab sessions stored in .collab/sessions/ under a project directory.
+
+Sessions are stored at .collab/sessions/<name>/. The old location .collab/<name>/ is
+supported for backwards compatibility and is checked as a fallback in all read operations.
+Session names follow an adjective-adjective-noun pattern and are guaranteed unique.
+
+FUNCTION randomChoice(arr) -> T
+  Return a random element from the array.
+
+---
+
+FUNCTION generateSessionName() -> string
+  Pick two random adjectives and one random noun and join them with hyphens.
+
+---
+
+FUNCTION directoryExists(path) -> boolean
+  Return true if the path exists and is a directory, false otherwise.
+
+---
+
+FUNCTION getCollabDir(baseDir) -> string
+  Return the path to baseDir/.collab.
+
+---
+
+FUNCTION getSessionsDir(baseDir) -> string
+  Return the path to baseDir/.collab/sessions.
+
+---
+
+FUNCTION hasOldSessionStructure(baseDir) -> boolean
+  Scan .collab/ for subdirectories (excluding "sessions" and "kodex") that contain a
+  collab-state.json file. Return true if any are found (indicating a pre-migration project).
+
+---
+
+FUNCTION listCollabSessions(baseDir) -> CollabSession[]                            EXPORT
+  CALLS: getDisplayName (state-machine)
+  Read sessions from the new location (.collab/sessions/) first, then the old location
+  (.collab/) for backwards compatibility. For each session directory, parse collab-state.json
+  and optionally metadata.json for the template. Skip duplicates already found in the new
+  location. Sort sessions by lastActivity descending and return.
+
+---
+
+FUNCTION createCollabSession(baseDir, template, customName) -> { name, path }      EXPORT
+  Create .collab/sessions/ if it doesn't exist.
+  Use the provided name or generate one. Retry up to 10 times to find a unique name
+  (checking both old and new locations). Throw if no unique name can be found.
+  Create the session directory with diagrams/ and documents/ subdirectories.
+  Write metadata.json and collab-state.json (state: "collab-start").
+  Return the session name and path.
+
+---
+
+FUNCTION findSessionPath(baseDir, sessionName) -> string | null
+  Check new location (.collab/sessions/<name>) first. If not found, check old location
+  (.collab/<name>). Return the found path or null.
+
+---
+
+FUNCTION getCollabSessionState(baseDir, sessionName) -> CollabState               EXPORT
+  Resolve the session path, then read and parse collab-state.json.
+  Throw if session not found or file is invalid.
+
+---
+
+FUNCTION updateCollabSessionState(baseDir, sessionName, updates) -> CollabState   EXPORT
+  Resolve the session path, read the current state, merge in the updates
+  (always overwriting lastActivity with the current time), then write back.
+  Return the merged state.
+
+---
+
+FUNCTION getCollabSessionPath(baseDir, sessionName) -> string                     EXPORT
+  Resolve the actual path (new or old location). If found, return it.
+  Otherwise return the default new-location path for session creation.
+
+---
+
+FUNCTION getCollabSessionPathSync(baseDir, sessionName) -> string                 EXPORT
+  Return the new-location path synchronously without checking existence.

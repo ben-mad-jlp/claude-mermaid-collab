@@ -1,0 +1,24 @@
+// Accordion
+// Collapsible sections with three style variants (default, flush, outlined).
+// Only one section is open at a time by default; supports multi-open via prop.
+
+FUNCTION getVariantClasses(variant) -> string
+  Returns Tailwind border/background classes for the given variant (default/flush/outlined).
+
+---
+
+FUNCTION handleToggle(sectionId)
+  IF multi-open is disabled, closes the previously open section.
+  Toggles the open state for the clicked section.
+
+---
+
+FUNCTION AccordionContent(props) -> ReactNode
+  Renders the content area for an open section with an animated expand/collapse transition.
+
+---
+
+FUNCTION Accordion(props) -> ReactNode                                    EXPORT
+  Renders a list of accordion sections, each with a header button and collapsible content.
+  Applies variant-specific styling via getVariantClasses.
+  Calls handleToggle when a section header is clicked.

@@ -1,0 +1,37 @@
+// useDesignSync
+// Loads a design's SceneGraph from the API when designId changes, auto-saves changes back, and applies remote WebSocket updates.
+
+Auto-save is debounced at 1000ms. Only versions newer than the last saved sceneVersion trigger a save.
+On design switch, any pending save is flushed synchronously for the outgoing design before loading the new one.
+Images in the SceneGraph are serialized as base64 strings. Map fields (variables, variableCollections, activeMode) are
+serialized as key/value arrays since JSON.stringify cannot handle Maps.
+
+FUNCTION useDesignSync(designId) -> { handleRemoteUpdate }                      EXPORT
+  CALLS: api (api), setSceneGraph (designEditorRefs), resetSceneGraph (designEditorRefs),
+         getEditorRefs (designEditorRefs), useDesignEditorStore (designEditorStore),
+         useSessionStore (sessionStore), SceneGraph (scene-graph), createDefaultNode (scene-graph)
+  On designId change: loads the design from the API, deserializes the SceneGraph, initializes the
+  editor store from the graph, marks the loaded version as already-saved, and zooms to fit.
+  On designId cleanup: flushes any pending debounced save to the outgoing design (fire-and-forget).
+  On sceneVersion change: schedules a debounced save if the version is newer than lastSaved.
+
+---
+
+FUNCTION serializeGraph(graph) -> string
+  Collects all nodes, variables, variableCollections, activeMode, and images from the graph.
+  Encodes image Uint8Arrays as base64. Returns the whole structure as a JSON string.
+
+---
+
+FUNCTION deserializeGraph(json) -> SceneGraph
+  Parses the JSON and reconstructs a SceneGraph.
+  Each node is merged with createDefaultNode defaults so MCP-created nodes have all required fields.
+  Restores Map fields and decodes base64 images back to Uint8Arrays.
+
+---
+
+FUNCTION handleRemoteUpdate(content)
+  Receives serialized SceneGraph content from a WebSocket message.
+  Deserializes the graph, replaces the current scene graph, and bumps renderVersion and sceneVersion.
+  Marks the new version as already-saved so it does not trigger an auto-save.
+  Ignores malformed content silently.

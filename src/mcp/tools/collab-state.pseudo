@@ -1,0 +1,73 @@
+// Collab State Management
+// Reads, writes, and broadcasts session state for collab sessions.
+// Skills use these functions instead of touching the filesystem directly.
+// Also tracks snippet mutations (created/updated/deleted) per session.
+
+State is stored as collab-state.json in .collab/sessions/{session}/.
+Writes always merge the incoming updates onto the existing state — no fields are silently dropped.
+After every write, if a WebSocket handler is provided the new state is broadcast as a session_state_updated message.
+
+---
+
+FUNCTION getStatePath(project, session) -> string
+  Returns the absolute file path for the session's collab-state.json.
+
+---
+
+FUNCTION fileExists(path) -> boolean
+  Returns true if the file exists, false otherwise.
+
+---
+
+FUNCTION getSessionState(project, session) -> CollabState                   EXPORT
+  CALLS: getDisplayName (state-machine)
+  Read and parse collab-state.json for the session. Throw if the file does not exist.
+  If the state has a state machine ID, compute and attach the human-readable displayName.
+
+---
+
+FUNCTION updateSessionState(project, session, updates, wsHandler?) -> { success }   EXPORT
+  CALLS: getDisplayName (state-machine)
+  1. Read the existing state from disk (or start with an empty object).
+  2. Merge updates onto the existing state field-by-field.
+     Updates take precedence; existing values are kept only when the corresponding update is absent.
+     lastActivity is always set to the current timestamp.
+  3. Ensure the session directory exists, then write the merged state back to disk.
+  4. IF wsHandler is provided, broadcast a session_state_updated WebSocket message with the new state.
+     Includes all non-null fields and computes displayName if a state machine ID is present.
+
+---
+
+FUNCTION recordSnippetCreated(project, session, snippetId, wsHandler?) -> { success }   EXPORT
+  Load the current state, append snippetId to createdSnippets (deduplicated), then save.
+
+---
+
+FUNCTION recordSnippetUpdated(project, session, snippetId, wsHandler?) -> { success }   EXPORT
+  Load the current state, append snippetId to updatedSnippets (deduplicated), then save.
+
+---
+
+FUNCTION recordSnippetDeleted(project, session, snippetId, wsHandler?) -> { success }   EXPORT
+  Load the current state.
+  Add snippetId to deletedSnippets (deduplicated).
+  Remove snippetId from createdSnippets and updatedSnippets.
+  Save the updated arrays back to state.
+
+---
+
+FUNCTION getSnippetStateSummary(project, session) -> { created, updated, deleted, snippets }   EXPORT
+  Load the current state and return counts for each snippet tracking array.
+  The snippets field is a deduplicated union of all three arrays.
+
+---
+
+FUNCTION archiveSession(project, session, options?) -> ArchiveResult   EXPORT
+  1. Determine archive directory path under docs/designs/{session} (with optional timestamp suffix).
+  2. Throw if the session directory does not exist, or if the archive directory already exists.
+  3. Create the archive directory.
+  4. Copy documents, diagrams, designs, spreadsheets, and snippets from the session into the archive.
+     Snippets: skip hidden directories (names starting with ".").
+     Documents: note if LESSONS.md was included.
+  5. IF deleteSession option is true (default), remove the session directory.
+  6. Return the archive path and lists of what was copied.

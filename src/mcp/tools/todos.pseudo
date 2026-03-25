@@ -1,0 +1,60 @@
+// Project Todos Tools
+// Manages project-level todo items stored in a global registry at ~/.mermaid-collab/todos.json.
+// Each todo gets an auto-generated session name (adjective-adjective-noun) for use as a vibe session.
+
+Todos are stored globally and filtered by project path at read time.
+The session name is generated once at creation and never changes.
+A test override (_todosDataDir) redirects the data directory for isolated testing.
+
+FUNCTION generateSessionName() -> string
+  Pick two random adjectives and one random noun from the built-in word lists.
+  Return them joined as "adj1-adj2-noun".
+
+---
+
+FUNCTION setTodosDataDir(dir) -> void                                            EXPORT
+  Override the data directory path (for testing). Pass null to reset to the default.
+
+---
+
+FUNCTION getTodosPath() -> string
+  Return the path to todos.json, using the overridden directory if set,
+  otherwise ~/.mermaid-collab/todos.json.
+
+---
+
+FUNCTION readTodosFile() -> TodosFile
+  Read and parse todos.json. Return empty { todos: [], nextId: 1 } if the file doesn't exist.
+
+---
+
+FUNCTION writeTodosFile(data) -> void
+  Ensure the data directory exists. Write todos.json with formatted JSON.
+
+---
+
+FUNCTION listTodos(project) -> ListTodosResult                                   EXPORT
+  Read the todos file. Filter todos by the given project path.
+  Return { todos: [...], count }.
+
+---
+
+FUNCTION addTodo(project, title) -> AddTodoResult                                EXPORT
+  Read todos file. Generate a session name. Build a new todo with auto-incremented ID,
+  title, project path, session name, and creation timestamp.
+  Append to todos, increment nextId, write file.
+  Return { success, todo, count, message }.
+
+---
+
+FUNCTION updateTodo(project, id, updates) -> UpdateTodoResult                    EXPORT
+  Read todos file. Find todo by ID and project (return failure if not found).
+  Apply title update if provided. Write file.
+  Return { success, todo, message }.
+
+---
+
+FUNCTION removeTodo(project, id) -> RemoveTodoResult                             EXPORT
+  Read todos file. Find todo by ID and project (return failure if not found).
+  Remove it from the array. Write file.
+  Return { success, removed, count, message }.

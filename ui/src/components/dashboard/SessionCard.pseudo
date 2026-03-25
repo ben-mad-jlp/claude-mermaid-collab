@@ -1,0 +1,12 @@
+// SessionCard
+// Card displaying a collab session's name, phase badge, last-modified time, and item count.
+
+FUNCTION formatRelativeTime(timestamp) -> string
+  Converts a numeric timestamp to a relative string ("just now", "5m ago", "2h ago", etc.).
+
+---
+
+FUNCTION SessionCard(props) -> ReactNode                                  EXPORT
+  Renders a clickable card with the session name, phase badge (color-coded), relative last-modified time, and item count.
+  Highlights with an accent ring when isSelected is true.
+  Calls onClick when clicked.

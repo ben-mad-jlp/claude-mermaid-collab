@@ -1,0 +1,34 @@
+// Session Lessons Tools
+// Records and retrieves lessons learned during collab sessions.
+// Lessons are appended to LESSONS.md inside the session's documents folder.
+
+Lessons are stored as markdown sections: ## {timestamp} [{category}]\n{content}.
+Categories: universal, codebase, workflow, gotcha. Default is universal.
+
+FUNCTION getLessonsPath(project, session) -> string
+  Returns the path to LESSONS.md for the session.
+
+---
+
+FUNCTION fileExists(path) -> boolean
+  Returns true if the file is accessible, false otherwise.
+
+---
+
+FUNCTION formatTimestamp() -> string
+  Returns the current time as a "YYYY-MM-DD HH:MM:SS" string.
+
+---
+
+FUNCTION addLesson(project, session, lesson, category?) -> AddLessonResult       EXPORT
+  Ensure the documents directory exists.
+  IF LESSONS.md does not exist, create it with a standard header.
+  Append a new section formatted as "## {timestamp} [{category}]\n{lesson}".
+  Count existing lessons by matching timestamp headers. Return { success, lessonCount, message }.
+
+---
+
+FUNCTION listLessons(project, session) -> ListLessonsResult                       EXPORT
+  IF LESSONS.md does not exist, return empty list.
+  Parse each lesson section (timestamp, category, content) using a regex pattern.
+  Return { lessons: [...], count }.

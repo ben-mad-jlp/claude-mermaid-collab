@@ -1,0 +1,25 @@
+// Application Configuration
+// Loads server configuration from environment variables with sensible defaults.
+// Validates the PORT value on startup and exposes a typed config object.
+
+PROJECT_ROOT is computed relative to this file's location, going one level up
+from src/ to the project root. Works in both Bun (import.meta.dir) and Node.js
+(import.meta.url) environments.
+
+FUNCTION validatePort() -> number
+  Read the PORT environment variable; default to "3737" if absent.
+  Parse as integer. Throw if the value is not a number.
+  Throw if the value is outside the valid range (1–65535).
+  Return the valid port number.
+
+---
+
+config object (exported)                                                   EXPORT
+  PORT              - validated port number from validatePort()
+  HOST              - from HOST env var, defaults to "0.0.0.0"
+  PUBLIC_DIR        - {PROJECT_ROOT}/public
+  MAX_FILE_SIZE     - 1048576 (1 MB)
+  THUMBNAIL_CACHE_SIZE - 100
+  UNDO_HISTORY_SIZE - 50
+  WS_RECONNECT_MAX_DELAY - 30000 ms
+  UI_DIST_DIR       - {PROJECT_ROOT}/ui/dist

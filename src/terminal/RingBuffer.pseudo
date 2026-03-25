@@ -1,0 +1,36 @@
+// RingBuffer
+// Fixed-capacity circular buffer that stores terminal output lines for reconnect replay.
+// Oldest lines are evicted when the buffer is full.
+
+Holds up to maxLines lines (default 10,000). Partial lines — chunks that arrive without a
+trailing newline — are appended to the previous entry rather than counted as a new line.
+Only complete lines (ending with \n) count toward the line limit.
+
+FUNCTION constructor(maxLines)                                          EXPORT
+  Initialize an empty lines array with the given capacity limit (default 10,000).
+
+---
+
+FUNCTION write(data)                                                    EXPORT
+  If data is empty, return immediately.
+  Split data on newlines. For each complete segment (all but the last):
+    Append it as a new line. IF the buffer now exceeds maxLines, evict the oldest.
+  For the trailing segment (which may be empty or a partial line with no newline):
+    IF it is non-empty:
+      IF the last stored entry is itself a partial line (no trailing \n), append to it.
+      ELSE push it as a new partial entry, evicting the oldest if over capacity.
+
+---
+
+FUNCTION getContents() -> string                                        EXPORT
+  Return all buffered entries joined into a single string, preserving ANSI codes.
+
+---
+
+FUNCTION clear()                                                        EXPORT
+  Reset the buffer to empty.
+
+---
+
+FUNCTION lineCount -> number                                            EXPORT
+  Return the count of entries that end with \n (complete lines only; partials excluded).

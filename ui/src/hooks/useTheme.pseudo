@@ -1,0 +1,9 @@
+// useTheme
+// Provides the current UI theme and controls to change or toggle it.
+
+Theme is stored in the UI store, which persists it to localStorage automatically.
+
+FUNCTION useTheme() -> { theme, setTheme, toggleTheme }                         EXPORT
+  CALLS: useUIStore (uiStore)
+  Reads theme, setTheme, and toggleTheme from the UI store using shallow comparison.
+  Returns memoized wrappers for setTheme and toggleTheme.

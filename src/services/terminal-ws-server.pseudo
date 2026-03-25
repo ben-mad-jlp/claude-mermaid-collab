@@ -1,0 +1,46 @@
+// Terminal WebSocket Server
+// Bridges WebSocket connections to tmux sessions using Bun's native PTY support.
+
+Each WebSocket connection spawns a tmux attach-session process with a PTY terminal.
+Active connections are tracked in a module-level Map keyed by WebSocket instance.
+Terminal output is forwarded to the WebSocket; WebSocket input is forwarded to the PTY.
+
+FUNCTION parseMessage(data) -> TerminalMessage | null
+  Parse the incoming data as JSON.
+  IF it has type='resize' with numeric cols and rows, return a ResizeMessage.
+  IF it has type='data' with a string data field, return a DataMessage.
+  IF JSON parsing fails, treat the raw text as a DataMessage.
+  Return null for unrecognized structured messages.
+
+---
+
+FUNCTION handleTerminalConnection(ws, tmuxSession) -> void                              EXPORT
+  CALLS: parseMessage (terminal-ws-server), handleTerminalDisconnection (terminal-ws-server)
+  Detect the tmux binary path (checking /opt/homebrew/bin/tmux, /usr/local/bin/tmux, /usr/bin/tmux).
+  Ensure the target tmux session exists (create detached if not), enable mouse mode.
+  Capture up to 10,000 lines of scrollback history and send to the WebSocket before attaching.
+  Spawn tmux attach-session with TERM=xterm-256color via Bun's PTY terminal option.
+  The PTY data callback forwards terminal output to the WebSocket.
+  The PTY exit callback logs the exit.
+  Store the process, terminal, and tmuxSession in the activeTerminals map.
+  Register a process.exited handler to close the WebSocket and clean up the map entry.
+  On any spawn error, send an ANSI-red error message to the WebSocket and close it.
+
+---
+
+FUNCTION handleTerminalMessage(ws, message) -> void                                     EXPORT
+  CALLS: parseMessage (terminal-ws-server)
+  Look up the active terminal for the WebSocket; warn and return if not found.
+  Parse the message. IF resize, call terminal.resize(cols, rows). IF data, call terminal.write(data).
+  Errors are logged but not fatal.
+
+---
+
+FUNCTION handleTerminalDisconnection(ws) -> void                                        EXPORT
+  Look up and remove the active terminal for the WebSocket.
+  IF found, close the PTY terminal and kill the process.
+
+---
+
+FUNCTION getActiveTerminalCount() -> number                                             EXPORT
+  Return the number of currently active terminal connections.

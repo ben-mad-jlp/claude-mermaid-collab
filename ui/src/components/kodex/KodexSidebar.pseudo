@@ -1,0 +1,18 @@
+// KodexSidebar
+// Left navigation sidebar for the Kodex section of the app.
+// Provides links to Dashboard, Topics, Graph, Drafts, and Flags, plus
+// cross-links back to Onboarding and the main Collab view.
+
+navItems is a static array defining each nav entry (path, label, icon SVG).
+
+FUNCTION KodexSidebar() -> JSX                                         EXPORT
+  Uses useLocation to get current path.
+  Renders each navItem as a React Router Link with active highlight.
+  Active check: exact match for /kodex root, startsWith for all others.
+  Footer section contains Onboarding and Collab links.
+
+---
+
+FUNCTION isActive(path) -> boolean
+  Returns true if location.pathname exactly equals "/kodex" (for the root path),
+  or starts with path for all other routes.

@@ -1,0 +1,40 @@
+// AliasEditor
+// Inline editor for managing a list of string aliases on a Kodex topic.
+// Displays existing aliases as chips with remove buttons, and an expandable
+// inline input to add new ones. Prevents duplicates and empty values.
+
+FUNCTION AliasEditor(aliases, onAdd, onRemove) -> JSX                  EXPORT
+  CALLS: AliasChip (AliasChip)
+  Renders existing aliases as AliasChip components. Chips are disabled while
+  any add/remove operation is in flight.
+  Shows a "+ Add" button when collapsed. On click, expands to show a text input
+  plus Submit/Cancel buttons. Auto-focuses the input when expanded.
+
+---
+
+FUNCTION handleAddClick() -> void
+  Sets isExpanded to true (reveals the input row).
+
+---
+
+FUNCTION handleInputKeyDown(e) -> void
+  IF Enter: calls handleSubmit.
+  IF Escape: calls handleCancel.
+
+---
+
+FUNCTION handleSubmit() -> void
+  Trims input value. Returns early if empty or already in aliases list.
+  Sets isLoading true, calls onAdd(trimmedValue).
+  On completion, clears input and collapses form.
+
+---
+
+FUNCTION handleCancel() -> void
+  Clears input value and collapses the form.
+
+---
+
+FUNCTION handleRemoveAlias(alias) -> void
+  Sets removingAlias to the alias being removed.
+  Calls onRemove(alias). Clears removingAlias on completion.

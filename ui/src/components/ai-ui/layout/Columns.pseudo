@@ -1,0 +1,21 @@
+// Columns
+// Responsive multi-column grid layout with configurable gap, alignment, and column count.
+
+FUNCTION getGapClasses(gap) -> string
+  Maps gap size prop (sm/md/lg) to Tailwind gap classes.
+
+---
+
+FUNCTION getAlignmentClasses(align) -> string
+  Maps alignment prop (start/center/end/stretch) to Tailwind items-* classes.
+
+---
+
+FUNCTION getColumnClasses(columns) -> string
+  Maps column count (1–4) to Tailwind grid-cols-* classes with responsive breakpoints.
+
+---
+
+FUNCTION Columns(props) -> ReactNode                                      EXPORT
+  Renders a CSS grid container with the configured number of columns, gap, and alignment.
+  Children are placed into the grid cells automatically.

@@ -1,0 +1,40 @@
+// EditorToolbar
+// Toolbar rendered above the editor area. Contains item name, zoom controls,
+// undo/redo, history dropdown, overflow menu for export/format/copy actions,
+// and an optional history diff banner.
+
+FUNCTION handleToggleOverflow() -> void
+  Toggles the overflow menu open/closed.
+
+---
+
+FUNCTION handleActionClick(action) -> void
+  Calls action.onClick(). Closes overflow menu.
+
+---
+
+FUNCTION formatRelativeTime(ts) -> string
+  Used for the history diff banner timestamp.
+  Just now (<5s), Xs ago (<60s), Xm ago (<1h), Xh ago (<24h),
+  Yesterday, Xd ago, or locale date string.
+
+---
+
+FUNCTION EditorToolbar(item, ...) -> JSX                               EXPORT
+  CALLS: HistoryDiffSettingsDropdown (HistoryDiffSettingsDropdown),
+         DesignHistoryDropdown (DesignHistoryDropdown),
+         DiagramHistoryDropdown (DiagramHistoryDropdown)
+  Builds allActions array: overflow actions + export SVG/PNG + format
+  (diagrams) + copy (snippets) + add comment/approve all/reject all/clear
+  proposals (annotation actions).
+  Renders:
+    - Optional history diff banner (with HistoryDiffSettingsDropdown) when
+      historyDiff is active.
+    - Main toolbar row containing:
+        document -> HistoryToolbar
+        diagram/design -> undo/redo buttons + history dropdown
+        item name + unsaved indicator dot
+        inlineControls slot (caller-injected buttons)
+        zoom controls (out, level, in, center, fit) for non-snippet/non-document
+        rotate button (diagrams only)
+        overflow menu button + popover

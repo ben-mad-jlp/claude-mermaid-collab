@@ -1,0 +1,19 @@
+// CreateSessionDialog
+// Modal dialog for creating a new collab session. Collects session name, type
+// (structured/vibe), and whether to enable the Browser UI renderer.
+
+FUNCTION CreateSessionDialog(onClose, onConfirm) -> JSX                EXPORT
+  Manages name, type (structured|vibe), and useRenderUI boolean state.
+  Keyboard: Enter confirms if both name and type are set; Escape closes.
+  Session type options: "structured" (guided phases) and "vibe" (freeform).
+  Browser UI checkbox toggles useRenderUI.
+
+---
+
+FUNCTION handleConfirm() -> void
+  Calls onConfirm(name, type, useRenderUI) only if both name and type are set.
+
+---
+
+FUNCTION handleKeyDown(e) -> void
+  Enter -> handleConfirm. Escape -> onClose.

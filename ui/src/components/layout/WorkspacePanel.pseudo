@@ -1,0 +1,8 @@
+// WorkspacePanel
+// Simple two-section vertical layout: chat message area on top (flex 1) and
+// embedded terminal on bottom (flex 2).
+
+FUNCTION WorkspacePanel(messageContent) -> JSX                         EXPORT
+  CALLS: EmbeddedTerminal (EmbeddedTerminal)
+  Renders messageContent in the top div and EmbeddedTerminal in the bottom div.
+  No local state or logic.

@@ -1,0 +1,20 @@
+// Kodex Dashboard
+// Overview page showing Kodex health stats: total/verified topics, pending drafts, open flags,
+// recent access history, and top missing topics.
+
+FUNCTION StatCard(label, value, icon, color, link?)
+  Render a metric card with label, numeric value, and icon.
+  IF a link is provided, wrap the card in a router Link.
+
+---
+
+FUNCTION Dashboard()                                                    EXPORT
+  CALLS: getDashboard (kodex-api)
+  Read selectedProject from kodexStore.
+  On mount (or project change): fetch dashboard stats via kodexApi.getDashboard.
+  IF no project is selected, show a prompt to select one with a link back to Collab.
+  WHILE loading: show a spinner.
+  IF error: show the error message.
+  ELSE render:
+    - A 4-column stat grid with StatCard for Total Topics, Verified, Pending Drafts, and Open Flags.
+    - A 2-column section with Recent Access (last 5 entries, linked to topic detail) and Missing Topics (top 5 with request counts).

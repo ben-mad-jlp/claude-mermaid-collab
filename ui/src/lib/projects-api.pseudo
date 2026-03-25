@@ -1,0 +1,17 @@
+// Projects API Client
+// HTTP fetch wrapper for the /api/projects endpoints.
+// Manages registration and listing of projects by absolute path.
+
+FUNCTION projectsApi.list() -> Project[]                                EXPORT
+  GET /api/projects. Returns data.projects array (may be empty).
+
+---
+
+FUNCTION projectsApi.register(path) -> { success, project?, error? }   EXPORT
+  POST /api/projects with body { path }.
+  On HTTP error: return { success: false, error: ... } rather than throwing.
+
+---
+
+FUNCTION projectsApi.unregister(path) -> { success }                   EXPORT
+  DELETE /api/projects?path=<encoded>. On HTTP error: return { success: false }.

@@ -1,0 +1,23 @@
+// Graph Utilities
+// Parses Kodex topic relationships and generates Mermaid graph syntax from them.
+
+FUNCTION parseRelatedTopics(relatedText) -> string[]                    EXPORT
+  Extract all backtick-wrapped topic slugs (pattern: `topic-name`) from the text.
+  Return a deduplicated array of topic names.
+
+---
+
+FUNCTION buildGraphEdges(topics) -> GraphEdge[]                         EXPORT
+  CALLS: parseRelatedTopics (graph-utils)
+  For each topic that has a related field, parse related topics and create a GraphEdge
+  { source: topic.name, target: relatedTopicName } for each referenced topic.
+  Return the full array of edges.
+
+---
+
+FUNCTION generateMermaidGraph(edges, topics) -> string                  EXPORT
+  Build a left-to-right Mermaid flowchart (graph LR).
+  Collect the set of node names that appear in edges.
+  Define each node as: name["Title"] using the topic's title (or name if no title).
+  Define each edge as: source --> target.
+  Return the complete Mermaid source as a string.

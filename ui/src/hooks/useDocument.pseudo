@@ -1,0 +1,21 @@
+// useDocument
+// Provides access to the document list and CRUD operations from the session store.
+
+A thin facade over the session store; no local state. All mutations are delegated to the store.
+
+FUNCTION useDocument() -> UseDocumentReturn                                     EXPORT
+  CALLS: useSessionStore (sessionStore)
+  Reads documents, selectedDocumentId, and all document actions from the session store using shallow comparison.
+  Derives selectedDocument by calling the store's getSelectedDocument getter.
+  Exposes: documents, selectedDocumentId, selectedDocument, addDocument, updateDocument, removeDocument,
+  selectDocument, setDocuments, getDocumentById, hasDocument.
+
+---
+
+FUNCTION getDocumentById(id) -> Document | undefined
+  Finds and returns the document with the given id from the current list, or undefined if not found.
+
+---
+
+FUNCTION hasDocument(id) -> boolean
+  Returns true if a document with the given id exists in the current list.

@@ -1,0 +1,19 @@
+// HistoryDiffSettingsDropdown
+// Settings dropdown for the history diff banner in the editor toolbar.
+// Allows changing view mode (inline/side-by-side) and compare mode
+// (vs-current / vs-previous).
+
+FUNCTION HistoryDiffSettingsDropdown(settings, onSettingsChange, hasPreviousVersion, onClose) -> JSX  EXPORT
+  Renders two radio-button sections: View Mode and Compare.
+  vs-previous option is disabled when hasPreviousVersion is false.
+  Closes on click outside or Escape.
+
+---
+
+FUNCTION handleViewModeChange(viewMode) -> void
+  Calls onSettingsChange({viewMode, compareMode: settings.compareMode}).
+
+---
+
+FUNCTION handleCompareModeChange(compareMode) -> void
+  Calls onSettingsChange({viewMode: settings.viewMode, compareMode}).

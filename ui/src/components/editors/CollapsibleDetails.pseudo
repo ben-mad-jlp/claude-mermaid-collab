@@ -1,0 +1,8 @@
+// CollapsibleDetails
+// Renders a markdown <details>/<summary> block as a collapsible section.
+// The summary line is always visible; clicking it toggles the body content.
+
+FUNCTION CollapsibleDetails(summary, children, defaultOpen) -> JSX     EXPORT
+  Manages isOpen state (defaults to defaultOpen prop).
+  Renders summary as a clickable header with a chevron icon.
+  Body content slides in/out based on isOpen.

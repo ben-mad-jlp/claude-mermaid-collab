@@ -1,0 +1,35 @@
+// Dashboard
+// Main dashboard view: sessions panel on the left and an items grid on the right in a SplitPane.
+// Loads sessions and items via hooks; supports selecting, refreshing, and resizing panels.
+
+FUNCTION RefreshIcon() -> ReactNode
+  Renders a small circular arrow SVG icon used on the refresh button.
+
+---
+
+FUNCTION handleSessionClick(session)
+  Sets the selected session via sessionStore/useSession.
+  Navigates or updates URL to reflect the selected session.
+
+---
+
+FUNCTION handleItemClick(item)
+  Opens the selected item in the appropriate editor/viewer via uiStore.
+
+---
+
+FUNCTION handlePanelResize(sizes)
+  Persists the panel size percentages for the SplitPane layout.
+
+---
+
+FUNCTION handleRefresh()
+  Triggers a data reload via useDataLoader and useSession.
+
+---
+
+FUNCTION Dashboard() -> ReactNode                                         EXPORT
+  CALLS: useSession (useSession), useDataLoader (useDataLoader), useUIStore (uiStore), SplitPane (SplitPane), SessionCard (SessionCard), ItemGrid (ItemGrid)
+  Renders a SplitPane: sessions list on the left, items grid on the right.
+  Shows loading and error states for both panels.
+  Provides a refresh button that calls handleRefresh.

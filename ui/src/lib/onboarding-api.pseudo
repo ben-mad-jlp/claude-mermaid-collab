@@ -1,0 +1,105 @@
+// Onboarding API Client
+// Typed fetch wrapper for all /api/onboarding/* endpoints.
+// Covers config, categories, graph, topics, search, users, progress, notes, and team.
+
+All requests include a 'project' query parameter.
+handleResponse throws an Error (using the body's error field) on non-OK responses.
+
+FUNCTION handleResponse(response) -> T [private]
+  IF not ok, parse body and throw an error with the error message or status code.
+  ELSE return parsed JSON.
+
+---
+
+FUNCTION buildUrl(path, project) -> string [private]
+  Construct full URL by appending path to /api/onboarding and adding project as query param.
+
+---
+
+FUNCTION onboardingApi.getConfig(project) -> OnboardingConfig           EXPORT
+  GET /api/onboarding/config.
+
+---
+
+FUNCTION onboardingApi.getCategories(project) -> Category[]             EXPORT
+  GET /api/onboarding/categories.
+
+---
+
+FUNCTION onboardingApi.getGraph(project) -> { nodes, edges }            EXPORT
+  GET /api/onboarding/graph.
+
+---
+
+FUNCTION onboardingApi.getTopics(project) -> TopicSummary[]             EXPORT
+  GET /api/onboarding/topics.
+
+---
+
+FUNCTION onboardingApi.getTopic(project, name) -> TopicDetail           EXPORT
+  GET /api/onboarding/topics/:name.
+
+---
+
+FUNCTION onboardingApi.getDiagrams(project, name) -> DiagramBlock[]     EXPORT
+  GET /api/onboarding/topics/:name/diagram.
+
+---
+
+FUNCTION onboardingApi.search(project, q, scope?) -> SearchHit[]        EXPORT
+  GET /api/onboarding/search?q=<query> and optional scope param.
+
+---
+
+FUNCTION onboardingApi.createUser(project, name) -> User                EXPORT
+  POST /api/onboarding/users with { name }.
+
+---
+
+FUNCTION onboardingApi.listUsers(project) -> User[]                     EXPORT
+  GET /api/onboarding/users.
+
+---
+
+FUNCTION onboardingApi.getUser(project, id) -> User                     EXPORT
+  GET /api/onboarding/users/:id.
+
+---
+
+FUNCTION onboardingApi.getProgress(project, userId) -> ProgressEntry[]  EXPORT
+  GET /api/onboarding/progress/:userId.
+
+---
+
+FUNCTION onboardingApi.markProgress(project, userId, topic, status)     EXPORT
+  POST /api/onboarding/progress/:userId/:topic with { status }.
+
+---
+
+FUNCTION onboardingApi.deleteProgress(project, userId, topic)           EXPORT
+  DELETE /api/onboarding/progress/:userId/:topic.
+
+---
+
+FUNCTION onboardingApi.getNotes(project, userId, topic) -> Note[]       EXPORT
+  GET /api/onboarding/notes/:userId/:topic.
+
+---
+
+FUNCTION onboardingApi.addNote(project, userId, topic, content) -> Note EXPORT
+  POST /api/onboarding/notes/:userId/:topic with { content }.
+
+---
+
+FUNCTION onboardingApi.editNote(project, noteId, content)               EXPORT
+  PUT /api/onboarding/notes/:noteId with { content }.
+
+---
+
+FUNCTION onboardingApi.deleteNote(project, noteId)                      EXPORT
+  DELETE /api/onboarding/notes/:noteId.
+
+---
+
+FUNCTION onboardingApi.getTeam(project) -> TeamMember[]                 EXPORT
+  GET /api/onboarding/team.

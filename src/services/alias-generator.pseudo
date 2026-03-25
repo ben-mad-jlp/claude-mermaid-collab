@@ -1,0 +1,44 @@
+// Alias Generator
+// Generates semantic aliases for Kodex topics by extracting and expanding keywords from titles and content.
+
+Synonyms and abbreviations are defined externally in alias-constants. Expansion is bidirectional
+and iterative until convergence. Stop words and minimum length filters apply throughout.
+
+FUNCTION extractTitleKeywords(title, minLength) -> string[]                        EXPORT
+  Lowercase and normalize the title, then split on whitespace and punctuation.
+  Filter out words shorter than minLength and words in the stop-word list.
+  Return the unique words as a sorted array.
+
+---
+
+FUNCTION extractContentKeywords(content, limit) -> string[]                        EXPORT
+  Combine the conceptual and technical sections of content into one string.
+  IF combined text is empty, return empty array.
+  Lowercase and split on whitespace and punctuation, skip words under 3 characters and stop words.
+  Count word frequency, sort by frequency descending, return the top N words up to limit.
+
+---
+
+FUNCTION expandWithSynonyms(keywords) -> string[]                                  EXPORT
+  Starting from the keyword set, repeatedly scan the SYNONYMS table in both directions:
+  if a key is in the set, add all its synonyms; if a synonym value is in the set, add its key.
+  Repeat until no new keywords are added. Return the expanded set sorted.
+
+---
+
+FUNCTION expandWithAbbreviations(keywords) -> string[]                             EXPORT
+  For each keyword, look it up in ABBREVIATIONS as a long form and add the short form.
+  Also scan ABBREVIATIONS values for a match and add the corresponding long form.
+  Return all keywords (original + additions) sorted.
+
+---
+
+FUNCTION generateAliases(name, title, content, options) -> string[]                EXPORT
+  CALLS: extractTitleKeywords (alias-generator), expandWithSynonyms (alias-generator), expandWithAbbreviations (alias-generator), extractContentKeywords (alias-generator)
+  Orchestrates the full alias generation pipeline with configurable options.
+  1. Extract keywords from the title.
+  2. IF synonyms enabled, expand the keyword set with synonym expansion.
+  3. IF abbreviations enabled, expand with abbreviation expansion.
+  4. IF content keywords enabled and content provided, extract and add content keywords.
+  5. Remove the canonical topic name (lowercased) from the alias set.
+  6. Filter aliases below minAliasLength, slice to maxAliases, and return sorted.

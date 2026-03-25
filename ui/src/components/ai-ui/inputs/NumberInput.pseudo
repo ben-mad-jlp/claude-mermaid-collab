@@ -1,0 +1,26 @@
+// NumberInput
+// Numeric input with increment and decrement buttons, min/max clamping.
+
+FUNCTION clamp(value, min, max) -> number
+  Returns the value constrained to the [min, max] range.
+
+---
+
+FUNCTION handleChange(e)
+  Parses the raw input string as a number.
+  Clamps to min/max bounds.
+  Calls onChange with the clamped value.
+
+---
+
+FUNCTION handleStep(direction)
+  Increments or decrements the value by the step amount.
+  Clamps result to min/max bounds.
+  Calls onChange with the new value.
+
+---
+
+FUNCTION NumberInput(props) -> ReactNode                                  EXPORT
+  Renders a text input flanked by decrement (−) and increment (+) buttons.
+  Validates and clamps on change.
+  Disables the decrement button at min and the increment button at max.

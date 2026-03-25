@@ -1,0 +1,28 @@
+// Onboarding Topic Detail
+// Detailed view of a single onboarding topic. Displays content in tabbed sections
+// (Overview, Technical, Files, Related, Diagrams) with a related topics sidebar.
+// In onboarding mode, also shows progress buttons and a personal notes section.
+
+FUNCTION parseRelatedLinks(content) -> string[] [private]
+  Extract topic slugs from markdown links in the format [label](../slug) and **bold-slug** patterns.
+
+---
+
+FUNCTION TopicDetail()                                                  EXPORT
+  CALLS: getTopic (onboarding-api), getDiagrams (onboarding-api), getProgress (onboarding-api), getNotes (onboarding-api), markProgress (onboarding-api), deleteProgress (onboarding-api), addNote (onboarding-api), deleteNote (onboarding-api)
+  Read name from URL params. Read project, mode, currentUser from OnboardingContext.
+  On mount: fetch topic content and parse related links from the 'related' content field.
+  Fetch diagrams in parallel.
+  In onboarding mode: also fetch user progress and notes for this topic.
+
+  handleMark(status): call onboardingApi.markProgress and update local progress state.
+  handleUndo: call onboardingApi.deleteProgress and clear local progress.
+  handleAddNote: call onboardingApi.addNote, prepend to notes list.
+  handleDeleteNote: call onboardingApi.deleteNote, remove from notes list.
+
+  Render:
+    - Topic title and slug header.
+    - (Onboarding mode) Progress buttons: "Mark Done" / "Skip" or current status with undo.
+    - Tabbed content: Overview, Technical, Files, Related rendered as Markdown; Diagrams via DiagramsTab.
+    - (Onboarding mode) Notes section with add-note form and list of existing notes.
+    - Related topics sidebar (parsed from content) linking to other topic detail pages.

@@ -1,0 +1,11 @@
+// AnnotationToolbar
+// Toolbar strip shown above a code editor when annotations are active.
+// Provides buttons to add a comment, approve all, reject all, and clear all
+// annotations. Also shows the current annotation count.
+
+FUNCTION AnnotationToolbar(annotations, onAddComment, onApproveAll, onRejectAll, onClearAll) -> JSX  EXPORT
+  Renders a row of icon+label buttons.
+  Add Comment button calls onAddComment with the current cursor selection.
+  Approve All / Reject All call their respective handlers.
+  Clear All calls onClearAll.
+  Badge shows total annotation count.

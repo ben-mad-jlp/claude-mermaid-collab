@@ -1,0 +1,27 @@
+// LayersPanel
+// Left-side panel showing the scene tree for the design editor.
+// Lists all nodes top-to-bottom (reversed child order so top layer appears
+// first). Supports click to select (with Shift for multi-select), expand/
+// collapse for group nodes, and visibility toggle per node.
+
+layers is re-derived from SceneGraph.walk() on every sceneVersion change.
+
+FUNCTION LayersPanel() -> JSX                                          EXPORT
+  Reads sceneVersion and selected IDs from designEditorStore.
+  Computes layers via SceneGraph walk (reverses child order for top-first display).
+  Renders a tree list; groups are expandable via toggleExpand.
+
+---
+
+FUNCTION toggleExpand(nodeId) -> void
+  Adds nodeId to expanded Set if not present; removes it if present.
+
+---
+
+FUNCTION handleClick(nodeId, shiftKey) -> void
+  Calls store.select([nodeId], shiftKey) for additive selection support.
+
+---
+
+FUNCTION toggleVisibility(nodeId, currentVisible) -> void
+  Calls updateNodeWithUndo({visible: !currentVisible}) for the given node.

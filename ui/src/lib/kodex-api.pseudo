@@ -1,0 +1,93 @@
+// Kodex API Client
+// HTTP fetch wrapper for all /api/kodex/* endpoints.
+// Covers topics, drafts, flags, missing topics, and aliases.
+
+All requests include a 'project' query parameter identifying the target project.
+
+FUNCTION buildUrl(path, project) -> string [private]
+  Construct the full URL by appending path to /api/kodex and adding project as a query parameter.
+
+---
+
+FUNCTION kodexApi.getDashboard(project) -> DashboardStats               EXPORT
+  GET /api/kodex/dashboard. Returns stats including topic counts, pending drafts, open flags, and recent/missing access.
+
+---
+
+FUNCTION kodexApi.listTopics(project) -> TopicMetadata[]                EXPORT
+  GET /api/kodex/topics.
+
+---
+
+FUNCTION kodexApi.listTopicsWithContent(project) -> Topic[]             EXPORT
+  GET /api/kodex/topics?includeContent=true.
+
+---
+
+FUNCTION kodexApi.getTopic(project, name) -> Topic                      EXPORT
+  GET /api/kodex/topics/:name.
+
+---
+
+FUNCTION kodexApi.createTopic(project, data) -> Draft                   EXPORT
+  POST /api/kodex/topics with { name, title, content }. Returns the created draft.
+
+---
+
+FUNCTION kodexApi.updateTopic(project, name, content, reason) -> Draft  EXPORT
+  PUT /api/kodex/topics/:name with { content, reason }. Returns the updated draft.
+
+---
+
+FUNCTION kodexApi.deleteTopic(project, name)                            EXPORT
+  DELETE /api/kodex/topics/:name.
+
+---
+
+FUNCTION kodexApi.verifyTopic(project, name, verifiedBy) -> TopicMetadata  EXPORT
+  POST /api/kodex/topics/:name/verify with { verifiedBy }.
+
+---
+
+FUNCTION kodexApi.listFlags(project, status?) -> Flag[]                 EXPORT
+  GET /api/kodex/flags. Optionally filter by status query param.
+
+---
+
+FUNCTION kodexApi.createFlag(project, topicName, type, description) -> Flag  EXPORT
+  POST /api/kodex/topics/:topicName/flag.
+
+---
+
+FUNCTION kodexApi.updateFlagStatus(project, id, status)                 EXPORT
+  PUT /api/kodex/flags/:id with { status }.
+
+---
+
+FUNCTION kodexApi.listDrafts(project) -> Draft[]                        EXPORT
+  GET /api/kodex/drafts.
+
+---
+
+FUNCTION kodexApi.approveDraft(project, name) -> Topic                  EXPORT
+  POST /api/kodex/drafts/:name/approve.
+
+---
+
+FUNCTION kodexApi.rejectDraft(project, name)                            EXPORT
+  POST /api/kodex/drafts/:name/reject.
+
+---
+
+FUNCTION kodexApi.listMissing(project) -> { topicName, count }[]        EXPORT
+  GET /api/kodex/missing.
+
+---
+
+FUNCTION kodexApi.addAlias(project, topicId, alias)                     EXPORT
+  POST /api/kodex/topics/:topicId/alias with { alias }.
+
+---
+
+FUNCTION kodexApi.removeAlias(project, topicId, alias)                  EXPORT
+  DELETE /api/kodex/topics/:topicId/alias with { alias }.

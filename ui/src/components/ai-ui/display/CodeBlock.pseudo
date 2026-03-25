@@ -1,0 +1,14 @@
+// CodeBlock
+// Syntax-highlighted code block with a copy-to-clipboard button.
+// Supports dark and light themes via CSS class toggling.
+
+FUNCTION handleCopy()
+  Copies the code string to the clipboard.
+  Sets a "copied" state flag for 2 seconds to show feedback, then resets it.
+
+---
+
+FUNCTION CodeBlock(props) -> ReactNode                                    EXPORT
+  Renders a pre/code block with the provided code string.
+  Shows a copy button in the top-right corner; button label changes to "Copied!" briefly after clicking.
+  Applies syntax highlighting styles based on the active theme.

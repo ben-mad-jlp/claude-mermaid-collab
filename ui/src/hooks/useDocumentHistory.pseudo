@@ -1,0 +1,22 @@
+// useDocumentHistory
+// Fetches and exposes the version history for a single document.
+
+History is re-fetched whenever documentId, project, or session changes.
+A 404 response is treated as "no history yet" rather than an error.
+
+FUNCTION useDocumentHistory(documentId) -> { history, isLoading, error, refetch, getVersionAt }  EXPORT
+  CALLS: useSession (useSession)
+  Manages state: history, isLoading, error.
+  On mount (and when documentId changes), calls fetchHistory. Clears history if documentId is null.
+
+---
+
+FUNCTION fetchHistory()
+  Fetches /api/document/{documentId}/history with project and session as query params.
+  IF 404, sets history to null (not an error). IF ok, stores the parsed history. ELSE sets error.
+
+---
+
+FUNCTION getVersionAt(timestamp) -> string | null
+  Fetches /api/document/{documentId}/version with project, session, and timestamp as query params.
+  Returns the content string on success, or null on failure.

@@ -1,0 +1,7 @@
+// DiffControls
+// Renders a "Clear Diff" banner button when a diff is active.
+// Only visible when hasDiff is true; hidden otherwise.
+
+FUNCTION DiffControls(props) -> ReactNode                                 EXPORT
+  IF hasDiff is false, renders nothing.
+  IF hasDiff is true, renders a banner with a "Clear Diff" button that calls onClearDiff when clicked.

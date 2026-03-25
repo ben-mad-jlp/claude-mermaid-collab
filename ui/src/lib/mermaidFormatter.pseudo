@@ -1,0 +1,20 @@
+// Mermaid Formatter
+// Formats Mermaid diagram source for improved readability.
+// Normalizes indentation, arrow syntax, and removes empty lines.
+
+FUNCTION formatMermaid(content, options) -> FormatResult                EXPORT
+  Use indentSize from options (default 2 spaces).
+  Process each line:
+    - Skip empty lines.
+    - Preserve the first line (diagram type declaration) as-is.
+    - On subgraph start: output at current indent level, then increase indent.
+    - On 'end': decrease indent, then output.
+    - For other lines: normalize arrow operators (--> --- -.-> ==>) to have single spaces on both sides,
+      then output at current indent level.
+  Return { formatted, success: true } on success, or { formatted: original, success: false, error } on failure.
+
+---
+
+FUNCTION canFormat(content) -> boolean                                  EXPORT
+  Return true if the first non-empty line matches a known Mermaid diagram type
+  (graph, flowchart, sequenceDiagram, classDiagram, stateDiagram, erDiagram, gantt, pie, gitGraph).

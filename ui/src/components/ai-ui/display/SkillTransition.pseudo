@@ -1,0 +1,6 @@
+// SkillTransition
+// Displays a skill transition event: shows the transition name and description with a directional arrow indicator.
+// Used to visually signal when Claude switches between skill phases.
+
+FUNCTION SkillTransition(props) -> ReactNode                              EXPORT
+  Renders a styled banner with a right-arrow icon, the transition name in bold, and the description below it.

@@ -1,0 +1,22 @@
+// HistoryModal
+// Full-screen modal showing a diff between a historical document version and
+// the current version. Opened from the document editor's history toolbar.
+
+FUNCTION formatRelativeTime(ts) -> string
+  Just now (<5s), Xs ago (<60s), Xm ago (<1h), Xh ago (<24h),
+  Yesterday, Xd ago, or locale date string.
+
+---
+
+FUNCTION HistoryModal(historicalContent, currentContent, version, onClose, onRevert) -> JSX  EXPORT
+  CALLS: DiffView (DiffView)
+  Renders a backdrop + centered modal.
+  Backdrop click closes. Escape closes. Body scroll prevented while open.
+  Shows formatted relative timestamp as title.
+  Shows DiffView between historicalContent and currentContent.
+  Revert button calls onRevert(historicalContent) and closes.
+
+---
+
+FUNCTION handleBackdropClick(e) -> void
+  Calls onClose only if the click was on the backdrop itself (not the modal).

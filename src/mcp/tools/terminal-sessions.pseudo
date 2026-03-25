@@ -1,0 +1,46 @@
+// Terminal Sessions Tools
+// Creates and manages tmux-backed terminal sessions scoped to a collab session.
+// Sessions are persisted in a JSON file managed by terminalManager and accessible
+// via WebSocket at ws://localhost:3737/terminal.
+
+FUNCTION terminalCreateSession(project, session, name?) -> CreateSessionResult    EXPORT
+  CALLS: terminalManager.readSessions (terminal-manager), terminalManager.generateTmuxSessionName (terminal-manager), terminalManager.createTmuxSession (terminal-manager), terminalManager.writeSessions (terminal-manager)
+  Validate project and session inputs.
+  Read existing sessions. Set display name to "Terminal N" if none provided.
+  Generate a tmux session name and create the tmux session in the project directory.
+  Build a new session record with a UUID, display name, tmux session name, creation time, and order.
+  Append to sessions array and write back. Return { id, tmuxSession, wsUrl }.
+
+---
+
+FUNCTION terminalListSessions(project, session) -> ListSessionsResult             EXPORT
+  CALLS: terminalManager.readSessions (terminal-manager), terminalManager.writeSessions (terminal-manager)
+  Validate inputs. Read sessions from storage.
+  Sort sessions by their order field. Return { sessions: [...] }.
+
+---
+
+FUNCTION terminalKillSession(project, session, id) -> KillSessionResult          EXPORT
+  CALLS: terminalManager.readSessions (terminal-manager), terminalManager.killTmuxSession (terminal-manager), terminalManager.writeSessions (terminal-manager)
+  Validate inputs. Read sessions. Find session by ID (throw if not found).
+  Kill the underlying tmux session. Remove the session from the array.
+  Recompute order indices for remaining sessions. Write back. Return { success: true }.
+
+---
+
+FUNCTION terminalRenameSession(project, session, id, name) -> RenameSessionResult  EXPORT
+  CALLS: terminalManager.readSessions (terminal-manager), terminalManager.writeSessions (terminal-manager)
+  Validate inputs. Read sessions. Find session by ID (throw if not found).
+  Trim the name; default to "Terminal" if blank. Update the name field. Write back.
+  Return { success: true }.
+
+---
+
+FUNCTION terminalReorderSessions(project, session, orderedIds) -> ReorderSessionsResult  EXPORT
+  CALLS: terminalManager.readSessions (terminal-manager), terminalManager.writeSessions (terminal-manager)
+  Validate inputs. Read sessions. Validate orderedIds:
+    - No duplicates
+    - No missing session IDs
+    - No unknown IDs
+  Rebuild sessions array in the new order, updating each session's order field.
+  Write back. Return { success: true }.

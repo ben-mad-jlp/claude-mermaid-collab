@@ -1,0 +1,15 @@
+// Kodex Topic Graph
+// Visualizes Kodex topic relationships as a Mermaid flowchart.
+// Fetches all topics with content, builds graph edges from 'related' fields,
+// and renders an interactive Mermaid diagram where clicking a node navigates to that topic.
+
+FUNCTION Graph()                                                        EXPORT
+  CALLS: listTopicsWithContent (kodex-api), buildGraphEdges (graph-utils), generateMermaidGraph (graph-utils)
+  Read selectedProject from kodexStore.
+  On mount (or project change):
+    1. Fetch all topics with content via kodexApi.listTopicsWithContent.
+    2. Build edges from each topic's 'related' field using buildGraphEdges.
+    3. Generate Mermaid graph syntax using generateMermaidGraph.
+    4. Store the Mermaid source in state.
+  Render a DiagramEmbed with the Mermaid source.
+  On node click (handleNodeClick): navigate to /kodex/topics/:nodeId.

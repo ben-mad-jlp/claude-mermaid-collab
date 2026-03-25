@@ -1,0 +1,11 @@
+// useIsMobile
+// Detects whether the current viewport is a mobile-width screen (< 640px).
+
+Uses matchMedia("(max-width: 639px)") and updates state when the viewport crosses the breakpoint.
+Initializes synchronously from the current viewport size to avoid a flash of wrong layout.
+Gracefully handles SSR (no window) and browsers without matchMedia support.
+
+FUNCTION useIsMobile() -> boolean                                               EXPORT
+  Manages state: isMobile, initialized from the current matchMedia result.
+  On mount, adds a "change" listener to the media query to keep isMobile in sync with viewport width.
+  On unmount, removes the listener.

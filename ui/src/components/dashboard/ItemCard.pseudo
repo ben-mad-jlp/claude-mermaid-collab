@@ -1,0 +1,17 @@
+// ItemCard (dashboard)
+// Card showing a diagram, document, or design item with its icon, type badge, and last-modified time.
+
+FUNCTION formatRelativeTime(timestamp) -> string
+  Converts a numeric timestamp to a relative string ("just now", "5m ago", etc.).
+
+---
+
+FUNCTION getItemIcon(type) -> ReactNode
+  Returns an SVG icon appropriate for the item type (diagram cube, document page, design layout, spreadsheet grid).
+
+---
+
+FUNCTION ItemCard(props) -> ReactNode                                     EXPORT
+  Renders a clickable card with the item's icon, name, type badge, and relative last-modified time.
+  Highlights with a selection ring when isSelected is true.
+  Calls onClick when clicked.

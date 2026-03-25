@@ -1,0 +1,34 @@
+// Render UI Tool
+// Broadcasts a JSON UI definition to connected browser clients via WebSocket
+// and optionally blocks until the user takes an action in the browser.
+
+In blocking mode (the default), the call does not timeout — it waits indefinitely
+until handleUIResponse is called with a matching componentId.
+Pending handlers are stored on the wsHandler instance under __pendingUIHandlers[uiId].
+
+FUNCTION validateUIStructure(ui) -> asserts UIComponent                          EXPORT
+  Validate that ui is a non-null object with a string type and an object props.
+  If children is present, validate it is an array and recursively validate each child.
+  If actions is present, validate it is an array where each action has string id and label.
+  Throw descriptive errors on any validation failure.
+
+---
+
+FUNCTION renderUI(project, session, ui, blocking?, wsHandler) -> RenderUIResponse  EXPORT
+  Validate project and session are non-empty strings.
+  Validate ui structure via validateUIStructure.
+  Generate a unique uiId, then broadcast a ui_render message to all browser clients.
+  IF blocking is false, return immediately with { completed: true, source: 'terminal', action: 'render_complete' }.
+  IF blocking is true, return a Promise that resolves only when handleUIResponse is called
+  with the matching uiId. Register the resolve callback under wsHandler.__pendingUIHandlers[uiId].
+
+---
+
+FUNCTION handleUIResponse(wsHandler) -> void                                     EXPORT
+  Lookup the pending handler for response.componentId in wsHandler.__pendingUIHandlers.
+  IF found, call the handler with the response and remove it from the map.
+
+---
+
+FUNCTION createUIResponse(uiId, actionId, data?) -> UIResponse                   EXPORT
+  Build and return a UIResponse object for testing purposes.

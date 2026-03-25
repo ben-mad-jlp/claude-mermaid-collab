@@ -1,0 +1,14 @@
+// Dismiss UI Tool
+// Clears the browser question panel by sending a dismiss request to the server.
+// Called after a user answers a question in the terminal so the UI doesn't linger.
+
+API base URL is configured via PORT (default 3737) and HOST (default localhost) environment variables.
+
+FUNCTION buildUrl(path, project, session) -> string
+  Construct an absolute URL with project and session as query parameters.
+
+---
+
+FUNCTION dismissUI(project, session) -> string                                   EXPORT
+  POST to /api/dismiss-ui for the given project and session.
+  Throw if the request fails. Return JSON string with { success: true, message }.

@@ -1,0 +1,45 @@
+// Renderer
+// Renders Mermaid diagram syntax to SVG (and thumbnail buffers) using a JSDOM-backed Mermaid instance.
+
+dom-setup is imported first to ensure the JSDOM globals are in place before mermaid loads.
+A thumbnail cache (up to 100 entries, LRU-evicted) avoids re-rendering unchanged diagrams.
+
+FUNCTION fixNodeDimensions(svg) -> string
+  Find flowchart node groups whose rect and foreignObject have zero or incorrect dimensions.
+  For each, calculate width from text length (10px per char + 24px padding, minimum 60px) and fix height to 36px.
+  Replace both the rect dimensions and the foreignObject dimensions in the SVG string.
+
+---
+
+FUNCTION fixEdgeLabels(svg) -> string
+  Find edge label foreignObjects with width="0" height="0".
+  For each, calculate width from label text length (8px per char + 12px padding) and set height to 20px.
+  Add x/y centering offsets.
+
+---
+
+FUNCTION fixViewBox(svg) -> string
+  Scan the SVG for all translate transforms, rect elements, and circle elements to derive bounding coordinates.
+  IF valid bounds are found, recompute the viewBox with 20px padding on all sides and update the max-width style.
+
+---
+
+FUNCTION renderSVG(content, theme) -> string
+  CALLS: fixNodeDimensions (renderer), fixEdgeLabels (renderer), fixViewBox (renderer)
+  Initialize Mermaid with the given theme and startOnLoad=false.
+  Render the diagram to SVG. Apply fixNodeDimensions, fixEdgeLabels, and fixViewBox to compensate for JSDOM limitations.
+  Return the corrected SVG string.
+
+---
+
+FUNCTION generateThumbnail(id, content) -> Buffer
+  CALLS: renderSVG (renderer)
+  Return the cached buffer if the id is already cached.
+  Otherwise render the diagram to SVG and wrap it in a Buffer.
+  IF the cache has reached 100 entries, evict the oldest entry before caching.
+  Return the buffer.
+
+---
+
+FUNCTION clearCache() -> void
+  Empty the thumbnail cache.

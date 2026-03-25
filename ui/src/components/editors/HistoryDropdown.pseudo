@@ -1,0 +1,10 @@
+// HistoryDropdown
+// Generic version-history dropdown used by DesignHistoryDropdown and
+// DiagramHistoryDropdown. Displays a list of timestamped versions; selecting
+// one loads that version's content for preview or revert.
+
+FUNCTION HistoryDropdown(history, onVersionSelect, onClose) -> JSX     EXPORT
+  Renders a scrollable list of version entries.
+  Each entry shows a formatted timestamp.
+  Clicking an entry calls onVersionSelect with that version object.
+  Closes on click outside or Escape.

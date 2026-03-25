@@ -1,0 +1,51 @@
+// XTermTerminal
+// Native xterm.js terminal connected to the Bun PTY backend over WebSocket.
+// Renders a full-size terminal with FitAddon for responsive sizing.
+// All initialization is deferred until the wrapper element has non-zero
+// dimensions (via ResizeObserver). The terminal is re-created when wsUrl or
+// sessionId change.
+
+WebSocket URL format: /terminal/:sessionId (relative to window.location.origin).
+Messages from server: JSON {type: "output"|"exit"|"error", data/message}.
+Messages to server: JSON {type: "input"|"resize", data/cols/rows/isInitial}.
+Right-click copies selected text to clipboard.
+Scroll events are stopped from propagating to parent containers.
+
+FUNCTION XTermTerminal(wsUrl, sessionId, className) -> JSX             EXPORT
+  On mount (or when wsUrl/sessionId change):
+  1. Observes wrapper element with ResizeObserver.
+     - When wrapper first gets non-zero dimensions: calls initializeTerminal.
+     - On subsequent resize events: calls safeFit.
+  2. Observes wrapper with IntersectionObserver (threshold 1.0).
+     - When fully visible after init: calls safeFit.
+  3. Registers window resize handler -> safeFit.
+  4. Registers contextmenu handler -> copies xterm selection to clipboard.
+  5. Registers wheel handler -> stops propagation.
+  On unmount: disconnects all observers, closes WebSocket, disposes xterm,
+  clears all refs.
+
+---
+
+FUNCTION sendResize(cols, rows, isInitial) -> void
+  Sends {type:"resize", cols, rows, isInitial} JSON over the WebSocket if open.
+
+---
+
+FUNCTION safeFit() -> void
+  Skips if disposed or container has zero dimensions.
+  Debounces via cancelAnimationFrame + double-RAF. On second RAF, calls
+  fitAddon.fit() then sendResize with updated cols/rows.
+
+---
+
+FUNCTION initializeTerminal() -> void
+  Guards against double-initialization and disposed state.
+  Creates xterm Terminal (80x24, dark theme, 10000 line scrollback).
+  Loads FitAddon, opens terminal in DOM, performs initial fit.
+  Creates WebSocket connection to /terminal/:sessionId.
+  On open: sends initial resize.
+  On message: parses JSON; writes output/exit/error to terminal; falls back
+  to raw write if not JSON.
+  On close: writes "Connection closed" in red.
+  Forwards terminal key input as {type:"input"} messages.
+  Forwards terminal resize events as {type:"resize"} messages.

@@ -1,0 +1,12 @@
+// useSession
+// Provides the full session store interface — current session, diagrams, documents, designs, collab state, and all actions.
+
+A thin facade over the session store using shallow comparison to prevent unnecessary re-renders.
+Exposes everything a component needs to read and mutate session state from one hook call.
+
+FUNCTION useSession() -> UseSessionReturn                                       EXPORT
+  CALLS: useSessionStore (sessionStore)
+  Reads all session state and actions from the store using shallow comparison.
+  Derives selectedDiagram, selectedDocument, and selectedDesign by calling the corresponding store getters.
+  Returns the complete session interface including: currentSession, isLoading, error, diagrams,
+  documents, designs, collabState, all selection IDs, and all CRUD/selection/utility actions.

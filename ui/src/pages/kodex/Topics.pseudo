@@ -1,0 +1,24 @@
+// Kodex Topics
+// Browse and search all topics in the Kodex for the selected project.
+// Supports filtering by verification status and draft presence.
+
+FUNCTION ConfidenceBadge(confidence)
+  Render a colored badge for 'low', 'medium', or 'high' confidence.
+
+---
+
+FUNCTION TopicCard(topic)
+  Render a linked card showing the topic's title, slug, confidence badge,
+  a verified checkmark (if verified), and a 'Draft' badge (if hasDraft).
+  Links to /kodex/topics/:name.
+
+---
+
+FUNCTION Topics()                                                       EXPORT
+  CALLS: listTopics (kodex-api)
+  Read selectedProject from kodexStore.
+  On mount (or project change): fetch the full topic list via kodexApi.listTopics.
+  Maintain local filter state: 'all' | 'verified' | 'unverified' | 'has_draft' and a search string.
+  Compute filteredTopics by applying both the status filter and the search query (matches name or title).
+  Render a search input, a filter dropdown, and a 3-column grid of TopicCards.
+  Include a "New Topic" link to /kodex/topics/new.

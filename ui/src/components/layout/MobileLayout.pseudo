@@ -1,0 +1,32 @@
+// MobileLayout
+// Top-level mobile UI composition. Manages the three-tab layout (preview, chat,
+// terminal) and terminal session lifecycle. All tab content is always mounted
+// with display:none when inactive, to preserve xterm and chat state.
+
+FUNCTION MobileLayout() -> JSX                                         EXPORT
+  CALLS: BottomTabBar (BottomTabBar), PreviewTab (PreviewTab),
+         ChatTab (ChatTab), TerminalTab (TerminalTab)
+  Manages activeTab state (preview/chat/terminal).
+  Uses useTerminalTabs for terminal session management.
+  Renders MobileHeader at top, three always-mounted content divs (only active
+  visible), BottomTabBar at bottom.
+
+---
+
+FUNCTION handleTabChange(tab) -> void
+  Sets activeTab to the selected tab name.
+
+---
+
+FUNCTION handleAutoSwitchToChat() -> void
+  Sets activeTab to "chat" (called when an AI UI message arrives in ChatTab).
+
+---
+
+FUNCTION handleAddTerminal() -> void
+  Calls addTab from useTerminalTabs.
+
+---
+
+FUNCTION handleCloseTerminal(id) -> void
+  Calls removeTab(id) from useTerminalTabs.

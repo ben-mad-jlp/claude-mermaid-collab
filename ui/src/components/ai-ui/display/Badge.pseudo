@@ -1,0 +1,6 @@
+// Badge
+// Color-coded label badge with semantic variants.
+
+FUNCTION Badge(props) -> ReactNode                                        EXPORT
+  Renders a small inline pill with the label text.
+  Color is determined by the variant prop: default (gray), info (blue), success (green), warning (yellow), error (red).

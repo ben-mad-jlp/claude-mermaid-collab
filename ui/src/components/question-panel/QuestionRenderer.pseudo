@@ -1,0 +1,27 @@
+// QuestionRenderer
+// Renders a Claude question using the AI-UI component system.
+// Tries to parse the question text as a JSON UIComponent tree; falls back to a
+// Card wrapping a Markdown component; falls back further to SimpleTextQuestion
+// if the component type is not registered.
+
+FUNCTION SimpleTextQuestion(text, isLoading, onSubmit) -> JSX
+  Renders a textarea for free-text response and a Submit button.
+  Submit disabled while isLoading or response is empty.
+  Calls onSubmit when submitted.
+
+---
+
+FUNCTION QuestionRenderer(question, onAction, isLoading) -> JSX        EXPORT
+  CALLS: AIUIRenderer (renderer), validateComponent (registry)
+  1. Builds uiComponent: IF question.text starts with "{", attempts JSON.parse.
+     On failure or non-JSON text, wraps text in a Card > Markdown component tree.
+  2. Validates uiComponent.type via validateComponent. IF invalid, renders
+     SimpleTextQuestion with handleAction('submit', text) as the submit callback.
+  3. Otherwise renders AIUIRenderer with uiComponent, handleAction, and
+     disabled:isLoading injected into componentProps.
+  Dims the rendered UI (opacity 0.6) while isLoading.
+
+---
+
+FUNCTION handleAction(actionId, payload) -> void
+  Skips if isLoading. Otherwise calls onAction(actionId, payload).

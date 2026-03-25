@@ -1,0 +1,14 @@
+// MultipleChoice
+// A labeled select dropdown for single-option selection from a list.
+// Supports both controlled and uncontrolled usage.
+
+FUNCTION handleChange(e)
+  Updates internal selected value state.
+  Calls onChange with the newly selected value.
+
+---
+
+FUNCTION MultipleChoice(props) -> ReactNode                               EXPORT
+  Renders a native select element with a label.
+  Uses controlled value if provided; falls back to internal state.
+  Includes a default "Select an option" placeholder as the first option.

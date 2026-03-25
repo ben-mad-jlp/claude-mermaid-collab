@@ -1,0 +1,31 @@
+// File Watcher
+// Watches the diagrams and documents folders for file changes and notifies registered listeners.
+
+Uses chokidar with a write-finish stabilization threshold of 100ms/50ms poll to avoid
+partial-write events. Listeners receive a FileChangeEvent with type (created/modified/deleted),
+resourceType (diagram/document), id, and path. Watching ignores the initial scan.
+
+FUNCTION FileWatcher.start() -> void                                               EXPORT
+  Start two chokidar watchers: one for *.mmd files in DIAGRAMS_FOLDER, one for *.md in
+  DOCUMENTS_FOLDER. Each watcher emits created, modified, or deleted events through
+  the internal emit method.
+
+---
+
+FUNCTION FileWatcher.stop() -> void
+  Close both watchers and clear their references.
+
+---
+
+FUNCTION FileWatcher.restart() -> void
+  Stop then start the watchers. Use after changing the storage directory.
+
+---
+
+FUNCTION FileWatcher.onChange(listener) -> void
+  Register a listener callback that will be called with every FileChangeEvent.
+
+---
+
+FUNCTION FileWatcher.emit(event) -> void
+  Dispatch a FileChangeEvent to all registered listeners.

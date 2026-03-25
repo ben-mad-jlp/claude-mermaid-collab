@@ -1,0 +1,18 @@
+// Markdown (ai-ui display)
+// AI-UI component that renders markdown content with syntax highlighting,
+// GFM tables, and full custom component overrides for all standard elements.
+// Detects system dark mode for code block theme selection.
+
+The "p" element override detects when children contain block-level elements
+(div, pre, or function components with inline=false) and renders as <div>
+instead of <p> to avoid invalid HTML nesting.
+
+FUNCTION Markdown(content, allowHtml, strikethrough, tables, codeHighlight, ariaLabel) -> JSX  EXPORT
+  Detects isDarkMode from window.matchMedia.
+  Renders ReactMarkdown with remark-gfm (when tables=true) and a full
+  components map overriding: h1-h6, p (with block-child detection), blockquote,
+  ul, ol, li, table, thead, tbody, tr, th, td, code (syntax-highlighted blocks
+  via react-syntax-highlighter using atomOneDark/atomOneLight, or inline code),
+  a (opens in new tab), img, hr, del.
+  skipHtml=!allowHtml.
+  Wrapped in a max-h-96 scrollable container.

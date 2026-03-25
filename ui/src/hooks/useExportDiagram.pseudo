@@ -1,0 +1,42 @@
+// useExportDiagram
+// Exports a rendered Mermaid diagram SVG element as a downloadable SVG or PNG file.
+
+PNG export draws the SVG to an off-screen canvas at 2x retina resolution.
+Computed styles are inlined into SVG clones before export so the output is self-contained.
+canExport reflects whether an SVG element is currently present in the container.
+
+FUNCTION useExportDiagram() -> { svgContainerRef, exportAsSVG, exportAsPNG, canExport }  EXPORT
+  Manages state: canExport.
+  svgContainerRef is a callback ref that updates canExport when the container mounts/unmounts.
+
+---
+
+FUNCTION svgContainerRef(node)
+  Stores the container reference. Sets canExport to false if node is null, or to whether
+  an SVG child element exists if node is provided.
+
+---
+
+FUNCTION exportAsSVG(filename)
+  Finds the SVG in the container, clones it, inlines all computed styles, serializes to XML,
+  and triggers a browser download as {filename}.svg.
+
+---
+
+FUNCTION exportAsPNG(filename)
+  Finds the SVG, determines its dimensions (falling back to 800x600 if getBBox fails),
+  clones and inlines styles, serializes to a data URL, and draws it onto a 2x-scaled canvas.
+  Converts the canvas to a PNG blob and triggers a browser download as {filename}.png.
+  Resolves (never rejects) — times out after 10 seconds if the image fails to load.
+
+---
+
+FUNCTION inlineStyles(element)
+  Recursively copies computed CSS styles onto each element's inline style attribute,
+  ensuring exported SVGs render correctly outside the page context.
+
+---
+
+FUNCTION downloadFile(url, filename)
+  Creates a temporary anchor element, sets its href and download attributes, clicks it
+  programmatically to trigger the browser download, then removes the element.

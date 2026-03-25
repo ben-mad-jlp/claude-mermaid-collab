@@ -1,0 +1,44 @@
+// DesignToolbar
+// Toolbar for the design editor with undo/redo, zoom controls, PNG export,
+// and PNG clipboard copy.
+
+Undo/redo availability is re-read on every sceneVersion change via
+getEditorRefs().undo.canUndo/canRedo.
+
+FUNCTION DesignToolbar(onToggleLayers, onToggleProperties, ...) -> JSX  EXPORT
+  CALLS: renderNodesToImage (renderNodesToImage)
+  Reads canUndo/canRedo from store editor refs on sceneVersion change.
+  Renders: undo/redo buttons; zoom-out, zoom level display, zoom-in; layers
+  and properties panel toggles; export PNG button; copy PNG button.
+
+---
+
+FUNCTION handleUndo() -> void
+  Calls store.undoAction().
+
+---
+
+FUNCTION handleRedo() -> void
+  Calls store.redoAction().
+
+---
+
+FUNCTION handleZoomIn() -> void
+  Calls store.applyZoom(+100) at viewport center.
+
+---
+
+FUNCTION handleZoomOut() -> void
+  Calls store.applyZoom(-100) at viewport center.
+
+---
+
+FUNCTION handleExportPng() -> void
+  Calls renderNodesToImage to get a PNG blob.
+  Creates a temporary blob URL, triggers a download link click, revokes the URL.
+
+---
+
+FUNCTION handleCopyPng() -> void
+  Calls renderNodesToImage to get a PNG blob.
+  Writes the blob to the clipboard via ClipboardItem API.

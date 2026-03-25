@@ -1,0 +1,51 @@
+// UnifiedEditor
+// Central routing component that picks the correct editor for a session item
+// based on its type: design, spreadsheet, snippet group, or diagram/document.
+// For diagram/document items it also renders the preview pane and handles
+// version history preview mode.
+
+FUNCTION SnippetGroupView(groupId, snippets, ...) -> JSX
+  CALLS: SnippetEditor (SnippetEditor)
+  Finds all snippets sharing the same groupId.
+  Renders a tab bar listing each snippet in the group by file path.
+  Delegates to SnippetEditor for the active tab.
+
+---
+
+FUNCTION handleSnippetSave(snippet) -> void
+  Bridges the SnippetEditor onSave callback to the parent onSnippetSave prop.
+
+---
+
+FUNCTION getDiffContents() -> {before, after}
+  Reads historyDiff.compareMode from the store.
+  IF vs-current: returns {before: historicalContent, after: currentContent}.
+  IF vs-previous: returns {before: previousHistoricalContent, after: historicalContent}.
+
+---
+
+FUNCTION previewComponent() -> JSX
+  CALLS: MermaidPreview (MermaidPreview), MarkdownPreview (MarkdownPreview)
+  IF diagram and historyDiff active: returns DiffView (side-by-side mermaid).
+  IF diagram: returns MermaidPreview.
+  IF document and historyDiff active: returns MarkdownPreview with inline diff.
+  IF document: returns MarkdownPreview.
+
+---
+
+FUNCTION handleFormat() -> void
+  Calls formatMermaid on the current diagram content.
+  IF successful, calls onContentChange with the formatted string.
+
+---
+
+FUNCTION UnifiedEditor(item, ...) -> JSX                               EXPORT
+  CALLS: DesignEditor (DesignEditor), SpreadsheetEditor (SpreadsheetEditor),
+         DiagramEditor (DiagramEditor), DocumentEditor (DocumentEditor)
+  Routes by item.type:
+    design -> DesignEditor
+    spreadsheet -> SpreadsheetEditor
+    snippet -> SnippetGroupView (groups by groupId)
+    diagram / document -> SplitPane with CodeMirrorWrapper + previewComponent
+  IF diagram history preview mode: renders DiagramHistoryPreview instead of
+  the normal editor.

@@ -1,0 +1,32 @@
+// QuestionPanel
+// Slide-in overlay panel that presents Claude's current question to the user.
+// Implements a focus trap (Tab/Shift+Tab cycles within the panel) and Escape
+// to dismiss. Shows success or error banners from the submit state, then
+// delegates question rendering to QuestionRenderer.
+// Renders nothing when there is no currentQuestion.
+
+FUNCTION QuestionPanel() -> JSX                                        EXPORT
+  CALLS: QuestionRenderer (QuestionRenderer)
+  Reads currentQuestion, submitState, dismissQuestion, submitResponse from
+  questionStore.
+  Keyboard handler: Escape calls dismissQuestion; Tab traps focus within
+  panel focusable elements.
+  On question change: re-collects focusable elements and focuses the first.
+  Renders: semi-transparent backdrop (click to dismiss) + right-side panel.
+  Panel contains: header ("Claude is asking..." + optional context + close
+  button), scrollable content area, footer with ESC hint.
+  Content area: shows error banner if submitState.error; shows success banner
+  if submitState.success; otherwise renders QuestionRenderer.
+
+---
+
+FUNCTION handleDismiss() -> void
+  Calls dismissQuestion().
+
+---
+
+FUNCTION handleAction(actionId, payload) -> void
+  Calls submitResponse with questionId, answer (serialized payload), and
+  current timestamp.
+  Logs errors to console but does not surface them (QuestionPanel shows
+  submitState.error instead).

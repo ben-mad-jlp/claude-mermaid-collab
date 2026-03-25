@@ -1,0 +1,45 @@
+// useSyncScroll
+// Synchronizes scroll position between an editor pane and a preview pane using proportional scroll ratios.
+
+Proportional scroll: scrollTop / (scrollHeight - clientHeight) is computed on the source and applied to the target.
+A scrollSource ref prevents feedback loops — while one pane is driving, the other's handler is suppressed.
+Sync can be toggled at runtime; the enabled prop sets the initial state.
+
+FUNCTION useSyncScroll({ editorRef, previewRef, enabled, debounceMs }) -> { isSynced, toggleSync, enableSync, disableSync }  EXPORT
+  Manages state: isSynced (initially from enabled prop).
+  When isSynced is true, attaches debounced scroll handlers to both the editor and preview elements.
+  Removes handlers when isSynced becomes false or the component unmounts.
+
+---
+
+FUNCTION handleEditorScroll()
+  Skipped if the preview is currently driving the scroll.
+  Computes the proportional scroll position of the editor and applies it to the preview.
+  Sets scrollSource to "editor" and clears it after debounceMs.
+
+---
+
+FUNCTION handlePreviewScroll()
+  Skipped if the editor is currently driving the scroll.
+  Computes the proportional scroll position of the preview and applies it to the editor.
+  Sets scrollSource to "preview" and clears it after debounceMs.
+
+---
+
+FUNCTION toggleSync()
+  Flips isSynced between true and false.
+
+---
+
+FUNCTION enableSync()
+  Sets isSynced to true.
+
+---
+
+FUNCTION disableSync()
+  Sets isSynced to false.
+
+---
+
+FUNCTION debounce(fn, delay) -> fn
+  Returns a debounced version of fn that waits delay ms after the last call before executing.

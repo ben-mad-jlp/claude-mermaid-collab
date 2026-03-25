@@ -1,0 +1,23 @@
+// Notification Store
+// Zustand store for managing in-app toast notifications.
+// Supports auto-dismissal via duration and manual removal.
+
+State shape:
+  toasts: Toast[]
+  Each Toast has: id (toast_<timestamp>_<hex4>), type, title, message, duration, timestamp.
+
+FUNCTION addToast(toast) -> id                                          EXPORT
+  Generate a unique ID in the format toast_<timestamp>_<randomHex4>.
+  Add the full toast object to the toasts array.
+  IF toast.duration > 0, schedule auto-removal after that many milliseconds.
+  Return the generated ID.
+
+---
+
+FUNCTION removeToast(id)                                                EXPORT
+  Filter toasts to remove the one with the matching ID.
+
+---
+
+FUNCTION clearAll()                                                     EXPORT
+  Set toasts to an empty array.

@@ -1,0 +1,71 @@
+// MCP Snippet Tools
+// CRUD operations for code snippets stored via the HTTP API.
+// Snippets carry a JSON envelope: { language, code, filePath, originalCode, groupId?, groupName?, annotations? }.
+// Raw code updates are merged into the existing envelope to preserve metadata.
+
+API base URL is configured via PORT (default 3737) and HOST (default localhost) environment variables.
+
+FUNCTION buildUrl(path, project, session, extraParams?) -> string
+  Construct an absolute URL with project, session, and any extra query parameters.
+
+---
+
+FUNCTION handleCreateSnippet(project, session, name?, content?, sourcePath?, startLine?, endLine?, groupId?, groupName?) -> { id }  EXPORT
+  IF sourcePath is provided:
+    Read the file, detect language from extension using EXT_TO_LANGUAGE map.
+    Use the filename as name if none provided.
+    IF startLine/endLine are provided, slice the file to that range and record the offsets.
+    Build a JSON envelope: { language, code, filePath, originalCode, startLine?, endLine? }.
+    Include groupId/groupName in envelope if provided.
+  IF content is provided without sourcePath and groupId is set:
+    Try to parse content as JSON and inject groupId/groupName.
+    IF not JSON, wrap content in { code, groupId, groupName? }.
+  Validate that name and content are both present. POST to /api/snippet. Return { id }.
+
+---
+
+FUNCTION handleUpdateSnippet(project, session, id, content) -> { id }            EXPORT
+  Try to parse incoming content as JSON.
+  Fetch the existing snippet to read its current JSON envelope.
+  IF existing content is a JSON object:
+    IF incoming is raw code (not JSON), merge it into the existing envelope's code field.
+    IF incoming is JSON, deep-merge incoming fields on top of existing (preserving unset fields).
+  POST merged content to /api/snippet/{id}. Return { id }.
+
+---
+
+FUNCTION handleGetSnippet(project, session, id) -> GetSnippetResult              EXPORT
+  GET /api/snippet/{id}. Throw if not found.
+  Try to parse the content as a JSON envelope and extract code, language, filePath, annotations.
+  IF annotations exist, inject them as comment lines above their respective code ranges,
+  processing in descending order to avoid shifting line numbers.
+  Return { id, name, content (annotated code), language, filePath, lastModified }.
+
+---
+
+FUNCTION handleListSnippets(project, session) -> { snippets }                    EXPORT
+  GET /api/snippets. Throw if request fails. Return { snippets: [...] }.
+
+---
+
+FUNCTION handleDeleteSnippet(project, session, id) -> { success }                EXPORT
+  DELETE /api/snippet/{id}. Throw if request fails. Return { success: true }.
+
+---
+
+FUNCTION handleExportSnippet(project, session, id, format?, outputPath?) -> { filePath, format, size }  EXPORT
+  CALLS: handleGetSnippet (snippet)
+  Retrieve the snippet. IF format is 'json', serialize as JSON with metadata.
+  IF format is 'text' (default), export raw code content.
+  Write to outputPath or a temp file. Return { filePath, format, size }.
+
+---
+
+FUNCTION handleApplySnippet(project, session, id) -> { filePath, linesWritten, range? }  EXPORT
+  CALLS: handleGetSnippet (snippet)
+  Retrieve the snippet and parse its JSON envelope to get filePath and code.
+  Throw if filePath or code is missing.
+  IF startLine and endLine are present:
+    Read the original file, splice the snippet code into that line range, write back.
+    Return range of the replaced lines.
+  ELSE write the code as the entire file content. Return { filePath, linesWritten }.

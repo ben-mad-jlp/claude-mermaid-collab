@@ -1,0 +1,45 @@
+// Project Registry
+// Persists the list of registered projects to ~/.mermaid-collab/projects.json.
+
+A singleton instance (projectRegistry) is exported for convenience.
+Stale projects (paths that no longer exist) are automatically removed on list().
+
+FUNCTION constructor(registryPath)
+  Accept an optional registry path; defaults to ~/.mermaid-collab/projects.json.
+
+---
+
+FUNCTION load() -> ProjectRegistryData
+  IF file does not exist, return empty { projects: [] }.
+  Read and parse the JSON. IF structure is invalid, warn and return empty.
+
+---
+
+FUNCTION save(registry) -> void
+  Create the parent directory if needed. Write JSON with formatting and a trailing newline.
+
+---
+
+FUNCTION register(path) -> { created }                                                  EXPORT (via instance)
+  Throw if path is not absolute or does not exist on the filesystem.
+  Load registry. IF project already exists, update lastAccess and return { created: false }.
+  ELSE add new entry with name (basename of path) and current timestamp, return { created: true }.
+
+---
+
+FUNCTION list() -> Project[]                                                            EXPORT (via instance)
+  Load registry. Validate each project path exists.
+  Auto-remove stale entries and save (if any were stale).
+  Return valid projects sorted by lastAccess descending.
+
+---
+
+FUNCTION unregister(path) -> boolean                                                    EXPORT (via instance)
+  Load registry, filter out the entry matching path, save if changed.
+  Return true if removed, false if not found.
+
+---
+
+FUNCTION touch(path) -> void                                                            EXPORT (via instance)
+  Load registry, update lastAccess for the matching project, save.
+  No-op if path is not registered.

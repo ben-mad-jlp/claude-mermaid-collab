@@ -1,0 +1,40 @@
+// useDesignCanvas
+// Initializes the CanvasKit/Skia WebGL surface and drives RAF-batched rendering for the design editor canvas.
+
+Rendering is triggered reactively when renderVersion or selectedIds change in the editor store.
+A ResizeObserver handles canvas resizes by recreating the WebGL surface at the new dimensions.
+On unmount, all animation frames are cancelled and editor refs are destroyed.
+
+FUNCTION useDesignCanvas() -> { canvasRef, isLoading, error, hitTestSectionTitle, hitTestComponentLabel }  EXPORT
+  CALLS: getCanvasKit (canvaskit), SkiaRenderer (renderer), initEditorRefs (designEditorRefs),
+         destroyEditorRefs (designEditorRefs), getEditorRefs (designEditorRefs),
+         useDesignEditorStore (designEditorStore)
+  Manages state: isLoading, error.
+  On mount, loads CanvasKit WASM, creates a WebGL surface, instantiates the SkiaRenderer, and loads fonts.
+  Subscribes to renderVersion and selectedIds to schedule repaints via scheduleRender.
+  Sets up a ResizeObserver that recreates the surface whenever the canvas element is resized.
+
+---
+
+FUNCTION renderNow()
+  CALLS: getEditorRefs (designEditorRefs)
+  Reads current pan, zoom, viewport size, and scene state from the editor store and refs.
+  Passes everything to the renderer to draw a single frame, including selection, hover, marquee, snap guides,
+  rotation preview, drop target, layout insert indicator, pen state, and remote cursors.
+
+---
+
+FUNCTION scheduleRender()
+  If no animation frame is already queued, requests one and calls renderNow when it fires.
+
+---
+
+FUNCTION hitTestSectionTitle(canvasX, canvasY) -> SceneNode | null
+  CALLS: getEditorRefs (designEditorRefs)
+  Delegates to the renderer's section title hit test using the current scene graph.
+
+---
+
+FUNCTION hitTestComponentLabel(canvasX, canvasY) -> SceneNode | null
+  CALLS: getEditorRefs (designEditorRefs)
+  Delegates to the renderer's component label hit test using the current scene graph.

@@ -1,0 +1,63 @@
+// Mermaid Library Wrapper
+// Thin wrapper around the mermaid library providing initialization, SVG rendering,
+// dimension extraction, validation, theme management, and reset. Sets up the DOM
+// environment before importing mermaid.
+
+A module-level flag tracks whether mermaid has been initialized. Rendering
+functions initialize on first use if not already done.
+
+FUNCTION initializeMermaid(options) -> void                                EXPORT
+  IF already initialized, return immediately.
+  Merge provided options with defaults (theme: "default", startOnLoad: false,
+  securityLevel: "strict") and call mermaid.initialize.
+  Set the initialized flag to true.
+  IF initialization throws, wrap in MermaidError and rethrow.
+
+---
+
+FUNCTION renderToSVG(content, theme) -> string                             EXPORT
+  IF not yet initialized, call initializeMermaid with the given theme.
+  Re-initialize mermaid with the requested theme (handles theme switching).
+  Render the diagram content using mermaid.render with id "diagram".
+  Return the SVG string.
+  IF rendering throws, wrap in MermaidError and rethrow.
+
+---
+
+FUNCTION renderWithDimensions(content, theme) -> RenderResult              EXPORT
+  Call renderToSVG to get the SVG string.
+  Extract width and height by inspecting the viewBox attribute first;
+  fall back to width and height attributes if viewBox is absent.
+  Return { svg, width, height } — omit dimensions if they are zero or absent.
+
+---
+
+FUNCTION validateDiagram(content) -> boolean                               EXPORT
+  Return false if content is empty or whitespace.
+  Check whether the trimmed content starts with a known diagram type keyword
+  (graph, flowchart, sequenceDiagram, classDiagram, stateDiagram, erDiagram,
+  gantt, pie, gitGraph, requirement, architecture, mindmap, timeline).
+  Return true if a match is found, false otherwise.
+
+---
+
+FUNCTION getCurrentTheme() -> Theme                                        EXPORT
+  Read the current theme from mermaid's config via mermaidAPI.getConfig.
+  Return the theme string, defaulting to "default".
+
+---
+
+FUNCTION setTheme(theme) -> void                                           EXPORT
+  Call mermaid.initialize with the new theme.
+  IF it throws, wrap in MermaidError and rethrow.
+
+---
+
+FUNCTION reset() -> void                                                   EXPORT
+  Clear the initialized flag.
+  Call mermaid.contentLoaded to reset internal mermaid state; swallow any errors.
+
+---
+
+FUNCTION isInitializedMermaid() -> boolean                                 EXPORT
+  Return the current value of the initialized flag.

@@ -1,0 +1,46 @@
+// useWebSocket
+// Manages a WebSocket client connection with auto-connect, state tracking, and subscription helpers.
+
+Uses a shared singleton WebSocketClient (via getWebSocketClient) unless a custom URL is provided.
+The connection is NOT automatically torn down on unmount — it persists across component re-renders.
+Only explicit disconnect calls or app-level unmount should close the connection.
+
+FUNCTION useWebSocket(url?, autoConnect) -> UseWebSocketReturn                  EXPORT
+  CALLS: WebSocketClient (websocket), getWebSocketClient (websocket)
+  Manages state: isConnecting, isConnected, error.
+  On mount, registers connect and disconnect event listeners on the client.
+  IF autoConnect is true and the client is not already connected, calls connect.
+  IF already connected, reflects that in state immediately.
+  On unmount, unregisters the event listeners (but does not disconnect).
+
+---
+
+FUNCTION getClient() -> WebSocketClient
+  CALLS: WebSocketClient (websocket), getWebSocketClient (websocket)
+  Returns the existing client ref, or creates one (custom URL or shared singleton) if not yet initialized.
+
+---
+
+FUNCTION connect()
+  Sets isConnecting, calls the client's connect method, and updates state to connected on success.
+  On failure, records the error and sets isConnected to false.
+
+---
+
+FUNCTION disconnect()
+  Calls the client's disconnect method and sets isConnected to false.
+
+---
+
+FUNCTION send(message)
+  Forwards a message to the WebSocket client.
+
+---
+
+FUNCTION subscribe(channel)
+  Sends a subscribe message to the WebSocket client for the given channel.
+
+---
+
+FUNCTION unsubscribe(channel)
+  Sends an unsubscribe message to the WebSocket client for the given channel.

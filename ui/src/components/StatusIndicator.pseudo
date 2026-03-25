@@ -1,0 +1,10 @@
+// StatusIndicator
+// Displays the agent's current operational status (working, waiting, idle).
+// Shows a spinner when working, and distinct icons for waiting and idle states.
+
+FUNCTION StatusIndicator(props) -> ReactNode                              EXPORT
+  Renders a status badge with icon and label based on the status prop.
+  IF status is "working": shows animated spinner and "Working" label.
+  IF status is "waiting": shows a pause icon and "Waiting" label.
+  IF status is "idle": shows a checkmark icon and "Idle" label.
+  Applies color-coded styling per status (blue for working, yellow for waiting, gray for idle).

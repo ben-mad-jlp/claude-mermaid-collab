@@ -1,0 +1,13 @@
+// DiffView (ai-ui display)
+// Renders a side-by-side or unified text diff using react-diff-viewer-continued.
+// Provides a toggle to switch between split and unified view modes.
+// Shows "No changes detected" when before === after.
+
+FUNCTION DiffView(before, after, fileName, mode, contextLines, language, fullHeight, ...) -> JSX  EXPORT
+  Manages currentMode state (split|unified), defaulting to the mode prop.
+  Detects system dark/light mode for theme.
+  IF before === after: renders a "No changes detected" placeholder.
+  ELSE: renders header (fileName, language badge, split/unified toggle)
+  + DiffViewer (from react-diff-viewer-continued) + summary footer
+  (Additions/Removals legend).
+  IF fullHeight: container fills available height via flex-1; ELSE uses max-h-96.

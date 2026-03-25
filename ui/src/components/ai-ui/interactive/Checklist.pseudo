@@ -1,0 +1,26 @@
+// Checklist
+// Trackable task list with top-level items and optional sub-items, required items, and a progress bar.
+// Items can be expanded to show sub-items, and each level can be checked independently.
+
+FUNCTION toggleItem(itemId)
+  Flips the checked state of a top-level item.
+  Calls onChange with the updated item list.
+
+---
+
+FUNCTION toggleSubItem(itemId, subItemId)
+  Flips the checked state of a sub-item within a top-level item.
+  Calls onChange with the updated item list.
+
+---
+
+FUNCTION toggleExpand(itemId)
+  Expands or collapses the sub-items for a top-level item.
+
+---
+
+FUNCTION Checklist(props) -> ReactNode                                    EXPORT
+  Renders a list of checklist items with checkboxes and labels.
+  Items with sub-items show an expand/collapse toggle.
+  Required items are marked and cannot be skipped.
+  Renders a progress bar showing checked items / total items.

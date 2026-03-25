@@ -1,0 +1,43 @@
+// TerminalTabBar
+// Drag-and-drop sortable tab bar for managing terminal sessions.
+// Tabs can be selected, closed, renamed (double-click), and reordered via
+// drag-and-drop using @dnd-kit. Only one tab is expanded for editing at a time.
+
+FUNCTION SortableTab(tab, isActive, canClose, onSelect, onClose, onRename) -> JSX
+  Uses useSortable hook (dnd-kit) for drag handle and transform styles.
+  Active tab has blue underline; inactive tabs are gray.
+  Double-clicking the name enters inline edit mode.
+  Edit commits on Enter or blur; cancels on Escape.
+
+---
+
+FUNCTION handleDoubleClick() -> void
+  Sets isEditing to true, pre-fills editValue with current tab name.
+
+---
+
+FUNCTION handleRename() -> void
+  Trims editValue. IF non-empty, calls onRename(trimmed). Exits edit mode.
+
+---
+
+FUNCTION handleKeyDown(e) -> void
+  Enter commits rename; Escape cancels and exits edit mode.
+
+---
+
+FUNCTION handleInputBlur() -> void
+  Commits rename (calls handleRename).
+
+---
+
+FUNCTION TerminalTabBar(tabs, activeTabId, onTabSelect, onTabClose, onTabRename, onTabAdd, onTabReorder) -> JSX  EXPORT
+  Wraps tabs in DndContext (closestCenter, pointer+keyboard sensors) and
+  SortableContext (horizontalListSortingStrategy).
+  Renders a SortableTab for each tab, plus a "+" button to add a new tab.
+
+---
+
+FUNCTION handleDragEnd(event) -> void
+  Finds the old and new index of the dragged tab.
+  IF indices are valid and different, calls onTabReorder(oldIndex, newIndex).

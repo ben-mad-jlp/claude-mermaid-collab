@@ -1,0 +1,27 @@
+// Wizard
+// Multi-step wizard with a progress indicator, back/next navigation, and optional skip.
+// Each step renders its own content; navigation is gated by step validation.
+
+FUNCTION handleNext()
+  IF current step has a validation function, runs it.
+  IF validation passes (or no validation), advances to the next step.
+  IF on the last step, calls onComplete.
+
+---
+
+FUNCTION handleBack()
+  Decrements the current step index.
+
+---
+
+FUNCTION handleSkip()
+  Advances to the next step without validation.
+  Only available for steps marked as skippable.
+
+---
+
+FUNCTION Wizard(props) -> ReactNode                                       EXPORT
+  Renders the current step's content with its title and description.
+  Shows a step progress indicator (e.g., "Step 2 of 4").
+  Renders Back, Skip (if applicable), and Next/Finish buttons.
+  Disables Back on the first step.

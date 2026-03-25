@@ -1,0 +1,25 @@
+// Onboarding Dashboard
+// Personal progress dashboard for onboarding mode. Shows overall completion percentage,
+// "What's Next" suggestions, per-category progress, and a full topic list with status dots.
+
+FUNCTION computeWhatNext(graph, exploredTopics) -> WhatNextSuggestion[]
+  Score unexplored topics based on how many explored topics are adjacent to them in the graph.
+  IF nothing is explored yet, score by total connection count instead.
+  Return the top 3 scored topics with a human-readable reason.
+
+---
+
+FUNCTION OnboardingDashboard()                                          EXPORT
+  CALLS: getTopics (onboarding-api), getCategories (onboarding-api), getProgress (onboarding-api), getGraph (onboarding-api)
+  Read project, mode, currentUser from OnboardingContext.
+  IF mode is not 'onboard' or no user is set, redirect to /onboarding.
+  On mount: fetch topics, categories, user progress, and the full topic graph in parallel.
+  Compute exploredSet and skippedSet from progress entries.
+  Compute overall percentage: exploredSet.size / topics.length.
+  Compute suggestions via computeWhatNext.
+  Render:
+    - Welcome header with user name and progress percentage.
+    - Progress bar.
+    - "What's Next" suggestion cards (up to 3), each linking to the topic.
+    - Per-category progress mini-cards with mini progress bars.
+    - Full topic list with colored dots (green=explored, gray=skipped, empty=not started).

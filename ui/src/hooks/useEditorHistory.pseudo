@@ -1,0 +1,33 @@
+// useEditorHistory
+// Manages undo/redo state for a CodeMirror editor instance.
+
+canUndo and canRedo are kept in sync by listening to every transaction on the editor.
+The editor reference is managed externally via setEditor so the hook can be used with
+editor instances that mount/unmount independently.
+
+FUNCTION useEditorHistory() -> { editorRef, setEditor, undo, redo, canUndo, canRedo }  EXPORT
+  Manages state: canUndo, canRedo.
+  Holds a ref to the current EditorView instance.
+
+---
+
+FUNCTION setEditor(view)
+  Stores the EditorView reference.
+  IF view is null, clears canUndo and canRedo.
+  IF view is provided, attaches an update listener that calls updateHistoryState after every
+  document change or transaction, and sets initial undo/redo state.
+
+---
+
+FUNCTION updateHistoryState(view)
+  Reads undoDepth and redoDepth from the editor state and updates canUndo/canRedo accordingly.
+
+---
+
+FUNCTION undo()
+  Calls the CodeMirror undo command on the current editor, if canUndo is true.
+
+---
+
+FUNCTION redo()
+  Calls the CodeMirror redo command on the current editor, if canRedo is true.

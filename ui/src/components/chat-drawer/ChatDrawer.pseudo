@@ -1,0 +1,16 @@
+// ChatDrawer
+// Left-side slide-in drawer containing the full message list and auto-scroll behavior.
+// Renders AI UI components inline with chat messages.
+
+FUNCTION handleAction(actionId, payload)
+  Dispatches an action response to chatStore.
+
+---
+
+FUNCTION ChatDrawer(props) -> ReactNode                                   EXPORT
+  CALLS: useChatStore (chatStore), AIUIRenderer (renderer)
+  Reads messages and open state from chatStore.
+  IF closed, renders nothing (or a collapsed rail).
+  IF open, renders a full-height side drawer with the message list and auto-scroll to the latest message.
+  Renders each message with AIUIRenderer for AI UI component blocks.
+  Passes handleAction to AIUIRenderer for interactive components.

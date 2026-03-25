@@ -1,0 +1,13 @@
+// RadioGroup
+// A group of radio buttons for single-option selection.
+
+FUNCTION handleChange(value)
+  Updates selected value state.
+  Calls the onChange callback with the newly selected value.
+
+---
+
+FUNCTION RadioGroup(props) -> ReactNode                                   EXPORT
+  Renders a list of radio options with labels.
+  Highlights the currently selected option.
+  Calls handleChange when an option is selected.

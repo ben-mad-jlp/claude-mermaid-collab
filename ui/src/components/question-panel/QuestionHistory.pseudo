@@ -1,0 +1,32 @@
+// QuestionHistory
+// Displays a list of past questions asked by Claude, with expand-to-reveal
+// details. Supports an inline card layout or a plain list. Limits to maxItems
+// (default 10) with a count footer if more exist.
+
+FUNCTION HistoryItem(question, isExpanded, onToggle, onSelect) -> JSX
+  Truncates question.text to 80 characters for the collapsed row.
+  Shows timestamp as HH:MM.
+  Expand/collapse chevron toggled by onToggle.
+  IF expanded: shows full question text, optional context, and an optional
+  "View in panel" link that calls onSelect.
+
+---
+
+FUNCTION QuestionHistory(inline, maxItems, onSelectItem) -> JSX        EXPORT
+  Reads questionHistory and clearHistory from questionStore.
+  Slices questionHistory to maxItems.
+  IF empty: shows "No question history yet" placeholder.
+  Renders a header with count and "Clear" button (prompts confirmation).
+  Renders HistoryItem for each entry; one item expanded at a time via
+  expandedId toggle.
+  IF total questions exceed maxItems, shows a footer "Showing X of Y".
+
+---
+
+FUNCTION handleToggle(questionId) -> void
+  Toggles expandedId: sets to questionId if not already expanded, null if it is.
+
+---
+
+FUNCTION handleClearHistory() -> void
+  Confirms with the user then calls clearHistory().

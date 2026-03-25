@@ -1,0 +1,104 @@
+// Design Templates and Design Tokens
+// Pre-built UI component templates and design token presets that let Claude
+// create common UI elements and variable collections without building raw scene graphs.
+
+Four token presets are available: material, ios, minimal-dark, minimal-light.
+Each preset defines colors, typography, spacing, and radii variables.
+Templates (navbar, card, button, input, list-item, avatar, badge, modal, tab-bar, form)
+return tree specs compatible with create_design_from_tree.
+
+FUNCTION generateNavbar(params?) -> TreeSpec
+  Build a horizontal auto-layout FRAME containing back button, title, and action text nodes.
+  Customizable via: title, fill, textColor, width, height.
+
+---
+
+FUNCTION generateCard(params?) -> TreeSpec
+  Build a vertical auto-layout FRAME with an image placeholder rectangle and content area
+  containing title and subtitle text. Customizable via: title, subtitle, fill, width, imageHeight.
+
+---
+
+FUNCTION generateButton(params?) -> TreeSpec
+  Build a centered horizontal FRAME containing a label TEXT node.
+  Customizable via: label, fill, textColor, width, height, cornerRadius.
+
+---
+
+FUNCTION generateInput(params?) -> TreeSpec
+  Build a vertical FRAME with an optional label TEXT and a bordered input field FRAME
+  containing placeholder text. Customizable via: placeholder, label, width, height.
+
+---
+
+FUNCTION generateListItem(params?) -> TreeSpec
+  Build a horizontal FRAME containing an avatar ellipse, text content area (title + optional subtitle),
+  and a chevron. Customizable via: title, subtitle, width, height.
+
+---
+
+FUNCTION generateAvatar(params?) -> TreeSpec
+  Build a circular FRAME containing initials TEXT. Size, fill, initials, and text color are customizable.
+
+---
+
+FUNCTION generateBadge(params?) -> TreeSpec
+  Build a small circular FRAME containing a count TEXT node.
+  Customizable via: text, fill, textColor, size.
+
+---
+
+FUNCTION generateModal(params?) -> TreeSpec
+  Build a full-screen overlay FRAME (390x844, semi-transparent black) containing a centered
+  modal card with title, body text, and Cancel/Confirm buttons.
+  Customizable via: title, body, width, fill.
+
+---
+
+FUNCTION generateTabBar(params?) -> TreeSpec
+  Build a horizontal FRAME containing evenly-spaced tab items (icon ellipse + label text).
+  First tab gets activeColor, others get inactiveColor.
+  Customizable via: items[], fill, activeColor, inactiveColor, width.
+
+---
+
+FUNCTION generateForm(params?) -> TreeSpec
+  Build a vertical card FRAME containing a title, one input field per provided field spec,
+  and a submit button. Customizable via: title, fields[{label, placeholder}], width, submitLabel.
+
+---
+
+FUNCTION generateId() -> string
+  Returns a short unique ID combining timestamp (base36) and random characters.
+  Used internally for variable and collection IDs.
+
+---
+
+FUNCTION handleCreateFromTemplate(project, session, designId, template, params?, parentId?) -> { nodeIds, rootNodeId }  EXPORT
+  CALLS: handleCreateDesignFromTree (design-ai)
+  Look up the generator function for the requested template name.
+  Call the generator with provided params to produce a tree spec.
+  Delegate to handleCreateDesignFromTree to add the tree into the design.
+
+---
+
+FUNCTION handleCreateDesignTokens(project, session, designId, preset?, custom?) -> { collectionId, variableIds }  EXPORT
+  CALLS: handleGetDesign (design), handleUpdateDesign (design)
+  Resolve the token set from the named preset or caller-provided custom tokens.
+  Load the design and ensure variableCollections and variables arrays exist.
+  Create a variable collection with a single Default mode.
+  For each token category present:
+    - Colors: create a COLOR variable per entry, converting hex to normalized RGBA.
+    - Typography: create a FLOAT variable for fontSize and fontWeight per entry.
+    - Spacing: create a FLOAT variable per entry.
+    - Radii: create a FLOAT variable per entry.
+  Append the collection record. Save design. Return collectionId and all created variable IDs.
+
+---
+
+FUNCTION handleApplyDesignTokens(project, session, designId, nodeId, bindings) -> { appliedBindings }  EXPORT
+  CALLS: handleGetDesign (design), handleUpdateDesign (design)
+  Load the design. Find the target node by nodeId.
+  For each binding (property → variable name), locate the variable by name in the design's
+  variables array and bind it to the node's property via boundVariables.
+  Throw if any referenced variable is not found. Save design. Return map of property → variable ID.

@@ -1,0 +1,114 @@
+// UI Store
+// Zustand store for persisted UI preferences: theme, panel visibility, split positions, and zoom level.
+// State is persisted to localStorage under the key 'ui-preferences' (version 3).
+
+State shape:
+  theme: 'light' | 'dark'  (defaults to system preference)
+  sidebarVisible: boolean  (default true)
+  sessionPanelVisible: boolean  (default true)
+  editMode: boolean  (default true)
+  chatPanelVisible: boolean  (default false)
+  terminalPanelVisible: boolean  (default false)
+  sidebarSplitPosition: number  (percent, default 20, clamped 10–50)
+  sessionPanelSplitPosition: number  (percent, default 20, clamped 10–50)
+  editorSplitPosition: number  (percent, default 50, clamped 10–90)
+  zoomLevel: number  (percent, default 100, clamped 25–400, step 25)
+
+FUNCTION getDefaultTheme() -> Theme
+  IF system prefers dark, return 'dark'. ELSE return 'light'.
+  Returns 'light' in non-browser contexts.
+
+---
+
+FUNCTION setTheme(theme)                                                EXPORT
+  Set theme directly.
+
+---
+
+FUNCTION toggleTheme()                                                  EXPORT
+  Switch between 'light' and 'dark'.
+
+---
+
+FUNCTION setSidebarVisible(visible)                                     EXPORT
+  Set sidebarVisible.
+
+---
+
+FUNCTION toggleSidebar()                                                EXPORT
+  Flip sidebarVisible.
+
+---
+
+FUNCTION setSessionPanelVisible(visible)                                EXPORT
+  Set sessionPanelVisible.
+
+---
+
+FUNCTION toggleSessionPanel()                                           EXPORT
+  Flip sessionPanelVisible.
+
+---
+
+FUNCTION setEditMode(mode)                                              EXPORT
+  Set editMode.
+
+---
+
+FUNCTION toggleEditMode()                                               EXPORT
+  Flip editMode.
+
+---
+
+FUNCTION setChatPanelVisible(visible)                                   EXPORT
+  Set chatPanelVisible.
+
+---
+
+FUNCTION toggleChatPanel()                                              EXPORT
+  Flip chatPanelVisible.
+
+---
+
+FUNCTION setTerminalPanelVisible(visible)                               EXPORT
+  Set terminalPanelVisible.
+
+---
+
+FUNCTION toggleTerminalPanel()                                          EXPORT
+  Flip terminalPanelVisible.
+
+---
+
+FUNCTION setSidebarSplitPosition(position)                              EXPORT
+  Clamp position to [10, 50] and store.
+
+---
+
+FUNCTION setSessionPanelSplitPosition(position)                        EXPORT
+  Clamp position to [10, 50] and store.
+
+---
+
+FUNCTION setEditorSplitPosition(position)                               EXPORT
+  Clamp position to [10, 90] and store.
+
+---
+
+FUNCTION setZoomLevel(level)                                            EXPORT
+  Clamp level to [25, 400] and store.
+
+---
+
+FUNCTION zoomIn()                                                       EXPORT
+  Increase zoomLevel by 25, capped at 400.
+
+---
+
+FUNCTION zoomOut()                                                      EXPORT
+  Decrease zoomLevel by 25, floored at 25.
+
+---
+
+FUNCTION reset()                                                        EXPORT
+  Restore all values to defaults (re-checks system theme preference).

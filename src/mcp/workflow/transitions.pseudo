@@ -1,0 +1,94 @@
+// Workflow Transition Logic
+// Evaluates transition conditions, resolves the next state, builds transition context,
+// and determines item status updates triggered by completing specific skill states.
+
+FUNCTION evaluateCondition(condition, context) -> boolean                        EXPORT
+  IF no condition, always return true (unconditional transition).
+  Switch on condition.type:
+    always → true
+    item_type → context.currentItemType === condition.value
+    session_type → context.sessionType === condition.value
+    items_remaining / no_items_remaining → check context.itemsRemaining
+    pending_brainstorm_items / no_pending_brainstorm_items → check context.pendingBrainstormItems
+    pending_rough_draft_items / no_pending_rough_draft_items → check context.pendingRoughDraftItems
+    batches_remaining / no_batches_remaining → check context.batchesRemaining
+
+---
+
+FUNCTION getNextState(currentStateId, context) -> StateId | null                 EXPORT
+  CALLS: getState (state-machine)
+  Look up the current state. Find the first transition whose condition evaluates to true.
+  Return that transition's target state ID, or null if none match.
+
+---
+
+FUNCTION buildTransitionContext(sessionState, currentItemType?) -> TransitionContext  EXPORT
+  Compute itemsRemaining: true if currentItem is set (non-null).
+  Compute pendingBrainstormItems: true if any work item has status === 'pending'.
+  Compute pendingRoughDraftItems: true if any code or bugfix item has status === 'brainstormed'.
+  Compute batchesRemaining: IF batches and currentBatch exist, true if currentBatch < batches.length.
+    ELSE fall back to pendingTasks.length > 0.
+  Return the full TransitionContext object.
+
+---
+
+FUNCTION resolveToSkillState(startStateId, context, maxIterations?) -> { stateId, skill } | null  EXPORT
+  CALLS: getState (state-machine), getNextState (transitions)
+  Walk from startStateId, traversing routing nodes (skill === null) automatically.
+  IF a state with a non-null skill is found, return { stateId, skill }.
+  IF a terminal routing node has no matching transition, return { stateId, skill: null }.
+  Throw if maxIterations (default 10) is exceeded — likely a cycle in the state machine.
+
+---
+
+FUNCTION getCurrentWorkItem(state) -> WorkItem | null                            EXPORT
+  Return the work item matching state.currentItem, or null if currentItem is absent.
+
+---
+
+FUNCTION itemReadyForBlueprint(state) -> boolean                                 EXPORT
+  Return true if the current work item exists and has status === 'brainstormed'.
+
+---
+
+FUNCTION readyForImplementation(state) -> boolean                                EXPORT
+  Return true if every work item has status === 'complete'.
+
+---
+
+FUNCTION findNextPendingItemInSession(workItems) -> WorkItem | null              EXPORT
+  Return the first item with status !== 'complete', or null if all are complete.
+
+---
+
+FUNCTION updateItemStatusInSession(item, newStatus) -> WorkItem
+  Validate the transition against VALID_STATUS_TRANSITIONS. Throw if invalid.
+  Return a new item object with the updated status.
+
+---
+
+FUNCTION getStatusUpdateForSkill(stateId) -> ItemStatus | null                   EXPORT
+  Return the item status that should be applied when the given state completes:
+    brainstorm-validating → 'brainstormed'
+    task-planning → 'complete'
+    rough-draft-blueprint → 'complete'
+    systematic-debugging → 'brainstormed'
+  Return null for all other states.
+
+---
+
+FUNCTION getNextStateForPhaseBatching(currentStateId, sessionState) -> StateId | null  EXPORT
+  CALLS: getCurrentWorkItem (transitions), getStatusUpdateForSkill (transitions)
+  Get current work item. Apply status update to it in sessionState.workItems if applicable.
+  Route based on completed state:
+    brainstorm-validating → 'item-type-router' (requires currentItem)
+    task-planning → 'brainstorm-item-router' (requires currentItem)
+    systematic-debugging → 'brainstorm-item-router' (requires currentItem)
+    rough-draft-blueprint → 'rough-draft-item-router' (requires currentItem)
+  Return null for any other state (no routing defined here).
+
+---
+
+FUNCTION getNextStateForPerItemPipeline(currentStateId, sessionState) -> StateId | null  EXPORT
+  CALLS: getNextStateForPhaseBatching (transitions)
+  Deprecated alias — delegates directly to getNextStateForPhaseBatching.

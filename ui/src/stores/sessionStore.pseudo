@@ -1,0 +1,138 @@
+// Session Store
+// Zustand store for managing all session-scoped state: sessions, diagrams, documents,
+// designs, spreadsheets, snippets, todos, collab state, and selection.
+
+State shape:
+  sessions: Session[]
+  currentSession: Session | null
+  isLoading, error
+  diagrams: Diagram[]  selectedDiagramId: string | null
+  documents: Document[]  selectedDocumentId: string | null
+  designs: Design[]  selectedDesignId: string | null
+  spreadsheets: Spreadsheet[]  selectedSpreadsheetId: string | null
+  snippets: Snippet[]  selectedSnippetId: string | null
+  taskGraphSelected: boolean
+  todos: ProjectTodo[]  todosSelected: boolean  todosProject: string | null  selectedTodoId: number | null
+  collabState: CollabState | null
+  pendingDiff: DiffState | null
+
+Only one artifact type can be selected at a time: selecting a diagram clears all other selection fields, and vice versa.
+
+FUNCTION setSessions(sessions)                                          EXPORT
+  Replace the full sessions list.
+
+---
+
+FUNCTION setCurrentSession(session)                                     EXPORT
+  IF the new session matches the current one (same project + name), do nothing.
+  ELSE clear all artifact lists, selections, and collab state, then set the new session.
+
+---
+
+FUNCTION setLoading(loading)                                            EXPORT
+FUNCTION setError(error)                                                EXPORT
+
+---
+
+FUNCTION setDiagrams(diagrams)                                          EXPORT
+  Replace diagrams list. IF the currently selected diagram is no longer in the list, clear selectedDiagramId.
+
+---
+
+FUNCTION addDiagram(diagram)                                            EXPORT
+  Append diagram if it isn't already in the list (deduplication by ID).
+
+---
+
+FUNCTION updateDiagram(id, updates)                                     EXPORT
+  Merge updates into the diagram with the matching ID.
+
+---
+
+FUNCTION removeDiagram(id)                                              EXPORT
+  Remove the diagram. IF it was selected, clear selectedDiagramId.
+
+---
+
+FUNCTION selectDiagram(id)                                              EXPORT
+  IF the diagram exists (or id is null), set selectedDiagramId and clear all other selections.
+
+---
+
+FUNCTION getSelectedDiagram() -> Diagram | undefined                    EXPORT
+  Return the diagram matching selectedDiagramId.
+
+---
+
+FUNCTION setDocuments / addDocument / updateDocument / removeDocument / selectDocument / getSelectedDocument
+  Same pattern as diagram equivalents above.                            EXPORT
+
+---
+
+FUNCTION setDesigns / addDesign / updateDesign / removeDesign / selectDesign / getSelectedDesign
+  Same pattern as diagram equivalents above.                            EXPORT
+
+---
+
+FUNCTION setSpreadsheets / addSpreadsheet / updateSpreadsheet / removeSpreadsheet / selectSpreadsheet / getSelectedSpreadsheet
+  Same pattern as diagram equivalents above.                            EXPORT
+
+---
+
+FUNCTION setSnippets / addSnippet / updateSnippet / removeSnippet / selectSnippet / getSelectedSnippet
+  Same pattern as diagram equivalents above.                            EXPORT
+
+---
+
+FUNCTION setCollabState(state)                                          EXPORT
+  Set collabState.
+
+---
+
+FUNCTION selectTaskGraph()                                              EXPORT
+  Set taskGraphSelected = true and clear all artifact selections.
+
+---
+
+FUNCTION clearTaskGraphSelection()                                      EXPORT
+  Set taskGraphSelected = false.
+
+---
+
+FUNCTION setTodos(todos)                                                EXPORT
+FUNCTION addTodo(todo)                                                  EXPORT
+FUNCTION removeTodo(id)                                                 EXPORT
+  Standard list management for project todos.
+
+---
+
+FUNCTION selectTodos(project)                                           EXPORT
+  Enter todos view: set todosSelected = true, store the project, clear all session/artifact state.
+
+---
+
+FUNCTION selectTodo(id)                                                 EXPORT
+  IF id is null, clear todo selection and session state.
+  ELSE find the matching todo and set currentSession to { project: todosProject, name: todo.sessionName },
+  clearing all artifact selections and collab state.
+
+---
+
+FUNCTION updateStoreTodo(id, updates)                                   EXPORT
+  Merge updates into the matching todo.
+
+---
+
+FUNCTION setPendingDiff(diff)                                           EXPORT
+FUNCTION clearPendingDiff()                                             EXPORT
+  Store or clear a pending document diff (used to highlight recent patches in the editor).
+
+---
+
+FUNCTION clearSession()                                                 EXPORT
+  Clear currentSession, all artifact lists and selections, todos, collab state, and error.
+
+---
+
+FUNCTION reset()                                                        EXPORT
+  Reset entire store to initial state.

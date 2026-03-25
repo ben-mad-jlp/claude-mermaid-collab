@@ -1,0 +1,8 @@
+// Confirmation
+// Renders a pair of confirmation buttons (e.g., Yes/No or Accept/Reject).
+// Used when Claude needs a binary decision from the user.
+
+FUNCTION Confirmation(props) -> ReactNode                                 EXPORT
+  Renders two buttons side-by-side: a positive action (confirm) and a negative action (cancel/reject).
+  Button labels are configurable; defaults to "Yes" / "No".
+  Calls the respective onConfirm or onCancel callback when clicked.

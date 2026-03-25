@@ -1,0 +1,25 @@
+// DocumentEditor
+// Split-pane editor for markdown documents.
+// Left pane is a CodeMirrorWrapper; right pane is a MarkdownPreview with
+// optional diff support. Supports annotations, version history, sync toggle,
+// diff toggle, minimap, and clean export.
+
+FUNCTION DocumentEditor(document, onContentChange, onSave, onCancel, ...) -> JSX  EXPORT
+  CALLS: CodeMirrorWrapper (CodeMirrorWrapper), MarkdownPreview (MarkdownPreview)
+  Renders a SplitPane with editor left and preview right.
+  Optionally renders Minimap when enabled.
+  Shows AnnotationToolbar when annotations are active.
+  Keyboard shortcuts: Ctrl+S triggers handleSave; Escape triggers handleCancel
+  if there are unsaved changes.
+  Toolbar provides: sync scroll toggle, diff toggle, Export Clean button,
+  HistoryModal trigger.
+
+---
+
+FUNCTION handleSave() -> void
+  Calls onSave with current content.
+
+---
+
+FUNCTION handleCancel() -> void
+  Only called when hasChanges. Calls onCancel to reset to saved state.

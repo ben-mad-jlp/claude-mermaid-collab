@@ -1,0 +1,21 @@
+// Tabs
+// Tabbed content panel with three style variants (default, pills, underline).
+// Supports keyboard navigation between tabs.
+
+FUNCTION handleTabChange(tabId)
+  Updates the active tab state.
+  Calls onChange callback with the new tab ID.
+
+---
+
+FUNCTION handleKeyDown(e, tabIndex)
+  Handles arrow key navigation: ArrowLeft/ArrowRight move focus to adjacent tabs.
+  Wraps around at the ends of the tab list.
+
+---
+
+FUNCTION Tabs(props) -> ReactNode                                         EXPORT
+  Renders a tab list and the content panel for the active tab.
+  Tab styling is controlled by the variant prop (default/pills/underline).
+  Active tab is highlighted; clicking or pressing Enter/Space switches tabs.
+  Calls handleKeyDown for keyboard navigation.

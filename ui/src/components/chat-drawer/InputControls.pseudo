@@ -1,0 +1,28 @@
+// InputControls
+// Chat message input with send and clear buttons, auto-resizing textarea, and keyboard submit.
+
+FUNCTION handleSend()
+  Trims the current input value.
+  IF non-empty, calls onSend with the text and clears the input.
+
+---
+
+FUNCTION handleKeyDown(e)
+  IF Enter is pressed without Shift, calls handleSend and prevents newline insertion.
+
+---
+
+FUNCTION handleInputChange(e)
+  Updates the input value state.
+  Adjusts the textarea height to fit content (auto-resize).
+
+---
+
+FUNCTION handleClear()
+  Calls onClear to clear the message history.
+
+---
+
+FUNCTION InputControls(props) -> ReactNode                                EXPORT
+  Renders an auto-resizing textarea and a row of action buttons (Send, Clear).
+  Calls handleKeyDown on keypress for keyboard submit.

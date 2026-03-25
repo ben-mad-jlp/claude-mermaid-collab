@@ -1,0 +1,33 @@
+// Status Manager
+// Manages global agent status (working/waiting/idle) and broadcasts changes to WebSocket clients and listeners.
+
+A single StatusManager instance (statusManager) is exported as a module-level singleton.
+The WebSocket handler is injected after construction via setWebSocketHandler.
+
+FUNCTION setWebSocketHandler(wsHandler) -> void
+  Store the WebSocket handler reference for status broadcasting.
+
+---
+
+FUNCTION updateStatus(status, message) -> void
+  CALLS: notifyListeners (status-manager)
+  Update the internal status and lastActivity timestamp.
+  IF a WebSocket handler is set, broadcast the new status to all connected clients.
+  Notify all subscribed listeners.
+
+---
+
+FUNCTION getStatus() -> StatusResponse
+  Return the current status, message, and lastActivity as an ISO string.
+
+---
+
+FUNCTION subscribe(listener) -> unsubscribe function
+  Add a listener callback to the listener list.
+  Return a function that removes the listener when called.
+
+---
+
+FUNCTION notifyListeners() -> void
+  Private. Call each registered listener with the current status.
+  Errors thrown by individual listeners are caught and logged but do not stop other listeners.

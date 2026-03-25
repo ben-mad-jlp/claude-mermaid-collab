@@ -1,0 +1,34 @@
+// Remark Annotations Plugin
+// A remark (unified) plugin that parses HTML comment annotation markers in markdown
+// and converts them into custom 'annotation' AST nodes for rendering.
+
+Supported patterns (both block and inline/range variants):
+  <!-- comment: text -->
+  <!-- comment-start: text -->...<!-- comment-end -->
+  <!-- status: proposed -->
+  <!-- propose-start -->...<!-- propose-end -->
+  <!-- status: approved -->
+  <!-- approve-start -->...<!-- approve-end -->
+  <!-- status: rejected: reason -->
+  <!-- reject-start: reason -->...<!-- reject-end -->
+
+FUNCTION annotationNode(type, text, children) -> AnnotationMdastNode
+  Construct and return a custom MDAST node of type 'annotation' with the given annotation type,
+  optional text (comment text or reject reason), and optional child nodes (for inline ranges).
+
+---
+
+FUNCTION findSibling(parent, startIndex, pattern) -> number | null
+  Scan siblings after startIndex for an HTML node matching the pattern.
+  Return the index of the first match, or null if not found.
+
+---
+
+FUNCTION remarkAnnotations() -> Plugin                                  EXPORT
+  CALLS: annotationNode (remarkAnnotations), findSibling (remarkAnnotations)
+  Walk all HTML nodes in the tree.
+  For each node, attempt to match it against each annotation pattern in priority order.
+  For block patterns (single node): record a transformation replacing just that node.
+  For start/end patterns (range): find the matching end node, collect the children between them,
+  and record a transformation replacing the start-to-end range with a single annotation node.
+  After visiting the full tree, apply all transformations in reverse index order to avoid index shifting.

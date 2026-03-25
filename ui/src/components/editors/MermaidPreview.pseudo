@@ -1,0 +1,83 @@
+// MermaidPreview
+// Interactive Mermaid diagram preview with zoom, pan, and edit-mode click
+// handling. Renders SVG via mermaid.render and supports center/fitToView
+// commands exposed via an imperative ref (previewRef).
+
+Zoom range: 25–400%. Pan via middle-click drag or Shift+left-drag.
+Ctrl/Cmd+scroll wheel zooms in/out. Shift key shows grab cursor.
+Edit mode enables clicking on .node and .edgePath DOM elements to fire
+onNodeClick/onEdgeClick callbacks.
+
+FUNCTION MermaidPreview(content, zoomLevel, onZoomIn, onZoomOut, onSetZoom, editMode, ...) -> JSX  EXPORT
+  Exposes center() and fitToView() via useImperativeHandle on previewRef.
+  Calls renderDiagram whenever content or theme changes.
+  Renders a three-level container: outer (scroll zoom), wrapper (pan),
+  inner (SVG + CSS transform with translate + scale).
+
+---
+
+FUNCTION center() -> void
+  Resets panOffset to {0,0}. Calls onSetZoom(100).
+
+---
+
+FUNCTION fitToView() -> void
+  Measures the rendered SVG bounding box vs wrapper dimensions.
+  Calculates scale to fit, clamps to 25–400%.
+  Resets pan and calls onSetZoom with the new level.
+
+---
+
+FUNCTION handleWheel(e) -> void
+  IF Ctrl or Cmd held: calls onZoomIn or onZoomOut depending on deltaY sign.
+  Prevents default scroll.
+
+---
+
+FUNCTION handleMouseDown(e) -> void
+  Starts panning on middle-click or Shift+left-click. Captures pointer.
+
+---
+
+FUNCTION handleMouseMove(e) -> void
+  IF panning: updates panOffset by the pointer delta.
+
+---
+
+FUNCTION handleMouseUp(e) -> void
+  Ends panning. Releases pointer capture.
+
+---
+
+FUNCTION handleContextMenu(e) -> void
+  Prevents the browser context menu while a pan is in progress.
+
+---
+
+FUNCTION handleKeyDown(e) -> void
+  Sets isShiftHeld=true when Shift is pressed (shows grab cursor).
+
+---
+
+FUNCTION handleKeyUp(e) -> void
+  Clears isShiftHeld when Shift is released.
+
+---
+
+FUNCTION handleDiagramClick(e) -> void
+  Only active in editMode. Walks DOM ancestors looking for data-id on
+  .node or .edgePath elements. Calls onNodeClick or onEdgeClick accordingly.
+
+---
+
+FUNCTION handleClick(e) -> void
+  Only active when onNodeClickWithPosition/onEdgeClickWithPosition props are
+  provided. Uses extractNodeId/extractEdgeInfo from diagramUtils to identify
+  clicked elements. Calls the appropriate with-position callback.
+
+---
+
+FUNCTION renderDiagram() -> void
+  Async. Calls initializeMermaid with current theme settings.
+  Calls mermaid.render with a timestamp-suffixed unique ID.
+  Sets inner container innerHTML to the resulting SVG string.

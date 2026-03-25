@@ -1,0 +1,20 @@
+// useSessionPolling
+// Polls /api/session-state at a regular interval as a fallback for missed WebSocket updates.
+
+Polling is skipped when project or session are null.
+Updates are applied only when lastActivity has changed, avoiding unnecessary re-renders.
+Network errors are silently swallowed — polling continues on the next interval regardless.
+
+FUNCTION useSessionPolling(project, session, intervalMs)                        EXPORT
+  CALLS: useSessionStore (sessionStore)
+  On mount (when project and session are set), performs an initial fetch then repeats at intervalMs (default 5000ms).
+  Compares the fetched lastActivity against the current collabState.lastActivity via a ref to avoid stale closures.
+  IF state has changed, updates collabState in the store.
+  On unmount or dependency change, clears the interval.
+
+---
+
+FUNCTION poll()
+  Fetches /api/session-state for the current project and session.
+  IF the response's lastActivity differs from the last known value, updates collabState in the store.
+  Silently ignores non-ok responses and network errors.

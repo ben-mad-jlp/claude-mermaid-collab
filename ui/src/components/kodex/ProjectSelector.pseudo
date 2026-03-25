@@ -1,0 +1,58 @@
+// ProjectSelector
+// Dropdown for selecting and managing Kodex projects.
+// Shows the selected project name, a list of available projects, an Add Project
+// button, and a remove-with-confirmation modal.
+
+Project list comes from kodexStore. Errors auto-clear after 3 seconds.
+Dropdown closes on outside click or Escape.
+
+FUNCTION ProjectSelector(className, onAddProject) -> JSX               EXPORT
+  CALLS: useKodexStore (kodexStore)
+  Reads selectedProject, projects, isLoadingProjects, projectsError from store.
+  Renders a button showing the selected project display name (falls back to
+  basename of path). Clicking the button opens the dropdown if not loading.
+  IF open: renders a listbox of project options + optional Add Project button.
+  IF showRemoveConfirm: renders a full-screen modal to confirm removal.
+
+---
+
+FUNCTION getBasename(path) -> string
+  Returns the last path segment (after the final "/").
+
+---
+
+FUNCTION getDisplayName() -> string
+  Returns "Select Project" if nothing selected.
+  Looks up the project by path in projects array for its name; falls back to
+  getBasename of selectedProject.
+
+---
+
+FUNCTION handleToggleDropdown() -> void
+  Toggles isOpen if not loading.
+
+---
+
+FUNCTION handleSelectProject(path) -> void
+  Calls setSelectedProject, closes dropdown.
+
+---
+
+FUNCTION handleAddProjectClick() -> void
+  Closes dropdown, calls onAddProject callback.
+
+---
+
+FUNCTION handleRemoveClick(e, path) -> void
+  Stops propagation, sets showRemoveConfirm to the project path.
+
+---
+
+FUNCTION handleRemoveProjectConfirm(path) -> void
+  Calls removeProject(path). IF successful, clears showRemoveConfirm and closes
+  dropdown.
+
+---
+
+FUNCTION handleRemoveProjectCancel() -> void
+  Clears showRemoveConfirm without removing the project.

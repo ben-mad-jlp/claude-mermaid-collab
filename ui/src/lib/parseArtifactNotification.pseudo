@@ -1,0 +1,27 @@
+// Artifact Notification Parser
+// Parses MCP tool response objects to extract structured artifact creation/update notifications.
+
+FUNCTION parseArtifactNotification(mcpResponse) -> ArtifactNotification | null   EXPORT
+  CALLS: extractArtifactType (parseArtifactNotification), extractNotificationType (parseArtifactNotification), extractArtifactName (parseArtifactNotification)
+  Validate that mcpResponse is an object with success=true, a string id, a string previewUrl, and a string message.
+  IF any required field is missing or invalid, return null.
+  Determine the artifact type from the previewUrl (must contain 'diagram' or 'document').
+  Determine the notification type from the message (must contain 'created' or 'updated').
+  Extract the artifact name from the first quoted string in the message.
+  IF any extraction fails or yields an empty name, return null.
+  Return { type, artifactType, id, name }.
+
+---
+
+FUNCTION extractArtifactType(previewUrl) -> 'diagram' | 'document' | null
+  Return 'diagram' if the URL contains 'diagram', 'document' if it contains 'document', else null.
+
+---
+
+FUNCTION extractNotificationType(message) -> 'created' | 'updated' | null
+  Return 'created' if message contains 'created', 'updated' if it contains 'updated', else null.
+
+---
+
+FUNCTION extractArtifactName(message) -> string | null
+  Extract and return the first double-quoted string from the message, or null if none found.

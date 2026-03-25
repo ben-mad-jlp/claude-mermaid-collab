@@ -1,0 +1,28 @@
+// Toast
+// Single notification card with icon, title, optional message, and dismiss button.
+// Styled by type: info (blue), success (green), warning (amber), error (red).
+
+InfoIcon, SuccessIcon, WarningIcon, ErrorIcon, CloseIcon are small stateless
+SVG icon components used within the toast.
+
+FUNCTION Toast(toast, onDismiss) -> JSX                                EXPORT
+  Selects container, icon color, title color, and message color based on
+  toast.type.
+  Renders icon + title + optional message + dismiss button.
+  handleDismiss calls onDismiss(toast.id).
+
+---
+
+FUNCTION getTypeStyles() -> object
+  Maps toast.type to Tailwind class strings for container/icon/title/message.
+  Defaults to info (blue) for unknown types.
+
+---
+
+FUNCTION getIcon() -> JSX
+  Returns the appropriate icon component for toast.type.
+
+---
+
+FUNCTION handleDismiss() -> void
+  Calls onDismiss(toast.id).

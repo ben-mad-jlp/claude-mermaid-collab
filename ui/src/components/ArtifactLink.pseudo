@@ -1,0 +1,23 @@
+// ArtifactLink
+// Clickable link component for artifact notifications (documents and diagrams).
+// Renders an icon, type label, and artifact name; clicking opens the artifact in the viewer.
+
+FUNCTION getIconForArtifactType(type) -> ReactNode
+  Returns an SVG icon matching the artifact type: document icon for documents, diagram icon for diagrams.
+
+---
+
+FUNCTION getTypeLabel(type) -> string
+  Maps artifact type to a human-readable label ("Document", "Diagram").
+
+---
+
+FUNCTION handleClick(e)
+  Prevents default link behavior.
+  Calls onArtifactClick with the artifact data.
+
+---
+
+FUNCTION ArtifactLink(props) -> ReactNode                                 EXPORT
+  Renders a button-style link with icon, type label, and artifact name.
+  On click, calls handleClick to open the artifact.

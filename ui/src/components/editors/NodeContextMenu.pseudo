@@ -1,0 +1,33 @@
+// NodeContextMenu
+// Right-click context menu for nodes in the diagram editor.
+// Provides: Edit Label, Change Type (submenu), Add Transition, Delete Node.
+// Closes on outside click or Escape.
+
+MenuItem, Divider, TypeSubmenu are layout primitives within the menu.
+TypeSubmenu renders a list of type options (terminal/state/decision/action)
+with the current type shown in bold.
+
+FUNCTION NodeContextMenu(nodeId, nodeType, position, onEditLabel, onChangeType, onAddTransition, onDelete, onClose) -> JSX  EXPORT
+  Renders a positioned menu at the given screen coordinates.
+  Closes on mousedown outside the menu element.
+  Closes on Escape key.
+
+---
+
+FUNCTION handleEditLabel() -> void
+  Prompts user for new label. IF not null, calls onEditLabel(newLabel). Closes.
+
+---
+
+FUNCTION handleTypeSelect(newType) -> void
+  Calls onChangeType(newType). Closes.
+
+---
+
+FUNCTION handleAddTransition() -> void
+  Calls onAddTransition (enters transition-start selection mode). Closes.
+
+---
+
+FUNCTION handleDelete() -> void
+  Confirms with user. IF confirmed, calls onDelete. Closes.

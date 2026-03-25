@@ -1,0 +1,8 @@
+// CollapsibleSection
+// Generic collapsible panel with a labeled header and toggle chevron.
+// Used throughout the design editor's properties/layers panels to group
+// related controls.
+
+FUNCTION CollapsibleSection(title, children, defaultOpen, className) -> JSX  EXPORT
+  Tracks isOpen state. Renders a clickable header row (title + chevron).
+  Chevron rotates 180° when open. Body content shown only when open.

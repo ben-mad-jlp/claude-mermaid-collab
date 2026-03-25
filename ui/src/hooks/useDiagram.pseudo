@@ -1,0 +1,21 @@
+// useDiagram
+// Provides access to the diagram list and CRUD operations from the session store.
+
+A thin facade over the session store; no local state. All mutations are delegated to the store.
+
+FUNCTION useDiagram() -> UseDiagramReturn                                       EXPORT
+  CALLS: useSessionStore (sessionStore)
+  Reads diagrams, selectedDiagramId, and all diagram actions from the session store using shallow comparison.
+  Derives selectedDiagram by calling the store's getSelectedDiagram getter.
+  Exposes: diagrams, selectedDiagramId, selectedDiagram, addDiagram, updateDiagram, removeDiagram,
+  selectDiagram, setDiagrams, getDiagramById, hasDiagram.
+
+---
+
+FUNCTION getDiagramById(id) -> Diagram | undefined
+  Finds and returns the diagram with the given id from the current list, or undefined if not found.
+
+---
+
+FUNCTION hasDiagram(id) -> boolean
+  Returns true if a diagram with the given id exists in the current list.

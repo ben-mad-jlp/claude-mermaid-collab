@@ -1,0 +1,70 @@
+// Complete Skill Handler
+// Drives the workflow state machine forward after a skill finishes.
+// Given the completed skill name, determines the next skill to invoke and updates session state.
+
+The handler validates that the session's stored state matches the completed skill before using it
+for routing. If they disagree, it falls back to deriving the state from the skill name.
+Work item status updates happen BEFORE building the transition context so routing sees fresh statuses.
+
+FUNCTION findNextPendingItem(workItems?) -> WorkItem | null
+  Return the first work item with status === 'pending', or null if none.
+
+---
+
+FUNCTION findNextPendingBrainstormItem(workItems?) -> WorkItem | null
+  Return the first work item with status === 'pending' (any type), or null.
+
+---
+
+FUNCTION findNextPendingRoughDraftItem(workItems?) -> WorkItem | null
+  Return the first code or bugfix item with status === 'brainstormed', or null.
+
+---
+
+FUNCTION inferCurrentItem(stateId, workItems) -> WorkItem | null
+  Map the current state to the expected item condition at that point in the workflow,
+  and return the first matching item. Used as a defensive fallback when currentItem is null.
+  States handled: rough-draft-blueprint, brainstorm-validating, task-planning, systematic-debugging.
+
+---
+
+FUNCTION completeSkill(project, session, completedSkill) -> CompleteSkillOutput  EXPORT
+  CALLS: getSessionState (collab-state), migrateWorkItems (state-machine), getSkillForState (state-machine), skillToState (state-machine), getStatusUpdateForSkill (transitions), inferCurrentItem (complete-skill), buildTransitionContext (transitions), getNextState (transitions), syncTasksFromTaskGraph (task-sync), getSessionState (collab-state), resolveToSkillState (transitions), updateSessionState (collab-state), updateTaskDiagram (task-diagram)
+  Step 1: Read session state. Defensively parse workItems if stored as a string.
+  Step 1b: Migrate legacy work item statuses ('documented' → 'brainstormed', old intermediate → 'complete').
+  Step 2: Determine current state ID. IF session state has a state field and its skill matches
+    completedSkill, use it directly. ELSE fall back to skillToState lookup. Throw if unknown.
+  Step 2a: IF the completed state triggers a status update and workItems exist:
+    IF currentItem is set, update that item's status.
+    ELSE infer the item via inferCurrentItem, log a warning, and update the inferred item.
+  Step 2b: IF completing execute-batch, increment currentBatch counter.
+  Step 3: Build transition context from session state and current item type.
+  Step 4: Get the next raw state ID. IF none, return { next_skill: null, action: 'none' }.
+  Step 4a: Pre-resolve item-type-router so downstream routers get proper item selection.
+  Step 4a: IF entering brainstorm-item-router or work-item-router, find next pending brainstorm item.
+    IF found, set it as currentItem and rebuild context with its type.
+    IF none, clear currentItem and rebuild context.
+  Step 4a: IF entering rough-draft-item-router, find next pending rough-draft item.
+    IF found, set it as currentItem and rebuild context.
+    IF none, clear currentItem and rebuild context.
+  Step 5a: IF entering batch-router, mark all remaining brainstormed code/bugfix items complete,
+    then sync tasks from the task graph. Rebuild context from fresh state after sync.
+  Step 5b: Resolve the next state through any routing nodes to find the next skill-bearing state.
+    IF none resolved, return { next_skill: null, action: 'none' }.
+  Step 7: Save updated session state: new state ID, item updates, batch counter, migrated workItems.
+  Step 9: IF in implementation phase and batches exist, update the task diagram (non-fatal on failure).
+  Return { next_skill, params: buildParams(resolved state, session state) }.
+
+---
+
+FUNCTION buildParams(stateId, sessionState) -> params | undefined
+  Build the params object for the next skill invocation.
+  Include item_number if currentItem is set.
+  Include batch_index if currentBatch is set.
+  Return undefined if no params are needed.
+
+---
+
+FUNCTION stateToSkill(stateId) -> string | null                                  EXPORT
+  CALLS: getSkillForState (state-machine)
+  Return the skill name for the given state ID (reverse of skillToState).

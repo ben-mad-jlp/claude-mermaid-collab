@@ -1,0 +1,60 @@
+// Onboarding Manager
+// Wraps KodexManager with onboarding-specific features: project config, categories, topic graph, and diagram extraction.
+
+FUNCTION parseRelatedTopics(content, knownTopics) -> string[]                           EXPORT
+  Parse related.md content to extract topic names that exist in the known topics set.
+  Three patterns are recognized:
+    1. Markdown links: [Label](../topic-name/) — extract slug from the URL path segment.
+    2. Bold text: **topic-name** — extract the bold word.
+    3. Bare words on list items (lines starting with "- "): validate each hyphenated token against known topics.
+  Return unique found topic names.
+
+---
+
+FUNCTION deriveCategories(topics, config) -> Category[]                                 EXPORT
+  Group topics by the prefix before their first dash.
+  IF config.categories overrides are present, re-assign specified topics to those named groups.
+  Merge groups with fewer than 3 topics into a single "other" category.
+  Sort categories by topic count descending.
+
+---
+
+FUNCTION constructor(project)
+  Store the project path.
+
+---
+
+FUNCTION getConfig() -> OnboardingConfig
+  CALLS: getKodexManager (kodex-manager)
+  Load total topic count from KodexManager.
+  Try reading kodex-onboarding.json for title, defaultMode, categories, and paths overrides.
+  IF title is not configured, derive it from package.json name or the project directory basename.
+  Return the merged config.
+
+---
+
+FUNCTION getCategories() -> Category[]
+  CALLS: getKodexManager (kodex-manager), deriveCategories (onboarding-manager), getConfig (onboarding-manager)
+  List all topics and current config, then derive and return categories.
+
+---
+
+FUNCTION getGraph() -> { nodes, edges }
+  CALLS: getKodexManager (kodex-manager), getCategories (onboarding-manager), parseRelatedTopics (onboarding-manager)
+  Build the full topic graph:
+  1. List all topics and build a knownTopics set.
+  2. Derive categories for node coloring.
+  3. Build GraphNode objects (id=name, name=title, category).
+  4. For each topic, read related.md, parse related topic names, and add directed GraphEdge entries.
+  Return { nodes, edges }.
+
+---
+
+FUNCTION getDiagram(topicName) -> DiagramBlock[]
+  CALLS: getKodexManager (kodex-manager)
+  Fetch the topic including content. IF no diagrams content, return empty array.
+  Parse the diagrams content line by line:
+    - ### headers set the current title for the next block.
+    - ```mermaid code blocks are captured as DiagramBlock entries.
+    - Raw .mmd file links are resolved relative to the topic directory and read from disk.
+  Return all collected DiagramBlock objects.

@@ -1,0 +1,28 @@
+// useDesignHistory
+// Fetches and exposes the version history for a single design, with abort-safe loading.
+
+History is re-fetched whenever designId, project, or session changes.
+Fetch requests are aborted via AbortController if the designId changes before the response arrives.
+A staleness check on designIdRef guards against out-of-order responses.
+
+FUNCTION useDesignHistory(designId) -> { history, isLoading, error, refetch, getVersionAt }  EXPORT
+  CALLS: useSession (useSession), api (api)
+  Manages state: history, isLoading, error.
+  On mount (and when designId changes), fires fetchHistory with an AbortSignal; aborts on cleanup.
+  IF designId is null, clears history immediately.
+
+---
+
+FUNCTION fetchHistory(signal?)
+  CALLS: api (api)
+  Fetches the history for the current designId from the API.
+  Skips if designId, project, or session are absent.
+  Ignores AbortError and responses that arrive after designId has changed.
+  On success, stores the history data. On network error, sets error to "Network error".
+
+---
+
+FUNCTION getVersionAt(timestamp) -> string | null
+  CALLS: api (api)
+  Fetches the design content at a specific timestamp.
+  Returns the content string on success, or null if the request fails or context is missing.

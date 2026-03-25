@@ -1,0 +1,16 @@
+// Card
+// Styled container with optional title, subtitle, footer, collapsible toggle, and elevation shadow.
+// Returns nothing if hidden is true.
+
+FUNCTION getElevationClasses(elevation) -> string
+  Maps elevation level (1–5) to Tailwind shadow classes (shadow-sm through shadow-xl).
+
+---
+
+FUNCTION Card(props) -> ReactNode                                         EXPORT
+  Renders a rounded bordered container.
+  IF title or subtitle is provided, renders a header section with them.
+  IF collapsible is true, adds a toggle button in the header that shows/hides the content body.
+  IF footer is provided and content is not collapsed, renders a footer strip below the content.
+  Applies custom border/background colors via inline styles when provided.
+  Returns null if hidden is true.

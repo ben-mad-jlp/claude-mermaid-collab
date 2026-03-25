@@ -1,0 +1,44 @@
+// SMACH Transpiler
+// Converts YAML state machine definitions (SMACH format) into Mermaid flowchart TD syntax.
+
+State types are mapped to Mermaid node shapes: container types become subgraphs,
+action states become stadium shapes, monitor/service states become hexagons, etc.
+
+FUNCTION toNodeId(name, prefix) -> string
+  Sanitize name by replacing non-alphanumeric characters with underscores.
+  IF prefix provided, prepend it with an underscore separator.
+
+---
+
+FUNCTION nodeDeclaration(id, label, type) -> string
+  Look up the shape for the state type. Return the Mermaid node syntax for that shape
+  (stadium, hexagon, diamond, parallelogram, trapezoid, or rounded rectangle).
+
+---
+
+FUNCTION processStates(states, lines, externalLinks, prefix, initialState, indent, parentOutcomes, parentOutcomePrefix) -> void
+  Recursively process a states map to produce Mermaid lines.
+  For each state:
+    IF the state type maps to 'subgraph' (container):
+      Open a subgraph block. Add an internal start node pointing to the initial_state if present.
+      Recursively call processStates for child states, passing this container's outcomes.
+      Add outcome nodes inside the subgraph, then close it.
+      Add external links from outcome nodes to their transition targets (sibling states or parent outcomes).
+    ELSE (leaf state):
+      Emit a node declaration. For each transition, determine if the target is a parent outcome
+      or a sibling state and emit an arrow with the outcome label.
+
+---
+
+FUNCTION transpile(yamlText) -> { mermaid }                                             EXPORT
+  CALLS: processStates (smach-transpiler)
+  Parse YAML. Throw if smach_diagram root or root StateMachine is missing or malformed.
+  Start with "flowchart TD". Add a START node pointing to the root machine's initial state.
+  Call processStates on the root machine's states.
+  Add root-level outcome nodes. Append external container-outcome links as a labeled section.
+  Return { mermaid: joined lines }.
+
+---
+
+FUNCTION isSmachYaml(text) -> boolean                                                   EXPORT
+  Return true if the text contains a smach_diagram: root key (via regex).

@@ -1,0 +1,30 @@
+// ItemCard
+// Card component for displaying a session item (diagram, design, document,
+// spreadsheet, snippet) in the sidebar item list.
+
+FUNCTION formatRelativeTime(ts) -> string
+  Just now, Xm ago, Xh ago, Xd ago, or locale date string.
+
+---
+
+FUNCTION detectLanguage(fileName) -> string
+  Maps file extensions to human-readable language names (TypeScript, Python, etc.)
+
+---
+
+FUNCTION getSnippetMetadata(content) -> SnippetMeta
+  Parses JSON envelope to extract code, language, filePath.
+  Counts lines. Formats size in B/KB/MB.
+
+---
+
+FUNCTION getItemIcon(type) -> JSX
+  Returns an appropriate SVG icon for diagram/design/spreadsheet/snippet/document.
+
+---
+
+FUNCTION ItemCard(item, isSelected, onDelete, ...) -> JSX              EXPORT
+  Renders item name, type label, relative time, and optional snippet metadata.
+  Delete button appears on group-hover (CSS group-hover pattern).
+  IF snippet: shows language, line count, and file size via getSnippetMetadata.
+  snippetMetadata is memoized.

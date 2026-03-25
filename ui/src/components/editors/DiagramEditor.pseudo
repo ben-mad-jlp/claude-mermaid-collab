@@ -1,0 +1,106 @@
+// DiagramEditor
+// Full split-pane editor for Mermaid diagrams.
+// Combines a CodeMirrorWrapper (left) with a live MermaidPreview (right).
+// For SMACH YAML diagrams, adds a SmachPropertiesPane for state/transition
+// editing. Provides rich node/edge editing via context menus and a
+// CreateNodeDialog.
+
+isSmachContent determines whether the diagram is a SMACH state machine.
+Edit mode drives whether node/edge clicks trigger selection vs context menu.
+Selection modes (add-transition, change-origin, change-destination) are
+transient overlays on top of normal navigation.
+
+FUNCTION DiagramEditor(diagram, onContentChange, onSave, ...) -> JSX   EXPORT
+  CALLS: CodeMirrorWrapper (CodeMirrorWrapper), MermaidPreview (MermaidPreview),
+         SmachPropertiesPane (SmachPropertiesPane), isSmachContent (SmachPropertiesPane)
+  Renders a SplitPane with code editor on the left and preview on the right.
+  Optionally renders SmachPropertiesPane for SMACH diagrams.
+  Overlays NodeContextMenu / EdgeContextMenu when a node/edge is right-clicked.
+  Shows CreateNodeDialog when user initiates node creation.
+  Keyboard shortcut Ctrl+S triggers save.
+
+---
+
+FUNCTION handleChangeEdgeEndpoint(nodeId) -> void
+  Rewrites the edge in the diagram content using regex to change either
+  the origin or destination node ID, depending on current selection mode.
+
+---
+
+FUNCTION handleNodeClick(nodeId, position) -> void
+  In add-transition mode: starts the transition with nodeId as origin.
+  In change-origin/change-destination mode: calls handleChangeEdgeEndpoint.
+  Otherwise: shows NodeContextMenu at position.
+
+---
+
+FUNCTION handleEdgeClick(edgeId, position) -> void
+  Extracts the edge label from the diagram content.
+  Shows EdgeContextMenu at position with the label.
+
+---
+
+FUNCTION handleCreateNode(nodeId, label, nodeType) -> void
+  Calls generateNodeId, buildNodeDefinition, buildNodeStyle,
+  findNodeInsertionPoint to produce the new lines. Inserts them into content.
+
+---
+
+FUNCTION handleEditNodeLabel(nodeId, newLabel) -> void
+  Uses regex to replace the node's label in the content lines.
+
+---
+
+FUNCTION handleChangeNodeType(nodeId, newType) -> void
+  Updates the shape brackets and style class for the node in content.
+
+---
+
+FUNCTION handleDeleteNode(nodeId) -> void
+  Finds the node line, all edges referencing it, and its style line.
+  Removes all found lines from content via removeLines.
+
+---
+
+FUNCTION handleEditEdgeLabel(edgeId, newLabel) -> void
+  Uses regex with optional label capture group to rewrite the edge label.
+
+---
+
+FUNCTION handleDeleteEdge(edgeId) -> void
+  Finds the edge line and removes it.
+
+---
+
+FUNCTION handleStartAddTransition() -> void
+  Enters add-transition selection mode (next node click sets origin).
+
+---
+
+FUNCTION handleStartChangeOrigin(edgeId) -> void
+  Enters change-origin mode for the given edge.
+
+---
+
+FUNCTION handleStartChangeDestination(edgeId) -> void
+  Enters change-destination mode for the given edge.
+
+---
+
+FUNCTION handleSmachEditDescription(stateName, description) -> void
+  Updates the description field in the YAML content for the named state.
+
+---
+
+FUNCTION handleSmachEditTransition(stateName, transitionIndex, newTransition) -> void
+  Stub — updates a SMACH transition in YAML content.
+
+---
+
+FUNCTION handleSmachAddTransition(stateName) -> void
+  Stub — adds a new SMACH transition in YAML content.
+
+---
+
+FUNCTION handleSmachRemoveTransition(stateName, transitionIndex) -> void
+  Stub — removes a SMACH transition from YAML content.
