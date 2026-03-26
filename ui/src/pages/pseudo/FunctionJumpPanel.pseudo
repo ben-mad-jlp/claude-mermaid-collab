@@ -1,0 +1,20 @@
+// FunctionJumpPanel
+// Right panel listing all functions in the current pseudo-file; highlights the active function via IntersectionObserver and scrolls to it on click.
+// synced: 2026-03-26T00:00:00Z
+
+Uses an IntersectionObserver (threshold 0.3) watching all [data-function] elements in the document to track which function block is currently most visible.
+Returns null when no functions are present (after all hooks).
+
+FUNCTION FunctionJumpPanel(functions, viewerRef) -> JSX.Element | null [2026-03-26]                EXPORT
+  CALLS: PseudoViewerHandle (PseudoViewer)
+  Maintains activeFunction string state and an observerRef for the IntersectionObserver instance.
+  On functions change: disconnects any existing observer, then IF functions is non-empty creates a new IntersectionObserver. The observer selects the entry with the highest intersectionRatio above 0.3 and sets activeFunction to its data-function attribute. Observes all [data-function] DOM elements.
+  Cleanup disconnects the observer.
+  IF functions is empty, RETURN null.
+  Renders a scrollable panel with a "FUNCTIONS" header and a list of function names. The entry matching activeFunction gets purple highlight and bold text; others get hover-stone styling. Exported functions show a small green dot indicator.
+
+---
+
+FUNCTION handleFunctionClick(functionName) -> void [2026-03-26]
+  CALLS: PseudoViewerHandle (PseudoViewer)
+  IF viewerRef.current exists, calls viewerRef.current.scrollToFunction(functionName) to scroll the viewer to that function block.

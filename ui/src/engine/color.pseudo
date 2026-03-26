@@ -1,0 +1,33 @@
+// Color utilities
+// Converts between color representations (CSS strings, normalized RGB floats, hex, RGBA-255, and fill objects) using the culori library.
+// synced: 2026-03-26T00:00:00Z
+
+FUNCTION parseColor(input: string) -> Color [2026-03-26]                EXPORT
+  Parses any CSS color string via culori, converts to RGB, and returns a normalized Color object (0–1 floats). Returns black with full opacity on parse failure.
+
+---
+
+FUNCTION colorToHex(color: Color) -> string [2026-03-26]                EXPORT
+  Converts a normalized Color to an uppercase hex string like "#RRGGBB" using culori's formatHex. Falls back to "#000000".
+
+---
+
+FUNCTION colorToHexRaw(color: Color) -> string [2026-03-26]             EXPORT
+  CALLS: colorToHex (color)
+  Returns the hex string without the leading "#".
+
+---
+
+FUNCTION colorToRgba255(color: Color) -> { r, g, b, a } [2026-03-26]   EXPORT
+  Scales normalized r/g/b (0–1) to 0–255 integers; passes alpha through unchanged.
+
+---
+
+FUNCTION rgba255ToColor(rgba: { r, g, b, a }) -> Color [2026-03-26]    EXPORT
+  Converts 0–255 integer channels back to normalized 0–1 floats.
+
+---
+
+FUNCTION colorToFill(color: string | Color) -> FillObject [2026-03-26]  EXPORT
+  CALLS: parseColor (color)
+  Accepts either a CSS string or a Color object and returns a Figma-style SOLID fill descriptor with type, color, opacity, and visible fields.

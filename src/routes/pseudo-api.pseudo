@@ -1,0 +1,63 @@
+// Pseudo API Routes
+// REST API endpoints for listing, reading, searching, and finding cross-references in .pseudo files across a project directory.
+// synced: 2026-03-26T13:51:59Z
+
+FUNCTION handlePseudoAPI(req: Request) -> Response [2026-03-26]                EXPORT
+  Routes incoming requests to the appropriate handler based on path and method.
+  Requires a `project` query param; returns 400 if absent.
+  IF path is /files GET, CALL handleListFiles.
+  IF path is /file GET, requires `file` param, CALL handleGetFile.
+  IF path is /search GET, requires `q` param, CALL handleSearch.
+  IF path is /references GET, requires `functionName` and `fileStem` params, CALL handleGetReferences.
+  Any unmatched path returns 404. Errors return 500.
+
+---
+
+FUNCTION handleListFiles(project: string) -> Response [2026-03-26]
+  Recursively walks the project directory and collects all .pseudo file paths.
+  Step 1. walkDir: reads each directory entry; recurses into subdirectories.
+  Step 2. For each .pseudo file, compute its path relative to project root and strip the .pseudo extension.
+  Step 3. Sort the resulting stems alphabetically.
+  Step 4. Return JSON { files: string[] }. Returns empty array on any error.
+
+---
+
+FUNCTION handleGetFile(project: string, file: string) -> Response [2026-03-26]
+  Reads and returns the content of a single .pseudo file.
+  Step 1. Append .pseudo extension if not already present; join with project root.
+  Step 2. IF the exact path exists on disk, read and return { content, path }.
+  Step 3. ELSE extract the basename from the file param and CALL findPseudoByBasename to search the tree.
+  Step 4. IF found, read and return { content, path }. ELSE return 404.
+
+---
+
+FUNCTION findPseudoByBasename(dir: string, basename: string) -> string | null [2026-03-26]
+  Recursively searches the directory tree for a .pseudo file whose filename is `<basename>.pseudo`.
+  Returns the full path of the first match found, or null if none exists.
+  Silently ignores unreadable directories.
+
+---
+
+FUNCTION handleSearch(project: string, query: string) -> Response [2026-03-26]
+  Full-text search across all .pseudo files in the project, capped at 50 total matches.
+  Step 1. Walk the directory tree; for each .pseudo file read its lines.
+  Step 2. Track the current FUNCTION block by watching for lines starting with "function ".
+  Step 3. For each line matching the query (case-insensitive), record line text, line number, whether it is a FUNCTION line, and the enclosing function name.
+  Step 4. Within each file, sort matches so FUNCTION-line hits appear before body hits; then by line number.
+  Step 5. Key results by the file's relative path (without .pseudo). Return JSON { matches }.
+  Stop processing further files once 50 total matches are accumulated.
+
+---
+
+FUNCTION handleGetReferences(project: string, functionName: string, fileStem: string) -> Response [2026-03-26]
+  Finds all functions in the project that declare a CALLS annotation pointing to the given function.
+  Step 1. Build the search string: "CALLS: <functionName> (<fileStem>)".
+  Step 2. Walk the directory tree; for each .pseudo file track the current FUNCTION block.
+  Step 3. IF a line contains the search string and a current function is known, record { file, callerFunction }.
+  Step 4. Deduplicate entries with the same file + callerFunction pair.
+  Step 5. Return JSON { references }.
+
+---
+
+FUNCTION jsonError(message: string, status: number) -> Response [2026-03-26]
+  Helper that returns a JSON response with { error: message } at the given HTTP status code.

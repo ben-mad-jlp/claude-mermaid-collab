@@ -1,0 +1,45 @@
+// Font loading and management
+// Manages font discovery, loading from the browser's local font API or bundled TTF files, and registration with both CanvasKit and the browser FontFace API.
+// synced: 2026-03-26T00:00:00Z
+
+Module state: loadedFamilies (cache Map), fontProvider (TypefaceFontProvider singleton)
+
+FUNCTION initFontService(_canvasKit, provider) -> void [2026-03-26]     EXPORT
+  Stores the CanvasKit TypefaceFontProvider instance for later use by registerFontInCanvasKit.
+
+---
+
+FUNCTION getFontProvider() -> TypefaceFontProvider | null [2026-03-26]  EXPORT
+  Returns the currently stored font provider.
+
+---
+
+FUNCTION queryFonts() -> Promise<FontInfo[]> [2026-03-26]               EXPORT
+  Calls the browser's window.queryLocalFonts() API and returns a deduplicated list of FontInfo objects. Returns an empty array in non-browser environments or on error.
+
+---
+
+FUNCTION listFamilies() -> Promise<string[]> [2026-03-26]               EXPORT
+  CALLS: queryFonts (fonts)
+  Returns a sorted, deduplicated list of font family name strings.
+
+---
+
+FUNCTION loadFont(family, style?) -> Promise<ArrayBuffer | null> [2026-03-26] EXPORT
+  Checks the in-memory cache first. Then tries window.queryLocalFonts() to find and load the font as a blob. Falls back to fetching from BUNDLED_FONTS URLs. On success, caches the buffer and registers it in both CanvasKit and the browser. Returns null if the font cannot be found.
+
+---
+
+FUNCTION styleToWeight(style: string) -> number [2026-03-26]            EXPORT
+  Maps a CSS weight name string (e.g., "Bold", "SemiBold") to a numeric weight value (100–900). Returns 400 for unrecognised names.
+
+---
+
+FUNCTION ensureNodeFont(family, weight) -> Promise<void> [2026-03-26]   EXPORT
+  CALLS: loadFont (fonts)
+  Converts a numeric weight to a style string and loads the font, ensuring it is available for rendering.
+
+---
+
+FUNCTION weightToStyle(weight, italic?) -> string [2026-03-26]          EXPORT
+  Converts a numeric font weight to a CSS style label string (e.g., 700 → "Bold"). Appends " Italic" if the italic flag is true.

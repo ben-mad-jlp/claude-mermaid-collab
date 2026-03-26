@@ -1,0 +1,43 @@
+// PseudoPage
+// Top-level layout and state owner for the pseudo-file viewer; manages file list, URL routing, and search overlay.
+// synced: 2026-03-26T00:00:00Z
+
+Owns global state: fileList, fileCache (Map), searchOpen, searchQuery, functions (parsed), pendingScrollTarget.
+Reads current file path from the React Router wildcard param "*".
+Three-column resizable layout: PseudoFileTree (left) | PseudoViewer (center, ref'd) | FunctionJumpPanel (right).
+Global keyboard shortcuts: Cmd/Ctrl+K or Cmd/Ctrl+F opens search; Escape closes it.
+
+FUNCTION PseudoPage() -> JSX.Element [2026-03-26]                EXPORT
+  CALLS: fetchPseudoFiles (pseudo-api), useKodexStore (kodexStore), useWebSocket (useWebSocket), useTheme (useTheme)
+  Reads project from kodexStore and currentPath from URL params. On mount, calls fetchProjects and loadPseudoFiles.
+  On project change, clears fileList + fileCache, navigates to /pseudo, and re-fetches files.
+  Registers a window keydown listener: Cmd+K/F opens search overlay; Escape closes it.
+  When pendingScrollTarget is set and functions are loaded, calls viewerRef.current.scrollToFunction then clears the target.
+  Renders a fixed top header with connection status badge, refresh button, ProjectSelector, and search button.
+  Below the header, renders a PanelGroup with three resizable panels: PseudoFileTree, PseudoViewer (forwarded ref), and FunctionJumpPanel. Also renders the PseudoSearch overlay (conditionally visible).
+
+---
+
+FUNCTION loadPseudoFiles() -> void [2026-03-26]
+  CALLS: fetchPseudoFiles (pseudo-api)
+  Fetches the list of pseudo file paths for the current project and sets fileList. On error, sets fileList to empty.
+
+---
+
+FUNCTION handleAddProject() -> void [2026-03-26]
+  Prompts the user for a project path via window.prompt. POSTs to /api/projects. On success, calls fetchProjects and setSelectedProject.
+
+---
+
+FUNCTION handleNavigate(stem) -> void [2026-03-26]
+  Navigates the router to /pseudo/<stem>.
+
+---
+
+FUNCTION handleSearchClose() -> void [2026-03-26]
+  Sets searchOpen to false.
+
+---
+
+FUNCTION handleSearchNavigate(file, functionName?) -> void [2026-03-26]
+  Navigates to the given file stem, closes the search overlay, and IF a functionName was provided sets pendingScrollTarget so the viewer will scroll to that function once its functions list loads.

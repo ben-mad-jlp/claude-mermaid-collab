@@ -1,0 +1,8 @@
+// CanvasKit singleton initializer
+// Lazily initializes and caches the CanvasKit WASM instance so it is loaded at most once per process, with configurable WASM file location for both browser and Node environments.
+// synced: 2026-03-26T00:00:00Z
+
+Module state: instance (CanvasKit | null singleton)
+
+FUNCTION getCanvasKit(options?) -> Promise<CanvasKit> [2026-03-26]       EXPORT
+  Returns the cached instance immediately if already initialized. Otherwise calls CanvasKitInit with a locateFile resolver that prefixes "/" in browser environments or uses the bare filename in Node. Stores and returns the result.

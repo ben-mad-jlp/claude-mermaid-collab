@@ -1,0 +1,51 @@
+// CallsLink
+// Renders an orange clickable link for a cross-file function reference; shows a hover popover with file summary after a delay.
+// synced: 2026-03-26T00:00:00Z
+
+Constants: HOVER_DELAY = 400ms, GRACE_PERIOD = 300ms.
+Two timers (hoverTimer, graceTimer) coordinate show/hide to prevent flickering when the cursor moves between the link and the popover.
+
+FUNCTION CallsLink(name, fileStem, project, onNavigate) -> JSX.Element [2026-03-26]                EXPORT
+  CALLS: fetchPseudoFile (pseudo-api), CallsPopover (CallsPopover)
+  Manages popoverState { visible, anchorRect?, content? }.
+  On mouse enter: clears any active grace timer, then after HOVER_DELAY fetches the file content via fetchPseudoFile and sets popoverState visible with the anchor's DOMRect and content. On fetch error, shows the popover with empty content.
+  On mouse leave: clears the hover timer, then after GRACE_PERIOD sets popoverState to not visible.
+  On click: clears both timers and calls onNavigate(fileStem).
+  Popover mouse enter/leave handlers extend the grace period so the user can move the cursor into the popover without it dismissing.
+  Renders a styled orange button showing "name (leafStem)". IF popoverState.visible, renders CallsPopover via portal.
+
+---
+
+FUNCTION clearHoverTimer() -> void
+  Clears the hoverTimer ref if set and nulls it.
+
+---
+
+FUNCTION clearGraceTimer() -> void
+  Clears the graceTimer ref if set and nulls it.
+
+---
+
+FUNCTION handleMouseEnter() -> void
+  CALLS: fetchPseudoFile (pseudo-api)
+  Clears grace timer, schedules popover display after HOVER_DELAY.
+
+---
+
+FUNCTION handleMouseLeave() -> void
+  Clears hover timer, schedules popover hide after GRACE_PERIOD.
+
+---
+
+FUNCTION handleClick() -> void
+  Clears both timers and calls onNavigate with fileStem.
+
+---
+
+FUNCTION handlePopoverMouseEnter() -> void
+  Clears grace timer so popover stays visible while cursor is inside it.
+
+---
+
+FUNCTION handlePopoverMouseLeave() -> void
+  Schedules popover hide after GRACE_PERIOD.

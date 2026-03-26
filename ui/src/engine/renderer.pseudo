@@ -1,0 +1,162 @@
+// Skia Renderer
+// SkiaRenderer paints the full editor frame each tick using CanvasKit (Skia/WASM): scene nodes, selection UI, snap guides, rulers, pen overlay, and remote cursors.
+// synced: 2026-03-26T13:51:59Z
+
+[Single class: SkiaRenderer. Owns a CanvasKit Surface and a pool of pre-allocated Paint objects.
+ Coordinates: canvas-space (world) vs screen-space (pixels after pan/zoom). render() composes
+ three layers: scene, section/component labels, UI overlays.
+ Scene caching: the static scene is recorded as a SkPicture and replayed until sceneVersion changes
+ or volatile overlays (hover, drop target, rotation preview) force a live redraw.
+ Image fills and vector paths are cached (imageCache, vectorPathCache) and must be explicitly invalidated.]
+
+FUNCTION constructor(ck, surface) [2026-03-26]
+  Allocates all Paint objects once (fill, stroke, selection, snap, ruler, pen tool paints).
+  Uses system font initially; proper Inter typeface installed after loadFonts().
+
+---
+
+FUNCTION loadFonts() -> Promise<void> [2026-03-26]
+  CALLS: initFontService, loadFont (fonts)
+  Async: loads Inter Regular, builds CanvasKit Typeface + FontMgr, replaces all size-variant
+  Font objects (text/label/size/section title/component label), invalidates the scene picture.
+
+---
+
+FUNCTION invalidateScenePicture() [2026-03-26]                                        EXPORT
+  Deletes the cached SkPicture, forcing a full scene re-record on the next render call.
+
+---
+
+FUNCTION invalidateVectorPath(nodeId) [2026-03-26]                                    EXPORT
+  Deletes the cached Skia Path for a vector node (call after vectorNetwork changes).
+
+---
+
+FUNCTION render(graph, selectedIds, overlays, sceneVersion) [2026-03-26]              EXPORT
+  CALLS: renderNode (self), drawSectionTitles, drawComponentLabels, drawSelection,
+         drawSnapGuides, drawMarquee, drawLayoutInsertIndicator, drawPenOverlay,
+         drawRemoteCursors, drawRulers (self)
+  Main entry point. Three canvas layers (each save/restore):
+    1. World layer (pan+zoom transform): scene nodes via SkPicture cache or live renderNode.
+    2. Label layer (screen coords): section titles + component labels.
+    3. UI overlay layer (screen coords): selection handles, snap guides, marquee, pen, cursors, rulers.
+  Flushes surface at end.
+
+---
+
+FUNCTION renderSceneToCanvas(canvas, graph, pageId) [2026-03-26]                      EXPORT
+  Disables viewport culling and renders all nodes directly to the given canvas.
+  Used for PNG/SVG export (no overlays).
+
+---
+
+FUNCTION renderNode(canvas, graph, nodeId, overlays, parentAbsX, parentAbsY) [2026-03-26]
+  Recursive scene painter. Per node:
+    - Viewport cull: skip if AABB (expanded for rotation) is outside worldViewport.
+    - Translate to node.x/y; apply opacity layer if < 1; apply rotation.
+    - Dispatch to renderSection, renderComponentSet, or renderShape.
+    - Draw text-edit overlay, drop-target highlight, hover outline if active.
+    - Recurse into children; clip to node rect if clipsContent is true.
+
+---
+
+FUNCTION renderShape(canvas, node, graph) [2026-03-26]
+  Paints a standard node: fills (via applyFill), drop shadows, strokes (with cap/join/dash),
+  then inner shadows/blur effects. Dispatches fill/stroke drawing per node type.
+
+---
+
+FUNCTION applyFill(fill, node, graph, fillIndex) [2026-03-26]
+  CALLS: resolveFillColor (self), applyGradientFill, applyImageFill (self)
+  Sets fillPaint shader/color for SOLID, GRADIENT_*, or IMAGE fill types.
+
+---
+
+FUNCTION applyGradientFill(fill, node) [2026-03-26]
+  Converts Figma gradient transform matrix to CanvasKit shader coordinates for
+  LINEAR, RADIAL, ANGULAR (sweep), and DIAMOND (approximated as radial).
+
+---
+
+FUNCTION applyImageFill(fill, node, graph) [2026-03-26]
+  Decodes image from graph.images on first use (cached in imageCache). Computes
+  source rect for FILL (cover) and FIT modes, builds a cubic image shader.
+
+---
+
+FUNCTION resolveFillColor / resolveStrokeColor [2026-03-26]                           EXPORT
+  Checks node.boundVariables for a variable binding; resolves via graph.resolveColorVariable.
+  Falls back to the raw fill/stroke color.
+
+---
+
+FUNCTION buildParagraph(node, color?) -> Paragraph [2026-03-26]                       EXPORT
+  CALLS: getTextAlign, textDecorationValue (self)
+  Builds a CanvasKit Paragraph from the node's text, applying base style and any StyleRun
+  overrides. Lays out at node.width. Caller must delete() the returned paragraph.
+
+---
+
+FUNCTION renderEffects(canvas, node, rect, hasRadius, pass) [2026-03-26]
+  'behind' pass: renders DROP_SHADOW by offsetting a blurred copy of the node shape.
+  'front' pass: renders INNER_SHADOW by clipping to the node shape and drawing an
+  inverted blurred rect punched out with path difference.
+
+---
+
+FUNCTION drawSelection(canvas, graph, selectedIds, overlays) [2026-03-26]
+  Single selection: draws full handle set (8 handles + rotation handle above) via drawNodeSelection.
+  Multi-selection: draws per-node outlines + a dashed group bounding box with corner/edge handles.
+  Uses component purple color for COMPONENT/INSTANCE/COMPONENT_SET nodes.
+
+---
+
+FUNCTION drawSectionTitles(canvas, graph) [2026-03-26]
+  Collects visible SECTION nodes, draws a pill label above (or inside if nested).
+  Truncates with ellipsis if wider than the section. Uses section fill color with
+  luminance-based text contrast.
+
+---
+
+FUNCTION drawComponentLabels(canvas, graph) [2026-03-26]
+  Draws a diamond icon + name label above (or inside for variants in a COMPONENT_SET)
+  for all COMPONENT, COMPONENT_SET, and INSTANCE nodes in view.
+
+---
+
+FUNCTION hitTestSectionTitle(graph, canvasX, canvasY) -> SceneNode | null [2026-03-26] EXPORT
+  Walks the tree to find whether (canvasX, canvasY) falls inside a section title pill.
+  Used to detect section-rename clicks before hit-testing nodes.
+
+---
+
+FUNCTION hitTestComponentLabel(graph, canvasX, canvasY) -> SceneNode | null [2026-03-26] EXPORT
+  Same as hitTestSectionTitle but for component/instance labels.
+
+---
+
+FUNCTION drawPenOverlay(canvas, penState) [2026-03-26]
+  Renders the in-progress pen tool path: cubic bezier segments, preview line to cursor,
+  tangent handle lines + circles, vertex dots (first vertex enlarged when closingToFirst).
+
+---
+
+FUNCTION drawRemoteCursors(canvas, graph, cursors) [2026-03-26]
+  For each remote peer: draws selection outlines in peer color, a Figma-style arrow cursor,
+  and a colored pill name badge.
+
+---
+
+FUNCTION drawRulers(canvas, graph, selectedIds) [2026-03-26]
+  Draws horizontal and vertical pixel rulers with adaptive tick step (rulerStep).
+  Highlights the selection range and renders coordinate badges at selection edges.
+
+---
+
+FUNCTION screenToCanvas(sx, sy) -> {x, y} [2026-03-26]                                EXPORT
+  Converts screen pixel coordinates to world/canvas coordinates via pan and zoom.
+
+---
+
+FUNCTION destroy() [2026-03-26]                                                        EXPORT
+  Deletes all CanvasKit objects (paints, fonts, image cache, vector path cache, surface).

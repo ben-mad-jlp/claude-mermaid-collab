@@ -1,0 +1,34 @@
+// PseudoFileTree
+// Left sidebar component that renders a filterable, collapsible nested tree of pseudo-file paths.
+// synced: 2026-03-26T00:00:00Z
+
+Collapse state is persisted to localStorage under key "pseudo-tree-collapsed-<project>".
+When a filter string is active, matching directories are auto-expanded via filterExpanded paths returned from filterTree.
+
+FUNCTION PseudoFileTree(fileList, currentPath, onNavigate, project) -> JSX.Element [2026-03-26]                EXPORT
+  CALLS: buildTree (tree.utils), deepSortTree (tree.utils), filterTree (tree.utils)
+  On mount (or project change), reads collapsed dirs from localStorage and restores the Set.
+  Builds and sorts the tree from fileList via buildTree + deepSortTree (memoized on fileList).
+  Applies filterTree when filter string is non-empty (memoized on tree + filter), yielding filteredTree and filterExpanded.
+  IF fileList is empty, renders an empty state message.
+  ELSE renders a filter text input and maps filteredTree roots to TreeNodeRenderer components.
+
+---
+
+FUNCTION handleToggleCollapse(path) -> void [2026-03-26]
+  Toggles path membership in collapsedDirs Set, then serializes the updated Set to localStorage for the current project.
+
+---
+
+FUNCTION TreeNodeRenderer(node, level, currentPath, collapsedDirs, onToggleCollapse, onNavigate, filterExpanded) -> JSX.Element
+  Renders one tree node at the given indentation level.
+  IF the node is a directory with children, renders a chevron button that calls onToggleCollapse. Shows a child count badge when collapsed.
+  The node is visually active (purple highlight) when it is a file matching currentPath.
+  A node is visible (shouldShowChildren) when it is not in collapsedDirs OR its path is in filterExpanded.
+  IF shouldShowChildren and children exist, recursively renders TreeNodeRenderer for each child at level+1.
+  Clicking a file node calls onNavigate(node.path).
+
+---
+
+FUNCTION ChevronIcon({ isDown }) -> JSX.Element
+  Renders an SVG chevron rotated 0deg when pointing down and -90deg when pointing right, with a 0.2s CSS transition.

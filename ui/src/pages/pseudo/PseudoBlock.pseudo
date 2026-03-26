@@ -1,0 +1,24 @@
+// PseudoBlock
+// Renders a single parsed FUNCTION block with color-coded keywords, CALLS links, USED BY references, and an EXPORT badge.
+// synced: 2026-03-26T00:00:00Z
+
+KEYWORD_PATTERN constant: regex matching IF, ELSE IF, ELSE, FOREACH, FOR, WHILE, RETURN, END, TRY, CATCH, FINALLY, THROW, BREAK, CONTINUE, EACH, CALL, SET — used for bold rendering in body lines.
+
+FUNCTION PseudoBlock(func, project, currentFileStem, onNavigate) -> JSX.Element [2026-03-26]                EXPORT
+  CALLS: fetchPseudoReferences (pseudo-api), CallsLink (CallsLink)
+  Maintains refsOpen, refs (Reference[] | null), and loadingRefs state.
+  Renders a header row: purple "FUNCTION" keyword, bold function name, params, return type. Right side shows updatedAt date, EXPORT badge (if isExport), and a "refs" toggle button.
+  IF refsOpen is toggled and refs have not been loaded, calls fetchPseudoReferences(project, func.name, currentFileStem) lazily. Shows a "USED BY" section with CallsLink entries for each caller.
+  IF func.calls is non-empty, renders a "CALLS" section with CallsLink entries.
+  Renders a divider then maps func.body lines through renderBodyLine.
+
+---
+
+FUNCTION tokenizeLine(text) -> ReactNode[]
+  Splits a body text line into plain text and bolded keyword segments using KEYWORD_PATTERN regex. RETURN an array of strings and <strong> elements.
+
+---
+
+FUNCTION renderBodyLine(line, index) -> JSX.Element
+  Computes indentation from leading spaces (8px per space, base 20px). Skips empty lines by rendering a short spacer div.
+  Applies testId markers for IF and ELSE first-words. Passes trimmed text through tokenizeLine and renders with a "–" bullet.

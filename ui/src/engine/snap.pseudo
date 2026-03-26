@@ -1,0 +1,17 @@
+// Snap-to-edge alignment
+// Computes snapping deltas and visual guide lines when dragging nodes, by comparing the moving selection's edges against all stationary nodes within a pixel threshold.
+// synced: 2026-03-26T00:00:00Z
+
+FUNCTION getEdges(node: SceneNode) -> { left, right, centerX, top, bottom, centerY } [2026-03-26]
+  Returns axis-aligned bounding edges for a node. For rotated nodes, computes the four rotated corner positions and derives the AABB from them.
+
+---
+
+FUNCTION computeSnap(movingIds, movingBounds, allNodes) -> SnapResult [2026-03-26] EXPORT
+  For each stationary node, checks all left/right/center X pairs and top/bottom/center Y pairs against the moving bounds. Tracks the best (smallest-delta) snap candidate within SNAP_THRESHOLD (5px) for each axis and accumulates snap guide lines at matching positions. Returns final dx/dy offsets and the guide array.
+
+---
+
+FUNCTION computeSelectionBounds(nodes: SceneNode[]) -> Rect | null [2026-03-26]  EXPORT
+  CALLS: getEdges (snap)
+  Iterates nodes and unions their AABB edges to produce a single bounding Rect for the whole selection. Returns null for an empty array.

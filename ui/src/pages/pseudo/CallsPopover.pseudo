@@ -1,0 +1,17 @@
+// CallsPopover
+// Fixed-position portal card that displays the title, subtitle, and exported functions of a referenced pseudo-file.
+// synced: 2026-03-26T00:00:00Z
+
+Rendered into document.body via createPortal to escape any CSS overflow/stacking context.
+Accepts either a pre-computed position object or an anchorRect (DOMRect) from which position is derived as { top: anchorRect.bottom + 8, left: anchorRect.left }.
+IF visible prop is explicitly false, renders null.
+
+FUNCTION CallsPopover(props) -> JSX.Element | null [2026-03-26]                EXPORT
+  CALLS: parsePseudo (parsePseudo)
+  Destructures content, fileStem, position, anchorRect, visible, onMouseEnter, onMouseLeave.
+  Memoizes computedPosition: prefers explicit position; ELSE derives from anchorRect; ELSE defaults to {0,0}.
+  IF visible === false, RETURN null.
+  Memoizes parsePseudo(content) to extract titleLine, subtitleLine, and functions.
+  Memoizes exportedFunctions by filtering parsed.functions for isExport === true.
+  Renders a fixed card at computedPosition containing: mono file stem, divider, title (bold), optional subtitle, and IF exportedFunctions is non-empty a labelled list of function names in green.
+  RETURN createPortal(cardContent, document.body).
