@@ -236,6 +236,17 @@ export async function handleCreateSnippet(
     }
   }
 
+  // If content is still raw code (not JSON), wrap in envelope with language detection
+  if (finalContent && !sourcePath) {
+    let alreadyJson = false;
+    try { JSON.parse(finalContent); alreadyJson = true; } catch {}
+    if (!alreadyJson) {
+      const ext = finalName ? extname(finalName).toLowerCase() : '';
+      const language = EXT_TO_LANGUAGE[ext] || 'text';
+      finalContent = JSON.stringify({ code: finalContent, language, originalCode: finalContent });
+    }
+  }
+
   const response = await fetch(buildUrl('/api/snippet', project, session), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -289,7 +300,13 @@ export async function handleUpdateSnippet(
         }
       }
     } catch {
-      // existing content isn't JSON — just replace as-is
+      // existing content isn't JSON — wrap incoming content in envelope with language detection
+      if (isRawCode) {
+        const name = snippetData?.name || '';
+        const ext = extname(name).toLowerCase();
+        const language = EXT_TO_LANGUAGE[ext] || 'text';
+        finalContent = JSON.stringify({ code: content, language, originalCode: content });
+      }
     }
   }
 

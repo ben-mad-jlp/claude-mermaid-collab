@@ -62,6 +62,12 @@ const normalizeLanguage = (lang: string): Language => {
     'yml': 'yaml',
     'md': 'markdown',
     'htm': 'html',
+    'shell': 'text', 'bash': 'text',
+    'go': 'text',
+    'rust': 'text',
+    'ruby': 'text',
+    'php': 'text',
+    'sql': 'text',
   };
   const valid: Language[] = ['javascript', 'typescript', 'python', 'csharp', 'cpp', 'css', 'html', 'json', 'markdown', 'yaml', 'text'];
   const lower = lang.toLowerCase().trim();
@@ -127,6 +133,7 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
   const snippet = snippetId ? getSnippetById(snippetId) : selectedSnippet;
 
   const currentSession = useSessionStore((state) => state.currentSession);
+  const storeUpdateSnippet = useSessionStore((state) => state.updateSnippet);
 
   // Local state for editor
   const [content, setContent] = useState<string>('');
@@ -168,15 +175,26 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
     }
   }, []);
 
-  // Serialize code changes back into the JSON content envelope, including current annotations
+  // Serialize code changes back into the JSON content envelope, including current annotations and language
   const serializeSnippetData = useCallback((newCode: string, rawContent: string): string => {
     try {
       const data = JSON.parse(rawContent);
-      return JSON.stringify({ ...data, code: newCode, annotations });
+      return JSON.stringify({ ...data, code: newCode, annotations, language: selectedLanguage });
     } catch {
-      return newCode;
+      return JSON.stringify({ code: newCode, language: selectedLanguage, annotations });
     }
-  }, [annotations]);
+  }, [annotations, selectedLanguage]);
+
+  // Hydrate snippet content from server if not loaded (list endpoint omits content)
+  useEffect(() => {
+    if (snippet && !snippet.content && currentSession) {
+      api.getSnippet(currentSession.project, currentSession.name, snippet.id)
+        .then(full => {
+          if (full?.content) storeUpdateSnippet(snippet.id, { content: full.content });
+        })
+        .catch(() => {});
+    }
+  }, [snippet?.id, currentSession, storeUpdateSnippet]);
 
   // Initialize language and code from parsed JSON content
   useEffect(() => {
@@ -290,11 +308,11 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
     setAnnotations(newAnnotations);
     try {
       const data = JSON.parse(snippet.content ?? '{}');
-      await updateSnippet(snippet.id, JSON.stringify({ ...data, annotations: newAnnotations }));
+      await updateSnippet(snippet.id, JSON.stringify({ ...data, annotations: newAnnotations, language: selectedLanguage }));
     } catch {
       // not JSON — annotations can't be persisted in plain-text snippets
     }
-  }, [snippet, updateSnippet]);
+  }, [snippet, updateSnippet, selectedLanguage]);
 
   const handleAnnotationClick = useCallback((ann: SnippetAnnotation) => {
     const index = annotations.findIndex(
