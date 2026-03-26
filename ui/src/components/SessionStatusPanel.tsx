@@ -109,8 +109,8 @@ function getPhaseColor(state: string | undefined, displayName: string | undefine
 export function SessionStatusPanel({ variant = 'default', className }: SessionStatusPanelProps = {}) {
   const collabState = useSessionStore((state) => state.collabState);
 
-  // Don't render if no collab state
-  if (!collabState) {
+  // Don't render if no collab state or no display name
+  if (!collabState || !collabState.displayName) {
     return null;
   }
 
