@@ -50,6 +50,7 @@ import { ChatPanel } from '@/components/chat-drawer';
 
 // Import unified editor component
 import UnifiedEditor from '@/components/editors/UnifiedEditor';
+import { MarkdownPreview } from '@/components/editors/MarkdownPreview';
 import type { MermaidPreviewRef } from '@/components/editors/MermaidPreview';
 
 // Import task graph view
@@ -842,6 +843,19 @@ const App: React.FC = () => {
     setDesignHistoryPreview(null);
   }, [selectedItem?.id]);
 
+  // Vibe instructions: find .vibeinstructions snippet and extract markdown content
+  const vibeInstructionsContent = useMemo(() => {
+    const snip = snippets.find((s) => s.name.endsWith('.vibeinstructions'));
+    if (!snip?.content) return null;
+    try {
+      const parsed = JSON.parse(snip.content);
+      return typeof parsed.code === 'string' ? parsed.code : snip.content;
+    } catch {
+      return snip.content;
+    }
+  }, [snippets]);
+  const [vibeInstructionsCollapsed, setVibeInstructionsCollapsed] = useState(false);
+
   // Auto-save handler - uses WebSocket to persist changes
   const handleSave = useCallback(
     async (content: string) => {
@@ -1260,6 +1274,32 @@ const App: React.FC = () => {
 
     return (
       <div className="flex flex-col h-full min-h-0">
+        {/* Vibe Instructions Panel — pinned when session has a .vibeinstructions snippet */}
+        {vibeInstructionsContent && (
+          <div className="border-b border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 flex-shrink-0">
+            <button
+              onClick={() => setVibeInstructionsCollapsed((v) => !v)}
+              className="w-full flex items-center gap-2 px-4 py-2 text-xs font-semibold text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-colors text-left"
+            >
+              <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              Vibe Instructions
+              <svg
+                className={`w-3.5 h-3.5 ml-auto transition-transform ${vibeInstructionsCollapsed ? '' : 'rotate-180'}`}
+                fill="none" stroke="currentColor" viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            {!vibeInstructionsCollapsed && (
+              <div className="px-6 pb-4 max-h-64 overflow-y-auto">
+                <MarkdownPreview content={vibeInstructionsContent} />
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Editor Toolbar */}
         <EditorToolbar
           itemName={selectedItem?.name || ''}

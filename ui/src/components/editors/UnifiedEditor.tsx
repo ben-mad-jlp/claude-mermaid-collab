@@ -366,7 +366,20 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
   }
 
   // Snippet items render with SnippetEditor (with group support)
+  // .vibeinstructions snippets render as markdown instead of code editor
   if (item.type === 'snippet') {
+    if (item.name.endsWith('.vibeinstructions')) {
+      let mdContent = item.content;
+      try {
+        const parsed = JSON.parse(item.content);
+        if (typeof parsed.code === 'string') mdContent = parsed.code;
+      } catch { /* raw content */ }
+      return (
+        <div className="h-full overflow-auto p-6">
+          <MarkdownPreview content={mdContent} className="max-w-3xl mx-auto" />
+        </div>
+      );
+    }
     return <SnippetGroupView item={item} onSnippetSave={onSnippetSave} onContentChange={onContentChange} onToolbarControls={onSnippetToolbarControls} />;
   }
 
