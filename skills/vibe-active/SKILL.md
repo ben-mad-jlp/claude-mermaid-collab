@@ -10,9 +10,40 @@ allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Glob, Grep, Bash
 
 Freeform collab session mode. No structured workflow - just create content freely.
 
-## Entry Message
+## Entry
 
-Display to user:
+### Step 1 — Check for vibe instructions
+
+Call `mcp__plugin_mermaid-collab_mermaid__list_snippets` with the current project and session.
+
+Look for a snippet whose `name` ends with `.vibeinstructions`.
+
+**If found:** Call `mcp__plugin_mermaid-collab_mermaid__get_snippet` to read the full content. Display it to the user verbatim so they can reorient, then say:
+```
+Vibe session resumed. Continuing from checkpoint above.
+```
+
+**If not found:** Create a new `.vibeinstructions` snippet to establish the vibe context:
+1. Ask the user: "What are we working on in this vibe? (I'll save this as your vibe instructions so we can resume after a /clear)"
+2. Once they answer, call `mcp__plugin_mermaid-collab_mermaid__create_snippet` with:
+   - `name`: `vibe.vibeinstructions`
+   - `content`: a markdown document using this template, filled in from their answer:
+     ```
+     # Vibe: [session name]
+
+     ## Goal
+     [What the user described]
+
+     ## Context
+     [Any relevant context from the conversation so far]
+
+     ## Currently Doing
+     [Nothing yet — just started]
+     ```
+3. Then display the entry message below.
+
+### Entry Message (new vibes only)
+
 ```
 Vibe session active!
 
@@ -23,6 +54,7 @@ You can freely:
 
 The collab UI is available at http://localhost:3737
 
+Use /vibe-checkpoint before /clear to save your place.
 When you're done, use /collab-cleanup to archive or delete the session.
 ```
 
@@ -34,7 +66,8 @@ In vibe mode, respond to user requests to:
 2. **Create documents** - Use `mcp__plugin_mermaid-collab_mermaid__create_document`
 3. **Create designs** - Use `mcp__plugin_mermaid-collab_mermaid__create_design`
 4. **View/edit existing** - Use get/update variants of above
-5. **Cleanup** - When user says "done" or invokes /collab-cleanup:
+5. **Checkpoint before /clear** - When user invokes /vibe-checkpoint: invoke skill `vibe-checkpoint`
+6. **Cleanup** - When user says "done" or invokes /collab-cleanup:
    ```
    Tool: mcp__plugin_mermaid-collab_mermaid__complete_skill
    Args: { "project": "<cwd>", "session": "<session>", "skill": "vibe-active" }

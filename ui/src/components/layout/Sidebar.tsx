@@ -227,7 +227,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       })(),
     ];
 
-    items.sort((a, b) => b.lastModified - a.lastModified);
+    items.sort((a, b) => {
+      const aVibe = a.name.endsWith('.vibeinstructions') ? 1 : 0;
+      const bVibe = b.name.endsWith('.vibeinstructions') ? 1 : 0;
+      if (aVibe !== bVibe) return bVibe - aVibe;
+      return b.lastModified - a.lastModified;
+    });
 
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
