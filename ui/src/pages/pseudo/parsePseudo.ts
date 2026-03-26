@@ -8,6 +8,7 @@ export type ParsedFunction = {
   params: string;
   returnType: string;
   isExport: boolean;
+  updatedAt: string | null; // [YYYY-MM-DD] from end of FUNCTION line
   calls: CallsRef[];
   body: string[];
 };
@@ -15,6 +16,7 @@ export type ParsedFunction = {
 export type ParsedPseudo = {
   titleLine: string;
   subtitleLine: string;
+  syncedAt: string | null; // from "// synced: <ISO>" header line
   moduleProse: string[];
   functions: ParsedFunction[];
 };
@@ -25,6 +27,7 @@ export function parsePseudo(content: string): ParsedPseudo {
     return {
       titleLine: '',
       subtitleLine: '',
+      syncedAt: null,
       moduleProse: [],
       functions: []
     };
@@ -34,6 +37,7 @@ export function parsePseudo(content: string): ParsedPseudo {
 
   let titleLine = '';
   let subtitleLine = '';
+  let syncedAt: string | null = null;
   let proseEndIndex = 0;
 
   // Parse header lines (// comments)
@@ -45,6 +49,10 @@ export function parsePseudo(content: string): ParsedPseudo {
         titleLine = headerText;
       } else if (headerCount === 1) {
         subtitleLine = headerText;
+      } else {
+        // Look for "synced: <ISO>" in any subsequent // line
+        const syncedMatch = headerText.match(/^synced:\s*(\S+)$/);
+        if (syncedMatch) syncedAt = syncedMatch[1];
       }
       headerCount++;
       proseEndIndex = i + 1;
@@ -78,7 +86,7 @@ export function parsePseudo(content: string): ParsedPseudo {
   while (i < lines.length) {
     const line = lines[i];
     const match = line.match(
-      /^FUNCTION\s+(\w[\w.]*)\s*(\([^)]*\))?\s*(?:->\s*(.+?))?\s*(EXPORT)?$/
+      /^FUNCTION\s+(\w[\w.]*)\s*(\([^)]*\))?\s*(?:->\s*(.+?))?\s*(EXPORT)?\s*(?:\[(\d{4}-\d{2}-\d{2})\])?$/
     );
 
     if (match) {
@@ -87,6 +95,7 @@ export function parsePseudo(content: string): ParsedPseudo {
       const params = paramsWithParens.slice(1, -1).trim(); // Remove parentheses
       const returnType = match[3] ? match[3].trim() : '';
       const isExport = !!match[4];
+      const updatedAt = match[5] || null;
 
       // Collect body lines until --- separator
       const body: string[] = [];
@@ -104,6 +113,7 @@ export function parsePseudo(content: string): ParsedPseudo {
         params,
         returnType,
         isExport,
+        updatedAt,
         calls,
         body
       });
@@ -120,6 +130,7 @@ export function parsePseudo(content: string): ParsedPseudo {
   return {
     titleLine,
     subtitleLine,
+    syncedAt,
     moduleProse,
     functions
   };

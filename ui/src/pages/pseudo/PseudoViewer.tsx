@@ -118,10 +118,15 @@ export const PseudoViewer = forwardRef<PseudoViewerHandle, PseudoViewerProps>(
     return (
       <div className="h-full flex flex-col bg-white dark:bg-gray-900 overflow-hidden">
         {/* Header with file info */}
-        <div className="border-b border-gray-200 dark:border-gray-700 p-4 flex-shrink-0">
+        <div className="border-b border-gray-200 dark:border-gray-700 p-4 flex-shrink-0 flex items-baseline justify-between gap-4">
           <div className="text-sm font-mono text-gray-600 dark:text-gray-400 truncate">
             {path}
           </div>
+          {parsed.syncedAt && (
+            <div className="text-xs flex-shrink-0" style={{ color: '#a8a29e' }}>
+              synced {parsed.syncedAt.slice(0, 10)}
+            </div>
+          )}
         </div>
 
         {/* Content area */}

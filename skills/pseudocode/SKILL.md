@@ -36,23 +36,29 @@ For each candidate file, check the spec's skip rules:
 
 1. Read the code file completely.
 2. Read the spec (if not already loaded).
-3. Write the `.pseudo` file following the spec format:
-   - Header: title and purpose
+3. Get the current UTC date: `date -u +%Y-%m-%dT%H:%M:%SZ`
+4. Write the `.pseudo` file following the spec format:
+   - Header: title, purpose, then `// synced: <timestamp>`
    - Module-level context (if applicable)
-   - FUNCTION blocks for each named function/method/callback
+   - FUNCTION blocks with `[YYYY-MM-DD]` date suffix on each FUNCTION line
    - `---` separators between blocks
    - `EXPORT` markers on public API
    - `CALLS:` lines for cross-file function references (check the code's imports to determine these)
-4. Apply the 30-second rule: re-read the pseudocode and verify someone could understand the file's purpose quickly.
+5. Apply the 30-second rule: re-read the pseudocode and verify someone could understand the file's purpose quickly.
 
 ### If `.pseudo` file already exists — Update
 
 1. Read both the code file and the existing `.pseudo` file.
-2. Compare the logic. Ask: did any function's behavior change? Were functions added or removed?
-3. If no logic changes, report "pseudocode is up to date" and skip.
-4. If logic changed, update only the affected FUNCTION blocks. Preserve the rest.
-5. If functions were added, add new FUNCTION blocks.
-6. If functions were removed, remove their FUNCTION blocks.
+2. Get the current UTC date: `date -u +%Y-%m-%dT%H:%M:%SZ`
+3. Compare the logic. Ask: did any function's behavior change? Were functions added or removed?
+4. If no logic changes, report "pseudocode is up to date" and skip. Do not touch the timestamps.
+5. If logic changed:
+   - Update only the affected FUNCTION blocks.
+   - Update the `[YYYY-MM-DD]` date on each changed FUNCTION line to today.
+   - Preserve unchanged FUNCTION blocks and their original dates.
+   - Update the `// synced:` timestamp in the file header to the current ISO timestamp.
+6. If functions were added, add new FUNCTION blocks with today's date.
+7. If functions were removed, remove their FUNCTION blocks.
 
 ## Step 4: Report
 
@@ -64,28 +70,70 @@ After processing, report:
 
 When invoked as `/pseudocode sync`:
 
-1. Check if `.pseudo-needs-update` exists and is non-empty:
-   ```bash
-   cat .pseudo-needs-update
-   ```
-   If empty or missing, report "Nothing to sync — pseudo files are up to date." and stop.
+### Step 1 — Determine the sync window
 
-2. Read the manifest — each line is a relative source file path (e.g. `src/routes/api.ts`).
+Read `.pseudo-sync` for the last global sync timestamp:
+```bash
+cat .pseudo-sync 2>/dev/null
+```
 
-3. For each file in the manifest, run the normal **Step 3** update logic (generate or update its `.pseudo` file). Process files one at a time so failures don't block the rest.
+If `.pseudo-sync` exists, use its timestamp as the `since` cutoff.
+If it doesn't exist, fall back to the `.pseudo-needs-update` manifest, or if that's also absent, use `HEAD~1` (last commit only).
 
-4. After all files are processed, clear the manifest:
-   ```bash
-   rm .pseudo-needs-update
-   ```
+### Step 2 — Find changed source files since last sync
 
-5. Stage and commit the updated pseudo files:
-   ```bash
-   git add '*.pseudo'
-   git commit -m "chore: sync pseudo files after recent commits"
-   ```
+```bash
+git log --since="<timestamp>" --name-only --diff-filter=AMR --format="" \
+  | sort -u \
+  | grep -E '\.(ts|tsx|js|jsx|mjs|py|go|rs|rb|java|swift|kt|c|cpp|h)$' \
+  | grep -v -E '(\.test\.|\.spec\.|__tests__|node_modules|dist/|build/|\.d\.ts$)'
+```
 
-6. Report: how many pseudo files were created, updated, skipped, and failed.
+If `.pseudo-needs-update` also exists, union its contents with the git log results (catches any files the hook may have recorded before the timestamp was written).
+
+### Step 3 — Filter to files that actually need updating
+
+For each candidate source file, check whether its pseudo sibling's `synced:` timestamp is older than the file's last git commit:
+
+```bash
+# Last commit touching this source file
+git log -1 --format="%aI" -- <source-file>
+
+# The synced: timestamp from the .pseudo file header
+grep '// synced:' <file>.pseudo | head -1
+```
+
+If `last-commit > synced-timestamp` → needs update. Otherwise skip.
+
+This avoids re-processing files where the commit that changed them was already captured in a previous sync.
+
+### Step 4 — Process each file that needs updating
+
+Run the normal **Step 3** update logic (generate or update) for each file. Process one at a time so failures don't block the rest.
+
+### Step 5 — Record the sync
+
+Write the current timestamp to `.pseudo-sync`:
+```bash
+date -u +%Y-%m-%dT%H:%M:%SZ > .pseudo-sync
+```
+
+Clear the manifest if it exists:
+```bash
+rm -f .pseudo-needs-update
+```
+
+### Step 6 — Commit everything
+
+```bash
+git add '*.pseudo' .pseudo-sync
+git commit -m "chore: sync pseudo files [$(date -u +%Y-%m-%d)]"
+```
+
+### Step 7 — Report
+
+How many files were: checked / updated / skipped (already current) / failed.
+Include the new sync timestamp and the window that was covered (e.g. "Synced changes from 2026-03-20T09:00:00Z to now").
 
 ## Install
 

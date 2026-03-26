@@ -121,6 +121,11 @@ export default function PseudoBlock({
 
         {/* Right-side badges */}
         <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+          {func.updatedAt && (
+            <span className="text-xs" style={{ color: '#a8a29e' }}>
+              {func.updatedAt}
+            </span>
+          )}
           {func.isExport && (
             <span className="bg-green-100 text-green-700 text-xs rounded px-1">
               EXPORT
