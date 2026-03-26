@@ -843,9 +843,17 @@ const App: React.FC = () => {
     setDesignHistoryPreview(null);
   }, [selectedItem?.id]);
 
-  // Vibe instructions: find .vibeinstructions snippet and extract markdown content
+  // Vibe instructions: eagerly fetch content for .vibeinstructions snippet (list endpoint strips content)
+  useEffect(() => {
+    const snip = snippets.find((s) => s.name.endsWith('vibeinstructions'));
+    if (!snip || snip.content || !currentSession) return;
+    api.getSnippet(currentSession.project, currentSession.name, snip.id)
+      .then((full) => { if (full?.content) updateSnippet(snip.id, { content: full.content }); })
+      .catch(() => {});
+  }, [snippets, currentSession, updateSnippet]);
+
   const vibeInstructionsContent = useMemo(() => {
-    const snip = snippets.find((s) => s.name.endsWith('.vibeinstructions'));
+    const snip = snippets.find((s) => s.name.endsWith('vibeinstructions'));
     if (!snip?.content) return null;
     try {
       const parsed = JSON.parse(snip.content);

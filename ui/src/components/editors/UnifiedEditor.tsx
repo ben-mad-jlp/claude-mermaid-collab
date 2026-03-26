@@ -368,7 +368,7 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
   // Snippet items render with SnippetEditor (with group support)
   // .vibeinstructions snippets render as markdown instead of code editor
   if (item.type === 'snippet') {
-    if (item.name.endsWith('.vibeinstructions')) {
+    if (item.name.endsWith('vibeinstructions')) {
       let mdContent = item.content;
       try {
         const parsed = JSON.parse(item.content);
