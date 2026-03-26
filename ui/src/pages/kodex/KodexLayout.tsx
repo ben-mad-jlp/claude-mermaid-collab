@@ -31,12 +31,7 @@ export const KodexLayout: React.FC = () => {
     fetchProjects();
   }, [fetchProjects]);
 
-  // On mount: set default project from session if available
-  useEffect(() => {
-    if (!selectedProject && currentSession?.project) {
-      setSelectedProject(currentSession.project);
-    }
-  }, [selectedProject, currentSession?.project, setSelectedProject]);
+  // Project sync is handled globally in App.tsx
 
   // Handle refresh projects
   const handleRefreshProjects = useCallback(() => {
