@@ -937,16 +937,6 @@ const App: React.FC = () => {
     }
   }, [currentSession?.project]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Cross-route project sync: kodex/onboarding/pseudo → Collab session
-  useEffect(() => {
-    if (kodexProject && kodexProject !== currentSession?.project) {
-      const match = sessions
-        .filter((s) => s.project === kodexProject)
-        .sort((a, b) => (b.lastModified ?? 0) - (a.lastModified ?? 0))[0];
-      if (match) setCurrentSession(match);
-    }
-  }, [kodexProject]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // Handle content changes from editor
   const handleContentChange = useCallback((content: string) => {
     setLocalContent(content);
