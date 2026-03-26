@@ -13,6 +13,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { useKodexStore } from '@/stores/kodexStore';
+import { NavMenu } from '@/components/layout/NavMenu';
 import { ProjectSelector } from '@/components/kodex/ProjectSelector';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useTheme } from '@/hooks/useTheme';
@@ -195,6 +196,7 @@ export default function PseudoPage(): JSX.Element {
       {/* Full-width top header */}
       <header className="h-12 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-4 flex-shrink-0">
         <div className="flex items-center gap-3">
+          <NavMenu />
           {/* Title */}
           <span className="text-sm font-semibold text-gray-900 dark:text-white">Pseudo</span>
 
@@ -278,37 +280,6 @@ export default function PseudoPage(): JSX.Element {
                 onNavigate={handleNavigate}
                 project={project || ''}
               />
-            </div>
-
-            {/* Cross-navigation links */}
-            <div className="p-2 border-t border-gray-200 dark:border-gray-700 space-y-1 flex-shrink-0">
-              <Link
-                to="/"
-                className="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                </svg>
-                <span className="text-sm">Collab</span>
-              </Link>
-              <Link
-                to="/kodex"
-                className="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                </svg>
-                <span className="text-sm">Kodex</span>
-              </Link>
-              <Link
-                to="/onboarding"
-                className="flex items-center gap-3 px-3 py-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-                <span className="text-sm">Onboarding</span>
-              </Link>
             </div>
           </div>
         </Panel>

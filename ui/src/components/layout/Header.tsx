@@ -18,6 +18,7 @@ import { useUIStore } from '@/stores/uiStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { api } from '@/lib/api';
 import { SessionStatusPanel } from '@/components/SessionStatusPanel';
+import { NavMenu } from './NavMenu';
 import { Session } from '@/types';
 
 export interface HeaderProps {
@@ -270,13 +271,9 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="h-14 px-4 flex items-center justify-between">
         {/* Logo and Title */}
         <div className="flex items-center gap-3" data-testid="header-logo">
-          <img
-            src="/logo.png"
-            alt="Mermaid Collab Logo"
-            className="w-8 h-8"
-          />
+          <NavMenu />
           <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
-            Mermaid Collab
+            Collab
           </h1>
 
           {/* Connection Status Badge */}

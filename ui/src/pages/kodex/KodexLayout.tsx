@@ -10,6 +10,7 @@ import { useTheme } from '@/hooks/useTheme';
 import { useKodexStore } from '@/stores/kodexStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { NavMenu } from '@/components/layout/NavMenu';
 
 export const KodexLayout: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
@@ -75,6 +76,7 @@ export const KodexLayout: React.FC = () => {
       {/* Full-width top header */}
       <header className="h-12 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-4 flex-shrink-0">
         <div className="flex items-center gap-3">
+          <NavMenu />
           <span className="text-sm font-semibold text-gray-900 dark:text-white">Kodex</span>
           {/* Connection Status Badge */}
           <div
