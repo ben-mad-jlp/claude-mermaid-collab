@@ -18,10 +18,16 @@ Tool: mcp__plugin_mermaid-collab_mermaid__check_server_health
 Args: {}
 ```
 
-**If healthy:** Continue to Step 2.
+**If `healthy: true`:** Continue to Step 2.
 
-**If NOT healthy or MCP tools unavailable:** Tell the user:
+**If `healthy: false` but `services.api.running: true` (UI not active):** Warn the user:
+```
+⚠️  The collab UI is not active (run `bun run dev` or `bun run start` to enable it).
+Continuing anyway — MCP tools will work but the browser UI won't be available.
+```
+Then continue to Step 2.
 
+**If MCP tools unavailable or API not reachable:** Tell the user:
 ```
 The collaboration server is not running. Please start it in a terminal:
 
@@ -30,8 +36,7 @@ bun run bin/mermaid-collab.ts start
 
 Then restart Claude Code and run /collab again.
 ```
-
-**STOP** - Do not proceed without a healthy server.
+**STOP** - Do not proceed without a running API server.
 
 ## Step 2: Find/Create Session
 
