@@ -69,9 +69,6 @@ export const Dashboard: React.FC = () => {
           <p className="text-gray-500 dark:text-gray-400">
             Select a project to view Kodex
           </p>
-          <Link to="/" className="text-blue-600 hover:underline mt-2 inline-block">
-            Go to Collab
-          </Link>
         </div>
       </div>
     );
