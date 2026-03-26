@@ -1,6 +1,7 @@
 // MCP Server (stdio transport)
 // Legacy stdio transport entry point, kept for backwards compatibility.
 // For new installations, use the HTTP transport via the API server.
+// synced: 2026-03-26T14:00:05Z
 
 The server version is synced with package.json via npm version hooks.
 

@@ -1,7 +1,9 @@
 // Onboarding Layout
 // Shell for all onboarding pages. Provides OnboardingContext (mode, user, project, config),
-// a sidebar with mode toggle and navigation, a header with project selector and search,
+// a full-width top header with project selector, search, and theme toggle,
+// a sidebar with mode toggle and navigation below the header,
 // and a main content area for child routes.
+// synced: 2026-03-26T14:00:05Z
 
 OnboardingContext carries: mode ('browse' | 'onboard'), currentUser, setMode, setUser, project, config.
 Sidebar nav items: Browse, Graph, Dashboard (onboard only), Team (onboard only).
@@ -11,7 +13,7 @@ FUNCTION useOnboarding() -> OnboardingContextValue                      EXPORT
 
 ---
 
-FUNCTION OnboardingLayout()                                             EXPORT
+FUNCTION OnboardingLayout()                                             EXPORT  [2026-03-26]
   CALLS: fetchProjects (kodexStore), getConfig (onboarding-api)
   On mount: fetch registered projects.
   When selectedProject changes: fetch onboarding config via onboardingApi.getConfig.
@@ -28,7 +30,10 @@ FUNCTION OnboardingLayout()                                             EXPORT
 
   Render:
     - OnboardingContext.Provider wrapping the full layout.
-    - Left sidebar with: title, mode toggle (Browse/Onboard), nav links filtered by mode,
-      user chip (onboard mode only), and cross-links to Kodex and Collab.
-    - Header with: refresh button, ProjectSelector, search input (when project selected), theme toggle.
-    - Main content: Outlet if project selected, else a "no project selected" placeholder.
+    - Full-width top header (h-12) with: "Onboarding" route name label, refresh button,
+      ProjectSelector, search input (when project selected), and theme toggle button.
+    - Body row below the header:
+      - Left sidebar with: mode toggle (Browse/Onboard, shown when project selected),
+        nav links filtered by mode, user chip (onboard mode only), and cross-links to
+        Kodex, Pseudo, and Collab. No own title — title is in the top header.
+      - Main content: Outlet if project selected, else a "no project selected" placeholder.

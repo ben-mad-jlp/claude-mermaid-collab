@@ -3,6 +3,7 @@
 // diagrams, designs, documents, spreadsheets, snippets, lessons, todos, metadata,
 // terminal sessions, question/UI interactions, and health. All session-scoped routes
 // create fresh per-request managers tied to the project+session path.
+// synced: 2026-03-26T14:00:05Z
 
 A scratch session at ~/.mermaid-collab/scratch is registered on startup.
 Managers (DiagramManager, DocumentManager, etc.) are created fresh per request for the

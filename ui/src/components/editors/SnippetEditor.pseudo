@@ -2,10 +2,20 @@
 // Editor for code snippets stored in a JSON envelope.
 // Displays syntax-highlighted code with optional diff view, annotation support,
 // and an "Apply" action that sends the snippet to the file system via the API.
+// synced: 2026-03-26T14:00:05Z
 
 Snippet content is a JSON envelope: {code, language, filePath, originalCode,
 highlightLines, annotations, groupId}. The editor parses this on load and
 re-serializes on save, preserving all non-code fields.
+
+FUNCTION normalizeLanguage(lang) -> Language                          [2026-03-26]
+  Normalizes a stored language string to a valid Language value.
+  Handles common aliases: "c#" -> "csharp", "cs" -> "csharp", "js" -> "javascript",
+  "ts" -> "typescript", "py" -> "python", "c++" -> "cpp", "c" -> "cpp",
+  "yml" -> "yaml", "md" -> "markdown", "htm" -> "html".
+  Falls back to "text" if the value is not a recognized alias or valid Language.
+
+---
 
 FUNCTION detectLanguage(fileName) -> Language                          EXPORT
   Maps file extension (ts, tsx, py, rs, go, etc.) to Language enum values.
@@ -24,12 +34,14 @@ FUNCTION serializeSnippetData(newCode, rawContent) -> string           EXPORT
 
 ---
 
-FUNCTION SnippetEditor(snippet, onChange, onSave, onToolbarControls, ...) -> JSX  EXPORT
+FUNCTION SnippetEditor(snippet, onChange, onSave, onToolbarControls, ...) -> JSX  EXPORT  [2026-03-26]
   CALLS: CodeMirrorWrapper (CodeMirrorWrapper)
   Parses snippet content via parseSnippetData on load.
+  Uses normalizeLanguage() when parsing stored language from the JSON envelope.
   Pushes memoized toolbarControls JSX to parent via onToolbarControls in effect.
   Renders CodeMirrorWrapper with annotation support.
-  Renders annotation popover when a dot is clicked.
+  Inline annotation callbacks (onAnnotationSave, onAnnotationDelete) receive full
+  SnippetAnnotation objects, not numeric indexes.
 
 ---
 
@@ -75,8 +87,9 @@ FUNCTION saveAnnotations(newAnnotations) -> void
 
 ---
 
-FUNCTION handleAnnotationClick(index) -> void
-  Opens edit popover for the clicked annotation index.
+FUNCTION handleAnnotationClick(ann) -> void                           [2026-03-26]
+  Receives a full SnippetAnnotation object. Finds its index in the annotations array
+  by matching startLine, endLine, and text. Opens edit popover for that annotation.
 
 ---
 
@@ -85,23 +98,25 @@ FUNCTION handleOpenAddAnnotation() -> void
 
 ---
 
-FUNCTION handleAnnotationSave(annotation) -> void
-  Saves new or updated annotation from the popover via saveAnnotations.
+FUNCTION handleAnnotationSave() -> void                               [2026-03-26]
+  Reads annotation data from annotationPopover state. Saves new or updated
+  annotation from the popover via saveAnnotations.
 
 ---
 
-FUNCTION handleAnnotationDelete(index) -> void
-  Removes annotation at index via saveAnnotations.
+FUNCTION handleAnnotationDelete() -> void                             [2026-03-26]
+  Reads the index from annotationPopover state. Removes annotation at that index via saveAnnotations.
 
 ---
 
-FUNCTION handleInlineAnnotationSave(index, annotation) -> void
-  Direct save from CodeMirror inline widget without opening popover.
+FUNCTION handleInlineAnnotationSave(original, newText) -> void        [2026-03-26]
+  Receives the original SnippetAnnotation object and new text string.
+  Finds annotation by matching startLine, endLine, text. Updates it in place via saveAnnotations.
 
 ---
 
-FUNCTION handleInlineAnnotationDelete(index) -> void
-  Direct delete from CodeMirror inline widget.
+FUNCTION handleInlineAnnotationDelete(ann) -> void                    [2026-03-26]
+  Receives a full SnippetAnnotation object. Removes matching annotation via saveAnnotations.
 
 ---
 

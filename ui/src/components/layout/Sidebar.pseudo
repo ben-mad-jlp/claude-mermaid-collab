@@ -3,6 +3,7 @@
 // documents, designs, spreadsheets, snippets, and todos.
 // Supports item selection, deletion, search filtering, grouped snippet display,
 // and todo management.
+// synced: 2026-03-26T14:00:05Z
 
 filteredItems: merges all item types, deduplicates grouped snippets (one entry
 per groupId using the group name), sorts by lastModified, then filters by

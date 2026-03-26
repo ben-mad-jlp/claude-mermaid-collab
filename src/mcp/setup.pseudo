@@ -1,6 +1,7 @@
 // MCP Server Setup
 // Shared MCP server configuration used by both stdio and HTTP transports.
 // Registers all MCP tools and their handlers, proxying most operations to the HTTP API server.
+// synced: 2026-03-26T14:00:05Z
 
 All tool handlers follow the same pattern: validate params, call the HTTP API, return JSON result.
 Most tools require project + session params (session can be resolved from a todoId).

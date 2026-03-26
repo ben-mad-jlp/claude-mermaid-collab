@@ -1,0 +1,81 @@
+// Unified Item Types
+// Type definitions and utility functions for all artifact types (diagrams, documents,
+// designs, spreadsheets, snippets) in a unified way.
+// synced: 2026-03-26T14:00:05Z
+
+FUNCTION isItem(value) -> boolean [2026-03-26]                          EXPORT
+  Type guard. Returns true if value is a non-null object with id (string),
+  name (string), content (string), lastModified (number), and a valid ItemType.
+  CALLS: isItemType
+
+---
+
+FUNCTION isItemType(value) -> boolean [2026-03-26]                      EXPORT
+  Type guard. Returns true if value equals one of the five valid type strings:
+  'diagram' | 'document' | 'design' | 'spreadsheet' | 'snippet'.
+
+---
+
+FUNCTION isDiagram(item) -> boolean [2026-03-26]                        EXPORT
+  Type guard. Returns true if item.type === 'diagram'.
+
+---
+
+FUNCTION isDocument(item) -> boolean [2026-03-26]                       EXPORT
+  Type guard. Returns true if item.type === 'document'.
+
+---
+
+FUNCTION isDesign(item) -> boolean [2026-03-26]                         EXPORT
+  Type guard. Returns true if item.type === 'design'.
+
+---
+
+FUNCTION isSpreadsheet(item) -> boolean [2026-03-26]                    EXPORT
+  Type guard. Returns true if item.type === 'spreadsheet'.
+
+---
+
+FUNCTION isSnippet(item) -> boolean [2026-03-26]                        EXPORT
+  Type guard. Returns true if item.type === 'snippet'.
+
+---
+
+FUNCTION getItemLabel(type) -> string [2026-03-26]                      EXPORT
+  Return the human-readable display name for an ItemType.
+  Map: diagram→'Diagram', document→'Document', design→'Design',
+  spreadsheet→'Spreadsheet', snippet→'Snippet'.
+
+---
+
+FUNCTION getItemIconPath(type) -> string [2026-03-26]                   EXPORT
+  Return the SVG path data string for the given ItemType's icon.
+  Each type has a unique path; snippet and document share the same path.
+
+---
+
+FUNCTION getItemIconViewBox(type) -> string [2026-03-26]                EXPORT
+  Return the SVG viewBox string for an item type icon.
+  Currently returns '0 0 24 24' for all types.
+
+---
+
+FUNCTION getItemIconSvg(type) -> string [2026-03-26]                    EXPORT
+  CALLS: getItemIconPath
+  Build and return full SVG markup as a string.
+  IF type is 'design', wrap path in an SVG with an additional <rect> element.
+  Otherwise return a simple path-only SVG.
+
+---
+
+FUNCTION getItemColor(type) -> string [2026-03-26]                      EXPORT
+  Return the color accent name for an ItemType used in UI styling.
+  Map: diagram→'blue', document→'purple', design→'pink',
+  spreadsheet→'green', snippet→'orange'.
+
+---
+
+FUNCTION getItemColorValue(type) -> string [2026-03-26]                 EXPORT
+  Return the CSS hex color value for an ItemType.
+  Map: diagram→'#3b82f6', document→'#a855f7', design→'#ec4899',
+  spreadsheet→'#10b981', snippet→'#f97316'.

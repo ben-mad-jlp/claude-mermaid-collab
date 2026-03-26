@@ -1,8 +1,10 @@
 // Kodex Layout
-// Shell component for all Kodex pages. Provides a sidebar, a header with connection status,
-// project selector, refresh control, and theme toggle, and a main content area for child routes.
+// Shell component for all Kodex pages. Provides a full-width top header with connection status,
+// project selector, refresh control, and theme toggle, a left sidebar below the header,
+// and a main content area for child routes.
+// synced: 2026-03-26T14:00:05Z
 
-FUNCTION KodexLayout()                                                  EXPORT
+FUNCTION KodexLayout()                                                  EXPORT  [2026-03-26]
   CALLS: fetchProjects (kodexStore), setSelectedProject (kodexStore)
   On mount: call fetchProjects to load the registered project list.
   If no project is selected and a collab session is active, auto-select the session's project.
@@ -14,7 +16,6 @@ FUNCTION KodexLayout()                                                  EXPORT
     On success: refresh projects and select the new path.
 
   Render:
-    - Left sidebar (KodexSidebar).
-    - Header with: connection status badge (green/yellow/red), refresh button, ProjectSelector,
-      and theme toggle button.
-    - Main content area rendering the child route via Outlet.
+    - Full-width top header (h-12) with: "Kodex" route name label, connection status
+      badge (green/yellow/red), refresh button, ProjectSelector, and theme toggle button.
+    - Body row below the header: KodexSidebar on the left, main content area (Outlet) on the right.
