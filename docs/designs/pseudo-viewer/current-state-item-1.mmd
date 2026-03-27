@@ -1,0 +1,27 @@
+flowchart TD
+    Server["src/server.ts\nBun.serve fetch handler"]
+
+    Server -->|"/mcp"| MCP["handleMCPRequest\nmcp/http-handler.ts"]
+    Server -->|"/api/kodex/*"| Kodex["handleKodexAPI\nroutes/kodex-api.ts"]
+    Server -->|"/api/onboarding/*"| Onboarding["handleOnboardingAPI\nroutes/onboarding-api.ts"]
+    Server -->|"/api/*"| API["handleAPI\nroutes/api.ts\n~2700 lines"]
+    Server -->|"static files"| UI["ui/dist/*"]
+
+    API --> Sessions["/api/sessions"]
+    API --> Projects["/api/projects"]
+    API --> Diagrams["/api/diagram/*"]
+    API --> Documents["/api/document/*"]
+    API --> Designs["/api/design/*"]
+    API --> Health["/api/health"]
+    API --> More["...many more routes"]
+
+    NewRoute["🆕 handlePseudoAPI\nroutes/pseudo-api.ts"]
+    Server -->|"NEW: /api/pseudo/*"| NewRoute
+    NewRoute --> Files["/api/pseudo/files\n→ walk filesystem\nreturn .pseudo stems"]
+    NewRoute --> File["/api/pseudo/file\n→ read single .pseudo\nreturn raw content"]
+    NewRoute --> Search["/api/pseudo/search\n→ search all .pseudo files\nreturn grouped matches"]
+
+    style NewRoute fill:#ede9fe,stroke:#7c3aed
+    style Files fill:#ede9fe,stroke:#7c3aed
+    style File fill:#ede9fe,stroke:#7c3aed
+    style Search fill:#ede9fe,stroke:#7c3aed

@@ -1,0 +1,8 @@
+flowchart LR
+    Raw["raw .pseudo\nfile content\n(string)"]
+    Raw --> P["parsePseudo(content)\nui/src/pages/pseudo/parsePseudo.ts"]
+    P --> Out["ParsedPseudo {\n  titleLine\n  subtitleLine\n  moduleProse\n  functions[]\n}"]
+    Out --> F["functions[N] {\n  name\n  params\n  returnType\n  isExport\n  calls[]\n  body[]\n}"]
+    F --> C["calls[N] {\n  name\n  fileStem\n}"]
+
+    style P fill:#ede9fe,stroke:#7c3aed

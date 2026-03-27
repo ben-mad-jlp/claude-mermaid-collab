@@ -14,18 +14,18 @@ Freeform collab session mode. No structured workflow - just create content freel
 
 ### Step 1 — Check for vibe instructions
 
-Call `mcp__plugin_mermaid-collab_mermaid__list_snippets` with the current project and session.
+Call `mcp__plugin_mermaid-collab_mermaid__list_documents` with the current project and session.
 
-Look for a snippet whose `name` ends with `.vibeinstructions`.
+Look for a document whose `name` ends with `vibeinstructions`.
 
-**If found:** Call `mcp__plugin_mermaid-collab_mermaid__get_snippet` to read the full content. Display it to the user verbatim so they can reorient, then say:
+**If found:** Call `mcp__plugin_mermaid-collab_mermaid__get_document` to read the full content. Display it to the user verbatim so they can reorient, then say:
 ```
 Vibe session resumed. Continuing from checkpoint above.
 ```
 
-**If not found:** Create a new `.vibeinstructions` snippet to establish the vibe context:
+**If not found:** Create a new `vibeinstructions` document to establish the vibe context:
 1. Ask the user: "What are we working on in this vibe? (I'll save this as your vibe instructions so we can resume after a /clear)"
-2. Once they answer, call `mcp__plugin_mermaid-collab_mermaid__create_snippet` with:
+2. Once they answer, call `mcp__plugin_mermaid-collab_mermaid__create_document` with:
    - `name`: `vibe.vibeinstructions`
    - `content`: a markdown document using this template, filled in from their answer:
      ```

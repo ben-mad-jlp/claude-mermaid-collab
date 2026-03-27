@@ -1,0 +1,7 @@
+graph TD
+    A[flat string stems] --> B[buildTree: split on /]
+    B --> C[nested TreeNode structure]
+    C --> D[PseudoFileTree renders recursively]
+    D --> E[dirs collapsible via localStorage]
+    D --> F[filter input narrows + auto-expands]
+    D --> G[active file highlighted]

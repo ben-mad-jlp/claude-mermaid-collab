@@ -1,0 +1,7 @@
+graph LR
+    A[Cmd+K global keydown] --> B[PseudoSearch focused]
+    B --> C[200ms debounce]
+    C --> D[searchPseudo API call]
+    D --> E[grouped dropdown results]
+    E -->|Enter| F[navigate + scrollToFunction]
+    E -->|Esc| G[close]

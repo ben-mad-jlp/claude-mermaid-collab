@@ -1,0 +1,7 @@
+graph LR
+    A[CALLS annotation] --> B[CallsLink orange text]
+    B -->|click| C[navigate to file]
+    B -->|hover 400ms| D[fetch target file]
+    D --> E[CallsPopover 320px portal]
+    E -->|hover grace 300ms| E
+    E -->|click| C

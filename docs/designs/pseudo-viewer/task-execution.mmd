@@ -1,0 +1,37 @@
+graph TD
+    pseudo-page["pseudo-page"]
+    sidebar-nav["sidebar-nav"]
+    pseudo-api-route["pseudo-api-route"]
+    pseudo-file-tree["pseudo-file-tree"]
+    parse-pseudo["parse-pseudo"]
+    pseudo-block["pseudo-block"]
+    calls-popover["calls-popover"]
+    pseudo-api-client["pseudo-api-client"]
+    pseudo-search["pseudo-search"]
+    function-jump-panel["function-jump-panel"]
+    
+    main-routes["main-routes"]
+    server-registration["server-registration"]
+    pseudo-viewer["pseudo-viewer"]
+    calls-link["calls-link"]
+    
+    pseudo-page --> main-routes
+    pseudo-api-route --> server-registration
+    pseudo-block --> pseudo-viewer
+    calls-popover --> calls-link
+    
+    style pseudo-page fill:#e0e0e0,stroke:#9e9e9e
+    style sidebar-nav fill:#e0e0e0,stroke:#9e9e9e
+    style pseudo-api-route fill:#c8e6c9,stroke:#2e7d32
+    style pseudo-file-tree fill:#c8e6c9,stroke:#2e7d32
+    style parse-pseudo fill:#c8e6c9,stroke:#2e7d32
+    style pseudo-block fill:#c8e6c9,stroke:#2e7d32
+    style calls-popover fill:#e0e0e0,stroke:#9e9e9e
+    style pseudo-api-client fill:#c8e6c9,stroke:#2e7d32
+    style pseudo-search fill:#e0e0e0,stroke:#9e9e9e
+    style function-jump-panel fill:#e0e0e0,stroke:#9e9e9e
+    
+    style main-routes fill:#bbdefb,stroke:#1976d2,stroke-width:3px
+    style server-registration fill:#e0e0e0,stroke:#9e9e9e
+    style pseudo-viewer fill:#e0e0e0,stroke:#9e9e9e
+    style calls-link fill:#e0e0e0,stroke:#9e9e9e

@@ -1,0 +1,38 @@
+flowchart TD
+    A[User opens /pseudo] --> B{Project selected?}
+    B -- No --> C[Show project dropdown\nno file tree visible]
+    C --> D[User selects project]
+    D --> E[Load file list\nGET /api/pseudo/files]
+    B -- Yes --> E
+    E --> F{Files found?}
+    F -- No --> G[Empty state:\nRun /pseudocode all]
+    F -- Yes --> H[Render file tree\n239 files]
+
+    H --> I{URL has path?}
+    I -- No --> J[Tree visible\nno file selected]
+    I -- Yes --> K[Load file\nGET /api/pseudo/file]
+    K --> L[Parse .pseudo text\ninto blocks]
+    L --> M[Render viewer\n+ function jump panel]
+
+    J --> N[User clicks file in tree]
+    N --> O[Push to browser history\nURL: /pseudo/src/mcp/setup]
+    O --> K
+
+    M --> P{User action}
+    P -- Click CALLS link --> Q[Push to history\nLoad target file]
+    Q --> K
+    P -- Hover CALLS link 400ms --> R[Fetch target file\nif not cached]
+    R --> S[Show popover:\ntitle + exports]
+    S --> T{User clicks popover?}
+    T -- Yes --> Q
+    T -- No --> U[Dismiss on mouse leave]
+    P -- Browser back/fwd --> V[URL changes\nReact Router re-renders]
+    V --> K
+    P -- Search Cmd+K --> W[Open search dropdown]
+    W --> X[User types query\nGET /api/pseudo/search]
+    X --> Y[Show grouped results]
+    Y --> Z[User selects result]
+    Z --> Q
+    P -- Click function in jump panel --> AA[Smooth scroll\nto function block]
+    P -- Change project --> AB[New project selected\nURL resets to /pseudo]
+    AB --> E

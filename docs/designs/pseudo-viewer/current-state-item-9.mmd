@@ -1,0 +1,6 @@
+graph LR
+    A[parsed functions list] --> B[FunctionJumpPanel 220px]
+    B --> C[IntersectionObserver on data-function blocks]
+    C --> D[active function highlighted]
+    B -->|click| E[scrollToFunction via viewerRef]
+    F[EXPORT functions] --> G[green dot indicator]

@@ -1,0 +1,13 @@
+graph TD
+    A[currentPath changes] --> B[check fileCache]
+    B -->|miss| C[fetchPseudoFile]
+    B -->|hit| D[parsePseudo]
+    C --> D
+    D --> E[header: titleLine + subtitleLine]
+    D --> F[moduleProse: muted gray]
+    D --> G[PseudoBlock per function]
+    G --> H[FUNCTION purple bold]
+    G --> I[EXPORT green badge]
+    G --> J[CALLS orange links]
+    G --> K[body muted indented]
+    L[scrollToFunction via useImperativeHandle] --> M[data-function querySelector + flash]

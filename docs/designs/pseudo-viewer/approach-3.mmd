@@ -1,0 +1,7 @@
+graph LR
+    A[PseudoPage] --> B[fetchPseudoFiles]
+    A --> C[fetchPseudoFile]
+    A --> D[searchPseudo]
+    B --> E[GET /api/pseudo/files]
+    C --> F[GET /api/pseudo/file]
+    D --> G[GET /api/pseudo/search]

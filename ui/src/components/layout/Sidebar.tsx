@@ -180,14 +180,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return todos.find(t => t.id === selectedTodoId) || null;
   }, [todos, selectedTodoId]);
 
-  const vibeInstructionsSnippet = useMemo(() => {
-    return snippets.find((s) => s.name.endsWith('vibeinstructions')) || null;
-  }, [snippets]);
+  const vibeInstructionsDoc = useMemo(() => {
+    return documents.find((d) => d.name.endsWith('vibeinstructions')) || null;
+  }, [documents]);
 
   const filteredItems = useMemo(() => {
     const items: Item[] = [
       ...diagrams.map((d) => ({ ...d, type: 'diagram' as const })),
-      ...documents.map((d) => ({ ...d, type: 'document' as const })),
+      ...documents.filter((d) => !d.name.endsWith('vibeinstructions')).map((d) => ({ ...d, type: 'document' as const })),
       ...designs.map((d) => ({
         ...d,
         type: 'design' as const,
@@ -392,16 +392,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       {/* Vibe Instructions Card — pinned above items in vibe sessions */}
-      {vibeInstructionsSnippet && !isDisabled && (
+      {vibeInstructionsDoc && !isDisabled && (
         <div className="px-2 py-1 border-b border-gray-200 dark:border-gray-700">
           <button
-            onClick={() => handleItemClick({ ...vibeInstructionsSnippet, type: 'snippet' as const })}
+            onClick={() => handleItemClick({ ...vibeInstructionsDoc, type: 'document' as const })}
             className={`
               w-full text-left px-3 py-2 rounded-lg
               flex items-center gap-2
               text-sm font-medium
               transition-colors
-              ${selectedSnippetId === vibeInstructionsSnippet.id
+              ${selectedDocumentId === vibeInstructionsDoc.id
                 ? 'bg-accent-100 dark:bg-accent-900 text-accent-700 dark:text-accent-300'
                 : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
               }

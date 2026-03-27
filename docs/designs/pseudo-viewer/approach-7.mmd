@@ -1,0 +1,17 @@
+sequenceDiagram
+    participant U as User
+    participant CL as CallsLink
+    participant CP as CallsPopover
+    participant API as pseudo-api
+
+    U->>CL: hover
+    Note over CL: 400ms timer
+    CL->>API: fetchPseudoFile(fileStem)
+    API-->>CL: content
+    CL->>CP: show(content, position)
+    U->>CP: hover (cancels grace timer)
+    U->>CP: click
+    CP->>U: navigate to file
+    U->>CL: mouse leave
+    Note over CL: 300ms grace
+    CL->>CP: close

@@ -1,0 +1,12 @@
+graph TD
+    A[Cmd+K or Cmd+F] --> B[focus input]
+    B --> C[user types]
+    C --> D[200ms debounce]
+    D --> E[searchPseudo API]
+    E --> F[group by file, max 8 files x 3]
+    F --> G[dropdown renders]
+    G -->|arrow keys| H[highlight item]
+    H -->|Enter| I[navigate]
+    I --> J[scrollToFunction after tick]
+    G -->|Esc| K[close + clear]
+    G -->|click outside| K

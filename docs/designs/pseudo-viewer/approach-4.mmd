@@ -1,0 +1,9 @@
+graph TD
+    App --> PseudoRoute[route: pseudo]
+    App --> PseudoPathRoute[route: pseudo path]
+    PseudoRoute --> PseudoPage
+    PseudoPathRoute --> PseudoPage
+    PseudoPage --> FileTree[PseudoFileTree 280px]
+    PseudoPage --> Viewer[PseudoViewer flex-1]
+    PseudoPage --> JumpPanel[FunctionJumpPanel 220px]
+    Sidebar --> PseudoNavIcon[pseudo nav icon]

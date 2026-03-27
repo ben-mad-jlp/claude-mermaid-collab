@@ -1,0 +1,26 @@
+flowchart TD
+    ST["src/server.ts"]
+    ST -->|"path starts with /api/pseudo"| PA["handlePseudoAPI(req)\nsrc/routes/pseudo-api.ts"]
+
+    PA --> R1["GET /api/pseudo/files\n?project=path"]
+    PA --> R2["GET /api/pseudo/file\n?project=path&file=stem"]
+    PA --> R3["GET /api/pseudo/search\n?project=path&q=query"]
+
+    R1 --> G1["new Bun.Glob('**/*.pseudo')\n.scan(project)"]
+    G1 --> G2["Strip .pseudo extension\nSort alphabetically"]
+    G2 --> G3["Return { files: string[] }"]
+
+    R2 --> F1["Bun.file(project/stem.pseudo)"]
+    F1 -->|"exists"| F2["Return { content, path }"]
+    F1 -->|"missing"| F3["Return 404"]
+
+    R3 --> S1["Glob all .pseudo files"]
+    S1 --> S2["For each file:\nread + split lines"]
+    S2 --> S3["Track current FUNCTION\ncase-insensitive match on q"]
+    S3 --> S4["Prioritize FUNCTION line\nmatches over body matches"]
+    S4 --> S5["Group by file\nReturn top 50 matches"]
+
+    style PA fill:#ede9fe,stroke:#7c3aed
+    style R1 fill:#ede9fe,stroke:#7c3aed
+    style R2 fill:#ede9fe,stroke:#7c3aed
+    style R3 fill:#ede9fe,stroke:#7c3aed

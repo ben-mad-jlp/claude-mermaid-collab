@@ -1,0 +1,9 @@
+graph TD
+    A[file loaded] --> B[setup IntersectionObserver]
+    B --> C[observe data-function blocks threshold 0.3]
+    C --> D[activeFunction state updates on scroll]
+    D --> E[entry highlighted bg:#ede9fe]
+    F[EXPORT flag] --> G[green dot right of name]
+    H[click entry] --> I[viewerRef.scrollToFunction]
+    J[file change or unmount] --> K[cleanup observer]
+    L[functions.length === 0] --> M[panel hidden]

@@ -16,15 +16,15 @@ Save the current state of the vibe before clearing context. Updates the `.vibein
 
 Call `mcp__plugin_mermaid-collab_mermaid__get_session_state` with the current project and session to get the session name.
 
-### Step 2 — Find the .vibeinstructions snippet
+### Step 2 — Find the vibeinstructions document
 
-Call `mcp__plugin_mermaid-collab_mermaid__list_snippets` with the current project and session.
+Call `mcp__plugin_mermaid-collab_mermaid__list_documents` with the current project and session.
 
-Look for a snippet whose `name` ends with `.vibeinstructions`.
+Look for a document whose `name` ends with `vibeinstructions`.
 
 ### Step 3 — Read current instructions
 
-If found, call `mcp__plugin_mermaid-collab_mermaid__get_snippet` to read the full content.
+If found, call `mcp__plugin_mermaid-collab_mermaid__get_document` to read the full content.
 
 If not found, the content template is:
 ```
@@ -50,11 +50,13 @@ Based on the recent conversation context, write a concise "Currently Doing" summ
 
 ### Step 5 — Update the instructions
 
-Replace the entire `## Currently Doing` section (from the `## Currently Doing` heading to the end of the file, or to the next `##` heading if one exists after it) with the new checkpoint summary.
+Find the `## Currently Doing` heading line number in the snippet. Replace only the lines *after* the heading (the bullet points) — do not include the `## Currently Doing` heading in `newContent`.
 
-If the snippet exists: call `mcp__plugin_mermaid-collab_mermaid__patch_snippet` with the updated content.
+For example, if `## Currently Doing` is on line 11 and the file ends at line 14, patch startLine=12, endLine=14 with just the bullet points.
 
-If it does not exist: call `mcp__plugin_mermaid-collab_mermaid__create_snippet` with:
+If the document exists: call `mcp__plugin_mermaid-collab_mermaid__patch_document` with the updated content.
+
+If it does not exist: call `mcp__plugin_mermaid-collab_mermaid__create_document` with:
 - `name`: `vibe.vibeinstructions`
 - `content`: the full template with the checkpoint filled in
 
