@@ -2069,14 +2069,14 @@ IMPORTANT - Common pitfalls to avoid:
       },
       {
         name: 'patch_snippet',
-        description: 'Replace a range of lines in a snippet. More precise than update_snippet for targeted edits.',
+        description: 'Replace a range of lines in a snippet. Call get_snippet first — it returns a numberedContent field showing each line with its 1-indexed line number so you can identify startLine/endLine precisely.',
         inputSchema: {
           type: 'object',
           properties: {
             ...sessionParamsDesc,
             id: { type: 'string', description: 'Snippet ID' },
-            startLine: { type: 'number', description: 'First line to replace (1-indexed)' },
-            endLine: { type: 'number', description: 'Last line to replace (1-indexed, inclusive)' },
+            startLine: { type: 'number', description: 'First line to replace (1-indexed). Use the line numbers from get_snippet numberedContent.' },
+            endLine: { type: 'number', description: 'Last line to replace (1-indexed, inclusive). Use the line numbers from get_snippet numberedContent.' },
             newContent: { type: 'string', description: 'Replacement lines. Use empty string to delete lines.' },
           },
           required: ['project', 'id', 'startLine', 'endLine', 'newContent'],
@@ -3604,7 +3604,8 @@ IMPORTANT - Common pitfalls to avoid:
             const { project, session, id } = args as { project: string; session: string; id: string };
             if (!project || !session || !id) throw new Error('Missing required: project, session, id');
             const result = await handleGetSnippet(project, session, id);
-            return JSON.stringify(result, null, 2);
+            const numberedLines = result.content.split('\n').map((line, i) => `${String(i + 1).padStart(4, ' ')} | ${line}`).join('\n');
+            return JSON.stringify({ ...result, numberedContent: numberedLines }, null, 2);
           }
 
           case 'create_snippet':
