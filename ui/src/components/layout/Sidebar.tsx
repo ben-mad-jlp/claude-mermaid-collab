@@ -202,6 +202,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         return snippets
           .sort((a, b) => b.lastModified - a.lastModified)
           .filter((snip) => {
+            if (snip.name.endsWith('vibeinstructions')) return false;
             try {
               const parsed = JSON.parse(snip.content || '');
               if (parsed.groupId) {
