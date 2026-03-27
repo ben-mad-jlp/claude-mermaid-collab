@@ -55,8 +55,7 @@ Then restart Claude Code and run /collab again.
 
 1. Generate name: `mcp__plugin_mermaid-collab_mermaid__generate_session_name()`
 2. Ask user to confirm or pick own name
-3. Ask session type: "What type of session?"
-   - Options: "Structured (guided workflow)" or "Vibe (freeform)"
+3. Ask session type: "What type of session? (structured or vibe)"
 4. Initialize state with sessionType:
    ```
    Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
