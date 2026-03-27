@@ -12,9 +12,18 @@ Freeform collab session mode. No structured workflow - just create content freel
 
 ## Entry
 
-### Step 1 — Check for vibe instructions
+### Step 1 — Set session state
+
+Call `mcp__plugin_mermaid-collab_mermaid__update_session_state` with:
+- `state`: `vibe-active`
+- `sessionType`: `vibe`
+
+This ensures the UI reflects the active vibe session regardless of whether this is a new session or a resume.
+
+### Step 2 — Check for vibe instructions
 
 Call `mcp__plugin_mermaid-collab_mermaid__list_documents` with the current project and session.
+
 
 Look for a document whose `name` ends with `vibeinstructions`.
 
