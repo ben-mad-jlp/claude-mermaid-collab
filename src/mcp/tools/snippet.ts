@@ -79,7 +79,7 @@ export const createSnippetSchema = {
   type: 'object',
   properties: {
     ...sessionParamsDesc,
-    name: { type: 'string', description: 'Snippet name. If sourcePath is provided and name is omitted, uses the filename.' },
+    name: { type: 'string', description: 'Snippet name. Include a file extension to enable syntax highlighting (e.g. "UpdatePackageTypeAsync.cs", "auth.ts", "config.py"). Without an extension, language defaults to plain text.' },
     content: { type: 'string', description: 'Snippet content (JSON or raw code). Not required if sourcePath is provided.' },
     sourcePath: { type: 'string', description: 'Absolute path to source file. Reads the file, auto-detects language, and sets originalCode.' },
     startLine: { type: 'number', description: 'Start line (1-indexed) for showing a slice of the file. Requires sourcePath.' },
