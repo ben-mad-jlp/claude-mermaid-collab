@@ -272,7 +272,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Logo and Title */}
         <div className="flex items-center gap-3" data-testid="header-logo">
           <NavMenu />
-          <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
+          <h1 className="text-sm font-semibold text-gray-900 dark:text-white">
             Collab
           </h1>
 

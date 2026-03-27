@@ -75,7 +75,7 @@ export const NavMenu: React.FC = () => {
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="rounded-lg hover:opacity-80 transition-opacity focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+        className="rounded-lg border border-gray-400 dark:border-gray-500 p-0.5 hover:opacity-80 transition-opacity focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
         title="Navigation menu"
         aria-label="Open navigation menu"
       >
