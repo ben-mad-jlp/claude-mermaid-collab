@@ -366,7 +366,7 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
   }
 
   // Snippet items render with SnippetEditor (with group support)
-  // .vibeinstructions snippets render as markdown instead of code editor
+  // .vibeinstructions snippets render as markdown (preview or edit mode)
   if (item.type === 'snippet') {
     if (item.name.endsWith('vibeinstructions')) {
       let mdContent = item.content;
@@ -374,9 +374,51 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
         const parsed = JSON.parse(item.content);
         if (typeof parsed.code === 'string') mdContent = parsed.code;
       } catch { /* raw content */ }
+
+      if (!editMode) {
+        return (
+          <div className="flex flex-col h-full min-h-0 bg-white dark:bg-gray-900 overflow-hidden p-4">
+            <div className="flex-1 min-h-0">
+              <MarkdownPreview key={item.id} content={mdContent} className="h-full" />
+            </div>
+          </div>
+        );
+      }
+
       return (
-        <div className="h-full overflow-auto p-6">
-          <MarkdownPreview content={mdContent} className="max-w-3xl mx-auto" />
+        <div className="flex flex-col h-full min-h-0 bg-white dark:bg-gray-900" data-testid="unified-editor">
+          <SplitPane
+            direction="horizontal"
+            defaultPrimarySize={editorSplitPosition}
+            minPrimarySize={20}
+            maxPrimarySize={80}
+            minSecondarySize={20}
+            storageId="unified-editor-split"
+            onSizeChange={setEditorSplitPosition}
+            primaryContent={
+              <div className="flex flex-col h-full min-h-0" data-testid="unified-editor-code-panel">
+                <CodeMirrorWrapper
+                  value={mdContent}
+                  onChange={onContentChange}
+                  language="markdown"
+                  height="100%"
+                  placeholder="Enter Markdown content..."
+                  showLineNumbers={true}
+                  wordWrap={true}
+                  readOnly={item.locked}
+                  onEditorReady={setEditor}
+                  data-testid="unified-editor-codemirror"
+                />
+              </div>
+            }
+            secondaryContent={
+              <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-800 overflow-hidden" data-testid="unified-editor-preview-panel">
+                <div className="flex-1 min-h-0 p-4">
+                  <MarkdownPreview key={item.id} content={mdContent} className="h-full" />
+                </div>
+              </div>
+            }
+          />
         </div>
       );
     }

@@ -50,7 +50,6 @@ import { ChatPanel } from '@/components/chat-drawer';
 
 // Import unified editor component
 import UnifiedEditor from '@/components/editors/UnifiedEditor';
-import { MarkdownPreview } from '@/components/editors/MarkdownPreview';
 import type { MermaidPreviewRef } from '@/components/editors/MermaidPreview';
 
 // Import task graph view
@@ -843,7 +842,7 @@ const App: React.FC = () => {
     setDesignHistoryPreview(null);
   }, [selectedItem?.id]);
 
-  // Vibe instructions: eagerly fetch content for .vibeinstructions snippet (list endpoint strips content)
+  // Eagerly fetch content for .vibeinstructions snippet (list endpoint strips content)
   useEffect(() => {
     const snip = snippets.find((s) => s.name.endsWith('vibeinstructions'));
     if (!snip || snip.content || !currentSession) return;
@@ -851,29 +850,6 @@ const App: React.FC = () => {
       .then((full) => { if (full?.content) updateSnippet(snip.id, { content: full.content }); })
       .catch(() => {});
   }, [snippets, currentSession, updateSnippet]);
-
-  const vibeInstructionsContent = useMemo(() => {
-    const snip = snippets.find((s) => s.name.endsWith('vibeinstructions'));
-    if (!snip?.content) return null;
-    try {
-      const parsed = JSON.parse(snip.content);
-      return typeof parsed.code === 'string' ? parsed.code : snip.content;
-    } catch {
-      return snip.content;
-    }
-  }, [snippets]);
-  const [vibeInstructionsCollapsed, setVibeInstructionsCollapsed] = useState(false);
-  const [vibeInstructionsEditing, setVibeInstructionsEditing] = useState(false);
-  const [vibeInstructionsEditContent, setVibeInstructionsEditContent] = useState('');
-
-  const handleVibeInstructionsSave = useCallback(async () => {
-    if (!currentSession) return;
-    const snip = snippets.find((s) => s.name.endsWith('vibeinstructions'));
-    if (!snip) return;
-    await api.updateSnippet(currentSession.project, currentSession.name, snip.id, vibeInstructionsEditContent);
-    updateSnippet(snip.id, { content: JSON.stringify({ code: vibeInstructionsEditContent, language: 'markdown' }) });
-    setVibeInstructionsEditing(false);
-  }, [currentSession, snippets, vibeInstructionsEditContent, updateSnippet]);
 
   // Auto-save handler - uses WebSocket to persist changes
   const handleSave = useCallback(
@@ -1293,73 +1269,6 @@ const App: React.FC = () => {
 
     return (
       <div className="flex flex-col h-full min-h-0">
-        {/* Vibe Instructions Panel — pinned when session has a .vibeinstructions snippet */}
-        {vibeInstructionsContent && (
-          <div className="border-b border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 flex-shrink-0">
-            {/* Header row */}
-            <div className="flex items-center gap-2 px-4 py-2">
-              <button
-                onClick={() => setVibeInstructionsCollapsed((v) => !v)}
-                className="flex items-center gap-2 flex-1 text-xs font-semibold text-amber-700 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-200 transition-colors text-left"
-              >
-                <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-                Vibe Instructions
-                <svg
-                  className={`w-3.5 h-3.5 transition-transform ${vibeInstructionsCollapsed ? '' : 'rotate-180'}`}
-                  fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-              {!vibeInstructionsCollapsed && !vibeInstructionsEditing && (
-                <button
-                  onClick={() => { setVibeInstructionsEditContent(vibeInstructionsContent); setVibeInstructionsEditing(true); setVibeInstructionsCollapsed(false); }}
-                  className="p-1 text-amber-600 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-200 transition-colors"
-                  title="Edit vibe instructions"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                  </svg>
-                </button>
-              )}
-              {vibeInstructionsEditing && (
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={handleVibeInstructionsSave}
-                    className="px-2 py-0.5 text-xs font-medium bg-amber-600 text-white rounded hover:bg-amber-700 transition-colors"
-                  >
-                    Save
-                  </button>
-                  <button
-                    onClick={() => setVibeInstructionsEditing(false)}
-                    className="px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400 hover:text-amber-900 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              )}
-            </div>
-            {/* Body */}
-            {!vibeInstructionsCollapsed && (
-              <div className="px-6 pb-4 max-h-64 overflow-y-auto">
-                {vibeInstructionsEditing ? (
-                  <textarea
-                    className="w-full h-48 text-sm font-mono bg-white dark:bg-gray-900 border border-amber-300 dark:border-amber-700 rounded p-2 resize-none focus:outline-none focus:ring-1 focus:ring-amber-500 text-gray-900 dark:text-gray-100"
-                    value={vibeInstructionsEditContent}
-                    onChange={(e) => setVibeInstructionsEditContent(e.target.value)}
-                    spellCheck={false}
-                    autoFocus
-                  />
-                ) : (
-                  <MarkdownPreview content={vibeInstructionsContent} />
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Editor Toolbar */}
         <EditorToolbar
           itemName={selectedItem?.name || ''}
