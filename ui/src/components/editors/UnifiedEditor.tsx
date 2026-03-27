@@ -39,6 +39,7 @@ import { DesignEditor } from '@/components/design-editor/DesignEditor';
 import { SpreadsheetEditor } from '@/components/editors/SpreadsheetEditor';
 import { SnippetEditor } from '@/components/editors/SnippetEditor';
 import { useSessionStore } from '@/stores/sessionStore';
+import { api } from '@/lib/api';
 
 /**
  * Props for the UnifiedEditor component
@@ -143,6 +144,8 @@ const SnippetGroupView: React.FC<{
 }> = ({ item, onSnippetSave, onContentChange, onToolbarControls }) => {
   const snippets = useSessionStore((state) => state.snippets);
   const selectSnippet = useSessionStore((state) => state.selectSnippet);
+  const removeSnippet = useSessionStore((state) => state.removeSnippet);
+  const currentSession = useSessionStore((state) => state.currentSession);
 
   const handleSnippetSave = useCallback(
     (snippet: Snippet) => onSnippetSave?.(snippet.id, snippet.content),
@@ -174,6 +177,20 @@ const SnippetGroupView: React.FC<{
       .map((s) => ({ ...s, type: 'snippet' as const }));
   }, [groupId, snippets, item]);
 
+  const handleDeleteSnippet = useCallback(
+    async (e: React.MouseEvent, snippetId: string) => {
+      e.stopPropagation();
+      if (!currentSession) return;
+      await api.deleteSnippet(currentSession.project, currentSession.name, snippetId);
+      removeSnippet(snippetId);
+      if (snippetId === item.id) {
+        const remaining = groupSnippets.filter((s) => s.id !== snippetId);
+        if (remaining.length > 0) selectSnippet(remaining[0].id);
+      }
+    },
+    [currentSession, removeSnippet, item.id, groupSnippets, selectSnippet]
+  );
+
   if (groupSnippets.length <= 1) {
     // Single snippet — no tabs
     return (
@@ -197,17 +214,34 @@ const SnippetGroupView: React.FC<{
         {groupSnippets.map((s) => {
           const isActive = s.id === item.id;
           return (
-            <button
+            <div
               key={s.id}
-              onClick={() => selectSnippet(s.id)}
-              className={`px-4 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+              className={`group/tab flex items-center border-b-2 transition-colors ${
                 isActive
-                  ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300'
+                  ? 'border-indigo-500'
+                  : 'border-transparent hover:border-gray-300'
               }`}
             >
-              {s.name}
-            </button>
+              <button
+                onClick={() => selectSnippet(s.id)}
+                className={`pl-4 pr-2 py-2 text-sm font-medium whitespace-nowrap transition-colors ${
+                  isActive
+                    ? 'text-indigo-600 dark:text-indigo-400'
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                }`}
+              >
+                {s.name}
+              </button>
+              <button
+                onClick={(e) => handleDeleteSnippet(e, s.id)}
+                className="mr-2 p-0.5 rounded text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 opacity-0 group-hover/tab:opacity-100 transition-opacity"
+                title={`Delete ${s.name}`}
+              >
+                <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </div>
           );
         })}
       </div>
