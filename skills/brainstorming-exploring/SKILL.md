@@ -3,6 +3,7 @@ name: brainstorming-exploring
 description: The EXPLORING phase gathers context about the project and forms an initial understanding
 user-invocable: false
 model: sonnet
+run-as-agent: true
 allowed-tools:
   - Read
   - Glob
@@ -185,6 +186,12 @@ Args: {
 **Announce:** "I've gathered context. Now let me discuss each item with you one at a time."
 
 ## Completion
+
+**If running as an agent:** After calling complete_skill, end your response with:
+```
+next_skill: <value returned by complete_skill, or 'null'>
+summary: <what files were read, what Kodex topics were found, whether a diagram was created, key insights>
+```
 
 At the end of this skill's work, call complete_skill:
 

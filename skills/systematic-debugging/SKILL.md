@@ -4,6 +4,7 @@ description: Investigate bugfix items to identify root cause and document findin
 user-invocable: false
 model: sonnet
 effort: high
+run-as-agent: true
 allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Task, Read, Glob, Grep
 ---
 
@@ -98,6 +99,13 @@ Args: {
 | universal | Broadly applicable debugging insights |
 
 ## Step 6: Complete Skill
+
+**If running as an agent:** After calling complete_skill, end your response with:
+```
+next_skill: <value returned by complete_skill, or 'null'>
+summary: <root cause identified, affected files, proposed approach, any lessons recorded>
+```
+
 
 ```
 Tool: mcp__plugin_mermaid-collab_mermaid__complete_skill

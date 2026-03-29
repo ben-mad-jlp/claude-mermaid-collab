@@ -4,6 +4,7 @@ description: Create comprehensive blueprint document for a work item (structure,
 user-invocable: false
 model: sonnet
 effort: high
+run-as-agent: true
 allowed-tools:
   - Read
   - Glob
@@ -472,6 +473,12 @@ Args: {
 ---
 
 ## Completion
+
+**If running as an agent:** After calling complete_skill, end your response with:
+```
+next_skill: <value returned by complete_skill, or 'null'>
+summary: <blueprint document name created, phases completed, task count, wave count, any key patterns discovered>
+```
 
 After creating the blueprint document, call complete_skill:
 

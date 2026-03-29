@@ -3,7 +3,7 @@ name: collab
 description: Start or resume a collab session - session management only
 user-invocable: true
 model: haiku
-allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Glob, Grep, Bash
+allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Glob, Grep, Bash, Agent
 ---
 
 # Collab Sessions
@@ -103,6 +103,46 @@ When state is `execute-batch`, `bug-review`, or `completeness-review`, show prog
 1. Read `batches`, `currentBatch`, `completedTasks`, `pendingTasks` from state
 2. Display: "Resuming [skill]. Batch [N]/[total], [X] tasks completed, [Y] remaining."
 3. Then invoke the mapped skill
+
+## Agent-Eligible Skills
+
+The following skills are headless (no user interaction mid-run) and **must be dispatched as agents** to keep the main context window clean:
+
+| Skill | Why |
+|-------|-----|
+| `brainstorming-exploring` | Heavy file reading, Kodex queries, diagram creation |
+| `rough-draft-blueprint` | Deep code analysis, multi-phase document generation |
+| `systematic-debugging` | Code tracing, root cause investigation |
+
+### How to Dispatch
+
+When `next_skill` is one of the above (from `complete_skill` response or state-to-skill mapping), use the Agent tool instead of Skill tool:
+
+```
+Agent(
+  description: "Run [skill-name] for session [session]",
+  prompt: "
+Project: {project}
+Session: {session}
+
+1. Invoke the Skill tool: skill='{skill-name}'
+2. Follow all skill instructions exactly, including calling complete_skill at the end
+3. Capture the next_skill value returned by complete_skill
+4. Return a message in this format:
+   next_skill: <value or 'null'>
+   summary: <3-5 sentences: what was found/created, key insights, any artifacts produced>
+  ",
+  run_in_background: false
+)
+```
+
+### After Agent Returns
+
+Read the agent's return message:
+- Extract `next_skill`
+- If `next_skill` is also agent-eligible → dispatch another agent using the same pattern
+- If `next_skill` is interactive (clarifying, designing, etc.) → invoke directly with Skill tool
+- If `next_skill` is null → workflow complete
 
 ## No Manual Routing
 
