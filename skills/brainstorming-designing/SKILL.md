@@ -3,6 +3,7 @@ name: brainstorming-designing
 description: The DESIGNING phase presents the design approach in small, validated sections
 user-invocable: false
 model: sonnet
+effort: high
 allowed-tools:
   - Read
   - Glob

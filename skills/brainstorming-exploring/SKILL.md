@@ -118,9 +118,20 @@ When `currentItem` is set in collab-state.json:
 
 ## Checkpoint: Current State Diagram
 
-**REQUIRED** before proceeding to CLARIFYING:
+**Create a diagram only when it adds genuine value.** Assess the item first:
 
-Create a diagram showing the current state relevant to this work:
+**Skip diagram if any of these are true:**
+- Item type is `bugfix` (systematic-debugging handles investigation visuals)
+- Change touches ≤ 2 files with no cross-component interaction
+- Item is a config, text, or single-component change
+- Kodex already has an accurate diagram for this area
+
+**Create diagram if:**
+- Multiple components or services interact in non-obvious ways
+- Data flows through several layers (e.g., API → service → DB)
+- The architecture is being changed, not just extended
+
+**If creating a diagram:**
 
 ```
 Tool: mcp__plugin_mermaid-collab_mermaid__create_diagram
@@ -134,12 +145,7 @@ Args: {
 
 Display: "Current state diagram: [previewUrl]"
 
-If the work item doesn't involve architecture/flow (e.g., pure text changes), create a simple diagram showing the file(s) being modified:
-
-```mermaid
-graph LR
-    A[File: path/to/file.md] --> B[Section being modified]
-```
+**If skipping:** Note why briefly (e.g., "Diagram skipped — isolated single-file change") and proceed to CLARIFYING.
 
 ## Recording Exploration Insights (Optional)
 

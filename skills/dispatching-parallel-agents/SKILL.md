@@ -2,7 +2,7 @@
 name: dispatching-parallel-agents
 description: Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies
 model: haiku
-allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Glob, Grep, Task
+allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Glob, Grep, Agent
 ---
 
 # Dispatching Parallel Agents
@@ -65,13 +65,17 @@ Each agent gets:
 
 ### 3. Dispatch in Parallel
 
-```typescript
-// In Claude Code / AI environment
-Task("Fix agent-tool-abort.test.ts failures")
-Task("Fix batch-completion-behavior.test.ts failures")
-Task("Fix tool-approval-race-conditions.test.ts failures")
-// All three run concurrently
+Use the `Agent` tool with `run_in_background: true`. Send **all agent calls in a single response** — this is what makes them run concurrently. Claude Code will notify you when each completes.
+
 ```
+// Single response, multiple Agent tool calls:
+Agent(description: "Fix agent-tool-abort.test.ts failures", prompt: "...", run_in_background: true)
+Agent(description: "Fix batch-completion-behavior.test.ts failures", prompt: "...", run_in_background: true)
+Agent(description: "Fix tool-approval-race-conditions.test.ts failures", prompt: "...", run_in_background: true)
+// All three run concurrently — you'll be notified as each finishes
+```
+
+For file-editing tasks that might conflict, add `isolation: "worktree"` to give each agent an isolated copy of the repo.
 
 ### 4. Review and Integrate
 

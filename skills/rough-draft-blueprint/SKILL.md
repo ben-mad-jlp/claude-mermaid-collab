@@ -3,6 +3,7 @@ name: rough-draft-blueprint
 description: Create comprehensive blueprint document for a work item (structure, functions, and task graph)
 user-invocable: false
 model: sonnet
+effort: high
 allowed-tools:
   - Read
   - Glob

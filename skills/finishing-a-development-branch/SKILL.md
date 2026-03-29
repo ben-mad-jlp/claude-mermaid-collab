@@ -231,6 +231,39 @@ git worktree remove <worktree-path>
 - Get typed confirmation for Option 4
 - Clean up worktree for Options 1 & 4 only
 
+## Step 6: Quick Retro
+
+After branch work is complete, run a brief retro before closing:
+
+Ask via `render_ui` (TextArea):
+
+```
+What worked well this session? Anything to do differently next time?
+(Optional — press Skip to continue)
+```
+
+If user provides feedback:
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__add_lesson
+Args: {
+  "project": "<cwd>",
+  "session": "<session>",
+  "lesson": "<user's retro feedback>",
+  "category": "workflow"
+}
+```
+
+## Step 7: Sync to Kodex
+
+Sync session artifacts to the knowledge base before closing:
+
+```
+Tool: Skill
+Args: { "skill": "kodex-sync-session" }
+```
+
+This ensures design docs, diagrams, and lessons land in Kodex even if the session is never formally cleaned up.
+
 ## Collab Session Cleanup
 
 After the development branch work is complete (merged, PR created, or kept):

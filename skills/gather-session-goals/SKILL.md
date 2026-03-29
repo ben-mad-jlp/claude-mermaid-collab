@@ -129,10 +129,21 @@ Does this list look correct?
 ```
 
 **Handle user responses:**
-- **1 (Yes)** - Proceed to Step 5
+- **1 (Yes)** - Proceed to Step 4.5
 - **2 (Add more)** - Return to Step 2
 - **3 (Remove)** - Ask which item to remove, remove it, return to Step 4
 - **4 (Edit)** - Ask which item to edit, update it, return to Step 4
+
+### Step 4.5: Declare Dependencies (only if 2+ items)
+
+If there are 2 or more work items, ask:
+
+**"Do any items depend on other items being finished first? (e.g., 'Item 2 needs Item 1 done before it can start')"**
+
+- If **yes**: Ask which items depend on which, and record `dependsOn: [<itemNumber>]` for each dependent item
+- If **no / only one item**: Skip to Step 5
+
+Dependencies are stored in the workItems array and used to enforce execution order during implementation.
 
 ### Step 5: Write Work Items
 
@@ -148,8 +159,8 @@ Args: {
   "project": "<cwd>",
   "session": "<session>",
   "workItems": [
-    { "number": 1, "title": "<title>", "type": "<code|bugfix|task>", "status": "pending" },
-    { "number": 2, "title": "<title>", "type": "<code|bugfix|task>", "status": "pending" },
+    { "number": 1, "title": "<title>", "type": "<code|bugfix|task>", "status": "pending", "dependsOn": [] },
+    { "number": 2, "title": "<title>", "type": "<code|bugfix|task>", "status": "pending", "dependsOn": [1] },
     ...
   ]
 }

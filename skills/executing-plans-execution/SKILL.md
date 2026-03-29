@@ -86,6 +86,12 @@ FUNCTION executeTask(task, itemType):
 5. Verify test passes + run full test suite for regressions
 6. Mark task as complete
 
+### Item-Level Dependencies
+
+Before executing any work item, check `dependsOn` in the session state's `workItems` array. If the current item has `dependsOn: [N]`, verify item N's status is `completed` before starting. If not complete, skip this item and note: "Item M blocked — waiting on Item N."
+
+This enforces the dependencies declared during goal gathering.
+
 ### Dependency-Aware Execution (Collab Workflow)
 
 When a task dependency graph is present, use intelligent parallel dispatch:
