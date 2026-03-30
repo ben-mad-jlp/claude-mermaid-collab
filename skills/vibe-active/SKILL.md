@@ -3,7 +3,7 @@ name: vibe-active
 description: Freeform collab session for creating diagrams, docs, and designs
 user-invocable: false
 model: sonnet
-allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Glob, Grep, Bash
+allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Glob, Grep, Bash, Agent
 ---
 
 # Vibe Active
@@ -19,6 +19,23 @@ Call `mcp__plugin_mermaid-collab_mermaid__update_session_state` with:
 - `sessionType`: `vibe`
 
 This ensures the UI reflects the active vibe session regardless of whether this is a new session or a resume.
+
+### Step 1.5 — Agent mode (new sessions only)
+
+For **new sessions** (no vibeinstructions doc exists yet), after setting state ask:
+
+```
+Use agents for heavy tasks? Agent mode dispatches research, implementation,
+debugging, and deployment to isolated agents to keep this context window clean.
+
+1. Yes — enable agent mode
+2. No — run everything here
+```
+
+- If **Yes**: call `update_session_state` with `agentMode: true`
+- If **No**: call `update_session_state` with `agentMode: false`
+
+For **resumed sessions**: read `agentMode` from session state — do not ask again.
 
 ### Step 2 — Check for vibe instructions
 
@@ -54,7 +71,7 @@ Vibe session resumed. Continuing from checkpoint above.
 ### Entry Message (new vibes only)
 
 ```
-Vibe session active!
+Vibe session active! [Agent mode: on | off]
 
 You can freely:
 - Create diagrams (Mermaid flowcharts, sequence diagrams, etc.)
@@ -64,8 +81,11 @@ You can freely:
 The collab UI is available at http://localhost:3737
 
 Use /vibe-checkpoint before /clear to save your place.
+Use /vibe-agents on|off to toggle agent mode.
 When you're done, use /collab-cleanup to archive or delete the session.
 ```
+
+Show actual agent mode status in the bracket.
 
 ## Available Actions
 
@@ -84,6 +104,128 @@ In vibe mode, respond to user requests to:
    Invoke: result.next_skill (will be "collab-cleanup")
 6. **Convert to structured** - When user wants structured workflow (work items, brainstorming, blueprints):
    Invoke skill: convert-to-structured
+
+## Agent Dispatch
+
+When `agentMode` is `true` in session state, proactively offer to dispatch heavy tasks as agents.
+
+### When to offer
+
+After understanding a user request, if it falls into one of these categories — offer before starting:
+
+| Type | Trigger phrases |
+|------|----------------|
+| Research | "how does X work", "investigate", "find all usages", "explore", "what is" |
+| Implementation | "implement", "build", "add", "create", "refactor", "update" |
+| Debugging | "why is X failing", "fix", "trace", "what's causing" |
+| Deployment | "deploy", "push to", "release", "run migrations", "build and" |
+
+**Offer text:**
+```
+Agent mode is on — want me to run this as an agent to keep our context clean? (yes/no)
+```
+
+If yes, dispatch using the appropriate template below. If no, proceed normally in main context.
+
+### Research Agent
+
+Investigates and saves findings as a session document.
+
+```
+Agent(
+  description: "Research: [topic]",
+  prompt: "
+Project: {project}
+Session: {session}
+
+Research task: {user's request}
+
+1. Read relevant files, search codebase, check git history as needed
+2. Save findings as a document:
+   Tool: mcp__plugin_mermaid-collab_mermaid__create_document
+   Args: { project, session, name: 'research-[topic]', content: [findings in markdown] }
+3. Return a concise summary of key findings
+  ",
+  run_in_background: false
+)
+```
+
+### Implementation Agent
+
+Implements directly, returns what changed.
+
+```
+Agent(
+  description: "Implement: [what]",
+  prompt: "
+Project: {project}
+Session: {session}
+
+Implementation task: {user's request}
+
+1. Read relevant files to understand existing code
+2. Implement the changes
+3. Run tests to verify (use the project's test command)
+4. Return:
+   - Files changed and what was done
+   - Test results (pass/fail)
+   - Any decisions made or assumptions taken
+  ",
+  run_in_background: false
+)
+```
+
+### Debug Agent
+
+Investigates a failure, saves findings, returns root cause.
+
+```
+Agent(
+  description: "Debug: [issue]",
+  prompt: "
+Project: {project}
+Session: {session}
+
+Debug task: {user's request}
+
+1. Read relevant source files and trace the code path
+2. Identify root cause, affected files, and proposed fix
+3. Save findings as a document:
+   Tool: mcp__plugin_mermaid-collab_mermaid__create_document
+   Args: { project, session, name: 'debug-[issue]', content: [findings] }
+4. Return: root cause, affected files, proposed fix approach
+  ",
+  run_in_background: false
+)
+```
+
+### Deployment Agent
+
+Runs deployment commands, returns outcome.
+
+```
+Agent(
+  description: "Deploy: [what]",
+  prompt: "
+Project: {project}
+Session: {session}
+
+Deployment task: {user's request}
+
+1. Run the required build/deploy/migration commands
+2. Capture output at each step
+3. Return:
+   - Each step run and its result (success/failure)
+   - Any errors encountered with full output
+   - Final deployment status
+  ",
+  run_in_background: false
+)
+```
+
+### After Agent Returns
+
+Summarize the result to the user in 2-3 sentences. If a document was created, mention its name so they can open it in the collab UI.
 
 ## Completion
 
