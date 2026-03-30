@@ -35,7 +35,9 @@ debugging, and deployment to isolated agents to keep this context window clean.
 - If **Yes**: call `update_session_state` with `agentMode: true`
 - If **No**: call `update_session_state` with `agentMode: false`
 
-For **resumed sessions**: read `agentMode` from session state — do not ask again.
+For **resumed sessions**: read `agentMode` from session state.
+- If `true` or `false`: do not ask again — use the stored value.
+- If **unset** (session predates agent mode): ask the same question as new sessions and save the answer.
 
 ### Step 2 — Check for vibe instructions
 
