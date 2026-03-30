@@ -40,6 +40,11 @@ Then restart Claude Code and run /collab again.
 
 ## Step 2: Find/Create Session
 
+**If the skill was invoked with a session name argument** (e.g. `/collab my-session-name`):
+- Skip the list — go directly to Step 4 using that session name.
+
+Otherwise:
+
 1. List all sessions:
    ```
    Tool: mcp__plugin_mermaid-collab_mermaid__list_sessions
