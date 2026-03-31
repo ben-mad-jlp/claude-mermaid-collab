@@ -27,6 +27,8 @@ export interface ItemCardProps {
   showDelete?: boolean;
   /** Callback when deprecate/restore button is clicked */
   onDeprecate?: () => void;
+  /** Callback when pin/unpin button is clicked */
+  onPin?: () => void;
 }
 
 /**
@@ -210,6 +212,7 @@ export const ItemCard: React.FC<ItemCardProps> = ({
   onDelete,
   showDelete,
   onDeprecate,
+  onPin,
 }) => {
   const relativeTime = formatRelativeTime(item.lastModified);
   const typeLabel = item.type === 'diagram' ? 'Diagram' : item.type === 'design' ? 'Design' : item.type === 'spreadsheet' ? 'Spreadsheet' : item.type === 'snippet' ? 'Snippet' : 'Document';
@@ -301,9 +304,37 @@ export const ItemCard: React.FC<ItemCardProps> = ({
               }
             </p>
 
+            {/* Pin button — always visible when pinned, otherwise shown on hover */}
+            {onPin && item.pinned && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onPin(); }}
+                className="p-1 rounded transition-colors text-accent-500 dark:text-accent-400 hover:text-accent-600 hover:bg-accent-50 dark:hover:bg-accent-900/20 flex-shrink-0"
+                aria-label={`Unpin ${item.name}`}
+                title="Unpin"
+              >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="17" x2="12" y2="22" />
+                  <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
+                </svg>
+              </button>
+            )}
+
             {/* Action buttons — shown on hover */}
-            {showDelete && (onDeprecate || onDelete) && (
+            {showDelete && (onPin || onDeprecate || onDelete) && (
               <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 ml-1">
+                {onPin && !item.pinned && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onPin(); }}
+                    className="p-1 rounded transition-colors text-gray-400 hover:text-accent-500 dark:text-gray-500 dark:hover:text-accent-400 hover:bg-accent-50 dark:hover:bg-accent-900/20"
+                    aria-label={`Pin ${item.name}`}
+                    title="Pin to top"
+                  >
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="12" y1="17" x2="12" y2="22" />
+                      <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
+                    </svg>
+                  </button>
+                )}
                 {onDeprecate && (
                   <button
                     onClick={(e) => { e.stopPropagation(); onDeprecate(); }}

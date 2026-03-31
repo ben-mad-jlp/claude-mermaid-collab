@@ -82,6 +82,7 @@ export interface ItemMetadata {
   folder: string | null;
   locked: boolean;
   deprecated?: boolean;
+  pinned?: boolean;
 }
 
 export interface Metadata {

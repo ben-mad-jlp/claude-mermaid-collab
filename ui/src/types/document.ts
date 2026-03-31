@@ -10,4 +10,5 @@ export interface Document {
   folder?: string;
   locked?: boolean;
   deprecated?: boolean;
+  pinned?: boolean;
 }

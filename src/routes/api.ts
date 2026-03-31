@@ -576,7 +576,7 @@ export async function handleAPI(
 
     const { diagramManager, metadataManager } = await createManagers(params.project, params.session);
     const diagrams = await diagramManager.listDiagrams();
-    const diagramsWithMeta = diagrams.map((d) => ({ ...d, deprecated: metadataManager.isDeprecated(d.id) }));
+    const diagramsWithMeta = diagrams.map((d) => ({ ...d, deprecated: metadataManager.isDeprecated(d.id), pinned: metadataManager.isPinned(d.id) }));
     return Response.json({ diagrams: diagramsWithMeta });
   }
 
@@ -1235,7 +1235,7 @@ export async function handleAPI(
 
     const { documentManager, metadataManager } = await createManagers(params.project, params.session);
     const documents = await documentManager.listDocuments();
-    const documentsWithMeta = documents.map((d) => ({ ...d, deprecated: metadataManager.isDeprecated(d.id) }));
+    const documentsWithMeta = documents.map((d) => ({ ...d, deprecated: metadataManager.isDeprecated(d.id), pinned: metadataManager.isPinned(d.id) }));
     return Response.json({ documents: documentsWithMeta });
   }
 
@@ -1482,7 +1482,7 @@ export async function handleAPI(
 
     const { spreadsheetManager, metadataManager } = await createManagers(params.project, params.session);
     const spreadsheets = await spreadsheetManager.listSpreadsheets();
-    const spreadsheetsWithMeta = spreadsheets.map((s) => ({ ...s, deprecated: metadataManager.isDeprecated(s.id) }));
+    const spreadsheetsWithMeta = spreadsheets.map((s) => ({ ...s, deprecated: metadataManager.isDeprecated(s.id), locked: metadataManager.isLocked(s.id) }));
     return Response.json({ spreadsheets: spreadsheetsWithMeta });
   }
 
@@ -1694,7 +1694,7 @@ export async function handleAPI(
         const parsed = JSON.parse(s.content);
         if (typeof parsed.description === 'string') description = parsed.description;
       } catch { /* plain-text snippet */ }
-      return { id: s.id, name: s.name, ...(description !== undefined && { description }), lastModified: s.lastModified, deprecated: metadataManager.isDeprecated(s.id) };
+      return { id: s.id, name: s.name, ...(description !== undefined && { description }), lastModified: s.lastModified, deprecated: metadataManager.isDeprecated(s.id), pinned: metadataManager.isPinned(s.id) };
     });
     return Response.json({ snippets: meta });
   }
@@ -2153,7 +2153,7 @@ export async function handleAPI(
     }
 
     const id = path.split('/').pop()!;
-    const updates = await req.json() as { folder?: string | null; locked?: boolean; deprecated?: boolean };
+    const updates = await req.json() as { folder?: string | null; locked?: boolean; deprecated?: boolean; pinned?: boolean };
 
     try {
       const { metadataManager } = await createManagers(params.project, params.session);

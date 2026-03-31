@@ -733,4 +733,19 @@ export const api: ApiClient = {
       throw new Error(response.statusText);
     }
   },
+
+  /**
+   * Pin or unpin an artifact (locked = pinned to top of list)
+   */
+  async setPinned(project: string, session: string, id: string, pinned: boolean): Promise<void> {
+    const url = `/api/metadata/item/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pinned }),
+    });
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+  },
 };

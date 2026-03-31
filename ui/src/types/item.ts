@@ -34,6 +34,8 @@ export interface ItemMetadata {
   locked?: boolean;
   /** Whether the artifact is deprecated (hidden by default) */
   deprecated?: boolean;
+  /** Whether the artifact is pinned to the top of the list */
+  pinned?: boolean;
 }
 
 /**

@@ -148,6 +148,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
     [currentSession, updateDiagram, updateDocument, updateSpreadsheet, updateSnippet]
   );
 
+  const handlePinItem = useCallback(
+    async (item: Item) => {
+      if (!currentSession) return;
+      const newPinned = !item.pinned;
+      try {
+        await api.setPinned(currentSession.project, currentSession.name, item.id, newPinned);
+        if (item.type === 'diagram') {
+          updateDiagram(item.id, { pinned: newPinned });
+        } else if (item.type === 'document') {
+          updateDocument(item.id, { pinned: newPinned });
+        } else if (item.type === 'spreadsheet') {
+          updateSpreadsheet(item.id, { pinned: newPinned });
+        } else if (item.type === 'snippet') {
+          updateSnippet(item.id, { pinned: newPinned });
+        }
+      } catch (error) {
+        console.error('Failed to set pinned:', error);
+      }
+    },
+    [currentSession, updateDiagram, updateDocument, updateSpreadsheet, updateSnippet]
+  );
+
   const handleItemClick = useCallback(
     (item: Item) => {
       if (!currentSession) return;
@@ -263,7 +285,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       })(),
     ];
 
-    items.sort((a, b) => b.lastModified - a.lastModified);
+    // Pinned items first, then by recency
+    items.sort((a, b) => {
+      if (a.pinned && !b.pinned) return -1;
+      if (!a.pinned && b.pinned) return 1;
+      return b.lastModified - a.lastModified;
+    });
 
     const visibleItems = showDeprecated ? items : items.filter((item) => !item.deprecated);
 
@@ -489,6 +516,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 showDelete={showItemDelete}
                 onDelete={() => handleDeleteItem(item)}
                 onDeprecate={showItemDelete ? () => handleDeprecateItem(item) : undefined}
+                onPin={showItemDelete ? () => handlePinItem(item) : undefined}
               />
             ))}
           </div>

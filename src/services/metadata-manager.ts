@@ -77,6 +77,10 @@ export class MetadataManager {
       this.metadata.items[id].deprecated = updates.deprecated;
     }
 
+    if (updates.pinned !== undefined) {
+      this.metadata.items[id].pinned = updates.pinned;
+    }
+
     await this.save();
   }
 
@@ -86,6 +90,10 @@ export class MetadataManager {
 
   isDeprecated(id: string): boolean {
     return this.metadata.items[id]?.deprecated || false;
+  }
+
+  isPinned(id: string): boolean {
+    return this.metadata.items[id]?.pinned || false;
   }
 
   async createFolder(name: string): Promise<void> {

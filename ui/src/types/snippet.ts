@@ -16,4 +16,5 @@ export interface Snippet {
   folder?: string;
   locked?: boolean;
   deprecated?: boolean;
+  pinned?: boolean;
 }

@@ -9,6 +9,8 @@ export interface Design {
   name: string;
   content?: string;
   lastModified?: number;
+  deprecated?: boolean;
+  pinned?: boolean;
 }
 
 /**
@@ -20,6 +22,7 @@ export interface Spreadsheet {
   content?: string;
   lastModified?: number;
   deprecated?: boolean;
+  pinned?: boolean;
 }
 
 /**

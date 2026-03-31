@@ -10,6 +10,7 @@ export interface Diagram {
   folder?: string;
   locked?: boolean;
   deprecated?: boolean;
+  pinned?: boolean;
 }
 
 export interface DiagramValidation {
