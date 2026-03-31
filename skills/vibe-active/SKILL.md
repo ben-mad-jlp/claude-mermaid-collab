@@ -244,6 +244,24 @@ This skill completes when:
 - User explicitly requests cleanup (/collab-cleanup or "I'm done")
 - At completion, call complete_skill to transition to cleanup state
 
+## Long Answers as Artifacts
+
+When answering a question where the response would be long (code explanations, architecture overviews, step-by-step guides, comparisons, summaries), **write it as a document instead of responding in the console.**
+
+**Threshold:** If your answer would exceed ~10 lines, default to a document.
+
+**Pattern:**
+1. Create the document:
+   ```
+   Tool: mcp__plugin_mermaid-collab_mermaid__create_document
+   Args: { project, session, name: '[topic]', content: [full answer in markdown] }
+   ```
+2. Respond briefly in console: `"Saved to '[topic]' — open it in the collab UI for the full answer."`
+
+**Why:** Keeps the context window clean, gives you a persistent artifact you can reference later, and avoids walls of text in the chat.
+
+**Exceptions:** Short factual answers (yes/no, a single value, a quick definition) are fine in the console.
+
 ## No Structured Workflow
 
 This skill does NOT:
