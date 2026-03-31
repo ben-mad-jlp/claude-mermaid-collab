@@ -572,9 +572,10 @@ export async function handleAPI(
       return Response.json({ error: 'project and session query params required' }, { status: 400 });
     }
 
-    const { diagramManager } = await createManagers(params.project, params.session);
+    const { diagramManager, metadataManager } = await createManagers(params.project, params.session);
     const diagrams = await diagramManager.listDiagrams();
-    return Response.json({ diagrams });
+    const diagramsWithMeta = diagrams.map((d) => ({ ...d, deprecated: metadataManager.isDeprecated(d.id) }));
+    return Response.json({ diagrams: diagramsWithMeta });
   }
 
   // GET /api/diagram/:id/history?project=...&session=...
@@ -1230,9 +1231,10 @@ export async function handleAPI(
       return Response.json({ error: 'project and session query params required' }, { status: 400 });
     }
 
-    const { documentManager } = await createManagers(params.project, params.session);
+    const { documentManager, metadataManager } = await createManagers(params.project, params.session);
     const documents = await documentManager.listDocuments();
-    return Response.json({ documents });
+    const documentsWithMeta = documents.map((d) => ({ ...d, deprecated: metadataManager.isDeprecated(d.id) }));
+    return Response.json({ documents: documentsWithMeta });
   }
 
   // GET /api/document/:id?project=...&session=...
@@ -1476,9 +1478,10 @@ export async function handleAPI(
       return Response.json({ error: 'project and session query params required' }, { status: 400 });
     }
 
-    const { spreadsheetManager } = await createManagers(params.project, params.session);
+    const { spreadsheetManager, metadataManager } = await createManagers(params.project, params.session);
     const spreadsheets = await spreadsheetManager.listSpreadsheets();
-    return Response.json({ spreadsheets });
+    const spreadsheetsWithMeta = spreadsheets.map((s) => ({ ...s, deprecated: metadataManager.isDeprecated(s.id) }));
+    return Response.json({ spreadsheets: spreadsheetsWithMeta });
   }
 
   // GET /api/spreadsheet/:id/history?project=...&session=...
@@ -1681,7 +1684,7 @@ export async function handleAPI(
       return Response.json({ error: 'project and session query params required' }, { status: 400 });
     }
 
-    const { snippetManager } = await createManagers(params.project, params.session);
+    const { snippetManager, metadataManager } = await createManagers(params.project, params.session);
     const snippets = await snippetManager.listSnippets();
     const meta = snippets.map(s => {
       let description: string | undefined;
@@ -1689,7 +1692,7 @@ export async function handleAPI(
         const parsed = JSON.parse(s.content);
         if (typeof parsed.description === 'string') description = parsed.description;
       } catch { /* plain-text snippet */ }
-      return { id: s.id, name: s.name, ...(description !== undefined && { description }), lastModified: s.lastModified };
+      return { id: s.id, name: s.name, ...(description !== undefined && { description }), lastModified: s.lastModified, deprecated: metadataManager.isDeprecated(s.id) };
     });
     return Response.json({ snippets: meta });
   }
@@ -2148,7 +2151,7 @@ export async function handleAPI(
     }
 
     const id = path.split('/').pop()!;
-    const updates = await req.json() as { folder?: string | null; locked?: boolean };
+    const updates = await req.json() as { folder?: string | null; locked?: boolean; deprecated?: boolean };
 
     try {
       const { metadataManager } = await createManagers(params.project, params.session);

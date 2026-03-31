@@ -19,6 +19,7 @@ export interface Spreadsheet {
   name: string;
   content?: string;
   lastModified?: number;
+  deprecated?: boolean;
 }
 
 /**

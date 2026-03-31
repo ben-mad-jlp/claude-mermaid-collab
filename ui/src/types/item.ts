@@ -32,6 +32,8 @@ export interface ItemMetadata {
   folder?: string;
   /** Whether the artifact is currently locked for editing */
   locked?: boolean;
+  /** Whether the artifact is deprecated (hidden by default) */
+  deprecated?: boolean;
 }
 
 /**

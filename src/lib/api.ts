@@ -462,7 +462,7 @@ export class APIClient {
     project: string,
     session: string,
     id: string,
-    updates: { folder?: string | null; locked?: boolean }
+    updates: { folder?: string | null; locked?: boolean; deprecated?: boolean }
   ): Promise<void> {
     await this.request<UpdateResponse>(
       'POST',

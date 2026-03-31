@@ -29,7 +29,7 @@ export class MetadataManager {
   }
 
   getItemMetadata(id: string): ItemMetadata {
-    return this.metadata.items[id] || { folder: null, locked: false };
+    return this.metadata.items[id] || { folder: null, locked: false, deprecated: false };
   }
 
   async setItemFolder(id: string, folder: string | null): Promise<void> {
@@ -68,11 +68,19 @@ export class MetadataManager {
       this.metadata.items[id].locked = updates.locked;
     }
 
+    if (updates.deprecated !== undefined) {
+      this.metadata.items[id].deprecated = updates.deprecated;
+    }
+
     await this.save();
   }
 
   isLocked(id: string): boolean {
     return this.metadata.items[id]?.locked || false;
+  }
+
+  isDeprecated(id: string): boolean {
+    return this.metadata.items[id]?.deprecated || false;
   }
 
   async createFolder(name: string): Promise<void> {

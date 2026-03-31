@@ -9,6 +9,7 @@ export interface Diagram {
   lastModified: number;
   folder?: string;
   locked?: boolean;
+  deprecated?: boolean;
 }
 
 export interface DiagramValidation {

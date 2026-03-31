@@ -2107,6 +2107,20 @@ IMPORTANT - Common pitfalls to avoid:
           required: ['project', 'id', 'startLine', 'endLine', 'newContent'],
         },
       },
+      {
+        name: 'deprecate_artifact',
+        description: 'Mark an artifact as deprecated (hidden by default) or restore it. Deprecated artifacts remain in the session but are filtered from the default view.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Project path' },
+            session: { type: 'string', description: 'Session name' },
+            id: { type: 'string', description: 'Artifact ID' },
+            deprecated: { type: 'boolean', description: 'true to deprecate, false to restore' },
+          },
+          required: ['project', 'session', 'id', 'deprecated'],
+        },
+      },
     ],
   }));
 
@@ -3781,6 +3795,18 @@ IMPORTANT - Common pitfalls to avoid:
             });
             if (!saveResp.ok) throw new Error(`Failed to revert snippet: ${saveResp.statusText}`);
             return JSON.stringify({ success: true, revertedTo: timestamp }, null, 2);
+          }
+
+          case 'deprecate_artifact': {
+            const { project, session, id, deprecated } = args as { project: string; session: string; id: string; deprecated: boolean };
+            if (!project || !session || !id || deprecated === undefined) throw new Error('Missing required: project, session, id, deprecated');
+            const response = await fetch(buildUrl(`/api/metadata/item/${id}`, project, session), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ deprecated }),
+            });
+            if (!response.ok) throw new Error(`Failed to set deprecated: ${response.statusText}`);
+            return JSON.stringify({ success: true, deprecated, id });
           }
 
           default:

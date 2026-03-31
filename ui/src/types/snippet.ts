@@ -15,4 +15,5 @@ export interface Snippet {
   lastModified: number;
   folder?: string;
   locked?: boolean;
+  deprecated?: boolean;
 }

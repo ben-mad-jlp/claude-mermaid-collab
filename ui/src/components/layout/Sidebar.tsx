@@ -43,6 +43,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
     removeTodo: storeRemoveTodo,
     setTodos,
     addTodo: storeAddTodo,
+    updateDiagram,
+    updateDocument,
+    updateSpreadsheet,
+    updateSnippet,
   } = useSessionStore(
     useShallow((state) => ({
       diagrams: state.diagrams,
@@ -73,6 +77,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
       removeTodo: state.removeTodo,
       setTodos: state.setTodos,
       addTodo: state.addTodo,
+      updateDiagram: state.updateDiagram,
+      updateDocument: state.updateDocument,
+      updateSpreadsheet: state.updateSpreadsheet,
+      updateSnippet: state.updateSnippet,
     }))
   );
 
@@ -81,6 +89,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddTodoDialog, setShowAddTodoDialog] = useState(false);
   const [isTodoDropdownOpen, setIsTodoDropdownOpen] = useState(false);
+  const [showDeprecated, setShowDeprecated] = useState(false);
 
   const isVibing = collabState?.state === 'vibe-active';
 
@@ -115,6 +124,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
       }
     },
     [currentSession, removeDiagram, removeDocument, removeDesign, removeSpreadsheet, removeSnippet]
+  );
+
+  const handleDeprecateItem = useCallback(
+    async (item: Item) => {
+      if (!currentSession) return;
+      const newDeprecated = !item.deprecated;
+      try {
+        await api.setDeprecated(currentSession.project, currentSession.name, item.id, newDeprecated);
+        if (item.type === 'diagram') {
+          updateDiagram(item.id, { deprecated: newDeprecated });
+        } else if (item.type === 'document') {
+          updateDocument(item.id, { deprecated: newDeprecated });
+        } else if (item.type === 'spreadsheet') {
+          updateSpreadsheet(item.id, { deprecated: newDeprecated });
+        } else if (item.type === 'snippet') {
+          updateSnippet(item.id, { deprecated: newDeprecated });
+        }
+      } catch (error) {
+        console.error('Failed to set deprecated:', error);
+      }
+    },
+    [currentSession, updateDiagram, updateDocument, updateSpreadsheet, updateSnippet]
   );
 
   const handleItemClick = useCallback(
@@ -234,13 +265,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     items.sort((a, b) => b.lastModified - a.lastModified);
 
+    const visibleItems = showDeprecated ? items : items.filter((item) => !item.deprecated);
+
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      return items.filter((item) => item.name.toLowerCase().includes(query));
+      return visibleItems.filter((item) => item.name.toLowerCase().includes(query));
     }
 
-    return items;
-  }, [diagrams, documents, designs, spreadsheets, snippets, searchQuery]);
+    return visibleItems;
+  }, [diagrams, documents, designs, spreadsheets, snippets, searchQuery, showDeprecated]);
 
   const isItemSelected = useCallback(
     (item: Item) => {
@@ -363,6 +396,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 disabled:cursor-not-allowed
             "
           />
+          <div className="flex items-center gap-2 px-1 mt-1">
+            <input
+              type="checkbox"
+              id="show-deprecated"
+              checked={showDeprecated}
+              onChange={(e) => setShowDeprecated(e.target.checked)}
+              className="w-3.5 h-3.5 rounded border-gray-300 dark:border-gray-600 text-accent-600"
+            />
+            <label htmlFor="show-deprecated" className="text-xs text-gray-500 dark:text-gray-400 cursor-pointer select-none">
+              Show deprecated
+            </label>
+          </div>
         </div>
       )}
 
@@ -443,6 +488,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onClick={() => handleItemClick(item)}
                 showDelete={showItemDelete}
                 onDelete={() => handleDeleteItem(item)}
+                onDeprecate={showItemDelete ? () => handleDeprecateItem(item) : undefined}
               />
             ))}
           </div>

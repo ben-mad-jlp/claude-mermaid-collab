@@ -15,6 +15,7 @@ export interface DiagramListItem {
   id: string;
   name: string;
   lastModified: number;
+  deprecated?: boolean;
 }
 
 export interface Document {
@@ -34,6 +35,7 @@ export interface DocumentListItem {
   id: string;
   name: string;
   lastModified: number;
+  deprecated?: boolean;
 }
 
 export interface Spreadsheet {
@@ -53,6 +55,7 @@ export interface SpreadsheetListItem {
   id: string;
   name: string;
   lastModified: number;
+  deprecated?: boolean;
 }
 
 export interface Snippet {
@@ -72,11 +75,13 @@ export interface SnippetListItem {
   id: string;
   name: string;
   lastModified: number;
+  deprecated?: boolean;
 }
 
 export interface ItemMetadata {
   folder: string | null;
   locked: boolean;
+  deprecated?: boolean;
 }
 
 export interface Metadata {

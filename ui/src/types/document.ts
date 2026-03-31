@@ -9,4 +9,5 @@ export interface Document {
   lastModified: number;
   folder?: string;
   locked?: boolean;
+  deprecated?: boolean;
 }

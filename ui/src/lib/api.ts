@@ -88,6 +88,7 @@ export interface ApiClient {
   addTodo(project: string, title: string, description: string): Promise<ProjectTodo>;
   updateTodo(project: string, id: number, updates: { title?: string }): Promise<ProjectTodo>;
   removeTodo(project: string, id: number): Promise<void>;
+  setDeprecated(project: string, session: string, id: string, deprecated: boolean): Promise<void>;
 }
 
 export interface CachedUIState {
@@ -713,6 +714,21 @@ export const api: ApiClient = {
   async removeTodo(project: string, id: number): Promise<void> {
     const url = `/api/todos/${id}?project=${encodeURIComponent(project)}`;
     const response = await fetch(url, { method: 'DELETE' });
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+  },
+
+  /**
+   * Set deprecated status for an artifact
+   */
+  async setDeprecated(project: string, session: string, id: string, deprecated: boolean): Promise<void> {
+    const url = `/api/metadata/item/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deprecated }),
+    });
     if (!response.ok) {
       throw new Error(response.statusText);
     }
