@@ -1,16 +1,21 @@
 import { readFile, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
+import { join } from 'path';
 import type { Metadata, ItemMetadata } from '../types';
-import { config } from '../config';
 
 export class MetadataManager {
   private metadata: Metadata = { folders: [], items: {} };
   private dirty = false;
+  private metadataFile: string;
+
+  constructor(sessionDir: string) {
+    this.metadataFile = join(sessionDir, 'metadata.json');
+  }
 
   async initialize(): Promise<void> {
-    if (existsSync(config.METADATA_FILE)) {
+    if (existsSync(this.metadataFile)) {
       try {
-        const content = await readFile(config.METADATA_FILE, 'utf-8');
+        const content = await readFile(this.metadataFile, 'utf-8');
         this.metadata = JSON.parse(content);
       } catch (error) {
         console.error('Failed to load metadata, using defaults:', error);
@@ -20,7 +25,7 @@ export class MetadataManager {
   }
 
   private async save(): Promise<void> {
-    await writeFile(config.METADATA_FILE, JSON.stringify(this.metadata, null, 2), 'utf-8');
+    await writeFile(this.metadataFile, JSON.stringify(this.metadata, null, 2), 'utf-8');
     this.dirty = false;
   }
 

@@ -123,13 +123,15 @@ async function createManagers(project: string, session: string) {
   const documentManager = new DocumentManager(documentsDir);
   const spreadsheetManager = new SpreadsheetManager(spreadsheetsDir);
   const snippetManager = new SnippetManager(snippetsDir);
-  const metadataManager = new MetadataManager(join(project, '.collab', session));
+  const sessionDir = sessionRegistry.resolvePath(project, session, '.');
+  const metadataManager = new MetadataManager(sessionDir);
 
   // Initialize managers (creates directories, builds index)
   await diagramManager.initialize();
   await documentManager.initialize();
   await spreadsheetManager.initialize();
   await snippetManager.initialize();
+  await metadataManager.initialize();
 
   return { diagramManager, documentManager, spreadsheetManager, snippetManager, metadataManager };
 }
