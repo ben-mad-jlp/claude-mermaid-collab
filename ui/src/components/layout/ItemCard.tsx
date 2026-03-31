@@ -215,7 +215,6 @@ export const ItemCard: React.FC<ItemCardProps> = ({
   onPin,
 }) => {
   const relativeTime = formatRelativeTime(item.lastModified);
-  const typeLabel = item.type === 'diagram' ? 'Diagram' : item.type === 'design' ? 'Design' : item.type === 'spreadsheet' ? 'Spreadsheet' : item.type === 'snippet' ? 'Snippet' : 'Document';
 
   // Get snippet-specific metadata if this is a snippet
   const snippetMetadata = useMemo(() => {
@@ -300,7 +299,7 @@ export const ItemCard: React.FC<ItemCardProps> = ({
             <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
               {item.deprecated
                 ? <span className="text-amber-600 dark:text-amber-400">deprecated</span>
-                : <>{typeLabel} &bull; {relativeTime}</>
+                : relativeTime
               }
             </p>
 
