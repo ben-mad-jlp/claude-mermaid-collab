@@ -285,11 +285,6 @@ export const ItemCard: React.FC<ItemCardProps> = ({
             {item.name}
           </h3>
 
-          {/* Deprecated badge */}
-          {item.deprecated && (
-            <span className="text-xs text-amber-600 dark:text-amber-400 font-normal">deprecated</span>
-          )}
-
           {/* Snippet Metadata (language, lines, size) */}
           {snippetMetadata && (
             <p className="text-xs text-gray-500 dark:text-gray-400 truncate mt-1">
@@ -297,76 +292,53 @@ export const ItemCard: React.FC<ItemCardProps> = ({
             </p>
           )}
 
-          {/* Type and Relative Time */}
-          <p
-            className="
-              text-xs text-gray-500 dark:text-gray-400
-              truncate
-              mt-1
-            "
-          >
-            {typeLabel} &bull; {relativeTime}
-          </p>
-        </div>
+          {/* Type, Relative Time, and Action Buttons row */}
+          <div className="flex items-center justify-between mt-1">
+            <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+              {item.deprecated
+                ? <span className="text-amber-600 dark:text-amber-400">deprecated</span>
+                : <>{typeLabel} &bull; {relativeTime}</>
+              }
+            </p>
 
-        {/* Deprecate/Restore Button */}
-        {showDelete && onDeprecate && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onDeprecate();
-            }}
-            className="
-              flex-shrink-0
-              p-1.5
-              text-gray-400 hover:text-amber-500
-              dark:text-gray-500 dark:hover:text-amber-400
-              opacity-0 group-hover:opacity-100
-              transition-all
-              rounded
-              hover:bg-amber-50 dark:hover:bg-amber-900/20
-            "
-            aria-label={item.deprecated ? `Restore ${item.name}` : `Deprecate ${item.name}`}
-            title={item.deprecated ? 'Restore (un-deprecate)' : 'Deprecate'}
-          >
-            {item.deprecated ? (
-              <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
-              </svg>
-            ) : (
-              <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                <path d="M4 3a2 2 0 100 4h12a2 2 0 100-4H4z" />
-                <path fillRule="evenodd" d="M3 8h14v7a2 2 0 01-2 2H5a2 2 0 01-2-2V8zm5 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" clipRule="evenodd" />
-              </svg>
+            {/* Action buttons — shown on hover */}
+            {showDelete && (onDeprecate || onDelete) && (
+              <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 ml-1">
+                {onDeprecate && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onDeprecate(); }}
+                    className="p-1 text-gray-400 hover:text-amber-500 dark:text-gray-500 dark:hover:text-amber-400 rounded hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
+                    aria-label={item.deprecated ? `Restore ${item.name}` : `Deprecate ${item.name}`}
+                    title={item.deprecated ? 'Restore' : 'Deprecate'}
+                  >
+                    {item.deprecated ? (
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+                      </svg>
+                    ) : (
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M4 3a2 2 0 100 4h12a2 2 0 100-4H4z" />
+                        <path fillRule="evenodd" d="M3 8h14v7a2 2 0 01-2 2H5a2 2 0 01-2-2V8zm5 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" clipRule="evenodd" />
+                      </svg>
+                    )}
+                  </button>
+                )}
+                {onDelete && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                    className="p-1 text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                    aria-label={`Delete ${item.name}`}
+                    title="Delete"
+                  >
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             )}
-          </button>
-        )}
-
-        {/* Delete Button */}
-        {showDelete && onDelete && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete();
-            }}
-            className="
-              flex-shrink-0
-              p-1.5
-              text-gray-400 hover:text-red-500
-              dark:text-gray-500 dark:hover:text-red-400
-              opacity-0 group-hover:opacity-100
-              transition-all
-              rounded
-              hover:bg-red-50 dark:hover:bg-red-900/20
-            "
-            aria-label={`Delete ${item.name}`}
-            title="Delete item"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-            </svg>
-          </button>
-        )}
+          </div>
+        </div>
       </div>
     </div>
   );
