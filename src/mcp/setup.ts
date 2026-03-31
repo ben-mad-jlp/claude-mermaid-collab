@@ -1484,6 +1484,18 @@ IMPORTANT - Common pitfalls to avoid:
         },
       },
       {
+        name: 'clear_session_artifacts',
+        description: 'Delete all artifacts (documents, diagrams, designs, snippets) from a session. Session state and the session folder are preserved.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            session: { type: 'string', description: 'Session name' },
+          },
+          required: ['project', 'session'],
+        },
+      },
+      {
         name: 'archive_session',
         description: 'Archive a collab session by copying documents, diagrams, designs, and spreadsheets to docs/designs/[session]/ and optionally deleting the session folder.',
         inputSchema: {
@@ -2977,6 +2989,41 @@ IMPORTANT - Common pitfalls to avoid:
 
             const result = await updateSessionState(project, session, updates, wsHandler || undefined);
             return JSON.stringify(result, null, 2);
+          }
+
+          case 'clear_session_artifacts': {
+            const { project, session } = args as { project: string; session: string };
+            if (!project || !session) throw new Error('Missing required: project, session');
+
+            const [diagrams, documents, designs, snippets] = await Promise.all([
+              fetch(buildUrl('/api/diagrams', project, session)).then(r => r.ok ? r.json() : { diagrams: [] }),
+              fetch(buildUrl('/api/documents', project, session)).then(r => r.ok ? r.json() : { documents: [] }),
+              handleListDesigns(project, session).catch(() => ({ designs: [] })),
+              handleListSnippets(project, session).catch(() => ({ snippets: [] })),
+            ]);
+
+            const diagramIds: string[] = (diagrams.diagrams || []).map((d: any) => d.id);
+            const documentIds: string[] = (documents.documents || []).map((d: any) => d.id);
+            const designIds: string[] = (designs.designs || []).map((d: any) => d.id);
+            const snippetIds: string[] = (snippets.snippets || []).map((s: any) => s.id);
+
+            await Promise.all([
+              ...diagramIds.map(id => fetch(buildUrl(`/api/diagram/${id}`, project, session), { method: 'DELETE' })),
+              ...documentIds.map(id => fetch(buildUrl(`/api/document/${id}`, project, session), { method: 'DELETE' })),
+              ...designIds.map(id => handleDeleteDesign(project, session, id).catch(() => {})),
+              ...snippetIds.map(id => handleDeleteSnippet(project, session, id).catch(() => {})),
+            ]);
+
+            return JSON.stringify({
+              success: true,
+              cleared: {
+                diagrams: diagramIds.length,
+                documents: documentIds.length,
+                designs: designIds.length,
+                snippets: snippetIds.length,
+              },
+              message: `Cleared ${diagramIds.length} diagrams, ${documentIds.length} documents, ${designIds.length} designs, ${snippetIds.length} snippets`,
+            }, null, 2);
           }
 
           case 'archive_session': {
