@@ -154,7 +154,7 @@ Research task: {user's request}
 
 ### Implementation Agent
 
-Implements directly, returns what changed.
+Implements directly, saves a summary document, returns what changed.
 
 ```
 Agent(
@@ -168,10 +168,15 @@ Implementation task: {user's request}
 1. Read relevant files to understand existing code
 2. Implement the changes
 3. Run tests to verify (use the project's test command)
-4. Return:
-   - Files changed and what was done
-   - Test results (pass/fail)
-   - Any decisions made or assumptions taken
+4. Save a summary document:
+   Tool: mcp__plugin_mermaid-collab_mermaid__create_document
+   Args: { project, session, name: 'impl-[topic]', content: markdown summary including:
+     - What was implemented
+     - Files changed (with brief description of each change)
+     - Test results
+     - Decisions made or assumptions taken
+   }
+5. Return: document name created + one-paragraph summary
   ",
   run_in_background: false
 )
@@ -203,7 +208,7 @@ Debug task: {user's request}
 
 ### Deployment Agent
 
-Runs deployment commands, returns outcome.
+Runs deployment commands, saves a log document, returns outcome.
 
 ```
 Agent(
@@ -216,10 +221,14 @@ Deployment task: {user's request}
 
 1. Run the required build/deploy/migration commands
 2. Capture output at each step
-3. Return:
-   - Each step run and its result (success/failure)
-   - Any errors encountered with full output
-   - Final deployment status
+3. Save a deployment log document:
+   Tool: mcp__plugin_mermaid-collab_mermaid__create_document
+   Args: { project, session, name: 'deploy-[topic]', content: markdown log including:
+     - Each step run and its result (success/failure)
+     - Any errors encountered with full output
+     - Final deployment status
+   }
+4. Return: document name created + final deployment status
   ",
   run_in_background: false
 )
