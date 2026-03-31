@@ -1509,6 +1509,19 @@ IMPORTANT - Common pitfalls to avoid:
           required: ['project', 'session'],
         },
       },
+      {
+        name: 'consult_grok',
+        description: 'Consult Grok (xAI) with a question or prompt. Useful for a second opinion, cross-checking reasoning, or exploring an idea with a different AI model. Requires XAI_API_KEY env var.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            prompt: { type: 'string', description: 'The question or prompt to send to Grok' },
+            system: { type: 'string', description: 'Optional system prompt to set context for Grok' },
+            model: { type: 'string', description: 'Grok model to use. Default: grok-3' },
+          },
+          required: ['prompt'],
+        },
+      },
       terminalToolSchemas.terminal_create_session,
       terminalToolSchemas.terminal_list_sessions,
       terminalToolSchemas.terminal_kill_session,
@@ -3023,6 +3036,41 @@ IMPORTANT - Common pitfalls to avoid:
                 snippets: snippetIds.length,
               },
               message: `Cleared ${diagramIds.length} diagrams, ${documentIds.length} documents, ${designIds.length} designs, ${snippetIds.length} snippets`,
+            }, null, 2);
+          }
+
+          case 'consult_grok': {
+            const { prompt, system, model = 'grok-3' } = args as { prompt: string; system?: string; model?: string };
+            if (!prompt) throw new Error('Missing required: prompt');
+
+            const apiKey = process.env.XAI_API_KEY;
+            if (!apiKey) throw new Error('XAI_API_KEY environment variable is not set');
+
+            const messages: Array<{ role: string; content: string }> = [];
+            if (system) messages.push({ role: 'system', content: system });
+            messages.push({ role: 'user', content: prompt });
+
+            const response = await fetch('https://api.x.ai/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`,
+              },
+              body: JSON.stringify({ model, messages }),
+            });
+
+            if (!response.ok) {
+              const error = await response.json() as any;
+              throw new Error(`Grok API error: ${error?.error?.message || response.statusText}`);
+            }
+
+            const data = await response.json() as any;
+            const reply = data.choices?.[0]?.message?.content ?? '';
+
+            return JSON.stringify({
+              model,
+              response: reply,
+              usage: data.usage,
             }, null, 2);
           }
 
