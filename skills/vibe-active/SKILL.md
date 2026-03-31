@@ -244,6 +244,29 @@ This skill completes when:
 - User explicitly requests cleanup (/collab-cleanup or "I'm done")
 - At completion, call complete_skill to transition to cleanup state
 
+## Artifact Type Rules
+
+Always follow these rules when saving content to the session:
+
+| Content | Tool |
+|---------|------|
+| Pure code (single language, no prose) | `create_snippet` |
+| Pure markdown / text | `create_document` |
+| Mixed (code blocks + explanation) | `create_document` |
+
+**Code → snippet:**
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__create_snippet
+Args: { project, session, name: '[filename.ext]', content: [code] }
+```
+Always include a file extension in the name so syntax highlighting is applied (e.g. `auth.ts`, `migration.sql`, `Dockerfile`).
+
+**Markdown / mixed → document:**
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__create_document
+Args: { project, session, name: '[topic]', content: [markdown] }
+```
+
 ## Long Answers as Artifacts
 
 When answering a question where the response would be long (code explanations, architecture overviews, step-by-step guides, comparisons, summaries), **write it as a document instead of responding in the console.**
