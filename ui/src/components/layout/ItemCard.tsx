@@ -253,21 +253,28 @@ export const ItemCard: React.FC<ItemCardProps> = ({
       `}
     >
       <div className="flex items-start gap-3">
-        {/* Item Icon */}
-        <div
-          className={`
-            flex-shrink-0
-            p-2
-            rounded-lg
-            transition-colors
-            ${
-              isSelected
-                ? 'bg-accent-100 dark:bg-accent-900/30 text-accent-600 dark:text-accent-400'
-                : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 group-hover:bg-accent-50 dark:group-hover:bg-accent-900/20 group-hover:text-accent-600 dark:group-hover:text-accent-400'
-            }
-          `}
-        >
-          {getItemIcon(item.type)}
+        {/* Item Icon + pin indicator */}
+        <div className="flex-shrink-0 flex flex-col items-center gap-1">
+          <div
+            className={`
+              p-2
+              rounded-lg
+              transition-colors
+              ${
+                isSelected
+                  ? 'bg-accent-100 dark:bg-accent-900/30 text-accent-600 dark:text-accent-400'
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 group-hover:bg-accent-50 dark:group-hover:bg-accent-900/20 group-hover:text-accent-600 dark:group-hover:text-accent-400'
+              }
+            `}
+          >
+            {getItemIcon(item.type)}
+          </div>
+          {item.pinned && (
+            <svg className="w-3 h-3 text-accent-500 dark:text-accent-400" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="17" x2="12" y2="22" />
+              <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
+            </svg>
+          )}
         </div>
 
         <div className="flex-1 min-w-0">
@@ -303,32 +310,17 @@ export const ItemCard: React.FC<ItemCardProps> = ({
               }
             </p>
 
-            {/* Pin button — always visible when pinned, otherwise shown on hover */}
-            {onPin && item.pinned && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onPin(); }}
-                className="p-1 rounded transition-colors text-accent-500 dark:text-accent-400 hover:text-accent-600 hover:bg-accent-50 dark:hover:bg-accent-900/20 flex-shrink-0"
-                aria-label={`Unpin ${item.name}`}
-                title="Unpin"
-              >
-                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="12" y1="17" x2="12" y2="22" />
-                  <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
-                </svg>
-              </button>
-            )}
-
             {/* Action buttons — shown on hover */}
             {showDelete && (onPin || onDeprecate || onDelete) && (
               <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 ml-1">
-                {onPin && !item.pinned && (
+                {onPin && (
                   <button
                     onClick={(e) => { e.stopPropagation(); onPin(); }}
-                    className="p-1 rounded transition-colors text-gray-400 hover:text-accent-500 dark:text-gray-500 dark:hover:text-accent-400 hover:bg-accent-50 dark:hover:bg-accent-900/20"
-                    aria-label={`Pin ${item.name}`}
-                    title="Pin to top"
+                    className={`p-1 rounded transition-colors hover:bg-accent-50 dark:hover:bg-accent-900/20 ${item.pinned ? 'text-accent-500 dark:text-accent-400 hover:text-accent-600' : 'text-gray-400 hover:text-accent-500 dark:text-gray-500 dark:hover:text-accent-400'}`}
+                    aria-label={item.pinned ? `Unpin ${item.name}` : `Pin ${item.name}`}
+                    title={item.pinned ? 'Unpin' : 'Pin to top'}
                   >
-                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill={item.pinned ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <line x1="12" y1="17" x2="12" y2="22" />
                       <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
                     </svg>
