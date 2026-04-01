@@ -2134,6 +2134,23 @@ IMPORTANT - Common pitfalls to avoid:
           required: ['project', 'session', 'id', 'deprecated'],
         },
       },
+      {
+        name: 'set_artifact_metadata',
+        description: 'Set metadata flags on an artifact. Use to mark documents as blueprint (locked, shown in Blueprint section), pin/unpin, or set any combination of metadata flags.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Project path' },
+            session: { type: 'string', description: 'Session name' },
+            id: { type: 'string', description: 'Artifact ID' },
+            blueprint: { type: 'boolean', description: 'Mark as blueprint (read-only plan document shown in Blueprint section). Also sets locked: true.' },
+            locked: { type: 'boolean', description: 'Lock the artifact to prevent editing' },
+            pinned: { type: 'boolean', description: 'Pin to top of sidebar list' },
+            deprecated: { type: 'boolean', description: 'Hide from default view' },
+          },
+          required: ['project', 'session', 'id'],
+        },
+      },
     ],
   }));
 
@@ -3827,6 +3844,26 @@ IMPORTANT - Common pitfalls to avoid:
             });
             if (!response.ok) throw new Error(`Failed to set deprecated: ${response.statusText}`);
             return JSON.stringify({ success: true, deprecated, id });
+          }
+
+          case 'set_artifact_metadata': {
+            const { project, session, id, blueprint, locked, pinned, deprecated } = args as {
+              project: string; session: string; id: string;
+              blueprint?: boolean; locked?: boolean; pinned?: boolean; deprecated?: boolean;
+            };
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            const updates: Record<string, boolean> = {};
+            if (blueprint !== undefined) { updates.blueprint = blueprint; updates.locked = blueprint; }
+            if (locked !== undefined) updates.locked = locked;
+            if (pinned !== undefined) updates.pinned = pinned;
+            if (deprecated !== undefined) updates.deprecated = deprecated;
+            const response = await fetch(buildUrl(`/api/metadata/item/${id}`, project, session), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(updates),
+            });
+            if (!response.ok) throw new Error(`Failed to set metadata: ${response.statusText}`);
+            return JSON.stringify({ success: true, id, updates });
           }
 
           default:
