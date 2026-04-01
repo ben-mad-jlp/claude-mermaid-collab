@@ -86,7 +86,7 @@ export default function PseudoPage(): JSX.Element {
   const viewerRef = useRef<PseudoViewerHandle>(null);
 
   // Track previous project to detect changes
-  const prevProjectRef = useRef<string>(project);
+  const prevProjectRef = useRef<string | null>(project);
 
   /**
    * Fetch pseudo files for the current project
@@ -271,7 +271,7 @@ export default function PseudoPage(): JSX.Element {
       {/* Body: resizable file tree + viewer + jump panel */}
       <PanelGroup direction="horizontal" id="pseudo-layout" className="flex-1">
         {/* Left column: File Tree + cross-nav links */}
-        <Panel defaultSize={28} minSize={12} id="pseudo-tree">
+        <Panel defaultSizePercentage={28} minSizePercentage={12} id="pseudo-tree">
           <div className="flex flex-col h-full border-r border-gray-200 dark:border-gray-700 overflow-hidden">
             <div className="flex-1 overflow-hidden">
               <PseudoFileTree
@@ -287,7 +287,7 @@ export default function PseudoPage(): JSX.Element {
         <PanelResizeHandle className="w-1 bg-gray-200 dark:bg-gray-700 hover:bg-purple-400 dark:hover:bg-purple-600 transition-colors cursor-col-resize" />
 
         {/* Viewer */}
-        <Panel defaultSize={57} minSize={30} id="pseudo-viewer">
+        <Panel defaultSizePercentage={57} minSizePercentage={30} id="pseudo-viewer">
           <div className="h-full overflow-hidden">
             <PseudoViewer
               ref={viewerRef}
@@ -301,7 +301,7 @@ export default function PseudoPage(): JSX.Element {
         <PanelResizeHandle className="w-1 bg-gray-200 dark:bg-gray-700 hover:bg-purple-400 dark:hover:bg-purple-600 transition-colors cursor-col-resize" />
 
         {/* Function Jump Panel */}
-        <Panel defaultSize={15} minSize={8} id="pseudo-jump">
+        <Panel defaultSizePercentage={15} minSizePercentage={8} id="pseudo-jump">
           <div className="h-full overflow-hidden">
             <FunctionJumpPanel functions={functions} viewerRef={viewerRef} />
           </div>
@@ -310,7 +310,7 @@ export default function PseudoPage(): JSX.Element {
 
       {/* Search Overlay */}
       <PseudoSearch
-        project={project}
+        project={project ?? ''}
         isOpen={searchOpen}
         onClose={handleSearchClose}
         onNavigate={handleSearchNavigate}

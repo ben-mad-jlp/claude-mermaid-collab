@@ -13,11 +13,12 @@ export type TreeNode = {
  * Convert _childrenMap to children array recursively
  */
 function convertChildrenMap(
-  node: TreeNode & { _childrenMap?: Record<string, TreeNode & { _childrenMap?: unknown }> }
+  node: TreeNode & { _childrenMap?: unknown }
 ): TreeNode {
-  if (node._childrenMap) {
-    node.children = Object.values(node._childrenMap).map(convertChildrenMap);
-    delete node._childrenMap;
+  const n = node as TreeNode & { _childrenMap?: Record<string, TreeNode & { _childrenMap?: unknown }> };
+  if (n._childrenMap) {
+    n.children = Object.values(n._childrenMap).map(convertChildrenMap);
+    delete n._childrenMap;
   }
   return node;
 }
