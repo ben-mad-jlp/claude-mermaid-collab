@@ -39,9 +39,7 @@ describe('Collab State Management', () => {
     // Create initial collab-state.json
     const initialState: CollabState = {
       state: 'collab-start',
-      sessionType: 'structured',
       lastActivity: new Date().toISOString(),
-      currentItem: null,
       useRenderUI: true,
     };
     const statePath = join(sessionPath, 'collab-state.json');
@@ -62,8 +60,6 @@ describe('Collab State Management', () => {
       const state = await getSessionState(projectPath, sessionName);
 
       expect(state.state).toBe('collab-start');
-      expect(state.sessionType).toBe('structured');
-      expect(state.currentItem).toBe(null);
       expect(state.useRenderUI).toBe(true);
     });
 
@@ -91,24 +87,21 @@ describe('Collab State Management', () => {
   describe('updateSessionState()', () => {
     it('should update session state on disk', async () => {
       await updateSessionState(projectPath, sessionName, {
-        currentItem: 5,
-        totalItems: 10,
+        state: 'collab-working',
       });
 
       const state = await getSessionState(projectPath, sessionName);
-      expect(state.currentItem).toBe(5);
-      expect(state.totalItems).toBe(10);
+      expect(state.state).toBe('collab-working');
     });
 
     it('should preserve existing state when updating', async () => {
       await updateSessionState(projectPath, sessionName, {
-        currentItem: 3,
+        completedTasks: ['task-1'],
       });
 
       const state = await getSessionState(projectPath, sessionName);
       expect(state.state).toBe('collab-start');
-      expect(state.sessionType).toBe('structured');
-      expect(state.currentItem).toBe(3);
+      expect(state.completedTasks).toEqual(['task-1']);
     });
 
     it('should update state machine state', async () => {
@@ -122,19 +115,16 @@ describe('Collab State Management', () => {
 
     it('should track multiple updates correctly', async () => {
       await updateSessionState(projectPath, sessionName, {
-        currentItem: 1,
-        totalItems: 5,
+        completedTasks: ['task-1'],
       });
 
       await updateSessionState(projectPath, sessionName, {
-        currentItem: 2,
-        documentedItems: 1,
+        pendingTasks: ['task-2'],
       });
 
       const state = await getSessionState(projectPath, sessionName);
-      expect(state.currentItem).toBe(2);
-      expect(state.totalItems).toBe(5);
-      expect(state.documentedItems).toBe(1);
+      expect(state.completedTasks).toEqual(['task-1']);
+      expect(state.pendingTasks).toEqual(['task-2']);
     });
 
     it('should update snippet state', async () => {
@@ -156,7 +146,7 @@ describe('Collab State Management', () => {
       await new Promise(resolve => setTimeout(resolve, 10));
 
       await updateSessionState(projectPath, sessionName, {
-        currentItem: 1,
+        state: 'collab-working',
       });
 
       const state2 = await getSessionState(projectPath, sessionName);
@@ -193,15 +183,13 @@ describe('Collab State Management', () => {
 
     it('should preserve other state fields', async () => {
       await updateSessionState(projectPath, sessionName, {
-        currentItem: 5,
-        totalItems: 10,
+        state: 'collab-working',
       });
 
       await recordSnippetCreated(projectPath, sessionName, 'snippet-1');
 
       const state = await getSessionState(projectPath, sessionName);
-      expect(state.currentItem).toBe(5);
-      expect(state.totalItems).toBe(10);
+      expect(state.state).toBe('collab-working');
       expect(state.createdSnippets).toContain('snippet-1');
     });
   });
@@ -440,8 +428,6 @@ describe('Collab State Management', () => {
       // Update various state fields
       await updateSessionState(projectPath, sessionName, {
         state: 'collab-working',
-        currentItem: 3,
-        totalItems: 10,
       });
 
       // Record snippet operations
@@ -450,8 +436,6 @@ describe('Collab State Management', () => {
       // Verify all state is preserved
       const state = await getSessionState(projectPath, sessionName);
       expect(state.state).toBe('collab-working');
-      expect(state.currentItem).toBe(3);
-      expect(state.totalItems).toBe(10);
       expect(state.createdSnippets).toContain('snippet-1');
     });
 

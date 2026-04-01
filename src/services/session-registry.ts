@@ -68,9 +68,7 @@ export class SessionRegistry {
   async register(
     project: string,
     session: string,
-    sessionType?: 'structured' | 'vibe',
-    useRenderUI?: boolean,
-    initialState?: string
+    useRenderUI?: boolean
   ): Promise<{ created: boolean }> {
     // Validate inputs
     if (!project || !project.startsWith('/')) {
@@ -111,10 +109,7 @@ export class SessionRegistry {
     // Create session files if they don't exist
     const collabStatePath = join(sessionPath, 'collab-state.json');
     const collabStateContent = JSON.stringify({
-      state: initialState || 'collab-start',
-      sessionType: sessionType || 'structured',
       lastActivity: now,
-      currentItem: null,
       useRenderUI: useRenderUI ?? true
     }, null, 2);
     await this.createFileIfNotExists(collabStatePath, collabStateContent);
@@ -291,14 +286,6 @@ export class SessionRegistry {
     // Snippet unregistration is a no-op at the registry level
     // The actual file management is handled by the snippet manager
     return true;
-  }
-
-  /**
-   * Get display name for a session (project-name / session-name).
-   */
-  getDisplayName(session: Session): string {
-    const projectName = basename(session.project);
-    return `${projectName} / ${session.session}`;
   }
 
   /**

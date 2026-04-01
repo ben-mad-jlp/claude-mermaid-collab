@@ -7,27 +7,18 @@
 
 import { readFile, writeFile, mkdir, access, readdir, rm, cp } from 'fs/promises';
 import { join } from 'path';
-import { getDisplayName } from '../workflow/state-machine.js';
 import type { WebSocketHandler } from '../../websocket/handler.js';
-import type { TaskBatch, WorkItem, WorkItemType, SessionType } from '../workflow/types.js';
+import type { TaskBatch } from '../workflow/types.js';
 
 // ============= Type Definitions =============
 
 export interface CollabState {
-  state?: string; // Current state machine state ID
-  sessionType?: SessionType; // Session type: 'structured' (guided) or 'vibe' (freeform)
   lastActivity: string;
-  currentItem: number | null;
-  currentItemType?: WorkItemType; // Type of current item for routing
-  displayName?: string; // User-friendly display name for current state
-  workItems?: WorkItem[]; // Work items for the session
+  state?: string; // State machine state (e.g. 'collab-start', 'collab-working', 'vibe-active')
+  displayName?: string; // Human-readable display name computed from state
   batches?: TaskBatch[]; // Execution batches
-  currentBatch?: number; // Index of current batch
   completedTasks?: string[];
   pendingTasks?: string[];
-  totalItems?: number;
-  documentedItems?: number;
-  autoAllowRoughDraft?: boolean; // User preference for auto-allowing rough-draft proposals
   useRenderUI?: boolean; // Whether to use browser UI for questions (default: true)
   nextSkill?: string | null; // Next skill to invoke after context clear
   createdSnippets?: string[]; // Snippet IDs created in this session
@@ -36,18 +27,10 @@ export interface CollabState {
 }
 
 export interface StateUpdateParams {
-  state?: string; // Current state machine state ID
-  sessionType?: SessionType; // Session type: 'structured' (guided) or 'vibe' (freeform)
-  currentItem?: number | null;
-  currentItemType?: WorkItemType; // Type of current item for routing
-  workItems?: WorkItem[]; // Work items for the session
+  state?: string; // State machine state
   batches?: TaskBatch[]; // Execution batches
-  currentBatch?: number; // Index of current batch
   completedTasks?: string[];
   pendingTasks?: string[];
-  totalItems?: number;
-  documentedItems?: number;
-  autoAllowRoughDraft?: boolean; // User preference for auto-allowing rough-draft proposals
   useRenderUI?: boolean; // Whether to use browser UI for questions (default: true)
   nextSkill?: string | null; // Next skill to invoke after context clear
   createdSnippets?: string[]; // Snippet IDs created in this session
@@ -80,14 +63,16 @@ export async function getSessionState(project: string, session: string): Promise
   }
 
   const content = await readFile(path, 'utf-8');
-  const rawState = JSON.parse(content) as CollabState;
+  const state = JSON.parse(content) as CollabState;
 
-  // Compute display name from state if available
-  if (rawState.state) {
-    rawState.displayName = getDisplayName(rawState.state);
+  // Compute displayName from state field if not already set
+  if (!state.displayName && state.state) {
+    state.displayName = state.state.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  } else if (!state.displayName) {
+    state.displayName = session;
   }
 
-  return rawState;
+  return state;
 }
 
 export async function updateSessionState(
@@ -108,35 +93,17 @@ export async function updateSessionState(
   // Merge updates
   const newState: CollabState = {
     lastActivity: new Date().toISOString(),
-    currentItem: updates.currentItem !== undefined ? updates.currentItem : (currentState.currentItem ?? null),
-    // State machine field - primary control mechanism
-    ...(updates.state && { state: updates.state }),
-    ...(currentState.state && !updates.state && { state: currentState.state }),
-    // Session type
-    ...(updates.sessionType && { sessionType: updates.sessionType }),
-    ...(currentState.sessionType && !updates.sessionType && { sessionType: currentState.sessionType }),
-    // Work items
-    ...(updates.workItems && { workItems: updates.workItems }),
-    ...(currentState.workItems && !updates.workItems && { workItems: currentState.workItems }),
-    ...(updates.currentItemType && { currentItemType: updates.currentItemType }),
-    ...(currentState.currentItemType && !updates.currentItemType && { currentItemType: currentState.currentItemType }),
+    // State machine state
+    ...(updates.state !== undefined && { state: updates.state }),
+    ...(currentState.state !== undefined && updates.state === undefined && { state: currentState.state }),
     // Batches
     ...(updates.batches && { batches: updates.batches }),
     ...(currentState.batches && !updates.batches && { batches: currentState.batches }),
-    ...(updates.currentBatch !== undefined && { currentBatch: updates.currentBatch }),
-    ...(currentState.currentBatch !== undefined && updates.currentBatch === undefined && { currentBatch: currentState.currentBatch }),
-    // Existing fields
+    // Task lists
     ...(updates.completedTasks && { completedTasks: updates.completedTasks }),
     ...(updates.pendingTasks && { pendingTasks: updates.pendingTasks }),
     ...(currentState.completedTasks && !updates.completedTasks && { completedTasks: currentState.completedTasks }),
     ...(currentState.pendingTasks && !updates.pendingTasks && { pendingTasks: currentState.pendingTasks }),
-    ...(updates.totalItems !== undefined && { totalItems: updates.totalItems }),
-    ...(updates.documentedItems !== undefined && { documentedItems: updates.documentedItems }),
-    ...(currentState.totalItems !== undefined && updates.totalItems === undefined && { totalItems: currentState.totalItems }),
-    ...(currentState.documentedItems !== undefined && updates.documentedItems === undefined && { documentedItems: currentState.documentedItems }),
-    // Auto-allow rough-draft preference
-    ...(updates.autoAllowRoughDraft !== undefined && { autoAllowRoughDraft: updates.autoAllowRoughDraft }),
-    ...(currentState.autoAllowRoughDraft !== undefined && updates.autoAllowRoughDraft === undefined && { autoAllowRoughDraft: currentState.autoAllowRoughDraft }),
     // Use browser UI for questions preference
     ...(updates.useRenderUI !== undefined && { useRenderUI: updates.useRenderUI }),
     ...(currentState.useRenderUI !== undefined && updates.useRenderUI === undefined && { useRenderUI: currentState.useRenderUI }),
@@ -161,24 +128,13 @@ export async function updateSessionState(
   // Broadcast session state update via WebSocket if handler is provided
   if (wsHandler) {
     try {
-      // Compute displayName for broadcast
-      const displayName = newState.state ? getDisplayName(newState.state) : undefined;
-
       wsHandler.broadcast({
         type: 'session_state_updated',
         lastActivity: newState.lastActivity,
-        currentItem: newState.currentItem,
-        ...(newState.state && { state: newState.state }),
-        ...(displayName && { displayName }),
-        ...(newState.sessionType && { sessionType: newState.sessionType }),
-        ...(newState.workItems && { workItems: newState.workItems }),
-        ...(newState.currentItemType && { currentItemType: newState.currentItemType }),
+        ...(newState.state !== undefined && { state: newState.state }),
         ...(newState.batches && { batches: newState.batches }),
-        ...(newState.currentBatch !== undefined && { currentBatch: newState.currentBatch }),
         ...(newState.completedTasks && { completedTasks: newState.completedTasks }),
         ...(newState.pendingTasks && { pendingTasks: newState.pendingTasks }),
-        ...(newState.totalItems !== undefined && { totalItems: newState.totalItems }),
-        ...(newState.documentedItems !== undefined && { documentedItems: newState.documentedItems }),
         ...(newState.createdSnippets !== undefined && { createdSnippets: newState.createdSnippets }),
         ...(newState.updatedSnippets !== undefined && { updatedSnippets: newState.updatedSnippets }),
         ...(newState.deletedSnippets !== undefined && { deletedSnippets: newState.deletedSnippets }),

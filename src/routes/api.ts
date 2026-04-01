@@ -14,7 +14,6 @@ import { statusManager } from '../services/status-manager';
 import { projectRegistry } from '../services/project-registry';
 import { UpdateLogManager } from '../services/update-log-manager';
 import { join, isAbsolute } from 'path';
-import { getDisplayName } from '../mcp/workflow/state-machine';
 import { homedir } from 'os';
 import { existsSync } from 'fs';
 import { archiveSession, type ArchiveOptions } from '../mcp/tools/collab-state';
@@ -169,10 +168,9 @@ export async function handleAPI(
   // POST /api/sessions - Register a session (called by MCP tools)
   if (path === '/api/sessions' && req.method === 'POST') {
     try {
-      const { project: rawProject, session, sessionType, useRenderUI } = await req.json() as {
+      const { project: rawProject, session, useRenderUI } = await req.json() as {
         project?: string;
         session?: string;
-        sessionType?: 'structured' | 'vibe';
         useRenderUI?: boolean;
       };
 
@@ -183,7 +181,7 @@ export async function handleAPI(
       // Expand ~ to home directory
       const project = expandPath(rawProject);
 
-      const result = await sessionRegistry.register(project, session, sessionType, useRenderUI);
+      const result = await sessionRegistry.register(project, session, useRenderUI);
       if (result.created) {
         wsHandler.broadcast({ type: 'session_created', project, session });
       }
@@ -352,11 +350,6 @@ export async function handleAPI(
 
       const content = await stateFile.text();
       const state = JSON.parse(content);
-
-      // Compute displayName from state if available
-      if (state.state && !state.displayName) {
-        state.displayName = getDisplayName(state.state);
-      }
 
       return Response.json(state);
     } catch (error: any) {

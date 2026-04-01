@@ -20,7 +20,6 @@ import {
   updateSessionState,
   archiveSession,
 } from './tools/collab-state.js';
-import { completeSkill } from './workflow/complete-skill.js';
 import {
   handleListProjects,
   handleRegisterProject,
@@ -1439,52 +1438,6 @@ IMPORTANT - Common pitfalls to avoid:
         },
       },
       {
-        name: 'get_session_state',
-        description: 'Get current collab session state (state, currentItem, etc.)',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            session: { type: 'string', description: 'Session name' },
-          },
-          required: ['project', 'session'],
-        },
-      },
-      {
-        name: 'update_session_state',
-        description: 'Update collab session state fields (auto-updates lastActivity)',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            session: { type: 'string', description: 'Session name' },
-            currentItem: { type: ['number', 'null'], description: 'Current work item number' },
-            currentItemType: { type: 'string', enum: ['code', 'task', 'bugfix'], description: 'Type of current work item' },
-            workItems: {
-              type: 'array',
-              description: 'Work items for the session',
-              items: {
-                type: 'object',
-                properties: {
-                  number: { type: 'number', description: 'Item number' },
-                  title: { type: 'string', description: 'Item title' },
-                  type: { type: 'string', enum: ['code', 'task', 'bugfix'], description: 'Item type' },
-                  status: { type: 'string', enum: ['pending', 'documented'], description: 'Item status' },
-                },
-                required: ['number', 'title', 'type', 'status'],
-              },
-            },
-            completedTasks: { type: 'array', items: { type: 'string' }, description: 'Completed task IDs' },
-            pendingTasks: { type: 'array', items: { type: 'string' }, description: 'Pending task IDs' },
-            totalItems: { type: 'number', description: 'Total number of work items (for brainstorming/rough-draft phases)' },
-            documentedItems: { type: 'number', description: 'Number of documented items (for brainstorming/rough-draft phases)' },
-            useRenderUI: { type: 'boolean', description: 'Whether to use browser UI for questions (default: true). Set to false for console-based questions.' },
-            sessionType: { type: 'string', enum: ['structured', 'vibe'], description: 'Session type: structured (guided) or vibe (freeform)' },
-          },
-          required: ['project', 'session'],
-        },
-      },
-      {
         name: 'clear_session_artifacts',
         description: 'Delete all artifacts (documents, diagrams, designs, snippets) from a session. Session state and the session folder are preserved.',
         inputSchema: {
@@ -1757,20 +1710,6 @@ IMPORTANT - Common pitfalls to avoid:
             alias: { type: 'string', description: 'Alias to remove' },
           },
           required: ['project', 'topicName', 'alias'],
-        },
-      },
-      // Workflow orchestration
-      {
-        name: 'complete_skill',
-        description: 'Report skill completion and get next skill to invoke. MCP handles all routing and state updates.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            session: { type: 'string', description: 'Session name' },
-            skill: { type: 'string', description: 'Name of the skill that just completed' },
-          },
-          required: ['project', 'session', 'skill'],
         },
       },
       // Task management tools
@@ -2995,59 +2934,6 @@ IMPORTANT - Common pitfalls to avoid:
             return JSON.stringify({ path: pluginRoot }, null, 2);
           }
 
-          case 'get_session_state': {
-            const { project, session } = args as { project: string; session: string };
-            if (!project || !session) throw new Error('Missing required: project, session');
-            const state = await getSessionState(project, session);
-            return JSON.stringify(state, null, 2);
-          }
-
-          case 'update_session_state': {
-            const { project, session, ...updates } = args as {
-              project: string;
-              session: string;
-              currentItem?: number | null;
-              currentItemType?: 'code' | 'task' | 'bugfix';
-              workItems?: Array<{
-                number: number;
-                title: string;
-                type: 'code' | 'task' | 'bugfix';
-                status: 'pending' | 'documented';
-              }> | string;
-              completedTasks?: string[];
-              pendingTasks?: string[];
-              totalItems?: number;
-              documentedItems?: number;
-              useRenderUI?: boolean;
-              sessionType?: 'structured' | 'vibe';
-            };
-            if (!project || !session) throw new Error('Missing required: project, session');
-
-            // Handle case where workItems might be a JSON string instead of an array
-            // This can happen when the MCP client sends large or complex arrays
-            if (updates.workItems && typeof updates.workItems === 'string') {
-              try {
-                updates.workItems = JSON.parse(updates.workItems);
-              } catch (error) {
-                throw new Error(`Failed to parse workItems: ${error instanceof Error ? error.message : 'Invalid JSON'}`);
-              }
-            }
-
-            // Register session and project if not already registered
-            const sessionResult = await sessionRegistry.register(project, session);
-            await projectRegistry.register(project);
-
-            const wsHandler = getWebSocketHandler();
-
-            // Broadcast session_created if this is a new session
-            if (sessionResult.created && wsHandler) {
-              wsHandler.broadcast({ type: 'session_created', project, session });
-            }
-
-            const result = await updateSessionState(project, session, updates, wsHandler || undefined);
-            return JSON.stringify(result, null, 2);
-          }
-
           case 'clear_session_artifacts': {
             const { project, session } = args as { project: string; session: string };
             if (!project || !session) throw new Error('Missing required: project, session');
@@ -3354,13 +3240,6 @@ IMPORTANT - Common pitfalls to avoid:
             const kodex = getKodexManager(project);
             kodex.removeAlias(topicName, alias);
             return JSON.stringify({ success: true, message: `Alias '${alias}' removed from topic '${topicName}' successfully` }, null, 2);
-          }
-
-          case 'complete_skill': {
-            const { project, session, skill } = args as { project: string; session: string; skill: string };
-            if (!project || !session || !skill) throw new Error('Missing required: project, session, skill');
-            const result = await completeSkill(project, session, skill);
-            return JSON.stringify(result, null, 2);
           }
 
           case 'update_task_status': {

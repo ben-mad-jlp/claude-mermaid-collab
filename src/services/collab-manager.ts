@@ -1,6 +1,5 @@
 import { readdir, readFile, writeFile, mkdir, access, stat } from 'fs/promises';
 import { join } from 'path';
-import { getDisplayName } from '../mcp/workflow/state-machine.js';
 
 // Word lists for name generation (embedded to avoid cross-dependencies)
 const ADJECTIVES = [
@@ -45,7 +44,6 @@ export interface CollabState {
   state?: string;
   template?: CollabTemplate;
   lastActivity: string;
-  currentItem?: number | null;
   pendingVerificationIssues?: VerificationIssue[];
 }
 
@@ -59,7 +57,6 @@ export interface VerificationIssue {
 export interface CollabSession {
   name: string;
   template: CollabTemplate;
-  displayName: string;
   lastActivity: string;
   pendingIssueCount: number;
   path: string;
@@ -183,7 +180,6 @@ export async function listCollabSessions(baseDir: string): Promise<CollabSession
           sessions.push({
             name: entry.name,
             template,
-            displayName: state.state ? getDisplayName(state.state) : 'Starting',
             lastActivity: state.lastActivity,
             pendingIssueCount: state.pendingVerificationIssues?.length || 0,
             path: sessionPath,
@@ -271,7 +267,6 @@ export async function createCollabSession(
     state: 'collab-start',
     template,
     lastActivity: now,
-    currentItem: null,
     pendingVerificationIssues: [],
   };
   await writeFile(

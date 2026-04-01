@@ -1,76 +1,79 @@
 /**
- * Task diagram generation from workflow state.
- * Generates Mermaid diagrams with batches as subgraphs.
+ * Task Diagram Generation
+ *
+ * Generates a Mermaid graph diagram representing the current task execution state.
+ * Tasks are color-coded by status using muted, dark-mode-friendly colors.
  */
 
 import type { TaskBatch } from './types.js';
 
-/** Status colors for diagram nodes (muted, dark-mode friendly) */
-export const STATUS_COLORS = {
-  pending: 'fill:#64748b,stroke:#475569,color:#fff',      // muted gray
-  in_progress: 'fill:#6987c9,stroke:#4b6cb7,color:#fff',  // muted blue
-  completed: 'fill:#6b9e7d,stroke:#4a7c5c,color:#fff',    // muted green
-  failed: 'fill:#c97676,stroke:#a85555,color:#fff',       // muted red
-} as const;
+// ============= Type Definitions =============
 
-export type TaskStatus = keyof typeof STATUS_COLORS;
-
-/**
- * Generate Mermaid diagram from current state
- */
-export function generateTaskDiagram(state: { batches?: TaskBatch[] }): string {
-  if (!state.batches || state.batches.length === 0) {
-    return 'graph TD\n    empty["No tasks defined"]';
-  }
-
-  return buildDiagramContent(state.batches);
+export interface TaskDiagramState {
+  batches: TaskBatch[];
 }
 
+// ============= Status Colors =============
+
+const STATUS_COLORS: Record<string, string> = {
+  pending: 'fill:#4a4a5a,stroke:#6a6a8a,color:#ccc',
+  in_progress: 'fill:#2a4a6a,stroke:#4a7aaa,color:#ccc',
+  completed: 'fill:#2a5a3a,stroke:#4a8a5a,color:#ccc',
+  failed: 'fill:#6a2a2a,stroke:#aa4a4a,color:#ccc',
+};
+
+// ============= Helper Functions =============
+
 /**
- * Build diagram content from batches
+ * Replace non-alphanumeric characters with underscores for valid Mermaid node IDs.
+ */
+export function sanitizeId(id: string): string {
+  return id.replace(/[^a-zA-Z0-9]/g, '_');
+}
+
+// ============= Diagram Generation Functions =============
+
+/**
+ * Build the full Mermaid diagram content from task batches.
  */
 export function buildDiagramContent(batches: TaskBatch[]): string {
   const lines: string[] = ['graph TD'];
 
-  // Define class styles (higher specificity than theme defaults)
+  // Declare classDef styles for all four statuses
   lines.push(`    classDef pending ${STATUS_COLORS.pending}`);
   lines.push(`    classDef in_progress ${STATUS_COLORS.in_progress}`);
   lines.push(`    classDef completed ${STATUS_COLORS.completed}`);
   lines.push(`    classDef failed ${STATUS_COLORS.failed}`);
-  lines.push('');
 
-  // Add nodes for each task (no subgraphs)
+  // Emit a node for each task
   for (const batch of batches) {
     for (const task of batch.tasks) {
-      const nodeId = sanitizeId(task.id);
-      const label = task.id;
-      lines.push(`    ${nodeId}["${label}"]`);
+      const safeId = sanitizeId(task.id);
+      lines.push(`    ${safeId}["${task.id}"]`);
     }
   }
 
-  lines.push('');
-
-  // Add dependency arrows between tasks
+  // Emit dependency arrows between tasks (skip empty/whitespace dependency strings)
   for (const batch of batches) {
     for (const task of batch.tasks) {
-      for (const dep of task.dependsOn) {
-        if (!dep || !dep.trim()) continue; // Skip empty or whitespace-only dependencies
-        const fromId = sanitizeId(dep);
-        if (!fromId || fromId === '_') continue; // Skip if sanitized ID is empty or just underscore
-        const toId = sanitizeId(task.id);
-        lines.push(`    ${fromId} --> ${toId}`);
+      if (task.dependsOn && task.dependsOn.length > 0) {
+        for (const dep of task.dependsOn) {
+          if (dep && dep.trim()) {
+            const safeTaskId = sanitizeId(task.id);
+            const safeDepId = sanitizeId(dep);
+            lines.push(`    ${safeDepId} --> ${safeTaskId}`);
+          }
+        }
       }
     }
   }
 
-  lines.push('');
-
-  // Apply class to each task based on status
+  // Apply appropriate class to each task node based on current status
   for (const batch of batches) {
     for (const task of batch.tasks) {
-      const nodeId = sanitizeId(task.id);
-      const statusClass = task.status || 'pending';
-      lines.push(`    class ${nodeId} ${statusClass}`);
+      const safeId = sanitizeId(task.id);
+      const status = task.status || 'pending';
+      lines.push(`    class ${safeId} ${status}`);
     }
   }
 
@@ -78,62 +81,16 @@ export function buildDiagramContent(batches: TaskBatch[]): string {
 }
 
 /**
- * Sanitize task ID for use as Mermaid node ID
+ * Generate a Mermaid diagram from current task execution state.
+ *
+ * If batches is empty or absent, returns a placeholder "No tasks defined" graph.
  */
-function sanitizeId(id: string): string {
-  return id.replace(/[^a-zA-Z0-9_]/g, '_');
-}
+export function generateTaskDiagram(state: TaskDiagramState): string {
+  const batches = state.batches;
 
-/**
- * Update diagram file in session via MCP API
- */
-export async function updateTaskDiagram(
-  project: string,
-  session: string,
-  state: { batches?: TaskBatch[] },
-  apiBaseUrl = 'http://localhost:3737'
-): Promise<void> {
-  const content = generateTaskDiagram(state);
-
-  // Check if diagram exists
-  const listResponse = await fetch(
-    `${apiBaseUrl}/api/projects/${encodeURIComponent(project)}/sessions/${encodeURIComponent(session)}/diagrams`
-  );
-
-  if (!listResponse.ok) {
-    throw new Error(`Failed to list diagrams: ${listResponse.statusText}`);
+  if (!batches || batches.length === 0) {
+    return 'graph TD\n    empty["No tasks defined"]';
   }
 
-  const diagrams = (await listResponse.json()) as { diagrams: Array<{ id: string }> };
-  const exists = diagrams.diagrams.some((d) => d.id === 'task-execution');
-
-  if (exists) {
-    // Update existing diagram
-    const updateResponse = await fetch(
-      `${apiBaseUrl}/api/projects/${encodeURIComponent(project)}/sessions/${encodeURIComponent(session)}/diagrams/task-execution`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
-      }
-    );
-
-    if (!updateResponse.ok) {
-      throw new Error(`Failed to update diagram: ${updateResponse.statusText}`);
-    }
-  } else {
-    // Create new diagram
-    const createResponse = await fetch(
-      `${apiBaseUrl}/api/projects/${encodeURIComponent(project)}/sessions/${encodeURIComponent(session)}/diagrams`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'task-execution', content }),
-      }
-    );
-
-    if (!createResponse.ok) {
-      throw new Error(`Failed to create diagram: ${createResponse.statusText}`);
-    }
-  }
+  return buildDiagramContent(batches);
 }

@@ -40,7 +40,7 @@ describe('updateSessionState - Broadcast Functionality', () => {
   describe('RED - Broadcast After State Update', () => {
     test('should broadcast session_state_updated message via WebSocket', async () => {
       const updates: StateUpdateParams = {
-        currentItem: 1,
+        state: 'collab-working',
       };
 
       // This test expects the function to accept wsHandler
@@ -57,7 +57,7 @@ describe('updateSessionState - Broadcast Functionality', () => {
 
     test('should include lastActivity in broadcast message', async () => {
       const updates: StateUpdateParams = {
-        currentItem: 1,
+        state: 'collab-working',
       };
 
       await updateSessionState(testProject, testSession, updates, mockWsHandler);
@@ -65,17 +65,6 @@ describe('updateSessionState - Broadcast Functionality', () => {
       const broadcastCall = (mockWsHandler.broadcast as any).mock.calls[0][0];
       expect(broadcastCall.lastActivity).toBeDefined();
       expect(typeof broadcastCall.lastActivity).toBe('string');
-    });
-
-    test('should include currentItem in broadcast message', async () => {
-      const updates: StateUpdateParams = {
-        currentItem: 3,
-      };
-
-      await updateSessionState(testProject, testSession, updates, mockWsHandler);
-
-      const broadcastCall = (mockWsHandler.broadcast as any).mock.calls[0][0];
-      expect(broadcastCall.currentItem).toBe(3);
     });
 
     test('should include completedTasks in broadcast when provided', async () => {
@@ -100,31 +89,9 @@ describe('updateSessionState - Broadcast Functionality', () => {
       expect(broadcastCall.pendingTasks).toEqual(['task_3', 'task_4']);
     });
 
-    test('should include totalItems in broadcast when provided', async () => {
-      const updates: StateUpdateParams = {
-        totalItems: 5,
-      };
-
-      await updateSessionState(testProject, testSession, updates, mockWsHandler);
-
-      const broadcastCall = (mockWsHandler.broadcast as any).mock.calls[0][0];
-      expect(broadcastCall.totalItems).toBe(5);
-    });
-
-    test('should include documentedItems in broadcast when provided', async () => {
-      const updates: StateUpdateParams = {
-        documentedItems: 3,
-      };
-
-      await updateSessionState(testProject, testSession, updates, mockWsHandler);
-
-      const broadcastCall = (mockWsHandler.broadcast as any).mock.calls[0][0];
-      expect(broadcastCall.documentedItems).toBe(3);
-    });
-
     test('should broadcast after state is written to file', async () => {
       const updates: StateUpdateParams = {
-        currentItem: 5,
+        state: 'collab-working',
       };
 
       const broadcastSpy = vi.fn();
@@ -141,27 +108,21 @@ describe('updateSessionState - Broadcast Functionality', () => {
       const stateFile = join(testProject, '.collab', 'sessions', testSession, 'collab-state.json');
       const content = await (await import('fs/promises')).readFile(stateFile, 'utf-8');
       const state = JSON.parse(content);
-      expect(state.currentItem).toBe(5);
+      expect(state.state).toBe('collab-working');
     });
 
     test('should broadcast all updated fields together', async () => {
       const updates: StateUpdateParams = {
-        currentItem: 2,
         completedTasks: ['task_1'],
         pendingTasks: ['task_2', 'task_3'],
-        totalItems: 5,
-        documentedItems: 4,
       };
 
       await updateSessionState(testProject, testSession, updates, mockWsHandler);
 
       const broadcastCall = (mockWsHandler.broadcast as any).mock.calls[0][0];
       expect(broadcastCall.type).toBe('session_state_updated');
-      expect(broadcastCall.currentItem).toBe(2);
       expect(broadcastCall.completedTasks).toEqual(['task_1']);
       expect(broadcastCall.pendingTasks).toEqual(['task_2', 'task_3']);
-      expect(broadcastCall.totalItems).toBe(5);
-      expect(broadcastCall.documentedItems).toBe(4);
     });
   });
 
@@ -174,7 +135,7 @@ describe('updateSessionState - Broadcast Functionality', () => {
       } as any;
 
       const updates: StateUpdateParams = {
-        currentItem: 1,
+        state: 'collab-working',
       };
 
       // Should not throw even if broadcast fails
@@ -186,7 +147,7 @@ describe('updateSessionState - Broadcast Functionality', () => {
       const stateFile = join(testProject, '.collab', 'sessions', testSession, 'collab-state.json');
       const content = await (await import('fs/promises')).readFile(stateFile, 'utf-8');
       const state = JSON.parse(content);
-      expect(state.currentItem).toBe(1);
+      expect(state.state).toBe('collab-working');
     });
 
     test('should catch and log broadcast errors without breaking state update', async () => {
@@ -198,7 +159,7 @@ describe('updateSessionState - Broadcast Functionality', () => {
       } as any;
 
       const updates: StateUpdateParams = {
-        currentItem: 2,
+        state: 'collab-working',
       };
 
       await updateSessionState(testProject, testSession, updates, failingHandler);
@@ -207,7 +168,7 @@ describe('updateSessionState - Broadcast Functionality', () => {
       const stateFile = join(testProject, '.collab', 'sessions', testSession, 'collab-state.json');
       const content = await (await import('fs/promises')).readFile(stateFile, 'utf-8');
       const state = JSON.parse(content);
-      expect(state.currentItem).toBe(2);
+      expect(state.state).toBe('collab-working');
 
       consoleSpy.mockRestore();
     });
@@ -215,7 +176,7 @@ describe('updateSessionState - Broadcast Functionality', () => {
 
   describe('Broadcast Content Requirements', () => {
     test('broadcast message must have session_state_updated type discriminator', async () => {
-      const updates: StateUpdateParams = { currentItem: 1 };
+      const updates: StateUpdateParams = { state: 'collab-working' };
 
       await updateSessionState(testProject, testSession, updates, mockWsHandler);
 
@@ -227,7 +188,7 @@ describe('updateSessionState - Broadcast Functionality', () => {
       const beforeTime = new Date();
       await new Promise(resolve => setTimeout(resolve, 10));
 
-      const updates: StateUpdateParams = { currentItem: 1 };
+      const updates: StateUpdateParams = { state: 'collab-working' };
       await updateSessionState(testProject, testSession, updates, mockWsHandler);
 
       const broadcastCall = (mockWsHandler.broadcast as any).mock.calls[0][0];
@@ -235,21 +196,12 @@ describe('updateSessionState - Broadcast Functionality', () => {
 
       expect(lastActivity.getTime()).toBeGreaterThanOrEqual(beforeTime.getTime());
     });
-
-    test('broadcast should include currentItem as null when not updated', async () => {
-      const updates: StateUpdateParams = { totalItems: 3 };
-
-      await updateSessionState(testProject, testSession, updates, mockWsHandler);
-
-      const broadcastCall = (mockWsHandler.broadcast as any).mock.calls[0][0];
-      expect(broadcastCall.currentItem).toBeNull();
-    });
   });
 
   describe('Optional wsHandler Parameter', () => {
     test('should work when wsHandler is not provided (backward compatibility)', async () => {
       const updates: StateUpdateParams = {
-        currentItem: 1,
+        state: 'collab-working',
       };
 
       // Call without wsHandler - should not throw
@@ -261,12 +213,12 @@ describe('updateSessionState - Broadcast Functionality', () => {
       const stateFile = join(testProject, '.collab', 'sessions', testSession, 'collab-state.json');
       const content = await (await import('fs/promises')).readFile(stateFile, 'utf-8');
       const state = JSON.parse(content);
-      expect(state.currentItem).toBe(1);
+      expect(state.state).toBe('collab-working');
     });
 
     test('should only broadcast if wsHandler is provided', async () => {
       const updates: StateUpdateParams = {
-        currentItem: 1,
+        state: 'collab-working',
       };
 
       // First call without wsHandler

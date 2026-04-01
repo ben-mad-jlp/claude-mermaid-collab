@@ -77,9 +77,7 @@ describe('addTodo', () => {
     // Verify collab-state.json
     const stateContent = await readFile(join(sessionDir, 'collab-state.json'), 'utf-8');
     const state = JSON.parse(stateContent);
-    expect(state.sessionType).toBe('vibe');
     expect(state.state).toBe('vibe-active');
-    expect(state.currentItem).toBeNull();
     expect(state.useRenderUI).toBe(true);
     expect(state.lastActivity).toBeTruthy();
   });

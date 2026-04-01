@@ -26,11 +26,9 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
 
   describe('Message Type Definition', () => {
     test('session_state_updated message must have type discriminator', () => {
-      // The session_state_updated type must be part of the WSMessage union
       const message: WSMessage = {
         type: 'session_state_updated',
         lastActivity: new Date().toISOString(),
-        currentItem: null,
       };
 
       expect(message.type).toBe('session_state_updated');
@@ -41,29 +39,11 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
       const message: WSMessage = {
         type: 'session_state_updated',
         lastActivity: timestamp,
-        currentItem: 1,
       };
 
       const state = message as any;
       expect(state.lastActivity).toBeDefined();
       expect(state.lastActivity).toBe(timestamp);
-    });
-
-    test('session_state_updated must include currentItem field (required, can be null)', () => {
-      const messageWithNull: WSMessage = {
-        type: 'session_state_updated',
-        lastActivity: new Date().toISOString(),
-        currentItem: null,
-      };
-
-      const messageWithNumber: WSMessage = {
-        type: 'session_state_updated',
-        lastActivity: new Date().toISOString(),
-        currentItem: 2,
-      };
-
-      expect((messageWithNull as any).currentItem).toBeNull();
-      expect((messageWithNumber as any).currentItem).toBe(2);
     });
   });
 
@@ -72,7 +52,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
       const message: WSMessage = {
         type: 'session_state_updated',
         lastActivity: new Date().toISOString(),
-        currentItem: 1,
         completedTasks: ['task_1', 'task_2'],
       };
 
@@ -84,36 +63,11 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
       const message: WSMessage = {
         type: 'session_state_updated',
         lastActivity: new Date().toISOString(),
-        currentItem: 1,
         pendingTasks: ['task_3', 'task_4'],
       };
 
       const state = message as any;
       expect(state.pendingTasks).toEqual(['task_3', 'task_4']);
-    });
-
-    test('session_state_updated should support optional totalItems number', () => {
-      const message: WSMessage = {
-        type: 'session_state_updated',
-        lastActivity: new Date().toISOString(),
-        currentItem: 1,
-        totalItems: 5,
-      };
-
-      const state = message as any;
-      expect(state.totalItems).toBe(5);
-    });
-
-    test('session_state_updated should support optional documentedItems number', () => {
-      const message: WSMessage = {
-        type: 'session_state_updated',
-        lastActivity: new Date().toISOString(),
-        currentItem: 2,
-        documentedItems: 3,
-      };
-
-      const state = message as any;
-      expect(state.documentedItems).toBe(3);
     });
   });
 
@@ -122,7 +76,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
       const message: WSMessage = {
         type: 'session_state_updated',
         lastActivity: '2026-01-26T10:30:00.000Z',
-        currentItem: 1,
       };
 
       const json = JSON.stringify(message);
@@ -134,33 +87,15 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
       const original: WSMessage = {
         type: 'session_state_updated',
         lastActivity: '2026-01-26T14:00:00.000Z',
-        currentItem: 3,
         completedTasks: ['t1'],
         pendingTasks: ['t2', 't3'],
-        totalItems: 5,
-        documentedItems: 4,
       };
 
       const json = JSON.stringify(original);
       const parsed = JSON.parse(json) as WSMessage;
 
       expect(parsed.type).toBe('session_state_updated');
-      expect((parsed as any).currentItem).toBe(3);
       expect((parsed as any).completedTasks).toEqual(['t1']);
-      expect((parsed as any).totalItems).toBe(5);
-    });
-
-    test('session_state_updated should preserve null values in JSON', () => {
-      const message: WSMessage = {
-        type: 'session_state_updated',
-        lastActivity: '2026-01-26T10:00:00Z',
-        currentItem: null,
-      };
-
-      const json = JSON.stringify(message);
-      const parsed = JSON.parse(json);
-
-      expect((parsed as any).currentItem).toBeNull();
     });
   });
 
@@ -169,14 +104,12 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
       const message: WSMessage = {
         type: 'session_state_updated',
         lastActivity: new Date().toISOString(),
-        currentItem: 1,
       };
 
       // Type guard pattern should work
       if (message.type === 'session_state_updated') {
         const state = message as any;
         expect(state.lastActivity).toBeDefined();
-        expect(state.currentItem).toBeDefined();
       } else {
         throw new Error('Type guard failed');
       }
@@ -186,9 +119,7 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
       const messages: WSMessage[] = [
         {
           type: 'session_state_updated',
-  
           lastActivity: new Date().toISOString(),
-          currentItem: 1,
         },
         {
           type: 'notification',
@@ -219,7 +150,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
       const message: WSMessage = {
         type: 'session_state_updated',
         lastActivity: new Date().toISOString(),
-        currentItem: 1,
       };
 
       // Should not throw
@@ -236,11 +166,8 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
       const message: WSMessage = {
         type: 'session_state_updated',
         lastActivity: '2026-01-26T15:00:00Z',
-        currentItem: 2,
         completedTasks: ['task_1', 'task_2'],
         pendingTasks: ['task_3'],
-        totalItems: 5,
-        documentedItems: 4,
       };
 
       handler.broadcast(message);
@@ -248,7 +175,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
       const sentData = JSON.parse((mockWs.send as any).mock.calls[0][0]);
       expect(sentData.type).toBe('session_state_updated');
       expect(sentData.completedTasks).toEqual(['task_1', 'task_2']);
-      expect(sentData.totalItems).toBe(5);
     });
   });
 
@@ -257,7 +183,6 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
       const message: WSMessage = {
         type: 'session_state_updated',
         lastActivity: new Date().toISOString(),
-        currentItem: 1,
         completedTasks: [],
         pendingTasks: [],
       };
@@ -268,20 +193,5 @@ describe('SessionStateUpdated Message Type - Implementation Spec', () => {
       expect((parsed as any).completedTasks).toEqual([]);
       expect((parsed as any).pendingTasks).toEqual([]);
     });
-
-    test('session_state_updated with zero totalItems should be valid', () => {
-      const message: WSMessage = {
-        type: 'session_state_updated',
-        lastActivity: new Date().toISOString(),
-        currentItem: 0,
-        totalItems: 0,
-        documentedItems: 0,
-      };
-
-      expect((message as any).currentItem).toBe(0);
-      expect((message as any).totalItems).toBe(0);
-      expect((message as any).documentedItems).toBe(0);
-    });
-
   });
 });

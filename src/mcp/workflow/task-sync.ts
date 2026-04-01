@@ -2,7 +2,7 @@
  * Task synchronization from task-graph.md to collab state.
  */
 
-import type { TaskBatch, BatchTask, WorkItem } from './types.js';
+import type { TaskBatch, BatchTask } from './types.js';
 import { getSessionState, updateSessionState } from '../tools/collab-state.js';
 import { readFile, writeFile, readdir, access } from 'fs/promises';
 import { join } from 'path';
@@ -373,19 +373,6 @@ ${batches.map((batch, index) => {
   await writeFile(taskGraphPath, content, 'utf-8');
 }
 
-/**
- * Generate fallback tasks from work items when no task-graph or blueprints exist.
- * Creates one task per code/bugfix work item (tasks don't go through execution).
- */
-export function generateFallbackTasks(workItems: WorkItem[]): TaskGraphTask[] {
-  return workItems
-    .filter((item) => item.type === 'code' || item.type === 'bugfix')
-    .map((item) => ({
-      id: `item-${item.number}`,
-      files: [],
-      description: item.title,
-    }));
-}
 
 /**
  * Sync tasks from task-graph.md or blueprint documents to collab-state.json
@@ -409,7 +396,9 @@ export async function syncTasksFromTaskGraph(
     let blueprintFiles: string[] = [];
     try {
       const files = await readdir(documentsPath);
-      blueprintFiles = files.filter((f) => f.startsWith('blueprint-item-') && f.endsWith('.md'));
+      blueprintFiles = files.filter(
+        (f) => (f.startsWith('blueprint-item-') || f === 'blueprint.md') && f.endsWith('.md')
+      );
     } catch {
       // Documents directory may not exist
     }
@@ -438,22 +427,9 @@ export async function syncTasksFromTaskGraph(
       }
     }
 
-    // Fallback: generate tasks from work items if no task-graph or blueprint tasks found
+    // No tasks found from task-graph or blueprints
     if (allTasks.length === 0) {
-      const state = await getSessionState(project, session);
-      const workItems: WorkItem[] = state.workItems || [];
-      allTasks = generateFallbackTasks(workItems);
-
-      if (allTasks.length === 0) {
-        throw new Error('No task-graph, blueprint documents, or executable work items found');
-      }
-
-      console.warn(
-        `No task-graph or blueprints found. Generated ${allTasks.length} fallback task(s) from work items.`
-      );
-
-      // Create a consolidated task-graph document from fallback tasks
-      await createConsolidatedTaskGraph(project, session, allTasks);
+      throw new Error('No task-graph or blueprint documents found');
     }
   }
 

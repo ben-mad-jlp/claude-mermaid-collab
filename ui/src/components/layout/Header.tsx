@@ -17,7 +17,6 @@ import { useSession } from '@/hooks/useSession';
 import { useUIStore } from '@/stores/uiStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { api } from '@/lib/api';
-import { SessionStatusPanel } from '@/components/SessionStatusPanel';
 import { NavMenu } from './NavMenu';
 import { Session } from '@/types';
 
@@ -310,7 +309,6 @@ export const Header: React.FC<HeaderProps> = ({
             </span>
           </div>
 
-          <SessionStatusPanel variant="inline" />
         </div>
 
         {/* Right-side controls */}

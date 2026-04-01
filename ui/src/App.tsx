@@ -63,7 +63,7 @@ import { ToastContainer } from '@/components/notifications';
 import { requestNotificationPermission, showUserInputNotification } from '@/services/notification-service';
 
 // Import dialogs
-import { SessionCleanupDialog, type CleanupAction, CreateSessionDialog, type SessionType } from '@/components/dialogs';
+import { SessionCleanupDialog, type CleanupAction, CreateSessionDialog } from '@/components/dialogs';
 
 /**
  * Error Boundary Component
@@ -957,11 +957,11 @@ const App: React.FC = () => {
   }, []);
 
   // Handle create session dialog confirmation
-  const handleCreateSessionConfirm = useCallback(async (name: string, type: SessionType, useRenderUI: boolean) => {
+  const handleCreateSessionConfirm = useCallback(async (name: string, useRenderUI: boolean) => {
     if (!createSessionDialog) return;
 
     try {
-      const newSession = await api.createSession(createSessionDialog.project, name, type, useRenderUI);
+      const newSession = await api.createSession(createSessionDialog.project, name, useRenderUI);
       // Refresh sessions list and select the new session
       await loadSessions();
       setCurrentSession(newSession);
