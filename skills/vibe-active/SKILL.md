@@ -129,6 +129,19 @@ Agent mode is on — want me to run this as an agent to keep our context clean? 
 
 If yes, dispatch using the appropriate template below. If no, proceed normally in main context.
 
+### Tool Preferences (all agents)
+
+Include this in every agent prompt:
+
+```
+Tool preferences — always prefer native tools over shell commands:
+- Read files: use the Read tool with offset/limit — never cat, sed, head, or tail
+- Search content: use the Grep tool — never shell grep or rg
+- Find files: use the Glob tool — never find or ls
+- Create/modify files: use the Write or Edit tool — never cat > heredocs or sed -i
+- Run scripts: use Bash only for commands that genuinely require shell execution
+```
+
 ### Research Agent
 
 Investigates and saves findings as a session document.
@@ -141,6 +154,12 @@ Project: {project}
 Session: {session}
 
 Research task: {user's request}
+
+Tool preferences — always prefer native tools over shell commands:
+- Read files: use the Read tool with offset/limit — never cat, sed, head, or tail
+- Search content: use the Grep tool — never shell grep or rg
+- Find files: use the Glob tool — never find or ls
+- Create/modify files: use the Write or Edit tool — never cat > heredocs or sed -i
 
 1. Read relevant files, search codebase, check git history as needed
 2. Save findings as a document:
@@ -164,6 +183,12 @@ Project: {project}
 Session: {session}
 
 Implementation task: {user's request}
+
+Tool preferences — always prefer native tools over shell commands:
+- Read files: use the Read tool with offset/limit — never cat, sed, head, or tail
+- Search content: use the Grep tool — never shell grep or rg
+- Find files: use the Glob tool — never find or ls
+- Create/modify files: use the Write or Edit tool — never cat > heredocs or sed -i
 
 1. Read relevant files to understand existing code
 2. Implement the changes
@@ -195,6 +220,12 @@ Session: {session}
 
 Debug task: {user's request}
 
+Tool preferences — always prefer native tools over shell commands:
+- Read files: use the Read tool with offset/limit — never cat, sed, head, or tail
+- Search content: use the Grep tool — never shell grep or rg
+- Find files: use the Glob tool — never find or ls
+- Create/modify files: use the Write or Edit tool — never cat > heredocs or sed -i
+
 1. Read relevant source files and trace the code path
 2. Identify root cause, affected files, and proposed fix
 3. Save findings as a document:
@@ -218,6 +249,12 @@ Project: {project}
 Session: {session}
 
 Deployment task: {user's request}
+
+Tool preferences — always prefer native tools over shell commands:
+- Read files: use the Read tool with offset/limit — never cat, sed, head, or tail
+- Search content: use the Grep tool — never shell grep or rg
+- Find files: use the Glob tool — never find or ls
+- Create/modify files: use the Write or Edit tool — never cat > heredocs or sed -i
 
 1. Run the required build/deploy/migration commands
 2. Capture output at each step
