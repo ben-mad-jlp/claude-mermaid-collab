@@ -18,13 +18,27 @@ allowed-tools:
 Generate a blueprint document and task graph from selected session artifacts.
 The blueprint is saved as a locked read-only document in the session's Blueprint section.
 
+## Step 0 — Deprecate existing blueprints
+
+Before creating a new blueprint, deprecate any active ones so the Tasks and Blueprints sections reset cleanly.
+
+1. Call `mcp__plugin_mermaid-collab_mermaid__list_documents` to get all documents
+2. Filter for documents where `blueprint: true` and `deprecated: false`
+3. For each active blueprint, call:
+   ```
+   Tool: mcp__plugin_mermaid-collab_mermaid__deprecate_artifact
+   Args: { "project": "<cwd>", "session": "<session>", "id": "<blueprint-id>", "deprecated": true }
+   ```
+4. If any were deprecated, tell the user: `"Archived [N] previous blueprint(s)."`
+5. If none found, continue silently.
+
 ## Step 1 — List available artifacts
 
 Call `mcp__plugin_mermaid-collab_mermaid__list_documents` and `mcp__plugin_mermaid-collab_mermaid__list_snippets` to get all artifacts in the current session.
 
 Filter out:
 - Documents ending in `vibeinstructions`
-- Documents that are already blueprints (`blueprint-*`)
+- Documents that are blueprints (`blueprint: true`)
 
 ## Step 2 — Ask which artifacts to use
 

@@ -4,6 +4,7 @@
 
 import type { TaskBatch, BatchTask } from './types.js';
 import { getSessionState, updateSessionState } from '../tools/collab-state.js';
+import { MetadataManager } from '../../services/metadata-manager.js';
 import { readFile, writeFile, readdir, access } from 'fs/promises';
 import { join } from 'path';
 
@@ -384,53 +385,51 @@ export async function syncTasksFromTaskGraph(
 ): Promise<TaskBatch[]> {
   let allTasks: TaskGraphTask[] = [];
   const documentsPath = getDocumentsPath(project, session);
+  const sessionDir = join(project, '.collab', 'sessions', session);
 
-  // First try to read task-graph document
-  const taskGraphPath = join(documentsPath, 'task-graph.md');
-  if (await fileExists(taskGraphPath)) {
-    const content = await readFile(taskGraphPath, 'utf-8');
-    const taskGraph = parseTaskGraph(content);
-    allTasks = taskGraph.tasks;
-  } else {
-    // No task-graph document - try to consolidate from blueprint documents
-    let blueprintFiles: string[] = [];
-    try {
-      const files = await readdir(documentsPath);
-      blueprintFiles = files.filter(
-        (f) => (f.startsWith('blueprint-item-') || f === 'blueprint.md') && f.endsWith('.md')
-      );
-    } catch {
-      // Documents directory may not exist
-    }
+  // Use metadata to find active (non-deprecated) blueprint documents
+  const metadataManager = new MetadataManager(sessionDir);
+  await metadataManager.initialize();
 
-    if (blueprintFiles.length > 0) {
-      // Read each blueprint and extract tasks
-      for (const blueprintFile of blueprintFiles) {
-        const blueprintPath = join(documentsPath, blueprintFile);
-        try {
-          const content = await readFile(blueprintPath, 'utf-8');
-          const taskGraph = parseTaskGraph(content);
-          // Add tasks, avoiding duplicates by id
-          for (const task of taskGraph.tasks) {
-            if (!allTasks.some((t) => t.id === task.id)) {
-              allTasks.push(task);
-            }
+  let blueprintFiles: string[] = [];
+  try {
+    const files = await readdir(documentsPath);
+    blueprintFiles = files
+      .filter((f) => f.endsWith('.md'))
+      .filter((f) => {
+        const id = f.replace(/\.md$/, '');
+        return metadataManager.isBlueprint(id) && !metadataManager.isDeprecated(id);
+      });
+  } catch {
+    // Documents directory may not exist
+  }
+
+  if (blueprintFiles.length > 0) {
+    // Read each active blueprint and extract tasks
+    for (const blueprintFile of blueprintFiles) {
+      const blueprintPath = join(documentsPath, blueprintFile);
+      try {
+        const content = await readFile(blueprintPath, 'utf-8');
+        const taskGraph = parseTaskGraph(content);
+        for (const task of taskGraph.tasks) {
+          if (!allTasks.some((t) => t.id === task.id)) {
+            allTasks.push(task);
           }
-        } catch {
-          // Blueprint may not have a valid YAML block, skip it
         }
-      }
-
-      if (allTasks.length > 0) {
-        // Create consolidated task-graph document from blueprints
-        await createConsolidatedTaskGraph(project, session, allTasks);
+      } catch {
+        // Blueprint may not have a valid YAML block, skip it
       }
     }
 
-    // No tasks found from task-graph or blueprints
-    if (allTasks.length === 0) {
-      throw new Error('No task-graph or blueprint documents found');
+    if (allTasks.length > 0) {
+      // Create/update consolidated task-graph document
+      await createConsolidatedTaskGraph(project, session, allTasks);
     }
+  }
+
+  // No tasks found
+  if (allTasks.length === 0) {
+    throw new Error('No active blueprint documents with task graphs found');
   }
 
   // Build batches from all tasks
@@ -448,7 +447,6 @@ export async function syncTasksFromTaskGraph(
   // Update session state with batches, preserving completed tasks
   await updateSessionState(project, session, {
     batches,
-    currentBatch: 0,
     pendingTasks,
     completedTasks: existingCompleted,
   });
