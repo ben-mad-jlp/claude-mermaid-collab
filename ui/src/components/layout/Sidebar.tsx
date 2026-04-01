@@ -91,6 +91,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [isTodoDropdownOpen, setIsTodoDropdownOpen] = useState(false);
   const [showDeprecated, setShowDeprecated] = useState(false);
   const [blueprintCollapsed, setBlueprintCollapsed] = useState(false);
+  const [tasksCollapsed, setTasksCollapsed] = useState(false);
 
   const isVibing = collabState?.state === 'vibe-active';
 
@@ -238,6 +239,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return documents.find((d) => d.name.endsWith('vibeinstructions')) || null;
   }, [documents]);
 
+  const taskGraphDoc = useMemo(() => {
+    return documents.find((d) => d.name === 'task-graph') || null;
+  }, [documents]);
+
   const blueprintItems = useMemo(() => {
     const items = documents
       .filter((d) => d.blueprint && !d.name.endsWith('vibeinstructions'))
@@ -250,7 +255,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const filteredItems = useMemo(() => {
     const items: Item[] = [
       ...diagrams.map((d) => ({ ...d, type: 'diagram' as const })),
-      ...documents.filter((d) => !d.name.endsWith('vibeinstructions') && !d.blueprint).map((d) => ({ ...d, type: 'document' as const })),
+      ...documents.filter((d) => !d.name.endsWith('vibeinstructions') && !d.blueprint && d.name !== 'task-graph').map((d) => ({ ...d, type: 'document' as const })),
       ...designs.map((d) => ({
         ...d,
         type: 'design' as const,
@@ -325,17 +330,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const isDisabled = !currentSession && !todosSelected;
 
-  const currentState = collabState?.state;
-  const isImplementationPhase =
-    currentState === 'execute-batch' ||
-    currentState === 'ready-to-implement' ||
-    currentState === 'batch-router' ||
-    currentState === 'log-batch-complete' ||
-    currentState === 'bug-review' ||
-    currentState === 'completeness-review';
+  const hasBatches = collabState?.batches && collabState.batches.length > 0;
+  const hasActiveBlueprints = blueprintItems.length > 0;
+  const isImplementationPhase = hasBatches && hasActiveBlueprints;
 
   // Determine if delete buttons should show for items
-  const showItemDelete = todosSelected || isVibing;
+  const showItemDelete = todosSelected || !!currentSession;
 
   return (
     <aside
@@ -408,68 +408,64 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </div>
         </div>
-      ) : (
-        <div className={`p-2 border-b border-gray-200 dark:border-gray-700 ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`}>
-          <input
-            data-testid="sidebar-search"
-            type="text"
-            placeholder="Search items..."
-            value={searchQuery}
-            onChange={handleSearchChange}
-            disabled={isDisabled}
-            className="
-                w-full
-                px-3 py-2
-                text-sm
-                bg-white dark:bg-gray-800
-                border border-gray-300 dark:border-gray-600
-                rounded-lg
-                placeholder-gray-400 dark:placeholder-gray-500
-                text-gray-900 dark:text-white
-                focus:outline-none
-                focus:ring-2 focus:ring-accent-500 dark:focus:ring-accent-400
-                focus:border-transparent
-                transition-colors
-                disabled:cursor-not-allowed
-            "
-          />
-          <div className="flex items-center gap-2 px-1 mt-1">
-            <input
-              type="checkbox"
-              id="show-deprecated"
-              checked={showDeprecated}
-              onChange={(e) => setShowDeprecated(e.target.checked)}
-              className="w-3.5 h-3.5 rounded border-gray-300 dark:border-gray-600 text-accent-600"
-            />
-            <label htmlFor="show-deprecated" className="text-xs text-gray-500 dark:text-gray-400 cursor-pointer select-none">
-              Show deprecated
-            </label>
-          </div>
-        </div>
-      )}
+      ) : null}
 
-      {/* Task Graph Entry - shown during implementation phase */}
+      {/* Tasks Section - shown when task graph exists */}
       {isImplementationPhase && !isDisabled && (
-        <div className="px-2 py-1 border-b border-gray-200 dark:border-gray-700">
+        <div className="border-b border-gray-200 dark:border-gray-700">
           <button
-            data-testid="task-graph-entry"
-            onClick={selectTaskGraph}
-            className={`
-              w-full text-left px-3 py-2 rounded-lg
-              flex items-center gap-2
-              text-sm font-medium
-              transition-colors
-              ${taskGraphSelected
-                ? 'bg-accent-100 dark:bg-accent-900 text-accent-700 dark:text-accent-300'
-                : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-              }
-            `}
+            onClick={() => setTasksCollapsed((c) => !c)}
+            className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            <span>Tasks</span>
+            <svg
+              className={`w-3 h-3 ml-auto text-gray-400 transition-transform ${tasksCollapsed ? '-rotate-90' : ''}`}
+              viewBox="0 0 20 20" fill="currentColor"
+            >
+              <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
             </svg>
-            <span>Task Graph</span>
           </button>
+          {!tasksCollapsed && <div className="space-y-1 px-2 pb-2">
+            <button
+              data-testid="task-graph-entry"
+              onClick={selectTaskGraph}
+              className={`
+                w-full text-left px-3 py-2 rounded-lg
+                flex items-center gap-2
+                text-sm font-medium
+                transition-colors
+                ${taskGraphSelected
+                  ? 'bg-accent-100 dark:bg-accent-900 text-accent-700 dark:text-accent-300'
+                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }
+              `}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+              <span>Task Graph</span>
+            </button>
+            {taskGraphDoc && (
+              <button
+                onClick={() => handleItemClick({ ...taskGraphDoc, type: 'document' as const })}
+                className={`
+                  w-full text-left px-3 py-2 rounded-lg
+                  flex items-center gap-2
+                  text-sm font-medium
+                  transition-colors
+                  ${selectedDocumentId === taskGraphDoc.id
+                    ? 'bg-accent-100 dark:bg-accent-900 text-accent-700 dark:text-accent-300'
+                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                  }
+                `}
+              >
+                <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <span>Task Details</span>
+              </button>
+            )}
+          </div>}
         </div>
       )}
 
@@ -502,17 +498,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="border-b border-gray-200 dark:border-gray-700">
           <button
             onClick={() => setBlueprintCollapsed((c) => !c)}
-            className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
+            className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
           >
-            <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-              <polyline points="14 2 14 8 20 8"/>
-              <line x1="8" y1="13" x2="16" y2="13"/>
-              <line x1="8" y1="17" x2="12" y2="17"/>
-              <line x1="8" y1="9" x2="10" y2="9"/>
-            </svg>
-            <span>Blueprint</span>
-            <span className="ml-1 text-indigo-400 dark:text-indigo-500 font-normal">{blueprintItems.length}</span>
+            <span>Blueprints</span>
+            <span className="ml-1 text-gray-400 dark:text-gray-500 font-normal">{blueprintItems.length}</span>
             <svg
               className={`w-3 h-3 ml-auto text-gray-400 transition-transform ${blueprintCollapsed ? '-rotate-90' : ''}`}
               viewBox="0 0 20 20" fill="currentColor"
@@ -523,13 +512,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {!blueprintCollapsed && (
             <div className="space-y-1 px-2 pb-2">
               {blueprintItems.map((item) => (
-                <ItemCard
+                <button
                   key={item.id}
-                  item={item}
-                  isSelected={isItemSelected(item)}
                   onClick={() => handleItemClick(item)}
-                  showDelete={false}
-                />
+                  className={`
+                    w-full text-left px-3 py-2 rounded-lg
+                    flex items-center gap-2
+                    text-sm font-medium
+                    transition-colors
+                    ${isItemSelected(item)
+                      ? 'bg-accent-100 dark:bg-accent-900 text-accent-700 dark:text-accent-300'
+                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                    }
+                  `}
+                >
+                  <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                    <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                  </svg>
+                  <span>{item.name}</span>
+                </button>
               ))}
             </div>
           )}
@@ -537,7 +539,48 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       {/* Items List */}
-      <div className={`flex-1 py-2 overflow-y-auto ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`} role="navigation" aria-label="Sidebar items">
+      <div className={`flex-1 overflow-y-auto ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`} role="navigation" aria-label="Sidebar items">
+        {/* Items section header with search */}
+        {!isDisabled && !todosSelected && (
+          <div className="px-2 pt-2 pb-1">
+            <div className="px-1 pb-1 text-xs font-semibold text-gray-900 dark:text-gray-100">
+              Items
+            </div>
+            <input
+              data-testid="sidebar-search"
+              type="text"
+              placeholder="Search items..."
+              value={searchQuery}
+              onChange={handleSearchChange}
+              className="
+                  w-full
+                  px-3 py-1.5
+                  text-sm
+                  bg-white dark:bg-gray-800
+                  border border-gray-300 dark:border-gray-600
+                  rounded-lg
+                  placeholder-gray-400 dark:placeholder-gray-500
+                  text-gray-900 dark:text-white
+                  focus:outline-none
+                  focus:ring-2 focus:ring-accent-500 dark:focus:ring-accent-400
+                  focus:border-transparent
+                  transition-colors
+              "
+            />
+            <div className="flex items-center gap-2 px-1 mt-1">
+              <input
+                type="checkbox"
+                id="show-deprecated"
+                checked={showDeprecated}
+                onChange={(e) => setShowDeprecated(e.target.checked)}
+                className="w-3.5 h-3.5 rounded border-gray-300 dark:border-gray-600 text-accent-600"
+              />
+              <label htmlFor="show-deprecated" className="text-xs text-gray-500 dark:text-gray-400 cursor-pointer select-none">
+                Show deprecated
+              </label>
+            </div>
+          </div>
+        )}
         {isDisabled ? (
           <div data-testid="sidebar-empty" className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 text-center">
             Select a session to view items

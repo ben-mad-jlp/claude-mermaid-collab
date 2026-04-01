@@ -14,13 +14,11 @@ export interface CollabState {
   displayName?: string;
   state?: string;
   lastActivity: string;
-  currentItem: number | null;
   pendingVerificationIssues?: VerificationIssue[];
   worktreePath?: string;
+  batches?: Array<{ id: string; tasks: Array<{ id: string; status: string; dependsOn: string[] }>; status: string }>;
   completedTasks?: string[];
   pendingTasks?: string[];
-  totalItems?: number;
-  documentedItems?: number;
 }
 
 export interface VerificationIssue {

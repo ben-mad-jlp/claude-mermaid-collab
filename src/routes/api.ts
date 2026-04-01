@@ -354,6 +354,8 @@ export async function handleAPI(
       // Compute displayName from state field if not already set
       if (!state.displayName && state.state) {
         state.displayName = state.state.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+      } else if (!state.displayName) {
+        state.displayName = params.session;
       }
 
       return Response.json(state);

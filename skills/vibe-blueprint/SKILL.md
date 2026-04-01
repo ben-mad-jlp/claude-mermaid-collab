@@ -100,12 +100,14 @@ tasks:
 
 ## Step 5 — Create the blueprint document
 
+Derive a short, descriptive name from the blueprint's goal (e.g. `bp-session-display-badge`, `bp-auth-middleware-rewrite`). Always prefix with `bp-` so blueprints are easy to identify. Do NOT use the generic name "blueprint".
+
 ```
 Tool: mcp__plugin_mermaid-collab_mermaid__create_document
 Args: {
   "project": "<cwd>",
   "session": "<session>",
-  "name": "blueprint",
+  "name": "bp-<descriptive-slug>",
   "content": "<full blueprint content>"
 }
 ```
@@ -113,7 +115,7 @@ Args: {
 Blueprint document structure:
 
 ```markdown
-# Blueprint
+# Blueprint: <Descriptive Title>
 
 ## Source Artifacts
 - [List of artifacts used to generate this blueprint]
