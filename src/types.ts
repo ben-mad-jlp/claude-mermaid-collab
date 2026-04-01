@@ -83,6 +83,7 @@ export interface ItemMetadata {
   locked: boolean;
   deprecated?: boolean;
   pinned?: boolean;
+  blueprint?: boolean;
 }
 
 export interface Metadata {

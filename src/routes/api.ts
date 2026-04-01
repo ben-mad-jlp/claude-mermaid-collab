@@ -1235,7 +1235,7 @@ export async function handleAPI(
 
     const { documentManager, metadataManager } = await createManagers(params.project, params.session);
     const documents = await documentManager.listDocuments();
-    const documentsWithMeta = documents.map((d) => ({ ...d, deprecated: metadataManager.isDeprecated(d.id), pinned: metadataManager.isPinned(d.id) }));
+    const documentsWithMeta = documents.map((d) => ({ ...d, deprecated: metadataManager.isDeprecated(d.id), pinned: metadataManager.isPinned(d.id), locked: metadataManager.isLocked(d.id), blueprint: metadataManager.isBlueprint(d.id) }));
     return Response.json({ documents: documentsWithMeta });
   }
 
@@ -2153,7 +2153,7 @@ export async function handleAPI(
     }
 
     const id = path.split('/').pop()!;
-    const updates = await req.json() as { folder?: string | null; locked?: boolean; deprecated?: boolean; pinned?: boolean };
+    const updates = await req.json() as { folder?: string | null; locked?: boolean; deprecated?: boolean; pinned?: boolean; blueprint?: boolean };
 
     try {
       const { metadataManager } = await createManagers(params.project, params.session);

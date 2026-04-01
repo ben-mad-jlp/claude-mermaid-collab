@@ -36,6 +36,8 @@ export interface ItemMetadata {
   deprecated?: boolean;
   /** Whether the artifact is pinned to the top of the list */
   pinned?: boolean;
+  /** Whether the artifact is a blueprint (generated plan, read-only) */
+  blueprint?: boolean;
 }
 
 /**

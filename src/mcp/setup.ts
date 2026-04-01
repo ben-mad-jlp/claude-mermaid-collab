@@ -35,6 +35,7 @@ import { getWebSocketHandler } from '../services/ws-handler-manager.js';
 import { sessionRegistry } from '../services/session-registry.js';
 import { projectRegistry } from '../services/project-registry.js';
 import { updateTaskStatus, updateTasksStatus, getTaskGraph } from './workflow/task-status.js';
+import { syncTasksFromTaskGraph } from './workflow/task-sync.js';
 import {
   addLesson,
   listLessons,
@@ -1839,6 +1840,18 @@ IMPORTANT - Common pitfalls to avoid:
           required: ['project', 'session'],
         },
       },
+      {
+        name: 'sync_task_graph',
+        description: 'Parse blueprint documents in the session and initialize the task graph. Reads blueprint-item-N documents (or task-graph.md if present), performs topological sort into execution waves, and writes batches to session state. Call this after creating blueprint documents to make the task graph available for execution.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            session: { type: 'string', description: 'Session name' },
+          },
+          required: ['project', 'session'],
+        },
+      },
       // Lessons tools
       {
         name: 'add_lesson',
@@ -3365,6 +3378,13 @@ IMPORTANT - Common pitfalls to avoid:
             if (!project || !session) throw new Error('Missing required: project, session');
             const result = await getTaskGraph({ project, session });
             return JSON.stringify(result, null, 2);
+          }
+
+          case 'sync_task_graph': {
+            const { project, session } = args as { project: string; session: string };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            const batches = await syncTasksFromTaskGraph(project, session);
+            return JSON.stringify({ success: true, batches, totalTasks: batches.reduce((n, b) => n + b.tasks.length, 0), waves: batches.length }, null, 2);
           }
 
           case 'add_lesson': {

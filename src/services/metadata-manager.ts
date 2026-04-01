@@ -81,6 +81,10 @@ export class MetadataManager {
       this.metadata.items[id].pinned = updates.pinned;
     }
 
+    if (updates.blueprint !== undefined) {
+      this.metadata.items[id].blueprint = updates.blueprint;
+    }
+
     await this.save();
   }
 
@@ -94,6 +98,10 @@ export class MetadataManager {
 
   isPinned(id: string): boolean {
     return this.metadata.items[id]?.pinned || false;
+  }
+
+  isBlueprint(id: string): boolean {
+    return this.metadata.items[id]?.blueprint || false;
   }
 
   async createFolder(name: string): Promise<void> {

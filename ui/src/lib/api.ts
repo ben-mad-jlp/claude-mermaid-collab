@@ -89,6 +89,8 @@ export interface ApiClient {
   updateTodo(project: string, id: number, updates: { title?: string }): Promise<ProjectTodo>;
   removeTodo(project: string, id: number): Promise<void>;
   setDeprecated(project: string, session: string, id: string, deprecated: boolean): Promise<void>;
+  setPinned(project: string, session: string, id: string, pinned: boolean): Promise<void>;
+  setBlueprint(project: string, session: string, id: string, blueprint: boolean): Promise<void>;
 }
 
 export interface CachedUIState {
@@ -743,6 +745,18 @@ export const api: ApiClient = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pinned }),
+    });
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+  },
+
+  async setBlueprint(project: string, session: string, id: string, blueprint: boolean): Promise<void> {
+    const url = `/api/metadata/item/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ blueprint, locked: blueprint }),
     });
     if (!response.ok) {
       throw new Error(response.statusText);
