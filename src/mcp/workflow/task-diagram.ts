@@ -61,6 +61,7 @@ export function buildDiagramContent(batches: TaskBatch[]): string {
           if (dep && dep.trim()) {
             const safeTaskId = sanitizeId(task.id);
             const safeDepId = sanitizeId(dep);
+            if (!safeDepId || safeDepId === '_') continue;
             lines.push(`    ${safeDepId} --> ${safeTaskId}`);
           }
         }

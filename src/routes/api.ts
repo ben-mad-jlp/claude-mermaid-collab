@@ -351,6 +351,11 @@ export async function handleAPI(
       const content = await stateFile.text();
       const state = JSON.parse(content);
 
+      // Compute displayName from state field if not already set
+      if (!state.displayName && state.state) {
+        state.displayName = state.state.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+      }
+
       return Response.json(state);
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 500 });
