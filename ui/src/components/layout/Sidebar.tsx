@@ -90,6 +90,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [showAddTodoDialog, setShowAddTodoDialog] = useState(false);
   const [isTodoDropdownOpen, setIsTodoDropdownOpen] = useState(false);
   const [showDeprecated, setShowDeprecated] = useState(false);
+  const [blueprintCollapsed, setBlueprintCollapsed] = useState(false);
 
   const isVibing = collabState?.state === 'vibe-active';
 
@@ -237,10 +238,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return documents.find((d) => d.name.endsWith('vibeinstructions')) || null;
   }, [documents]);
 
+  const blueprintItems = useMemo(() => {
+    const items = documents
+      .filter((d) => d.blueprint && !d.name.endsWith('vibeinstructions'))
+      .filter((d) => showDeprecated || !d.deprecated)
+      .map((d) => ({ ...d, type: 'document' as const }));
+    items.sort((a, b) => b.lastModified - a.lastModified);
+    return items;
+  }, [documents, showDeprecated]);
+
   const filteredItems = useMemo(() => {
     const items: Item[] = [
       ...diagrams.map((d) => ({ ...d, type: 'diagram' as const })),
-      ...documents.filter((d) => !d.name.endsWith('vibeinstructions')).map((d) => ({ ...d, type: 'document' as const })),
+      ...documents.filter((d) => !d.name.endsWith('vibeinstructions') && !d.blueprint).map((d) => ({ ...d, type: 'document' as const })),
       ...designs.map((d) => ({
         ...d,
         type: 'design' as const,
@@ -484,6 +494,45 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </svg>
             <span>Vibe Instructions</span>
           </button>
+        </div>
+      )}
+
+      {/* Blueprint Section */}
+      {blueprintItems.length > 0 && !isDisabled && !todosSelected && (
+        <div className="border-b border-gray-200 dark:border-gray-700">
+          <button
+            onClick={() => setBlueprintCollapsed((c) => !c)}
+            className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="8" y1="13" x2="16" y2="13"/>
+              <line x1="8" y1="17" x2="12" y2="17"/>
+              <line x1="8" y1="9" x2="10" y2="9"/>
+            </svg>
+            <span>Blueprint</span>
+            <span className="ml-1 text-indigo-400 dark:text-indigo-500 font-normal">{blueprintItems.length}</span>
+            <svg
+              className={`w-3 h-3 ml-auto text-gray-400 transition-transform ${blueprintCollapsed ? '-rotate-90' : ''}`}
+              viewBox="0 0 20 20" fill="currentColor"
+            >
+              <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+            </svg>
+          </button>
+          {!blueprintCollapsed && (
+            <div className="space-y-1 px-2 pb-2">
+              {blueprintItems.map((item) => (
+                <ItemCard
+                  key={item.id}
+                  item={item}
+                  isSelected={isItemSelected(item)}
+                  onClick={() => handleItemClick(item)}
+                  showDelete={false}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
 

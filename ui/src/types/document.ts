@@ -11,4 +11,5 @@ export interface Document {
   locked?: boolean;
   deprecated?: boolean;
   pinned?: boolean;
+  blueprint?: boolean;
 }
