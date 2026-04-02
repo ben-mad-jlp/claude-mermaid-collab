@@ -66,20 +66,11 @@ Args: { "project": "<cwd>", "session": "<session>", "id": "<blueprint-doc-id>" }
 
 For each wave (batch), in order. **Auto-proceed between waves — never ask for confirmation.**
 
-### 4.1 Mark tasks in_progress and announce
-
-Mark all tasks in the wave as in_progress:
-
-```
-Tool: mcp__plugin_mermaid-collab_mermaid__update_task_status
-Args: { "project": "<cwd>", "session": "<session>", "taskId": "<id>", "status": "in_progress", "minimal": true }
-```
+### 4.1 Announce and spawn ANALYZE agents (one per task, in parallel)
 
 ```
 Launching Wave [N] — [task-count] task(s): [task-ids]
 ```
-
-### 4.2 Spawn ANALYZE agents (one per task, in parallel)
 
 Each analyze agent handles ONE task — reads only that task's files. This keeps context small.
 
@@ -89,9 +80,10 @@ Each analyze agent handles ONE task — reads only that task's files. This keeps
 Agent(
   description: "Analyze {task-id}",
   prompt: "
-You are an ANALYZE agent. Read files and return a plan. Do NOT make any edits.
+You are an ANALYZE agent. Read files and return a plan. Do NOT make any code edits.
 
 Project: {project}
+Session: {session}
 Task: {task-id}
 Files: {files array from blueprint}
 Description: {description from blueprint}
@@ -99,7 +91,11 @@ Description: {description from blueprint}
 Blueprint section for this task:
 {relevant blueprint section only — NOT the whole blueprint}
 
-Read the source files listed above. For each file, determine:
+FIRST: Mark this task as in_progress:
+Tool: mcp__mermaid__update_task_status
+Args: { "project": "{project}", "session": "{session}", "taskId": "{task-id}", "status": "in_progress", "minimal": true }
+
+THEN: Read the source files listed above. For each file, determine:
 - What functions/blocks need to change
 - The surrounding context (what's above/below the edit point)
 - The specific code to add or modify
@@ -172,8 +168,11 @@ One agent that checks all changes from the wave:
 Agent(
   description: "Verify wave [N]",
   prompt: "
-You are a VERIFY agent. Check that changes are correct. Do NOT make edits.
+You are a VERIFY agent. Check that changes are correct. Do NOT make code edits.
 
+Project: {project}
+Session: {session}
+Task IDs in this wave: {list of task-ids}
 Files changed: {list from implement results}
 
 RULES:
@@ -184,11 +183,14 @@ Steps:
 1. Run TypeScript check: cd {project} && npx tsc --noEmit 2>&1 | head -30
 2. Run relevant tests if any were specified
 3. Use Grep for any obvious issues (dangling imports, undefined references) in changed files
+4. If ALL checks pass, mark each task as completed:
+   Tool: mcp__mermaid__update_task_status
+   Args: { "project": "{project}", "session": "{session}", "taskId": "{task-id}", "status": "completed", "minimal": true }
 
 Return:
 
 STATUS: done | failed
-CONTEXT: { build result, test result, any issues found — include exact error messages }
+CONTEXT: { build result, test result, tasks marked completed (list IDs), any issues found — include exact error messages }
   "
 )
 ```
@@ -254,11 +256,7 @@ Options:
 
 ### 4.7 Wave complete
 
-**Mark tasks completed:**
-```
-Tool: mcp__plugin_mermaid-collab_mermaid__update_task_status
-Args: { "project": "<cwd>", "session": "<session>", "taskId": "<id>", "status": "completed", "minimal": true }
-```
+Tasks were already marked completed by the VERIFY agent. Now save the summary.
 
 **Save wave implementation summary:**
 ```
