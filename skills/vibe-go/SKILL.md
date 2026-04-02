@@ -108,21 +108,24 @@ Use the Read tool (NEVER cat, head, tail, or ls) and Grep tool (NEVER shell grep
 
 If the task touches multiple files, return ONE implement step per file.
 
-Return in this EXACT format:
+Return in this EXACT format (include the TASK_ID on every line):
 
 STATUS: parallel
+TASK_ID: {task-id}
 TASKS:
-- NEXT: implement | FILE: {absolute path} | CHANGES: {exactly what to edit — be specific: function name, what to add/remove/modify, the logic}
-- NEXT: implement | FILE: {absolute path} | CHANGES: { ... }
+- FILE: {absolute path} | CHANGES: {exactly what to edit — be specific: function name, what to add/remove/modify, the logic}
+- FILE: {absolute path} | CHANGES: { ... }
   "
 )
 ```
 
 ### 4.3 Dispatch IMPLEMENT agents
 
-Collect all analyze results. Flatten all TASKS from all analyze agents into a single list.
+Collect all analyze results. Each analyze agent returned a `TASK_ID` and a list of file edits.
 
-**Spawn one IMPLEMENT agent per file edit, in parallel:**
+**Group by TASK_ID** — you need this mapping later to know when a task is fully implemented (all its files edited successfully).
+
+**Spawn one IMPLEMENT agent per file edit, in parallel (across all tasks in the wave):**
 
 Each implement agent touches exactly ONE file with ONE focused change. This is critical — if an agent has too much to do, it drifts to shell commands.
 
@@ -155,10 +158,11 @@ CONTEXT: { file, what was changed, any issues }
 
 ### 4.4 Collect IMPLEMENT results
 
-After all parallel implement agents return:
+After all parallel implement agents return, check results grouped by TASK_ID:
 
-- If any returned `STATUS: failed`: stop the wave, report failures to user, do not proceed
+- If any returned `STATUS: failed`: stop the wave, report which task/file failed, do not proceed
 - If all returned `STATUS: done`: proceed to verify
+- Track which files belong to which TASK_ID — you need this for marking tasks completed after verify
 
 ### 4.5 Spawn VERIFY agent
 
