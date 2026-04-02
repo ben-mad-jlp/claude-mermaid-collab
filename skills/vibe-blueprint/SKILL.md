@@ -220,3 +220,17 @@ The task graph is ready. Run /vibe-go to review and launch.
 ```
 
 If `sync_task_graph` returned an error (e.g. no YAML found), tell the user and show what was returned so they can diagnose.
+
+## Step 8 — Auto-checkpoint
+
+Update the vibe instructions "Currently Doing" section so state survives a /clear or compact.
+
+1. Find the `vibeinstructions` document via `list_documents`
+2. Read it with `get_document`
+3. Replace everything after `## Currently Doing` with:
+   ```
+   - Blueprint created: [blueprint name] — [N] tasks across [M] waves
+   - Task graph synced and ready
+   - Next step: run /vibe-go to execute
+   ```
+4. Write back with `update_document`

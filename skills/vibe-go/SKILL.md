@@ -275,6 +275,16 @@ Args: {
 Wave [N] complete.
 ```
 
+**Auto-checkpoint:** Update the vibe instructions "Currently Doing" section:
+1. Find and read the `vibeinstructions` document
+2. Replace everything after `## Currently Doing` with:
+   ```
+   - Executing blueprint: [blueprint name]
+   - Wave [N]/[total] complete — [completed tasks] done, [remaining tasks] remaining
+   - Next step: wave [N+1] or /vibe-review if all waves done
+   ```
+3. Write back with `update_document`
+
 **Immediately proceed to next wave. Do NOT ask the user.**
 
 ## Step 5 — All waves complete

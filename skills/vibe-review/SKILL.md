@@ -212,3 +212,13 @@ Args: {
 ```
 
 Tell the user: "Blueprint archived. The work is complete."
+
+**Auto-checkpoint:** Update the vibe instructions "Currently Doing" section:
+1. Find and read the `vibeinstructions` document
+2. Replace everything after `## Currently Doing` with:
+   ```
+   - Review complete — [bug count] bugs, [gap count] gaps
+   - Blueprint archived
+   - Implementation done — ready to commit
+   ```
+3. Write back with `update_document`
