@@ -14,7 +14,7 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 **Announce at start:** "I'm using the writing-plans skill to create the implementation plan."
 
-**Context:** This should be run in a dedicated worktree (created by brainstorming skill).
+**Context:** This can be run in the current working directory or a dedicated worktree.
 
 **Save plans to:** `docs/plans/YYYY-MM-DD-<feature-name>.md`
 
@@ -125,7 +125,6 @@ git commit -m "feat: add specific feature"
 
 **If design artifacts don't exist but should:**
 - Stop and create them in mermaid-collab before writing the task
-- The brainstorming skill should have created these — if missing, go back
 
 ## Execution Handoff
 

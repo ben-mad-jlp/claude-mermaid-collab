@@ -239,13 +239,4 @@ completeness-review → workflow-complete
 
 ## Completion
 
-Call complete_skill when done:
-
-```
-Tool: mcp__plugin_mermaid-collab_mermaid__complete_skill
-Args: { "project": "<cwd>", "session": "<session>", "skill": "executing-plans-bugreview" }
-```
-
-**Handle response:**
-- If `next_skill` is not null: Invoke that skill
-- If `next_skill` is null: Workflow complete
+After all bugs are addressed (or none found), the bug review is complete. Return your findings summary to the caller.

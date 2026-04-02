@@ -41,25 +41,11 @@ When within a collab workflow, run verification after each task completes:
 FUNCTION markTaskComplete(taskId):
   session = current session name
 
-  // 1. Read current state
-  Tool: mcp__plugin_mermaid-collab_mermaid__get_session_state
-  Args: { "project": "<cwd>", "session": session }
-  Returns: state = { "completedTasks": [...], "pendingTasks": [...], ... }
+  // 1. Update task status in the task graph
+  Tool: mcp__plugin_mermaid-collab_mermaid__update_task_status
+  Args: { "project": "<cwd>", "session": session, "taskId": taskId, "status": "done" }
 
-  // 2. Move task from pending to completed
-  newCompleted = [...state.completedTasks, taskId]
-  newPending = state.pendingTasks.filter(t => t !== taskId)
-
-  // 3. Update session state via MCP (updates progress bar)
-  Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
-  Args: {
-    "project": "<cwd>",
-    "session": session,
-    "completedTasks": newCompleted,
-    "pendingTasks": newPending
-  }
-
-  // 4. Update task execution diagram (visual progress)
+  // 2. Update task execution diagram (visual progress)
   // Change from executing (blue) to completed (green)
   Tool: mcp__plugin_mermaid-collab_mermaid__patch_diagram
   Args: {
@@ -74,7 +60,7 @@ FUNCTION markTaskComplete(taskId):
 ```
 
 **IMPORTANT:** You MUST call `markTaskComplete(taskId)` after each task passes verification. This:
-1. Updates the progress bar in the UI (completedTasks/pendingTasks)
+1. Updates the task status in the task graph
 2. Updates the task execution diagram (visual green checkmark)
 
 **On Verification Failure:**

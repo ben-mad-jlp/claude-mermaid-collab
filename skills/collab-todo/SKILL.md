@@ -88,10 +88,5 @@ Args: { "project": "<cwd>", "session": "_collab-todo" }
 Once the user selects a todo:
 
 1. Get the selected todo's `sessionName` from the todos list
-2. Get the session state:
-   ```
-   Tool: mcp__plugin_mermaid-collab_mermaid__get_session_state
-   Args: { "project": "<cwd>", "session": "<sessionName>" }
-   ```
-3. Tell the user which todo they selected and that they're entering vibe mode
-4. Follow the **vibe-active** skill instructions - enter freeform mode where the user can create diagrams, documents, and designs for this todo's session
+2. Tell the user which todo they selected and that they're entering vibe mode
+3. Follow the **vibe-active** skill instructions - enter freeform mode where the user can create diagrams, documents, and designs for this todo's session

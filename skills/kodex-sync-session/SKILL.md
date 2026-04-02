@@ -7,14 +7,12 @@ allowed-tools:
   - Glob
   - Grep
   - Agent
-  - mcp__plugin_mermaid-collab_mermaid__get_session_state
   - mcp__plugin_mermaid-collab_mermaid__list_sessions
   - mcp__plugin_mermaid-collab_mermaid__kodex_list_topics
   - mcp__plugin_mermaid-collab_mermaid__kodex_query_topic
   - mcp__plugin_mermaid-collab_mermaid__kodex_direct_update_topic
   - mcp__plugin_mermaid-collab_mermaid__kodex_direct_create_topic
   - mcp__plugin_mermaid-collab_mermaid__kodex_flag_topic
-  - mcp__plugin_mermaid-collab_mermaid__complete_skill
   - Bash
 ---
 
@@ -27,8 +25,8 @@ Automatically sync collab session artifacts into the Kodex knowledge base at the
 ## Overview
 
 When a collab session ends, this skill:
-1. Scans all session artifacts (diagrams, documents, designs)
-2. **Verifies which artifacts were actually implemented** (not just brainstormed)
+1. Scans all non-deprecated session artifacts (diagrams, documents, designs)
+2. Verifies which artifacts have corresponding code in the codebase
 3. Semantically matches verified artifacts to existing Kodex topics
 4. Updates matched topics directly (no draft — goes live immediately)
 5. Creates new topics for unmatched feature areas
@@ -64,7 +62,7 @@ For each artifact found:
 - Extract key information:
   - **Diagrams**: diagram type (flowchart, stateDiagram, wireframe, etc.), node labels, referenced components
   - **Documents**: section headings, file paths mentioned, feature names, component names
-  - **Designs**: work item names, implementation details
+  - **Designs**: design details, component specifications
 
 ### 1.4 Build Artifact Summary
 
@@ -87,22 +85,11 @@ artifacts:
 
 ## Step 2: Verify Artifacts Were Implemented
 
-Not all session artifacts should be synced to Kodex. Brainstorming sessions produce exploratory diagrams and designs that may never be implemented. This step filters to only artifacts that represent real, implemented work.
+Not all session artifacts should be synced to Kodex. Some artifacts may describe things that were never built. This step filters to only artifacts that represent real, implemented work.
 
-### 2.1 Check Session State History
+All non-deprecated artifacts in the session are candidates for syncing. Skip any artifacts marked as deprecated.
 
-The session's `collab-state.json` reveals how far the session progressed:
-
-| Session State | Artifact Status |
-|---------------|----------------|
-| Stayed in brainstorming phases (`exploring`, `clarifying`, `designing`, `validating`) | **Skip sync** — artifacts are exploratory only |
-| Reached `rough-draft-blueprint` but not `executing-plans` | **Skip sync** — planned but not implemented |
-| Reached `executing-plans` or beyond | **Likely implemented** — proceed with verification |
-| Vibe mode with no state tracking | **Verify each artifact individually** (Step 2.3) |
-
-If session never reached implementation phases, report "Session was brainstorming only — no artifacts synced to Kodex" and skip to Step 7 (Complete).
-
-### 2.2 Check Git History for Implementation Evidence
+### 2.1 Check Git History for Implementation Evidence
 
 Look for commits made during the session timeframe that touch files related to the artifacts:
 
@@ -117,7 +104,7 @@ Cross-reference changed files with artifact content:
 - If a design doc describes a new API endpoint and the controller was created → **implemented**
 - If no commits relate to the artifact → **not implemented**
 
-### 2.3 Verify Codebase Presence
+### 2.2 Verify Codebase Presence
 
 For each artifact, check if the things it describes actually exist:
 
@@ -136,26 +123,25 @@ For each artifact, check if the things it describes actually exist:
 - Check if the feature directory exists
 
 **Designs (JSON):**
-- Check if work items are marked as completed in session state
-- Cross-reference with `completedTasks` in `collab-state.json`
+- Check if the components and structures described actually exist in code
 
-### 2.4 Classify Each Artifact
+### 2.3 Classify Each Artifact
 
 Mark each artifact as one of:
 - **implemented** — evidence confirms it was built. Sync to Kodex.
 - **partial** — some parts implemented, others not. Sync only the implemented parts.
-- **brainstorm-only** — no implementation evidence. Skip.
+- **not-implemented** — no implementation evidence. Skip.
 
 Only proceed with `implemented` and `partial` artifacts.
 
-### 2.5 Report Verification Results
+### 2.4 Report Verification Results
 
 ```
 Artifact verification:
   [implemented] packaging-state-machine.mmd — states found in src/features/packaging/
   [implemented] design.md (scale integration section) — useScale hook exists
-  [brainstorm-only] alternative-nav-flow.mmd — no matching code found
-  [brainstorm-only] design.md (future ideas section) — not implemented
+  [not-implemented] alternative-nav-flow.mmd — no matching code found
+  [not-implemented] design.md (future ideas section) — not implemented
 
 Syncing 2 of 4 artifacts.
 ```
@@ -329,14 +315,7 @@ All touched topics flagged as needs-review.
 
 ## Step 8: Complete
 
-```
-Tool: mcp__plugin_mermaid-collab_mermaid__complete_skill
-Args: { "project": "<project-path>", "session": "<session>", "skill": "kodex-sync-session" }
-```
-
-Handle response:
-- If `next_skill` is not null: Invoke that skill
-- If `next_skill` is null: Done
+The skill is done. Report the summary to the caller.
 
 ---
 

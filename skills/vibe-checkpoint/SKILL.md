@@ -11,17 +11,13 @@ Save the current state of the vibe before clearing context. Updates the `.vibein
 
 ## Steps
 
-### Step 1 — Get session context
-
-Call `mcp__plugin_mermaid-collab_mermaid__get_session_state` with the current project and session to get the session name.
-
-### Step 2 — Find the vibeinstructions document
+### Step 1 — Find the vibeinstructions document
 
 Call `mcp__plugin_mermaid-collab_mermaid__list_documents` with the current project and session.
 
 Look for a document whose `name` ends with `vibeinstructions`.
 
-### Step 3 — Read current instructions
+### Step 2 — Read current instructions
 
 If found, call `mcp__plugin_mermaid-collab_mermaid__get_document` to read the full content.
 
@@ -39,7 +35,7 @@ If not found, the content template is:
 [Nothing recorded yet]
 ```
 
-### Step 4 — Write the checkpoint summary
+### Step 3 — Write the checkpoint summary
 
 Based on the recent conversation context, write a concise "Currently Doing" summary (3–8 bullet points) covering:
 - What task/feature/problem we're in the middle of
@@ -47,7 +43,7 @@ Based on the recent conversation context, write a concise "Currently Doing" summ
 - What the next concrete step is
 - Any important decisions or blockers
 
-### Step 5 — Update the instructions
+### Step 4 — Update the instructions
 
 Find the `## Currently Doing` heading line number in the snippet. Replace only the lines *after* the heading (the bullet points) — do not include the `## Currently Doing` heading in `newContent`.
 
@@ -59,7 +55,7 @@ If it does not exist: call `mcp__plugin_mermaid-collab_mermaid__create_document`
 - `name`: `vibe.vibeinstructions`
 - `content`: the full template with the checkpoint filled in
 
-### Step 6 — Confirm and prompt
+### Step 5 — Confirm and prompt
 
 Tell the user:
 ```

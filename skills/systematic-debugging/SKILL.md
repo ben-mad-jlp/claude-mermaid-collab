@@ -17,13 +17,12 @@ Investigate bugfix items to identify the root cause and document findings for th
 
 ## Overview
 
-When a work item has `Type: bugfix`, this skill:
-1. Reads the bug report from the design doc
+When investigating a bug, this skill:
+1. Reads the bug report from the design doc or user description
 2. Reproduces the issue mentally by tracing the code path
 3. Identifies the root cause and affected files
 4. Documents findings in the design doc
 5. Suggests a test strategy (but does NOT write tests)
-6. Calls complete_skill to proceed
 
 ## Step 1: Get Current Item Context
 
@@ -34,7 +33,7 @@ Tool: mcp__plugin_mermaid-collab_mermaid__get_document
 Args: { "project": "<cwd>", "session": "<session>", "id": "design" }
 ```
 
-Find the work item marked as current (from session state's `currentItem`).
+Find the bug description in the design doc or from the user's report.
 
 ## Step 2: Reproduce Mentally
 
@@ -97,26 +96,13 @@ Args: {
 | workflow | Better debugging approaches for this project |
 | universal | Broadly applicable debugging insights |
 
-## Step 6: Complete Skill
+## Step 6: Complete
 
-**If running as an agent:** After calling complete_skill, end your response with:
+**If running as an agent:** End your response with:
 ```
-next_skill: <value returned by complete_skill, or 'null'>
 summary: <root cause identified, affected files, proposed approach, any lessons recorded>
 ```
 
-
-```
-Tool: mcp__plugin_mermaid-collab_mermaid__complete_skill
-Args: { "project": "<cwd>", "session": "<session>", "skill": "systematic-debugging" }
-```
-
-**Handle response:**
-- If `next_skill` is not null: Invoke that skill
-- If `next_skill` is null: Workflow complete
-
 ## What Happens Next
 
-After investigation, the bugfix item is marked as `brainstormed` and follows the standard pipeline:
-1. **rough-draft-blueprint** creates a simplified blueprint with a single task: write failing test + fix
-2. **executing-plans** executes the fix using the test-first approach with the investigation findings
+After investigation, the findings can be used to plan and execute the fix — typically via writing-plans + vibe-go, or directly if the fix is small.

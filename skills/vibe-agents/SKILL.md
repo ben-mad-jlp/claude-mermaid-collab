@@ -2,12 +2,14 @@
 name: vibe-agents
 description: Toggle agent mode on/off for the current vibe session
 user-invocable: true
-allowed-tools: mcp__plugin_mermaid-collab_mermaid__get_session_state, mcp__plugin_mermaid-collab_mermaid__update_session_state
+allowed-tools: mcp__plugin_mermaid-collab_mermaid__list_documents, mcp__plugin_mermaid-collab_mermaid__get_document, mcp__plugin_mermaid-collab_mermaid__patch_document, mcp__plugin_mermaid-collab_mermaid__create_document
 ---
 
 # Vibe Agents
 
 Toggle agent mode for the current vibe session. When on, heavy tasks (research, implementation, debugging, deployment) are offered as agent dispatches to keep the main context window clean.
+
+Agent mode preference is stored as a `## Agent Mode` section in the vibeinstructions document.
 
 ## Usage
 
@@ -17,30 +19,28 @@ Toggle agent mode for the current vibe session. When on, heavy tasks (research, 
 
 ## Steps
 
-### Step 1 — Get session state
+### Step 1 — Find the vibeinstructions document
 
-```
-Tool: mcp__plugin_mermaid-collab_mermaid__get_session_state
-Args: { "project": "<cwd>", "session": "<session>" }
-```
+Call `mcp__plugin_mermaid-collab_mermaid__list_documents` with the current project and session.
+
+Look for a document whose `name` ends with `vibeinstructions`. If found, call `mcp__plugin_mermaid-collab_mermaid__get_document` to read its content.
 
 ### Step 2 — Handle argument
 
 **If called with `on`:**
-```
-Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
-Args: { "project": "<cwd>", "session": "<session>", "agentMode": true }
-```
+
+Update the vibeinstructions document to include `## Agent Mode\nEnabled` (use `patch_document` to replace the Agent Mode section, or append it if not present). If no vibeinstructions document exists, create one with `create_document` containing just the Agent Mode section.
+
 Respond: "Agent mode **on**. I'll offer to dispatch heavy tasks (research, implementation, debugging, deployment) as agents to keep context clean."
 
 **If called with `off`:**
-```
-Tool: mcp__plugin_mermaid-collab_mermaid__update_session_state
-Args: { "project": "<cwd>", "session": "<session>", "agentMode": false }
-```
+
+Update the vibeinstructions document to include `## Agent Mode\nDisabled` (use `patch_document` to replace the Agent Mode section, or append it if not present).
+
 Respond: "Agent mode **off**. All tasks will run in the main conversation."
 
 **If called with no argument:**
-Read `agentMode` from session state and respond:
-- If `true`: "Agent mode is currently **on**. Run `/vibe-agents off` to disable."
-- If `false` or unset: "Agent mode is currently **off**. Run `/vibe-agents on` to enable."
+
+Read the `## Agent Mode` section from the vibeinstructions document:
+- If `Enabled`: "Agent mode is currently **on**. Run `/vibe-agents off` to disable."
+- If `Disabled` or section not found: "Agent mode is currently **off**. Run `/vibe-agents on` to enable."

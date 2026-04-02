@@ -11,34 +11,7 @@ Freeform collab session mode. No structured workflow - just create content freel
 
 ## Entry
 
-### Step 1 — Set session state
-
-Call `mcp__plugin_mermaid-collab_mermaid__update_session_state` with:
-- `state`: `vibe-active`
-- `sessionType`: `vibe`
-
-This ensures the UI reflects the active vibe session regardless of whether this is a new session or a resume.
-
-### Step 1.5 — Agent mode (new sessions only)
-
-For **new sessions** (no vibeinstructions doc exists yet), after setting state ask:
-
-```
-Use agents for heavy tasks? Agent mode dispatches research, implementation,
-debugging, and deployment to isolated agents to keep this context window clean.
-
-1. Yes — enable agent mode
-2. No — run everything here
-```
-
-- If **Yes**: call `update_session_state` with `agentMode: true`
-- If **No**: call `update_session_state` with `agentMode: false`
-
-For **resumed sessions**: read `agentMode` from session state.
-- If `true` or `false`: do not ask again — use the stored value.
-- If **unset** (session predates agent mode): ask the same question as new sessions and save the answer.
-
-### Step 2 — Check for vibe instructions
+### Step 1 — Check for vibe instructions
 
 Call `mcp__plugin_mermaid-collab_mermaid__list_documents` with the current project and session.
 
@@ -97,14 +70,7 @@ In vibe mode, respond to user requests to:
 3. **Create designs** - Use `mcp__plugin_mermaid-collab_mermaid__create_design`
 4. **View/edit existing** - Use get/update variants of above
 5. **Checkpoint before /clear** - When user invokes /vibe-checkpoint: invoke skill `vibe-checkpoint`
-6. **Cleanup** - When user says "done" or invokes /collab-cleanup:
-   ```
-   Tool: mcp__plugin_mermaid-collab_mermaid__complete_skill
-   Args: { "project": "<cwd>", "session": "<session>", "skill": "vibe-active" }
-   ```
-   Invoke: result.next_skill (will be "collab-cleanup")
-6. **Convert to structured** - When user wants structured workflow (work items, brainstorming, blueprints):
-   Invoke skill: convert-to-structured
+6. **Cleanup** - When user says "done" or invokes /collab-cleanup: invoke skill `collab-cleanup`
 
 ## Agent Dispatch
 
@@ -278,7 +244,6 @@ Summarize the result to the user in 2-3 sentences. If a document was created, me
 
 This skill completes when:
 - User explicitly requests cleanup (/collab-cleanup or "I'm done")
-- At completion, call complete_skill to transition to cleanup state
 
 ## Artifact Type Rules
 
@@ -321,13 +286,3 @@ When answering a question where the response would be long (code explanations, a
 
 **Exceptions:** Short factual answers (yes/no, a single value, a quick definition) are fine in the console.
 
-## No Structured Workflow
-
-This skill does NOT:
-- Track work items
-- Require brainstorming phases
-- Enforce any particular flow
-
-Just help the user create whatever content they need.
-
-**Want structure?** If the user asks for work item tracking, brainstorming, or a guided workflow, invoke the `convert-to-structured` skill to convert this session while preserving all existing artifacts.

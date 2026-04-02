@@ -2,7 +2,7 @@
 name: ui-question
 description: Ask user a question via browser UI and wait for response
 user-invocable: false
-allowed-tools: mcp__plugin_mermaid-collab_mermaid__render_ui, mcp__plugin_mermaid-collab_mermaid__get_ui_response, mcp__plugin_mermaid-collab_mermaid__list_sessions, mcp__plugin_mermaid-collab_mermaid__get_session_state, AskUserQuestion
+allowed-tools: mcp__plugin_mermaid-collab_mermaid__render_ui, mcp__plugin_mermaid-collab_mermaid__get_ui_response, mcp__plugin_mermaid-collab_mermaid__list_sessions, AskUserQuestion
 ---
 
 # UI Question
@@ -39,21 +39,9 @@ If project and session are not provided, the skill will attempt to find the acti
    - Call `mcp__plugin_mermaid-collab_mermaid__list_sessions` to find active sessions
    - Use the most recently active session
 
-3. **Check useRenderUI setting**:
-   ```
-   Tool: mcp__plugin_mermaid-collab_mermaid__get_session_state
-   Args: {
-     "project": "<project>",
-     "session": "<session>"
-   }
-   ```
-   Check the `useRenderUI` field in the response.
+3. **Render via browser UI**:
 
-4. **If useRenderUI is false** → Use console fallback (skip to Console Fallback section)
-
-5. **If useRenderUI is true or missing** → Use browser UI:
-
-   a. **Render UI** (non-blocking):
+   **Render UI** (non-blocking):
    ```
    Tool: mcp__plugin_mermaid-collab_mermaid__render_ui
    Args: {
@@ -65,7 +53,7 @@ If project and session are not provided, the skill will attempt to find the acti
    ```
    Save the returned `uiId`.
 
-   b. **Poll for response** in a loop:
+   **Poll for response** in a loop:
    ```
    Tool: mcp__plugin_mermaid-collab_mermaid__get_ui_response
    Args: {
@@ -79,7 +67,7 @@ If project and session are not provided, the skill will attempt to find the acti
    - If status is `responded`: extract action and data, proceed to output
    - If status is `stale` or `not_found`: report error
 
-6. **Output the response** in a structured format that the calling skill can parse:
+4. **Output the response** in a structured format that the calling skill can parse:
    ```
    UI_RESPONSE:
    action: <action>
