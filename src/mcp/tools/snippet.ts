@@ -173,6 +173,8 @@ export function findAnchorLine(lines: string[], anchor: string, label: string, f
 }
 
 export function extractWithAnchors(fileContent: string, filePath: string, startAt?: string, endAt?: string, maxLines: number = 500): string {
+  if (!filePath) throw new Error('filePath is required for anchor extraction');
+  if (!fileContent) throw new Error('fileContent is empty — nothing to extract');
   const normalized = fileContent.replace(/\r\n/g, '\n');
   const lines = normalized.split('\n');
 

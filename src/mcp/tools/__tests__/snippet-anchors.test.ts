@@ -129,4 +129,12 @@ describe('extractWithAnchors', () => {
     const result = extractWithAnchors(sampleFile, filePath, 'export function hello()', 'return true;', 3);
     expect(result.split('\n')).toHaveLength(3);
   });
+
+  it('throws when filePath is empty string', () => {
+    expect(() => extractWithAnchors('some content', '', 'anchor')).toThrow('filePath is required');
+  });
+
+  it('throws when fileContent is empty string', () => {
+    expect(() => extractWithAnchors('', '/test/file.ts', 'anchor')).toThrow('fileContent is empty');
+  });
 });

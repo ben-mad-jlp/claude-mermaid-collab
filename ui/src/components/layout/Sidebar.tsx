@@ -93,8 +93,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [blueprintCollapsed, setBlueprintCollapsed] = useState(false);
   const [tasksCollapsed, setTasksCollapsed] = useState(false);
 
-  const isVibing = collabState?.state === 'vibe-active';
-
   const handleDeleteItem = useCallback(
     async (item: Item) => {
       if (!currentSession) return;

@@ -14,7 +14,8 @@ allowed-tools:
 # Vibe Go
 
 Review the task graph and launch agents to execute tasks in waves.
-Each agent implements one task, updates its status, and saves a summary doc.
+Uses a chained agent pattern: analyze → implement (parallel) → verify.
+Each agent gets a tiny focused prompt with fresh context — no tool drift.
 
 ## Step 1 — Load the task graph
 
@@ -61,89 +62,146 @@ Tool: mcp__plugin_mermaid-collab_mermaid__get_document
 Args: { "project": "<cwd>", "session": "<session>", "id": "<blueprint-doc-id>" }
 ```
 
-## Step 4 — Execute waves
+## Step 4 — Execute waves using chained agents
 
 For each wave (batch), in order:
 
-### 4.1 Announce the wave
+### 4.1 Mark tasks in_progress
+
+Before spawning any agents, mark all tasks in the wave as in_progress:
 
 ```
-Launching Wave [N] — [task-count] task(s) in parallel: [task-ids]
+Tool: mcp__plugin_mermaid-collab_mermaid__update_task_status
+Args: { "project": "<cwd>", "session": "<session>", "taskId": "<id>", "status": "in_progress", "minimal": true }
 ```
 
-### 4.2 Spawn one agent per task (in parallel)
-
-Use the Agent tool for each task in the current wave simultaneously.
-
-Agent prompt template:
+### 4.2 Announce the wave
 
 ```
+Launching Wave [N] — [task-count] task(s): [task-ids]
+```
+
+### 4.3 Spawn ANALYZE agent
+
+One agent per wave. Its job: read the blueprint and relevant source files for ALL tasks in this wave, then return a parallel implementation plan.
+
+```
+Agent(
+  description: "Analyze wave [N]",
+  prompt: "
+You are an ANALYZE agent. Read files and return a plan. Do NOT make any edits.
+
 Project: {project}
-Session: {session}
+Wave {N} tasks:
+{For each task: id, files, tests, description, relevant blueprint section}
 
-Task: {task-id}
-Files: {files array from blueprint}
-Tests: {tests array from blueprint}
-Description: {description from blueprint}
+For each task:
+1. Read the source files listed in the blueprint
+2. Determine exactly what needs to change (specific functions, line locations, code to add/modify)
+3. Note any interactions between tasks that could cause conflicts
 
-Blueprint context:
-{Relevant section from the blueprint document for this task}
+Use the Read tool (not cat/head/tail) and Grep tool (not shell grep).
 
-Tool preferences — always prefer native tools over shell commands:
-- Read files: use the Read tool with offset/limit — never cat, sed, head, or tail
-- Search content: use the Grep tool — never shell grep or rg
-- Find files: use the Glob tool — never find or ls
-- Create/modify files: use the Write or Edit tool — never cat > heredocs or sed -i
+Return in this EXACT format:
 
-Instructions:
-
-1. Mark task as in_progress:
-   Tool: mcp__plugin_mermaid-collab_mermaid__update_task_status
-   Args: { "project": "{project}", "session": "{session}", "taskId": "{task-id}", "status": "in_progress", "minimal": true }
-
-2. Read relevant existing files to understand the codebase context
-
-3. Implement the task:
-   - Follow the blueprint's function signatures and pseudocode
-   - Write tests alongside implementation
-   - Match existing code style and patterns
-
-4. Run tests to verify:
-   Use Bash to run the project's test command for the changed files
-
-5. Save an implementation summary:
-   Tool: mcp__plugin_mermaid-collab_mermaid__create_document
-   Args: {
-     "project": "{project}",
-     "session": "{session}",
-     "name": "impl-{task-id}",
-     "content": "# Implementation: {task-id}\n\n## Files Changed\n[List each file with brief description]\n\n## What Was Implemented\n[Summary]\n\n## Test Results\n[Pass/fail + relevant output]\n\n## Decisions / Assumptions\n[Any non-obvious choices made]"
-   }
-
-6. Mark task as completed:
-   Tool: mcp__plugin_mermaid-collab_mermaid__update_task_status
-   Args: { "project": "{project}", "session": "{session}", "taskId": "{task-id}", "status": "completed", "minimal": true }
-
-7. Return: "Task {task-id} complete. impl-{task-id} saved."
-
-If implementation fails or tests fail:
-- Mark task as failed:
-  Tool: mcp__plugin_mermaid-collab_mermaid__update_task_status
-  Args: { "project": "{project}", "session": "{session}", "taskId": "{task-id}", "status": "failed", "minimal": true }
-- Return a description of what failed and why
+STATUS: parallel
+TASKS:
+- NEXT: implement | TASK_ID: {id} | CONTEXT: { file: '...', changes: 'specific description of what code to write/edit — include function signatures, exact locations, and the logic to implement' }
+- NEXT: implement | TASK_ID: {id} | CONTEXT: { ... }
+JOIN: verify
+JOIN_CONTEXT: { list of files changed, what tests to run }
+  "
+)
 ```
 
-### 4.3 Wait for all agents in the wave to complete
+### 4.4 Dispatch based on ANALYZE response
 
-After all parallel agents return, check for failures:
-- If any task failed: stop and report to user — do not proceed to next wave
-- If all succeeded: announce wave complete and continue
+Parse the response. The analyze agent returns `STATUS: parallel` with a list of tasks.
+
+**Spawn one IMPLEMENT agent per task in parallel:**
 
 ```
-Wave [N] complete. [Optionally summarize what changed]
+Agent(
+  description: "Implement {task-id}",
+  prompt: "
+You are an IMPLEMENT agent. Make the specific changes described below. Nothing else.
+
+File: {file from CONTEXT}
+Changes: {changes from CONTEXT}
+
+Rules:
+- Use the Read tool to read files — NEVER cat, head, tail, or sed
+- Use the Edit tool to modify files — NEVER sed -i or shell redirects
+- Use the Grep tool to search — NEVER shell grep or rg
+- Only use Bash for running tests or build commands
+
+Make the changes, then return:
+
+STATUS: done | failed
+CONTEXT: { files changed, what was implemented, any issues }
+  "
+)
 ```
 
-### 4.4 Move to next wave
+### 4.5 Collect IMPLEMENT results
+
+After all parallel implement agents return:
+
+- If any returned `STATUS: failed`: stop the wave, report failures to user, do not proceed
+- If all returned `STATUS: done`: proceed to verify
+
+### 4.6 Spawn VERIFY agent
+
+One agent that checks all changes from the wave:
+
+```
+Agent(
+  description: "Verify wave [N]",
+  prompt: "
+You are a VERIFY agent. Check that changes are correct. Do NOT make edits.
+
+Files changed: {from JOIN_CONTEXT + implement results}
+Tests to run: {from JOIN_CONTEXT}
+
+1. Run the project's TypeScript check: cd {project} && npx tsc --noEmit 2>&1 | head -30
+2. Run relevant tests: {test commands from JOIN_CONTEXT}
+3. Grep for any obvious issues (dangling imports, undefined references)
+
+Return:
+
+STATUS: done | failed
+CONTEXT: { build result, test result, any issues found }
+  "
+)
+```
+
+### 4.7 Handle VERIFY result
+
+- If `STATUS: done`: mark all tasks in wave as completed, save impl summary, announce wave complete
+- If `STATUS: failed`: report to user, mark tasks as failed
+
+**Mark tasks completed:**
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__update_task_status
+Args: { "project": "<cwd>", "session": "<session>", "taskId": "<id>", "status": "completed", "minimal": true }
+```
+
+**Save wave implementation summary (one doc per wave, not per task):**
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__create_document
+Args: {
+  "project": "<cwd>",
+  "session": "<session>",
+  "name": "impl-wave-[N]",
+  "content": "# Wave [N] Implementation\n\n## Tasks\n{task summaries from implement agents}\n\n## Verification\n{verify agent results}"
+}
+```
+
+```
+Wave [N] complete.
+```
+
+### 4.8 Move to next wave
 
 Repeat from 4.1 for the next wave.
 
@@ -157,4 +215,12 @@ All tasks complete across [M] waves.
 Run /vibe-review to check for bugs and verify completeness.
 ```
 
-Mark any deprecated blueprint items if applicable.
+## Why Chained Agents
+
+The chain pattern (analyze → implement → verify) prevents tool drift:
+- Each agent gets a **tiny, focused prompt** with fresh context
+- Tool preferences are near the top, not buried under accumulated conversation
+- Agents never accumulate enough context to "forget" instructions
+- Failed steps can be retried without re-running the entire task
+
+The main context stays clean — it only sees structured return values, not file contents or diffs.
