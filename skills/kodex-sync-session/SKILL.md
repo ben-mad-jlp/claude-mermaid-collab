@@ -2,7 +2,6 @@
 name: kodex-sync-session
 description: Sync collab session artifacts into Kodex - automatically updates existing topics and creates new ones
 user-invocable: false
-model: sonnet
 allowed-tools:
   - Read
   - Glob

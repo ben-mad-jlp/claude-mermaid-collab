@@ -10,7 +10,7 @@
 
 import { handleGetDesign, handleUpdateDesign } from './design'
 import { createHash } from 'crypto'
-import { readFile, writeFile } from 'fs/promises'
+import { readFile } from 'fs/promises'
 import { saveComponentToLibrary, loadComponentFromLibrary, listLibraryComponents } from './design-components'
 
 // ============= Types =============
@@ -1306,7 +1306,6 @@ export const exportDesignSvgSchema = {
     ...sessionParamsDesc,
     designId: { type: 'string', description: 'Design ID' },
     nodeId: { type: 'string', description: 'Root node to export. Defaults to first page.' },
-    outputPath: { type: 'string', description: 'File path to save SVG. If omitted, returns SVG string only.' },
   },
   required: ['project', 'designId'],
 }
@@ -1318,7 +1317,6 @@ export const exportDesignCodeSchema = {
     designId: { type: 'string', description: 'Design ID' },
     nodeId: { type: 'string', description: 'Root node to export. Defaults to first page.' },
     framework: { type: 'string', enum: ['react', 'html'], description: 'Output framework (default: react)' },
-    outputPath: { type: 'string', description: 'File path to save code. If omitted, returns code string only.' },
   },
   required: ['project', 'designId'],
 }
@@ -1603,8 +1601,7 @@ export async function handleExportDesignSvg(
   session: string,
   designId: string,
   nodeId?: string,
-  outputPath?: string
-): Promise<{ success: boolean; svg: string; outputPath?: string }> {
+): Promise<{ success: boolean; svg: string }> {
   const design = await handleGetDesign(project, session, designId)
   const content = typeof design.content === 'string' ? JSON.parse(design.content) : design.content
   const graph = getGraph(content)
@@ -1623,11 +1620,6 @@ export async function handleExportDesignSvg(
 
   const defsBlock = defs.length > 0 ? `<defs>\n${defs.join('\n')}\n</defs>\n` : ''
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${rootNode.width}" height="${rootNode.height}" viewBox="0 0 ${rootNode.width} ${rootNode.height}">\n${defsBlock}${childrenSvg}\n</svg>`
-
-  if (outputPath) {
-    await writeFile(outputPath, svg, 'utf-8')
-    return { success: true, svg, outputPath }
-  }
 
   return { success: true, svg }
 }
@@ -1795,8 +1787,7 @@ export async function handleExportDesignCode(
   nodeId?: string,
   framework: 'react' | 'html' = 'react',
   _styling?: string,
-  outputPath?: string
-): Promise<{ success: boolean; code: string; outputPath?: string }> {
+): Promise<{ success: boolean; code: string }> {
   const design = await handleGetDesign(project, session, designId)
   const content = typeof design.content === 'string' ? JSON.parse(design.content) : design.content
   const graph = getGraph(content)
@@ -1824,11 +1815,6 @@ export async function handleExportDesignCode(
     code = `export function ${componentName}() {\n  return (\n    <div style={{ width: ${rootNode.width}, height: ${rootNode.height} }}>\n${children}\n    </div>\n  );\n}`
   } else {
     code = `<!DOCTYPE html>\n<html>\n<head><meta charset="UTF-8"><title>${escapeXml(rootNode.name || 'Design')}</title></head>\n<body>\n  <div style="width: ${rootNode.width}px; height: ${rootNode.height}px;">\n${children}\n  </div>\n</body>\n</html>`
-  }
-
-  if (outputPath) {
-    await writeFile(outputPath, code, 'utf-8')
-    return { success: true, code, outputPath }
   }
 
   return { success: true, code }

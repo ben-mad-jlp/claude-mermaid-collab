@@ -2,7 +2,6 @@
 name: vibe-checkpoint
 description: Save current vibe state before a /clear — updates the .vibeinstructions snippet with what we're doing so we can resume after compact
 user-invocable: true
-model: sonnet
 allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Glob, Grep, Bash
 ---
 

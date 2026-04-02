@@ -5,8 +5,7 @@
  */
 
 import { readFile, writeFile } from 'fs/promises';
-import { join, extname, basename } from 'path';
-import { tmpdir } from 'os';
+import { extname, basename } from 'path';
 
 const API_PORT = parseInt(process.env.PORT || '3737', 10);
 const API_HOST = process.env.HOST || 'localhost';
@@ -55,17 +54,10 @@ export interface DeleteSnippetResult {
 
 export interface ExportSnippetResult {
   success: boolean;
-  filePath: string;
+  content: string;
   format: string;
-  size: number;
 }
 
-export interface ApplySnippetResult {
-  success: boolean;
-  filePath: string;
-  linesWritten: number;
-  range?: { startLine: number; endLine: number };
-}
 
 // ============= Schemas =============
 
@@ -82,8 +74,9 @@ export const createSnippetSchema = {
     name: { type: 'string', description: 'Snippet name. Include a file extension to enable syntax highlighting (e.g. "UpdatePackageTypeAsync.cs", "auth.ts", "config.py"). Without an extension, language defaults to plain text.' },
     content: { type: 'string', description: 'Snippet content (JSON or raw code). Not required if sourcePath is provided.' },
     sourcePath: { type: 'string', description: 'Absolute path to source file. Reads the file, auto-detects language, and sets originalCode.' },
-    startLine: { type: 'number', description: 'Start line (1-indexed) for showing a slice of the file. Requires sourcePath.' },
-    endLine: { type: 'number', description: 'End line (1-indexed, inclusive) for showing a slice of the file. Requires sourcePath.' },
+    startAt: { type: 'string', description: 'Anchor string — extract starts at the line containing this text (inclusive). Matched via trimmed substring.' },
+    endAt: { type: 'string', description: 'Anchor string — extract ends at the line containing this text (inclusive). Matched via trimmed substring.' },
+    maxLines: { type: 'number', description: 'Max lines to extract (default 500). Error if range exceeds this.' },
     groupId: { type: 'string', description: 'Group ID to link related snippets together. Snippets with the same groupId display as tabs in the UI.' },
     groupName: { type: 'string', description: 'Display name for the snippet group shown in the sidebar (e.g. "Auth Feature"). All snippets in a group should use the same groupName.' },
   },
@@ -132,16 +125,6 @@ export const exportSnippetSchema = {
     ...sessionParamsDesc,
     id: { type: 'string', description: 'Snippet ID to export' },
     format: { type: 'string', enum: ['text', 'json'], description: 'Export format (text or json). Default: text' },
-    outputPath: { type: 'string', description: 'File path to save the exported snippet. If not provided, saves to a temp file.' },
-  },
-  required: ['project', 'id'],
-};
-
-export const applySnippetSchema = {
-  type: 'object',
-  properties: {
-    ...sessionParamsDesc,
-    id: { type: 'string', description: 'Snippet ID to apply' },
   },
   required: ['project', 'id'],
 };
@@ -164,6 +147,54 @@ const EXT_TO_LANGUAGE: Record<string, string> = {
   '.go': 'go', '.rs': 'rust', '.rb': 'ruby', '.php': 'php',
 };
 
+// ============= Anchor Helpers =============
+
+export function findAnchorLine(lines: string[], anchor: string, label: string, filePath: string): number {
+  const trimmedAnchor = anchor.trim();
+  const matches: number[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].trim().includes(trimmedAnchor)) {
+      matches.push(i);
+    }
+  }
+  if (matches.length === 0) {
+    throw new Error(`${label} anchor not found in ${filePath}: "${trimmedAnchor}"`);
+  }
+  if (matches.length > 1) {
+    const context = matches.map(idx => {
+      const before = idx > 0 ? `  ${idx}: ${lines[idx - 1]}` : '';
+      const line = `  ${idx + 1}: ${lines[idx]}`;
+      const after = idx < lines.length - 1 ? `  ${idx + 2}: ${lines[idx + 1]}` : '';
+      return [before, line, after].filter(Boolean).join('\n');
+    }).join('\n---\n');
+    throw new Error(`${label} anchor "${trimmedAnchor}" matched ${matches.length} lines in ${filePath}:\n${context}`);
+  }
+  return matches[0];
+}
+
+export function extractWithAnchors(fileContent: string, filePath: string, startAt?: string, endAt?: string, maxLines: number = 500): string {
+  const normalized = fileContent.replace(/\r\n/g, '\n');
+  const lines = normalized.split('\n');
+
+  if (lines.length === 1 && (startAt || endAt)) {
+    throw new Error(`File appears to be minified (1 line) — anchor extraction is not supported: ${filePath}`);
+  }
+
+  const startIndex = startAt ? findAnchorLine(lines, startAt, 'startAt', filePath) : 0;
+  const endIndex = endAt ? findAnchorLine(lines, endAt, 'endAt', filePath) : lines.length - 1;
+
+  if (endIndex < startIndex) {
+    throw new Error(`endAt anchor appears before startAt anchor (line ${endIndex + 1} < ${startIndex + 1}) in ${filePath}`);
+  }
+
+  const rangeSize = endIndex - startIndex + 1;
+  if (rangeSize > maxLines) {
+    throw new Error(`Anchor range is ${rangeSize} lines, exceeding maxLines limit of ${maxLines} in ${filePath}`);
+  }
+
+  return lines.slice(startIndex, endIndex + 1).join('\n');
+}
+
 // ============= Handlers =============
 
 export async function handleCreateSnippet(
@@ -176,9 +207,17 @@ export async function handleCreateSnippet(
   endLine?: number,
   groupId?: string,
   groupName?: string,
+  startAt?: string,
+  endAt?: string,
+  maxLines?: number,
 ): Promise<CreateSnippetResult> {
   let finalName = name;
   let finalContent = content;
+
+  // Deprecation warning for startLine/endLine
+  if (startLine !== undefined || endLine !== undefined) {
+    console.warn('[snippet] startLine/endLine are deprecated — use startAt/endAt anchors instead');
+  }
 
   // If sourcePath is provided, read the file and build JSON content
   if (sourcePath) {
@@ -193,8 +232,11 @@ export async function handleCreateSnippet(
     let code = fileContent;
     let lineOffset: number | undefined;
 
-    // Handle line range slicing
-    if (startLine !== undefined || endLine !== undefined) {
+    // Anchor-based extraction takes priority over line-based
+    if (startAt !== undefined || endAt !== undefined) {
+      code = extractWithAnchors(fileContent, sourcePath, startAt, endAt, maxLines);
+    } else if (startLine !== undefined || endLine !== undefined) {
+      // Legacy line-based slicing (deprecated)
       const lines = fileContent.split('\n');
       const start = Math.max(1, startLine ?? 1);
       const end = Math.min(lines.length, endLine ?? lines.length);
@@ -210,6 +252,10 @@ export async function handleCreateSnippet(
       ...(groupId && { groupId }),
       ...(groupName && { groupName }),
     };
+
+    // Store anchor info
+    if (startAt !== undefined) snippetData.startAt = startAt;
+    if (endAt !== undefined) snippetData.endAt = endAt;
 
     if (lineOffset !== undefined) {
       snippetData.startLine = startLine;
@@ -415,84 +461,22 @@ export async function handleExportSnippet(
   session: string,
   id: string,
   format: string = 'text',
-  outputPath?: string
 ): Promise<ExportSnippetResult> {
   // Get the snippet first
   const snippet = await handleGetSnippet(project, session, id);
 
-  let fileContent: string;
-  let ext: string;
+  let content: string;
 
   if (format === 'json') {
-    fileContent = JSON.stringify({
+    content = JSON.stringify({
       id: snippet.id,
       name: snippet.name,
       content: snippet.content,
       lastModified: snippet.lastModified,
     }, null, 2);
-    ext = 'json';
   } else {
-    fileContent = snippet.content;
-    ext = 'txt';
+    content = snippet.content;
   }
 
-  const filePath = outputPath || join(tmpdir(), `snippet-${id}-${Date.now()}.${ext}`);
-  await writeFile(filePath, fileContent);
-
-  return { success: true, filePath, format: ext, size: fileContent.length };
-}
-
-export async function handleApplySnippet(
-  project: string,
-  session: string,
-  id: string,
-): Promise<ApplySnippetResult> {
-  // Get the snippet
-  const snippet = await handleGetSnippet(project, session, id);
-
-  // Parse JSON content to extract code and filePath
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = JSON.parse(snippet.content);
-  } catch {
-    throw new Error('Snippet content is not valid JSON — cannot determine filePath');
-  }
-
-  const filePath = parsed.filePath as string;
-  const code = parsed.code as string;
-  if (!filePath || typeof filePath !== 'string') {
-    throw new Error('Snippet has no filePath — cannot apply to disk');
-  }
-  if (code === undefined || typeof code !== 'string') {
-    throw new Error('Snippet has no code field');
-  }
-
-  const startLine = parsed.startLine as number | undefined;
-  const endLine = parsed.endLine as number | undefined;
-
-  // If line range, splice into the original file
-  if (startLine !== undefined && endLine !== undefined) {
-    const originalFile = await readFile(filePath, 'utf-8');
-    const lines = originalFile.split('\n');
-    const start = Math.max(1, startLine);
-    const end = Math.min(lines.length, endLine);
-    const newLines = code.split('\n');
-
-    // Replace the range
-    lines.splice(start - 1, end - start + 1, ...newLines);
-    await writeFile(filePath, lines.join('\n'));
-
-    return {
-      success: true,
-      filePath,
-      linesWritten: newLines.length,
-      range: { startLine: start, endLine: start + newLines.length - 1 },
-    };
-  }
-
-  // Full file write
-  await writeFile(filePath, code);
-  const linesWritten = code.split('\n').length;
-
-  return { success: true, filePath, linesWritten };
+  return { success: true, content, format: format === 'json' ? 'json' : 'text' };
 }

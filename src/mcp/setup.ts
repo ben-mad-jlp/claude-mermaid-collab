@@ -159,8 +159,6 @@ import {
   handleListSnippets,
   handleDeleteSnippet,
   handleExportSnippet,
-  handleApplySnippet,
-  applySnippetSchema,
 } from './tools/snippet.js';
 
 // Configuration
@@ -1293,7 +1291,7 @@ IMPORTANT - Common pitfalls to avoid:
       },
       {
         name: 'export_design_svg',
-        description: 'Export a design or node subtree as SVG. Renders fills, strokes, text, images, corners, opacity, rotation, and clipping server-side. Optionally saves to file.',
+        description: 'Export a design or node subtree as SVG. Renders fills, strokes, text, images, corners, opacity, rotation, and clipping server-side. Returns SVG string.',
         inputSchema: exportDesignSvgSchema,
       },
       {
@@ -2040,13 +2038,8 @@ IMPORTANT - Common pitfalls to avoid:
         },
       },
       {
-        name: 'apply_snippet',
-        description: 'Apply a snippet back to its source file on disk. Writes the code field to filePath. Supports line-range writes if startLine/endLine were set during creation.',
-        inputSchema: applySnippetSchema,
-      },
-      {
         name: 'patch_snippet',
-        description: 'Replace a range of lines in a snippet. Call get_snippet first — it returns a numberedContent field showing each line with its 1-indexed line number so you can identify startLine/endLine precisely.',
+        description: '[DEPRECATED — use update_snippet with full content instead] Replace a range of lines in a snippet. Call get_snippet first — it returns a numberedContent field showing each line with its 1-indexed line number so you can identify startLine/endLine precisely.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -2690,16 +2683,16 @@ IMPORTANT - Common pitfalls to avoid:
           }
 
           case 'export_design_svg': {
-            const { project, session, designId, nodeId, outputPath } = args as { project: string; session: string; designId: string; nodeId?: string; outputPath?: string };
+            const { project, session, designId, nodeId } = args as { project: string; session: string; designId: string; nodeId?: string };
             if (!project || !session || !designId) throw new Error('Missing required: project, session, designId');
-            const result = await handleExportDesignSvg(project, session, designId, nodeId, outputPath);
+            const result = await handleExportDesignSvg(project, session, designId, nodeId);
             return JSON.stringify(result, null, 2);
           }
 
           case 'export_design_code': {
-            const { project, session, designId, nodeId, framework, outputPath } = args as { project: string; session: string; designId: string; nodeId?: string; framework?: 'react' | 'html'; outputPath?: string };
+            const { project, session, designId, nodeId, framework } = args as { project: string; session: string; designId: string; nodeId?: string; framework?: 'react' | 'html' };
             if (!project || !session || !designId) throw new Error('Missing required: project, session, designId');
-            const result = await handleExportDesignCode(project, session, designId, nodeId, framework, undefined, outputPath);
+            const result = await handleExportDesignCode(project, session, designId, nodeId, framework);
             return JSON.stringify(result, null, 2);
           }
 
@@ -3635,13 +3628,14 @@ IMPORTANT - Common pitfalls to avoid:
 
           case 'create_snippet':
           case 'add_design_snippet': {
-            const { project, session, name, content, sourcePath, startLine, endLine, groupId, groupName } = args as {
+            const { project, session, name, content, sourcePath, startLine, endLine, groupId, groupName, startAt, endAt, maxLines } = args as {
               project: string; session: string; name?: string; content?: string;
               sourcePath?: string; startLine?: number; endLine?: number; groupId?: string; groupName?: string;
+              startAt?: string; endAt?: string; maxLines?: number;
             };
             if (!project || !session) throw new Error('Missing required: project, session');
             if (!sourcePath && (!name || content === undefined)) throw new Error('Either provide name+content, or sourcePath');
-            const result = await handleCreateSnippet(project, session, name, content, sourcePath, startLine, endLine, groupId, groupName);
+            const result = await handleCreateSnippet(project, session, name, content, sourcePath, startLine, endLine, groupId, groupName, startAt, endAt, maxLines);
             return JSON.stringify(result, null, 2);
           }
 
@@ -3660,16 +3654,9 @@ IMPORTANT - Common pitfalls to avoid:
           }
 
           case 'export_snippet': {
-            const { project, session, id, format, outputPath } = args as { project: string; session: string; id: string; format?: string; outputPath?: string };
+            const { project, session, id, format } = args as { project: string; session: string; id: string; format?: string };
             if (!project || !session || !id) throw new Error('Missing required: project, session, id');
-            const result = await handleExportSnippet(project, session, id, format, outputPath);
-            return JSON.stringify(result, null, 2);
-          }
-
-          case 'apply_snippet': {
-            const { project, session, id } = args as { project: string; session: string; id: string };
-            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
-            const result = await handleApplySnippet(project, session, id);
+            const result = await handleExportSnippet(project, session, id, format);
             return JSON.stringify(result, null, 2);
           }
 
@@ -3685,6 +3672,7 @@ IMPORTANT - Common pitfalls to avoid:
           }
 
           case 'patch_snippet': {
+            console.warn('[DEPRECATED] patch_snippet is deprecated. Use update_snippet with full content replacement instead.');
             const { project, session, id, startLine, endLine, newContent } = args as { project: string; session: string; id: string; startLine: number; endLine: number; newContent: string };
             if (!project || !session || !id || startLine === undefined || endLine === undefined || newContent === undefined) throw new Error('Missing required: project, session, id, startLine, endLine, newContent');
             return await patchSnippet(project, session, id, startLine, endLine, newContent);

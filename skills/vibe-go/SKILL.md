@@ -2,7 +2,6 @@
 name: vibe-go
 description: Review the task graph and launch agents to execute tasks in dependency waves
 user-invocable: true
-model: sonnet
 allowed-tools:
   - Read
   - Glob

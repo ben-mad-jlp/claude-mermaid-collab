@@ -138,8 +138,6 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
   // Local state for editor
   const [content, setContent] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
-  const [isApplying, setIsApplying] = useState(false);
-  const [applyStatus, setApplyStatus] = useState<string | null>(null);
   const [detectedLanguage, setDetectedLanguage] = useState<Language>('text');
   const [selectedLanguage, setSelectedLanguage] = useState<Language>('text');
   const [showDiff, setShowDiff] = useState(showDiffByDefault);
@@ -269,31 +267,6 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
       setIsSaving(false);
     }
   }, [snippet, content, updateSnippet, onSave, serializeSnippetData]);
-
-  // Handle apply — save first, then write to disk via API
-  const handleApply = useCallback(async () => {
-    if (!snippet || !currentSession || !filePath) return;
-
-    setIsApplying(true);
-    setApplyStatus(null);
-    try {
-      // Save first to persist any edits
-      const serialized = serializeSnippetData(content, snippet.content ?? '');
-      await updateSnippet(snippet.id, serialized);
-      setOriginalCode(content);
-
-      // Apply to disk
-      const result = await api.applySnippet(currentSession.project, currentSession.name, snippet.id);
-      setApplyStatus(`Applied to ${result.filePath} (${result.linesWritten} lines)`);
-      setTimeout(() => setApplyStatus(null), 3000);
-    } catch (error) {
-      console.error('Failed to apply snippet:', error);
-      setApplyStatus('Apply failed');
-      setTimeout(() => setApplyStatus(null), 3000);
-    } finally {
-      setIsApplying(false);
-    }
-  }, [snippet, currentSession, filePath, content, updateSnippet, serializeSnippetData]);
 
   // Handle cancel
   const handleCancel = useCallback(() => {
@@ -464,16 +437,6 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
       >
         Copy
       </button>
-      {filePath && (
-        <button
-          onClick={handleApply}
-          disabled={isApplying}
-          className="px-2 py-0.5 rounded text-xs font-medium bg-indigo-500 text-white hover:bg-indigo-600 disabled:opacity-50 transition-colors"
-          title={`Apply to ${filePath}`}
-        >
-          {isApplying ? 'Applying...' : 'Apply to File'}
-        </button>
-      )}
       {showButtons && hasChanges && (
         <>
           <button
@@ -491,9 +454,6 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
           </button>
         </>
       )}
-      {applyStatus && (
-        <span className="text-xs text-green-600 dark:text-green-400">{applyStatus}</span>
-      )}
       {filePath && (
         <span className="flex-1 text-right text-xs text-gray-400 dark:text-gray-500 font-mono truncate min-w-0" title={filePath}>
           {filePath}
@@ -502,8 +462,8 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
     </>
   ), [
     selectedLanguage, handleLanguageChange, showDiff, handleDiffToggle, handleCopy,
-    filePath, handleApply, isApplying, showButtons, hasChanges, handleCancel,
-    handleSave, isSaving, applyStatus, currentSelection, annotationPopover, handleOpenAddAnnotation,
+    filePath, showButtons, hasChanges, handleCancel,
+    handleSave, isSaving, currentSelection, annotationPopover, handleOpenAddAnnotation,
     annotations, handleClearAnnotations,
   ]);
 
@@ -520,11 +480,6 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
       {!onToolbarControls && (
         <div className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-1.5 flex items-center gap-1.5">
           {toolbarControls}
-          {filePath && (
-            <span className="ml-auto text-xs text-gray-400 dark:text-gray-500 font-mono truncate" title={filePath}>
-              {filePath}
-            </span>
-          )}
         </div>
       )}
 

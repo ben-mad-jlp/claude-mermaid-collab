@@ -2,7 +2,6 @@
 name: kodex-fix-missing
 description: Create new Kodex topics for missing documentation
 user-invocable: false
-model: sonnet
 allowed-tools:
   - Glob
   - Grep

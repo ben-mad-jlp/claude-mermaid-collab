@@ -278,9 +278,8 @@ describe('Snippet MCP Tools', () => {
       );
 
       expect(result).toHaveProperty('success', true);
-      expect(result).toHaveProperty('filePath');
-      expect(result).toHaveProperty('format', 'txt');
-      expect(result).toHaveProperty('size');
+      expect(result).toHaveProperty('content');
+      expect(result).toHaveProperty('format', 'text');
     });
 
     it('should export snippet as json', async () => {
@@ -303,9 +302,8 @@ describe('Snippet MCP Tools', () => {
       );
 
       expect(result).toHaveProperty('success', true);
-      expect(result).toHaveProperty('filePath');
+      expect(result).toHaveProperty('content');
       expect(result).toHaveProperty('format', 'json');
-      expect(result).toHaveProperty('size');
     });
 
     it('should handle export errors', async () => {

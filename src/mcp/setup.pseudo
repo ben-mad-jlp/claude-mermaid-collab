@@ -55,7 +55,7 @@ FUNCTION setupMCPServer() -> Server                                      EXPORT
 
   Snippets:
     create_snippet, get_snippet, update_snippet, patch_snippet, list_snippets,
-    delete_snippet, apply_snippet, export_snippet, snippet_history, revert_snippet
+    delete_snippet, export_snippet, snippet_history, revert_snippet
 
   Components:
     save_component, load_component, list_components, list_library_components,

@@ -2,7 +2,6 @@
 name: vibe-agents
 description: Toggle agent mode on/off for the current vibe session
 user-invocable: true
-model: haiku
 allowed-tools: mcp__plugin_mermaid-collab_mermaid__get_session_state, mcp__plugin_mermaid-collab_mermaid__update_session_state
 ---
 

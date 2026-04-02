@@ -2,7 +2,6 @@
 name: vibe-blueprint
 description: Generate a blueprint and task graph from selected session artifacts
 user-invocable: true
-model: sonnet
 effort: high
 allowed-tools:
   - Read

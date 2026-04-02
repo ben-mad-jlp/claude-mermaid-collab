@@ -2,7 +2,6 @@
 name: kodex-fix-incomplete
 description: Fill in missing sections of incomplete Kodex topics
 user-invocable: false
-model: sonnet
 allowed-tools:
   - Glob
   - Grep

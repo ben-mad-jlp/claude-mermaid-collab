@@ -2,7 +2,6 @@
 name: systematic-debugging
 description: Investigate bugfix items to identify root cause and document findings
 user-invocable: false
-model: sonnet
 effort: high
 run-as-agent: true
 allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Task, Read, Glob, Grep

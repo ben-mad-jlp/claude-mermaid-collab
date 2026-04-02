@@ -2,7 +2,6 @@
 name: executing-plans-bugreview
 description: Systematic bug review of all implementation changes before declaring completion
 user-invocable: false
-model: sonnet
 allowed-tools:
   - Read
   - Glob

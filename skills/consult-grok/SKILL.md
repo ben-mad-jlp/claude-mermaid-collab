@@ -2,7 +2,6 @@
 name: consult-grok
 description: Consult Grok (xAI) for a second opinion, cross-check reasoning, or explore an idea with a different AI model
 user-invocable: true
-model: sonnet
 allowed-tools: mcp__plugin_mermaid-collab_mermaid__consult_grok, mcp__plugin_mermaid-collab_mermaid__create_document, mcp__plugin_mermaid-collab_mermaid__get_session_state
 ---
 

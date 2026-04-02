@@ -2,7 +2,6 @@
 name: vibe-review
 description: Run parallel bug and completeness review after vibe-go execution
 user-invocable: true
-model: sonnet
 allowed-tools:
   - Read
   - Glob

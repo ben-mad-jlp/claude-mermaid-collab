@@ -2,7 +2,6 @@
 name: executing-plans-review
 description: Verification and drift detection for executing-plans
 user-invocable: false
-model: haiku
 allowed-tools:
   - Read
   - Glob

@@ -1,7 +1,6 @@
 ---
 name: mermaid-collab
 description: Create and collaborate on Mermaid diagrams and UI designs with real-time preview and team sharing
-model: sonnet
 allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Skill
 user-invocable: false
 ---

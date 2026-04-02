@@ -60,12 +60,3 @@ FUNCTION handleExportSnippet(project, session, id, format?, outputPath?) -> { fi
   Write to outputPath or a temp file. Return { filePath, format, size }.
 
 ---
-
-FUNCTION handleApplySnippet(project, session, id) -> { filePath, linesWritten, range? }  EXPORT
-  CALLS: handleGetSnippet (snippet)
-  Retrieve the snippet and parse its JSON envelope to get filePath and code.
-  Throw if filePath or code is missing.
-  IF startLine and endLine are present:
-    Read the original file, splice the snippet code into that line range, write back.
-    Return range of the replaced lines.
-  ELSE write the code as the entire file content. Return { filePath, linesWritten }.

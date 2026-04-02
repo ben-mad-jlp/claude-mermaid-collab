@@ -1940,57 +1940,6 @@ export async function handleAPI(
     }
   }
 
-  // POST /api/snippet/:id/apply?project=...&session=...
-  if (path.match(/^\/api\/snippet\/[^/]+\/apply$/) && req.method === 'POST') {
-    const params = getSessionParams(url);
-    if (!params) {
-      return Response.json({ error: 'project and session query params required' }, { status: 400 });
-    }
-
-    const id = decodeURIComponent(path.split('/')[3]);
-
-    try {
-      const { snippetManager } = await createManagers(params.project, params.session);
-      const snippet = await snippetManager.getSnippet(id);
-      if (!snippet) {
-        return Response.json({ error: `Snippet not found: ${id}` }, { status: 404 });
-      }
-
-      // Parse JSON content
-      let parsed: Record<string, unknown>;
-      try {
-        parsed = JSON.parse(snippet.content);
-      } catch {
-        return Response.json({ error: 'Snippet content is not valid JSON' }, { status: 400 });
-      }
-
-      const filePath = parsed.filePath as string;
-      const code = parsed.code as string;
-      if (!filePath) {
-        return Response.json({ error: 'Snippet has no filePath' }, { status: 400 });
-      }
-
-      const { readFile, writeFile } = await import('fs/promises');
-      const startLine = parsed.startLine as number | undefined;
-      const endLine = parsed.endLine as number | undefined;
-
-      if (startLine !== undefined && endLine !== undefined) {
-        const originalFile = await readFile(filePath, 'utf-8');
-        const lines = originalFile.split('\n');
-        const start = Math.max(1, startLine);
-        const end = Math.min(lines.length, endLine);
-        const newLines = code.split('\n');
-        lines.splice(start - 1, end - start + 1, ...newLines);
-        await writeFile(filePath, lines.join('\n'));
-        return Response.json({ success: true, filePath, linesWritten: newLines.length, range: { startLine: start, endLine: start + newLines.length - 1 } });
-      }
-
-      await writeFile(filePath, code);
-      return Response.json({ success: true, filePath, linesWritten: code.split('\n').length });
-    } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
-    }
-  }
 
   // ============================================
   // Lessons Routes
