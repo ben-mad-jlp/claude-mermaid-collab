@@ -178,7 +178,61 @@ CONTEXT: { build result, test result, any issues found }
 ### 4.7 Handle VERIFY result
 
 - If `STATUS: done`: mark all tasks in wave as completed, save impl summary, announce wave complete
-- If `STATUS: failed`: report to user, mark tasks as failed
+- If `STATUS: failed`: enter the fix loop
+
+### 4.7a Fix loop
+
+Track `previousErrors` (initially empty). On each verify failure:
+
+1. Compare current errors to `previousErrors`
+2. If errors are **identical** to previous iteration → stuck, escalate to user
+3. If errors are **new or different** → making progress, spawn FIX agent
+
+**FIX agent:**
+
+```
+Agent(
+  description: "Fix wave [N] errors (attempt [M])",
+  prompt: "
+You are a FIX agent. Fix the errors described below. Do NOT run tests or verify.
+
+Errors found by verify agent:
+{CONTEXT from verify agent — exact error messages, failing tests, build errors}
+
+Files changed in this wave: {file list}
+
+Rules:
+- Use the Read tool to read files — NEVER cat, head, tail, or sed
+- Use the Edit tool to modify files — NEVER sed -i or shell redirects
+- Use the Grep tool to search — NEVER shell grep or rg
+- Fix ONLY the errors reported — do not refactor or change anything else
+
+Return:
+
+STATUS: done | failed
+CONTEXT: { what was fixed, which files were edited }
+  "
+)
+```
+
+After the FIX agent returns:
+- If `STATUS: failed`: escalate to user
+- If `STATUS: done`: spawn VERIFY agent again (same prompt as 4.6)
+  - Set `previousErrors` to the current errors before re-verifying
+  - Go back to 4.7 with the new verify result
+
+This loop continues as long as errors keep changing (progress is being made). The moment the same errors appear twice, we stop:
+
+```
+Wave [N] fix loop stuck — same errors after [M] attempts. Escalating.
+
+Errors:
+{error details}
+
+Options:
+1. Fix manually and re-run /vibe-go
+2. Skip this wave
+```
 
 **Mark tasks completed:**
 ```
