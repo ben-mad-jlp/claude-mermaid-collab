@@ -14,7 +14,7 @@ allowed-tools:
 # Vibe Go
 
 Review the task graph and launch agents to execute tasks in waves.
-Uses a chained agent pattern: analyze → implement (parallel) → verify.
+Uses a chained agent pattern: analyze → implement → verify → fix loop.
 Each agent gets a tiny focused prompt with fresh context — no tool drift.
 
 ## Step 1 — Load the task graph
@@ -46,7 +46,7 @@ Ready to launch? (yes / edit first)
 
 If user says **edit first**: let them describe changes, update the blueprint document accordingly, then call `sync_task_graph` again to re-initialize, and re-show.
 
-If user says **yes**: proceed.
+If user says **yes**: proceed to Step 3 immediately. Do NOT ask again between waves.
 
 ## Step 3 — Read the blueprint
 
@@ -64,93 +64,103 @@ Args: { "project": "<cwd>", "session": "<session>", "id": "<blueprint-doc-id>" }
 
 ## Step 4 — Execute waves using chained agents
 
-For each wave (batch), in order:
+For each wave (batch), in order. **Auto-proceed between waves — never ask for confirmation.**
 
-### 4.1 Mark tasks in_progress
+### 4.1 Mark tasks in_progress and announce
 
-Before spawning any agents, mark all tasks in the wave as in_progress:
+Mark all tasks in the wave as in_progress:
 
 ```
 Tool: mcp__plugin_mermaid-collab_mermaid__update_task_status
 Args: { "project": "<cwd>", "session": "<session>", "taskId": "<id>", "status": "in_progress", "minimal": true }
 ```
 
-### 4.2 Announce the wave
-
 ```
 Launching Wave [N] — [task-count] task(s): [task-ids]
 ```
 
-### 4.3 Spawn ANALYZE agent
+### 4.2 Spawn ANALYZE agents (one per task, in parallel)
 
-One agent per wave. Its job: read the blueprint and relevant source files for ALL tasks in this wave, then return a parallel implementation plan.
+Each analyze agent handles ONE task — reads only that task's files. This keeps context small.
+
+**Spawn all analyze agents for the wave in parallel:**
 
 ```
 Agent(
-  description: "Analyze wave [N]",
+  description: "Analyze {task-id}",
   prompt: "
 You are an ANALYZE agent. Read files and return a plan. Do NOT make any edits.
 
 Project: {project}
-Wave {N} tasks:
-{For each task: id, files, tests, description, relevant blueprint section}
+Task: {task-id}
+Files: {files array from blueprint}
+Description: {description from blueprint}
 
-For each task:
-1. Read the source files listed in the blueprint
-2. Determine exactly what needs to change (specific functions, line locations, code to add/modify)
-3. Note any interactions between tasks that could cause conflicts
+Blueprint section for this task:
+{relevant blueprint section only — NOT the whole blueprint}
 
-Use the Read tool (not cat/head/tail) and Grep tool (not shell grep).
+Read the source files listed above. For each file, determine:
+- What functions/blocks need to change
+- The surrounding context (what's above/below the edit point)
+- The specific code to add or modify
+
+Use the Read tool (NEVER cat, head, tail, or ls) and Grep tool (NEVER shell grep or rg).
+
+If the task touches multiple files, return ONE implement step per file.
 
 Return in this EXACT format:
 
 STATUS: parallel
 TASKS:
-- NEXT: implement | TASK_ID: {id} | CONTEXT: { file: '...', changes: 'specific description of what code to write/edit — include function signatures, exact locations, and the logic to implement' }
-- NEXT: implement | TASK_ID: {id} | CONTEXT: { ... }
-JOIN: verify
-JOIN_CONTEXT: { list of files changed, what tests to run }
+- NEXT: implement | FILE: {absolute path} | CHANGES: {exactly what to edit — be specific: function name, what to add/remove/modify, the logic}
+- NEXT: implement | FILE: {absolute path} | CHANGES: { ... }
   "
 )
 ```
 
-### 4.4 Dispatch based on ANALYZE response
+### 4.3 Dispatch IMPLEMENT agents
 
-Parse the response. The analyze agent returns `STATUS: parallel` with a list of tasks.
+Collect all analyze results. Flatten all TASKS from all analyze agents into a single list.
 
-**Spawn one IMPLEMENT agent per task in parallel:**
+**Spawn one IMPLEMENT agent per file edit, in parallel:**
+
+Each implement agent touches exactly ONE file with ONE focused change. This is critical — if an agent has too much to do, it drifts to shell commands.
 
 ```
 Agent(
-  description: "Implement {task-id}",
+  description: "Edit {filename}",
   prompt: "
-You are an IMPLEMENT agent. Make the specific changes described below. Nothing else.
+You are an IMPLEMENT agent. Make ONE specific edit to ONE file. Nothing else.
 
-File: {file from CONTEXT}
-Changes: {changes from CONTEXT}
+File: {absolute file path}
+Changes: {specific changes from analyze agent}
 
-Rules:
-- Use the Read tool to read files — NEVER cat, head, tail, or sed
-- Use the Edit tool to modify files — NEVER sed -i or shell redirects
-- Use the Grep tool to search — NEVER shell grep or rg
-- Only use Bash for running tests or build commands
+RULES (these are strict — violations cause rejection):
+- Use the Read tool to read files — NEVER use cat, head, tail, sed, or awk
+- Use the Edit tool to modify files — NEVER use sed -i, awk, or shell redirects
+- Use the Grep tool to search — NEVER use shell grep, rg, or find
+- Use the Glob tool to find files — NEVER use ls or find
+- Only use Bash for running build/test commands, NOTHING else
 
-Make the changes, then return:
+Steps:
+1. Read the file with the Read tool
+2. Make the edit with the Edit tool
+3. Return what you changed
 
 STATUS: done | failed
-CONTEXT: { files changed, what was implemented, any issues }
+CONTEXT: { file, what was changed, any issues }
   "
 )
 ```
 
-### 4.5 Collect IMPLEMENT results
+### 4.4 Collect IMPLEMENT results
 
 After all parallel implement agents return:
 
 - If any returned `STATUS: failed`: stop the wave, report failures to user, do not proceed
 - If all returned `STATUS: done`: proceed to verify
 
-### 4.6 Spawn VERIFY agent
+### 4.5 Spawn VERIFY agent
 
 One agent that checks all changes from the wave:
 
@@ -160,27 +170,31 @@ Agent(
   prompt: "
 You are a VERIFY agent. Check that changes are correct. Do NOT make edits.
 
-Files changed: {from JOIN_CONTEXT + implement results}
-Tests to run: {from JOIN_CONTEXT}
+Files changed: {list from implement results}
 
-1. Run the project's TypeScript check: cd {project} && npx tsc --noEmit 2>&1 | head -30
-2. Run relevant tests: {test commands from JOIN_CONTEXT}
-3. Grep for any obvious issues (dangling imports, undefined references)
+RULES:
+- Use the Grep tool to search — NEVER shell grep or rg
+- Only use Bash for build/test commands
+
+Steps:
+1. Run TypeScript check: cd {project} && npx tsc --noEmit 2>&1 | head -30
+2. Run relevant tests if any were specified
+3. Use Grep for any obvious issues (dangling imports, undefined references) in changed files
 
 Return:
 
 STATUS: done | failed
-CONTEXT: { build result, test result, any issues found }
+CONTEXT: { build result, test result, any issues found — include exact error messages }
   "
 )
 ```
 
-### 4.7 Handle VERIFY result
+### 4.6 Handle VERIFY result
 
-- If `STATUS: done`: mark all tasks in wave as completed, save impl summary, announce wave complete
-- If `STATUS: failed`: enter the fix loop
+- If `STATUS: done`: mark all tasks in wave as completed, save impl summary, proceed to next wave
+- If `STATUS: failed`: enter the fix loop (4.6a)
 
-### 4.7a Fix loop
+### 4.6a Fix loop
 
 Track `previousErrors` (initially empty). On each verify failure:
 
@@ -196,16 +210,16 @@ Agent(
   prompt: "
 You are a FIX agent. Fix the errors described below. Do NOT run tests or verify.
 
-Errors found by verify agent:
-{CONTEXT from verify agent — exact error messages, failing tests, build errors}
+Errors:
+{exact error messages from verify agent}
 
-Files changed in this wave: {file list}
+Files involved: {file list}
 
-Rules:
-- Use the Read tool to read files — NEVER cat, head, tail, or sed
+RULES:
+- Use the Read tool to read files — NEVER cat, head, tail, sed, or awk
 - Use the Edit tool to modify files — NEVER sed -i or shell redirects
 - Use the Grep tool to search — NEVER shell grep or rg
-- Fix ONLY the errors reported — do not refactor or change anything else
+- Fix ONLY the reported errors — do not refactor or change anything else
 
 Return:
 
@@ -217,14 +231,14 @@ CONTEXT: { what was fixed, which files were edited }
 
 After the FIX agent returns:
 - If `STATUS: failed`: escalate to user
-- If `STATUS: done`: spawn VERIFY agent again (same prompt as 4.6)
+- If `STATUS: done`: spawn VERIFY agent again (same prompt as 4.5)
   - Set `previousErrors` to the current errors before re-verifying
-  - Go back to 4.7 with the new verify result
+  - Go back to 4.6 with the new verify result
 
-This loop continues as long as errors keep changing (progress is being made). The moment the same errors appear twice, we stop:
+This loop continues as long as errors keep changing. The moment the same errors appear twice, stop:
 
 ```
-Wave [N] fix loop stuck — same errors after [M] attempts. Escalating.
+Wave [N] fix loop stuck — same errors after [M] attempts.
 
 Errors:
 {error details}
@@ -234,13 +248,15 @@ Options:
 2. Skip this wave
 ```
 
+### 4.7 Wave complete
+
 **Mark tasks completed:**
 ```
 Tool: mcp__plugin_mermaid-collab_mermaid__update_task_status
 Args: { "project": "<cwd>", "session": "<session>", "taskId": "<id>", "status": "completed", "minimal": true }
 ```
 
-**Save wave implementation summary (one doc per wave, not per task):**
+**Save wave implementation summary:**
 ```
 Tool: mcp__plugin_mermaid-collab_mermaid__create_document
 Args: {
@@ -255,9 +271,7 @@ Args: {
 Wave [N] complete.
 ```
 
-### 4.8 Move to next wave
-
-Repeat from 4.1 for the next wave.
+**Immediately proceed to next wave. Do NOT ask the user.**
 
 ## Step 5 — All waves complete
 
@@ -269,12 +283,11 @@ All tasks complete across [M] waves.
 Run /vibe-review to check for bugs and verify completeness.
 ```
 
-## Why Chained Agents
+## Agent Design Principles
 
-The chain pattern (analyze → implement → verify) prevents tool drift:
-- Each agent gets a **tiny, focused prompt** with fresh context
-- Tool preferences are near the top, not buried under accumulated conversation
-- Agents never accumulate enough context to "forget" instructions
-- Failed steps can be retried without re-running the entire task
-
-The main context stays clean — it only sees structured return values, not file contents or diffs.
+1. **One agent, one job** — analyze reads, implement edits ONE file, verify checks, fix fixes
+2. **Small context** — each agent gets only the info it needs, nothing extra
+3. **Tool rules in every prompt** — NEVER cat, head, tail, sed, grep, ls, find, awk via Bash
+4. **Multi-file tasks get split** — if a task touches 3 files, that's 3 implement agents
+5. **Auto-proceed** — never pause between waves for confirmation
+6. **Fix loops self-terminate** — same errors twice = stuck = escalate

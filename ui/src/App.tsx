@@ -715,6 +715,21 @@ const App: React.FC = () => {
           break;
         }
 
+        case 'metadata_updated': {
+          const { project, session, itemId, updates } = message as any;
+
+          if (currentSession &&
+              project === currentSession.project &&
+              session === currentSession.name) {
+            // Try updating across all artifact types
+            updateDiagram(itemId, updates);
+            updateDocument(itemId, updates);
+            updateSpreadsheet(itemId, updates);
+            updateSnippet(itemId, updates);
+          }
+          break;
+        }
+
         case 'session_created': {
           // Handle session creation - only auto-select if no session currently active
           const { project, session } = message as any;
