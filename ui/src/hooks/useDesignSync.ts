@@ -14,6 +14,7 @@ import { getEditorRefs, setSceneGraph, resetSceneGraph } from '@/stores/designEd
 import { useDesignEditorStore } from '@/stores/designEditorStore'
 import { useSessionStore } from '@/stores/sessionStore'
 import { api } from '@/lib/api'
+import { colorToFill } from '@/engine/color'
 
 interface SerializedGraph {
   rootId: string
@@ -72,7 +73,37 @@ function deserializeGraph(json: string): SceneGraph {
   for (const node of data.nodes) {
     // Merge with defaults so MCP-created nodes have all required fields
     const defaults = createDefaultNode(node.type as any)
-    graph.nodes.set(node.id, { ...defaults, ...node })
+    const merged = { ...defaults, ...node }
+
+    // Apply props from MCP-created designs to actual node fields
+    const props = (node as any).props
+    if (props) {
+      if (props.fill) {
+        try {
+          merged.fills = [colorToFill(props.fill)]
+        } catch { /* invalid color, keep default */ }
+      }
+      if (props.text !== undefined) merged.text = props.text
+      if (props.fontSize !== undefined) merged.fontSize = props.fontSize
+      if (props.fontWeight !== undefined) {
+        merged.fontWeight = props.fontWeight === 'bold' ? 700 : Number(props.fontWeight) || 400
+      }
+      if (props.fontFamily !== undefined) merged.fontFamily = props.fontFamily
+      if (props.x !== undefined) merged.x = props.x
+      if (props.y !== undefined) merged.y = props.y
+      if (props.width !== undefined) merged.width = props.width
+      if (props.height !== undefined) merged.height = props.height
+      if (props.name !== undefined) merged.name = props.name
+      if (props.cornerRadius !== undefined) {
+        merged.cornerRadius = props.cornerRadius
+        merged.topLeftRadius = props.cornerRadius
+        merged.topRightRadius = props.cornerRadius
+        merged.bottomLeftRadius = props.cornerRadius
+        merged.bottomRightRadius = props.cornerRadius
+      }
+    }
+
+    graph.nodes.set(node.id, merged)
   }
 
   // Restore Map fields
