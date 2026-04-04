@@ -178,7 +178,8 @@ export function useDesignSync(designId: string | null) {
             const vh = window.innerHeight - 48 // minus toolbar
             useDesignEditorStore.getState().zoomToFit(Math.max(vw, 400), Math.max(vh, 300))
           })
-        } catch {
+        } catch (err) {
+          console.warn('Failed to deserialize design on load:', err)
           resetSceneGraph()
         }
       })
@@ -266,14 +267,11 @@ export function useDesignSync(designId: string | null) {
       try {
         const graph = deserializeGraph(content)
         setSceneGraph(graph)
-        // Bump both versions to invalidate renderer cache, then mark as saved
-        useDesignEditorStore.setState((s) => ({
-          renderVersion: s.renderVersion + 1,
-          sceneVersion: s.sceneVersion + 1,
-        }))
+        const store = useDesignEditorStore.getState()
+        store.initFromGraph()
         lastSavedVersionRef.current = useDesignEditorStore.getState().sceneVersion
-      } catch {
-        // Ignore malformed remote updates
+      } catch (err) {
+        console.warn('Failed to deserialize remote design update:', err)
       }
     },
     []

@@ -683,12 +683,12 @@ export class SceneGraph {
   }
 
   hitTest(px: number, py: number, scopeId?: string): SceneNode | null {
-    const scope = scopeId ?? this.rootId
+    const scope = scopeId || this.rootId
     return this.hitTestChildren(px, py, scope, 0, 0, false)
   }
 
   hitTestDeep(px: number, py: number, scopeId?: string): SceneNode | null {
-    const scope = scopeId ?? this.rootId
+    const scope = scopeId || this.rootId
     return this.hitTestChildren(px, py, scope, 0, 0, true)
   }
 

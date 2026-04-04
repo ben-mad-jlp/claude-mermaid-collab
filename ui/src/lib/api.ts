@@ -5,6 +5,7 @@
 import type { Session, Diagram, Document, CollabState, ProjectTodo, Snippet } from '@/types';
 import type { TerminalSession, CreateSessionResult } from '@/types/terminal';
 import type { Design, Spreadsheet } from '@/stores/sessionStore';
+import { getWebSocketClient } from './websocket';
 
 // Word lists for session name generation (matching backend)
 const ADJECTIVES = [
@@ -455,6 +456,7 @@ export const api: ApiClient = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-Client-Id': getWebSocketClient().clientId,
       },
       body: JSON.stringify({ content }),
     });

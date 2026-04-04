@@ -309,7 +309,7 @@ export class SkiaRenderer {
   hitTestSectionTitle(graph: SceneGraph, canvasX: number, canvasY: number): SceneNode | null {
     if (!this.sectionTitleFont) return null
 
-    const pageNode = graph.getNode(this.pageId ?? graph.rootId)
+    const pageNode = graph.getNode(this.pageId || graph.rootId)
     if (!pageNode) return null
 
     const font = this.sectionTitleFont
@@ -368,7 +368,7 @@ export class SkiaRenderer {
   hitTestComponentLabel(graph: SceneGraph, canvasX: number, canvasY: number): SceneNode | null {
     if (!this.componentLabelFont) return null
 
-    const pageNode = graph.getNode(this.pageId ?? graph.rootId)
+    const pageNode = graph.getNode(this.pageId || graph.rootId)
     if (!pageNode) return null
 
     const font = this.componentLabelFont
@@ -474,7 +474,7 @@ export class SkiaRenderer {
     if (canUsePicture) {
       canvas.drawPicture(this.scenePicture!)
     } else if (hasVolatileOverlays) {
-      const pageNode = graph.getNode(this.pageId ?? graph.rootId)
+      const pageNode = graph.getNode(this.pageId || graph.rootId)
       if (pageNode) {
         for (const childId of pageNode.childIds) {
           this.renderNode(canvas, graph, childId, overlays, 0, 0)
@@ -516,7 +516,7 @@ export class SkiaRenderer {
     const recorder = new this.ck.PictureRecorder()
     const bounds = this.ck.LTRBRect(-1e6, -1e6, 1e6, 1e6)
     const recCanvas = recorder.beginRecording(bounds)
-    const pageNode = graph.getNode(this.pageId ?? graph.rootId)
+    const pageNode = graph.getNode(this.pageId || graph.rootId)
     if (pageNode) {
       for (const childId of pageNode.childIds) {
         this.renderNode(recCanvas, graph, childId, {}, 0, 0)
@@ -1121,7 +1121,7 @@ export class SkiaRenderer {
   private drawSectionTitles(canvas: Canvas, graph: SceneGraph): void {
     if (!this.sectionTitleFont) return
 
-    const pageNode = graph.getNode(this.pageId ?? graph.rootId)
+    const pageNode = graph.getNode(this.pageId || graph.rootId)
     if (!pageNode) return
 
     const sections: { node: SceneNode; absX: number; absY: number; nested: boolean }[] = []
@@ -1218,7 +1218,7 @@ export class SkiaRenderer {
   private drawComponentLabels(canvas: Canvas, graph: SceneGraph): void {
     if (!this.componentLabelFont) return
 
-    const pageNode = graph.getNode(this.pageId ?? graph.rootId)
+    const pageNode = graph.getNode(this.pageId || graph.rootId)
     if (!pageNode) return
 
     const font = this.componentLabelFont

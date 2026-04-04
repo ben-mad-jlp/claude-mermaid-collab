@@ -147,7 +147,9 @@ export function useDesignCanvas(): UseDesignCanvasReturn {
     return () => {
       destroyedRef.current = true
       cancelAnimationFrame(rafIdRef.current)
+      rafIdRef.current = 0
       cancelAnimationFrame(resizeRafRef.current)
+      resizeRafRef.current = 0
       rendererRef.current = null
       destroyEditorRefs()
     }
