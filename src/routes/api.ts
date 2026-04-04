@@ -2,6 +2,7 @@ import { DiagramManager } from '../services/diagram-manager';
 import { DocumentManager } from '../services/document-manager';
 import { SpreadsheetManager } from '../services/spreadsheet-manager';
 import { SnippetManager } from '../services/snippet-manager';
+import { EmbedManager } from '../services/embed-manager';
 import { MetadataManager } from '../services/metadata-manager';
 import { Validator } from '../services/validator';
 import { Renderer, type Theme } from '../services/renderer';
@@ -117,11 +118,13 @@ async function createManagers(project: string, session: string) {
   const documentsDir = sessionRegistry.resolvePath(project, session, 'documents');
   const spreadsheetsDir = sessionRegistry.resolvePath(project, session, 'spreadsheets');
   const snippetsDir = sessionRegistry.resolvePath(project, session, 'snippets');
+  const embedsDir = sessionRegistry.resolvePath(project, session, 'embeds');
 
   const diagramManager = new DiagramManager(diagramsDir);
   const documentManager = new DocumentManager(documentsDir);
   const spreadsheetManager = new SpreadsheetManager(spreadsheetsDir);
   const snippetManager = new SnippetManager(snippetsDir);
+  const embedManager = new EmbedManager(embedsDir);
   const sessionDir = sessionRegistry.resolvePath(project, session, '.');
   const metadataManager = new MetadataManager(sessionDir);
 
@@ -130,9 +133,10 @@ async function createManagers(project: string, session: string) {
   await documentManager.initialize();
   await spreadsheetManager.initialize();
   await snippetManager.initialize();
+  await embedManager.initialize();
   await metadataManager.initialize();
 
-  return { diagramManager, documentManager, spreadsheetManager, snippetManager, metadataManager };
+  return { diagramManager, documentManager, spreadsheetManager, snippetManager, embedManager, metadataManager };
 }
 
 export async function handleAPI(
@@ -1024,10 +1028,13 @@ export async function handleAPI(
           console.warn('Failed to log design update:', logError);
         }
 
+        const clientId = req.headers.get('x-client-id') || undefined;
+
         wsHandler.broadcast({
           type: 'design_updated',
           id,
           content,
+          sender: clientId,
           project: params.project,
           session: params.session,
         });
@@ -1929,6 +1936,97 @@ export async function handleAPI(
 
       wsHandler.broadcast({
         type: 'snippet_deleted',
+        id,
+        project: params.project,
+        session: params.session,
+      });
+
+      return Response.json({ success: true });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 404 });
+    }
+  }
+
+
+  // ============================================
+  // Embed Routes
+  // ============================================
+
+  // POST /api/embed?project=...&session=...
+  if (path === '/api/embed' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const { name, url: embedUrl, subtype, width, height, storybook } = await req.json() as {
+      name?: string;
+      url?: string;
+      subtype?: string;
+      width?: string;
+      height?: string;
+      storybook?: { storyId: string; port: number };
+    };
+
+    if (!name || !embedUrl) {
+      return Response.json({ error: 'Name and url required' }, { status: 400 });
+    }
+
+    try {
+      const { embedManager } = await createManagers(params.project, params.session);
+      const embed = await embedManager.create({ name, url: embedUrl, subtype, width, height, storybook });
+
+      wsHandler.broadcast({
+        type: 'embed_created',
+        id: embed.id,
+        name,
+        url: embedUrl,
+        subtype,
+        width,
+        height,
+        storybook,
+        createdAt: embed.createdAt,
+        project: params.project,
+        session: params.session,
+      });
+
+      return Response.json({ id: embed.id, success: true });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // GET /api/embeds?project=...&session=...
+  if (path === '/api/embeds' && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    try {
+      const { embedManager } = await createManagers(params.project, params.session);
+      const embeds = await embedManager.list();
+      return Response.json({ embeds });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // DELETE /api/embed/:id?project=...&session=...
+  if (path.match(/^\/api\/embed\/[^/]+$/) && req.method === 'DELETE') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const id = decodeURIComponent(path.split('/').pop()!);
+
+    try {
+      const { embedManager } = await createManagers(params.project, params.session);
+      await embedManager.delete(id);
+
+      wsHandler.broadcast({
+        type: 'embed_deleted',
         id,
         project: params.project,
         session: params.session,

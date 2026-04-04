@@ -55,6 +55,9 @@ import type { MermaidPreviewRef } from '@/components/editors/MermaidPreview';
 // Import task graph view
 import { TaskGraphView } from '@/components/task-graph';
 
+// Import embed viewer
+import { EmbedViewer } from '@/components/EmbedViewer';
+
 // Import todos views
 import { TodosView } from '@/components/todos/TodosView';
 
@@ -200,6 +203,10 @@ const App: React.FC = () => {
     addSnippet,
     updateSnippet,
     removeSnippet,
+    embeds,
+    selectedEmbedId,
+    addEmbed,
+    removeEmbed,
     setPendingDiff,
     setCollabState,
   } = useSessionStore(
@@ -237,6 +244,10 @@ const App: React.FC = () => {
       addSnippet: state.addSnippet,
       updateSnippet: state.updateSnippet,
       removeSnippet: state.removeSnippet,
+      embeds: state.embeds,
+      selectedEmbedId: state.selectedEmbedId,
+      addEmbed: state.addEmbed,
+      removeEmbed: state.removeEmbed,
       setPendingDiff: state.setPendingDiff,
       setCollabState: state.setCollabState,
     }))
@@ -537,7 +548,9 @@ const App: React.FC = () => {
 
         case 'design_updated': {
           // Update design without full refresh
-          const { id, content, project, session } = message as any;
+          const { id, content, project, session, sender } = message as any;
+          // Skip our own save echoed back
+          if (sender && sender === client.clientId) break;
           if (id &&
               currentSession &&
               project === currentSession.project &&
@@ -626,6 +639,21 @@ const App: React.FC = () => {
               project === currentSession.project &&
               session === currentSession.name) {
             removeSnippet(id);
+          }
+          break;
+        }
+
+        case 'embed_created': {
+          const { id, name, url, subtype, width, height, createdAt, storybook, project, session } = message as any;
+          if (project === currentSession.project && session === currentSession.name) {
+            addEmbed({ id, name, url, subtype, width, height, createdAt: createdAt || new Date().toISOString(), storybook });
+          }
+          break;
+        }
+        case 'embed_deleted': {
+          const { id, project, session } = message as any;
+          if (project === currentSession.project && session === currentSession.name) {
+            removeEmbed(id);
           }
           break;
         }
@@ -757,7 +785,7 @@ const App: React.FC = () => {
     return () => {
       subscription.unsubscribe();
     };
-  }, [isConnected, currentSession, updateDiagram, updateDocument, updateDesign, updateSpreadsheet, addDiagram, addDocument, addDesign, addSpreadsheet, removeDiagram, removeDocument, removeDesign, removeSpreadsheet, addSnippet, updateSnippet, removeSnippet, setPendingDiff, setCollabState, receiveQuestion, restoreUIState]);
+  }, [isConnected, currentSession, updateDiagram, updateDocument, updateDesign, updateSpreadsheet, addDiagram, addDocument, addDesign, addSpreadsheet, removeDiagram, removeDocument, removeDesign, removeSpreadsheet, addSnippet, updateSnippet, removeSnippet, addEmbed, removeEmbed, setPendingDiff, setCollabState, receiveQuestion, restoreUIState]);
 
   // Compute selected item from diagrams/documents/designs
   const selectedItem: Item | null = useMemo(() => {
@@ -827,8 +855,14 @@ const App: React.FC = () => {
         };
       }
     }
+    if (selectedEmbedId) {
+      const embed = embeds.find((e) => e.id === selectedEmbedId);
+      if (embed) {
+        return { id: embed.id, name: embed.name, type: 'embed' as const, content: embed.url, lastModified: new Date(embed.createdAt).getTime() };
+      }
+    }
     return null;
-  }, [diagrams, documents, designs, spreadsheets, snippets, selectedDiagramId, selectedDocumentId, selectedDesignId, selectedSpreadsheetId, selectedSnippetId]);
+  }, [diagrams, documents, designs, spreadsheets, snippets, embeds, selectedDiagramId, selectedDocumentId, selectedDesignId, selectedSpreadsheetId, selectedSnippetId, selectedEmbedId]);
 
   // Track local content for auto-save
   const [localContent, setLocalContent] = React.useState<string>('');
@@ -879,7 +913,7 @@ const App: React.FC = () => {
       // Send update via WebSocket if connected
       const client = getWebSocketClient();
       if (client.isConnected()) {
-        const typeMap = { diagram: 'update_diagram', document: 'update_document', design: 'update_design', spreadsheet: 'update_spreadsheet', snippet: 'snippet_updated' } as const;
+        const typeMap = { diagram: 'update_diagram', document: 'update_document', design: 'update_design', spreadsheet: 'update_spreadsheet', snippet: 'snippet_updated', embed: 'update_embed' } as const;
         const messageType = typeMap[selectedItem.type];
         if (messageType) {
           client.send({
@@ -1061,6 +1095,18 @@ const App: React.FC = () => {
       await loadSessionItems(project, currentSession.name);
     }
   }, [loadProjects, loadSessions, loadSessionItems, currentSession]);
+
+  // Handle deleting an embed
+  const handleDeleteEmbed = useCallback(async (id: string) => {
+    if (!currentSession) return;
+    try {
+      const response = await fetch(`/api/embed/${encodeURIComponent(id)}?project=${encodeURIComponent(currentSession.project)}&session=${encodeURIComponent(currentSession.name)}`, { method: 'DELETE' });
+      if (!response.ok) throw new Error('Failed to delete embed');
+      removeEmbed(id);
+    } catch (error) {
+      console.error('Failed to delete embed:', error);
+    }
+  }, [currentSession, removeEmbed]);
 
   // Handle opening the session cleanup dialog
   const handleDeleteSession = useCallback((session: Session) => {
@@ -1264,6 +1310,19 @@ const App: React.FC = () => {
           </div>
         </div>
       );
+    }
+
+    if (selectedEmbedId) {
+      const embed = embeds.find((e) => e.id === selectedEmbedId);
+      if (embed) {
+        return (
+          <div className="flex flex-col h-full min-h-0">
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <EmbedViewer embed={embed} onDelete={handleDeleteEmbed} />
+            </div>
+          </div>
+        );
+      }
     }
 
     // Item 4: Use effectiveContent to avoid type mismatch during item switches

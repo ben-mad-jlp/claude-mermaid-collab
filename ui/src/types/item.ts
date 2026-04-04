@@ -11,7 +11,7 @@ import type React from 'react';
  * ItemType: Union of all artifact types
  * Represents any artifact that can be created and edited in the system
  */
-export type ItemType = 'diagram' | 'document' | 'design' | 'spreadsheet' | 'snippet';
+export type ItemType = 'diagram' | 'document' | 'design' | 'spreadsheet' | 'snippet' | 'embed';
 
 /**
  * ItemMetadata: Common properties shared by all artifacts
@@ -72,7 +72,8 @@ export function isItemType(value: unknown): value is ItemType {
     value === 'document' ||
     value === 'design' ||
     value === 'spreadsheet' ||
-    value === 'snippet'
+    value === 'snippet' ||
+    value === 'embed'
   );
 }
 
@@ -121,6 +122,7 @@ export function getItemLabel(type: ItemType): string {
     design: 'Design',
     spreadsheet: 'Spreadsheet',
     snippet: 'Snippet',
+    embed: 'Embed',
   };
   return labels[type];
 }
@@ -135,6 +137,7 @@ export function getItemIconPath(type: ItemType): string {
     spreadsheet: 'M3 9h18M3 15h18M9 3v18M15 3v18',
     snippet: 'M9 12h6M9 16h6M17 21H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
     document: 'M9 12h6M9 16h6M17 21H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
+    embed: 'M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3',
   };
   return paths[type];
 }
@@ -175,6 +178,7 @@ export function getItemColor(type: ItemType): string {
     design: 'pink',
     spreadsheet: 'green',
     snippet: 'orange',
+    embed: 'cyan',
   };
   return colors[type];
 }
@@ -189,6 +193,7 @@ export function getItemColorValue(type: ItemType): string {
     design: '#ec4899',
     spreadsheet: '#10b981',
     snippet: '#f97316',
+    embed: '#06b6d4',
   };
   return colorMap[type];
 }

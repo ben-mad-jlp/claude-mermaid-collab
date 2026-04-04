@@ -175,15 +175,15 @@ export class SessionRegistry {
    * Resolve the path for a session's artifact folder (diagrams, documents, designs, spreadsheets, or snippets).
    * Checks new location first, then old location for backwards compatibility.
    */
-  resolvePath(project: string, session: string, type: 'diagrams' | 'documents' | 'designs' | 'spreadsheets' | 'snippets' | '.'): string {
+  resolvePath(project: string, session: string, type: 'diagrams' | 'documents' | 'designs' | 'spreadsheets' | 'snippets' | 'embeds' | '.'): string {
     if (!project || !project.startsWith('/')) {
       throw new Error('Invalid project path: must be an absolute path');
     }
     if (!session) {
       throw new Error('Invalid session name');
     }
-    if (type !== 'diagrams' && type !== 'documents' && type !== 'designs' && type !== 'spreadsheets' && type !== 'snippets' && type !== '.') {
-      throw new Error('Invalid type: must be "diagrams", "documents", "designs", "spreadsheets", "snippets", or "."');
+    if (type !== 'diagrams' && type !== 'documents' && type !== 'designs' && type !== 'spreadsheets' && type !== 'snippets' && type !== 'embeds' && type !== '.') {
+      throw new Error('Invalid type: must be "diagrams", "documents", "designs", "spreadsheets", "snippets", "embeds", or "."');
     }
 
     // Check regular sessions first

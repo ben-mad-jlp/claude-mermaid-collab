@@ -25,6 +25,12 @@ export type WSMessage =
   | { type: 'snippet_updated'; id: string; content: string; lastModified: number; project: string; session: string }
   | { type: 'snippet_created'; id: string; name: string; content: string; lastModified: number; project: string; session: string }
   | { type: 'snippet_deleted'; id: string; project: string; session: string }
+  | { type: 'embed_created'; id: string; name: string; url: string; subtype?: 'storybook'; createdAt: string; storybook?: { storyId: string; port: number }; project: string; session: string }
+  | { type: 'embed_deleted'; id: string; project: string; session: string }
+  | { type: 'design_updated'; id: string; content: string; sender?: string; project: string; session: string }
+  | { type: 'design_created'; id: string; project: string; session: string }
+  | { type: 'design_deleted'; id: string; project: string; session: string }
+  | { type: 'design_history_updated'; id: string; project: string; session: string; changeCount: number }
   | { type: 'metadata_updated'; itemId?: string; updates?: Record<string, unknown>; foldersChanged?: boolean }
   | { type: 'subscribe'; id?: string; channel?: string }
   | { type: 'unsubscribe'; id?: string; channel?: string }

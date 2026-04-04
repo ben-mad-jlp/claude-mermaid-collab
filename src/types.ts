@@ -78,6 +78,31 @@ export interface SnippetListItem {
   deprecated?: boolean;
 }
 
+export interface Embed {
+  id: string;
+  name: string;
+  url: string;
+  subtype?: 'storybook';
+  width?: string;
+  height?: string;
+  createdAt: string;
+  storybook?: { storyId: string; port: number };
+}
+
+export interface EmbedMeta {
+  name: string;
+  path: string;
+  createdAt: string;
+}
+
+export interface EmbedListItem {
+  id: string;
+  name: string;
+  url: string;
+  subtype?: 'storybook';
+  createdAt: string;
+}
+
 export interface ItemMetadata {
   folder: string | null;
   locked: boolean;

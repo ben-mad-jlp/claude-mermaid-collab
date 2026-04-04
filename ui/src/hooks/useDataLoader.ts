@@ -12,6 +12,7 @@
 
 import { useState, useCallback } from 'react';
 import { api } from '@/lib/api';
+import { embedsApi } from '@/api/embeds';
 import { useSessionStore } from '@/stores/sessionStore';
 
 export interface UseDataLoaderReturn {
@@ -71,6 +72,7 @@ export function useDataLoader(): UseDataLoaderReturn {
   const setDesigns = useSessionStore((state) => state.setDesigns);
   const setSpreadsheets = useSessionStore((state) => state.setSpreadsheets);
   const setSnippets = useSessionStore((state) => state.setSnippets);
+  const setEmbeds = useSessionStore((state) => state.setEmbeds);
   const selectDiagram = useSessionStore((state) => state.selectDiagram);
   const selectDocument = useSessionStore((state) => state.selectDocument);
   const selectDesign = useSessionStore((state) => state.selectDesign);
@@ -124,18 +126,20 @@ export function useDataLoader(): UseDataLoaderReturn {
       setError(null);
 
       try {
-        const [diagrams, documents, designs, spreadsheets, snippets] = await Promise.all([
+        const [diagrams, documents, designs, spreadsheets, snippets, embeds] = await Promise.all([
           api.getDiagrams(project, session),
           api.getDocuments(project, session),
           api.getDesigns(project, session),
           api.getSpreadsheets(project, session),
           api.getSnippets(project, session),
+          embedsApi.fetchEmbeds(session, project),
         ]);
         setDiagrams(diagrams);
         setDocuments(documents);
         setDesigns(designs);
         setSpreadsheets(spreadsheets);
         setSnippets(snippets);
+        setEmbeds(embeds);
 
         // Also load collab state
         await loadCollabState(project, session);
@@ -146,7 +150,7 @@ export function useDataLoader(): UseDataLoaderReturn {
         setIsLoading(false);
       }
     },
-    [setDiagrams, setDocuments, setDesigns, setSpreadsheets, setSnippets, loadCollabState]
+    [setDiagrams, setDocuments, setDesigns, setSpreadsheets, setSnippets, setEmbeds, loadCollabState]
   );
 
   /**

@@ -160,6 +160,7 @@ import {
   handleDeleteSnippet,
   handleExportSnippet,
 } from './tools/snippet.js';
+import { createEmbedSchema, listEmbedsSchema, deleteEmbedSchema, handleCreateEmbed, handleListEmbeds, handleDeleteEmbed, createStorybookEmbedSchema, listStorybookStoriesSchema, handleCreateStorybookEmbed, handleListStorybookStories } from './tools/embed.js';
 
 // Configuration
 const API_PORT = parseInt(process.env.PORT || '3737', 10);
@@ -2052,6 +2053,11 @@ IMPORTANT - Common pitfalls to avoid:
           required: ['project', 'id', 'startLine', 'endLine', 'newContent'],
         },
       },
+      { name: 'create_embed', description: 'Create a new embed (iframe) artifact for displaying external URLs in the collab UI.', inputSchema: createEmbedSchema },
+      { name: 'list_embeds', description: 'List all embeds in a session.', inputSchema: listEmbedsSchema },
+      { name: 'delete_embed', description: 'Delete an embed by ID.', inputSchema: deleteEmbedSchema },
+      { name: 'create_storybook_embed', description: 'Create a Storybook embed from a story ID. Constructs the iframe URL and creates an embed artifact with storybook metadata.', inputSchema: createStorybookEmbedSchema },
+      { name: 'list_storybook_stories', description: 'List available Storybook stories by fetching index.json from the running Storybook dev server.', inputSchema: listStorybookStoriesSchema },
       {
         name: 'deprecate_artifact',
         description: 'Mark an artifact as deprecated (hidden by default) or restore it. Deprecated artifacts remain in the session but are filtered from the default view.',
@@ -3701,6 +3707,37 @@ IMPORTANT - Common pitfalls to avoid:
             return JSON.stringify({ success: true, revertedTo: timestamp }, null, 2);
           }
 
+          case 'create_embed': {
+            const { project, session, name, url, subtype, width, height, storybook } = args as any;
+            if (!project || !session) throw new Error('Missing required: project, session');
+            if (!name || !url) throw new Error('Missing required: name, url');
+            const result = await handleCreateEmbed(project, session, name, url, subtype, width, height, storybook);
+            return JSON.stringify(result, null, 2);
+          }
+          case 'list_embeds': {
+            const { project, session } = args as any;
+            if (!project || !session) throw new Error('Missing required: project, session');
+            const result = await handleListEmbeds(project, session);
+            return JSON.stringify(result, null, 2);
+          }
+          case 'delete_embed': {
+            const { project, session, id } = args as any;
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            const result = await handleDeleteEmbed(project, session, id);
+            return JSON.stringify(result, null, 2);
+          }
+          case 'create_storybook_embed': {
+            const { project, session, name, storyId, port } = args as any;
+            if (!project || !session) throw new Error('Missing required: project, session');
+            if (!name || !storyId) throw new Error('Missing required: name, storyId');
+            const result = await handleCreateStorybookEmbed(project, session, name, storyId, port);
+            return JSON.stringify(result, null, 2);
+          }
+          case 'list_storybook_stories': {
+            const { port } = args as any;
+            const result = await handleListStorybookStories(port);
+            return JSON.stringify(result, null, 2);
+          }
           case 'deprecate_artifact': {
             const { project, session, id, deprecated } = args as { project: string; session: string; id: string; deprecated: boolean };
             if (!project || !session || !id || deprecated === undefined) throw new Error('Missing required: project, session, id, deprecated');
