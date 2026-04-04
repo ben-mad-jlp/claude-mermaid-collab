@@ -3,10 +3,9 @@ import { Embed } from '../types/embed';
 
 interface EmbedViewerProps {
   embed: Embed;
-  onDelete: (id: string) => void;
 }
 
-export function EmbedViewer({ embed, onDelete }: EmbedViewerProps) {
+export function EmbedViewer({ embed }: EmbedViewerProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [phoneFrame, setPhoneFrame] = useState(embed.subtype === 'storybook');
@@ -58,15 +57,18 @@ export function EmbedViewer({ embed, onDelete }: EmbedViewerProps) {
               </button>
             </>
           )}
-          <button
-            onClick={() => onDelete(embed.id)}
-            className="w-8 h-8 rounded flex items-center justify-center hover:bg-red-100 dark:hover:bg-red-900/30 text-gray-500 hover:text-red-600 dark:hover:text-red-400 transition-colors"
-            title="Delete embed"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
+          {!isStorybook && (
+            <button
+              onClick={handleRefresh}
+              className="w-8 h-8 rounded flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 transition-colors"
+              title="Refresh"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path d="M4 4v5h5M20 20v-5h-5" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M20.49 9A9 9 0 0 0 5.64 5.64L4 7m16 10l-1.64 1.36A9 9 0 0 1 3.51 15" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
 

@@ -1318,7 +1318,7 @@ const App: React.FC = () => {
         return (
           <div className="flex flex-col h-full min-h-0">
             <div className="flex-1 min-h-0 overflow-hidden">
-              <EmbedViewer embed={embed} onDelete={handleDeleteEmbed} />
+              <EmbedViewer embed={embed} />
             </div>
           </div>
         );

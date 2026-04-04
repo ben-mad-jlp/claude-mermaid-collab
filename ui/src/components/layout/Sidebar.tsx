@@ -50,6 +50,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     embeds,
     selectedEmbedId,
     selectEmbed,
+    removeEmbed,
   } = useSessionStore(
     useShallow((state) => ({
       diagrams: state.diagrams,
@@ -87,6 +88,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       embeds: state.embeds,
       selectedEmbedId: state.selectedEmbedId,
       selectEmbed: state.selectEmbed,
+      removeEmbed: state.removeEmbed,
     }))
   );
 
@@ -99,6 +101,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [blueprintCollapsed, setBlueprintCollapsed] = useState(false);
   const [tasksCollapsed, setTasksCollapsed] = useState(false);
   const [embedsCollapsed, setEmbedsCollapsed] = useState(false);
+
+  const handleDeleteEmbed = useCallback(
+    async (embedId: string, embedName: string) => {
+      if (!currentSession) return;
+      if (!window.confirm(`Delete embed "${embedName}"?`)) return;
+      try {
+        const response = await fetch(
+          `/api/embed/${encodeURIComponent(embedId)}?project=${encodeURIComponent(currentSession.project)}&session=${encodeURIComponent(currentSession.name)}`,
+          { method: 'DELETE' },
+        );
+        if (!response.ok) throw new Error('Failed to delete embed');
+        removeEmbed(embedId);
+      } catch (error) {
+        console.error('Failed to delete embed:', error);
+      }
+    },
+    [currentSession, removeEmbed],
+  );
 
   const handleDeleteItem = useCallback(
     async (item: Item) => {
@@ -563,25 +583,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {!embedsCollapsed && (
             <div className="space-y-1 px-2 pb-2">
               {embeds.map((embed) => (
-                <button
+                <div
                   key={embed.id}
-                  onClick={() => selectEmbed(embed.id)}
-                  className={`w-full text-left px-2 py-1.5 rounded text-sm flex items-center gap-2 ${
+                  className={`group w-full text-left px-2 py-1.5 rounded text-sm flex items-center gap-2 cursor-pointer ${
                     embed.id === selectedEmbedId
                       ? 'bg-accent-100 dark:bg-accent-900 text-accent-700 dark:text-accent-300'
                       : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
                   }`}
+                  onClick={() => selectEmbed(embed.id)}
                 >
                   <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
-                  <div className="flex flex-col min-w-0">
+                  <div className="flex flex-col min-w-0 flex-1">
                     <span className="truncate">{embed.name}</span>
                     <span className="text-xs text-gray-400 dark:text-gray-500 truncate">
                       {embed.storybook?.storyId || (embed.url.length > 30 ? embed.url.slice(0, 30) + '...' : embed.url)}
                     </span>
                   </div>
-                </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDeleteEmbed(embed.id, embed.name); }}
+                    className="opacity-0 group-hover:opacity-100 w-6 h-6 shrink-0 rounded flex items-center justify-center hover:bg-red-100 dark:hover:bg-red-900/30 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-all"
+                    title={`Delete ${embed.name}`}
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                </div>
               ))}
             </div>
           )}
