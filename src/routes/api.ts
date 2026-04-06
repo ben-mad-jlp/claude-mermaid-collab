@@ -2038,6 +2038,29 @@ export async function handleAPI(
     }
   }
 
+  // GET /api/storybook/validate
+  if (path === '/api/storybook/validate' && req.method === 'GET') {
+    const port = url.searchParams.get('port');
+    const storyId = url.searchParams.get('storyId');
+
+    const portNum = parseInt(port || '', 10);
+    if (!portNum || portNum < 1 || portNum > 65535 || !storyId) {
+      return Response.json({ valid: false, storyId: storyId || '', error: 'Valid port (1-65535) and storyId query params required' }, { status: 400 });
+    }
+
+    try {
+      const response = await fetch(`http://localhost:${portNum}/index.json`);
+      if (!response.ok) {
+        return Response.json({ valid: false, storyId, error: 'Storybook returned HTTP ' + response.status });
+      }
+      const data = await response.json();
+      const valid = storyId in (data.entries || {});
+      return Response.json({ valid, storyId, error: valid ? undefined : 'Story "' + storyId + '" not found in Storybook index' });
+    } catch (error: any) {
+      return Response.json({ valid: false, storyId, error: 'Could not reach Storybook at localhost:' + port + '. Is the dev server running? (' + error.message + ')' });
+    }
+  }
+
 
   // ============================================
   // Lessons Routes

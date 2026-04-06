@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Embed } from '../types/embed';
 
 type ViewportMode = 'mobile' | 'tablet' | 'desktop' | 'custom' | 'full';
@@ -20,6 +20,8 @@ export function EmbedViewer({ embed }: EmbedViewerProps) {
   const [customWidth, setCustomWidth] = useState(600);
   const [customHeight, setCustomHeight] = useState(900);
   const [showCustomInput, setShowCustomInput] = useState(false);
+  const [storyValid, setStoryValid] = useState<boolean | null>(null);
+  const [storyError, setStoryError] = useState('');
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const handleRefresh = useCallback(() => {
@@ -29,6 +31,26 @@ export function EmbedViewer({ embed }: EmbedViewerProps) {
       iframeRef.current.src = iframeRef.current.src;
     }
   }, []);
+
+  useEffect(() => {
+    if (embed.subtype !== 'storybook' || !embed.storybook) return;
+    setStoryValid(null);
+    setStoryError('');
+    const controller = new AbortController();
+    const { port, storyId } = embed.storybook;
+    fetch(`/api/storybook/validate?port=${port}&storyId=${encodeURIComponent(storyId)}`, { signal: controller.signal })
+      .then((res) => res.json())
+      .then((data) => {
+        setStoryValid(data.valid);
+        if (!data.valid) setStoryError(data.error || 'Story not found');
+      })
+      .catch((err) => {
+        if (err.name === 'AbortError') return;
+        setStoryValid(false);
+        setStoryError('Could not validate story — server unreachable');
+      });
+    return () => controller.abort();
+  }, [embed.id, embed.storybook?.storyId, embed.storybook?.port]);
 
   const isStorybook = embed.subtype === 'storybook';
   const isFramed = viewport !== 'full';
@@ -122,6 +144,18 @@ export function EmbedViewer({ embed }: EmbedViewerProps) {
         </div>
       </div>
 
+      {storyValid === false && (
+        <div className="flex items-start gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-950 border-b border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200">
+          <svg className="w-4 h-4 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path d="M12 9v2m0 4h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <div className="text-xs">
+            <p className="font-medium">Story not found: <code className="bg-amber-100 dark:bg-amber-900 px-1 rounded">{embed.storybook?.storyId}</code></p>
+            <p className="mt-0.5 text-amber-600 dark:text-amber-400">{storyError}. Try restarting Storybook or check that the story file still exists.</p>
+          </div>
+        </div>
+      )}
+
       {/* Custom size inputs */}
       {showCustomInput && viewport === 'custom' && (
         <div className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
@@ -176,7 +210,7 @@ export function EmbedViewer({ embed }: EmbedViewerProps) {
             >
               <iframe
                 ref={iframeRef}
-                src={embed.url}
+                src={embed.url.replace(/\/\/localhost([:\/])/, `//${window.location.hostname}$1`)}
                 sandbox="allow-scripts allow-same-origin allow-popups"
                 onLoad={() => { setLoading(false); setError(false); }}
                 onError={() => { setLoading(false); setError(true); }}
@@ -188,7 +222,7 @@ export function EmbedViewer({ embed }: EmbedViewerProps) {
         ) : (
           <iframe
             ref={iframeRef}
-            src={embed.url}
+            src={embed.url.replace(/\/\/localhost([:\/])/, `//${window.location.hostname}$1`)}
             sandbox="allow-scripts allow-same-origin allow-popups"
             onLoad={() => { setLoading(false); setError(false); }}
             onError={() => { setLoading(false); setError(true); }}

@@ -477,7 +477,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   // Embed management
   setEmbeds: (embeds) => set({ embeds }),
-  addEmbed: (embed) => set((state) => ({ embeds: [...state.embeds, embed] })),
+  addEmbed: (embed) => set((state) => ({
+    embeds: state.embeds.some((e) => e.id === embed.id)
+      ? state.embeds
+      : [...state.embeds, embed],
+  })),
   removeEmbed: (id) => set((state) => ({
     embeds: state.embeds.filter((e) => e.id !== id),
     selectedEmbedId: state.selectedEmbedId === id ? null : state.selectedEmbedId,
