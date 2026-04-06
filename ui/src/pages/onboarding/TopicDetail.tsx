@@ -9,17 +9,14 @@ import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import { useOnboarding } from './OnboardingLayout';
 import { onboardingApi } from '@/lib/onboarding-api';
-import type { TopicDetail as TopicDetailType, ProgressEntry, Note, DiagramBlock } from '@/lib/onboarding-api';
-import { DiagramsTab } from './DiagramsTab';
+import type { TopicDetail as TopicDetailType, ProgressEntry, Note } from '@/lib/onboarding-api';
 
-type TabId = 'overview' | 'technical' | 'files' | 'related' | 'diagrams';
+type TabId = 'overview' | 'functions' | 'dependencies';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'overview', label: 'Overview' },
-  { id: 'technical', label: 'Technical' },
-  { id: 'files', label: 'Files' },
-  { id: 'related', label: 'Related' },
-  { id: 'diagrams', label: 'Diagrams' },
+  { id: 'functions', label: 'Functions' },
+  { id: 'dependencies', label: 'Dependencies' },
 ];
 
 export const TopicDetail: React.FC = () => {
@@ -29,7 +26,6 @@ export const TopicDetail: React.FC = () => {
   const [topic, setTopic] = useState<TopicDetailType | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [loading, setLoading] = useState(true);
-  const [diagrams, setDiagrams] = useState<DiagramBlock[]>([]);
 
   // Onboarding mode state
   const [progress, setProgress] = useState<ProgressEntry | null>(null);
@@ -53,19 +49,11 @@ export const TopicDetail: React.FC = () => {
       .finally(() => setLoading(false));
   }, [project, name]);
 
-  // Fetch diagrams
-  useEffect(() => {
-    if (!project || !name) return;
-    onboardingApi.getDiagrams(project, name)
-      .then(setDiagrams)
-      .catch(() => setDiagrams([]));
-  }, [project, name]);
-
   // Fetch user progress + notes in onboarding mode
   useEffect(() => {
     if (!project || !name || mode !== 'onboard' || !currentUser) return;
     onboardingApi.getProgress(project, currentUser.id).then(entries => {
-      const entry = entries.find(e => e.topicName === name) || null;
+      const entry = entries.find(e => e.filePath === name) || null;
       setProgress(entry);
     });
     onboardingApi.getNotes(project, currentUser.id, name).then(setNotes);
@@ -75,7 +63,7 @@ export const TopicDetail: React.FC = () => {
   const handleMark = useCallback(async (status: 'explored' | 'skipped') => {
     if (!project || !name || !currentUser) return;
     await onboardingApi.markProgress(project, currentUser.id, name, status);
-    setProgress({ topicName: name, status, completedAt: new Date().toISOString() });
+    setProgress({ filePath: name, status, completedAt: new Date().toISOString() });
   }, [project, name, currentUser]);
 
   // Undo progress
@@ -103,17 +91,15 @@ export const TopicDetail: React.FC = () => {
   if (loading || !topic) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-gray-400">{loading ? 'Loading...' : 'Topic not found'}</div>
+        <div className="text-gray-400">{loading ? 'Loading...' : 'File not found'}</div>
       </div>
     );
   }
 
   const tabContent: Record<TabId, string> = {
     overview: topic.content.conceptual,
-    technical: topic.content.technical,
-    files: topic.content.files,
-    related: topic.content.related,
-    diagrams: '',
+    functions: topic.content.technical,
+    dependencies: topic.content.related,
   };
 
   return (
@@ -122,7 +108,7 @@ export const TopicDetail: React.FC = () => {
       <div className="flex-1 min-w-0">
         {/* Header */}
         <div className="mb-4">
-          <h1 className="text-2xl font-bold">{topic.title}</h1>
+          <h1 className="text-2xl font-bold font-mono">{topic.name}</h1>
           <p className="text-sm text-gray-500 font-mono">{topic.name}</p>
         </div>
 
@@ -183,13 +169,9 @@ export const TopicDetail: React.FC = () => {
 
         {/* Tab Content */}
         <div className="prose dark:prose-invert max-w-none prose-sm">
-          {activeTab === 'diagrams' ? (
-            <DiagramsTab diagrams={diagrams} />
-          ) : (
-            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
-              {tabContent[activeTab] || '*No content available*'}
-            </ReactMarkdown>
-          )}
+          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+            {tabContent[activeTab] || '*No content available*'}
+          </ReactMarkdown>
         </div>
 
         {/* Onboarding: Notes section */}
@@ -233,7 +215,7 @@ export const TopicDetail: React.FC = () => {
       {/* Related Sidebar */}
       {relatedTopics.length > 0 && (
         <aside className="w-56 shrink-0">
-          <h3 className="text-sm font-semibold mb-3 text-gray-600 dark:text-gray-400">Related Topics</h3>
+          <h3 className="text-sm font-semibold mb-3 text-gray-600 dark:text-gray-400">Related Files</h3>
           <div className="flex flex-col gap-1">
             {relatedTopics.map(rt => (
               <Link

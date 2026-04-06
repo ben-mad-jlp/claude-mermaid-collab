@@ -9,16 +9,17 @@
  */
 
 import Database from 'bun:sqlite';
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'fs';
+import { existsSync, mkdirSync, statSync } from 'fs';
 import { join } from 'path';
+import { getPseudoDb } from './pseudo-db.js';
 
 // ============================================================================
 // Types
 // ============================================================================
 
 export interface SearchResult {
-  topicName: string;
-  fileType: 'conceptual' | 'technical' | 'files';
+  filePath: string;
+  methodName: string;
   snippet: string;
 }
 
@@ -29,7 +30,7 @@ export interface User {
 }
 
 export interface ProgressEntry {
-  topicName: string;
+  filePath: string;
   status: 'explored' | 'skipped';
   completedAt: string;
 }
@@ -37,7 +38,7 @@ export interface ProgressEntry {
 export interface Note {
   id: number;
   userId: number;
-  topicName: string;
+  filePath: string;
   content: string;
   createdAt: string;
   updatedAt: string;
@@ -48,7 +49,7 @@ export interface TeamMember {
   name: string;
   createdAt: string;
   exploredCount: number;
-  exploredTopics: string[];
+  exploredFiles: string[];
   lastActive: string | null;
 }
 
@@ -64,15 +65,15 @@ CREATE TABLE IF NOT EXISTS users (
 );
 CREATE TABLE IF NOT EXISTS progress (
   user_id INTEGER REFERENCES users(id),
-  topic_name TEXT NOT NULL,
+  file_path TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'explored',
   completed_at TEXT DEFAULT (datetime('now')),
-  PRIMARY KEY (user_id, topic_name)
+  PRIMARY KEY (user_id, file_path)
 );
 CREATE TABLE IF NOT EXISTS notes (
   id INTEGER PRIMARY KEY,
   user_id INTEGER REFERENCES users(id),
-  topic_name TEXT NOT NULL,
+  file_path TEXT NOT NULL,
   content TEXT NOT NULL,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
@@ -105,7 +106,7 @@ export class OnboardingDbService {
   // --------------------------------------------------------------------------
 
   /**
-   * Ensure FTS5 index is up-to-date. Rebuilds if any topic file is newer than index.db.
+   * Ensure FTS5 index is up-to-date. Rebuilds if pseudo.db is newer than index.db.
    */
   ensureIndex(): void {
     if (!existsSync(this.onboardingDir)) {
@@ -113,9 +114,9 @@ export class OnboardingDbService {
     }
 
     const indexPath = join(this.onboardingDir, 'index.db');
-    const topicsDir = join(this.project, '.collab', 'kodex', 'topics');
+    const pseudoDbPath = join(this.project, '.collab', 'pseudo', 'pseudo.db');
 
-    if (!existsSync(topicsDir)) return;
+    if (!existsSync(pseudoDbPath)) return;
 
     // Check if rebuild is needed
     let indexMtime = 0;
@@ -123,18 +124,8 @@ export class OnboardingDbService {
       indexMtime = statSync(indexPath).mtimeMs;
     }
 
-    const topicDirs = readdirSync(topicsDir, { withFileTypes: true })
-      .filter(d => d.isDirectory() && !d.name.startsWith('.'))
-      .map(d => d.name);
-
-    const fileTypes = ['conceptual', 'technical', 'files'] as const;
-
-    const needsRebuild = indexMtime === 0 || topicDirs.some(topic =>
-      fileTypes.some(ft => {
-        const filePath = join(topicsDir, topic, `${ft}.md`);
-        return existsSync(filePath) && statSync(filePath).mtimeMs > indexMtime;
-      })
-    );
+    const pseudoMtime = statSync(pseudoDbPath).mtimeMs;
+    const needsRebuild = indexMtime === 0 || pseudoMtime > indexMtime;
 
     if (!needsRebuild && this.indexDb) return;
 
@@ -144,26 +135,28 @@ export class OnboardingDbService {
 
     if (!needsRebuild) return;
 
-    // Rebuild index
+    // Rebuild index from pseudo DB
+    const db = getPseudoDb(this.project);
+    const files = db.listFiles();
+
     this.indexDb.exec('DROP TABLE IF EXISTS topic_fts');
     this.indexDb.exec(`
       CREATE VIRTUAL TABLE topic_fts USING fts5(
-        topic_name, file_type, content,
+        file_path, method_name, content,
         tokenize='porter unicode61'
       )
     `);
 
     const insert = this.indexDb.prepare(
-      'INSERT INTO topic_fts (topic_name, file_type, content) VALUES (?, ?, ?)'
+      'INSERT INTO topic_fts (file_path, method_name, content) VALUES (?, ?, ?)'
     );
 
-    for (const topicName of topicDirs) {
-      for (const fileType of fileTypes) {
-        const filePath = join(topicsDir, topicName, `${fileType}.md`);
-        if (existsSync(filePath)) {
-          const content = readFileSync(filePath, 'utf-8');
-          insert.run(topicName, fileType, content);
-        }
+    for (const fileSummary of files) {
+      const file = db.getFile(fileSummary.filePath);
+      if (!file) continue;
+      for (const method of file.methods) {
+        const content = method.steps.map(s => s.content).join('\n');
+        insert.run(fileSummary.filePath, method.name, content);
       }
     }
   }
@@ -176,7 +169,7 @@ export class OnboardingDbService {
     if (!this.indexDb) return [];
 
     let sql = `
-      SELECT topic_name, file_type,
+      SELECT file_path, method_name,
         snippet(topic_fts, 2, '<mark>', '</mark>', '…', 20) AS snippet
       FROM topic_fts
       WHERE topic_fts MATCH ?
@@ -187,7 +180,7 @@ export class OnboardingDbService {
 
     if (scope && scope.length > 0) {
       const placeholders = scope.map(() => '?').join(', ');
-      sql += ` AND topic_name IN (${placeholders})`;
+      sql += ` AND file_path IN (${placeholders})`;
       params.push(...scope);
     }
 
@@ -196,8 +189,8 @@ export class OnboardingDbService {
     const rows = this.indexDb.prepare(sql).all(...params) as any[];
 
     return rows.map(row => ({
-      topicName: row.topic_name,
-      fileType: row.file_type,
+      filePath: row.file_path,
+      methodName: row.method_name,
       snippet: row.snippet,
     }));
   }
@@ -265,26 +258,26 @@ export class OnboardingDbService {
   // Progress CRUD
   // --------------------------------------------------------------------------
 
-  markProgress(userId: number, topic: string, status: 'explored' | 'skipped'): void {
+  markProgress(userId: number, filePath: string, status: 'explored' | 'skipped'): void {
     const db = this.ensureProgressDb();
     db.prepare(
-      'INSERT OR REPLACE INTO progress (user_id, topic_name, status, completed_at) VALUES (?, ?, ?, datetime(\'now\'))'
-    ).run(userId, topic, status);
+      'INSERT OR REPLACE INTO progress (user_id, file_path, status, completed_at) VALUES (?, ?, ?, datetime(\'now\'))'
+    ).run(userId, filePath, status);
   }
 
-  deleteProgress(userId: number, topic: string): void {
+  deleteProgress(userId: number, filePath: string): void {
     const db = this.ensureProgressDb();
-    db.prepare('DELETE FROM progress WHERE user_id = ? AND topic_name = ?').run(userId, topic);
+    db.prepare('DELETE FROM progress WHERE user_id = ? AND file_path = ?').run(userId, filePath);
   }
 
   getUserProgress(userId: number): ProgressEntry[] {
     const db = this.ensureProgressDb();
     const rows = db.prepare(
-      'SELECT topic_name, status, completed_at FROM progress WHERE user_id = ?'
+      'SELECT file_path, status, completed_at FROM progress WHERE user_id = ?'
     ).all(userId) as any[];
 
     return rows.map(row => ({
-      topicName: row.topic_name,
+      filePath: row.file_path,
       status: row.status,
       completedAt: row.completed_at,
     }));
@@ -294,32 +287,32 @@ export class OnboardingDbService {
   // Notes CRUD
   // --------------------------------------------------------------------------
 
-  getNotes(userId: number, topic: string): Note[] {
+  getNotes(userId: number, filePath: string): Note[] {
     const db = this.ensureProgressDb();
     const rows = db.prepare(
-      'SELECT id, user_id, topic_name, content, created_at, updated_at FROM notes WHERE user_id = ? AND topic_name = ? ORDER BY created_at DESC'
-    ).all(userId, topic) as any[];
+      'SELECT id, user_id, file_path, content, created_at, updated_at FROM notes WHERE user_id = ? AND file_path = ? ORDER BY created_at DESC'
+    ).all(userId, filePath) as any[];
 
     return rows.map(row => ({
       id: row.id,
       userId: row.user_id,
-      topicName: row.topic_name,
+      filePath: row.file_path,
       content: row.content,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }));
   }
 
-  addNote(userId: number, topic: string, content: string): Note {
+  addNote(userId: number, filePath: string, content: string): Note {
     const db = this.ensureProgressDb();
     const row = db.prepare(
-      'INSERT INTO notes (user_id, topic_name, content) VALUES (?, ?, ?) RETURNING id, user_id, topic_name, content, created_at, updated_at'
-    ).get(userId, topic, content) as any;
+      'INSERT INTO notes (user_id, file_path, content) VALUES (?, ?, ?) RETURNING id, user_id, file_path, content, created_at, updated_at'
+    ).get(userId, filePath, content) as any;
 
     return {
       id: row.id,
       userId: row.user_id,
-      topicName: row.topic_name,
+      filePath: row.file_path,
       content: row.content,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -346,7 +339,7 @@ export class OnboardingDbService {
     const db = this.ensureProgressDb();
     const rows = db.prepare(`
       SELECT u.id, u.name, u.created_at,
-        COUNT(p.topic_name) AS explored_count,
+        COUNT(p.file_path) AS explored_count,
         MAX(p.completed_at) AS last_active
       FROM users u
       LEFT JOIN progress p ON p.user_id = u.id AND p.status = 'explored'
@@ -354,22 +347,35 @@ export class OnboardingDbService {
       ORDER BY u.name
     `).all() as any[];
 
-    // Fetch explored topic names per user
-    const topicStmt = db.prepare(
-      `SELECT topic_name FROM progress WHERE user_id = ? AND status = 'explored'`
+    // Fetch explored file paths per user
+    const fileStmt = db.prepare(
+      `SELECT file_path FROM progress WHERE user_id = ? AND status = 'explored'`
     );
 
     return rows.map(row => {
-      const topicRows = topicStmt.all(row.id) as any[];
+      const fileRows = fileStmt.all(row.id) as any[];
       return {
         id: row.id,
         name: row.name,
         createdAt: row.created_at,
         exploredCount: row.explored_count,
-        exploredTopics: topicRows.map(r => r.topic_name),
+        exploredFiles: fileRows.map(r => r.file_path),
         lastActive: row.last_active,
       };
     });
+  }
+
+  // --------------------------------------------------------------------------
+  // Health Check
+  // --------------------------------------------------------------------------
+
+  isPseudoDbReady(): boolean {
+    try {
+      const db = getPseudoDb(this.project);
+      return db.listFiles().length > 0;
+    } catch {
+      return false;
+    }
   }
 
   // --------------------------------------------------------------------------

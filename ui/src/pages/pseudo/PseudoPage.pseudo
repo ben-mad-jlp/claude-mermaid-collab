@@ -8,8 +8,8 @@ Three-column resizable layout: PseudoFileTree (left) | PseudoViewer (center, ref
 Global keyboard shortcuts: Cmd/Ctrl+K or Cmd/Ctrl+F opens search; Escape closes it.
 
 FUNCTION PseudoPage() -> JSX.Element [2026-03-26]                EXPORT
-  CALLS: fetchPseudoFiles (pseudo-api), useKodexStore (kodexStore), useWebSocket (useWebSocket), useTheme (useTheme)
-  Reads project from kodexStore and currentPath from URL params. On mount, calls fetchProjects and loadPseudoFiles.
+  CALLS: fetchPseudoFiles (pseudo-api), useProjectStore (projectStore), useWebSocket (useWebSocket), useTheme (useTheme)
+  Reads project from projectStore and currentPath from URL params. On mount, calls fetchProjects and loadPseudoFiles.
   On project change, clears fileList + fileCache, navigates to /pseudo, and re-fetches files.
   Registers a window keydown listener: Cmd+K/F opens search overlay; Escape closes it.
   When pendingScrollTarget is set and functions are loaded, calls viewerRef.current.scrollToFunction then clears the target.

@@ -36,9 +36,9 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
-// Mock the kodex store
-vi.mock('@/stores/kodexStore', () => ({
-  useKodexStore: vi.fn(),
+// Mock the project store
+vi.mock('@/stores/projectStore', () => ({
+  useProjectStore: vi.fn(),
 }));
 
 // Mock useWebSocket
@@ -51,8 +51,8 @@ vi.mock('@/hooks/useTheme', () => ({
   useTheme: vi.fn(() => ({ theme: 'light', toggleTheme: vi.fn() })),
 }));
 
-// Mock ProjectSelector to avoid full kodex store dependency
-vi.mock('@/components/kodex/ProjectSelector', () => ({
+// Mock ProjectSelector to avoid full project store dependency
+vi.mock('@/components/shared/ProjectSelector', () => ({
   ProjectSelector: () => <div data-testid="project-selector">Project Selector</div>,
 }));
 
@@ -92,7 +92,7 @@ vi.mock('./PseudoSearch', () => ({
 }));
 
 import { useParams, useNavigate } from 'react-router-dom';
-import { useKodexStore } from '@/stores/kodexStore';
+import { useProjectStore } from '@/stores/projectStore';
 
 describe('PseudoPage', () => {
   const mockNavigate = vi.fn();
@@ -105,8 +105,8 @@ describe('PseudoPage', () => {
     (useParams as ReturnType<typeof vi.fn>).mockReturnValue({ '*': '' });
     (useNavigate as ReturnType<typeof vi.fn>).mockReturnValue(mockNavigate);
 
-    // useKodexStore returns project selection state
-    (useKodexStore as ReturnType<typeof vi.fn>).mockReturnValue({
+    // useProjectStore returns project selection state
+    (useProjectStore as ReturnType<typeof vi.fn>).mockReturnValue({
       selectedProject: '/test-project',
       fetchProjects: vi.fn().mockResolvedValue(undefined),
       setSelectedProject: vi.fn(),
@@ -180,7 +180,7 @@ describe('PseudoPage', () => {
 
     it('should handle missing project gracefully', async () => {
       // Start with no project
-      (useKodexStore as ReturnType<typeof vi.fn>).mockReturnValue({
+      (useProjectStore as ReturnType<typeof vi.fn>).mockReturnValue({
         selectedProject: null,
         fetchProjects: vi.fn().mockResolvedValue(undefined),
         setSelectedProject: vi.fn(),

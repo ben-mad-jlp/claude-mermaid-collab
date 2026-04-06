@@ -118,7 +118,7 @@ async function hasOldSessionStructure(baseDir: string): Promise<boolean> {
   try {
     const entries = await readdir(collabDir, { withFileTypes: true });
     for (const entry of entries) {
-      if (!entry.isDirectory() || entry.name === 'sessions' || entry.name === 'kodex') continue;
+      if (!entry.isDirectory() || entry.name === 'sessions') continue;
       const statePath = join(collabDir, entry.name, 'collab-state.json');
       try {
         await access(statePath);
@@ -153,7 +153,7 @@ export async function listCollabSessions(baseDir: string): Promise<CollabSession
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
         // Skip special directories
-        if (entry.name === 'sessions' || entry.name === 'kodex') continue;
+        if (entry.name === 'sessions') continue;
 
         const sessionPath = join(dir, entry.name);
         const statePath = join(sessionPath, 'collab-state.json');

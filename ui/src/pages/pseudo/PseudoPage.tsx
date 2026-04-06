@@ -12,9 +12,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
-import { useKodexStore } from '@/stores/kodexStore';
+import { useProjectStore } from '@/stores/projectStore';
 import { NavMenu } from '@/components/layout/NavMenu';
-import { ProjectSelector } from '@/components/kodex/ProjectSelector';
+import { ProjectSelector } from '@/components/shared/ProjectSelector';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useTheme } from '@/hooks/useTheme';
 import { fetchPseudoFiles } from '@/lib/pseudo-api';
@@ -43,7 +43,7 @@ export default function PseudoPage(): JSX.Element {
   // Get navigation function
   const navigate = useNavigate();
 
-  const { selectedProject: project, fetchProjects, setSelectedProject } = useKodexStore();
+  const { selectedProject: project, fetchProjects, setSelectedProject } = useProjectStore();
   const { isConnected, isConnecting } = useWebSocket();
   const { theme, toggleTheme } = useTheme();
 

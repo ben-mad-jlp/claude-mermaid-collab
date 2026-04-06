@@ -1,14 +1,14 @@
 /**
  * Onboarding Layout - Wrapper for all onboarding pages
  *
- * Matches KodexLayout pattern: left sidebar + top header + main content.
+ * Left sidebar + top header + main content layout.
  * Provides OnboardingContext (mode, user, project).
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-import { useKodexStore } from '@/stores/kodexStore';
-import { ProjectSelector } from '@/components/kodex/ProjectSelector';
+import { useProjectStore } from '@/stores/projectStore';
+import { ProjectSelector } from '@/components/shared/ProjectSelector';
 import { useTheme } from '@/hooks/useTheme';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { NavMenu } from '@/components/layout/NavMenu';
@@ -99,7 +99,7 @@ const navItems: NavItem[] = [
 // ============================================================================
 
 export const OnboardingLayout: React.FC = () => {
-  const { selectedProject, fetchProjects } = useKodexStore();
+  const { selectedProject, fetchProjects } = useProjectStore();
   const { theme, toggleTheme } = useTheme();
   const { isConnected, isConnecting } = useWebSocket();
   const navigate = useNavigate();
@@ -227,7 +227,7 @@ export const OnboardingLayout: React.FC = () => {
                   type="text"
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
-                  placeholder="Search topics..."
+                  placeholder="Search files..."
                   className="w-full px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </form>
@@ -327,7 +327,7 @@ export const OnboardingLayout: React.FC = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                 </svg>
                 <p className="text-lg font-medium text-gray-700 dark:text-gray-300">No project selected</p>
-                <p className="text-sm mt-1 text-gray-400">Select a project from Kodex or Collab to get started</p>
+                <p className="text-sm mt-1 text-gray-400">Select a project to get started</p>
               </div>
             </div>
           ) : (

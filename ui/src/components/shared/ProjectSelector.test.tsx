@@ -18,14 +18,14 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ProjectSelector } from './ProjectSelector';
-import { useKodexStore } from '@/stores/kodexStore';
+import { useProjectStore } from '@/stores/projectStore';
 
-// Mock the useKodexStore hook
-vi.mock('@/stores/kodexStore', () => ({
-  useKodexStore: vi.fn(),
+// Mock the useProjectStore hook
+vi.mock('@/stores/projectStore', () => ({
+  useProjectStore: vi.fn(),
 }));
 
-const mockUseKodexStore = vi.mocked(useKodexStore);
+const mockUseProjectStore = vi.mocked(useProjectStore);
 
 describe('ProjectSelector', () => {
   const mockProjects = [
@@ -43,7 +43,7 @@ describe('ProjectSelector', () => {
     mockSetSelectedProject = vi.fn();
     mockOnAddProject = vi.fn();
 
-    mockUseKodexStore.mockReturnValue({
+    mockUseProjectStore.mockReturnValue({
       selectedProject: null,
       projects: mockProjects,
       isLoadingProjects: false,
@@ -71,8 +71,8 @@ describe('ProjectSelector', () => {
     });
 
     it('should render dropdown button with selected project name', () => {
-      mockUseKodexStore.mockReturnValue({
-        ...mockUseKodexStore(),
+      mockUseProjectStore.mockReturnValue({
+        ...mockUseProjectStore(),
         selectedProject: '/home/user/projects/project1',
       });
 
@@ -81,8 +81,8 @@ describe('ProjectSelector', () => {
     });
 
     it('should show loading spinner when isLoadingProjects is true', () => {
-      mockUseKodexStore.mockReturnValue({
-        ...mockUseKodexStore(),
+      mockUseProjectStore.mockReturnValue({
+        ...mockUseProjectStore(),
         isLoadingProjects: true,
       });
 
@@ -218,8 +218,8 @@ describe('ProjectSelector', () => {
 
     it('should highlight selected project in dropdown', async () => {
       const user = userEvent.setup();
-      mockUseKodexStore.mockReturnValue({
-        ...mockUseKodexStore(),
+      mockUseProjectStore.mockReturnValue({
+        ...mockUseProjectStore(),
         selectedProject: '/home/user/projects/project1',
       });
 
@@ -234,8 +234,8 @@ describe('ProjectSelector', () => {
 
     it('should not highlight non-selected projects in dropdown', async () => {
       const user = userEvent.setup();
-      mockUseKodexStore.mockReturnValue({
-        ...mockUseKodexStore(),
+      mockUseProjectStore.mockReturnValue({
+        ...mockUseProjectStore(),
         selectedProject: '/home/user/projects/project1',
       });
 
@@ -381,8 +381,8 @@ describe('ProjectSelector', () => {
 
   describe('Loading State', () => {
     it('should disable button during loading', () => {
-      mockUseKodexStore.mockReturnValue({
-        ...mockUseKodexStore(),
+      mockUseProjectStore.mockReturnValue({
+        ...mockUseProjectStore(),
         isLoadingProjects: true,
       });
 
@@ -392,8 +392,8 @@ describe('ProjectSelector', () => {
     });
 
     it('should show Loading... text during loading', () => {
-      mockUseKodexStore.mockReturnValue({
-        ...mockUseKodexStore(),
+      mockUseProjectStore.mockReturnValue({
+        ...mockUseProjectStore(),
         isLoadingProjects: true,
       });
 
@@ -403,8 +403,8 @@ describe('ProjectSelector', () => {
 
     it('should not open dropdown when loading', async () => {
       const user = userEvent.setup();
-      mockUseKodexStore.mockReturnValue({
-        ...mockUseKodexStore(),
+      mockUseProjectStore.mockReturnValue({
+        ...mockUseProjectStore(),
         isLoadingProjects: true,
       });
 
@@ -419,8 +419,8 @@ describe('ProjectSelector', () => {
   describe('Empty State', () => {
     it('should show "No projects available" when projects list is empty', async () => {
       const user = userEvent.setup();
-      mockUseKodexStore.mockReturnValue({
-        ...mockUseKodexStore(),
+      mockUseProjectStore.mockReturnValue({
+        ...mockUseProjectStore(),
         projects: [],
       });
 
@@ -434,8 +434,8 @@ describe('ProjectSelector', () => {
 
   describe('Error Handling', () => {
     it('should display error message when projectsError is set', () => {
-      mockUseKodexStore.mockReturnValue({
-        ...mockUseKodexStore(),
+      mockUseProjectStore.mockReturnValue({
+        ...mockUseProjectStore(),
         projectsError: 'Failed to load projects',
       });
 

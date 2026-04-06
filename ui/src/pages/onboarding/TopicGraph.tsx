@@ -20,7 +20,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { useOnboarding } from './OnboardingLayout';
 import { onboardingApi } from '@/lib/onboarding-api';
-import type { Category, ProgressEntry, GraphNode as ApiGraphNode, GraphEdge as ApiGraphEdge } from '@/lib/onboarding-api';
+import type { Category as Directory, ProgressEntry, GraphNode as ApiGraphNode, GraphEdge as ApiGraphEdge } from '@/lib/onboarding-api';
 
 const CATEGORY_COLORS = [
   '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
@@ -143,7 +143,7 @@ function forceLayout(
     position: { x: n.x, y: n.y },
     data: {
       label: n.name,
-      color: colorMap.get(n.category) || '#9ca3af',
+      color: colorMap.get(n.directory) || '#9ca3af',
       explored: exploredSet.has(n.id),
       onboardMode,
     },
@@ -169,13 +169,13 @@ export const TopicGraph: React.FC = () => {
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<TopicNodeData>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
+  const [directories, setDirectories] = useState<Directory[]>([]);
+  const [selectedDirectories, setSelectedDirectories] = useState<Set<string>>(new Set());
   const [progress, setProgress] = useState<ProgressEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   const exploredSet = useMemo(() => new Set(
-    progress.filter(p => p.status === 'explored').map(p => p.topicName)
+    progress.filter(p => p.status === 'explored').map(p => p.filePath)
   ), [progress]);
 
   // ─── Data fetch & layout ────────────────────────────────────────────────
@@ -186,23 +186,23 @@ export const TopicGraph: React.FC = () => {
 
     const promises: Promise<any>[] = [
       onboardingApi.getGraph(project),
-      onboardingApi.getCategories(project),
+      onboardingApi.getDirectories(project),
     ];
     if (mode === 'onboard' && currentUser) {
       promises.push(onboardingApi.getProgress(project, currentUser.id));
     }
 
-    Promise.all(promises).then(([graphData, cats, prog]) => {
-      setCategories(cats);
+    Promise.all(promises).then(([graphData, dirs, prog]) => {
+      setDirectories(dirs);
       if (prog) setProgress(prog);
 
       const colorMap = new Map<string, string>();
-      (cats as Category[]).forEach((c, i) => {
-        colorMap.set(c.name, CATEGORY_COLORS[i % CATEGORY_COLORS.length]);
+      (dirs as Directory[]).forEach((d, i) => {
+        colorMap.set(d.name, CATEGORY_COLORS[i % CATEGORY_COLORS.length]);
       });
 
       const explored = prog
-        ? new Set((prog as ProgressEntry[]).filter(p => p.status === 'explored').map(p => p.topicName))
+        ? new Set((prog as ProgressEntry[]).filter(p => p.status === 'explored').map(p => p.filePath))
         : new Set<string>();
 
       const { nodes: layoutNodes, edges: layoutEdges } = forceLayout(
@@ -224,41 +224,41 @@ export const TopicGraph: React.FC = () => {
     navigate(`/onboarding/topic/${node.id}`);
   }, [navigate]);
 
-  // ─── Category filter ────────────────────────────────────────────────────
+  // ─── Directory filter ────────────────────────────────────────────────────
 
-  const toggleCategory = useCallback((cat: string) => {
-    setSelectedCategories(prev => {
+  const toggleDirectory = useCallback((dir: string) => {
+    setSelectedDirectories(prev => {
       const next = new Set(prev);
-      next.has(cat) ? next.delete(cat) : next.add(cat);
+      next.has(dir) ? next.delete(dir) : next.add(dir);
       return next;
     });
   }, []);
 
-  // Apply category visibility
+  // Apply directory visibility
   const visibleNodes = useMemo(() => {
-    if (selectedCategories.size === 0) return nodes;
-    const catNodes = new Set<string>();
+    if (selectedDirectories.size === 0) return nodes;
+    const dirNodes = new Set<string>();
     nodes.forEach(n => {
       const color = n.data.color;
-      const catIndex = CATEGORY_COLORS.indexOf(color);
-      if (catIndex >= 0 && catIndex < categories.length && selectedCategories.has(categories[catIndex].name)) {
-        catNodes.add(n.id);
+      const dirIndex = CATEGORY_COLORS.indexOf(color);
+      if (dirIndex >= 0 && dirIndex < directories.length && selectedDirectories.has(directories[dirIndex].name)) {
+        dirNodes.add(n.id);
       }
     });
     return nodes.map(n => ({
       ...n,
-      hidden: !catNodes.has(n.id),
+      hidden: !dirNodes.has(n.id),
     }));
-  }, [nodes, selectedCategories, categories]);
+  }, [nodes, selectedDirectories, directories]);
 
   const visibleEdges = useMemo(() => {
-    if (selectedCategories.size === 0) return edges;
+    if (selectedDirectories.size === 0) return edges;
     const visibleIds = new Set(visibleNodes.filter(n => !n.hidden).map(n => n.id));
     return edges.map(e => ({
       ...e,
       hidden: !visibleIds.has(e.source) || !visibleIds.has(e.target),
     }));
-  }, [edges, visibleNodes, selectedCategories]);
+  }, [edges, visibleNodes, selectedDirectories]);
 
   // ─── Render ─────────────────────────────────────────────────────────────
 
@@ -273,23 +273,23 @@ export const TopicGraph: React.FC = () => {
   return (
     <div className="flex flex-col flex-1 min-h-0">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white">Topic Graph</h2>
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white">File Graph</h2>
       </div>
 
-      {/* Category filters */}
+      {/* Directory filters */}
       <div className="flex flex-wrap gap-2 mb-3">
-        {categories.map((cat, i) => {
+        {directories.map((dir, i) => {
           const color = CATEGORY_COLORS[i % CATEGORY_COLORS.length];
-          const active = selectedCategories.size === 0 || selectedCategories.has(cat.name);
+          const active = selectedDirectories.size === 0 || selectedDirectories.has(dir.name);
           return (
             <button
-              key={cat.name}
-              onClick={() => toggleCategory(cat.name)}
+              key={dir.name}
+              onClick={() => toggleDirectory(dir.name)}
               className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded-lg border transition-opacity ${active ? 'opacity-100' : 'opacity-40'}`}
               style={{ borderColor: color }}
             >
               <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }} />
-              <span className="capitalize text-gray-700 dark:text-gray-300">{cat.name}</span>
+              <span className="capitalize text-gray-700 dark:text-gray-300">{dir.name}</span>
             </button>
           );
         })}
@@ -323,7 +323,7 @@ export const TopicGraph: React.FC = () => {
         </ReactFlow>
       </div>
 
-      <p className="text-xs text-gray-400 mt-2">Scroll to zoom, drag to pan, click a node to view topic</p>
+      <p className="text-xs text-gray-400 mt-2">Scroll to zoom, drag to pan, click a node to view file</p>
     </div>
   );
 };

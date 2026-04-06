@@ -115,9 +115,9 @@ describe('Sidebar', () => {
   });
 
   /**
-   * Test that Kodex link is still rendered
+   * Test that sidebar renders with a session selected (no external nav links)
    */
-  it('should render Kodex link', () => {
+  it('should render when session is selected', () => {
     mockUseSessionStore.mockImplementation((selector) =>
       selector(createMockState({
         currentSession: { project: '/test', name: 'test-session' } as any,
@@ -130,9 +130,7 @@ describe('Sidebar', () => {
       </BrowserRouter>
     );
 
-    const kodexLink = screen.getByText('Kodex');
-    expect(kodexLink).toBeInTheDocument();
-    expect(kodexLink.closest('a')).toHaveAttribute('href', '/kodex');
+    expect(screen.getByTestId('sidebar')).toBeInTheDocument();
   });
 
   /**

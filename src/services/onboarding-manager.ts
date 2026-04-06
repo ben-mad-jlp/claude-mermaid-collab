@@ -1,26 +1,25 @@
 /**
- * Onboarding Manager - Wraps KodexManager with onboarding-specific features
+ * Onboarding Manager - Wraps PseudoDb with onboarding-specific features
  *
  * Provides:
- * - Project configuration (title, default mode, learning paths)
- * - Category derivation from topic name prefixes
- * - Topic relationship graph for visualization
- * - Mermaid diagram extraction for topic detail
+ * - Project configuration (file count, learning paths)
+ * - Category derivation from file directory paths
+ * - File relationship graph for visualization
  */
 
-import { getKodexManager } from './kodex-manager.js';
+import { getPseudoDb, type PseudoFileSummary } from './pseudo-db.js';
 import { readFileSync, existsSync } from 'fs';
-import { join, basename } from 'path';
+import { join } from 'path';
 
 // ============================================================================
 // Types
 // ============================================================================
 
 export interface OnboardingConfig {
-  title: string;
-  topicCount: number;
-  defaultMode: 'browse' | 'onboard';
-  categories?: Record<string, string[]>;
+  title?: string;
+  fileCount: number;
+  defaultMode?: 'browse' | 'onboard';
+  categories?: Category[];
   paths?: LearningPath[];
 }
 
@@ -33,7 +32,6 @@ export interface LearningPath {
 
 export interface Category {
   name: string;
-  topicCount: number;
   topics: string[];
 }
 
@@ -48,140 +46,31 @@ export interface GraphEdge {
   target: string;   // related topic name
 }
 
-export interface DiagramBlock {
-  title: string;
-  content: string;  // raw mermaid syntax
-  filePath: string; // path to .mmd file
-}
-
 // ============================================================================
 // Utility Functions
 // ============================================================================
 
 /**
- * Parse related topics from related.md content.
- *
- * Handles all formats found in the wild:
- * - [title](../topic-name/) → extract slug from path
- * - **topic-name** - description → extract bold text
- * - bare word → validate against knownTopics
+ * Derive categories from file paths by grouping by parent directory.
  */
-export function parseRelatedTopics(content: string, knownTopics: Set<string>): string[] {
-  if (!content.trim()) return [];
+export function deriveCategories(files: PseudoFileSummary[], config?: OnboardingConfig): Category[] {
+  // If config has explicit categories, use those
+  if (config?.categories) return config.categories;
 
-  const found = new Set<string>();
-  const lines = content.split('\n');
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-
-    // Pattern 1: Markdown link — [Label](../topic-name/) or [Label](../topic-name)
-    const linkRegex = /\[([^\]]*)\]\(\.\.\/([a-z0-9-]+)\/?[^)]*\)/g;
-    let match;
-    while ((match = linkRegex.exec(trimmed)) !== null) {
-      const slug = match[2];
-      if (knownTopics.has(slug)) {
-        found.add(slug);
-      }
-    }
-
-    // Pattern 2: Bold text — **topic-name**
-    const boldRegex = /\*\*([a-z0-9-]+)\*\*/g;
-    while ((match = boldRegex.exec(trimmed)) !== null) {
-      const name = match[1];
-      if (knownTopics.has(name)) {
-        found.add(name);
-      }
-    }
-
-    // Pattern 3: Bare words — check each hyphenated word against known topics
-    // Only for lines that start with "- " (list items)
-    if (trimmed.startsWith('- ')) {
-      const words = trimmed.slice(2).split(/[\s,]+/);
-      for (const word of words) {
-        const clean = word.replace(/[*[\]()]/g, '').trim();
-        if (clean && /^[a-z0-9-]+$/.test(clean) && knownTopics.has(clean)) {
-          found.add(clean);
-        }
-      }
-    }
-  }
-
-  return Array.from(found);
-}
-
-/**
- * Derive categories from topic names by splitting on first dash.
- * Groups with < 3 topics are merged into "other".
- * Config overrides are applied if present.
- */
-export function deriveCategories(
-  topics: { name: string }[],
-  config?: OnboardingConfig
-): Category[] {
-  // Step 1: Group by prefix
+  // Group by parent directory
   const groups = new Map<string, string[]>();
-
-  for (const topic of topics) {
-    const dashIdx = topic.name.indexOf('-');
-    const prefix = dashIdx > 0 ? topic.name.slice(0, dashIdx) : topic.name;
-    if (!groups.has(prefix)) {
-      groups.set(prefix, []);
-    }
-    groups.get(prefix)!.push(topic.name);
+  for (const file of files) {
+    const parts = file.filePath.split('/');
+    // Use first 2 segments as category (e.g., "src/services")
+    const category = parts.length > 2 ? parts.slice(0, 2).join('/') : parts[0] || 'root';
+    if (!groups.has(category)) groups.set(category, []);
+    groups.get(category)!.push(file.filePath);
   }
 
-  // Step 2: Apply config overrides if present
-  if (config?.categories) {
-    for (const [categoryName, topicNames] of Object.entries(config.categories)) {
-      // Remove these topics from their current groups
-      for (const topicName of topicNames) {
-        for (const [prefix, members] of groups) {
-          const idx = members.indexOf(topicName);
-          if (idx !== -1) {
-            members.splice(idx, 1);
-            if (members.length === 0) {
-              groups.delete(prefix);
-            }
-            break;
-          }
-        }
-      }
-      // Add to override group
-      const existing = groups.get(categoryName) || [];
-      groups.set(categoryName, [...existing, ...topicNames]);
-    }
-  }
-
-  // Step 3: Merge small groups (< 3 topics) into "other"
-  const categories: Category[] = [];
-  const otherTopics: string[] = [];
-
-  for (const [name, topicList] of groups) {
-    if (topicList.length < 3) {
-      otherTopics.push(...topicList);
-    } else {
-      categories.push({
-        name,
-        topicCount: topicList.length,
-        topics: topicList.sort(),
-      });
-    }
-  }
-
-  if (otherTopics.length > 0) {
-    categories.push({
-      name: 'other',
-      topicCount: otherTopics.length,
-      topics: otherTopics.sort(),
-    });
-  }
-
-  // Step 4: Sort by topicCount descending
-  categories.sort((a, b) => b.topicCount - a.topicCount);
-
-  return categories;
+  return Array.from(groups.entries()).map(([name, filePaths]) => ({
+    name,
+    topics: filePaths,
+  }));
 }
 
 // ============================================================================
@@ -197,174 +86,49 @@ export class OnboardingManager {
 
   /**
    * Get onboarding configuration for the project.
-   * Reads kodex-onboarding.json if present, otherwise uses defaults.
+   * Reads pseudo-onboarding.json if present, otherwise uses defaults.
    */
-  async getConfig(): Promise<OnboardingConfig> {
-    const kodex = getKodexManager(this.project);
-    const topics = await kodex.listTopics();
-
-    let config: Partial<OnboardingConfig> = {};
-
-    // Try to read kodex-onboarding.json
-    const configPath = join(this.project, 'kodex-onboarding.json');
+  getConfig(): OnboardingConfig {
+    const db = getPseudoDb(this.project);
+    const files = db.listFiles();
+    // Read config file if exists
+    const configPath = join(this.project, '.collab', 'pseudo-onboarding.json');
+    let config: OnboardingConfig = { fileCount: files.length };
     if (existsSync(configPath)) {
-      try {
-        const raw = readFileSync(configPath, 'utf-8');
-        config = JSON.parse(raw);
-      } catch {
-        // Invalid JSON — use defaults
-      }
+      config = { ...config, ...JSON.parse(readFileSync(configPath, 'utf-8')) };
     }
-
-    // Derive title
-    let title = config.title || '';
-    if (!title) {
-      const pkgPath = join(this.project, 'package.json');
-      if (existsSync(pkgPath)) {
-        try {
-          const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
-          title = pkg.name || '';
-        } catch {
-          // ignore
-        }
-      }
-      if (!title) {
-        title = basename(this.project);
-      }
-    }
-
-    return {
-      title,
-      topicCount: topics.length,
-      defaultMode: config.defaultMode || 'browse',
-      categories: config.categories,
-      paths: config.paths,
-    };
+    config.fileCount = files.length;
+    return config;
   }
 
   /**
-   * Get categories derived from topic name prefixes.
+   * Get categories derived from file directory paths.
    */
-  async getCategories(): Promise<Category[]> {
-    const kodex = getKodexManager(this.project);
-    const topics = await kodex.listTopics();
-    const config = await this.getConfig();
-    return deriveCategories(topics, config);
+  getCategories(): Category[] {
+    const db = getPseudoDb(this.project);
+    const files = db.listFiles();
+    const config = this.getConfig();
+    return deriveCategories(files, config);
   }
 
   /**
-   * Build topic relationship graph for visualization.
+   * Build file relationship graph for visualization.
    */
-  async getGraph(): Promise<{ nodes: GraphNode[]; edges: GraphEdge[] }> {
-    const kodex = getKodexManager(this.project);
-    const topics = await kodex.listTopics();
+  getGraph(): { nodes: GraphNode[]; edges: GraphEdge[] } {
+    const db = getPseudoDb(this.project);
+    const graph = db.getCallGraph();
+    const categories = this.getCategories();
 
-    // Build known topics set
-    const knownTopics = new Set(topics.map(t => t.name));
+    // Map pseudo graph nodes to onboarding graph nodes
+    const nodes: GraphNode[] = graph.nodes.map(n => {
+      const category = categories.find(c => c.topics.some(t => n.filePath.startsWith(t) || t.startsWith(n.filePath)));
+      return {
+        id: n.id,
+        name: n.label,
+        category: category?.name || 'other',
+      };
+    });
 
-    // Derive categories for node coloring
-    const categories = await this.getCategories();
-    const topicCategoryMap = new Map<string, string>();
-    for (const cat of categories) {
-      for (const topicName of cat.topics) {
-        topicCategoryMap.set(topicName, cat.name);
-      }
-    }
-
-    // Build nodes
-    const nodes: GraphNode[] = topics.map(t => ({
-      id: t.name,
-      name: t.title,
-      category: topicCategoryMap.get(t.name) || 'other',
-    }));
-
-    // Build edges by parsing related.md for each topic
-    const edges: GraphEdge[] = [];
-    const topicsDir = join(this.project, '.collab', 'kodex', 'topics');
-
-    for (const topic of topics) {
-      const relatedPath = join(topicsDir, topic.name, 'related.md');
-      if (existsSync(relatedPath)) {
-        const content = readFileSync(relatedPath, 'utf-8');
-        const relatedNames = parseRelatedTopics(content, knownTopics);
-        for (const target of relatedNames) {
-          edges.push({ source: topic.name, target });
-        }
-      }
-    }
-
-    return { nodes, edges };
-  }
-
-  /**
-   * Get mermaid diagram blocks for a topic.
-   */
-  async getDiagram(topicName: string): Promise<DiagramBlock[]> {
-    const kodex = getKodexManager(this.project);
-    const topic = await kodex.getTopic(topicName, true);
-
-    if (!topic) return [];
-
-    const diagramsContent = topic.content.diagrams;
-    if (!diagramsContent?.trim()) return [];
-
-    const blocks: DiagramBlock[] = [];
-    const diagramsDir = join(this.project, '.collab', 'kodex', 'diagrams');
-
-    // Parse .mmd file references from diagrams content
-    // Format: - [Label](../../diagrams/file.mmd) — description
-    // Or already resolved mermaid code blocks with ### headers
-    const lines = diagramsContent.split('\n');
-    let currentTitle = '';
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-
-      // Check for ### header (from resolved diagram links)
-      const headerMatch = line.match(/^###\s+(.+)/);
-      if (headerMatch) {
-        currentTitle = headerMatch[1].trim();
-        continue;
-      }
-
-      // Check for mermaid code block
-      if (line.trim() === '```mermaid') {
-        const contentLines: string[] = [];
-        i++;
-        while (i < lines.length && lines[i].trim() !== '```') {
-          contentLines.push(lines[i]);
-          i++;
-        }
-        if (contentLines.length > 0) {
-          blocks.push({
-            title: currentTitle || 'Diagram',
-            content: contentLines.join('\n'),
-            filePath: '',
-          });
-        }
-        currentTitle = '';
-        continue;
-      }
-
-      // Check for raw .mmd file reference
-      const mmdMatch = line.match(/\[([^\]]+)\]\(([^)]+\.mmd)\)/);
-      if (mmdMatch) {
-        const label = mmdMatch[1];
-        const relativePath = mmdMatch[2];
-        // Resolve the path relative to the topic directory
-        const topicDir = join(this.project, '.collab', 'kodex', 'topics', topicName);
-        const fullPath = join(topicDir, relativePath);
-
-        if (existsSync(fullPath)) {
-          blocks.push({
-            title: label,
-            content: readFileSync(fullPath, 'utf-8').trim(),
-            filePath: relativePath,
-          });
-        }
-      }
-    }
-
-    return blocks;
+    return { nodes, edges: graph.edges };
   }
 }

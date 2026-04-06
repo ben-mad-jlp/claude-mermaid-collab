@@ -36,7 +36,7 @@ import { useSessionPolling } from '@/hooks/useSessionPolling';
 import { getWebSocketClient } from '@/lib/websocket';
 import { useShallow } from 'zustand/react/shallow';
 import { api, generateSessionName, type CachedUIState } from '@/lib/api';
-import { useKodexStore } from '@/stores/kodexStore';
+import { useProjectStore } from '@/stores/projectStore';
 import type { Item, Session, ToolbarAction } from '@/types';
 
 // Import layout components
@@ -253,8 +253,8 @@ const App: React.FC = () => {
     }))
   );
 
-  // Kodex store — used for cross-route project sync
-  const { selectedProject: kodexProject, setSelectedProject: setKodexProject } = useKodexStore(
+  // Project store — used for cross-route project sync
+  const { selectedProject: syncedProject, setSelectedProject: setSyncedProject } = useProjectStore(
     useShallow((state) => ({ selectedProject: state.selectedProject, setSelectedProject: state.setSelectedProject }))
   );
 
@@ -979,10 +979,10 @@ const App: React.FC = () => {
     }
   }, [currentSession, loadSessionItems]);
 
-  // Cross-route project sync: Collab session → kodex/onboarding/pseudo
+  // Cross-route project sync: Collab session → onboarding/pseudo
   useEffect(() => {
-    if (currentSession?.project && currentSession.project !== kodexProject) {
-      setKodexProject(currentSession.project);
+    if (currentSession?.project && currentSession.project !== syncedProject) {
+      setSyncedProject(currentSession.project);
     }
   }, [currentSession?.project]); // eslint-disable-line react-hooks/exhaustive-deps
 

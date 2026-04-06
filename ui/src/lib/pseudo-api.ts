@@ -36,7 +36,9 @@ export async function fetchPseudoFiles(project: string): Promise<string[]> {
     }
 
     const data = await response.json();
-    return data.files || [];
+    // Support both old format (string[]) and new format (PseudoFileSummary[])
+    const files = data.files || [];
+    return files.map((f: any) => typeof f === 'string' ? f : f.filePath);
   } catch (error) {
     throw error;
   }

@@ -8,10 +8,10 @@ import { useOnboarding } from './OnboardingLayout';
 import { onboardingApi } from '@/lib/onboarding-api';
 import type { SearchHit } from '@/lib/onboarding-api';
 
-const FILE_TYPE_LABELS: Record<string, string> = {
-  conceptual: 'Overview',
-  technical: 'Technical',
-  files: 'Files',
+const SECTION_LABELS: Record<string, string> = {
+  overview: 'Overview',
+  functions: 'Functions',
+  dependencies: 'Dependencies',
 };
 
 export const SearchResults: React.FC = () => {
@@ -54,14 +54,14 @@ export const SearchResults: React.FC = () => {
       <div className="flex flex-col gap-3">
         {results.map((hit, i) => (
           <Link
-            key={`${hit.topicName}-${hit.fileType}-${i}`}
-            to={`/onboarding/topic/${hit.topicName}`}
+            key={`${hit.filePath}-${hit.section}-${i}`}
+            to={`/onboarding/topic/${hit.filePath}`}
             className="block p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
           >
             <div className="flex items-center gap-2 mb-2">
-              <span className="font-medium text-sm">{hit.topicName}</span>
+              <span className="font-medium text-sm">{hit.filePath}</span>
               <span className="px-1.5 py-0.5 text-xs bg-gray-100 dark:bg-gray-700 rounded text-gray-500 dark:text-gray-400">
-                {FILE_TYPE_LABELS[hit.fileType] || hit.fileType}
+                {SECTION_LABELS[hit.section] || hit.section}
               </span>
             </div>
             <p

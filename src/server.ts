@@ -9,7 +9,6 @@ import { Validator } from './services/validator';
 import { Renderer } from './services/renderer';
 import { WebSocketHandler } from './websocket/handler';
 import { handleAPI } from './routes/api';
-import { handleKodexAPI } from './routes/kodex-api';
 import { handlePseudoAPI } from './routes/pseudo-api';
 import { handleOnboardingAPI } from './routes/onboarding-api';
 import { sessionRegistry } from './services/session-registry';
@@ -87,11 +86,6 @@ const server = Bun.serve({
     // MCP Streamable HTTP transport (protocol version 2025-03-26)
     if (url.pathname === '/mcp') {
       return handleMCPRequest(req);
-    }
-
-    // Kodex API routes
-    if (url.pathname.startsWith('/api/kodex')) {
-      return handleKodexAPI(req);
     }
 
     // Pseudo API routes
@@ -228,3 +222,4 @@ console.log(`🎨 UI dist directory: ${config.UI_DIST_DIR} (exists: ${existsSync
 console.log(`🔌 WebSocket: ws://${config.HOST}:${config.PORT}/ws`);
 console.log(`🔌 Terminal: ws://${config.HOST}:${config.PORT}/terminal/:sessionId`);
 console.log(`🤖 MCP HTTP: http://${config.HOST}:${config.PORT}/mcp`);
+

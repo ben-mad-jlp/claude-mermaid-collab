@@ -1,42 +1,43 @@
-export type CallsRef = {
-  name: string;
-  fileStem: string;
-};
+export interface ParsedStep {
+  content: string;
+  depth: number;
+  sortOrder: number;
+}
 
-export type ParsedFunction = {
+export interface ParsedMethod {
   name: string;
   params: string;
   returnType: string;
   isExport: boolean;
-  updatedAt: string | null; // [YYYY-MM-DD] from end of FUNCTION line
-  calls: CallsRef[];
-  body: string[];
-};
+  date: string | null;
+  calls: Array<{ name: string; fileStem: string }>;
+  steps: ParsedStep[];
+  sortOrder: number;
+}
 
-export type ParsedPseudo = {
-  titleLine: string;
-  subtitleLine: string;
-  syncedAt: string | null; // from "// synced: <ISO>" header line
-  moduleProse: string[];
-  functions: ParsedFunction[];
-};
+export interface ParsedPseudoFile {
+  title: string;
+  purpose: string;
+  syncedAt: string | null;
+  moduleContext: string;
+  methods: ParsedMethod[];
+}
 
-export function parsePseudo(content: string): ParsedPseudo {
-  // Handle empty content
+export function parsePseudo(content: string): ParsedPseudoFile {
   if (content.trim() === '') {
     return {
-      titleLine: '',
-      subtitleLine: '',
+      title: '',
+      purpose: '',
       syncedAt: null,
-      moduleProse: [],
-      functions: []
+      moduleContext: '',
+      methods: [],
     };
   }
 
   const lines = content.split('\n');
 
-  let titleLine = '';
-  let subtitleLine = '';
+  let title = '';
+  let purpose = '';
   let syncedAt: string | null = null;
   let proseEndIndex = 0;
 
@@ -46,11 +47,10 @@ export function parsePseudo(content: string): ParsedPseudo {
     if (lines[i].startsWith('//')) {
       const headerText = lines[i].slice(2).trim();
       if (headerCount === 0) {
-        titleLine = headerText;
+        title = headerText;
       } else if (headerCount === 1) {
-        subtitleLine = headerText;
+        purpose = headerText;
       } else {
-        // Look for "synced: <ISO>" in any subsequent // line
         const syncedMatch = headerText.match(/^synced:\s*(\S+)$/);
         if (syncedMatch) syncedAt = syncedMatch[1];
       }
@@ -61,8 +61,8 @@ export function parsePseudo(content: string): ParsedPseudo {
     }
   }
 
-  // Collect module prose (non-// lines before first FUNCTION)
-  const moduleProse: string[] = [];
+  // Collect module context lines (between headers and first FUNCTION)
+  const moduleProseLines: string[] = [];
   let firstFunctionIndex = -1;
 
   for (let i = proseEndIndex; i < lines.length; i++) {
@@ -71,17 +71,19 @@ export function parsePseudo(content: string): ParsedPseudo {
       firstFunctionIndex = i;
       break;
     }
-    moduleProse.push(line);
+    moduleProseLines.push(line);
   }
 
-  // If no functions found, remaining lines are still prose
   if (firstFunctionIndex === -1) {
     firstFunctionIndex = lines.length;
   }
 
-  // Parse functions
-  const functions: ParsedFunction[] = [];
+  const moduleContext = moduleProseLines.join('\n');
+
+  // Parse methods (functions)
+  const methods: ParsedMethod[] = [];
   let i = firstFunctionIndex;
+  let sortOrder = 0;
 
   while (i < lines.length) {
     const line = lines[i];
@@ -92,12 +94,12 @@ export function parsePseudo(content: string): ParsedPseudo {
     if (match) {
       const name = match[1];
       const paramsWithParens = match[2] || '';
-      const params = paramsWithParens.slice(1, -1).trim(); // Remove parentheses
+      const params = paramsWithParens.slice(1, -1).trim();
       const returnType = match[3] ? match[3].trim() : '';
       const isExport = !!match[4] || !!match[7];
-      const updatedAt = match[5] || match[6] || null;
+      const date = match[5] || match[6] || null;
 
-      // Collect body lines until --- separator
+      // Collect body lines until --- separator or next FUNCTION
       const body: string[] = [];
       i++;
       while (i < lines.length && lines[i] !== '---') {
@@ -105,17 +107,18 @@ export function parsePseudo(content: string): ParsedPseudo {
         i++;
       }
 
-      // Parse CALLS from body
       const calls = parseCallsFromBody(body);
+      const steps = parseStepsFromBody(body);
 
-      functions.push({
+      methods.push({
         name,
         params,
         returnType,
         isExport,
-        updatedAt,
+        date,
         calls,
-        body
+        steps,
+        sortOrder: sortOrder++,
       });
 
       // Skip the --- separator
@@ -128,16 +131,16 @@ export function parsePseudo(content: string): ParsedPseudo {
   }
 
   return {
-    titleLine,
-    subtitleLine,
+    title,
+    purpose,
     syncedAt,
-    moduleProse,
-    functions
+    moduleContext,
+    methods,
   };
 }
 
-function parseCallsFromBody(body: string[]): CallsRef[] {
-  const calls: CallsRef[] = [];
+function parseCallsFromBody(body: string[]): Array<{ name: string; fileStem: string }> {
+  const calls: Array<{ name: string; fileStem: string }> = [];
   const callRegex = /(\w[\w.]*)\s*\(([^)]+)\)/g;
 
   for (const line of body) {
@@ -152,4 +155,27 @@ function parseCallsFromBody(body: string[]): CallsRef[] {
   }
 
   return calls;
+}
+
+function parseStepsFromBody(body: string[]): ParsedStep[] {
+  const steps: ParsedStep[] = [];
+  let stepOrder = 0;
+
+  for (const line of body) {
+    // Skip CALLS lines and blank lines
+    if (line.trimStart().startsWith('CALLS:')) continue;
+    if (line.trim() === '') continue;
+
+    // Compute depth from leading whitespace (2 spaces = 1 depth)
+    const leadingSpaces = line.match(/^(\s*)/)?.[1].length ?? 0;
+    const depth = Math.floor(leadingSpaces / 2);
+
+    steps.push({
+      content: line.trim(),
+      depth,
+      sortOrder: stepOrder++,
+    });
+  }
+
+  return steps;
 }

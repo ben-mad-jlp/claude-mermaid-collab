@@ -12,7 +12,7 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useKodexStore } from '@/stores/kodexStore';
+import { useProjectStore } from '@/stores/projectStore';
 
 export interface ProjectSelectorProps {
   className?: string;
@@ -33,7 +33,7 @@ export const ProjectSelector: React.FC<ProjectSelectorProps> = ({ className = ''
     removeProject,
     setSelectedProject,
     setProjectsError,
-  } = useKodexStore();
+  } = useProjectStore();
 
   // Get basename from path
   const getBasename = (path: string): string => {

@@ -1,8 +1,0 @@
-// AliasChip
-// Pill-shaped chip displaying a single alias string with an optional remove (×)
-// button. Used within AliasEditor to list existing aliases.
-
-FUNCTION AliasChip(alias, onRemove, disabled) -> JSX                   EXPORT
-  Renders the alias text inside a rounded pill.
-  IF onRemove is provided: renders a × button that calls onRemove.
-  Button is disabled (with reduced opacity) when disabled prop is true.

@@ -7,7 +7,7 @@
  * - Strict mode for development warnings
  * - Global styling initialization
  * - Theme detection from system preferences
- * - React Router for navigation between Collab and Kodex sections
+ * - React Router for navigation between Collab, Onboarding, and Pseudo sections
  *
  * The #root element must exist in index.html
  */
@@ -16,13 +16,6 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import App from './App';
-import { KodexLayout } from './pages/kodex/KodexLayout';
-import { Dashboard } from './pages/kodex/Dashboard';
-import { Topics } from './pages/kodex/Topics';
-import { TopicDetail } from './pages/kodex/TopicDetail';
-import { Drafts } from './pages/kodex/Drafts';
-import { Flags } from './pages/kodex/Flags';
-import { Graph } from './pages/kodex/Graph';
 import { OnboardingLayout } from './pages/onboarding/OnboardingLayout';
 import { BrowseDashboard } from './pages/onboarding/BrowseDashboard';
 import { TopicDetail as OnboardingTopicDetail } from './pages/onboarding/TopicDetail';
@@ -49,16 +42,6 @@ ReactDOM.createRoot(root).render(
   <React.StrictMode>
     <BrowserRouter>
       <Routes>
-        {/* Kodex Routes */}
-        <Route path="/kodex" element={<KodexLayout />}>
-          <Route index element={<Dashboard />} />
-          <Route path="topics" element={<Topics />} />
-          <Route path="topics/:name" element={<TopicDetail />} />
-          <Route path="graph" element={<Graph />} />
-          <Route path="drafts" element={<Drafts />} />
-          <Route path="flags" element={<Flags />} />
-        </Route>
-
         {/* Onboarding Routes */}
         <Route path="/onboarding" element={<OnboardingLayout />}>
           <Route index element={<BrowseDashboard />} />

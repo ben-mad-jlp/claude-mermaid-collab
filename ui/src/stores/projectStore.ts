@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { projectsApi, type Project } from '@/lib/projects-api';
 
-export interface KodexState {
+export interface ProjectState {
   // State
   selectedProject: string | null;     // Absolute path to selected project
   projects: Project[];                // List of all registered projects
@@ -21,7 +21,7 @@ export interface KodexState {
   reset: () => void;
 }
 
-export const useKodexStore = create<KodexState>((set, get) => ({
+export const useProjectStore = create<ProjectState>((set, get) => ({
   // Initial state
   selectedProject: null,
   projects: [],

@@ -1,16 +1,16 @@
 /**
  * Onboarding API Routes
  *
- * REST API endpoints for Kodex onboarding features:
- * - Config, categories, graph, diagrams (from OnboardingManager)
+ * REST API endpoints for onboarding features:
+ * - Config, directories, graph (from OnboardingManager)
  * - Search (from OnboardingDbService FTS5)
  * - Users, progress, notes, team (from OnboardingDbService)
- * - Topics (delegates to KodexManager)
+ * - Files (from PseudoDb)
  */
 
 import { OnboardingManager } from '../services/onboarding-manager.js';
 import { OnboardingDbService } from '../services/onboarding-db.js';
-import { getKodexManager } from '../services/kodex-manager.js';
+import { getPseudoDb } from '../services/pseudo-db.js';
 
 export async function handleOnboardingAPI(req: Request): Promise<Response> {
   const url = new URL(req.url);
@@ -28,41 +28,35 @@ export async function handleOnboardingAPI(req: Request): Promise<Response> {
     // ---- OnboardingManager routes ----
 
     if (path === '/config' && req.method === 'GET') {
-      const config = await manager.getConfig();
+      const config = manager.getConfig();
       return Response.json(config);
     }
 
-    if (path === '/categories' && req.method === 'GET') {
-      const categories = await manager.getCategories();
-      return Response.json(categories);
+    if (path === '/directories' && req.method === 'GET') {
+      const directories = manager.getCategories();
+      return Response.json(directories);
     }
 
     if (path === '/graph' && req.method === 'GET') {
-      const graph = await manager.getGraph();
+      const graph = manager.getGraph();
       return Response.json(graph);
     }
 
-    // Topics (delegate to kodex manager)
-    if (path === '/topics' && req.method === 'GET') {
-      const kodex = getKodexManager(project);
-      const topics = await kodex.listTopics();
-      return Response.json(topics);
+    // Files (delegate to pseudo-db)
+    if (path === '/files' && req.method === 'GET') {
+      const db = getPseudoDb(project);
+      const files = db.listFiles();
+      return Response.json(files);
     }
 
-    if (path.match(/^\/topics\/[^/]+$/) && req.method === 'GET') {
-      const name = path.split('/')[2];
-      const kodex = getKodexManager(project);
-      const topic = await kodex.getTopic(name, true);
-      if (!topic) {
-        return jsonError('Topic not found', 404);
+    if (path.startsWith('/files/') && req.method === 'GET') {
+      const filePath = path.slice('/files/'.length);
+      const db = getPseudoDb(project);
+      const file = db.getFile(filePath);
+      if (!file) {
+        return jsonError('File not found', 404);
       }
-      return Response.json(topic);
-    }
-
-    if (path.match(/^\/topics\/[^/]+\/diagram$/) && req.method === 'GET') {
-      const name = path.split('/')[2];
-      const diagrams = await manager.getDiagram(name);
-      return Response.json(diagrams);
+      return Response.json(file);
     }
 
     // ---- Search ----
@@ -118,45 +112,49 @@ export async function handleOnboardingAPI(req: Request): Promise<Response> {
       return Response.json(progress);
     }
 
-    if (path.match(/^\/progress\/\d+\/[^/]+$/) && req.method === 'POST') {
-      const parts = path.split('/');
-      const userId = parseInt(parts[2], 10);
-      const topic = parts[3];
+    if (path.match(/^\/progress\/\d+\/.+/) && req.method === 'POST') {
+      const match = path.match(/^\/progress\/(\d+)\/(.+)$/);
+      if (!match) return jsonError('Invalid path', 400);
+      const userId = parseInt(match[1], 10);
+      const filePath = decodeURIComponent(match[2]);
       const body = await req.json() as { status: 'explored' | 'skipped' };
       if (!body.status || !['explored', 'skipped'].includes(body.status)) {
         return jsonError('Missing or invalid field: status (explored | skipped)', 400);
       }
-      dbService.markProgress(userId, topic, body.status);
-      return Response.json({ ok: true });
+      dbService.markProgress(userId, filePath, body.status);
+      return Response.json({ ok: true, filePath });
     }
 
-    if (path.match(/^\/progress\/\d+\/[^/]+$/) && req.method === 'DELETE') {
-      const parts = path.split('/');
-      const userId = parseInt(parts[2], 10);
-      const topic = parts[3];
-      dbService.deleteProgress(userId, topic);
+    if (path.match(/^\/progress\/\d+\/.+/) && req.method === 'DELETE') {
+      const match = path.match(/^\/progress\/(\d+)\/(.+)$/);
+      if (!match) return jsonError('Invalid path', 400);
+      const userId = parseInt(match[1], 10);
+      const filePath = decodeURIComponent(match[2]);
+      dbService.deleteProgress(userId, filePath);
       return new Response(null, { status: 204 });
     }
 
     // ---- Notes ----
 
-    if (path.match(/^\/notes\/\d+\/[^/]+$/) && req.method === 'GET') {
-      const parts = path.split('/');
-      const userId = parseInt(parts[2], 10);
-      const topic = parts[3];
-      const notes = dbService.getNotes(userId, topic);
+    if (path.match(/^\/notes\/\d+\/.+/) && req.method === 'GET') {
+      const match = path.match(/^\/notes\/(\d+)\/(.+)$/);
+      if (!match) return jsonError('Invalid path', 400);
+      const userId = parseInt(match[1], 10);
+      const filePath = decodeURIComponent(match[2]);
+      const notes = dbService.getNotes(userId, filePath);
       return Response.json(notes);
     }
 
-    if (path.match(/^\/notes\/\d+\/[^/]+$/) && req.method === 'POST') {
-      const parts = path.split('/');
-      const userId = parseInt(parts[2], 10);
-      const topic = parts[3];
+    if (path.match(/^\/notes\/\d+\/.+/) && req.method === 'POST') {
+      const match = path.match(/^\/notes\/(\d+)\/(.+)$/);
+      if (!match) return jsonError('Invalid path', 400);
+      const userId = parseInt(match[1], 10);
+      const filePath = decodeURIComponent(match[2]);
       const body = await req.json() as { content: string };
       if (!body.content?.trim()) {
         return jsonError('Missing required field: content', 400);
       }
-      const note = dbService.addNote(userId, topic, body.content.trim());
+      const note = dbService.addNote(userId, filePath, body.content.trim());
       return Response.json(note, { status: 201 });
     }
 

@@ -1,5 +1,5 @@
-// Kodex Store
-// Zustand store for managing the selected project and the registered projects list for the Kodex knowledge base.
+// Project Store
+// Zustand store for managing the selected project and the registered projects list.
 
 State shape:
   selectedProject: string | null  (absolute path)
@@ -37,7 +37,7 @@ FUNCTION fetchProjects() -> Promise<void>                               EXPORT
 ---
 
 FUNCTION addProject(path) -> Promise<boolean>                           EXPORT
-  CALLS: register (projects-api), fetchProjects (kodexStore)
+  CALLS: register (projects-api), fetchProjects (projectStore)
   Call projectsApi.register(path).
   IF registration fails, store error and return false.
   Refresh the projects list by calling fetchProjects.
@@ -47,7 +47,7 @@ FUNCTION addProject(path) -> Promise<boolean>                           EXPORT
 ---
 
 FUNCTION removeProject(path) -> Promise<boolean>                        EXPORT
-  CALLS: unregister (projects-api), fetchProjects (kodexStore)
+  CALLS: unregister (projects-api), fetchProjects (projectStore)
   Call projectsApi.unregister(path).
   IF removal fails, store error and return false.
   IF the removed project was the selected one, clear selectedProject.

@@ -1,6 +1,6 @@
 /**
  * Alias Generator
- * Generates semantic aliases for Kodex topics
+ * Generates semantic aliases for topics
  */
 
 import {

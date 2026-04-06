@@ -28,8 +28,7 @@ import {
   registerProjectSchema,
   unregisterProjectSchema,
 } from './tools/projects.js';
-import { getKodexManager } from '../services/kodex-manager.js';
-import type { FlagType, TopicContent } from '../services/kodex-manager.js';
+import { getPseudoDb } from '../services/pseudo-db.js';
 import { getWebSocketHandler } from '../services/ws-handler-manager.js';
 import { sessionRegistry } from '../services/session-registry.js';
 import { projectRegistry } from '../services/project-registry.js';
@@ -1480,237 +1479,6 @@ IMPORTANT - Common pitfalls to avoid:
       terminalToolSchemas.terminal_kill_session,
       terminalToolSchemas.terminal_rename_session,
       terminalToolSchemas.terminal_reorder_sessions,
-      // Kodex tools
-      {
-        name: 'kodex_query_topic',
-        description: 'Query a topic from the project knowledge base. Returns topic content and metadata, or logs missing topic if not found.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            name: { type: 'string', description: 'Topic name (kebab-case)' },
-            include_content: { type: 'boolean', description: 'Include full content (default: true)' },
-          },
-          required: ['project', 'name'],
-        },
-      },
-      {
-        name: 'kodex_list_topics',
-        description: 'List all topics in the project knowledge base.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            filter: { type: 'string', enum: ['all', 'verified', 'unverified', 'has_draft'], description: 'Filter topics (default: all)' },
-          },
-          required: ['project'],
-        },
-      },
-      {
-        name: 'kodex_create_topic',
-        description: 'Create a new topic (as draft). Requires human approval before going live.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            name: { type: 'string', description: 'Topic name (kebab-case)' },
-            title: { type: 'string', description: 'Human-readable title' },
-            content: {
-              type: 'object',
-              properties: {
-                conceptual: { type: 'string', description: 'Conceptual overview' },
-                technical: { type: 'string', description: 'Technical details' },
-                files: { type: 'string', description: 'Related files' },
-                related: { type: 'string', description: 'Related topics' },
-              },
-              required: ['conceptual', 'technical', 'files', 'related'],
-            },
-          },
-          required: ['project', 'name', 'title', 'content'],
-        },
-      },
-      {
-        name: 'kodex_update_topic',
-        description: 'Update an existing topic (creates draft). Requires human approval.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            name: { type: 'string', description: 'Topic name' },
-            content: {
-              type: 'object',
-              properties: {
-                conceptual: { type: 'string', description: 'Conceptual overview' },
-                technical: { type: 'string', description: 'Technical details' },
-                files: { type: 'string', description: 'Related files' },
-                related: { type: 'string', description: 'Related topics' },
-              },
-            },
-            reason: { type: 'string', description: 'Reason for the update' },
-          },
-          required: ['project', 'name', 'content', 'reason'],
-        },
-      },
-      {
-        name: 'kodex_flag_topic',
-        description: 'Flag a topic for review (outdated, incorrect, incomplete, or missing).',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            name: { type: 'string', description: 'Topic name' },
-            type: { type: 'string', enum: ['outdated', 'incorrect', 'incomplete', 'missing', 'needs-review'], description: 'Flag type' },
-            description: { type: 'string', description: 'Description of the issue' },
-          },
-          required: ['project', 'name', 'type', 'description'],
-        },
-      },
-      {
-        name: 'kodex_direct_update_topic',
-        description: 'Update an existing topic directly (bypasses draft). Writes to live files and flags as needs-review.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            name: { type: 'string', description: 'Topic name' },
-            content: {
-              type: 'object',
-              properties: {
-                conceptual: { type: 'string', description: 'Conceptual overview' },
-                technical: { type: 'string', description: 'Technical details' },
-                files: { type: 'string', description: 'Related files' },
-                related: { type: 'string', description: 'Related topics' },
-                diagrams: { type: 'string', description: 'Diagrams section' },
-              },
-            },
-            reason: { type: 'string', description: 'Reason for the update' },
-          },
-          required: ['project', 'name', 'content', 'reason'],
-        },
-      },
-      {
-        name: 'kodex_direct_create_topic',
-        description: 'Create a new topic directly (bypasses draft). Writes to live files with confidence=medium and flags as needs-review.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            name: { type: 'string', description: 'Topic name (kebab-case)' },
-            title: { type: 'string', description: 'Human-readable title' },
-            content: {
-              type: 'object',
-              properties: {
-                conceptual: { type: 'string', description: 'Conceptual overview' },
-                technical: { type: 'string', description: 'Technical details' },
-                files: { type: 'string', description: 'Related files' },
-                related: { type: 'string', description: 'Related topics' },
-                diagrams: { type: 'string', description: 'Diagrams section' },
-              },
-              required: ['conceptual', 'technical', 'files', 'related'],
-            },
-            reason: { type: 'string', description: 'Reason for creation' },
-          },
-          required: ['project', 'name', 'title', 'content', 'reason'],
-        },
-      },
-      {
-        name: 'kodex_verify_topic',
-        description: 'Mark a topic as verified (human-only operation).',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            name: { type: 'string', description: 'Topic name' },
-            verified_by: { type: 'string', description: 'Who is verifying' },
-          },
-          required: ['project', 'name', 'verified_by'],
-        },
-      },
-      {
-        name: 'kodex_list_drafts',
-        description: 'List all pending drafts awaiting approval. Returns summary (names only) by default to reduce response size.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            include_content: { type: 'boolean', description: 'Include full draft content (default: false for summary only)' },
-          },
-          required: ['project'],
-        },
-      },
-      {
-        name: 'kodex_approve_draft',
-        description: 'Approve a pending draft (human-only operation).',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            name: { type: 'string', description: 'Topic name' },
-          },
-          required: ['project', 'name'],
-        },
-      },
-      {
-        name: 'kodex_reject_draft',
-        description: 'Reject a pending draft (human-only operation).',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            name: { type: 'string', description: 'Topic name' },
-          },
-          required: ['project', 'name'],
-        },
-      },
-      {
-        name: 'kodex_dashboard',
-        description: 'Get Kodex dashboard stats (total topics, verified, drafts, flags, etc.).',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-          },
-          required: ['project'],
-        },
-      },
-      {
-        name: 'kodex_list_flags',
-        description: 'List flagged topics.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            status: { type: 'string', enum: ['open', 'resolved', 'dismissed'], description: 'Filter by status' },
-          },
-          required: ['project'],
-        },
-      },
-      {
-        name: 'kodex_add_alias',
-        description: 'Add an alias to a topic',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            topicName: { type: 'string', description: 'Topic name' },
-            alias: { type: 'string', description: 'Alias to add' },
-          },
-          required: ['project', 'topicName', 'alias'],
-        },
-      },
-      {
-        name: 'kodex_remove_alias',
-        description: 'Remove an alias from a topic',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            topicName: { type: 'string', description: 'Topic name' },
-            alias: { type: 'string', description: 'Alias to remove' },
-          },
-          required: ['project', 'topicName', 'alias'],
-        },
-      },
       // Task management tools
       {
         name: 'update_task_status',
@@ -2087,6 +1855,83 @@ IMPORTANT - Common pitfalls to avoid:
             deprecated: { type: 'boolean', description: 'Hide from default view' },
           },
           required: ['project', 'session', 'id'],
+        },
+      },
+      {
+        name: 'pseudo_impact_analysis',
+        description: 'Analyze what functions are affected if a given function changes. Returns direct and transitive callers from the pseudo call graph.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            function_name: { type: 'string', description: 'Function name to analyze' },
+            file_stem: { type: 'string', description: 'File stem (e.g., "http-transport")' },
+          },
+          required: ['project', 'function_name', 'file_stem'],
+        },
+      },
+      {
+        name: 'pseudo_find_function',
+        description: 'Full-text search across pseudocode functions and steps. Returns matching methods with snippets.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            query: { type: 'string', description: 'Search query' },
+          },
+          required: ['project', 'query'],
+        },
+      },
+      {
+        name: 'pseudo_get_module_summary',
+        description: 'Get a summary of all pseudocode files in a directory, including file list and exported functions.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            directory: { type: 'string', description: 'Directory path relative to project root' },
+          },
+          required: ['project', 'directory'],
+        },
+      },
+      {
+        name: 'pseudo_call_chain',
+        description: 'Find if a call chain path exists between two functions in the pseudo call graph.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            from_function: { type: 'string', description: 'Source function name' },
+            from_file: { type: 'string', description: 'Source file stem' },
+            to_function: { type: 'string', description: 'Target function name' },
+            to_file: { type: 'string', description: 'Target file stem' },
+          },
+          required: ['project', 'from_function', 'from_file', 'to_function', 'to_file'],
+        },
+      },
+      {
+        name: 'pseudo_stale_check',
+        description: 'Find pseudocode functions that may be stale (not updated recently).',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            file_path: { type: 'string', description: 'Optional: filter to specific file path' },
+            days_threshold: { type: 'number', description: 'Days threshold for staleness (default: 30)' },
+          },
+          required: ['project'],
+        },
+      },
+      {
+        name: 'pseudo_coverage_report',
+        description: 'Report how many source files have corresponding pseudocode coverage.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            directory: { type: 'string', description: 'Optional: scope to directory' },
+          },
+          required: ['project'],
         },
       },
     ],
@@ -3058,189 +2903,6 @@ IMPORTANT - Common pitfalls to avoid:
             return JSON.stringify(result, null, 2);
           }
 
-          // Kodex tools
-          case 'kodex_query_topic': {
-            const { project, name: topicName, include_content } = args as { project: string; name: string; include_content?: boolean };
-            if (!project || !topicName) throw new Error('Missing required: project, name');
-            const kodex = getKodexManager(project);
-            const topic = await kodex.getTopic(topicName, include_content !== false);
-            if (!topic) {
-              // Auto-flag missing topics
-              const flagResult = await kodex.createFlag(
-                topicName,
-                'missing',
-                'Topic not found when queried',
-                { dedupe: true }
-              );
-
-              return JSON.stringify({
-                found: false,
-                error: 'Topic not found',
-                flagged: flagResult.created,
-                message: flagResult.created
-                  ? 'Auto-flagged as missing'
-                  : 'Already flagged as missing'
-              }, null, 2);
-            }
-            // Topic found - include hint about flagging
-            return JSON.stringify({
-              found: true,
-              topic,
-              hint: 'If this topic is outdated, incorrect, or incomplete, use kodex_flag_topic to report it.'
-            }, null, 2);
-          }
-
-          case 'kodex_list_topics': {
-            const { project, filter } = args as { project: string; filter?: string };
-            if (!project) throw new Error('Missing required: project');
-            const kodex = getKodexManager(project);
-            let topics = await kodex.listTopics();
-            if (filter === 'verified') {
-              topics = topics.filter(t => t.verified);
-            } else if (filter === 'unverified') {
-              topics = topics.filter(t => !t.verified);
-            } else if (filter === 'has_draft') {
-              topics = topics.filter(t => t.hasDraft);
-            }
-            return JSON.stringify({ topics }, null, 2);
-          }
-
-          case 'kodex_create_topic': {
-            const { project, name: topicName, title, content } = args as {
-              project: string;
-              name: string;
-              title: string;
-              content: TopicContent;
-            };
-            if (!project || !topicName || !title || !content) throw new Error('Missing required: project, name, title, content');
-            const kodex = getKodexManager(project);
-            const draft = await kodex.createTopic(topicName, title, content, 'claude');
-            return JSON.stringify({ draft, message: 'Draft created. Requires human approval.' }, null, 2);
-          }
-
-          case 'kodex_update_topic': {
-            const { project, name: topicName, content, reason } = args as {
-              project: string;
-              name: string;
-              content: Partial<TopicContent>;
-              reason: string;
-            };
-            if (!project || !topicName || !content || !reason) throw new Error('Missing required: project, name, content, reason');
-            const kodex = getKodexManager(project);
-            const draft = await kodex.updateTopic(topicName, content, reason);
-            return JSON.stringify({ draft, message: 'Draft created. Requires human approval.' }, null, 2);
-          }
-
-          case 'kodex_direct_update_topic': {
-            const { project, name: topicName, content, reason } = args as {
-              project: string;
-              name: string;
-              content: Partial<TopicContent>;
-              reason: string;
-            };
-            if (!project || !topicName || !content || !reason) throw new Error('Missing required: project, name, content, reason');
-            const kodex = getKodexManager(project);
-            const result = await kodex.directUpdateTopic(topicName, content, reason);
-            return JSON.stringify({ ...result, message: 'Topic updated directly. Flagged as needs-review.' }, null, 2);
-          }
-
-          case 'kodex_direct_create_topic': {
-            const { project, name: topicName, title, content, reason } = args as {
-              project: string;
-              name: string;
-              title: string;
-              content: TopicContent;
-              reason: string;
-            };
-            if (!project || !topicName || !title || !content || !reason) throw new Error('Missing required: project, name, title, content, reason');
-            const kodex = getKodexManager(project);
-            const result = await kodex.directCreateTopic(topicName, title, content, reason);
-            return JSON.stringify({ ...result, message: 'Topic created directly with confidence=medium. Flagged as needs-review.' }, null, 2);
-          }
-
-          case 'kodex_flag_topic': {
-            const { project, name: topicName, type, description } = args as {
-              project: string;
-              name: string;
-              type: FlagType;
-              description: string;
-            };
-            if (!project || !topicName || !type || !description) throw new Error('Missing required: project, name, type, description');
-            const kodex = getKodexManager(project);
-            const flag = await kodex.createFlag(topicName, type, description);
-            return JSON.stringify({ flag }, null, 2);
-          }
-
-          case 'kodex_verify_topic': {
-            const { project, name: topicName, verified_by } = args as { project: string; name: string; verified_by: string };
-            if (!project || !topicName || !verified_by) throw new Error('Missing required: project, name, verified_by');
-            const kodex = getKodexManager(project);
-            await kodex.verifyTopic(topicName, verified_by);
-            const topic = await kodex.getTopic(topicName, false);
-            return JSON.stringify({ topic, message: 'Topic verified' }, null, 2);
-          }
-
-          case 'kodex_list_drafts': {
-            const { project, include_content } = args as { project: string; include_content?: boolean };
-            if (!project) throw new Error('Missing required: project');
-            const kodex = getKodexManager(project);
-            if (include_content) {
-              const drafts = await kodex.listDrafts();
-              return JSON.stringify({ drafts }, null, 2);
-            } else {
-              const drafts = await kodex.listDraftsSummary();
-              return JSON.stringify({ drafts }, null, 2);
-            }
-          }
-
-          case 'kodex_approve_draft': {
-            const { project, name: topicName } = args as { project: string; name: string };
-            if (!project || !topicName) throw new Error('Missing required: project, name');
-            const kodex = getKodexManager(project);
-            const topic = await kodex.approveDraft(topicName);
-            return JSON.stringify({ topic, message: 'Draft approved and published' }, null, 2);
-          }
-
-          case 'kodex_reject_draft': {
-            const { project, name: topicName } = args as { project: string; name: string };
-            if (!project || !topicName) throw new Error('Missing required: project, name');
-            const kodex = getKodexManager(project);
-            await kodex.rejectDraft(topicName);
-            return JSON.stringify({ message: 'Draft rejected' }, null, 2);
-          }
-
-          case 'kodex_dashboard': {
-            const { project } = args as { project: string };
-            if (!project) throw new Error('Missing required: project');
-            const kodex = getKodexManager(project);
-            const stats = await kodex.getDashboardStats();
-            return JSON.stringify(stats, null, 2);
-          }
-
-          case 'kodex_list_flags': {
-            const { project, status } = args as { project: string; status?: 'open' | 'resolved' | 'dismissed' };
-            if (!project) throw new Error('Missing required: project');
-            const kodex = getKodexManager(project);
-            const flags = await kodex.listFlags(status);
-            return JSON.stringify({ flags }, null, 2);
-          }
-
-          case 'kodex_add_alias': {
-            const { project, topicName, alias } = args as { project: string; topicName: string; alias: string };
-            if (!project || !topicName || !alias) throw new Error('Missing required: project, topicName, alias');
-            const kodex = getKodexManager(project);
-            kodex.addAlias(topicName, alias);
-            return JSON.stringify({ success: true, message: `Alias '${alias}' added to topic '${topicName}' successfully` }, null, 2);
-          }
-
-          case 'kodex_remove_alias': {
-            const { project, topicName, alias } = args as { project: string; topicName: string; alias: string };
-            if (!project || !topicName || !alias) throw new Error('Missing required: project, topicName, alias');
-            const kodex = getKodexManager(project);
-            kodex.removeAlias(topicName, alias);
-            return JSON.stringify({ success: true, message: `Alias '${alias}' removed from topic '${topicName}' successfully` }, null, 2);
-          }
-
           case 'update_task_status': {
             const { project, session, taskId, status, minimal } = args as {
               project: string;
@@ -3768,6 +3430,77 @@ IMPORTANT - Common pitfalls to avoid:
             });
             if (!response.ok) throw new Error(`Failed to set metadata: ${response.statusText}`);
             return JSON.stringify({ success: true, id, updates });
+          }
+
+          case 'pseudo_impact_analysis': {
+            const { project, function_name, file_stem } = args as { project: string; function_name: string; file_stem: string };
+            if (!project || !function_name || !file_stem) throw new Error('Missing required: project, function_name, file_stem');
+            const db = getPseudoDb(project);
+            const impactResult = db.getImpactAnalysis(function_name, file_stem);
+            return JSON.stringify(impactResult, null, 2);
+          }
+
+          case 'pseudo_find_function': {
+            const { project, query } = args as { project: string; query: string };
+            if (!project || !query) throw new Error('Missing required: project, query');
+            const db = getPseudoDb(project);
+            const searchResults = db.search(query);
+            return JSON.stringify(searchResults, null, 2);
+          }
+
+          case 'pseudo_get_module_summary': {
+            const { project, directory } = args as { project: string; directory: string };
+            if (!project || !directory) throw new Error('Missing required: project, directory');
+            const db = getPseudoDb(project);
+            const files = db.getFilesByDirectory(directory);
+            const allExports = db.getExports();
+            const dirExports = allExports.filter(e => e.filePath.startsWith(directory));
+            return JSON.stringify({ files, exports: dirExports }, null, 2);
+          }
+
+          case 'pseudo_call_chain': {
+            const { project, from_function, from_file, to_function, to_file } = args as { project: string; from_function: string; from_file: string; to_function: string; to_file: string };
+            if (!project || !from_function || !from_file || !to_function || !to_file) throw new Error('Missing required fields');
+            const db = getPseudoDb(project);
+            const graph = db.getCallGraph();
+            // BFS to find path
+            const sourceId = `${from_file}::${from_function}`;
+            const targetId = `${to_file}::${to_function}`;
+            const adjacency = new Map<string, string[]>();
+            for (const edge of graph.edges) {
+              if (!adjacency.has(edge.source)) adjacency.set(edge.source, []);
+              adjacency.get(edge.source)!.push(edge.target);
+            }
+            const visited = new Set<string>();
+            const queue: Array<{id: string, path: string[]}> = [{id: sourceId, path: [sourceId]}];
+            let foundPath: string[] | null = null;
+            while (queue.length > 0) {
+              const current = queue.shift()!;
+              if (current.id === targetId) { foundPath = current.path; break; }
+              if (visited.has(current.id)) continue;
+              visited.add(current.id);
+              for (const neighbor of adjacency.get(current.id) || []) {
+                queue.push({id: neighbor, path: [...current.path, neighbor]});
+              }
+            }
+            return JSON.stringify({ path: foundPath, exists: foundPath !== null }, null, 2);
+          }
+
+          case 'pseudo_stale_check': {
+            const { project, file_path, days_threshold } = args as { project: string; file_path?: string; days_threshold?: number };
+            if (!project) throw new Error('Missing required: project');
+            const db = getPseudoDb(project);
+            let staleResults = db.getStaleFunctions(days_threshold || 30);
+            if (file_path) staleResults = staleResults.filter(r => r.filePath === file_path);
+            return JSON.stringify(staleResults, null, 2);
+          }
+
+          case 'pseudo_coverage_report': {
+            const { project, directory } = args as { project: string; directory?: string };
+            if (!project) throw new Error('Missing required: project');
+            const db = getPseudoDb(project);
+            const coverageResult = db.getCoverage(directory);
+            return JSON.stringify(coverageResult, null, 2);
           }
 
           default:

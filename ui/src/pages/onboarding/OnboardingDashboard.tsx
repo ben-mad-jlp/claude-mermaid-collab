@@ -9,7 +9,7 @@ import { onboardingApi } from '@/lib/onboarding-api';
 import type { TopicSummary, Category, ProgressEntry, GraphNode, GraphEdge } from '@/lib/onboarding-api';
 
 interface WhatNextSuggestion {
-  topicName: string;
+  filePath: string;
   reason: string;
   connectionCount: number;
 }
@@ -50,11 +50,11 @@ export const OnboardingDashboard: React.FC = () => {
 
   // Compute progress stats
   const exploredSet = useMemo(() => new Set(
-    progress.filter(p => p.status === 'explored').map(p => p.topicName)
+    progress.filter(p => p.status === 'explored').map(p => p.filePath)
   ), [progress]);
 
   const skippedSet = useMemo(() => new Set(
-    progress.filter(p => p.status === 'skipped').map(p => p.topicName)
+    progress.filter(p => p.status === 'skipped').map(p => p.filePath)
   ), [progress]);
 
   const pct = topics.length > 0 ? Math.round((exploredSet.size / topics.length) * 100) : 0;
@@ -101,11 +101,11 @@ export const OnboardingDashboard: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {suggestions.map(s => (
               <Link
-                key={s.topicName}
-                to={`/onboarding/topic/${s.topicName}`}
+                key={s.filePath}
+                to={`/onboarding/topic/${s.filePath}`}
                 className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg hover:border-blue-400 transition-colors"
               >
-                <p className="font-medium text-sm mb-1">{s.topicName}</p>
+                <p className="font-medium text-sm mb-1">{s.filePath}</p>
                 <p className="text-xs text-gray-500">{s.reason}</p>
               </Link>
             ))}
@@ -197,8 +197,8 @@ function computeWhatNext(
   return Array.from(scores.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 3)
-    .map(([topicName, count]) => ({
-      topicName,
+    .map(([filePath, count]) => ({
+      filePath,
       reason: exploredTopics.size > 0
         ? `Related to ${count} topic${count !== 1 ? 's' : ''} you've explored`
         : `Connected to ${count} other topic${count !== 1 ? 's' : ''}`,

@@ -8,7 +8,7 @@ let tmpDir: string;
 let service: OnboardingDbService;
 
 function setupTopics(projectDir: string) {
-  const topicsDir = join(projectDir, '.collab', 'kodex', 'topics');
+  const topicsDir = join(projectDir, '.collab', 'pseudo');
 
   // Create topic: api-auth
   const apiAuthDir = join(topicsDir, 'api-auth');
@@ -41,7 +41,7 @@ describe('FTS5 search', () => {
     service.ensureIndex();
     const results = service.search('authentication');
     expect(results.length).toBeGreaterThan(0);
-    expect(results[0].topicName).toBe('api-auth');
+    expect(results[0].filePath).toBe('api-auth');
     expect(results[0].snippet).toContain('<mark>');
   });
 
@@ -54,7 +54,7 @@ describe('FTS5 search', () => {
   test('scoped search filters by topic', () => {
     service.ensureIndex();
     const results = service.search('dashboard', ['dashboard']);
-    expect(results.every(r => r.topicName === 'dashboard')).toBe(true);
+    expect(results.every(r => r.filePath === 'dashboard')).toBe(true);
   });
 });
 
@@ -93,7 +93,7 @@ describe('Progress tracking', () => {
 
     const progress = service.getUserProgress(user.id);
     expect(progress).toHaveLength(1);
-    expect(progress[0].topicName).toBe('api-auth');
+    expect(progress[0].filePath).toBe('api-auth');
     expect(progress[0].status).toBe('explored');
   });
 
