@@ -121,7 +121,7 @@ export interface Subscription {
  * ```
  */
 export class WebSocketClient {
-  readonly clientId: string = crypto.randomUUID();
+  readonly clientId: string = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   private socket: WebSocket | null = null;
   private url: string;
   private reconnectAttempts = 0;
