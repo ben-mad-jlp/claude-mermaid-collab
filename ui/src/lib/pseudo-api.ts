@@ -4,29 +4,51 @@
 
 export type Reference = {
   file: string;
-  callerFunction: string;
+  callerMethod: string;
 };
 
-export type SearchMatch = {
-  functionName: string | null;
-  line: string;
-  lineNumber: number;
-  isFunctionLine: boolean;
-};
-
-export type SearchResult = {
-  file: string;
-  matches: SearchMatch[];
-};
+export interface SearchResult {
+  filePath: string;
+  methodName: string;
+  snippet: string;
+  rank: number;
+}
 
 const API_BASE = ''; // Use relative URLs (same host)
+
+export interface PseudoFileSummary {
+  filePath: string;
+  title: string;
+  methodCount: number;
+  exportCount: number;
+  lastUpdated: string;
+}
+
+export interface PseudoMethod {
+  name: string;
+  params: string;
+  returnType: string;
+  isExported: boolean;
+  date: string | null;
+  steps: Array<{ content: string; depth: number }>;
+  calls: Array<{ name: string; fileStem: string }>;
+}
+
+export interface PseudoFileWithMethods {
+  filePath: string;
+  title: string;
+  purpose: string;
+  moduleContext: string;
+  syncedAt: string | null;
+  methods: PseudoMethod[];
+}
 
 /**
  * Fetch list of .pseudo files in a project
  * GET /api/pseudo/files?project=...
  * Returns: string[] - Array of .pseudo file names
  */
-export async function fetchPseudoFiles(project: string): Promise<string[]> {
+export async function fetchPseudoFiles(project: string): Promise<PseudoFileSummary[]> {
   try {
     const encodedProject = encodeURIComponent(project);
     const response = await fetch(`${API_BASE}/api/pseudo/files?project=${encodedProject}`);
@@ -36,9 +58,7 @@ export async function fetchPseudoFiles(project: string): Promise<string[]> {
     }
 
     const data = await response.json();
-    // Support both old format (string[]) and new format (PseudoFileSummary[])
-    const files = data.files || [];
-    return files.map((f: any) => typeof f === 'string' ? f : f.filePath);
+    return data.files || [];
   } catch (error) {
     throw error;
   }
@@ -49,7 +69,7 @@ export async function fetchPseudoFiles(project: string): Promise<string[]> {
  * GET /api/pseudo/file?project=...&file=...
  * Returns: string - File contents
  */
-export async function fetchPseudoFile(project: string, file: string): Promise<string> {
+export async function fetchPseudoFile(project: string, file: string): Promise<PseudoFileWithMethods> {
   try {
     const encodedProject = encodeURIComponent(project);
     const encodedFile = encodeURIComponent(file);
@@ -62,7 +82,7 @@ export async function fetchPseudoFile(project: string, file: string): Promise<st
     }
 
     const data = await response.json();
-    return data.content || '';
+    return data;
   } catch (error) {
     throw error;
   }
@@ -104,8 +124,7 @@ export async function searchPseudo(project: string, q: string): Promise<SearchRe
     }
 
     const data = await response.json();
-    const matches: Record<string, SearchMatch[]> = data.matches || {};
-    return Object.entries(matches).map(([file, fileMatches]) => ({ file, matches: fileMatches }));
+    return data.matches || [];
   } catch (error) {
     throw error;
   }

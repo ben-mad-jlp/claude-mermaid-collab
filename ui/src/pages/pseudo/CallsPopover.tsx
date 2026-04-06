@@ -2,10 +2,10 @@
  * CallsPopover Component
  *
  * Renders a fixed-positioned portal card displaying information about a called module.
- * Shows the target file stem, title/subtitle lines, and exported functions.
+ * Shows the target file stem, title/purpose lines, and exported functions.
  *
  * Props:
- * - content: Raw pseudo text of target file
+ * - fileData: Parsed pseudo file data with methods
  * - fileStem: File identifier for display
  * - position: Fixed positioning (top, left in pixels)
  * - onNavigate: Callback to navigate to file stem
@@ -14,10 +14,10 @@
 
 import React, { useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { parsePseudo } from './parsePseudo';
+import type { PseudoFileWithMethods } from '@/lib/pseudo-api';
 
 export type CallsPopoverProps = {
-  content?: string;
+  fileData?: PseudoFileWithMethods;
   fileStem: string;
   position?: { top: number; left: number };
   anchorRect?: DOMRect;
@@ -29,7 +29,7 @@ export type CallsPopoverProps = {
 
 export default function CallsPopover(props: CallsPopoverProps): JSX.Element | null {
   const {
-    content = '',
+    fileData,
     fileStem,
     position,
     anchorRect,
@@ -55,13 +55,10 @@ export default function CallsPopover(props: CallsPopoverProps): JSX.Element | nu
     return null;
   }
 
-  // Parse the pseudo content
-  const parsed = useMemo(() => parsePseudo(content), [content]);
-
-  // Extract exported functions
+  // Extract exported functions from file data
   const exportedFunctions = useMemo(() => {
-    return parsed.functions.filter((fn) => fn.isExport);
-  }, [parsed.functions]);
+    return fileData?.methods.filter((m) => m.isExported) ?? [];
+  }, [fileData?.methods]);
 
   const cardContent = (
     <div
@@ -83,14 +80,14 @@ export default function CallsPopover(props: CallsPopoverProps): JSX.Element | nu
       <hr className="border-stone-200" />
 
       {/* Title (bold) */}
-      {parsed.titleLine && (
-        <div className="font-bold text-sm text-stone-950 my-2">{parsed.titleLine}</div>
+      {fileData?.title && (
+        <div className="font-bold text-sm text-stone-950 my-2">{fileData.title}</div>
       )}
 
-      {/* Subtitle (muted small) if present */}
-      {parsed.subtitleLine && (
+      {/* Purpose (muted small) if present */}
+      {fileData?.purpose && (
         <>
-          <div className="text-xs text-stone-500 mb-2">{parsed.subtitleLine}</div>
+          <div className="text-xs text-stone-500 mb-2">{fileData.purpose}</div>
         </>
       )}
 

@@ -10,11 +10,11 @@
  */
 
 import React, { useRef, useState, useEffect, RefObject } from 'react';
-import { ParsedFunction } from './parsePseudo';
+import { PseudoMethod } from '@/lib/pseudo-api';
 import type { PseudoViewerHandle } from './PseudoViewer';
 
 export type FunctionJumpPanelProps = {
-  functions: ParsedFunction[];
+  functions: PseudoMethod[];
   viewerRef: RefObject<PseudoViewerHandle>;
 };
 
@@ -105,7 +105,7 @@ export default function FunctionJumpPanel(
             >
               <div className="flex items-center gap-2">
                 <span className="flex-1 truncate">{func.name}</span>
-                {func.isExport && (
+                {func.isExported && (
                   <div
                     data-export-dot
                     className="w-1.5 h-1.5 rounded-full bg-green-600 flex-shrink-0"

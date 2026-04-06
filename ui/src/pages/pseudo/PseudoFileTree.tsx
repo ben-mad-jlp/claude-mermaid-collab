@@ -12,12 +12,13 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { buildTree, deepSortTree, filterTree, type TreeNode } from './tree.utils';
+import type { PseudoFileSummary } from '@/lib/pseudo-api';
 
 // Re-export TreeNode for public API
 export type { TreeNode };
 
 export type PseudoFileTreeProps = {
-  fileList: string[];
+  fileList: PseudoFileSummary[];
   currentPath: string;
   onNavigate: (stem: string) => void;
   project: string;
@@ -59,6 +60,7 @@ function TreeNodeRenderer({
   onToggleCollapse,
   onNavigate,
   filterExpanded,
+  fileMeta,
 }: {
   node: TreeNode;
   level: number;
@@ -67,6 +69,7 @@ function TreeNodeRenderer({
   onToggleCollapse: (path: string) => void;
   onNavigate: (path: string) => void;
   filterExpanded: Set<string>;
+  fileMeta: Map<string, PseudoFileSummary>;
 }) {
   const isCollapsed = collapsedDirs.has(node.path);
   const isActive = !node.isDir && node.path === currentPath;
@@ -100,13 +103,26 @@ function TreeNodeRenderer({
         )}
 
         <div
-          className="flex-1 text-sm"
+          className="flex-1 text-sm flex items-center gap-1"
           onClick={() => !node.isDir && onNavigate(node.path)}
         >
-          {node.name}
+          <span className="truncate">{node.name}</span>
           {node.isDir && isCollapsed && fileCount > 0 && (
             <span className="text-gray-500 ml-1">({fileCount})</span>
           )}
+          {!node.isDir && (() => {
+            const meta = fileMeta.get(node.path);
+            if (!meta) return null;
+            const parts: string[] = [];
+            if (meta.methodCount > 0) parts.push(`${meta.methodCount}fn`);
+            if (meta.exportCount > 0) parts.push(`${meta.exportCount}exp`);
+            if (parts.length === 0) return null;
+            return (
+              <span className="text-xs text-gray-400 ml-auto flex-shrink-0">
+                ({parts.join(', ')})
+              </span>
+            );
+          })()}
         </div>
       </div>
 
@@ -122,6 +138,7 @@ function TreeNodeRenderer({
               onToggleCollapse={onToggleCollapse}
               onNavigate={onNavigate}
               filterExpanded={filterExpanded}
+              fileMeta={fileMeta}
             />
           ))}
         </div>
@@ -143,6 +160,16 @@ export function PseudoFileTree({
   const [filter, setFilter] = useState('');
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
 
+  // Extract file paths for tree building
+  const filePaths = useMemo(() => fileList.map(f => f.filePath), [fileList]);
+
+  // Build lookup map for metadata
+  const fileMeta = useMemo(() => {
+    const map = new Map<string, PseudoFileSummary>();
+    fileList.forEach(f => map.set(f.filePath, f));
+    return map;
+  }, [fileList]);
+
   // Load collapsed state from localStorage on mount
   useEffect(() => {
     const key = `pseudo-tree-collapsed-${project}`;
@@ -159,9 +186,9 @@ export function PseudoFileTree({
 
   // Build and sort the tree
   const tree = useMemo(() => {
-    const builtTree = buildTree(fileList);
+    const builtTree = buildTree(filePaths);
     return deepSortTree(builtTree);
-  }, [fileList]);
+  }, [filePaths]);
 
   // Filter tree and get auto-expand paths
   const { nodes: filteredTree, expandedPaths: filterExpanded } = useMemo(() => {
@@ -235,6 +262,7 @@ export function PseudoFileTree({
               onToggleCollapse={handleToggleCollapse}
               onNavigate={onNavigate}
               filterExpanded={filterExpanded}
+              fileMeta={fileMeta}
             />
           ))
         )}

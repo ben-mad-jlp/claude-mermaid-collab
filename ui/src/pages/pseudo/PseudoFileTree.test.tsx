@@ -13,6 +13,18 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { PseudoFileTree } from './PseudoFileTree';
+import type { PseudoFileSummary } from '@/lib/pseudo-api';
+
+/** Helper to create a PseudoFileSummary from a file path */
+function fileSummary(filePath: string): PseudoFileSummary {
+  return {
+    filePath,
+    title: filePath.replace(/\.pseudo$/, '').split('/').pop() || filePath,
+    methodCount: 1,
+    exportCount: 0,
+    lastUpdated: '2026-01-01',
+  };
+}
 
 describe('PseudoFileTree', () => {
   const mockOnNavigate = vi.fn();
@@ -29,7 +41,7 @@ describe('PseudoFileTree', () => {
 
   describe('Tree Building', () => {
     it('should build a nested tree from flat file list', () => {
-      const fileList = ['src/index.ts', 'src/utils/helper.ts', 'dist/build.js'];
+      const fileList = ['src/index.ts', 'src/utils/helper.ts', 'dist/build.js'].map(fileSummary);
       render(
         <PseudoFileTree
           fileList={fileList}
@@ -46,7 +58,7 @@ describe('PseudoFileTree', () => {
     });
 
     it('should handle single-level files', () => {
-      const fileList = ['README.md', 'package.json'];
+      const fileList = ['README.md', 'package.json'].map(fileSummary);
       render(
         <PseudoFileTree
           fileList={fileList}
@@ -62,7 +74,7 @@ describe('PseudoFileTree', () => {
     });
 
     it('should handle deeply nested directories', () => {
-      const fileList = ['a/b/c/d/e/file.ts'];
+      const fileList = ['a/b/c/d/e/file.ts'].map(fileSummary);
       render(
         <PseudoFileTree
           fileList={fileList}
@@ -95,7 +107,7 @@ describe('PseudoFileTree', () => {
 
   describe('Active File Highlighting', () => {
     it('should highlight the current file with active styling', () => {
-      const fileList = ['src/main.ts', 'src/utils.ts'];
+      const fileList = ['src/main.ts', 'src/utils.ts'].map(fileSummary);
       render(
         <PseudoFileTree
           fileList={fileList}
@@ -113,7 +125,7 @@ describe('PseudoFileTree', () => {
     });
 
     it('should remove active styling from other files', () => {
-      const fileList = ['src/main.ts', 'src/utils.ts'];
+      const fileList = ['src/main.ts', 'src/utils.ts'].map(fileSummary);
       render(
         <PseudoFileTree
           fileList={fileList}
@@ -132,7 +144,7 @@ describe('PseudoFileTree', () => {
 
   describe('Collapse/Expand', () => {
     it('should toggle collapse state on chevron click', async () => {
-      const fileList = ['src/main.ts', 'src/utils.ts'];
+      const fileList = ['src/main.ts', 'src/utils.ts'].map(fileSummary);
       const user = userEvent.setup();
       render(
         <PseudoFileTree
@@ -163,7 +175,7 @@ describe('PseudoFileTree', () => {
     });
 
     it('should show file count in parentheses when directory is collapsed', async () => {
-      const fileList = ['src/main.ts', 'src/utils.ts', 'src/helpers.ts'];
+      const fileList = ['src/main.ts', 'src/utils.ts', 'src/helpers.ts'].map(fileSummary);
       const user = userEvent.setup();
       render(
         <PseudoFileTree
@@ -188,7 +200,7 @@ describe('PseudoFileTree', () => {
     });
 
     it('should persist collapsed state to localStorage', async () => {
-      const fileList = ['src/main.ts', 'src/utils.ts'];
+      const fileList = ['src/main.ts', 'src/utils.ts'].map(fileSummary);
       const user = userEvent.setup();
       const project = '/test-project';
 
@@ -234,7 +246,7 @@ describe('PseudoFileTree', () => {
 
   describe('Filter Functionality', () => {
     it('should filter files by substring match (case-insensitive)', async () => {
-      const fileList = ['src/main.ts', 'src/utils.ts', 'dist/bundle.js'];
+      const fileList = ['src/main.ts', 'src/utils.ts', 'dist/bundle.js'].map(fileSummary);
       const user = userEvent.setup();
       render(
         <PseudoFileTree
@@ -255,7 +267,7 @@ describe('PseudoFileTree', () => {
     });
 
     it('should be case-insensitive', async () => {
-      const fileList = ['src/MyComponent.tsx'];
+      const fileList = ['src/MyComponent.tsx'].map(fileSummary);
       const user = userEvent.setup();
       render(
         <PseudoFileTree
@@ -274,7 +286,7 @@ describe('PseudoFileTree', () => {
     });
 
     it('should auto-expand directories containing matched files', async () => {
-      const fileList = ['src/utils/helper.ts', 'src/main.ts', 'dist/bundle.js'];
+      const fileList = ['src/utils/helper.ts', 'src/main.ts', 'dist/bundle.js'].map(fileSummary);
       const user = userEvent.setup();
       render(
         <PseudoFileTree
@@ -296,7 +308,7 @@ describe('PseudoFileTree', () => {
     });
 
     it('should show all files when filter is cleared', async () => {
-      const fileList = ['src/main.ts', 'src/utils.ts', 'dist/bundle.js'];
+      const fileList = ['src/main.ts', 'src/utils.ts', 'dist/bundle.js'].map(fileSummary);
       const user = userEvent.setup();
       render(
         <PseudoFileTree
@@ -322,7 +334,7 @@ describe('PseudoFileTree', () => {
 
   describe('Navigation', () => {
     it('should call onNavigate with correct path when file is clicked', async () => {
-      const fileList = ['src/main.ts', 'src/utils.ts'];
+      const fileList = ['src/main.ts', 'src/utils.ts'].map(fileSummary);
       const user = userEvent.setup();
       render(
         <PseudoFileTree
@@ -341,7 +353,7 @@ describe('PseudoFileTree', () => {
     });
 
     it('should not navigate when clicking chevron on directory', async () => {
-      const fileList = ['src/main.ts'];
+      const fileList = ['src/main.ts'].map(fileSummary);
       const user = userEvent.setup();
       render(
         <PseudoFileTree
@@ -365,7 +377,7 @@ describe('PseudoFileTree', () => {
     it('should accept project prop and pass it to component', () => {
       const { container } = render(
         <PseudoFileTree
-          fileList={['src/main.ts']}
+          fileList={[fileSummary('src/main.ts')]}
           currentPath="src/main.ts"
           onNavigate={mockOnNavigate}
           project="/test-project"
@@ -380,7 +392,7 @@ describe('PseudoFileTree', () => {
     it('should call onProjectChange callback (implementation provided by parent)', () => {
       render(
         <PseudoFileTree
-          fileList={['src/main.ts']}
+          fileList={[fileSummary('src/main.ts')]}
           currentPath="src/main.ts"
           onNavigate={mockOnNavigate}
           project="/test-project"
@@ -395,7 +407,7 @@ describe('PseudoFileTree', () => {
 
   describe('Edge Cases', () => {
     it('should handle special characters in filenames', () => {
-      const fileList = ['src/my-component.tsx', 'src/config[dev].js', 'src/test@2.ts'];
+      const fileList = ['src/my-component.tsx', 'src/config[dev].js', 'src/test@2.ts'].map(fileSummary);
       render(
         <PseudoFileTree
           fileList={fileList}
@@ -412,7 +424,7 @@ describe('PseudoFileTree', () => {
     });
 
     it('should handle files with multiple dots in name', () => {
-      const fileList = ['src/utils.test.ts', 'src/config.prod.js'];
+      const fileList = ['src/utils.test.ts', 'src/config.prod.js'].map(fileSummary);
       render(
         <PseudoFileTree
           fileList={fileList}
@@ -428,7 +440,7 @@ describe('PseudoFileTree', () => {
     });
 
     it('should handle whitespace in filter', async () => {
-      const fileList = ['src/main.ts', 'src/utils.ts'];
+      const fileList = ['src/main.ts', 'src/utils.ts'].map(fileSummary);
       const user = userEvent.setup();
       render(
         <PseudoFileTree

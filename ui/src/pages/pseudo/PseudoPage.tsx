@@ -18,15 +18,14 @@ import { ProjectSelector } from '@/components/shared/ProjectSelector';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useTheme } from '@/hooks/useTheme';
 import { fetchPseudoFiles } from '@/lib/pseudo-api';
+import type { PseudoMethod, PseudoFileSummary } from '@/lib/pseudo-api';
 import { PseudoFileTree } from './PseudoFileTree';
 import { PseudoViewer, type PseudoViewerHandle } from './PseudoViewer';
 import FunctionJumpPanel from './FunctionJumpPanel';
 import PseudoSearch from './PseudoSearch';
-import type { ParsedFunction } from './parsePseudo';
 
 export type PseudoPageState = {
-  fileList: string[];
-  fileCache: Map<string, string>;
+  fileList: PseudoFileSummary[];
   searchQuery: string;
   searchOpen: boolean;
 };
@@ -74,11 +73,10 @@ export default function PseudoPage(): JSX.Element {
   }, [fetchProjects, setSelectedProject]);
 
   // State management
-  const [fileList, setFileList] = useState<string[]>([]);
-  const [fileCache] = useState<Map<string, string>>(new Map());
+  const [fileList, setFileList] = useState<PseudoFileSummary[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
-  const [functions, setFunctions] = useState<ParsedFunction[]>([]);
+  const [functions, setFunctions] = useState<PseudoMethod[]>([]);
 
   // Pending scroll target: set when search navigates to a function
   const [pendingScrollTarget, setPendingScrollTarget] = useState<string | null>(null);
@@ -117,9 +115,8 @@ export default function PseudoPage(): JSX.Element {
     if (project && project !== prevProjectRef.current) {
       prevProjectRef.current = project;
 
-      // Clear fileList and cache
+      // Clear fileList
       setFileList([]);
-      fileCache.clear();
 
       // Navigate to /pseudo
       navigate('/pseudo');
@@ -127,7 +124,7 @@ export default function PseudoPage(): JSX.Element {
       // Refetch files for new project
       loadPseudoFiles();
     }
-  }, [project, navigate, fileCache, loadPseudoFiles]);
+  }, [project, navigate, loadPseudoFiles]);
 
   /**
    * Global keyboard shortcuts for search

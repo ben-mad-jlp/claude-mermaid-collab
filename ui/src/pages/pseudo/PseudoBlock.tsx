@@ -11,12 +11,11 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { ParsedFunction } from './parsePseudo';
-import { fetchPseudoReferences, type Reference } from '@/lib/pseudo-api';
+import { fetchPseudoReferences, type Reference, type PseudoMethod } from '@/lib/pseudo-api';
 import CallsLink from './CallsLink';
 
 export type PseudoBlockProps = {
-  func: ParsedFunction;
+  func: PseudoMethod;
   project: string;
   currentFileStem: string;
   onNavigate: (stem: string) => void;
@@ -46,11 +45,10 @@ function tokenizeLine(text: string): React.ReactNode[] {
 }
 
 /**
- * Renders a single body line with indentation, bullet, and keyword bolding
+ * Renders a single step with indentation, bullet, and keyword bolding
  */
-function renderBodyLine(line: string, index: number) {
-  const leadingSpaces = line.length - line.trimStart().length;
-  const trimmed = line.trimStart();
+function renderStep(step: { content: string; depth: number }, index: number) {
+  const trimmed = step.content;
 
   if (!trimmed) return <div key={index} style={{ height: '0.5em' }} />;
 
@@ -67,7 +65,7 @@ function renderBodyLine(line: string, index: number) {
   return (
     <div
       key={index}
-      style={{ paddingLeft: `${20 + leadingSpaces * 8}px`, display: 'flex', gap: '6px', marginBottom: '3px' }}
+      style={{ paddingLeft: `${step.depth * 16}px`, display: 'flex', gap: '6px', marginBottom: '3px' }}
     >
       <span style={{ flexShrink: 0, color: '#c4b5a8', userSelect: 'none', marginTop: '1px' }}>–</span>
       <span style={{ flex: 1 }}>{content}</span>
@@ -121,12 +119,12 @@ export default function PseudoBlock({
 
         {/* Right-side badges */}
         <div className="flex items-center gap-1 flex-shrink-0 ml-2">
-          {func.updatedAt && (
+          {func.date && (
             <span className="text-xs" style={{ color: '#a8a29e' }}>
-              {func.updatedAt}
+              {func.date}
             </span>
           )}
-          {func.isExport && (
+          {func.isExported && (
             <span className="bg-green-100 text-green-700 text-xs rounded px-1">
               EXPORT
             </span>
@@ -157,7 +155,7 @@ export default function PseudoBlock({
                 <React.Fragment key={idx}>
                   {idx > 0 && ', '}
                   <CallsLink
-                    name={ref.callerFunction}
+                    name={ref.callerMethod}
                     fileStem={ref.file}
                     project={project}
                     onNavigate={onNavigate}
@@ -195,13 +193,13 @@ export default function PseudoBlock({
       <hr className="border-stone-200 mb-2" />
 
       {/* Body */}
-      {func.body.length > 0 && (
+      {func.steps.length > 0 && (
         <div
           data-testid="pseudo-block-body"
           className="text-sm"
           style={{ color: '#44403c' }}
         >
-          {func.body.map((line, idx) => renderBodyLine(line, idx))}
+          {func.steps.map((step, idx) => renderStep(step, idx))}
         </div>
       )}
     </div>

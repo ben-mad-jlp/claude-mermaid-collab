@@ -4,15 +4,15 @@
  * Cmd+K search overlay for pseudocode files:
  * - Semi-transparent overlay with centered search box
  * - Debounced search (200ms) with keyboard navigation
- * - Results grouped by file (max 3 matches per file)
- * - Function signatures truncated to 60 chars
+ * - Flat results list with filePath, methodName, snippet
+ * - Snippet rendered as HTML (contains <mark> tags from FTS5)
  * - Highlighted selection: bg-purple-50
  * - Keyboard: ArrowDown/Up to navigate, Enter to select, Esc to close
  * - Click outside to close, click result to navigate
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { searchPseudo, type SearchResult, type SearchMatch } from '../../lib/pseudo-api';
+import { searchPseudo, type SearchResult } from '../../lib/pseudo-api';
 
 export type PseudoSearchProps = {
   project: string;
@@ -22,28 +22,10 @@ export type PseudoSearchProps = {
 };
 
 /**
- * Flat list entry combining file context with match
+ * Extract file stem from filePath (e.g., 'src/api.pseudo' -> 'src/api')
  */
-type FlatResult = {
-  file: string;
-  fileStem: string;
-  match: SearchMatch;
-  globalIndex: number;
-};
-
-/**
- * Extract file stem from filename (e.g., 'api.pseudo' -> 'api')
- */
-function getFileStem(filename: string): string {
-  return filename.replace(/\.pseudo$/, '');
-}
-
-/**
- * Truncate line to max 60 characters with ellipsis
- */
-function truncateLine(line: string, maxLen: number = 60): string {
-  if (line.length <= maxLen) return line;
-  return line.slice(0, maxLen) + '...';
+function getFileStem(filePath: string): string {
+  return filePath.replace(/\.pseudo$/, '');
 }
 
 export default function PseudoSearch({
@@ -59,29 +41,6 @@ export default function PseudoSearch({
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  // Flatten results for easier keyboard navigation
-  const flatResults: FlatResult[] = React.useMemo(() => {
-    const flat: FlatResult[] = [];
-    let globalIndex = 0;
-
-    results.forEach((result) => {
-      const fileStem = getFileStem(result.file);
-      // Only show first 3 matches per file
-      const limitedMatches = result.matches.slice(0, 3);
-      limitedMatches.forEach((match) => {
-        flat.push({
-          file: result.file,
-          fileStem,
-          match,
-          globalIndex,
-        });
-        globalIndex++;
-      });
-    });
-
-    return flat;
-  }, [results]);
 
   // Handle search with debounce
   const performSearch = useCallback(
@@ -135,21 +94,21 @@ export default function PseudoSearch({
       } else if (e.key === 'ArrowDown') {
         e.preventDefault();
         setHighlightedIndex((prev) =>
-          prev < flatResults.length - 1 ? prev + 1 : prev
+          prev < results.length - 1 ? prev + 1 : prev
         );
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
         setHighlightedIndex((prev) => (prev > 0 ? prev - 1 : -1));
       } else if (e.key === 'Enter') {
         e.preventDefault();
-        if (highlightedIndex >= 0 && highlightedIndex < flatResults.length) {
-          const item = flatResults[highlightedIndex];
-          onNavigate(item.fileStem, item.match.functionName ?? undefined);
+        if (highlightedIndex >= 0 && highlightedIndex < results.length) {
+          const item = results[highlightedIndex];
+          onNavigate(getFileStem(item.filePath), item.methodName || undefined);
           onClose();
         }
       }
     },
-    [flatResults, highlightedIndex, onNavigate, onClose]
+    [results, highlightedIndex, onNavigate, onClose]
   );
 
   // Handle click outside
@@ -177,9 +136,6 @@ export default function PseudoSearch({
   }, [isOpen]);
 
   if (!isOpen) return null;
-
-  // Group results by file for display (max 8 files)
-  const groupedResults = results.slice(0, 8);
 
   return (
     <div
@@ -213,23 +169,23 @@ export default function PseudoSearch({
                 </div>
               )}
 
-              {!loading && flatResults.length === 0 && (
+              {!loading && results.length === 0 && (
                 <div className="p-4 text-center text-sm" style={{ color: '#78716c' }}>
                   No results found
                 </div>
               )}
 
-              {!loading && flatResults.length > 0 && (
+              {!loading && results.length > 0 && (
                 <div>
-                  {flatResults.map((item) => (
+                  {results.map((item, index) => (
                     <button
-                      key={`${item.file}-${item.globalIndex}`}
+                      key={`${item.filePath}-${item.methodName}-${index}`}
                       onClick={() => {
-                        onNavigate(item.fileStem, item.match.functionName ?? undefined);
+                        onNavigate(getFileStem(item.filePath), item.methodName || undefined);
                         onClose();
                       }}
                       className={`w-full text-left px-4 py-2.5 border-b border-stone-100 text-sm transition-colors ${
-                        item.globalIndex === highlightedIndex
+                        index === highlightedIndex
                           ? 'bg-purple-50'
                           : 'hover:bg-stone-50'
                       }`}
@@ -240,24 +196,26 @@ export default function PseudoSearch({
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
                         <span className="text-xs font-mono" style={{ color: '#78716c' }}>
-                          {item.fileStem}.pseudo
+                          {item.filePath}
                         </span>
                       </div>
 
-                      {/* Function name (if applicable) */}
-                      {item.match.functionName && (
+                      {/* Method name (if present) */}
+                      {item.methodName && (
                         <div className="flex items-center gap-1.5 mb-0.5">
                           <span className="text-xs font-medium" style={{ color: '#7c3aed' }}>fn</span>
                           <span className="text-xs font-medium" style={{ color: '#44403c' }}>
-                            {item.match.functionName}
+                            {item.methodName}
                           </span>
                         </div>
                       )}
 
-                      {/* Matching line */}
-                      <div className="text-xs truncate font-mono pl-0.5" style={{ color: '#a8a29e' }}>
-                        {truncateLine(item.match.line.trim(), 80)}
-                      </div>
+                      {/* Snippet with FTS5 highlighting */}
+                      <div
+                        className="text-xs truncate font-mono pl-0.5 [&_mark]:bg-yellow-200 [&_mark]:rounded-sm"
+                        style={{ color: '#a8a29e' }}
+                        dangerouslySetInnerHTML={{ __html: item.snippet }}
+                      />
                     </button>
                   ))}
                 </div>

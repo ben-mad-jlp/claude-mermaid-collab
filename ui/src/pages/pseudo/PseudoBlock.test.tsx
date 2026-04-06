@@ -14,7 +14,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import PseudoBlock from './PseudoBlock';
-import { ParsedFunction } from './parsePseudo';
+import type { PseudoMethod } from '@/lib/pseudo-api';
 
 describe('PseudoBlock', () => {
   const mockOnNavigate = vi.fn();
@@ -25,16 +25,17 @@ describe('PseudoBlock', () => {
 
   describe('Header Rendering', () => {
     it('should render FUNCTION keyword in purple', () => {
-      const func: ParsedFunction = {
+      const func: PseudoMethod = {
         name: 'greet',
         params: 'name: string',
         returnType: 'string',
-        isExport: false,
+        isExported: false,
         calls: [],
-        body: ['return "Hello, " + name'],
+        steps: [{ content: 'return "Hello, " + name', depth: 0 }],
+        date: null,
       };
 
-      render(<PseudoBlock func={func} project="/test-project" onNavigate={mockOnNavigate} />);
+      render(<PseudoBlock func={func} project="/test-project" currentFileStem="test" onNavigate={mockOnNavigate} />);
 
       const keyword = screen.getByText('FUNCTION');
       expect(keyword).toBeInTheDocument();
@@ -43,16 +44,17 @@ describe('PseudoBlock', () => {
     });
 
     it('should render function name in bold stone color', () => {
-      const func: ParsedFunction = {
+      const func: PseudoMethod = {
         name: 'calculateSum',
         params: 'a: number, b: number',
         returnType: 'number',
-        isExport: false,
+        isExported: false,
         calls: [],
-        body: ['return a + b'],
+        steps: [{ content: 'return a + b', depth: 0 }],
+        date: null,
       };
 
-      render(<PseudoBlock func={func} project="/test-project" onNavigate={mockOnNavigate} />);
+      render(<PseudoBlock func={func} project="/test-project" currentFileStem="test" onNavigate={mockOnNavigate} />);
 
       const name = screen.getByText('calculateSum');
       expect(name).toBeInTheDocument();
@@ -61,16 +63,17 @@ describe('PseudoBlock', () => {
     });
 
     it('should render params in stone-dark color', () => {
-      const func: ParsedFunction = {
+      const func: PseudoMethod = {
         name: 'multiply',
         params: 'x: number, y: number',
         returnType: 'number',
-        isExport: false,
+        isExported: false,
         calls: [],
-        body: [],
+        steps: [],
+        date: null,
       };
 
-      render(<PseudoBlock func={func} project="/test-project" onNavigate={mockOnNavigate} />);
+      render(<PseudoBlock func={func} project="/test-project" currentFileStem="test" onNavigate={mockOnNavigate} />);
 
       const paramsText = screen.getByText('(x: number, y: number)');
       expect(paramsText).toBeInTheDocument();
@@ -78,16 +81,17 @@ describe('PseudoBlock', () => {
     });
 
     it('should render return type in stone-dark color', () => {
-      const func: ParsedFunction = {
+      const func: PseudoMethod = {
         name: 'process',
         params: 'data: any',
         returnType: 'Promise<void>',
-        isExport: false,
+        isExported: false,
         calls: [],
-        body: [],
+        steps: [],
+        date: null,
       };
 
-      render(<PseudoBlock func={func} project="/test-project" onNavigate={mockOnNavigate} />);
+      render(<PseudoBlock func={func} project="/test-project" currentFileStem="test" onNavigate={mockOnNavigate} />);
 
       const returnType = screen.getByText('-> Promise<void>');
       expect(returnType).toBeInTheDocument();
@@ -95,32 +99,34 @@ describe('PseudoBlock', () => {
     });
 
     it('should handle empty params', () => {
-      const func: ParsedFunction = {
+      const func: PseudoMethod = {
         name: 'init',
         params: '',
         returnType: 'void',
-        isExport: false,
+        isExported: false,
         calls: [],
-        body: [],
+        steps: [],
+        date: null,
       };
 
-      render(<PseudoBlock func={func} project="/test-project" onNavigate={mockOnNavigate} />);
+      render(<PseudoBlock func={func} project="/test-project" currentFileStem="test" onNavigate={mockOnNavigate} />);
 
       expect(screen.getByText('()')).toBeInTheDocument();
     });
 
     it('should handle missing return type', () => {
-      const func: ParsedFunction = {
+      const func: PseudoMethod = {
         name: 'log',
         params: 'message: string',
         returnType: '',
-        isExport: false,
+        isExported: false,
         calls: [],
-        body: [],
+        steps: [],
+        date: null,
       };
 
       const { container } = render(
-        <PseudoBlock func={func} project="/test-project" onNavigate={mockOnNavigate} />
+        <PseudoBlock func={func} project="/test-project" currentFileStem="test" onNavigate={mockOnNavigate} />
       );
 
       const header = container.querySelector('[data-testid="pseudo-block-header"]');
@@ -129,33 +135,35 @@ describe('PseudoBlock', () => {
   });
 
   describe('EXPORT Badge', () => {
-    it('should render EXPORT badge when isExport is true', () => {
-      const func: ParsedFunction = {
+    it('should render EXPORT badge when isExported is true', () => {
+      const func: PseudoMethod = {
         name: 'exportedFunc',
         params: '',
         returnType: '',
-        isExport: true,
+        isExported: true,
         calls: [],
-        body: [],
+        steps: [],
+        date: null,
       };
 
-      render(<PseudoBlock func={func} project="/test-project" onNavigate={mockOnNavigate} />);
+      render(<PseudoBlock func={func} project="/test-project" currentFileStem="test" onNavigate={mockOnNavigate} />);
 
       const badge = screen.getByText('EXPORT');
       expect(badge).toBeInTheDocument();
     });
 
     it('should style EXPORT badge with green background and text', () => {
-      const func: ParsedFunction = {
+      const func: PseudoMethod = {
         name: 'publicFunc',
         params: '',
         returnType: '',
-        isExport: true,
+        isExported: true,
         calls: [],
-        body: [],
+        steps: [],
+        date: null,
       };
 
-      render(<PseudoBlock func={func} project="/test-project" onNavigate={mockOnNavigate} />);
+      render(<PseudoBlock func={func} project="/test-project" currentFileStem="test" onNavigate={mockOnNavigate} />);
 
       const badge = screen.getByText('EXPORT');
       expect(badge).toHaveClass('bg-green-100');
@@ -165,33 +173,35 @@ describe('PseudoBlock', () => {
       expect(badge).toHaveClass('px-1');
     });
 
-    it('should not render EXPORT badge when isExport is false', () => {
-      const func: ParsedFunction = {
+    it('should not render EXPORT badge when isExported is false', () => {
+      const func: PseudoMethod = {
         name: 'privateFunc',
         params: '',
         returnType: '',
-        isExport: false,
+        isExported: false,
         calls: [],
-        body: [],
+        steps: [],
+        date: null,
       };
 
-      render(<PseudoBlock func={func} project="/test-project" onNavigate={mockOnNavigate} />);
+      render(<PseudoBlock func={func} project="/test-project" currentFileStem="test" onNavigate={mockOnNavigate} />);
 
       expect(screen.queryByText('EXPORT')).not.toBeInTheDocument();
     });
 
     it('should position EXPORT badge on the right', () => {
-      const func: ParsedFunction = {
+      const func: PseudoMethod = {
         name: 'exported',
         params: '',
         returnType: '',
-        isExport: true,
+        isExported: true,
         calls: [],
-        body: [],
+        steps: [],
+        date: null,
       };
 
       const { container } = render(
-        <PseudoBlock func={func} project="/test-project" onNavigate={mockOnNavigate} />
+        <PseudoBlock func={func} project="/test-project" currentFileStem="test" onNavigate={mockOnNavigate} />
       );
 
       const headerDiv = container.querySelector('[data-testid="pseudo-block-header"]');
@@ -201,32 +211,34 @@ describe('PseudoBlock', () => {
 
   describe('CALLS Section', () => {
     it('should not render CALLS section when calls array is empty', () => {
-      const func: ParsedFunction = {
+      const func: PseudoMethod = {
         name: 'noCalls',
         params: '',
         returnType: '',
-        isExport: false,
+        isExported: false,
         calls: [],
-        body: [],
+        steps: [],
+        date: null,
       };
 
-      render(<PseudoBlock func={func} project="/test-project" onNavigate={mockOnNavigate} />);
+      render(<PseudoBlock func={func} project="/test-project" currentFileStem="test" onNavigate={mockOnNavigate} />);
 
       expect(screen.queryByText('CALLS')).not.toBeInTheDocument();
     });
 
     it('should render CALLS label when calls exist', () => {
-      const func: ParsedFunction = {
+      const func: PseudoMethod = {
         name: 'withCalls',
         params: '',
         returnType: '',
-        isExport: false,
+        isExported: false,
         calls: [{ name: 'helper', fileStem: 'utils' }],
-        body: [],
+        steps: [],
+        date: null,
       };
 
       const { container } = render(
-        <PseudoBlock func={func} project="/test-project" onNavigate={mockOnNavigate} />
+        <PseudoBlock func={func} project="/test-project" currentFileStem="test" onNavigate={mockOnNavigate} />
       );
 
       const callsDiv = container.querySelector('[data-testid="pseudo-calls-section"]');
@@ -234,17 +246,18 @@ describe('PseudoBlock', () => {
     });
 
     it('should style CALLS label with stone-dark color and text-xs', () => {
-      const func: ParsedFunction = {
+      const func: PseudoMethod = {
         name: 'withCalls',
         params: '',
         returnType: '',
-        isExport: false,
+        isExported: false,
         calls: [{ name: 'helper', fileStem: 'utils' }],
-        body: [],
+        steps: [],
+        date: null,
       };
 
       const { container } = render(
-        <PseudoBlock func={func} project="/test-project" onNavigate={mockOnNavigate} />
+        <PseudoBlock func={func} project="/test-project" currentFileStem="test" onNavigate={mockOnNavigate} />
       );
 
       const label = container.querySelector('[data-testid="pseudo-calls-section"]');
@@ -253,20 +266,21 @@ describe('PseudoBlock', () => {
     });
 
     it('should render multiple CallsLink components', () => {
-      const func: ParsedFunction = {
+      const func: PseudoMethod = {
         name: 'multiCall',
         params: '',
         returnType: '',
-        isExport: false,
+        isExported: false,
         calls: [
           { name: 'handler', fileStem: 'handlers' },
           { name: 'validate', fileStem: 'validators' },
           { name: 'format', fileStem: 'utils' },
         ],
-        body: [],
+        steps: [],
+        date: null,
       };
 
-      render(<PseudoBlock func={func} project="/test-project" onNavigate={mockOnNavigate} />);
+      render(<PseudoBlock func={func} project="/test-project" currentFileStem="test" onNavigate={mockOnNavigate} />);
 
       expect(screen.getByText(/handler/)).toBeInTheDocument();
       expect(screen.getByText(/validate/)).toBeInTheDocument();
@@ -276,17 +290,18 @@ describe('PseudoBlock', () => {
 
   describe('Separator', () => {
     it('should render horizontal separator', () => {
-      const func: ParsedFunction = {
+      const func: PseudoMethod = {
         name: 'test',
         params: '',
         returnType: '',
-        isExport: false,
+        isExported: false,
         calls: [],
-        body: [],
+        steps: [],
+        date: null,
       };
 
       const { container } = render(
-        <PseudoBlock func={func} project="/test-project" onNavigate={mockOnNavigate} />
+        <PseudoBlock func={func} project="/test-project" currentFileStem="test" onNavigate={mockOnNavigate} />
       );
 
       const hr = container.querySelector('hr');
@@ -294,17 +309,18 @@ describe('PseudoBlock', () => {
     });
 
     it('should style separator with stone-200 border', () => {
-      const func: ParsedFunction = {
+      const func: PseudoMethod = {
         name: 'test',
         params: '',
         returnType: '',
-        isExport: false,
+        isExported: false,
         calls: [],
-        body: [],
+        steps: [],
+        date: null,
       };
 
       const { container } = render(
-        <PseudoBlock func={func} project="/test-project" onNavigate={mockOnNavigate} />
+        <PseudoBlock func={func} project="/test-project" currentFileStem="test" onNavigate={mockOnNavigate} />
       );
 
       const hr = container.querySelector('hr');
@@ -314,16 +330,21 @@ describe('PseudoBlock', () => {
 
   describe('Body Rendering', () => {
     it('should render body lines', () => {
-      const func: ParsedFunction = {
+      const func: PseudoMethod = {
         name: 'withBody',
         params: '',
         returnType: '',
-        isExport: false,
+        isExported: false,
         calls: [],
-        body: ['line1', 'line2', 'line3'],
+        steps: [
+          { content: 'line1', depth: 0 },
+          { content: 'line2', depth: 0 },
+          { content: 'line3', depth: 0 },
+        ],
+        date: null,
       };
 
-      render(<PseudoBlock func={func} project="/test-project" onNavigate={mockOnNavigate} />);
+      render(<PseudoBlock func={func} project="/test-project" currentFileStem="test" onNavigate={mockOnNavigate} />);
 
       expect(screen.getByText('line1')).toBeInTheDocument();
       expect(screen.getByText('line2')).toBeInTheDocument();
@@ -331,17 +352,21 @@ describe('PseudoBlock', () => {
     });
 
     it('should render body lines with indentation applied via paddingLeft', () => {
-      const func: ParsedFunction = {
+      const func: PseudoMethod = {
         name: 'indented',
         params: '',
         returnType: '',
-        isExport: false,
+        isExported: false,
         calls: [],
-        body: ['top level', '  indented line'],
+        steps: [
+          { content: 'top level', depth: 0 },
+          { content: 'indented line', depth: 1 },
+        ],
+        date: null,
       };
 
       const { container } = render(
-        <PseudoBlock func={func} project="/test-project" onNavigate={mockOnNavigate} />
+        <PseudoBlock func={func} project="/test-project" currentFileStem="test" onNavigate={mockOnNavigate} />
       );
 
       const bodyDiv = container.querySelector('[data-testid="pseudo-block-body"]');
@@ -354,17 +379,18 @@ describe('PseudoBlock', () => {
     });
 
     it('should render body text in stone-dark color and text-sm', () => {
-      const func: ParsedFunction = {
+      const func: PseudoMethod = {
         name: 'styled',
         params: '',
         returnType: '',
-        isExport: false,
+        isExported: false,
         calls: [],
-        body: ['body text'],
+        steps: [{ content: 'body text', depth: 0 }],
+        date: null,
       };
 
       const { container } = render(
-        <PseudoBlock func={func} project="/test-project" onNavigate={mockOnNavigate} />
+        <PseudoBlock func={func} project="/test-project" currentFileStem="test" onNavigate={mockOnNavigate} />
       );
 
       const bodyDiv = container.querySelector('[data-testid="pseudo-block-body"]');
@@ -373,17 +399,18 @@ describe('PseudoBlock', () => {
     });
 
     it('should handle empty body', () => {
-      const func: ParsedFunction = {
+      const func: PseudoMethod = {
         name: 'emptyBody',
         params: '',
         returnType: '',
-        isExport: false,
+        isExported: false,
         calls: [],
-        body: [],
+        steps: [],
+        date: null,
       };
 
       const { container } = render(
-        <PseudoBlock func={func} project="/test-project" onNavigate={mockOnNavigate} />
+        <PseudoBlock func={func} project="/test-project" currentFileStem="test" onNavigate={mockOnNavigate} />
       );
 
       const bodyDiv = container.querySelector('[data-testid="pseudo-block-body"]');
@@ -394,16 +421,22 @@ describe('PseudoBlock', () => {
     });
 
     it('should format IF/ELSE keywords in body', () => {
-      const func: ParsedFunction = {
+      const func: PseudoMethod = {
         name: 'conditional',
         params: '',
         returnType: '',
-        isExport: false,
+        isExported: false,
         calls: [],
-        body: ['IF condition', 'return value', 'ELSE', 'return default'],
+        steps: [
+          { content: 'IF condition', depth: 0 },
+          { content: 'return value', depth: 1 },
+          { content: 'ELSE', depth: 0 },
+          { content: 'return default', depth: 1 },
+        ],
+        date: null,
       };
 
-      render(<PseudoBlock func={func} project="/test-project" onNavigate={mockOnNavigate} />);
+      render(<PseudoBlock func={func} project="/test-project" currentFileStem="test" onNavigate={mockOnNavigate} />);
 
       const ifKeyword = screen.getByText('IF');
       const elseKeyword = screen.getByText('ELSE');
@@ -412,17 +445,21 @@ describe('PseudoBlock', () => {
     });
 
     it('should make IF/ELSE keywords bold using strong elements', () => {
-      const func: ParsedFunction = {
+      const func: PseudoMethod = {
         name: 'conditional',
         params: '',
         returnType: '',
-        isExport: false,
+        isExported: false,
         calls: [],
-        body: ['IF something', 'ELSE fallback'],
+        steps: [
+          { content: 'IF something', depth: 0 },
+          { content: 'ELSE fallback', depth: 0 },
+        ],
+        date: null,
       };
 
       const { container } = render(
-        <PseudoBlock func={func} project="/test-project" onNavigate={mockOnNavigate} />
+        <PseudoBlock func={func} project="/test-project" currentFileStem="test" onNavigate={mockOnNavigate} />
       );
 
       const strongElements = container.querySelectorAll('[data-testid="pseudo-block-body"] strong');
@@ -435,17 +472,18 @@ describe('PseudoBlock', () => {
   describe('Long Name Handling', () => {
     it('should handle very long function names', () => {
       const longName = 'veryLongFunctionNameThatMightNeedTruncation'.repeat(2);
-      const func: ParsedFunction = {
+      const func: PseudoMethod = {
         name: longName,
         params: 'arg1, arg2',
         returnType: 'string',
-        isExport: false,
+        isExported: false,
         calls: [],
-        body: [],
+        steps: [],
+        date: null,
       };
 
       const { container } = render(
-        <PseudoBlock func={func} project="/test-project" onNavigate={mockOnNavigate} />
+        <PseudoBlock func={func} project="/test-project" currentFileStem="test" onNavigate={mockOnNavigate} />
       );
 
       expect(container).toBeInTheDocument();
@@ -454,26 +492,27 @@ describe('PseudoBlock', () => {
 
   describe('Integration', () => {
     it('should render complete function block with all elements', () => {
-      const func: ParsedFunction = {
+      const func: PseudoMethod = {
         name: 'complete',
         params: 'input: string',
         returnType: 'Result',
-        isExport: true,
+        isExported: true,
         calls: [
           { name: 'validate', fileStem: 'validators' },
           { name: 'process', fileStem: 'processor' },
         ],
-        body: [
-          'IF input is empty',
-          'return error',
-          'ELSE',
-          'validate(validators)',
-          'process(processor)',
-          'return success',
+        steps: [
+          { content: 'IF input is empty', depth: 0 },
+          { content: 'return error', depth: 1 },
+          { content: 'ELSE', depth: 0 },
+          { content: 'validate(validators)', depth: 1 },
+          { content: 'process(processor)', depth: 1 },
+          { content: 'return success', depth: 1 },
         ],
+        date: null,
       };
 
-      render(<PseudoBlock func={func} project="/test-project" onNavigate={mockOnNavigate} />);
+      render(<PseudoBlock func={func} project="/test-project" currentFileStem="test" onNavigate={mockOnNavigate} />);
 
       // Header
       expect(screen.getByText('FUNCTION')).toBeInTheDocument();
@@ -494,16 +533,17 @@ describe('PseudoBlock', () => {
     });
 
     it('should call onNavigate when CallsLink is clicked', () => {
-      const func: ParsedFunction = {
+      const func: PseudoMethod = {
         name: 'caller',
         params: '',
         returnType: '',
-        isExport: false,
+        isExported: false,
         calls: [{ name: 'helper', fileStem: 'helpers' }],
-        body: [],
+        steps: [],
+        date: null,
       };
 
-      render(<PseudoBlock func={func} project="/test-project" onNavigate={mockOnNavigate} />);
+      render(<PseudoBlock func={func} project="/test-project" currentFileStem="test" onNavigate={mockOnNavigate} />);
 
       // The CallsLink should be clickable and call onNavigate
       const callLink = screen.getByRole('button', { name: /helper/ });

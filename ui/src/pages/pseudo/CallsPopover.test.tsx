@@ -14,6 +14,20 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import CallsPopover from './CallsPopover';
+import type { PseudoFileWithMethods } from '@/lib/pseudo-api';
+
+/** Helper to build a PseudoFileWithMethods fixture */
+function makeFileData(overrides: Partial<PseudoFileWithMethods> = {}): PseudoFileWithMethods {
+  return {
+    filePath: 'test.pseudo',
+    title: 'Test Module',
+    purpose: '',
+    moduleContext: '',
+    syncedAt: null,
+    methods: [],
+    ...overrides,
+  };
+}
 
 describe('CallsPopover', () => {
   const mockOnNavigate = vi.fn();
@@ -26,10 +40,14 @@ describe('CallsPopover', () => {
 
   describe('Basic Rendering', () => {
     it('should render popover on document.body via portal', () => {
-      const content = '// Test Module\nFUNCTION testFn() EXPORT\n---';
+      const fileData = makeFileData({
+        methods: [
+          { name: 'testFn', params: '', returnType: '', isExported: true, date: null, steps: [], calls: [] },
+        ],
+      });
       render(
         <CallsPopover
-          content={content}
+          fileData={fileData}
           fileStem="test"
           position={{ top: 100, left: 200 }}
           onNavigate={mockOnNavigate}
@@ -43,10 +61,10 @@ describe('CallsPopover', () => {
     });
 
     it('should display file stem in muted mono font, small size', () => {
-      const content = '// Test Module\n';
+      const fileData = makeFileData({ filePath: 'myfile.pseudo', title: 'Test Module' });
       render(
         <CallsPopover
-          content={content}
+          fileData={fileData}
           fileStem="myfile"
           position={{ top: 100, left: 200 }}
           onNavigate={mockOnNavigate}
@@ -63,10 +81,10 @@ describe('CallsPopover', () => {
     });
 
     it('should have 320px width', () => {
-      const content = '// Test Module\n';
+      const fileData = makeFileData();
       render(
         <CallsPopover
-          content={content}
+          fileData={fileData}
           fileStem="test"
           position={{ top: 100, left: 200 }}
           onNavigate={mockOnNavigate}
@@ -82,10 +100,16 @@ describe('CallsPopover', () => {
 
   describe('Title and Subtitle Rendering', () => {
     it('should display title line in bold', () => {
-      const content = '// File Parser\n// Parse pseudo code\nFUNCTION test() EXPORT\n---';
+      const fileData = makeFileData({
+        title: 'File Parser',
+        purpose: 'Parse pseudo code',
+        methods: [
+          { name: 'test', params: '', returnType: '', isExported: true, date: null, steps: [], calls: [] },
+        ],
+      });
       render(
         <CallsPopover
-          content={content}
+          fileData={fileData}
           fileStem="parser"
           position={{ top: 100, left: 200 }}
           onNavigate={mockOnNavigate}
@@ -100,10 +124,16 @@ describe('CallsPopover', () => {
     });
 
     it('should display subtitle line in muted small text when present', () => {
-      const content = '// File Parser\n// Parse pseudo code\nFUNCTION test() EXPORT\n---';
+      const fileData = makeFileData({
+        title: 'File Parser',
+        purpose: 'Parse pseudo code',
+        methods: [
+          { name: 'test', params: '', returnType: '', isExported: true, date: null, steps: [], calls: [] },
+        ],
+      });
       render(
         <CallsPopover
-          content={content}
+          fileData={fileData}
           fileStem="parser"
           position={{ top: 100, left: 200 }}
           onNavigate={mockOnNavigate}
@@ -119,10 +149,16 @@ describe('CallsPopover', () => {
     });
 
     it('should not render subtitle section when subtitle is empty', () => {
-      const content = '// File Parser\nFUNCTION test() EXPORT\n---';
+      const fileData = makeFileData({
+        title: 'File Parser',
+        purpose: '',
+        methods: [
+          { name: 'test', params: '', returnType: '', isExported: true, date: null, steps: [], calls: [] },
+        ],
+      });
       render(
         <CallsPopover
-          content={content}
+          fileData={fileData}
           fileStem="parser"
           position={{ top: 100, left: 200 }}
           onNavigate={mockOnNavigate}
@@ -139,10 +175,14 @@ describe('CallsPopover', () => {
 
   describe('Export Functions Listing', () => {
     it('should display "Exports:" label in small text', () => {
-      const content = '// Test Module\nFUNCTION test() EXPORT\n---';
+      const fileData = makeFileData({
+        methods: [
+          { name: 'test', params: '', returnType: '', isExported: true, date: null, steps: [], calls: [] },
+        ],
+      });
       render(
         <CallsPopover
-          content={content}
+          fileData={fileData}
           fileStem="test"
           position={{ top: 100, left: 200 }}
           onNavigate={mockOnNavigate}
@@ -157,11 +197,15 @@ describe('CallsPopover', () => {
     });
 
     it('should list exported functions in green', () => {
-      const content =
-        '// Test Module\nFUNCTION foo() EXPORT\n---\nFUNCTION bar() EXPORT\n---';
+      const fileData = makeFileData({
+        methods: [
+          { name: 'foo', params: '', returnType: '', isExported: true, date: null, steps: [], calls: [] },
+          { name: 'bar', params: '', returnType: '', isExported: true, date: null, steps: [], calls: [] },
+        ],
+      });
       render(
         <CallsPopover
-          content={content}
+          fileData={fileData}
           fileStem="test"
           position={{ top: 100, left: 200 }}
           onNavigate={mockOnNavigate}
@@ -179,14 +223,15 @@ describe('CallsPopover', () => {
     });
 
     it('should only list exported functions, not internal ones', () => {
-      const content = `// Test Module
-FUNCTION exported() EXPORT
----
-FUNCTION internal()
----`;
+      const fileData = makeFileData({
+        methods: [
+          { name: 'exported', params: '', returnType: '', isExported: true, date: null, steps: [], calls: [] },
+          { name: 'internal', params: '', returnType: '', isExported: false, date: null, steps: [], calls: [] },
+        ],
+      });
       render(
         <CallsPopover
-          content={content}
+          fileData={fileData}
           fileStem="test"
           position={{ top: 100, left: 200 }}
           onNavigate={mockOnNavigate}
@@ -201,10 +246,14 @@ FUNCTION internal()
     });
 
     it('should display functions in small text size', () => {
-      const content = '// Test Module\nFUNCTION testFn() EXPORT\n---';
+      const fileData = makeFileData({
+        methods: [
+          { name: 'testFn', params: '', returnType: '', isExported: true, date: null, steps: [], calls: [] },
+        ],
+      });
       render(
         <CallsPopover
-          content={content}
+          fileData={fileData}
           fileStem="test"
           position={{ top: 100, left: 200 }}
           onNavigate={mockOnNavigate}
@@ -218,10 +267,14 @@ FUNCTION internal()
     });
 
     it('should handle no exported functions gracefully', () => {
-      const content = '// Test Module\nFUNCTION internal()\n---';
+      const fileData = makeFileData({
+        methods: [
+          { name: 'internal', params: '', returnType: '', isExported: false, date: null, steps: [], calls: [] },
+        ],
+      });
       render(
         <CallsPopover
-          content={content}
+          fileData={fileData}
           fileStem="test"
           position={{ top: 100, left: 200 }}
           onNavigate={mockOnNavigate}
@@ -240,10 +293,10 @@ FUNCTION internal()
 
   describe('Fixed Positioning', () => {
     it('should apply top and left position styles', () => {
-      const content = '// Test Module\n';
+      const fileData = makeFileData();
       render(
         <CallsPopover
-          content={content}
+          fileData={fileData}
           fileStem="test"
           position={{ top: 150, left: 250 }}
           onNavigate={mockOnNavigate}
@@ -258,10 +311,10 @@ FUNCTION internal()
     });
 
     it('should be fixed positioned', () => {
-      const content = '// Test Module\n';
+      const fileData = makeFileData();
       render(
         <CallsPopover
-          content={content}
+          fileData={fileData}
           fileStem="test"
           position={{ top: 100, left: 200 }}
           onNavigate={mockOnNavigate}
@@ -279,10 +332,10 @@ FUNCTION internal()
   describe('Mouse Event Handlers', () => {
     it('should call onMouseEnter when mouse enters', async () => {
       const user = userEvent.setup();
-      const content = '// Test Module\n';
+      const fileData = makeFileData();
       render(
         <CallsPopover
-          content={content}
+          fileData={fileData}
           fileStem="test"
           position={{ top: 100, left: 200 }}
           onNavigate={mockOnNavigate}
@@ -299,10 +352,10 @@ FUNCTION internal()
 
     it('should call onMouseLeave when mouse leaves', async () => {
       const user = userEvent.setup();
-      const content = '// Test Module\n';
+      const fileData = makeFileData();
       render(
         <CallsPopover
-          content={content}
+          fileData={fileData}
           fileStem="test"
           position={{ top: 100, left: 200 }}
           onNavigate={mockOnNavigate}
@@ -321,10 +374,14 @@ FUNCTION internal()
 
   describe('Card Structure', () => {
     it('should have horizontal rule after file stem', () => {
-      const content = '// Test Module\nFUNCTION test() EXPORT\n---';
+      const fileData = makeFileData({
+        methods: [
+          { name: 'test', params: '', returnType: '', isExported: true, date: null, steps: [], calls: [] },
+        ],
+      });
       render(
         <CallsPopover
-          content={content}
+          fileData={fileData}
           fileStem="test"
           position={{ top: 100, left: 200 }}
           onNavigate={mockOnNavigate}
@@ -338,10 +395,14 @@ FUNCTION internal()
     });
 
     it('should have proper card styling with border and shadow', () => {
-      const content = '// Test Module\nFUNCTION test() EXPORT\n---';
+      const fileData = makeFileData({
+        methods: [
+          { name: 'test', params: '', returnType: '', isExported: true, date: null, steps: [], calls: [] },
+        ],
+      });
       render(
         <CallsPopover
-          content={content}
+          fileData={fileData}
           fileStem="test"
           position={{ top: 100, left: 200 }}
           onNavigate={mockOnNavigate}
@@ -356,28 +417,21 @@ FUNCTION internal()
     });
   });
 
-  describe('Integration with parsePseudo', () => {
-    it('should correctly parse and display complex pseudo content', () => {
-      const content = `// Data Parser
-// Parse JSON and validate data
-
-FUNCTION readFile(path: string) -> string EXPORT
-open file
-read content
-return content
----
-
-FUNCTION parseJSON(text: string) -> object EXPORT
-deserialize text
-validate data
----
-
-FUNCTION logError(msg: string)
-log message
----`;
+  describe('Integration with PseudoFileWithMethods', () => {
+    it('should correctly display complex file data', () => {
+      const fileData = makeFileData({
+        filePath: 'parser.pseudo',
+        title: 'Data Parser',
+        purpose: 'Parse JSON and validate data',
+        methods: [
+          { name: 'readFile', params: 'path: string', returnType: 'string', isExported: true, date: null, steps: [{ content: 'open file', depth: 0 }, { content: 'read content', depth: 0 }, { content: 'return content', depth: 0 }], calls: [] },
+          { name: 'parseJSON', params: 'text: string', returnType: 'object', isExported: true, date: null, steps: [{ content: 'deserialize text', depth: 0 }, { content: 'validate data', depth: 0 }], calls: [] },
+          { name: 'logError', params: 'msg: string', returnType: '', isExported: false, date: null, steps: [{ content: 'log message', depth: 0 }], calls: [] },
+        ],
+      });
       render(
         <CallsPopover
-          content={content}
+          fileData={fileData}
           fileStem="parser"
           position={{ top: 100, left: 200 }}
           onNavigate={mockOnNavigate}

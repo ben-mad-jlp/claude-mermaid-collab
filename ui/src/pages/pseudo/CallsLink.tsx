@@ -12,7 +12,7 @@
 
 import React, { useState, useRef, useCallback } from 'react';
 import CallsPopover from './CallsPopover';
-import { fetchPseudoFile } from '@/lib/pseudo-api';
+import { fetchPseudoFile, type PseudoFileWithMethods } from '@/lib/pseudo-api';
 
 export type CallsLinkProps = {
   name: string;
@@ -33,7 +33,7 @@ export default function CallsLink({
   const [popoverState, setPopoverState] = useState<{
     visible: boolean;
     anchorRect?: DOMRect;
-    content?: string;
+    fileData?: PseudoFileWithMethods;
   }>({
     visible: false,
   });
@@ -62,17 +62,17 @@ export default function CallsLink({
     hoverTimer.current = setTimeout(async () => {
       if (anchorRef.current) {
         const rect = anchorRef.current.getBoundingClientRect();
-        // Fetch content then show popover
-        let content = '';
+        // Fetch file data then show popover
+        let fileData: PseudoFileWithMethods | undefined;
         try {
-          content = await fetchPseudoFile(project, fileStem);
+          fileData = await fetchPseudoFile(project, fileStem);
         } catch {
-          // Show popover without content on fetch error
+          // Show popover without file data on fetch error
         }
         setPopoverState({
           visible: true,
           anchorRect: rect,
-          content,
+          fileData,
         });
       }
     }, HOVER_DELAY);
@@ -126,7 +126,7 @@ export default function CallsLink({
       {popoverState.visible && popoverState.anchorRect && (
         <CallsPopover
           fileStem={fileStem}
-          content={popoverState.content}
+          fileData={popoverState.fileData}
           anchorRect={popoverState.anchorRect}
           visible={popoverState.visible}
           onMouseEnter={handlePopoverMouseEnter}

@@ -13,7 +13,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { createRef, RefObject } from 'react';
 import FunctionJumpPanel from './FunctionJumpPanel';
-import { ParsedFunction } from './parsePseudo';
+import type { PseudoMethod } from '@/lib/pseudo-api';
 
 // Mock IntersectionObserver
 const mockObserve = vi.fn();
@@ -72,14 +72,15 @@ describe('FunctionJumpPanel', () => {
   describe('Panel Rendering', () => {
     it('should render panel with correct styling when functions exist', () => {
       const mockRef = createRef<any>();
-      const functions: ParsedFunction[] = [
+      const functions: PseudoMethod[] = [
         {
           name: 'testFunc',
           params: '',
           returnType: '',
-          isExport: false,
+          isExported: false,
           calls: [],
-          body: [],
+          steps: [],
+          date: null,
         },
       ];
 
@@ -99,14 +100,15 @@ describe('FunctionJumpPanel', () => {
 
     it('should render FUNCTIONS header', () => {
       const mockRef = createRef<any>();
-      const functions: ParsedFunction[] = [
+      const functions: PseudoMethod[] = [
         {
           name: 'func1',
           params: '',
           returnType: '',
-          isExport: false,
+          isExported: false,
           calls: [],
-          body: [],
+          steps: [],
+          date: null,
         },
       ];
 
@@ -122,30 +124,33 @@ describe('FunctionJumpPanel', () => {
   describe('Function List Rendering', () => {
     it('should render all functions in the list', () => {
       const mockRef = createRef<any>();
-      const functions: ParsedFunction[] = [
+      const functions: PseudoMethod[] = [
         {
           name: 'function1',
           params: '',
           returnType: '',
-          isExport: false,
+          isExported: false,
           calls: [],
-          body: [],
+          steps: [],
+          date: null,
         },
         {
           name: 'function2',
           params: '',
           returnType: '',
-          isExport: false,
+          isExported: false,
           calls: [],
-          body: [],
+          steps: [],
+          date: null,
         },
         {
           name: 'function3',
           params: '',
           returnType: '',
-          isExport: true,
+          isExported: true,
           calls: [],
-          body: [],
+          steps: [],
+          date: null,
         },
       ];
 
@@ -158,14 +163,15 @@ describe('FunctionJumpPanel', () => {
 
     it('should render function entries as clickable divs', () => {
       const mockRef = createRef<any>();
-      const functions: ParsedFunction[] = [
+      const functions: PseudoMethod[] = [
         {
           name: 'clickableFunc',
           params: '',
           returnType: '',
-          isExport: false,
+          isExported: false,
           calls: [],
-          body: [],
+          steps: [],
+          date: null,
         },
       ];
 
@@ -181,14 +187,15 @@ describe('FunctionJumpPanel', () => {
   describe('Export Indicator', () => {
     it('should render green dot for exported functions', () => {
       const mockRef = createRef<any>();
-      const functions: ParsedFunction[] = [
+      const functions: PseudoMethod[] = [
         {
           name: 'exportedFunc',
           params: '',
           returnType: '',
-          isExport: true,
+          isExported: true,
           calls: [],
-          body: [],
+          steps: [],
+          date: null,
         },
       ];
 
@@ -208,14 +215,15 @@ describe('FunctionJumpPanel', () => {
 
     it('should not render green dot for non-exported functions', () => {
       const mockRef = createRef<any>();
-      const functions: ParsedFunction[] = [
+      const functions: PseudoMethod[] = [
         {
           name: 'privateFunc',
           params: '',
           returnType: '',
-          isExport: false,
+          isExported: false,
           calls: [],
-          body: [],
+          steps: [],
+          date: null,
         },
       ];
 
@@ -232,14 +240,15 @@ describe('FunctionJumpPanel', () => {
   describe('Active Function Tracking', () => {
     it('should create IntersectionObserver on mount', () => {
       const mockRef = createRef<any>();
-      const functions: ParsedFunction[] = [
+      const functions: PseudoMethod[] = [
         {
           name: 'func1',
           params: '',
           returnType: '',
-          isExport: false,
+          isExported: false,
           calls: [],
-          body: [],
+          steps: [],
+          date: null,
         },
       ];
 
@@ -255,14 +264,15 @@ describe('FunctionJumpPanel', () => {
         scrollToFunction: vi.fn(),
       };
 
-      const functions: ParsedFunction[] = [
+      const functions: PseudoMethod[] = [
         {
           name: 'func1',
           params: '',
           returnType: '',
-          isExport: false,
+          isExported: false,
           calls: [],
-          body: [],
+          steps: [],
+          date: null,
         },
       ];
 
@@ -282,22 +292,24 @@ describe('FunctionJumpPanel', () => {
         scrollToFunction: vi.fn(),
       };
 
-      const functions: ParsedFunction[] = [
+      const functions: PseudoMethod[] = [
         {
           name: 'func1',
           params: '',
           returnType: '',
-          isExport: false,
+          isExported: false,
           calls: [],
-          body: [],
+          steps: [],
+          date: null,
         },
         {
           name: 'func2',
           params: '',
           returnType: '',
-          isExport: false,
+          isExported: false,
           calls: [],
-          body: [],
+          steps: [],
+          date: null,
         },
       ];
 
@@ -310,14 +322,15 @@ describe('FunctionJumpPanel', () => {
 
     it('should disconnect observer on unmount', () => {
       const mockRef = createRef<any>();
-      const functions: ParsedFunction[] = [
+      const functions: PseudoMethod[] = [
         {
           name: 'func1',
           params: '',
           returnType: '',
-          isExport: false,
+          isExported: false,
           calls: [],
-          body: [],
+          steps: [],
+          date: null,
         },
       ];
 
@@ -333,14 +346,15 @@ describe('FunctionJumpPanel', () => {
 
     it('should update observer when functions change', () => {
       const mockRef = createRef<any>();
-      const functions1: ParsedFunction[] = [
+      const functions1: PseudoMethod[] = [
         {
           name: 'func1',
           params: '',
           returnType: '',
-          isExport: false,
+          isExported: false,
           calls: [],
-          body: [],
+          steps: [],
+          date: null,
         },
       ];
 
@@ -351,22 +365,24 @@ describe('FunctionJumpPanel', () => {
       mockDisconnect.mockClear();
       mockObserve.mockClear();
 
-      const functions2: ParsedFunction[] = [
+      const functions2: PseudoMethod[] = [
         {
           name: 'func1',
           params: '',
           returnType: '',
-          isExport: false,
+          isExported: false,
           calls: [],
-          body: [],
+          steps: [],
+          date: null,
         },
         {
           name: 'func2',
           params: '',
           returnType: '',
-          isExport: false,
+          isExported: false,
           calls: [],
-          body: [],
+          steps: [],
+          date: null,
         },
       ];
 
@@ -381,14 +397,15 @@ describe('FunctionJumpPanel', () => {
   describe('Active State Styling', () => {
     it('should apply active styling to the active function entry', () => {
       const mockRef = createRef<any>();
-      const functions: ParsedFunction[] = [
+      const functions: PseudoMethod[] = [
         {
           name: 'activeFunc',
           params: '',
           returnType: '',
-          isExport: false,
+          isExported: false,
           calls: [],
-          body: [],
+          steps: [],
+          date: null,
         },
       ];
 
@@ -404,22 +421,24 @@ describe('FunctionJumpPanel', () => {
 
     it('should render inactive function entries with default styling', () => {
       const mockRef = createRef<any>();
-      const functions: ParsedFunction[] = [
+      const functions: PseudoMethod[] = [
         {
           name: 'func1',
           params: '',
           returnType: '',
-          isExport: false,
+          isExported: false,
           calls: [],
-          body: [],
+          steps: [],
+          date: null,
         },
         {
           name: 'func2',
           params: '',
           returnType: '',
-          isExport: false,
+          isExported: false,
           calls: [],
-          body: [],
+          steps: [],
+          date: null,
         },
       ];
 
@@ -443,14 +462,15 @@ describe('FunctionJumpPanel', () => {
         scrollToFunction: mockScrollToFunction,
       };
 
-      const functions: ParsedFunction[] = [
+      const functions: PseudoMethod[] = [
         {
           name: 'targetFunc',
           params: '',
           returnType: '',
-          isExport: false,
+          isExported: false,
           calls: [],
-          body: [],
+          steps: [],
+          date: null,
         },
       ];
 
@@ -472,22 +492,24 @@ describe('FunctionJumpPanel', () => {
         scrollToFunction: mockScrollToFunction,
       };
 
-      const functions: ParsedFunction[] = [
+      const functions: PseudoMethod[] = [
         {
           name: 'func1',
           params: '',
           returnType: '',
-          isExport: false,
+          isExported: false,
           calls: [],
-          body: [],
+          steps: [],
+          date: null,
         },
         {
           name: 'func2',
           params: '',
           returnType: '',
-          isExport: false,
+          isExported: false,
           calls: [],
-          body: [],
+          steps: [],
+          date: null,
         },
       ];
 
@@ -511,30 +533,33 @@ describe('FunctionJumpPanel', () => {
         scrollToFunction: mockScrollToFunction,
       };
 
-      const functions: ParsedFunction[] = [
+      const functions: PseudoMethod[] = [
         {
           name: 'publicFunc',
           params: '',
           returnType: '',
-          isExport: true,
+          isExported: true,
           calls: [],
-          body: [],
+          steps: [],
+          date: null,
         },
         {
           name: 'privateFunc',
           params: '',
           returnType: '',
-          isExport: false,
+          isExported: false,
           calls: [],
-          body: [],
+          steps: [],
+          date: null,
         },
         {
           name: 'anotherPublic',
           params: '',
           returnType: '',
-          isExport: true,
+          isExported: true,
           calls: [],
-          body: [],
+          steps: [],
+          date: null,
         },
       ];
 

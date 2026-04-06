@@ -8,11 +8,10 @@
  * - Empty state when no file selected
  */
 
-import React, { forwardRef, useEffect, useState, useCallback, useMemo, useImperativeHandle, useRef } from 'react';
+import React, { forwardRef, useEffect, useState, useImperativeHandle, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { fetchPseudoFile } from '@/lib/pseudo-api';
+import { fetchPseudoFile, PseudoFileWithMethods, PseudoMethod } from '@/lib/pseudo-api';
 import PseudoBlock from './PseudoBlock';
-import { parsePseudo } from './parsePseudo';
 
 export type PseudoViewerHandle = {
   scrollToFunction: (name: string) => void;
@@ -32,7 +31,7 @@ export const PseudoViewer = forwardRef<PseudoViewerHandle, PseudoViewerProps>(
   ({ path, project, onFunctionsChange }, ref) => {
     const navigate = useNavigate();
     const contentRef = useRef<HTMLDivElement>(null);
-    const [content, setContent] = useState<string>('');
+    const [fileData, setFileData] = useState<PseudoFileWithMethods | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -41,7 +40,7 @@ export const PseudoViewer = forwardRef<PseudoViewerHandle, PseudoViewerProps>(
      */
     useEffect(() => {
       if (!path || !project) {
-        setContent('');
+        setFileData(null);
         setLoading(false);
         return;
       }
@@ -50,11 +49,11 @@ export const PseudoViewer = forwardRef<PseudoViewerHandle, PseudoViewerProps>(
         try {
           setLoading(true);
           setError(null);
-          const fileContent = await fetchPseudoFile(project, path);
-          setContent(fileContent);
+          const data = await fetchPseudoFile(project, path);
+          setFileData(data);
         } catch (err) {
           setError(err instanceof Error ? err.message : 'Failed to load file');
-          setContent('');
+          setFileData(null);
         } finally {
           setLoading(false);
         }
@@ -63,15 +62,12 @@ export const PseudoViewer = forwardRef<PseudoViewerHandle, PseudoViewerProps>(
       loadFile();
     }, [path, project]);
 
-    // Parse pseudo-file into blocks — memoized so reference is stable when content unchanged
-    const parsed = useMemo(() => parsePseudo(content), [content]);
-
-    // Notify parent of functions change
+    // Notify parent of methods change
     useEffect(() => {
-      if (onFunctionsChange) {
-        onFunctionsChange(parsed.functions);
+      if (onFunctionsChange && fileData) {
+        onFunctionsChange(fileData.methods);
       }
-    }, [parsed.functions, onFunctionsChange]);
+    }, [fileData?.methods, onFunctionsChange]);
 
     // Expose scrollToFunction via imperative handle
     useImperativeHandle(ref, () => ({
@@ -122,38 +118,38 @@ export const PseudoViewer = forwardRef<PseudoViewerHandle, PseudoViewerProps>(
           <div className="text-sm font-mono text-gray-600 dark:text-gray-400 truncate">
             {path}
           </div>
-          {parsed.syncedAt && (
+          {fileData?.syncedAt && (
             <div className="text-xs flex-shrink-0" style={{ color: '#a8a29e' }}>
-              synced {parsed.syncedAt.slice(0, 10)}
+              synced {fileData.syncedAt.slice(0, 10)}
             </div>
           )}
         </div>
 
         {/* Content area */}
         <div ref={contentRef} className="flex-1 overflow-auto p-4">
-          {/* Module header: title, subtitle, prose */}
-          {(parsed.titleLine || parsed.subtitleLine || parsed.moduleProse.length > 0) && (
+          {/* Module header: title, purpose, context */}
+          {fileData && (fileData.title || fileData.purpose || fileData.moduleContext?.trim()) && (
             <div className="mb-6 pb-4 border-b border-purple-100 dark:border-purple-900">
-              {parsed.titleLine && (
-                <div className="text-lg font-bold mb-1" style={{ color: '#7c3aed' }}>{parsed.titleLine}</div>
+              {fileData.title && (
+                <div className="text-lg font-bold mb-1" style={{ color: '#7c3aed' }}>{fileData.title}</div>
               )}
-              {parsed.subtitleLine && (
-                <div className="text-sm font-medium mb-2" style={{ color: '#44403c' }}>{parsed.subtitleLine}</div>
+              {fileData.purpose && (
+                <div className="text-sm font-medium mb-2" style={{ color: '#44403c' }}>{fileData.purpose}</div>
               )}
-              {parsed.moduleProse.filter(l => l.trim()).map((line, idx) => (
+              {fileData.moduleContext?.trim() && fileData.moduleContext.split('\n').filter(l => l.trim()).map((line, idx) => (
                 <p key={idx} className="text-sm" style={{ color: '#57534e' }}>{line}</p>
               ))}
             </div>
           )}
 
-          {parsed.functions.length === 0 ? (
+          {!fileData || fileData.methods.length === 0 ? (
             <p className="text-gray-500 dark:text-gray-400">No functions</p>
           ) : (
             <div className="space-y-4">
-              {parsed.functions.map((func, idx) => (
+              {fileData.methods.map((method, idx) => (
                 <PseudoBlock
                   key={idx}
-                  func={func}
+                  func={method}
                   project={project}
                   currentFileStem={path.split('/').pop() || path}
                   onNavigate={(stem) => {

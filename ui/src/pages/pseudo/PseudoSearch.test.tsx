@@ -195,31 +195,9 @@ describe('PseudoSearch', () => {
       const user = userEvent.setup();
 
       (pseudoApi.searchPseudo as any).mockResolvedValue([
-        {
-          file: 'api.pseudo',
-          matches: [
-            {
-              functionName:'fetchUser',
-              line: 'async function fetchUser(id: number): Promise<User>',
-              lineNumber: 5,
-            },
-            {
-              functionName:'fetchUser',
-              line: '  const user = await db.getUser(id)',
-              lineNumber: 6,
-            },
-          ],
-        },
-        {
-          file: 'utils.pseudo',
-          matches: [
-            {
-              functionName:'validateUser',
-              line: '  if (!user.id) throw new Error("Invalid user")',
-              lineNumber: 12,
-            },
-          ],
-        },
+        { filePath: 'api.pseudo', methodName: 'fetchUser', snippet: 'async function fetchUser(id: number): Promise<User>', rank: 1 },
+        { filePath: 'api.pseudo', methodName: 'fetchUser', snippet: '  const user = await db.getUser(id)', rank: 2 },
+        { filePath: 'utils.pseudo', methodName: 'validateUser', snippet: '  if (!user.id) throw new Error("Invalid user")', rank: 3 },
       ]);
 
       render(
@@ -256,16 +234,7 @@ describe('PseudoSearch', () => {
         'async function veryLongFunctionNameWithManyCharacters(param1: string, param2: number, param3: boolean): Promise<ComplexType<nested<generic>>>';
 
       (pseudoApi.searchPseudo as any).mockResolvedValue([
-        {
-          file: 'long.pseudo',
-          matches: [
-            {
-              functionName:'veryLongFunctionNameWithManyCharacters',
-              line: longSig,
-              lineNumber: 1,
-            },
-          ],
-        },
+        { filePath: 'long.pseudo', methodName: 'veryLongFunctionNameWithManyCharacters', snippet: longSig, rank: 1 },
       ]);
 
       render(
@@ -297,36 +266,11 @@ describe('PseudoSearch', () => {
       const user = userEvent.setup();
 
       (pseudoApi.searchPseudo as any).mockResolvedValue([
-        {
-          file: 'many.pseudo',
-          matches: [
-            {
-              functionName:'func1',
-              line: 'function func1() {}',
-              lineNumber: 1,
-            },
-            {
-              functionName:'func2',
-              line: 'function func2() {}',
-              lineNumber: 2,
-            },
-            {
-              functionName:'func3',
-              line: 'function func3() {}',
-              lineNumber: 3,
-            },
-            {
-              functionName:'func4',
-              line: 'function func4() {}',
-              lineNumber: 4,
-            },
-            {
-              functionName:'func5',
-              line: 'function func5() {}',
-              lineNumber: 5,
-            },
-          ],
-        },
+        { filePath: 'many.pseudo', methodName: 'func1', snippet: 'function func1() {}', rank: 1 },
+        { filePath: 'many.pseudo', methodName: 'func2', snippet: 'function func2() {}', rank: 2 },
+        { filePath: 'many.pseudo', methodName: 'func3', snippet: 'function func3() {}', rank: 3 },
+        { filePath: 'many.pseudo', methodName: 'func4', snippet: 'function func4() {}', rank: 4 },
+        { filePath: 'many.pseudo', methodName: 'func5', snippet: 'function func5() {}', rank: 5 },
       ]);
 
       render(
@@ -385,21 +329,8 @@ describe('PseudoSearch', () => {
       const user = userEvent.setup();
 
       (pseudoApi.searchPseudo as any).mockResolvedValue([
-        {
-          file: 'api.pseudo',
-          matches: [
-            {
-              functionName:'fetchUser',
-              line: 'async function fetchUser(id: number): Promise<User>',
-              lineNumber: 5,
-            },
-            {
-              functionName:'createUser',
-              line: 'async function createUser(name: string): Promise<User>',
-              lineNumber: 10,
-            },
-          ],
-        },
+        { filePath: 'api.pseudo', methodName: 'fetchUser', snippet: 'async function fetchUser(id: number): Promise<User>', rank: 1 },
+        { filePath: 'api.pseudo', methodName: 'createUser', snippet: 'async function createUser(name: string): Promise<User>', rank: 2 },
       ]);
 
       render(
@@ -430,26 +361,9 @@ describe('PseudoSearch', () => {
       const user = userEvent.setup();
 
       (pseudoApi.searchPseudo as any).mockResolvedValue([
-        {
-          file: 'api.pseudo',
-          matches: [
-            {
-              functionName:'func1',
-              line: 'function func1() {}',
-              lineNumber: 1,
-            },
-            {
-              functionName:'func2',
-              line: 'function func2() {}',
-              lineNumber: 2,
-            },
-            {
-              functionName:'func3',
-              line: 'function func3() {}',
-              lineNumber: 3,
-            },
-          ],
-        },
+        { filePath: 'api.pseudo', methodName: 'func1', snippet: 'function func1() {}', rank: 1 },
+        { filePath: 'api.pseudo', methodName: 'func2', snippet: 'function func2() {}', rank: 2 },
+        { filePath: 'api.pseudo', methodName: 'func3', snippet: 'function func3() {}', rank: 3 },
       ]);
 
       render(
@@ -484,16 +398,7 @@ describe('PseudoSearch', () => {
       const user = userEvent.setup();
 
       (pseudoApi.searchPseudo as any).mockResolvedValue([
-        {
-          file: 'api.pseudo',
-          matches: [
-            {
-              functionName:'fetchUser',
-              line: 'async function fetchUser(id: number): Promise<User>',
-              lineNumber: 5,
-            },
-          ],
-        },
+        { filePath: 'api.pseudo', methodName: 'fetchUser', snippet: 'async function fetchUser(id: number): Promise<User>', rank: 1 },
       ]);
 
       render(
@@ -529,16 +434,7 @@ describe('PseudoSearch', () => {
       const user = userEvent.setup();
 
       (pseudoApi.searchPseudo as any).mockResolvedValue([
-        {
-          file: 'api.pseudo',
-          matches: [
-            {
-              functionName:'fetchUser',
-              line: 'async function fetchUser(id: number): Promise<User>',
-              lineNumber: 5,
-            },
-          ],
-        },
+        { filePath: 'api.pseudo', methodName: 'fetchUser', snippet: 'async function fetchUser(id: number): Promise<User>', rank: 1 },
       ]);
 
       render(
@@ -573,16 +469,7 @@ describe('PseudoSearch', () => {
       const user = userEvent.setup();
 
       (pseudoApi.searchPseudo as any).mockResolvedValue([
-        {
-          file: 'api.pseudo',
-          matches: [
-            {
-              functionName:'fetchUser',
-              line: 'async function fetchUser(id: number): Promise<User>',
-              lineNumber: 5,
-            },
-          ],
-        },
+        { filePath: 'api.pseudo', methodName: 'fetchUser', snippet: 'async function fetchUser(id: number): Promise<User>', rank: 1 },
       ]);
 
       render(
@@ -635,16 +522,7 @@ describe('PseudoSearch', () => {
       const user = userEvent.setup();
 
       (pseudoApi.searchPseudo as any).mockResolvedValue([
-        {
-          file: 'api.pseudo',
-          matches: [
-            {
-              functionName:'fetchUser',
-              line: 'async function fetchUser(id: number): Promise<User>',
-              lineNumber: 5,
-            },
-          ],
-        },
+        { filePath: 'api.pseudo', methodName: 'fetchUser', snippet: 'async function fetchUser(id: number): Promise<User>', rank: 1 },
       ]);
 
       render(

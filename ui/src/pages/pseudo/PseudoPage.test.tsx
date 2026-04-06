@@ -112,7 +112,11 @@ describe('PseudoPage', () => {
       setSelectedProject: vi.fn(),
     });
 
-    mockFetchPseudoFiles.mockResolvedValue(['file1.pseudo', 'file2.pseudo', 'dir/file3.pseudo']);
+    mockFetchPseudoFiles.mockResolvedValue([
+      { filePath: 'file1.pseudo', title: 'File 1', methodCount: 1, exportCount: 0, lastUpdated: '2026-01-01' },
+      { filePath: 'file2.pseudo', title: 'File 2', methodCount: 2, exportCount: 1, lastUpdated: '2026-01-01' },
+      { filePath: 'dir/file3.pseudo', title: 'File 3', methodCount: 1, exportCount: 0, lastUpdated: '2026-01-01' },
+    ]);
   });
 
   const renderPseudoPage = () => {
