@@ -3727,15 +3727,15 @@ IMPORTANT - Common pitfalls to avoid:
             return JSON.stringify(result, null, 2);
           }
           case 'create_storybook_embed': {
-            const { project, session, name, storyId, port } = args as any;
+            const { project, session, name, storyId, port, host } = args as any;
             if (!project || !session) throw new Error('Missing required: project, session');
             if (!name || !storyId) throw new Error('Missing required: name, storyId');
-            const result = await handleCreateStorybookEmbed(project, session, name, storyId, port);
+            const result = await handleCreateStorybookEmbed(project, session, name, storyId, port, host);
             return JSON.stringify(result, null, 2);
           }
           case 'list_storybook_stories': {
-            const { port } = args as any;
-            const result = await handleListStorybookStories(port);
+            const { port, host } = args as any;
+            const result = await handleListStorybookStories(port, host);
             return JSON.stringify(result, null, 2);
           }
           case 'deprecate_artifact': {

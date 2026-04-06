@@ -538,7 +538,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="space-y-1 px-2 pb-2">
               {blueprintItems.map((item) => (
                 <button
-                  key={item.id}
+                  key={`document-${item.id}`}
                   onClick={() => handleItemClick(item)}
                   className={`
                     w-full text-left px-3 py-2 rounded-lg
@@ -680,7 +680,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="space-y-2 px-2">
             {filteredItems.map((item) => (
               <ItemCard
-                key={item.id}
+                key={`${item.type}-${item.id}`}
                 item={item}
                 isSelected={isItemSelected(item)}
                 onClick={() => handleItemClick(item)}

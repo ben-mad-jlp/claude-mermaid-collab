@@ -154,6 +154,7 @@ export const createStorybookEmbedSchema = {
     ...sessionParamsDesc,
     name: { type: 'string', description: 'Display name for the embed' },
     storyId: { type: 'string', description: 'Storybook story ID (e.g., "features-picking-pickingscreen--default")' },
+    host: { type: 'string', description: 'Storybook dev server host (default: localhost). Use the machine\'s IP or hostname for remote access.' },
     port: { type: 'number', description: 'Storybook dev server port (default: 6006)' },
   },
   required: ['project', 'name', 'storyId'],
@@ -162,6 +163,7 @@ export const createStorybookEmbedSchema = {
 export const listStorybookStoriesSchema = {
   type: 'object' as const,
   properties: {
+    host: { type: 'string', description: 'Storybook dev server host (default: localhost)' },
     port: { type: 'number', description: 'Storybook dev server port (default: 6006)' },
   },
   required: [],
@@ -175,15 +177,18 @@ export async function handleCreateStorybookEmbed(
   name: string,
   storyId: string,
   port?: number,
+  host?: string,
 ) {
   const actualPort = port || 6006;
-  const url = `http://localhost:${actualPort}/iframe.html?id=${storyId}&viewMode=story`;
+  const actualHost = host || 'localhost';
+  const url = `http://${actualHost}:${actualPort}/iframe.html?id=${storyId}&viewMode=story`;
   return handleCreateEmbed(project, session, name, url, 'storybook', undefined, undefined, { storyId, port: actualPort });
 }
 
-export async function handleListStorybookStories(port?: number) {
+export async function handleListStorybookStories(port?: number, host?: string) {
   const actualPort = port || 6006;
-  const indexUrl = `http://localhost:${actualPort}/index.json`;
+  const actualHost = host || 'localhost';
+  const indexUrl = `http://${actualHost}:${actualPort}/index.json`;
   try {
     const response = await fetch(indexUrl);
     if (!response.ok) {
@@ -201,6 +206,6 @@ export async function handleListStorybookStories(port?: number) {
       }));
     return { stories };
   } catch (error: any) {
-    return { error: `Could not reach Storybook at http://localhost:${actualPort}. Is the dev server running? (${error.message})` };
+    return { error: `Could not reach Storybook at http://${actualHost}:${actualPort}. Is the dev server running? (${error.message})` };
   }
 }
