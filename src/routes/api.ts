@@ -821,8 +821,16 @@ export async function handleAPI(
     }
 
     try {
+      const { metadataManager } = await createManagers(params.project, params.session);
       const mockRes = {
-        json: (data: any) => Response.json(data),
+        json: (data: any) => {
+          const enriched = data.designs.map((d: any) => ({
+            ...d,
+            deprecated: metadataManager.isDeprecated(d.id),
+            pinned: metadataManager.isPinned(d.id),
+          }));
+          return Response.json({ designs: enriched });
+        },
       };
       return await listDesignsHandler({ query: params }, mockRes);
     } catch (error: any) {

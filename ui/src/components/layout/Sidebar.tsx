@@ -47,6 +47,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     updateDocument,
     updateSpreadsheet,
     updateSnippet,
+    updateDesign,
     embeds,
     selectedEmbedId,
     selectEmbed,
@@ -85,6 +86,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       updateDocument: state.updateDocument,
       updateSpreadsheet: state.updateSpreadsheet,
       updateSnippet: state.updateSnippet,
+      updateDesign: state.updateDesign,
       embeds: state.embeds,
       selectedEmbedId: state.selectedEmbedId,
       selectEmbed: state.selectEmbed,
@@ -167,12 +169,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
           updateSpreadsheet(item.id, { deprecated: newDeprecated });
         } else if (item.type === 'snippet') {
           updateSnippet(item.id, { deprecated: newDeprecated });
+        } else if (item.type === 'design') {
+          updateDesign(item.id, { deprecated: newDeprecated });
         }
       } catch (error) {
         console.error('Failed to set deprecated:', error);
       }
     },
-    [currentSession, updateDiagram, updateDocument, updateSpreadsheet, updateSnippet]
+    [currentSession, updateDiagram, updateDocument, updateSpreadsheet, updateSnippet, updateDesign]
   );
 
   const handlePinItem = useCallback(
@@ -189,12 +193,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
           updateSpreadsheet(item.id, { pinned: newPinned });
         } else if (item.type === 'snippet') {
           updateSnippet(item.id, { pinned: newPinned });
+        } else if (item.type === 'design') {
+          updateDesign(item.id, { pinned: newPinned });
         }
       } catch (error) {
         console.error('Failed to set pinned:', error);
       }
     },
-    [currentSession, updateDiagram, updateDocument, updateSpreadsheet, updateSnippet]
+    [currentSession, updateDiagram, updateDocument, updateSpreadsheet, updateSnippet, updateDesign]
   );
 
   const handleItemClick = useCallback(
