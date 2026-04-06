@@ -308,6 +308,12 @@ class PseudoDbService {
     }));
   }
 
+  getFileByStem(stem: string): PseudoFileWithMethods | null {
+    const file = this.db.prepare('SELECT * FROM files WHERE file_stem = ?').get(stem) as any;
+    if (!file) return null;
+    return this.getFile(file.file_path);
+  }
+
   getFile(filePath: string): PseudoFileWithMethods | null {
     const file = this.db.prepare('SELECT * FROM files WHERE file_path = ?').get(filePath) as any;
     if (!file) return null;

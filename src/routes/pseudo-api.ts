@@ -144,7 +144,8 @@ function handleListFiles(project: string): Response {
 
 function handleGetFile(project: string, file: string): Response {
   const db = getPseudoDb(project);
-  const result = db.getFile(file);
+  // Try exact path first, then fall back to stem lookup
+  const result = db.getFile(file) || db.getFileByStem(file);
   if (!result) return jsonError('File not found', 404);
   return Response.json(result);
 }
