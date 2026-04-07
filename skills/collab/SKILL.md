@@ -64,10 +64,21 @@ Otherwise:
    Tool: mcp__plugin_mermaid-collab_mermaid__create_document
    Args: { "project": "<cwd>", "session": "<name>", "name": "vibe.vibeinstructions", "content": "# Vibe: <name>\n\n## Goal\n[Not yet defined]\n\n## Context\n[No context recorded]\n\n## Currently Doing\n[Nothing recorded yet]" }
    ```
-4. Invoke skill: `vibe-active`
+4. Register this Claude Code session for notifications:
+   ```
+   Tool: mcp__plugin_mermaid-collab_mermaid__register_claude_session
+   Args: { "project": "<cwd>", "session": "<name>" }
+   ```
+5. Invoke skill: `vibe-active`
 
 ## Step 4: Resume Existing Session
 
-Invoke skill: `vibe-active`
+Register this Claude Code session for notifications:
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__register_claude_session
+Args: { "project": "<cwd>", "session": "<selected-session>" }
+```
+
+Then invoke skill: `vibe-active`
 
 The vibe-active skill handles reading the vibeinstructions document and resuming from where the user left off.

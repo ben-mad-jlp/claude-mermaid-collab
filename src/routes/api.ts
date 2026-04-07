@@ -48,6 +48,13 @@ function expandPath(path: string): string {
 // Track server start time for uptime calculation
 const serverStartTime = Date.now();
 
+const claudeSessionMap = new Map<string, {
+  project: string;
+  session: string;
+  status: 'active' | 'waiting';
+  lastUpdate: number;
+}>();
+
 /**
  * Extract project and session from query params.
  * Returns null if either is missing.
@@ -1402,7 +1409,7 @@ export async function handleAPI(
     }
 
     try {
-      const { documentManager } = await createManagers(params.project, params.session);
+      const { documentManager, metadataManager } = await createManagers(params.project, params.session);
 
       // Get old content before saving (for history logging)
       const oldDocument = await documentManager.getDocument(id);
@@ -1410,6 +1417,11 @@ export async function handleAPI(
 
       // Save the document
       await documentManager.saveDocument(id, content);
+
+      // Auto-undeprecate on update
+      if (metadataManager.isDeprecated(id)) {
+        metadataManager.setDeprecated(id, false);
+      }
 
       // Log the update (don't fail the request if logging fails)
       try {
@@ -2067,6 +2079,63 @@ export async function handleAPI(
     } catch (error: any) {
       return Response.json({ valid: false, storyId, error: 'Could not reach Storybook at localhost:' + port + '. Is the dev server running? (' + error.message + ')' });
     }
+  }
+
+  // POST /api/claude-session/register?project=...&session=...
+  if (path === '/api/claude-session/register' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    const { claudeSessionId } = await req.json() as { claudeSessionId?: string };
+
+    if (!claudeSessionId) {
+      return Response.json({ error: 'claudeSessionId required' }, { status: 400 });
+    }
+
+    claudeSessionMap.set(claudeSessionId, {
+      project: params.project,
+      session: params.session,
+      status: 'active',
+      lastUpdate: Date.now(),
+    });
+
+    wsHandler.broadcast({
+      type: 'claude_session_registered',
+      claudeSessionId,
+      project: params.project,
+      session: params.session,
+    });
+
+    return Response.json({ success: true, claudeSessionId });
+  }
+
+  // POST /api/session-notify
+  if (path === '/api/session-notify' && req.method === 'POST') {
+    const { claudeSessionId, status } = await req.json() as { claudeSessionId?: string; status?: string };
+
+    if (!claudeSessionId) {
+      return Response.json({ error: 'claudeSessionId required' }, { status: 400 });
+    }
+
+    const mapping = claudeSessionMap.get(claudeSessionId);
+    if (!mapping) {
+      return Response.json({ success: false, error: 'Unknown session' });
+    }
+
+    if (status) {
+      mapping.status = status as 'active' | 'waiting';
+    }
+    mapping.lastUpdate = Date.now();
+
+    wsHandler.broadcast({
+      type: 'claude_session_status',
+      claudeSessionId,
+      ...mapping,
+    });
+
+    return Response.json({ success: true });
   }
 
 

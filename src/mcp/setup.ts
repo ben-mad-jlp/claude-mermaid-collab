@@ -1418,6 +1418,18 @@ IMPORTANT - Common pitfalls to avoid:
         },
       },
       {
+        name: 'register_claude_session',
+        description: 'Register the current Claude Code session with a collab session for notifications. Reads the Claude session ID from a PID-keyed temp file written by the SessionStart hook.',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            project: { type: 'string', description: 'Project path' },
+            session: { type: 'string', description: 'Collab session name' },
+          },
+          required: ['project', 'session'],
+        },
+      },
+      {
         name: 'check_server_health',
         description: 'Check if MCP server, HTTP/API backend, and React UI are running',
         inputSchema: {
@@ -2746,6 +2758,26 @@ IMPORTANT - Common pitfalls to avoid:
             }
 
             return await response.text();
+          }
+
+          case 'register_claude_session': {
+            const { project, session } = args as { project: string; session: string };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            const fs = await import('fs');
+            const pidFile = `/tmp/.claude-session-id-${process.ppid}`;
+            let claudeSessionId: string;
+            try {
+              claudeSessionId = fs.readFileSync(pidFile, 'utf-8').trim();
+            } catch {
+              return JSON.stringify({ success: false, error: 'No Claude session ID found. Restart Claude Code to initialize the session hook.' });
+            }
+            const response = await fetch(buildUrl('/api/claude-session/register', project, session), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ claudeSessionId }),
+            });
+            const data = await response.json();
+            return JSON.stringify(data, null, 2);
           }
 
           case 'check_server_health': {

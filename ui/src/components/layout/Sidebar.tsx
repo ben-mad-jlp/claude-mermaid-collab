@@ -9,6 +9,7 @@ import { downloadArtifact } from '@/lib/downloadArtifact';
 import { emailArtifact } from '@/lib/emailArtifact';
 import { importArtifact, detectType } from '@/lib/importArtifact';
 import { AddTodoDialog } from '@/components/dialogs';
+import { SubscriptionsPanel } from '@/components/layout/SubscriptionsPanel';
 
 export interface SidebarProps {
   className?: string;
@@ -507,6 +508,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
       )}
+
+      <SubscriptionsPanel currentProject={currentSession?.project} />
 
       {/* Tasks Section - shown when task graph exists */}
       {isImplementationPhase && !isDisabled && (

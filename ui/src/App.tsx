@@ -37,6 +37,7 @@ import { getWebSocketClient } from '@/lib/websocket';
 import { useShallow } from 'zustand/react/shallow';
 import { api, generateSessionName, type CachedUIState } from '@/lib/api';
 import { useProjectStore } from '@/stores/projectStore';
+import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import type { Item, Session, ToolbarAction } from '@/types';
 
 // Import layout components
@@ -773,6 +774,29 @@ const App: React.FC = () => {
               }
             }
           });
+          break;
+        }
+
+        case 'claude_session_registered': {
+          const { claudeSessionId, project, session } = message as any;
+          useSubscriptionStore.getState().updateStatus(claudeSessionId, 'active', project, session);
+          break;
+        }
+        case 'claude_session_status': {
+          const { claudeSessionId, project, session, status } = message as any;
+          useSubscriptionStore.getState().updateStatus(claudeSessionId, status, project, session);
+          if (status === 'waiting' && document.hidden) {
+            const key = `${project}:${session}`;
+            if (useSubscriptionStore.getState().subscriptions[key]) {
+              if (Notification.permission === 'granted') {
+                new Notification(`Claude is waiting — ${session}`, {
+                  body: 'Claude needs your input',
+                  tag: `claude-waiting-${claudeSessionId}`,
+                  requireInteraction: true,
+                });
+              }
+            }
+          }
           break;
         }
 
