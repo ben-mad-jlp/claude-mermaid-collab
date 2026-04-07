@@ -4,6 +4,7 @@
 # then POSTs a notification to the collab server.
 
 INPUT=$(cat)
+echo "$INPUT" > /tmp/.claude-notification-hook-debug
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty')
 
 if [ -z "$SESSION_ID" ]; then
