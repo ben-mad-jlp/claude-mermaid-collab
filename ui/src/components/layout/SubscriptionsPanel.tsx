@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { useSessionStore } from '@/stores/sessionStore';
 
@@ -41,12 +41,20 @@ const SubscriptionRow: React.FC<{
   sub: SubscribedSession;
   onNavigate: (project: string, session: string) => void;
   onUnsubscribe: (key: string) => void;
-}> = ({ subKey, sub, onNavigate, onUnsubscribe }) => {
+  onDragStart: (e: React.DragEvent, key: string) => void;
+  onDragOver: (e: React.DragEvent, key: string) => void;
+  onDragEnd: () => void;
+  isDragOver: boolean;
+}> = ({ subKey, sub, onNavigate, onUnsubscribe, onDragStart, onDragOver, onDragEnd, isDragOver }) => {
   const elapsed = useElapsed(sub.lastUpdate, sub.status);
 
   return (
     <div
-      className="group flex items-center gap-3 px-2 py-1.5 rounded text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+      className={`group flex items-center gap-3 px-2 py-1.5 rounded text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors ${isDragOver ? 'border-t-2 border-blue-400' : ''}`}
+      draggable
+      onDragStart={(e) => onDragStart(e, subKey)}
+      onDragOver={(e) => onDragOver(e, subKey)}
+      onDragEnd={onDragEnd}
       onClick={() => onNavigate(sub.project, sub.session)}
     >
       {/* Status dot */}
@@ -100,19 +108,47 @@ export interface SubscriptionsPanelProps {
 }
 
 export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentProject }) => {
-  const { subscriptions, unsubscribe, subscribe } = useSubscriptionStore();
+  const { subscriptions, order, unsubscribe, subscribe, reorder } = useSubscriptionStore();
   const { sessions, setCurrentSession } = useSessionStore();
 
   const [collapsed, setCollapsed] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null);
+  const dragKeyRef = useRef<string | null>(null);
 
-  const subscriptionEntries = useMemo(
-    () => Object.entries(subscriptions),
-    [subscriptions],
-  );
+  // Build ordered entries: use stored order, append any keys not yet in order
+  const projectSubscriptions = useMemo(() => {
+    const allKeys = Object.keys(subscriptions);
+    const orderedKeys = order.filter((k) => k in subscriptions);
+    const unorderedKeys = allKeys.filter((k) => !order.includes(k));
+    return [...orderedKeys, ...unorderedKeys].map((k) => [k, subscriptions[k]] as [string, typeof subscriptions[string]]);
+  }, [subscriptions, order]);
 
-  // Show all subscriptions across all projects
-  const projectSubscriptions = subscriptionEntries;
+  const handleDragStart = useCallback((e: React.DragEvent, key: string) => {
+    dragKeyRef.current = key;
+    e.dataTransfer.effectAllowed = 'move';
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent, key: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverKey(key);
+  }, []);
+
+  const handleDragEnd = useCallback(() => {
+    const fromKey = dragKeyRef.current;
+    const toKey = dragOverKey;
+    dragKeyRef.current = null;
+    setDragOverKey(null);
+    if (!fromKey || !toKey || fromKey === toKey) return;
+    const keys = projectSubscriptions.map(([k]) => k);
+    const fromIdx = keys.indexOf(fromKey);
+    const toIdx = keys.indexOf(toKey);
+    if (fromIdx === -1 || toIdx === -1) return;
+    keys.splice(fromIdx, 1);
+    keys.splice(toIdx, 0, fromKey);
+    reorder(keys);
+  }, [dragOverKey, projectSubscriptions, reorder]);
 
   // Sessions available for subscribing (not already subscribed, from all projects)
   const availableSessions = useMemo(() => {
@@ -228,6 +264,10 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
               sub={sub}
               onNavigate={handleNavigate}
               onUnsubscribe={unsubscribe}
+              onDragStart={handleDragStart}
+              onDragOver={handleDragOver}
+              onDragEnd={handleDragEnd}
+              isDragOver={dragOverKey === key}
             />
           ))}
         </div>

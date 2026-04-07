@@ -10,12 +10,15 @@ interface SubscribedSession {
 
 interface SubscriptionState {
   subscriptions: Record<string, SubscribedSession>;
+  order: string[];
   subscribe: (project: string, session: string) => void;
   unsubscribe: (key: string) => void;
+  reorder: (order: string[]) => void;
   updateStatus: (claudeSessionId: string, status: string, project: string, session: string) => void;
 }
 
 const STORAGE_KEY = 'session-subscriptions';
+const ORDER_KEY = 'session-subscriptions-order';
 
 export const useSubscriptionStore = create<SubscriptionState>((set) => ({
   subscriptions: (() => {
@@ -23,12 +26,19 @@ export const useSubscriptionStore = create<SubscriptionState>((set) => ({
     catch { return {}; }
   })(),
 
+  order: (() => {
+    try { return JSON.parse(localStorage.getItem(ORDER_KEY) || '[]'); }
+    catch { return []; }
+  })(),
+
   subscribe: (project, session) => {
     const key = `${project}:${session}`;
     set((state) => {
       const next = { ...state.subscriptions, [key]: { project, session, status: 'unknown' as const, lastUpdate: Date.now() } };
+      const nextOrder = state.order.includes(key) ? state.order : [...state.order, key];
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      return { subscriptions: next };
+      localStorage.setItem(ORDER_KEY, JSON.stringify(nextOrder));
+      return { subscriptions: next, order: nextOrder };
     });
   },
 
@@ -36,8 +46,17 @@ export const useSubscriptionStore = create<SubscriptionState>((set) => ({
     set((state) => {
       const next = { ...state.subscriptions };
       delete next[key];
+      const nextOrder = state.order.filter((k) => k !== key);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      return { subscriptions: next };
+      localStorage.setItem(ORDER_KEY, JSON.stringify(nextOrder));
+      return { subscriptions: next, order: nextOrder };
+    });
+  },
+
+  reorder: (newOrder) => {
+    set(() => {
+      localStorage.setItem(ORDER_KEY, JSON.stringify(newOrder));
+      return { order: newOrder };
     });
   },
 
