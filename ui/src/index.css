@@ -104,7 +104,7 @@ body {
 /* Status dot pulse for active Claude sessions */
 @keyframes status-pulse {
   0% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.4); opacity: 0.6; }
+  50% { transform: scale(1.4); opacity: 0.2; }
   100% { transform: scale(1); opacity: 1; }
 }
 
