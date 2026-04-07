@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { useSessionStore } from '@/stores/sessionStore';
 
@@ -12,19 +12,6 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
 
   const [collapsed, setCollapsed] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
-  // Close dropdown on outside click
-  useEffect(() => {
-    if (!showDropdown) return;
-    const handler = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setShowDropdown(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [showDropdown]);
 
   const subscriptionEntries = useMemo(
     () => Object.entries(subscriptions),
@@ -89,42 +76,53 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
           </svg>
         </button>
         {/* Subscribe button */}
-        <div className="relative" ref={dropdownRef}>
-          <button
-            onClick={() => setShowDropdown((v) => !v)}
-            className="px-2 py-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-            title="Subscribe to a session"
-          >
-            <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
-              <path
-                fillRule="evenodd"
-                d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
-                clipRule="evenodd"
-              />
-            </svg>
-          </button>
-          {showDropdown && (
-            <div className="absolute right-0 top-full z-50 mt-1 w-max min-w-48 rounded-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-lg py-1 max-h-48 overflow-y-auto">
-              {availableSessions.length === 0 ? (
-                <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
-                  No sessions available
-                </div>
-              ) : (
-                availableSessions.map((s) => (
-                  <button
-                    key={`${s.project}:${s.name}`}
-                    onClick={() => handleSubscribe(s.project, s.name)}
-                    className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 whitespace-nowrap"
-                  >
-                    <span className="text-gray-400 dark:text-gray-500">{s.project.split('/').pop()}</span>
-                    <span className="text-gray-400 dark:text-gray-500"> / </span>
-                    <span>{s.displayName || s.name}</span>
-                  </button>
-                ))
-              )}
+        <button
+          onClick={() => setShowDropdown(true)}
+          className="px-2 py-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+          title="Subscribe to a session"
+        >
+          <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+            <path
+              fillRule="evenodd"
+              d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
+              clipRule="evenodd"
+            />
+          </svg>
+        </button>
+        {/* Subscribe modal */}
+        {showDropdown && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setShowDropdown(false)}>
+            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-xl w-80 max-h-96 flex flex-col" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+                <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">Watch a session</span>
+                <button onClick={() => setShowDropdown(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                  <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              </div>
+              <div className="overflow-y-auto py-1">
+                {availableSessions.length === 0 ? (
+                  <div className="px-4 py-6 text-sm text-gray-500 dark:text-gray-400 text-center">
+                    No sessions available to watch
+                  </div>
+                ) : (
+                  availableSessions.map((s) => (
+                    <button
+                      key={`${s.project}:${s.name}`}
+                      onClick={() => handleSubscribe(s.project, s.name)}
+                      className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                    >
+                      <span className="text-gray-400 dark:text-gray-500">{s.project.split('/').pop()}</span>
+                      <span className="text-gray-400 dark:text-gray-500"> / </span>
+                      <span className="text-gray-900 dark:text-gray-100">{s.displayName || s.name}</span>
+                    </button>
+                  ))
+                )}
+              </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Subscription items */}
