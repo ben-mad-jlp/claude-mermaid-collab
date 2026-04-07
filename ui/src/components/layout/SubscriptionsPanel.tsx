@@ -46,18 +46,18 @@ const SubscriptionRow: React.FC<{
 
   return (
     <div
-      className="group flex items-start gap-2 px-2 py-1.5 rounded text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+      className="group flex items-center gap-3 px-2 py-1.5 rounded text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
       onClick={() => onNavigate(sub.project, sub.session)}
     >
       {/* Status dot */}
       <span
-        className={`w-2 h-2 rounded-full flex-shrink-0 mt-1 ${
+        className={`w-2 h-2 rounded-full flex-shrink-0 ${
           sub.status === 'permission'
-            ? 'status-permission bg-red-400'
+            ? 'status-scaled bg-red-400'
             : sub.status === 'active'
               ? 'status-pulse bg-amber-400'
               : sub.status === 'waiting'
-                ? 'bg-green-400'
+                ? 'status-scaled bg-green-400'
                 : 'bg-gray-400'
         }`}
       />

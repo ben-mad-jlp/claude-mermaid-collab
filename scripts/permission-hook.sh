@@ -3,9 +3,11 @@
 # Posts a "permission" status to the collab server so the UI shows a red dot.
 
 INPUT=$(cat)
+echo "$INPUT" > /tmp/.claude-permission-hook-debug
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty')
 
 if [ -z "$SESSION_ID" ]; then
+  echo '{"continue": true}'
   exit 0
 fi
 
@@ -29,4 +31,5 @@ if [ -n "$CLAUDE_PID" ]; then
     > /dev/null 2>&1 &
 fi
 
+echo '{"continue": true}'
 exit 0
