@@ -138,9 +138,9 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
               <span
                 className={`w-2 h-2 rounded-full flex-shrink-0 ${
                   sub.status === 'active'
-                    ? 'bg-green-400'
+                    ? 'status-pulse bg-amber-400'
                     : sub.status === 'waiting'
-                      ? 'animate-pulse bg-amber-400'
+                      ? 'bg-green-400'
                       : 'bg-gray-400'
                 }`}
               />
