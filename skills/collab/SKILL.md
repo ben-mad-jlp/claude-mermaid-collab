@@ -40,7 +40,11 @@ Then restart Claude Code and run /collab again.
 ## Step 2: Find/Create Session
 
 **If the skill was invoked with a session name argument** (e.g. `/collab my-session-name`):
-- Skip the list — go directly to Step 4 using that session name.
+- List all sessions and check if a session with that name exists for the current project.
+- **If it exists:** Go directly to Step 4 using that session name.
+- **If it does NOT exist:** Warn the user: `Session "<name>" doesn't exist. Create it?` and wait for confirmation.
+  - If confirmed: Go to Step 3, using the provided name (skip the generate-name step).
+  - If declined: Fall through to the session list below.
 
 Otherwise:
 
