@@ -5,6 +5,9 @@ import { useDataLoader } from '@/hooks/useDataLoader';
 import { ItemCard } from '@/components/layout/ItemCard';
 import { Item } from '@/types';
 import { api } from '@/lib/api';
+import { downloadArtifact } from '@/lib/downloadArtifact';
+import { emailArtifact } from '@/lib/emailArtifact';
+import { importArtifact, detectType } from '@/lib/importArtifact';
 import { AddTodoDialog } from '@/components/dialogs';
 
 export interface SidebarProps {
@@ -202,6 +205,46 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     [currentSession, updateDiagram, updateDocument, updateSpreadsheet, updateSnippet, updateDesign]
   );
+
+  const handleDownloadItem = useCallback(
+    async (item: Item) => {
+      if (!currentSession) return;
+      await downloadArtifact(currentSession.project, currentSession.name, item);
+    },
+    [currentSession]
+  );
+
+  const handleEmailItem = useCallback(
+    async (item: Item) => {
+      if (!currentSession) return;
+      await emailArtifact(currentSession.project, currentSession.name, item);
+    },
+    [currentSession]
+  );
+
+  const handleImport = useCallback(async () => {
+    if (!currentSession) return;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.mmd,.md,.design.json,.spreadsheet.json,.csv,.ts,.tsx,.js,.jsx,.py,.json,.txt,.sql,.sh,.yaml,.yml,.toml,.xml,.html,.css,.scss';
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      // Check if an artifact with this name already exists
+      const { type, name } = detectType(file.name);
+      const allItems = [...diagrams, ...documents, ...designs, ...spreadsheets, ...snippets];
+      const existing = allItems.find((item) => item.name === name || item.id === name.replace(/[^a-zA-Z0-9-_]/g, '-'));
+      if (existing && !window.confirm(`An artifact named "${name}" already exists. Overwrite it?`)) {
+        return;
+      }
+      try {
+        await importArtifact(currentSession.project, currentSession.name, file);
+      } catch (err) {
+        console.error('Import failed:', err);
+      }
+    };
+    input.click();
+  }, [currentSession, diagrams, documents, designs, spreadsheets, snippets]);
 
   const handleItemClick = useCallback(
     (item: Item) => {
@@ -628,8 +671,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Items section header with search */}
         {!isDisabled && !todosSelected && (
           <div className="px-2 pt-2 pb-1">
-            <div className="px-1 pb-1 text-xs font-semibold text-gray-900 dark:text-gray-100">
-              Items
+            <div className="flex items-center justify-between px-1 pb-1">
+              <span className="text-xs font-semibold text-gray-900 dark:text-gray-100">Items</span>
+              <button
+                onClick={handleImport}
+                className="p-1 text-gray-400 hover:text-blue-500 dark:text-gray-500 dark:hover:text-blue-400 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                title="Import file"
+              >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                </svg>
+              </button>
             </div>
             <input
               data-testid="sidebar-search"
@@ -694,6 +746,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onDelete={() => handleDeleteItem(item)}
                 onDeprecate={showItemDelete ? () => handleDeprecateItem(item) : undefined}
                 onPin={showItemDelete ? () => handlePinItem(item) : undefined}
+                onDownload={showItemDelete ? () => handleDownloadItem(item) : undefined}
+                onEmail={showItemDelete ? () => handleEmailItem(item) : undefined}
               />
             ))}
           </div>

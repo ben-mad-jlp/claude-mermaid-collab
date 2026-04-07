@@ -29,6 +29,10 @@ export interface ItemCardProps {
   onDeprecate?: () => void;
   /** Callback when pin/unpin button is clicked */
   onPin?: () => void;
+  /** Callback when download button is clicked */
+  onDownload?: () => void;
+  /** Callback when email button is clicked */
+  onEmail?: () => void;
 }
 
 /**
@@ -227,6 +231,8 @@ export const ItemCard: React.FC<ItemCardProps> = ({
   showDelete,
   onDeprecate,
   onPin,
+  onDownload,
+  onEmail,
 }) => {
   const relativeTime = formatRelativeTime(item.lastModified);
 
@@ -283,11 +289,18 @@ export const ItemCard: React.FC<ItemCardProps> = ({
           >
             {getItemIcon(item.type)}
           </div>
-          {item.pinned && (
-            <svg className="w-3 h-3 text-accent-500 dark:text-accent-400" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="12" y1="17" x2="12" y2="22" />
-              <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
-            </svg>
+          {onPin && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onPin(); }}
+              className={`p-0.5 rounded transition-all ${item.pinned ? 'opacity-100 text-accent-500 dark:text-accent-400 hover:text-accent-600' : 'opacity-0 group-hover:opacity-100 text-gray-400 hover:text-accent-500 dark:text-gray-500 dark:hover:text-accent-400'}`}
+              aria-label={item.pinned ? `Unpin ${item.name}` : `Pin ${item.name}`}
+              title={item.pinned ? 'Unpin' : 'Pin to top'}
+            >
+              <svg className="w-3 h-3" viewBox="0 0 24 24" fill={item.pinned ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="17" x2="12" y2="22" />
+                <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
+              </svg>
+            </button>
           )}
         </div>
 
@@ -325,18 +338,30 @@ export const ItemCard: React.FC<ItemCardProps> = ({
             </p>
 
             {/* Action buttons — shown on hover */}
-            {showDelete && (onPin || onDeprecate || onDelete) && (
+            {showDelete && (onDownload || onEmail || onDeprecate || onDelete) && (
               <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 ml-1">
-                {onPin && (
+                {onDownload && (
                   <button
-                    onClick={(e) => { e.stopPropagation(); onPin(); }}
-                    className={`p-1 rounded transition-colors hover:bg-accent-50 dark:hover:bg-accent-900/20 ${item.pinned ? 'text-accent-500 dark:text-accent-400 hover:text-accent-600' : 'text-gray-400 hover:text-accent-500 dark:text-gray-500 dark:hover:text-accent-400'}`}
-                    aria-label={item.pinned ? `Unpin ${item.name}` : `Pin ${item.name}`}
-                    title={item.pinned ? 'Unpin' : 'Pin to top'}
+                    onClick={(e) => { e.stopPropagation(); onDownload(); }}
+                    className="p-1 text-gray-400 hover:text-blue-500 dark:text-gray-500 dark:hover:text-blue-400 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                    aria-label={`Download ${item.name}`}
+                    title="Download"
                   >
-                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill={item.pinned ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="12" y1="17" x2="12" y2="22" />
-                      <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                )}
+                {onEmail && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onEmail(); }}
+                    className="p-1 text-gray-400 hover:text-blue-500 dark:text-gray-500 dark:hover:text-blue-400 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                    aria-label={`Email ${item.name}`}
+                    title="Email"
+                  >
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                      <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
+                      <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
                     </svg>
                   </button>
                 )}
