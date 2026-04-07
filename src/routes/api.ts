@@ -51,7 +51,7 @@ const serverStartTime = Date.now();
 const claudeSessionMap = new Map<string, {
   project: string;
   session: string;
-  status: 'active' | 'waiting';
+  status: 'active' | 'waiting' | 'permission';
   lastUpdate: number;
 }>();
 
@@ -2125,7 +2125,7 @@ export async function handleAPI(
     }
 
     if (status) {
-      mapping.status = status as 'active' | 'waiting';
+      mapping.status = status as 'active' | 'waiting' | 'permission';
     }
     mapping.lastUpdate = Date.now();
 

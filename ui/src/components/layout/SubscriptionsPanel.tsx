@@ -1,6 +1,99 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { useSessionStore } from '@/stores/sessionStore';
+
+function formatElapsed(ms: number): string {
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+}
+
+function useElapsed(lastUpdate: number, status: string): string | null {
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    if (status === 'unknown') return;
+    const elapsed = Date.now() - lastUpdate;
+    // Under 1 minute: update every second. Over 1 minute: update every 60s.
+    const interval = elapsed < 60_000 ? 1_000 : 60_000;
+    const id = setInterval(() => setNow(Date.now()), interval);
+    return () => clearInterval(id);
+  }, [lastUpdate, status, now]);
+
+  if (status === 'unknown') return null;
+  return formatElapsed(now - lastUpdate);
+}
+
+interface SubscribedSession {
+  project: string;
+  session: string;
+  claudeSessionId?: string;
+  status: 'active' | 'waiting' | 'permission' | 'unknown';
+  lastUpdate: number;
+}
+
+const SubscriptionRow: React.FC<{
+  subKey: string;
+  sub: SubscribedSession;
+  onNavigate: (project: string, session: string) => void;
+  onUnsubscribe: (key: string) => void;
+}> = ({ subKey, sub, onNavigate, onUnsubscribe }) => {
+  const elapsed = useElapsed(sub.lastUpdate, sub.status);
+
+  return (
+    <div
+      className="group flex items-start gap-2 px-2 py-1.5 rounded text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+      onClick={() => onNavigate(sub.project, sub.session)}
+    >
+      {/* Status dot */}
+      <span
+        className={`w-2 h-2 rounded-full flex-shrink-0 mt-1 ${
+          sub.status === 'permission'
+            ? 'status-permission bg-red-400'
+            : sub.status === 'active'
+              ? 'status-pulse bg-amber-400'
+              : sub.status === 'waiting'
+                ? 'bg-green-400'
+                : 'bg-gray-400'
+        }`}
+      />
+      {/* Project / Session on two lines */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-gray-400 dark:text-gray-500 truncate">{sub.project.split('/').pop()}</span>
+          {/* Elapsed time */}
+          {elapsed && (
+            <span className="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums flex-shrink-0 ml-auto">
+              {elapsed}
+            </span>
+          )}
+        </div>
+        <div className="text-xs text-gray-700 dark:text-gray-300 truncate">{sub.session}</div>
+      </div>
+      {/* Unsubscribe button */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onUnsubscribe(subKey);
+        }}
+        className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-opacity self-start mt-1"
+        title="Unsubscribe"
+      >
+        <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+          <path
+            fillRule="evenodd"
+            d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+            clipRule="evenodd"
+          />
+        </svg>
+      </button>
+    </div>
+  );
+};
 
 export interface SubscriptionsPanelProps {
   currentProject?: string;
@@ -129,45 +222,13 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
       {!collapsed && (
         <div className="px-2 pb-2 space-y-1">
           {projectSubscriptions.map(([key, sub]) => (
-            <div
+            <SubscriptionRow
               key={key}
-              className="group flex items-center gap-2 px-2 py-1.5 rounded text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-              onClick={() => handleNavigate(sub.project, sub.session)}
-            >
-              {/* Status dot */}
-              <span
-                className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                  sub.status === 'active'
-                    ? 'status-pulse bg-amber-400'
-                    : sub.status === 'waiting'
-                      ? 'bg-green-400'
-                      : 'bg-gray-400'
-                }`}
-              />
-              {/* Project / Session */}
-              <span className="flex-1 min-w-0 text-xs text-gray-700 dark:text-gray-300 truncate">
-                <span className="text-gray-400 dark:text-gray-500">{sub.project.split('/').pop()}</span>
-                <span className="text-gray-400 dark:text-gray-500"> / </span>
-                {sub.session}
-              </span>
-              {/* Unsubscribe button */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  unsubscribe(key);
-                }}
-                className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-opacity"
-                title="Unsubscribe"
-              >
-                <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
-                  <path
-                    fillRule="evenodd"
-                    d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </button>
-            </div>
+              subKey={key}
+              sub={sub}
+              onNavigate={handleNavigate}
+              onUnsubscribe={unsubscribe}
+            />
           ))}
         </div>
       )}

@@ -4,7 +4,7 @@ interface SubscribedSession {
   project: string;
   session: string;
   claudeSessionId?: string;
-  status: 'active' | 'waiting' | 'unknown';
+  status: 'active' | 'waiting' | 'permission' | 'unknown';
   lastUpdate: number;
 }
 
@@ -46,7 +46,12 @@ export const useSubscriptionStore = create<SubscriptionState>((set) => ({
     set((state) => {
       const existing = state.subscriptions[key];
       if (!existing) return state;
-      const next = { ...state.subscriptions, [key]: { ...existing, claudeSessionId, status: status as 'active' | 'waiting' | 'unknown', lastUpdate: Date.now() } };
+      const newStatus = status as 'active' | 'waiting' | 'permission' | 'unknown';
+      // Only reset the timer when transitioning between active and non-active states
+      const isActiveGroup = (s: string) => s === 'active' || s === 'permission';
+      const statusGroupChanged = isActiveGroup(existing.status) !== isActiveGroup(newStatus);
+      const lastUpdate = statusGroupChanged ? Date.now() : existing.lastUpdate;
+      const next = { ...state.subscriptions, [key]: { ...existing, claudeSessionId, status: newStatus, lastUpdate } };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
       return { subscriptions: next };
     });

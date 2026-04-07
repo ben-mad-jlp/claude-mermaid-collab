@@ -785,12 +785,12 @@ const App: React.FC = () => {
         case 'claude_session_status': {
           const { claudeSessionId, project, session, status } = message as any;
           useSubscriptionStore.getState().updateStatus(claudeSessionId, status, project, session);
-          if (status === 'waiting' && document.hidden) {
+          if ((status === 'waiting' || status === 'permission') && document.hidden) {
             const key = `${project}:${session}`;
             if (useSubscriptionStore.getState().subscriptions[key]) {
               if (Notification.permission === 'granted') {
-                new Notification(`Claude is waiting — ${session}`, {
-                  body: 'Claude needs your input',
+                new Notification(status === 'permission' ? `Permission needed — ${session}` : `Claude is waiting — ${session}`, {
+                  body: status === 'permission' ? 'Claude needs permission to proceed' : 'Claude needs your input',
                   tag: `claude-waiting-${claudeSessionId}`,
                   requireInteraction: true,
                 });
