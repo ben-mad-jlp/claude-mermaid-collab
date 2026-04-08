@@ -476,6 +476,7 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
           project={project}
           session={session}
           collapsibleSections
+          onContentChange={onContentChange}
         />
       );
     })()
@@ -491,6 +492,7 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
           project={project}
           session={session}
           collapsibleSections
+          onContentChange={onContentChange}
           diff={diffContents ? {
             oldContent: diffContents.before,
             newContent: diffContents.after,

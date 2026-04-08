@@ -9,7 +9,7 @@
  * - Diff highlighting for document patches
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useCallback, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -47,6 +47,8 @@ export interface MarkdownPreviewProps {
   session?: string;
   /** Enable collapsible sections based on headings */
   collapsibleSections?: boolean;
+  /** Callback when content is changed (e.g. checkbox toggle) */
+  onContentChange?: (newContent: string) => void;
 }
 
 /**
@@ -183,6 +185,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
   project,
   session,
   collapsibleSections = false,
+  onContentChange,
 }) => {
   const { theme } = useTheme();
 
@@ -226,6 +229,32 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
 
     return src;
   };
+
+  // Track content in a ref so the checkbox handler always sees latest
+  const contentRef = useRef(content);
+  contentRef.current = content;
+
+  // Toggle a checkbox at a specific line in the markdown source
+  const handleCheckboxToggle = useCallback(
+    (line: number) => {
+      if (!onContentChange) return;
+      const src = contentRef.current;
+      const lines = src.split('\n');
+      // line is 1-based from the remark AST
+      const lineIdx = line - 1;
+      if (lineIdx < 0 || lineIdx >= lines.length) return;
+      const lineText = lines[lineIdx];
+      const checkboxMatch = lineText.match(/^(\s*[-*+]\s+)\[([ xX])\]/);
+      if (!checkboxMatch) return;
+      const isChecked = checkboxMatch[2] !== ' ';
+      lines[lineIdx] = lineText.replace(
+        /\[([ xX])\]/,
+        `[${isChecked ? ' ' : 'x'}]`
+      );
+      onContentChange(lines.join('\n'));
+    },
+    [onContentChange]
+  );
 
   // Memoize the markdown components to avoid unnecessary re-renders
   const components = useMemo(
@@ -297,9 +326,6 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       img: ({ src, alt }: { src?: string; alt?: string }) => {
         const resolvedSrc = src ? resolveImageSrc(src) : null;
 
-        // Debug: log resolved src
-        console.log('[MarkdownPreview img] src:', src, 'resolved:', resolvedSrc, 'project:', project, 'session:', session);
-
         if (!resolvedSrc) {
           return (
             <span className="inline-block px-2 py-1 bg-gray-100 dark:bg-gray-800 text-gray-500 text-sm rounded">
@@ -330,9 +356,33 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
           {children}
         </ol>
       ),
-      li: ({ children }: { children?: React.ReactNode }) => (
-        <li className="my-1">{children}</li>
-      ),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      li: (props: any) => {
+        const { children, className, node } = props;
+        const isTask = className === 'task-list-item';
+        if (!isTask) return <li className="my-1">{children}</li>;
+
+        // Task list item — use li node position for checkbox toggle (non-collapsible path)
+        const line = node?.position?.start?.line;
+
+        const newChildren = onContentChange ? React.Children.map(children, (child) => {
+          if (React.isValidElement(child) && (child as any).props?.type === 'checkbox') {
+            const checked = (child as any).props?.checked || false;
+            return (
+              <input
+                type="checkbox"
+                checked={checked}
+                disabled={!line}
+                onChange={() => line && handleCheckboxToggle(line)}
+                className="mr-2 cursor-pointer accent-blue-600"
+              />
+            );
+          }
+          return child;
+        }) : children;
+
+        return <li className="my-1 list-none">{newChildren}</li>;
+      },
 
       // Pre wrapper for code blocks - renders the syntax highlighted block
       pre: ({
@@ -460,7 +510,8 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         <CollapsibleSummary>{children}</CollapsibleSummary>
       ),
     }),
-    [theme, project, session]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [theme, project, session, onContentChange, handleCheckboxToggle]
   );
 
   // Compute diff segments if diff is provided
@@ -532,8 +583,10 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             </div>
           ) : collapsibleSections ? (
             // Render with collapsible sections
-            (() => { console.log('[MarkdownPreview] Using CollapsibleMarkdown'); return null; })() ||
-            <CollapsibleMarkdown content={content} />
+            <CollapsibleMarkdown
+              content={content}
+              onCheckboxToggle={onContentChange ? handleCheckboxToggle : undefined}
+            />
           ) : (
             // Render normally
             <ReactMarkdown

@@ -1349,11 +1349,10 @@ const App: React.FC = () => {
       }
     }
 
-    // Item 4: Use effectiveContent to avoid type mismatch during item switches
-    // If localContent hasn't updated yet via useEffect, use the fresh effectiveContent
-    // This prevents rendering diagram with markdown content (or vice versa)
+    // Item 4: Use localContent (updated by editor changes and checkbox toggles)
+    // localContent is always initialized from selectedItem.content via useEffect on item change
     const editorItem = selectedItem
-      ? { ...selectedItem, content: effectiveContent || localContent }
+      ? { ...selectedItem, content: localContent }
       : null;
 
     return (

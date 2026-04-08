@@ -29,33 +29,52 @@ interface Section {
   title: string;
   content: string;
   children: Section[];
+  /** 1-based line number in the original document where this section's content starts */
+  contentStartLine: number;
 }
 
 /**
  * Parse markdown into a tree of sections based on headings
  */
-function parseMarkdownSections(markdown: string): { preamble: string; sections: Section[] } {
+function parseMarkdownSections(markdown: string): { preamble: string; preambleStartLine: number; sections: Section[] } {
   const lines = markdown.split('\n');
   const sections: Section[] = [];
   let preamble = '';
+  let preambleStartLine = 1;
   let currentContent: string[] = [];
+  /** 1-based line number where currentContent[0] sits in the original document */
+  let currentContentStartLine = 1;
   let sectionStack: { section: Section; level: number }[] = [];
   let sectionCounter = 0;
   let inCodeBlock = false;
 
   const flushContent = () => {
     if (currentContent.length > 0) {
-      const content = currentContent.join('\n').trim();
+      const raw = currentContent.join('\n');
+      // Count leading blank lines that .trim() will strip
+      let leadingBlanks = 0;
+      for (const ch of currentContent) {
+        if (ch.trim() === '') leadingBlanks++;
+        else break;
+      }
+      const content = raw.trim();
+      const adjustedStartLine = currentContentStartLine + leadingBlanks;
+
       if (sectionStack.length > 0) {
         sectionStack[sectionStack.length - 1].section.content = content;
+        sectionStack[sectionStack.length - 1].section.contentStartLine = adjustedStartLine;
       } else {
         preamble = content;
+        preambleStartLine = adjustedStartLine;
       }
       currentContent = [];
     }
   };
 
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const lineNum = i + 1; // 1-based
+
     // Track fenced code blocks (``` or ~~~)
     if (line.trimStart().match(/^(`{3,}|~{3,})/)) {
       inCodeBlock = !inCodeBlock;
@@ -73,6 +92,7 @@ function parseMarkdownSections(markdown: string): { preamble: string; sections: 
         level,
         title,
         content: '',
+        contentStartLine: lineNum + 1, // default: line after heading
         children: [],
       };
 
@@ -89,28 +109,74 @@ function parseMarkdownSections(markdown: string): { preamble: string; sections: 
       }
 
       sectionStack.push({ section: newSection, level });
+      // Next content line starts after this heading
+      currentContentStartLine = lineNum + 1;
     } else {
+      if (currentContent.length === 0) {
+        currentContentStartLine = lineNum;
+      }
       currentContent.push(line);
     }
   }
 
   flushContent();
 
-  return { preamble, sections };
+  return { preamble, preambleStartLine, sections };
 }
 
 interface MarkdownContentProps {
   content: string;
   theme: string;
   components: Record<string, React.ComponentType<any>>;
+  /** If provided, creates an interactive checkbox input component adjusted by lineOffset */
+  onCheckboxToggle?: (absoluteLine: number) => void;
+  /** 1-based line offset of this content fragment within the full document */
+  lineOffset: number;
 }
 
-const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, components }) => {
+const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, components, onCheckboxToggle, lineOffset }) => {
   if (!content.trim()) return null;
+
+  // Build section-specific components with adjusted checkbox handler
+  const sectionComponents = React.useMemo(() => {
+    if (!onCheckboxToggle) return components;
+    return {
+      ...components,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      li: (props: any) => {
+        const { children, className, node } = props;
+        const isTask = className === 'task-list-item';
+        if (!isTask) return <li className="my-1">{children}</li>;
+
+        // Task list item — the li node has position, the synthetic input does not
+        const sectionRelativeLine = node?.position?.start?.line;
+        const absoluteLine = sectionRelativeLine ? sectionRelativeLine + lineOffset - 1 : undefined;
+
+        // Find the checkbox among children and replace it with an interactive one
+        const newChildren = React.Children.map(children, (child) => {
+          if (React.isValidElement(child) && (child as any).props?.type === 'checkbox') {
+            const checked = (child as any).props?.checked || false;
+            return (
+              <input
+                type="checkbox"
+                checked={checked}
+                disabled={!absoluteLine}
+                onChange={() => absoluteLine && onCheckboxToggle(absoluteLine)}
+                className="mr-2 cursor-pointer accent-blue-600"
+              />
+            );
+          }
+          return child;
+        });
+
+        return <li className="my-1 list-none">{newChildren}</li>;
+      },
+    };
+  }, [components, onCheckboxToggle, lineOffset]);
 
   return (
     <ReactMarkdown
-      components={components}
+      components={sectionComponents}
       remarkPlugins={[remarkGfm, remarkDiagramEmbeds]}
       rehypePlugins={[rehypeRaw]}
     >
@@ -123,18 +189,25 @@ interface SectionRendererProps {
   section: Section;
   theme: string;
   components: Record<string, React.ComponentType<any>>;
+  onCheckboxToggle?: (absoluteLine: number) => void;
 }
 
-const SectionRenderer: React.FC<SectionRendererProps> = ({ section, theme, components }) => {
+const SectionRenderer: React.FC<SectionRendererProps> = ({ section, theme, components, onCheckboxToggle }) => {
   return (
     <ManagedCollapsibleSection
       level={section.level}
       title={section.title}
       sectionId={section.id}
     >
-      <MarkdownContent content={section.content} theme={theme} components={components} />
+      <MarkdownContent
+        content={section.content}
+        theme={theme}
+        components={components}
+        onCheckboxToggle={onCheckboxToggle}
+        lineOffset={section.contentStartLine}
+      />
       {section.children.map(child => (
-        <SectionRenderer key={child.id} section={child} theme={theme} components={components} />
+        <SectionRenderer key={child.id} section={child} theme={theme} components={components} onCheckboxToggle={onCheckboxToggle} />
       ))}
     </ManagedCollapsibleSection>
   );
@@ -143,17 +216,23 @@ const SectionRenderer: React.FC<SectionRendererProps> = ({ section, theme, compo
 export interface CollapsibleMarkdownProps {
   content: string;
   className?: string;
+  /** Extra component overrides to merge with defaults */
+  extraComponents?: Record<string, React.ComponentType<any>>;
+  /** Callback when a checkbox is toggled; receives the 1-based absolute line number in the full document */
+  onCheckboxToggle?: (absoluteLine: number) => void;
 }
 
 export const CollapsibleMarkdown: React.FC<CollapsibleMarkdownProps> = ({
   content,
   className = '',
+  extraComponents,
+  onCheckboxToggle,
 }) => {
   const { theme } = useTheme();
 
-  const { preamble, sections } = useMemo(() => parseMarkdownSections(content), [content]);
+  const { preamble, preambleStartLine, sections } = useMemo(() => parseMarkdownSections(content), [content]);
 
-  const components = useMemo(
+  const baseComponents = useMemo(
     () => ({
       // Paragraphs
       p: ({ children }: { children?: React.ReactNode }) => (
@@ -287,7 +366,13 @@ export const CollapsibleMarkdown: React.FC<CollapsibleMarkdownProps> = ({
         </th>
       ),
     }),
-    [theme]
+    [theme, extraComponents]
+  );
+
+  // Merge extra components (e.g. interactive checkbox input) on top of defaults
+  const mergedComponents = useMemo(
+    () => extraComponents ? { ...baseComponents, ...extraComponents } : baseComponents,
+    [baseComponents, extraComponents]
   );
 
   // Count total sections (including nested)
@@ -295,8 +380,6 @@ export const CollapsibleMarkdown: React.FC<CollapsibleMarkdownProps> = ({
     return secs.reduce((acc, s) => acc + 1 + countSections(s.children), 0);
   };
   const totalSections = countSections(sections);
-
-  console.log('[CollapsibleMarkdown] Rendering with', totalSections, 'sections, preamble:', !!preamble);
 
   return (
     <CollapsibleSectionsProvider>
@@ -307,13 +390,19 @@ export const CollapsibleMarkdown: React.FC<CollapsibleMarkdownProps> = ({
         {/* Preamble content before first heading */}
         {preamble && (
           <div className="preamble mb-4">
-            <MarkdownContent content={preamble} theme={theme} components={components} />
+            <MarkdownContent
+              content={preamble}
+              theme={theme}
+              components={mergedComponents}
+              onCheckboxToggle={onCheckboxToggle}
+              lineOffset={preambleStartLine}
+            />
           </div>
         )}
 
         {/* Collapsible sections */}
         {sections.map(section => (
-          <SectionRenderer key={section.id} section={section} theme={theme} components={components} />
+          <SectionRenderer key={section.id} section={section} theme={theme} components={mergedComponents} onCheckboxToggle={onCheckboxToggle} />
         ))}
       </div>
     </CollapsibleSectionsProvider>
