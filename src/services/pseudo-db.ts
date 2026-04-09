@@ -101,6 +101,18 @@ export interface SourceLinkCandidate {
   isExported: boolean;
 }
 
+export interface FunctionForSource {
+  name: string;
+  params: string;
+  returnType: string;
+  isExported: boolean;
+  sourceLine: number | null;
+  sourceLineEnd: number | null;
+  visibility: string | null;
+  isAsync: boolean;
+  kind: string | null;
+}
+
 // ============================================================================
 // Schema (v1)
 // ============================================================================
@@ -751,9 +763,9 @@ class PseudoDbService {
     }).filter(r => r.filePath !== '');
   }
 
-  getReferences(methodName: string, fileStem: string): Array<{ file: string; callerMethod: string }> {
+  getReferences(methodName: string, fileStem: string): Array<{ file: string; callerMethod: string; sourceLine: number | null }> {
     const rows = this.db.prepare(`
-      SELECT f.file_path, m.name
+      SELECT f.file_path, m.name, m.source_line
       FROM method_calls mc
       JOIN methods m ON m.id = mc.caller_method_id
       JOIN files f ON f.id = m.file_id
@@ -763,6 +775,7 @@ class PseudoDbService {
     return rows.map(r => ({
       file: r.file_path,
       callerMethod: r.name,
+      sourceLine: r.source_line ?? null,
     }));
   }
 
@@ -1022,6 +1035,44 @@ class PseudoDbService {
       sourceLineEnd: r.source_line_end,
       language: r.language,
       isExported: r.is_exported === 1,
+    }));
+  }
+
+  /**
+   * Return all methods indexed for a given absolute source file path.
+   * Used by the Function Jump Dropdown (Tier 1 lookup).
+   */
+  getFunctionsForSource(sourceFilePath: string): FunctionForSource[] {
+    const rows = this.db.prepare(`
+      SELECT
+        m.name,
+        m.params,
+        m.return_type,
+        m.is_exported,
+        m.source_line,
+        m.source_line_end,
+        m.visibility,
+        m.is_async,
+        m.kind
+      FROM methods m
+      JOIN files f ON f.id = m.file_id
+      WHERE f.source_file_path = ?
+      ORDER BY
+        CASE WHEN m.source_line IS NULL THEN 1 ELSE 0 END,
+        m.source_line ASC,
+        m.sort_order ASC
+    `).all(sourceFilePath) as any[];
+
+    return rows.map(r => ({
+      name: r.name,
+      params: r.params,
+      returnType: r.return_type,
+      isExported: r.is_exported === 1,
+      sourceLine: r.source_line,
+      sourceLineEnd: r.source_line_end,
+      visibility: r.visibility,
+      isAsync: r.is_async === 1,
+      kind: r.kind,
     }));
   }
 

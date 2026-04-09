@@ -20,6 +20,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { api } from '@/lib/api';
 import { Snippet, SnippetAnnotation } from '@/types';
 import type { Language } from './CodeMirrorWrapper';
+import type { EditorView } from '@codemirror/view';
 
 /**
  * Props for the SnippetEditor component
@@ -43,6 +44,10 @@ export interface SnippetEditorProps {
   showDiffByDefault?: boolean;
   /** Hide the filePath display in the toolbar (useful when parent already shows it) */
   hideFilePath?: boolean;
+  /** Called when the CodeMirror editor is ready with its EditorView instance */
+  onEditorReady?: (view: EditorView | null) => void;
+  /** Called when a symbol (function/identifier) is clicked in the editor */
+  onSymbolClick?: (symbol: string, rect: DOMRect) => void;
 }
 
 /**
@@ -129,6 +134,8 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
   showDiffByDefault = false,
   onToolbarControls,
   hideFilePath = false,
+  onEditorReady,
+  onSymbolClick,
 }) => {
   const { selectedSnippet, updateSnippet, getSnippetById } = useSnippet();
 
@@ -542,6 +549,8 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
             onAnnotationSave={handleInlineAnnotationSave}
             onAnnotationDelete={handleInlineAnnotationDelete}
             onSelectionChange={setCurrentSelection}
+            onEditorReady={onEditorReady}
+            onSymbolClick={onSymbolClick}
           />
         </div>
       )}

@@ -553,3 +553,99 @@ describe('scanSourceFileForLines', () => {
     expect(got!.methods[0].sourceLine).toBe(3);
   });
 });
+
+describe('getFunctionsForSource', () => {
+  it('returns empty array for unknown source path', () => {
+    const db = getPseudoDb(currentProject);
+    expect(db.getFunctionsForSource('/no/such/file.ts')).toEqual([]);
+  });
+
+  it('returns methods for a seeded file ordered by sourceLine', () => {
+    const db = getPseudoDb(currentProject);
+    const sourceDir = join(currentProject, 'src');
+    mkdirSync(sourceDir, { recursive: true });
+    const srcPath = join(sourceDir, 'auth.ts');
+    // Use 'haskell' language so scanSourceFileForLines skips and preset values are preserved.
+    writeFileSync(srcPath, 'placeholder');
+
+    const pseudoPath = join(sourceDir, 'auth.pseudo');
+    db.upsertFile(pseudoPath, makeParsedFile({
+      sourceFilePath: srcPath,
+      language: 'haskell',
+      methods: [
+        {
+          name: 'second',
+          params: 'x: number',
+          returnType: 'void',
+          isExport: false,
+          sourceLine: 20,
+          sourceLineEnd: 25,
+          visibility: 'public',
+          isAsync: true,
+          kind: 'method',
+        },
+        {
+          name: 'first',
+          params: '',
+          returnType: 'string',
+          isExport: true,
+          sourceLine: 5,
+          sourceLineEnd: 10,
+        },
+      ],
+    }) as any);
+
+    const functions = db.getFunctionsForSource(srcPath);
+    expect(functions).toHaveLength(2);
+    // Ordered by source_line asc: first (line 5) before second (line 20)
+    expect(functions[0].name).toBe('first');
+    expect(functions[0].sourceLine).toBe(5);
+    expect(functions[0].sourceLineEnd).toBe(10);
+    expect(functions[0].isExported).toBe(true);
+    expect(functions[0].returnType).toBe('string');
+
+    expect(functions[1].name).toBe('second');
+    expect(functions[1].sourceLine).toBe(20);
+    expect(functions[1].sourceLineEnd).toBe(25);
+    expect(functions[1].isExported).toBe(false);
+    expect(functions[1].visibility).toBe('public');
+    expect(functions[1].isAsync).toBe(true);
+    expect(functions[1].kind).toBe('method');
+  });
+});
+
+describe('getReferences (includes sourceLine)', () => {
+  it('returns source_line from the caller method', () => {
+    const db = getPseudoDb(currentProject);
+    const sourceDir = join(currentProject, 'src');
+    mkdirSync(sourceDir, { recursive: true });
+
+    // Target file — 'target' stem.
+    writeFileSync(join(sourceDir, 'target.ts'), 'placeholder');
+    db.upsertFile(join(sourceDir, 'target.pseudo'), makeParsedFile({
+      sourceFilePath: join(sourceDir, 'target.ts'),
+      language: 'haskell',
+      methods: [{ name: 'targetFn', isExport: true }],
+    }) as any);
+
+    // Caller file — calls targetFn.
+    writeFileSync(join(sourceDir, 'caller.ts'), 'placeholder');
+    db.upsertFile(join(sourceDir, 'caller.pseudo'), makeParsedFile({
+      sourceFilePath: join(sourceDir, 'caller.ts'),
+      language: 'haskell',
+      methods: [
+        {
+          name: 'callerFn',
+          sourceLine: 15,
+          calls: [{ name: 'targetFn', fileStem: 'target' }],
+        },
+      ],
+    }) as any);
+
+    const refs = db.getReferences('targetFn', 'target');
+    expect(refs).toHaveLength(1);
+    expect(refs[0].file).toBe(join(sourceDir, 'caller.pseudo'));
+    expect(refs[0].callerMethod).toBe('callerFn');
+    expect(refs[0].sourceLine).toBe(15);
+  });
+});

@@ -14,6 +14,7 @@ import CodeMirror from '@uiw/react-codemirror';
 import { EditorView, Decoration, type DecorationSet, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view';
 import { RangeSetBuilder, StateField, StateEffect } from '@codemirror/state';
 import type { SnippetAnnotation } from '@/types/snippet';
+import { findSymbolAtPos } from '@/lib/extract-functions';
 
 // Language support imports
 import { javascript } from '@codemirror/lang-javascript';
@@ -70,6 +71,8 @@ export interface CodeMirrorWrapperProps {
   onAnnotationDelete?: (annotation: SnippetAnnotation) => void;
   /** Called when the editor selection changes; null when selection is cleared */
   onSelectionChange?: (selection: { startLine: number; endLine: number } | null) => void;
+  /** Called when a symbol (function/identifier) is clicked in the editor */
+  onSymbolClick?: (symbol: string, rect: DOMRect) => void;
 }
 
 /**
@@ -430,6 +433,29 @@ function buildSelectionListenerExtension(
   });
 }
 
+function buildSymbolClickExtension(
+  onSymbolClick: (symbol: string, rect: DOMRect) => void,
+) {
+  return EditorView.domEventHandlers({
+    click(event, view) {
+      const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+      if (pos == null) return false;
+      const symbol = findSymbolAtPos(view, pos);
+      if (!symbol) return false;
+      const coords = view.coordsAtPos(pos);
+      if (!coords) return false;
+      const rect = new DOMRect(
+        coords.left,
+        coords.top,
+        coords.right - coords.left,
+        coords.bottom - coords.top,
+      );
+      onSymbolClick(symbol, rect);
+      return false;
+    },
+  });
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -475,6 +501,7 @@ export const CodeMirrorWrapper: React.FC<CodeMirrorWrapperProps> = ({
   onAnnotationSave,
   onAnnotationDelete,
   onSelectionChange,
+  onSymbolClick,
 }) => {
   const { theme } = useTheme();
   const [isLoaded, setIsLoaded] = useState(false);
@@ -535,10 +562,16 @@ export const CodeMirrorWrapper: React.FC<CodeMirrorWrapperProps> = ({
     return [buildSelectionListenerExtension(onSelectionChange)];
   }, [onSelectionChange]);
 
+  // Memoize symbol click extension
+  const symbolClickExtension = useMemo(() => {
+    if (!onSymbolClick) return [];
+    return [buildSymbolClickExtension(onSymbolClick)];
+  }, [onSymbolClick]);
+
   // Memoize the editor extensions to prevent unnecessary re-initialization
   const extensions = useMemo(() => {
-    return [languageExtension, ...highlightExtension, ...annotationExtension, ...selectionListenerExtension];
-  }, [languageExtension, highlightExtension, annotationExtension, selectionListenerExtension]);
+    return [languageExtension, ...highlightExtension, ...annotationExtension, ...selectionListenerExtension, ...symbolClickExtension];
+  }, [languageExtension, highlightExtension, annotationExtension, selectionListenerExtension, symbolClickExtension]);
 
   // Memoize onChange callback to prevent unnecessary re-renders
   const handleChange = useCallback(

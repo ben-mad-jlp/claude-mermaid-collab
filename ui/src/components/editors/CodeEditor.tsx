@@ -6,15 +6,20 @@
  * by intercepting SnippetEditor's toolbar controls via onToolbarControls.
  */
 
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { EditorView } from '@codemirror/view';
 import { SnippetEditor } from './SnippetEditor';
 import { DiffAgainstDiskModal } from './DiffAgainstDiskModal';
 import { CodeArtifactKebabMenu } from './CodeArtifactKebabMenu';
 import { PseudoSideBySideView } from './PseudoSideBySideView';
 import { ProposedEditReview } from './ProposedEditReview';
+import { FunctionJumpDropdown, type FunctionJumpItem } from './FunctionJumpDropdown';
+import { ReferencesPopover } from './ReferencesPopover';
 import { useSnippet } from '@/hooks/useSnippet';
 import { useSessionStore } from '@/stores/sessionStore';
 import { api } from '@/lib/api';
+import { fetchFunctionsForSource, fetchPseudoReferences, type Reference } from '@/lib/pseudo-api';
+import { extractFunctions } from '@/lib/extract-functions';
 import { Snippet } from '@/types';
 
 /**
@@ -58,6 +63,7 @@ function parseLinkedEnvelope(content: string | undefined) {
     return {
       linked: true as const,
       code: typeof data.code === 'string' ? data.code : '',
+      language: typeof data.language === 'string' ? data.language : '',
       filePath: typeof data.filePath === 'string' ? data.filePath : '',
       dirty: !!data.dirty,
       lastPushedAt: typeof data.lastPushedAt === 'number' ? data.lastPushedAt : null,
@@ -67,6 +73,12 @@ function parseLinkedEnvelope(content: string | undefined) {
   } catch {
     return null;
   }
+}
+
+function fileStemFromPath(filePath: string): string {
+  const base = filePath.split('/').pop() ?? '';
+  const dot = base.lastIndexOf('.');
+  return dot > 0 ? base.slice(0, dot) : base;
 }
 
 export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToolbarControls }) => {
@@ -87,6 +99,16 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
   const [showPseudo, setShowPseudo] = useState(false);
   // Controls captured from SnippetEditor (language, diff, copy, save, etc.)
   const [snippetControls, setSnippetControls] = useState<React.ReactNode>(null);
+  const [functions, setFunctions] = useState<FunctionJumpItem[]>([]);
+  const [useTier2, setUseTier2] = useState(false);
+  const editorViewRef = useRef<EditorView | null>(null);
+  const [popover, setPopover] = useState<{ symbol: string; refs: Reference[]; rect: DOMRect } | null>(null);
+
+  // Keep envelope.filePath in a ref so handleSymbolClick has a stable identity
+  const envelopeFilePathRef = useRef<string | null>(null);
+  useEffect(() => {
+    envelopeFilePathRef.current = envelope?.filePath ?? null;
+  }, [envelope?.filePath]);
 
   // Auto-clear flash messages after 3 seconds
   useEffect(() => {
@@ -95,9 +117,75 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
     return () => clearTimeout(timer);
   }, [flashMessage]);
 
+  // Load functions for jump dropdown — Tier 1: pseudo-db
+  // Only fires when filePath or project changes (not on every keystroke)
+  useEffect(() => {
+    if (!envelope || !currentSession) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const tier1 = await fetchFunctionsForSource(currentSession.project, envelope.filePath);
+        if (cancelled) return;
+        if (tier1.length > 0) {
+          setFunctions(tier1 as FunctionJumpItem[]);
+          setUseTier2(false);
+        } else {
+          // No results → switch to Tier 2 for this file
+          setUseTier2(true);
+        }
+      } catch (err) {
+        if (cancelled) return;
+        console.warn('Tier 1 functions lookup failed:', err);
+        setUseTier2(true);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [envelope?.filePath, currentSession?.project]);
+
+  // Tier 2: Lezer/regex fallback — fires on content changes while Tier 2 mode is active
+  useEffect(() => {
+    if (!useTier2 || !envelope) return;
+    const tier2 = extractFunctions(envelope.code, envelope.language || 'typescript');
+    setFunctions(tier2 as unknown as FunctionJumpItem[]);
+  }, [useTier2, envelope?.code, envelope?.language]);
+
+  const handleSymbolClick = useCallback(async (symbol: string, rect: DOMRect) => {
+    const filePath = envelopeFilePathRef.current;
+    if (!currentSession || !filePath) return;
+    const fileStem = fileStemFromPath(filePath);
+    try {
+      const refs = await fetchPseudoReferences(currentSession.project, symbol, fileStem);
+      if (refs.length > 0) {
+        setPopover({ symbol, refs, rect });
+      }
+      // zero-result is silent — not every click is a function ref
+    } catch (err) {
+      console.warn('References lookup failed:', err);
+    }
+  }, [currentSession?.project]);
+
   // Capture SnippetEditor's toolbar controls
   const handleSnippetToolbarControls = useCallback((controls: React.ReactNode) => {
     setSnippetControls(controls);
+  }, []);
+
+  const handleEditorReady = useCallback((view: EditorView | null) => {
+    editorViewRef.current = view;
+  }, []);
+
+  const jumpToLine = useCallback((line: number) => {
+    const view = editorViewRef.current;
+    if (!view) return;
+    const totalLines = view.state.doc.lines;
+    const safeLine = Math.max(1, Math.min(line, totalLines));
+    const pos = view.state.doc.line(safeLine).from;
+    view.dispatch({
+      selection: { anchor: pos },
+      effects: EditorView.scrollIntoView(pos, { y: 'start' }),
+    });
+    view.focus();
   }, []);
 
   const filePath = envelope?.filePath || '';
@@ -296,6 +384,8 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
         >
           Pseudo
         </button>
+        {/* Function jump dropdown */}
+        <FunctionJumpDropdown functions={functions} onJump={jumpToLine} />
         {/* Dirty / Conflict indicator */}
         {conflict ? (
           <span className="text-xs font-medium text-red-600 dark:text-red-400">Conflict</span>
@@ -325,7 +415,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
         />
       </>
     );
-  }, [envelope, currentSession, snippetControls, handlePush, handlePreview, handleSync, isPushing, isSyncing, dirty, conflict, flashMessage, showPseudo, snippetId, filePath, handleDeprecate, handleDelete]);
+  }, [envelope, currentSession, snippetControls, handlePush, handlePreview, handleSync, isPushing, isSyncing, dirty, conflict, flashMessage, showPseudo, snippetId, filePath, handleDeprecate, handleDelete, functions, jumpToLine]);
 
   // Push merged controls to parent EditorToolbar
   // Short-circuit when envelope is null — SnippetEditor handles onToolbarControls directly
@@ -397,6 +487,8 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
               onSave={onSave}
               onToolbarControls={handleSnippetToolbarControls}
               hideFilePath
+              onEditorReady={handleEditorReady}
+              onSymbolClick={handleSymbolClick}
             />
           </PseudoSideBySideView>
         ) : (
@@ -405,6 +497,8 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
             onSave={onSave}
             onToolbarControls={handleSnippetToolbarControls}
             hideFilePath
+            onEditorReady={handleEditorReady}
+            onSymbolClick={handleSymbolClick}
           />
         )}
       </div>
@@ -429,6 +523,20 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
           filePath={filePath}
           projectPath={currentSession.project}
           sessionName={currentSession.name}
+        />
+      )}
+
+      {/* References popover (shown after Cmd/Ctrl-click on a symbol) */}
+      {popover && (
+        <ReferencesPopover
+          references={popover.refs}
+          symbolName={popover.symbol}
+          anchorRect={popover.rect}
+          currentFilePath={filePath}
+          linkedSourcePathsInSession={[]}
+          onNavigateSameFile={jumpToLine}
+          onNavigateLinkedFile={() => {}}
+          onClose={() => setPopover(null)}
         />
       )}
     </div>

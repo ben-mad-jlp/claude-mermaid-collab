@@ -90,6 +90,14 @@ export async function handlePseudoAPI(req: Request): Promise<Response> {
       return Response.json({ candidates });
     }
 
+    if (path === '/functions-for-source' && req.method === 'GET') {
+      const sourcePath = url.searchParams.get('sourcePath');
+      if (!sourcePath) {
+        return jsonError('Missing required query parameter: sourcePath', 400);
+      }
+      return Response.json({ functions: getPseudoDb(project).getFunctionsForSource(sourcePath) });
+    }
+
     if (path === '/stats' && req.method === 'GET') {
       return Response.json(getPseudoDb(project).getStats());
     }

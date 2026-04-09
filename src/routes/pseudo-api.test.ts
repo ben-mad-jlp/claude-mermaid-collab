@@ -481,6 +481,61 @@ END FUNCTION`);
     });
   });
 
+  describe('GET /api/pseudo/functions-for-source', () => {
+    it('returns 400 when sourcePath parameter is missing', async () => {
+      const req = new Request(
+        `http://localhost/api/pseudo/functions-for-source?project=${encodeURIComponent(testProjectPath)}`
+      );
+      const res = await handlePseudoAPI(req);
+      expect(res.status).toBe(400);
+      const data = await res.json() as any;
+      expect(data.error).toMatch(/sourcePath/i);
+    });
+
+    it('returns empty functions array for unknown sourcePath', async () => {
+      const req = new Request(
+        `http://localhost/api/pseudo/functions-for-source?project=${encodeURIComponent(testProjectPath)}&sourcePath=${encodeURIComponent('/no/such/file.ts')}`
+      );
+      const res = await handlePseudoAPI(req);
+      expect(res.status).toBe(200);
+      const data = await res.json() as any;
+      expect(data.functions).toEqual([]);
+    });
+
+    it('returns seeded functions for a given sourcePath', async () => {
+      const db = getPseudoDb(testProjectPath);
+      const srcPath = join(testProjectPath, 'module.ts');
+      await writeFile(srcPath, 'placeholder');
+
+      const pseudoPath = join(testProjectPath, 'module.pseudo');
+      db.upsertFile(pseudoPath, makeParsedFile({
+        sourceFilePath: srcPath,
+        language: 'haskell',
+        methods: [
+          {
+            name: 'foo',
+            isExport: true,
+            sourceLine: 1,
+            sourceLineEnd: 1,
+            params: '',
+            returnType: 'void',
+          },
+        ],
+      }) as any);
+
+      const req = new Request(
+        `http://localhost/api/pseudo/functions-for-source?project=${encodeURIComponent(testProjectPath)}&sourcePath=${encodeURIComponent(srcPath)}`
+      );
+      const res = await handlePseudoAPI(req);
+      expect(res.status).toBe(200);
+      const data = await res.json() as any;
+      expect(data.functions).toHaveLength(1);
+      expect(data.functions[0].name).toBe('foo');
+      expect(data.functions[0].isExported).toBe(true);
+      expect(data.functions[0].sourceLine).toBe(1);
+    });
+  });
+
   describe('GET /api/pseudo/exports (stepSummary)', () => {
     it('returns empty array on empty project', async () => {
       const url = `http://localhost/api/pseudo/exports?project=${encodeURIComponent(testProjectPath)}`;

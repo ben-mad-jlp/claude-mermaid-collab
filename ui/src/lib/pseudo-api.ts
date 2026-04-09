@@ -5,6 +5,7 @@
 export type Reference = {
   file: string;
   callerMethod: string;
+  sourceLine?: number | null;
 };
 
 export interface SearchResult {
@@ -32,6 +33,26 @@ export interface PseudoMethod {
   date: string | null;
   steps: Array<{ content: string; depth: number }>;
   calls: Array<{ name: string; fileStem: string }>;
+  // Phase 3 optional fields (backward compat)
+  visibility?: string | null;
+  isAsync?: boolean;
+  kind?: string | null;
+  sourceLine?: number | null;
+  sourceLineEnd?: number | null;
+  paramCount?: number;
+  owningSymbol?: string | null;
+}
+
+export interface FunctionForSource {
+  name: string;
+  params: string;
+  returnType: string;
+  isExported: boolean;
+  sourceLine: number | null;
+  sourceLineEnd: number | null;
+  visibility: string | null;
+  isAsync: boolean;
+  kind: string | null;
 }
 
 export interface PseudoFileWithMethods {
@@ -128,4 +149,21 @@ export async function searchPseudo(project: string, q: string): Promise<SearchRe
   } catch (error) {
     throw error;
   }
+}
+
+/**
+ * Fetch all functions extracted from a source file
+ * GET /api/pseudo/functions-for-source?project=...&sourcePath=...
+ */
+export async function fetchFunctionsForSource(
+  project: string,
+  sourcePath: string,
+): Promise<FunctionForSource[]> {
+  const params = new URLSearchParams({ project, sourcePath });
+  const response = await fetch(`${API_BASE}/api/pseudo/functions-for-source?${params}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch functions for source: ${response.statusText}`);
+  }
+  const data = await response.json();
+  return data.functions || [];
 }
