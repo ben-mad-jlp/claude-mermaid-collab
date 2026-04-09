@@ -375,6 +375,46 @@ export async function handleAPI(
     }
   }
 
+  // POST /api/session-state/clear-tasks?project=...&session=... - Clear task graph from collab-state.json
+  if (path === '/api/session-state/clear-tasks' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    }
+
+    try {
+      const statePath = join(params.project, '.collab', 'sessions', params.session, 'collab-state.json');
+      const stateFile = Bun.file(statePath);
+
+      if (!await stateFile.exists()) {
+        // Nothing to clear
+        return Response.json({ success: true, cleared: false });
+      }
+
+      const content = await stateFile.text();
+      const state = JSON.parse(content);
+
+      // Clear task-related fields
+      state.batches = [];
+      state.pendingTasks = [];
+      state.completedTasks = [];
+
+      await Bun.write(statePath, JSON.stringify(state, null, 2));
+
+      // Broadcast update so connected clients refresh
+      wsHandler.broadcast({
+        type: 'session_state_updated',
+        project: params.project,
+        session: params.session,
+        state,
+      });
+
+      return Response.json({ success: true, cleared: true });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
   // GET /api/projects/:project/sessions/:session/task-graph - Get task graph for UI display
   const taskGraphMatch = path.match(/^\/api\/projects\/([^/]+)\/sessions\/([^/]+)\/task-graph$/);
   if (taskGraphMatch && req.method === 'GET') {
@@ -1717,11 +1757,19 @@ export async function handleAPI(
     const snippets = await snippetManager.listSnippets();
     const meta = snippets.map(s => {
       let description: string | undefined;
+      let linked: boolean | undefined;
+      let filePath: string | undefined;
+      let dirty: boolean | undefined;
       try {
         const parsed = JSON.parse(s.content);
         if (typeof parsed.description === 'string') description = parsed.description;
+        if (parsed.linked === true) {
+          linked = true;
+          filePath = parsed.filePath;
+          dirty = !!parsed.dirty;
+        }
       } catch { /* plain-text snippet */ }
-      return { id: s.id, name: s.name, ...(description !== undefined && { description }), lastModified: s.lastModified, deprecated: metadataManager.isDeprecated(s.id), pinned: metadataManager.isPinned(s.id) };
+      return { id: s.id, name: s.name, ...(description !== undefined && { description }), ...(linked && { linked, filePath, dirty }), lastModified: s.lastModified, deprecated: metadataManager.isDeprecated(s.id), pinned: metadataManager.isPinned(s.id) };
     });
     return Response.json({ snippets: meta });
   }

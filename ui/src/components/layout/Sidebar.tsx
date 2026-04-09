@@ -10,6 +10,7 @@ import { emailArtifact } from '@/lib/emailArtifact';
 import { importArtifact, detectType } from '@/lib/importArtifact';
 import { AddTodoDialog } from '@/components/dialogs';
 import { SubscriptionsPanel } from '@/components/layout/SubscriptionsPanel';
+import { FileBrowserDialog } from '@/components/dialogs/FileBrowserDialog';
 
 export interface SidebarProps {
   className?: string;
@@ -107,6 +108,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [blueprintCollapsed, setBlueprintCollapsed] = useState(false);
   const [tasksCollapsed, setTasksCollapsed] = useState(false);
   const [embedsCollapsed, setEmbedsCollapsed] = useState(false);
+  const [codeFilesCollapsed, setCodeFilesCollapsed] = useState(false);
+  const [fileBrowserOpen, setFileBrowserOpen] = useState(false);
 
   const handleDeleteEmbed = useCallback(
     async (embedId: string, embedName: string) => {
@@ -169,6 +172,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
           updateDiagram(item.id, { deprecated: newDeprecated });
         } else if (item.type === 'document') {
           updateDocument(item.id, { deprecated: newDeprecated });
+          // If deprecating a blueprint, also clear the associated task graph
+          if (newDeprecated && (item as any).blueprint) {
+            try {
+              await api.clearTaskGraph(currentSession.project, currentSession.name);
+            } catch (err) {
+              console.error('Failed to clear task graph:', err);
+            }
+          }
         } else if (item.type === 'spreadsheet') {
           updateSpreadsheet(item.id, { deprecated: newDeprecated });
         } else if (item.type === 'snippet') {
@@ -310,6 +321,71 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return todos.find(t => t.id === selectedTodoId) || null;
   }, [todos, selectedTodoId]);
 
+  const project = currentSession?.project ?? '';
+  const session = currentSession?.name ?? '';
+
+  const handleLinkFile = useCallback(async (filePath: string) => {
+    if (!project || !session) return;
+    const name = filePath.split('/').pop() || 'code';
+    const envelope = {
+      code: '',
+      language: '',
+      filePath,
+      originalCode: '',
+      diskCode: '',
+      linked: true,
+      linkCreatedAt: Date.now(),
+      lastPushedAt: null,
+      lastSyncedAt: Date.now(),
+      dirty: false,
+    };
+    try {
+      const result = await api.createSnippet(project, session, name, JSON.stringify(envelope));
+      if (result?.id) {
+        await api.syncCodeFromDisk(project, session, result.id);
+      }
+    } catch (error) {
+      console.error('Failed to link file:', error);
+    }
+    setFileBrowserOpen(false);
+  }, [project, session]);
+
+  const linkedSnippets = useMemo(() => {
+    return snippets
+      .filter((snip: any) => {
+        // Check metadata-level linked flag (from list endpoint) or content-level
+        if (snip.linked === true) return true;
+        try {
+          const parsed = JSON.parse(snip.content || '');
+          return parsed.linked === true;
+        } catch { return false; }
+      })
+      .sort((a, b) => b.lastModified - a.lastModified)
+      .map((snip: any) => {
+        let displayName = snip.name;
+        let filePath = (snip as any).filePath || '';
+        let dirty = !!(snip as any).dirty;
+        try {
+          const parsed = JSON.parse(snip.content || '');
+          if (parsed.filePath) {
+            displayName = parsed.filePath.split('/').pop() || snip.name;
+            filePath = parsed.filePath;
+          }
+          dirty = !!parsed.dirty;
+        } catch {
+          // Use metadata-level fields if content isn't available
+          if (filePath) displayName = filePath.split('/').pop() || snip.name;
+        }
+        return {
+          ...snip,
+          name: displayName,
+          type: 'snippet' as const,
+          _filePath: filePath,
+          _dirty: dirty,
+        };
+      });
+  }, [snippets]);
+
   const vibeInstructionsDoc = useMemo(() => {
     return documents.find((d) => d.name.endsWith('vibeinstructions')) || null;
   }, [documents]);
@@ -321,11 +397,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const blueprintItems = useMemo(() => {
     const items = documents
       .filter((d) => d.blueprint && !d.name.endsWith('vibeinstructions'))
-      .filter((d) => showDeprecated || !d.deprecated)
+      .filter((d) => !d.deprecated)
       .map((d) => ({ ...d, type: 'document' as const }));
     items.sort((a, b) => b.lastModified - a.lastModified);
     return items;
-  }, [documents, showDeprecated]);
+  }, [documents]);
 
   const filteredItems = useMemo(() => {
     const items: Item[] = [
@@ -348,10 +424,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
         const seenGroups = new Set<string>();
         return snippets
           .sort((a, b) => b.lastModified - a.lastModified)
-          .filter((snip) => {
+          .filter((snip: any) => {
             if (snip.name.endsWith('vibeinstructions')) return false;
+            // Filter out linked snippets (they show in Code Files section)
+            if (snip.linked === true) return false;
             try {
               const parsed = JSON.parse(snip.content || '');
+              if (parsed.linked) return false;
               if (parsed.groupId) {
                 if (seenGroups.has(parsed.groupId)) return false;
                 seenGroups.add(parsed.groupId);
@@ -589,11 +668,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {!blueprintCollapsed && (
             <div className="space-y-1 px-2 pb-2">
               {blueprintItems.map((item) => (
-                <button
+                <div
                   key={`document-${item.id}`}
-                  onClick={() => handleItemClick(item)}
                   className={`
-                    w-full text-left px-3 py-2 rounded-lg
+                    group relative w-full rounded-lg
                     flex items-center gap-2
                     text-sm font-medium
                     transition-colors
@@ -603,12 +681,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     }
                   `}
                 >
-                  <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-                    <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
-                  </svg>
-                  <span>{item.name}</span>
-                </button>
+                  <button
+                    onClick={() => handleItemClick(item)}
+                    className="flex-1 text-left px-3 py-2 flex items-center gap-2 min-w-0"
+                  >
+                    <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                      <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                    </svg>
+                    <span className="truncate">{item.name}</span>
+                  </button>
+                  {showItemDelete && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (window.confirm(`Deprecate blueprint "${item.name}" and clear its task graph?`)) {
+                          handleDeprecateItem(item);
+                        }
+                      }}
+                      title="Deprecate blueprint and clear task graph"
+                      className="opacity-0 group-hover:opacity-100 px-2 py-2 text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-opacity"
+                    >
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+                      </svg>
+                    </button>
+                  )}
+                </div>
               ))}
             </div>
           )}
@@ -657,6 +756,74 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     onClick={(e) => { e.stopPropagation(); handleDeleteEmbed(embed.id, embed.name); }}
                     className="opacity-0 group-hover:opacity-100 w-6 h-6 shrink-0 rounded flex items-center justify-center hover:bg-red-100 dark:hover:bg-red-900/30 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-all"
                     title={`Delete ${embed.name}`}
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Code Files Section */}
+      {linkedSnippets.length > 0 && !isDisabled && !todosSelected && (
+        <div className="border-b border-gray-200 dark:border-gray-700">
+          <div className="flex items-center">
+            <button
+              onClick={() => setCodeFilesCollapsed((c) => !c)}
+              className="flex-1 flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            >
+              <span>Code Files</span>
+              <span className="ml-1 text-gray-400 dark:text-gray-500 font-normal">{linkedSnippets.length}</span>
+              <svg
+                className={`w-3 h-3 ml-auto text-gray-400 transition-transform ${codeFilesCollapsed ? '-rotate-90' : ''}`}
+                viewBox="0 0 20 20"
+                fill="currentColor"
+              >
+                <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
+            </button>
+            <button
+              onClick={() => setFileBrowserOpen(true)}
+              className="p-1.5 mr-2 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+              title="Link a code file"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+              </svg>
+            </button>
+          </div>
+          {!codeFilesCollapsed && (
+            <div className="space-y-1 px-2 pb-2">
+              {linkedSnippets.map((snip) => (
+                <div
+                  key={snip.id}
+                  className={`group w-full text-left px-2 py-1.5 rounded text-sm flex items-center gap-2 cursor-pointer ${
+                    snip.id === selectedSnippetId
+                      ? 'bg-accent-100 dark:bg-accent-900 text-accent-700 dark:text-accent-300'
+                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                  }`}
+                  onClick={() => selectSnippet(snip.id)}
+                >
+                  <span className="w-4 h-4 shrink-0 flex items-center justify-center text-xs font-mono text-gray-500 dark:text-gray-400">&lt;/&gt;</span>
+                  <div className="flex flex-col min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="truncate">{snip.name}</span>
+                      {snip._dirty && (
+                        <span className="w-2 h-2 rounded-full bg-orange-400 shrink-0" title="Modified" />
+                      )}
+                    </div>
+                    {snip._filePath && (
+                      <span className="text-xs text-gray-400 dark:text-gray-500 truncate">{snip._filePath}</span>
+                    )}
+                  </div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDeleteItem({ ...snip, type: 'snippet' }); }}
+                    className="opacity-0 group-hover:opacity-100 w-6 h-6 shrink-0 rounded flex items-center justify-center hover:bg-red-100 dark:hover:bg-red-900/30 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-all"
+                    title={`Unlink ${snip.name}`}
                   >
                     <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" strokeLinecap="round" strokeLinejoin="round" />
@@ -765,6 +932,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           onClose={() => setShowAddTodoDialog(false)}
         />
       )}
+      <FileBrowserDialog
+        open={fileBrowserOpen}
+        onClose={() => setFileBrowserOpen(false)}
+        onSelect={handleLinkFile}
+        project={project}
+      />
     </aside>
   );
 };

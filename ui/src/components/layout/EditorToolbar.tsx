@@ -761,7 +761,8 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
       )}
 
-      {/* Overflow Menu */}
+      {/* Overflow Menu — hidden for snippets (inline toolbar already covers Copy/etc.) */}
+      {itemType !== 'snippet' && (
       <div className="relative" ref={overflowRef}>
         <button
           data-testid="editor-toolbar-overflow"
@@ -840,6 +841,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           </div>
         )}
       </div>
+      )}
       </div>
     </div>
   );

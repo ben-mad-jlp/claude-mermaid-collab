@@ -91,6 +91,11 @@ export interface ApiClient {
   setDeprecated(project: string, session: string, id: string, deprecated: boolean): Promise<void>;
   setPinned(project: string, session: string, id: string, pinned: boolean): Promise<void>;
   setBlueprint(project: string, session: string, id: string, blueprint: boolean): Promise<void>;
+  listProjectFiles(project: string, dirPath?: string): Promise<any>;
+  pushCodeToFile(project: string, session: string, id: string): Promise<any>;
+  syncCodeFromDisk(project: string, session: string, id: string): Promise<any>;
+  getCodeDiff(project: string, session: string, id: string): Promise<any>;
+  clearTaskGraph(project: string, session: string): Promise<any>;
 }
 
 export interface CachedUIState {
@@ -751,5 +756,44 @@ export const api: ApiClient = {
     if (!response.ok) {
       throw new Error(response.statusText);
     }
+  },
+
+  async listProjectFiles(project: string, dirPath?: string) {
+    const params = new URLSearchParams({ project });
+    if (dirPath) params.set('path', dirPath);
+    const response = await fetch(`/api/code/files?${params}`);
+    if (!response.ok) throw new Error(response.statusText);
+    return response.json();
+  },
+
+  async pushCodeToFile(project: string, session: string, id: string) {
+    const response = await fetch(`/api/code/push/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`, {
+      method: 'POST',
+    });
+    if (!response.ok) throw new Error(response.statusText);
+    return response.json();
+  },
+
+  async syncCodeFromDisk(project: string, session: string, id: string) {
+    const response = await fetch(`/api/code/sync/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`, {
+      method: 'POST',
+    });
+    if (!response.ok) throw new Error(response.statusText);
+    return response.json();
+  },
+
+  async getCodeDiff(project: string, session: string, id: string) {
+    const response = await fetch(`/api/code/diff/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`);
+    if (!response.ok) throw new Error(response.statusText);
+    return response.json();
+  },
+
+  async clearTaskGraph(project: string, session: string) {
+    const response = await fetch(
+      `/api/session-state/clear-tasks?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`,
+      { method: 'POST' }
+    );
+    if (!response.ok) throw new Error(response.statusText);
+    return response.json();
   },
 };

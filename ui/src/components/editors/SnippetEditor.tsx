@@ -41,6 +41,8 @@ export interface SnippetEditorProps {
   /** Callback to provide inline toolbar controls to the parent (rendered in EditorToolbar header) */
   onToolbarControls?: (controls: React.ReactNode) => void;
   showDiffByDefault?: boolean;
+  /** Hide the filePath display in the toolbar (useful when parent already shows it) */
+  hideFilePath?: boolean;
 }
 
 /**
@@ -126,6 +128,7 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
   highlightLines = [],
   showDiffByDefault = false,
   onToolbarControls,
+  hideFilePath = false,
 }) => {
   const { selectedSnippet, updateSnippet, getSnippetById } = useSnippet();
 
@@ -404,7 +407,7 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
       <select
         value={selectedLanguage}
         onChange={handleLanguageChange}
-        className="px-2 py-0.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-xs font-medium"
+        className="pl-2 pr-6 py-0.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-xs font-medium min-w-[110px]"
         title="Select code language"
       >
         <option value="text">Plain Text</option>
@@ -454,7 +457,7 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
           </button>
         </>
       )}
-      {filePath && (
+      {filePath && !hideFilePath && (
         <span className="flex-1 text-right text-xs text-gray-400 dark:text-gray-500 font-mono truncate min-w-0" title={filePath}>
           {filePath}
         </span>
@@ -462,7 +465,7 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
     </>
   ), [
     selectedLanguage, handleLanguageChange, showDiff, handleDiffToggle, handleCopy,
-    filePath, showButtons, hasChanges, handleCancel,
+    filePath, hideFilePath, showButtons, hasChanges, handleCancel,
     handleSave, isSaving, currentSelection, annotationPopover, handleOpenAddAnnotation,
     annotations, handleClearAnnotations,
   ]);

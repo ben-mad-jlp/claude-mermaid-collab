@@ -38,6 +38,7 @@ import { formatMermaid, canFormat } from '@/lib/mermaidFormatter';
 import { DesignEditor } from '@/components/design-editor/DesignEditor';
 import { SpreadsheetEditor } from '@/components/editors/SpreadsheetEditor';
 import { SnippetEditor } from '@/components/editors/SnippetEditor';
+import { CodeEditor } from '@/components/editors/CodeEditor';
 import { useSessionStore } from '@/stores/sessionStore';
 import { api } from '@/lib/api';
 
@@ -399,8 +400,16 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
     );
   }
 
-  // Snippet items render with SnippetEditor (with group support)
+  // Snippet items: check if linked to a code file, otherwise render with group support
   if (item.type === 'snippet') {
+    // Linked snippets route to CodeEditor for file-backed editing
+    try {
+      const parsed = JSON.parse(item.content || '');
+      if (parsed.linked === true) {
+        return <CodeEditor snippetId={item.id} onToolbarControls={onSnippetToolbarControls} />;
+      }
+    } catch { /* not linked, fall through to regular snippet */ }
+
     return <SnippetGroupView item={item} onSnippetSave={onSnippetSave} onContentChange={onContentChange} onToolbarControls={onSnippetToolbarControls} />;
   }
 

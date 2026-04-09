@@ -159,6 +159,18 @@ import {
   handleDeleteSnippet,
   handleExportSnippet,
 } from './tools/snippet.js';
+import {
+  linkCodeFileSchema,
+  pushCodeToFileSchema,
+  syncCodeFromDiskSchema,
+  reviewCodeEditsSchema,
+  listCodeFilesSchema,
+  handleLinkCodeFile,
+  handlePushCodeToFile,
+  handleSyncCodeFromDisk,
+  handleReviewCodeEdits,
+  handleListCodeFiles,
+} from './tools/code.js';
 import { createEmbedSchema, listEmbedsSchema, deleteEmbedSchema, handleCreateEmbed, handleListEmbeds, handleDeleteEmbed, createStorybookEmbedSchema, listStorybookStoriesSchema, handleCreateStorybookEmbed, handleListStorybookStories } from './tools/embed.js';
 
 // Configuration
@@ -1946,6 +1958,31 @@ IMPORTANT - Common pitfalls to avoid:
           required: ['project'],
         },
       },
+      {
+        name: 'link_code_file',
+        description: 'Link a source file from disk as a tracked code artifact. Reads the file and creates a snippet envelope with change tracking.',
+        inputSchema: linkCodeFileSchema,
+      },
+      {
+        name: 'push_code_to_file',
+        description: 'Push the current code content of a linked code artifact back to its file on disk.',
+        inputSchema: pushCodeToFileSchema,
+      },
+      {
+        name: 'sync_code_from_disk',
+        description: 'Sync a linked code artifact with the latest content from its file on disk.',
+        inputSchema: syncCodeFromDiskSchema,
+      },
+      {
+        name: 'review_code_edits',
+        description: 'Review changes made to a linked code artifact, showing a diff or full content.',
+        inputSchema: reviewCodeEditsSchema,
+      },
+      {
+        name: 'list_code_files',
+        description: 'List all linked code file artifacts in a session.',
+        inputSchema: listCodeFilesSchema,
+      },
     ],
   }));
 
@@ -3533,6 +3570,41 @@ IMPORTANT - Common pitfalls to avoid:
             const db = getPseudoDb(project);
             const coverageResult = db.getCoverage(directory);
             return JSON.stringify(coverageResult, null, 2);
+          }
+
+          case 'link_code_file': {
+            const { project, session, filePath, name } = args as { project: string; session: string; filePath: string; name?: string };
+            if (!project || !session || !filePath) throw new Error('Missing required: project, session, filePath');
+            const result = await handleLinkCodeFile(project, session, filePath, name);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'push_code_to_file': {
+            const { project, session, id } = args as { project: string; session: string; id: string };
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            const result = await handlePushCodeToFile(project, session, id);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'sync_code_from_disk': {
+            const { project, session, id } = args as { project: string; session: string; id: string };
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            const result = await handleSyncCodeFromDisk(project, session, id);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'review_code_edits': {
+            const { project, session, id, format } = args as { project: string; session: string; id: string; format?: 'diff' | 'full' };
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            const result = await handleReviewCodeEdits(project, session, id, format);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'list_code_files': {
+            const { project, session } = args as { project: string; session: string };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            const result = await handleListCodeFiles(project, session);
+            return JSON.stringify(result, null, 2);
           }
 
           default:
