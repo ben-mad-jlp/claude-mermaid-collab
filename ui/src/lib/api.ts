@@ -94,6 +94,8 @@ export interface ApiClient {
   listProjectFiles(project: string, dirPath?: string): Promise<any>;
   pushCodeToFile(project: string, session: string, id: string): Promise<any>;
   syncCodeFromDisk(project: string, session: string, id: string): Promise<any>;
+  acceptProposedEdit(project: string, session: string, id: string): Promise<{ success: boolean; dirty: boolean }>;
+  rejectProposedEdit(project: string, session: string, id: string): Promise<{ success: boolean; noop?: boolean }>;
   getCodeDiff(project: string, session: string, id: string): Promise<any>;
   clearTaskGraph(project: string, session: string): Promise<any>;
 }
@@ -779,6 +781,28 @@ export const api: ApiClient = {
       method: 'POST',
     });
     if (!response.ok) throw new Error(response.statusText);
+    return response.json();
+  },
+
+  async acceptProposedEdit(project: string, session: string, id: string) {
+    const response = await fetch(`/api/code/proposed-edit/${encodeURIComponent(id)}/accept?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`, {
+      method: 'POST',
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({})) as { error?: string };
+      throw new Error(err.error || response.statusText);
+    }
+    return response.json();
+  },
+
+  async rejectProposedEdit(project: string, session: string, id: string) {
+    const response = await fetch(`/api/code/proposed-edit/${encodeURIComponent(id)}/reject?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`, {
+      method: 'POST',
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({})) as { error?: string };
+      throw new Error(err.error || response.statusText);
+    }
     return response.json();
   },
 

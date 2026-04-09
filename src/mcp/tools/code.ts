@@ -98,6 +98,17 @@ export const listCodeFilesSchema = {
   required: ['project', 'session'],
 };
 
+export const proposeCodeEditSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    id: { type: 'string', description: 'Snippet ID of the linked code artifact' },
+    newCode: { type: 'string', description: 'Proposed full-file content. Replaces the entire file, not a patch.' },
+    message: { type: 'string', description: 'Short human-readable explanation of the proposed change.' },
+  },
+  required: ['project', 'session', 'id', 'newCode'],
+};
+
 // ============= Handlers =============
 
 export async function handleLinkCodeFile(
@@ -223,6 +234,27 @@ export async function handleReviewCodeEdits(
     dirty: envelope.dirty,
     lastPushedAt: envelope.lastPushedAt,
   };
+}
+
+export async function handleProposeCodeEdit(
+  project: string,
+  session: string,
+  id: string,
+  newCode: string,
+  message?: string,
+): Promise<Record<string, unknown>> {
+  const response = await fetch(buildUrl(`/api/code/proposed-edit/${id}`, project, session), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ newCode, message }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json() as any;
+    throw new Error(`Failed to propose code edit: ${error.error || response.statusText}`);
+  }
+
+  return await response.json() as any;
 }
 
 export async function handleListCodeFiles(

@@ -60,6 +60,34 @@ export async function handleCodeAPI(req: Request): Promise<Response> {
       return handleSyncFromDisk(project, session, id);
     }
 
+    // POST /proposed-edit/:id/accept — accept a pending proposed edit
+    if (path.match(/^\/proposed-edit\/[^/]+\/accept$/) && req.method === 'POST') {
+      if (!session) {
+        return jsonError('Missing required query parameter: session', 400);
+      }
+      const id = decodeURIComponent(path.split('/')[2]);
+      return handleAcceptProposedEdit(project, session, id);
+    }
+
+    // POST /proposed-edit/:id/reject — reject a pending proposed edit
+    if (path.match(/^\/proposed-edit\/[^/]+\/reject$/) && req.method === 'POST') {
+      if (!session) {
+        return jsonError('Missing required query parameter: session', 400);
+      }
+      const id = decodeURIComponent(path.split('/')[2]);
+      return handleRejectProposedEdit(project, session, id);
+    }
+
+    // POST /proposed-edit/:id — create/replace a proposed edit
+    if (path.match(/^\/proposed-edit\/[^/]+$/) && req.method === 'POST') {
+      if (!session) {
+        return jsonError('Missing required query parameter: session', 400);
+      }
+      const id = decodeURIComponent(path.split('/').pop()!);
+      const body = await req.json() as { newCode?: unknown; message?: unknown };
+      return handleCreateProposedEdit(project, session, id, body);
+    }
+
     // GET /diff/:id — compute diffs for a linked snippet
     if (path.match(/^\/diff\/[^/]+$/) && req.method === 'GET') {
       if (!session) {
@@ -192,6 +220,162 @@ async function handlePushToFile(project: string, session: string, id: string): P
   }
 
   return Response.json({ success: true, filePath: envelope.filePath, bytesWritten });
+}
+
+async function handleCreateProposedEdit(
+  project: string,
+  session: string,
+  id: string,
+  body: { newCode?: unknown; message?: unknown },
+): Promise<Response> {
+  if (typeof body?.newCode !== 'string') {
+    return jsonError('body.newCode must be a string', 400);
+  }
+
+  const snippetsDir = sessionRegistry.resolvePath(project, session, 'snippets');
+  const snippetManager = new SnippetManager(snippetsDir);
+  await snippetManager.initialize();
+
+  const snippet = await snippetManager.getSnippet(id);
+  if (!snippet) {
+    return jsonError(`Snippet "${id}" not found`, 404);
+  }
+
+  const envelope = JSON.parse(snippet.content);
+
+  if (!envelope.linked) {
+    return jsonError('Snippet is not linked to a file', 400);
+  }
+
+  // Noop short-circuit: proposed content matches current code exactly.
+  if (body.newCode === (envelope.code ?? '')) {
+    return Response.json({
+      success: true,
+      id,
+      hasProposedEdit: !!envelope.proposedEdit,
+      noop: true,
+    });
+  }
+
+  // Replace any existing proposal silently.
+  envelope.proposedEdit = {
+    newCode: body.newCode,
+    message: typeof body.message === 'string' ? body.message : undefined,
+    proposedAt: Date.now(),
+    proposedBy: 'claude',
+  };
+
+  const updatedContent = JSON.stringify(envelope, null, 2);
+  await snippetManager.saveSnippet(id, updatedContent);
+
+  // Broadcast snippet_updated
+  const wsHandler = getWebSocketHandler();
+  if (wsHandler) {
+    const updatedSnippet = await snippetManager.getSnippet(id);
+    if (updatedSnippet) {
+      wsHandler.broadcast({
+        type: 'snippet_updated',
+        id,
+        content: updatedSnippet.content,
+        lastModified: updatedSnippet.lastModified,
+        project,
+        session,
+      });
+    }
+  }
+
+  return Response.json({ success: true, id, hasProposedEdit: true });
+}
+
+async function handleAcceptProposedEdit(project: string, session: string, id: string): Promise<Response> {
+  const snippetsDir = sessionRegistry.resolvePath(project, session, 'snippets');
+  const snippetManager = new SnippetManager(snippetsDir);
+  await snippetManager.initialize();
+
+  const snippet = await snippetManager.getSnippet(id);
+  if (!snippet) {
+    return jsonError(`Snippet "${id}" not found`, 404);
+  }
+
+  const envelope = JSON.parse(snippet.content);
+
+  if (!envelope.linked) {
+    return jsonError('Snippet is not linked to a file', 400);
+  }
+
+  if (!envelope.proposedEdit) {
+    return jsonError('No proposed edit to accept', 400);
+  }
+
+  envelope.code = envelope.proposedEdit.newCode;
+  envelope.dirty = envelope.code !== (envelope.originalCode ?? '');
+  delete envelope.proposedEdit;
+
+  const updatedContent = JSON.stringify(envelope, null, 2);
+  await snippetManager.saveSnippet(id, updatedContent);
+
+  // Broadcast snippet_updated
+  const wsHandler = getWebSocketHandler();
+  if (wsHandler) {
+    const updatedSnippet = await snippetManager.getSnippet(id);
+    if (updatedSnippet) {
+      wsHandler.broadcast({
+        type: 'snippet_updated',
+        id,
+        content: updatedSnippet.content,
+        lastModified: updatedSnippet.lastModified,
+        project,
+        session,
+      });
+    }
+  }
+
+  return Response.json({ success: true, dirty: envelope.dirty });
+}
+
+async function handleRejectProposedEdit(project: string, session: string, id: string): Promise<Response> {
+  const snippetsDir = sessionRegistry.resolvePath(project, session, 'snippets');
+  const snippetManager = new SnippetManager(snippetsDir);
+  await snippetManager.initialize();
+
+  const snippet = await snippetManager.getSnippet(id);
+  if (!snippet) {
+    return jsonError(`Snippet "${id}" not found`, 404);
+  }
+
+  const envelope = JSON.parse(snippet.content);
+
+  if (!envelope.linked) {
+    return jsonError('Snippet is not linked to a file', 400);
+  }
+
+  // Idempotent: no proposal pending → 200 with noop.
+  if (!envelope.proposedEdit) {
+    return Response.json({ success: true, noop: true });
+  }
+
+  delete envelope.proposedEdit;
+
+  const updatedContent = JSON.stringify(envelope, null, 2);
+  await snippetManager.saveSnippet(id, updatedContent);
+
+  // Broadcast snippet_updated
+  const wsHandler = getWebSocketHandler();
+  if (wsHandler) {
+    const updatedSnippet = await snippetManager.getSnippet(id);
+    if (updatedSnippet) {
+      wsHandler.broadcast({
+        type: 'snippet_updated',
+        id,
+        content: updatedSnippet.content,
+        lastModified: updatedSnippet.lastModified,
+        project,
+        session,
+      });
+    }
+  }
+
+  return Response.json({ success: true });
 }
 
 async function handleSyncFromDisk(project: string, session: string, id: string): Promise<Response> {

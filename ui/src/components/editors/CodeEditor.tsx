@@ -11,6 +11,7 @@ import { SnippetEditor } from './SnippetEditor';
 import { DiffAgainstDiskModal } from './DiffAgainstDiskModal';
 import { CodeArtifactKebabMenu } from './CodeArtifactKebabMenu';
 import { PseudoSideBySideView } from './PseudoSideBySideView';
+import { ProposedEditReview } from './ProposedEditReview';
 import { useSnippet } from '@/hooks/useSnippet';
 import { useSessionStore } from '@/stores/sessionStore';
 import { api } from '@/lib/api';
@@ -47,12 +48,21 @@ function parseLinkedEnvelope(content: string | undefined) {
   try {
     const data = JSON.parse(content);
     if (data.linked !== true) return null;
+    const proposedEdit = (data.proposedEdit && typeof data.proposedEdit.newCode === 'string')
+      ? {
+          newCode: data.proposedEdit.newCode as string,
+          message: typeof data.proposedEdit.message === 'string' ? data.proposedEdit.message : undefined,
+          proposedAt: typeof data.proposedEdit.proposedAt === 'number' ? data.proposedEdit.proposedAt : Date.now(),
+        }
+      : null;
     return {
       linked: true as const,
+      code: typeof data.code === 'string' ? data.code : '',
       filePath: typeof data.filePath === 'string' ? data.filePath : '',
       dirty: !!data.dirty,
       lastPushedAt: typeof data.lastPushedAt === 'number' ? data.lastPushedAt : null,
       lastSyncedAt: typeof data.lastSyncedAt === 'number' ? data.lastSyncedAt : Date.now(),
+      proposedEdit,
     };
   } catch {
     return null;
@@ -180,6 +190,30 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
       setIsSyncing(false);
     }
   }, [currentSession, isSyncing, snippetId, conflict, refreshSnippet]);
+
+  const handleAcceptProposal = useCallback(async () => {
+    if (!currentSession) return;
+    try {
+      await api.acceptProposedEdit(currentSession.project, currentSession.name, snippetId);
+      setFlashMessage('Accepted — review and Push when ready');
+      await refreshSnippet();
+    } catch (err) {
+      console.error('Accept proposal failed:', err);
+      setFlashMessage('Accept failed');
+    }
+  }, [currentSession, snippetId, refreshSnippet]);
+
+  const handleRejectProposal = useCallback(async () => {
+    if (!currentSession) return;
+    try {
+      await api.rejectProposedEdit(currentSession.project, currentSession.name, snippetId);
+      setFlashMessage('Rejected');
+      await refreshSnippet();
+    } catch (err) {
+      console.error('Reject proposal failed:', err);
+      setFlashMessage('Reject failed');
+    }
+  }, [currentSession, snippetId, refreshSnippet]);
 
   const handleKeepMine = useCallback(() => {
     setConflict(null);
@@ -310,6 +344,17 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
 
   return (
     <div className="flex flex-col h-full">
+      {/* Proposed-edit review banner (Claude MCP propose_code_edit) */}
+      {envelope.proposedEdit && (
+        <ProposedEditReview
+          currentCode={envelope.code}
+          proposedCode={envelope.proposedEdit.newCode}
+          proposedMessage={envelope.proposedEdit.message}
+          proposedAt={envelope.proposedEdit.proposedAt}
+          onAccept={handleAcceptProposal}
+          onReject={handleRejectProposal}
+        />
+      )}
       {/* Conflict banner */}
       {conflict && (
         <div className="bg-amber-50 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-800 px-4 py-2 flex items-center justify-between text-sm">

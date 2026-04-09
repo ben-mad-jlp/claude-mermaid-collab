@@ -165,11 +165,13 @@ import {
   syncCodeFromDiskSchema,
   reviewCodeEditsSchema,
   listCodeFilesSchema,
+  proposeCodeEditSchema,
   handleLinkCodeFile,
   handlePushCodeToFile,
   handleSyncCodeFromDisk,
   handleReviewCodeEdits,
   handleListCodeFiles,
+  handleProposeCodeEdit,
 } from './tools/code.js';
 import { createEmbedSchema, listEmbedsSchema, deleteEmbedSchema, handleCreateEmbed, handleListEmbeds, handleDeleteEmbed, createStorybookEmbedSchema, listStorybookStoriesSchema, handleCreateStorybookEmbed, handleListStorybookStories } from './tools/embed.js';
 
@@ -1983,6 +1985,11 @@ IMPORTANT - Common pitfalls to avoid:
         description: 'List all linked code file artifacts in a session.',
         inputSchema: listCodeFilesSchema,
       },
+      {
+        name: 'propose_code_edit',
+        description: 'Propose an edit to a linked code artifact. The proposal appears in the UI as a diff with Accept/Reject buttons. Acceptance updates the in-editor code (user must still Push to write to disk). Only one proposal can be pending per snippet; a new proposal replaces any existing one.',
+        inputSchema: proposeCodeEditSchema,
+      },
     ],
   }));
 
@@ -3604,6 +3611,17 @@ IMPORTANT - Common pitfalls to avoid:
             const { project, session } = args as { project: string; session: string };
             if (!project || !session) throw new Error('Missing required: project, session');
             const result = await handleListCodeFiles(project, session);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'propose_code_edit': {
+            const { project, session, id, newCode, message } = args as {
+              project: string; session: string; id: string; newCode: string; message?: string;
+            };
+            if (!project || !session || !id || typeof newCode !== 'string') {
+              throw new Error('Missing required: project, session, id, newCode');
+            }
+            const result = await handleProposeCodeEdit(project, session, id, newCode, message);
             return JSON.stringify(result, null, 2);
           }
 
