@@ -37,6 +37,25 @@ The first lines describe the file's purpose. No keyword needed — just plain En
 
 The `synced:` timestamp records when this pseudo file was last written or updated. It is written automatically by the `/pseudocode` skill and used by `/pseudocode sync` to determine which files need re-checking. Do not edit it manually.
 
+### File-Level Metadata (Optional)
+
+After the `// synced:` line, you may add optional headers that help the parser cross-reference the source file:
+
+```
+// Short title
+// One or two sentences describing what this file does and why it exists.
+// synced: 2026-03-26T14:30:00Z
+// source: src/services/alias-generator.ts
+// language: typescript
+```
+
+| Header | Purpose |
+|---|---|
+| `// source:` | Path to the source file this pseudo describes. The parser uses it for line-number discovery and change detection. If omitted, the parser probes common extensions next to the pseudo file. |
+| `// language:` | Source file language (typescript / javascript / python / csharp / cpp / go / rust). Derived from the source extension if omitted. |
+
+Both headers are optional. Include `// source:` when you know the path — it unlocks navigation features.
+
 ### Module-level context
 
 If the file has important state, config, or background behavior, describe it in plain prose before the functions. Keep it brief.
@@ -56,6 +75,30 @@ FUNCTION functionName(params) -> returnType                             EXPORT [
 ```
 
 The `[YYYY-MM-DD]` date at the end of the FUNCTION line records when this specific function block was last updated. It is written automatically and used to identify which functions within a file changed since the last sync. Do not edit it manually. If a function's logic has not changed, its date is preserved as-is even when the file's `synced:` timestamp is refreshed.
+
+### Function-Level Metadata (Optional)
+
+Between the FUNCTION header and the first step, you may add metadata markers that describe the function's shape. Each marker is one line in `KEY: value` form. Include markers only when they add clarity — omit markers that add no value (a public synchronous function with no visibility keyword in the source needs no markers).
+
+```
+FUNCTION authenticate(username, password) -> Promise<AuthToken>          EXPORT [2026-04-09]
+  VISIBILITY: public
+  ASYNC: true
+  KIND: method
+  CALLS: queryDatabase (db-client), validateToken (auth-utils)
+  1. Look up user in database.
+  2. Verify password hash.
+  3. IF valid, generate JWT token.
+```
+
+| Marker | Values | Purpose |
+|---|---|---|
+| `VISIBILITY:` | `public` / `private` / `protected` / `internal` | Access modifier |
+| `ASYNC:` | `true` | Marks async functions (omit if synchronous) |
+| `KIND:` | `function` / `method` / `constructor` / `getter` / `setter` / `callback` | Function kind when it disambiguates |
+| `CALLS:` | `name (file-stem), ...` | Cross-file references (see below) |
+
+All markers are optional and backward compatible — legacy files without markers still parse correctly.
 
 #### Rules for function bodies:
 

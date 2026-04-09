@@ -80,13 +80,18 @@ export async function handlePseudoAPI(req: Request): Promise<Response> {
       return Response.json(getPseudoDb(project).getCoverage(directory));
     }
 
+    if (path === '/source-link' && req.method === 'GET') {
+      const name = url.searchParams.get('name');
+      if (!name) {
+        return jsonError('Missing required query parameter: name', 400);
+      }
+      const hintFileStem = url.searchParams.get('hintFileStem') || undefined;
+      const candidates = getPseudoDb(project).getSourceLink(name, hintFileStem);
+      return Response.json({ candidates });
+    }
+
     if (path === '/stats' && req.method === 'GET') {
-      const db = getPseudoDb(project);
-      const files = db.listFiles();
-      const fileCount = files.length;
-      const methodCount = files.reduce((sum, f) => sum + f.methodCount, 0);
-      const exportCount = files.reduce((sum, f) => sum + f.exportCount, 0);
-      return Response.json({ fileCount, methodCount, exportCount });
+      return Response.json(getPseudoDb(project).getStats());
     }
 
     if (path === '/directories' && req.method === 'GET') {

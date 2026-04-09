@@ -4,6 +4,36 @@ import * as fs from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { handlePseudoAPI } from './pseudo-api';
+import { getPseudoDb } from '../services/pseudo-db';
+
+function makeParsedFile(opts: any = {}): any {
+  return {
+    title: opts.title ?? 'T',
+    purpose: opts.purpose ?? 'P',
+    syncedAt: opts.syncedAt ?? null,
+    sourceFilePath: opts.sourceFilePath ?? null,
+    language: opts.language ?? null,
+    moduleContext: opts.moduleContext ?? '',
+    methods: (opts.methods ?? []).map((m: any, i: number) => ({
+      name: m.name ?? `fn${i}`,
+      params: m.params ?? '',
+      returnType: m.returnType ?? '',
+      isExport: m.isExport ?? false,
+      date: m.date ?? null,
+      calls: m.calls ?? [],
+      steps: m.steps ?? [],
+      sortOrder: m.sortOrder ?? i,
+      visibility: m.visibility ?? null,
+      isAsync: m.isAsync ?? false,
+      kind: m.kind ?? null,
+      paramCount: m.paramCount ?? 0,
+      stepCount: m.stepCount ?? (m.steps?.length ?? 0),
+      owningSymbol: m.owningSymbol ?? null,
+      sourceLine: m.sourceLine ?? null,
+      sourceLineEnd: m.sourceLineEnd ?? null,
+    })),
+  };
+}
 
 describe('Pseudo API Routes', () => {
   let testProjectPath: string;
@@ -311,6 +341,188 @@ END FUNCTION`);
       // Verify matches are found in both files
       const totalMatches = Object.values(data.matches).reduce((sum: number, matches: any) => sum + matches.length, 0);
       expect(totalMatches).toBeGreaterThan(0);
+    });
+  });
+
+  describe('GET /api/pseudo/stats', () => {
+    it('returns zero counts on an empty project', async () => {
+      const url = `http://localhost/api/pseudo/stats?project=${encodeURIComponent(testProjectPath)}`;
+      const req = new Request(url, { method: 'GET' });
+      const response = await handlePseudoAPI(req);
+
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data).toEqual({ fileCount: 0, methodCount: 0, exportCount: 0 });
+    });
+
+    it('returns correct counts after indexing', async () => {
+      const db = getPseudoDb(testProjectPath);
+      db.upsertFile('/virtual/a.pseudo', makeParsedFile({
+        title: 'A',
+        methods: [
+          { name: 'foo', isExport: true },
+          { name: 'bar', isExport: false },
+        ],
+      }));
+      db.upsertFile('/virtual/b.pseudo', makeParsedFile({
+        title: 'B',
+        methods: [
+          { name: 'baz', isExport: false },
+        ],
+      }));
+
+      const url = `http://localhost/api/pseudo/stats?project=${encodeURIComponent(testProjectPath)}`;
+      const req = new Request(url, { method: 'GET' });
+      const response = await handlePseudoAPI(req);
+
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data).toEqual({ fileCount: 2, methodCount: 3, exportCount: 1 });
+    });
+  });
+
+  describe('GET /api/pseudo/source-link', () => {
+    it('returns 400 when name parameter is missing', async () => {
+      const url = `http://localhost/api/pseudo/source-link?project=${encodeURIComponent(testProjectPath)}`;
+      const req = new Request(url, { method: 'GET' });
+      const response = await handlePseudoAPI(req);
+
+      expect(response.status).toBe(400);
+      const data = await response.json();
+      expect(data.error).toBeDefined();
+      expect(data.error).toContain('name');
+    });
+
+    it('returns empty candidates when no methods match', async () => {
+      const url = `http://localhost/api/pseudo/source-link?project=${encodeURIComponent(testProjectPath)}&name=nonexistent`;
+      const req = new Request(url, { method: 'GET' });
+      const response = await handlePseudoAPI(req);
+
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data).toEqual({ candidates: [] });
+    });
+
+    it('returns candidates for methods with sourceLine', async () => {
+      // Source file must exist on disk for pseudo-db to record it
+      const srcPath = join(testProjectPath, 'foo.ts');
+      await writeFile(srcPath, 'export function foo() {}\n');
+      const pseudoPath = join(testProjectPath, 'foo.pseudo');
+      await writeFile(pseudoPath, '');
+
+      const db = getPseudoDb(testProjectPath);
+      db.upsertFile(pseudoPath, makeParsedFile({
+        title: 'Foo',
+        sourceFilePath: srcPath,
+        language: 'typescript',
+        methods: [
+          {
+            name: 'foo',
+            isExport: true,
+            sourceLine: 42,
+            sourceLineEnd: 58,
+          },
+        ],
+      }));
+
+      const url = `http://localhost/api/pseudo/source-link?project=${encodeURIComponent(testProjectPath)}&name=foo`;
+      const req = new Request(url, { method: 'GET' });
+      const response = await handlePseudoAPI(req);
+
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.candidates).toHaveLength(1);
+      expect(data.candidates[0]).toEqual({
+        sourceFilePath: srcPath,
+        sourceLine: 42,
+        sourceLineEnd: 58,
+        language: 'typescript',
+        isExported: true,
+      });
+    });
+
+    it('filters by hintFileStem', async () => {
+      const aSrc = join(testProjectPath, 'a.ts');
+      const bSrc = join(testProjectPath, 'b.ts');
+      await writeFile(aSrc, 'export function foo() {}\n');
+      await writeFile(bSrc, 'export function foo() {}\n');
+      const aPseudo = join(testProjectPath, 'a.pseudo');
+      const bPseudo = join(testProjectPath, 'b.pseudo');
+      await writeFile(aPseudo, '');
+      await writeFile(bPseudo, '');
+
+      const db = getPseudoDb(testProjectPath);
+      db.upsertFile(aPseudo, makeParsedFile({
+        title: 'A',
+        sourceFilePath: aSrc,
+        language: 'typescript',
+        methods: [
+          { name: 'foo', isExport: true, sourceLine: 10, sourceLineEnd: 20 },
+        ],
+      }));
+      db.upsertFile(bPseudo, makeParsedFile({
+        title: 'B',
+        sourceFilePath: bSrc,
+        language: 'typescript',
+        methods: [
+          { name: 'foo', isExport: true, sourceLine: 30, sourceLineEnd: 40 },
+        ],
+      }));
+
+      const url = `http://localhost/api/pseudo/source-link?project=${encodeURIComponent(testProjectPath)}&name=foo&hintFileStem=a`;
+      const req = new Request(url, { method: 'GET' });
+      const response = await handlePseudoAPI(req);
+
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.candidates).toHaveLength(1);
+      expect(data.candidates[0].sourceFilePath).toBe(aSrc);
+      expect(data.candidates[0].sourceLine).toBe(10);
+    });
+  });
+
+  describe('GET /api/pseudo/exports (stepSummary)', () => {
+    it('returns empty array on empty project', async () => {
+      const url = `http://localhost/api/pseudo/exports?project=${encodeURIComponent(testProjectPath)}`;
+      const req = new Request(url, { method: 'GET' });
+      const response = await handlePseudoAPI(req);
+
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data).toEqual([]);
+    });
+
+    it('returns entries with stepSummary field (not purpose)', async () => {
+      const db = getPseudoDb(testProjectPath);
+      db.upsertFile('/virtual/login.pseudo', makeParsedFile({
+        title: 'Login',
+        methods: [
+          {
+            name: 'login',
+            isExport: true,
+            steps: [
+              { content: 'Validate credentials', depth: 0, sortOrder: 0 },
+              { content: 'Create session', depth: 0, sortOrder: 1 },
+            ],
+          },
+        ],
+      }));
+
+      const url = `http://localhost/api/pseudo/exports?project=${encodeURIComponent(testProjectPath)}`;
+      const req = new Request(url, { method: 'GET' });
+      const response = await handlePseudoAPI(req);
+
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(Array.isArray(data)).toBe(true);
+      expect(data).toHaveLength(1);
+      const entry = data[0];
+      expect(entry).toHaveProperty('filePath');
+      expect(entry).toHaveProperty('methodName', 'login');
+      expect(entry).toHaveProperty('stepSummary');
+      expect(entry.stepSummary).toContain('Validate credentials');
+      expect(entry.stepSummary).toContain('Create session');
+      expect(entry).not.toHaveProperty('purpose');
     });
   });
 });

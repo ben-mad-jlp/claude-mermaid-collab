@@ -30,6 +30,19 @@ For each candidate file, check the spec's skip rules:
 - Skip config files
 - Skip files under 20 lines
 
+## Step 2b: Source Metadata Header (Optional but Recommended)
+
+After the `// synced:` line, add a `// source:` header pointing to the source file this pseudo describes, and optionally a `// language:` header:
+
+```
+// source: src/services/alias-generator.ts
+// language: typescript
+```
+
+The parser uses `// source:` to cross-reference source line numbers for navigation features (jump-to-function, find-references, go-to-definition). `// language:` is derived from the source file extension when omitted.
+
+Include `// source:` whenever you know the path — it's cheap to write and unlocks downstream features.
+
 ## Step 3: For Each Target File
 
 ### If no `.pseudo` file exists — Generate
@@ -39,8 +52,10 @@ For each candidate file, check the spec's skip rules:
 3. Get the current UTC date: `date -u +%Y-%m-%dT%H:%M:%SZ`
 4. Write the `.pseudo` file following the spec format:
    - Header: title, purpose, then `// synced: <timestamp>`
+   - File-level metadata headers: `// source:` and optionally `// language:`
    - Module-level context (if applicable)
    - FUNCTION blocks with `[YYYY-MM-DD]` date suffix on each FUNCTION line
+   - Function-level metadata markers (`VISIBILITY:`, `ASYNC:`, `KIND:`) between the FUNCTION header and first step when they add clarity
    - `---` separators between blocks
    - `EXPORT` markers on public API
    - `CALLS:` lines for cross-file function references (check the code's imports to determine these)
@@ -195,6 +210,31 @@ Pseudo tracking installed:
 Run /pseudocode sync after your next commit to update stale pseudo files.
 ```
 
+## Function Metadata Markers
+
+Between the FUNCTION header and the first step, you may add metadata markers that the parser reads into the pseudo-db for navigation and API-surface features:
+
+| Marker | Values | When to include |
+|---|---|---|
+| `VISIBILITY:` | public / private / protected / internal | When the source has an explicit access modifier or convention |
+| `ASYNC:` | true | When the function is async (omit if synchronous) |
+| `KIND:` | function / method / constructor / getter / setter / callback | When disambiguation helps (constructors, getters, setters, callbacks) |
+| `CALLS:` | `name (file-stem), ...` | Cross-file references (existing marker — see spec) |
+
+**Rule:** use markers only when they add clarity. A public synchronous top-level function with no surprises needs no markers. Omit everything that adds no value.
+
+Example with markers:
+```
+FUNCTION authenticate(username, password) -> Promise<AuthToken>   EXPORT [2026-04-09]
+  VISIBILITY: public
+  ASYNC: true
+  CALLS: queryDatabase (db-client)
+  1. Look up user in database.
+  2. Verify password hash.
+```
+
+When updating an existing `.pseudo` file, check whether the visibility or async-ness of a function changed in the source and update the markers accordingly.
+
 ## Language-Specific Guidance
 
 The pseudocode format is language-agnostic. Apply it to any language:
@@ -205,6 +245,17 @@ The pseudocode format is language-agnostic. Apply it to any language:
 - **Rust**: Functions, impl methods, trait methods
 - **Shell scripts**: Functions. For scripts without functions, describe the top-level flow as numbered steps under a single FUNCTION block named after the script.
 - **SQL**: Stored procedures, complex queries (describe as FUNCTION blocks)
+
+### Visibility and async conventions per language
+
+| Language | Visibility inference | Async marker | Notes |
+|---|---|---|---|
+| TypeScript | Explicit `public/private/protected` keywords when present; default public when `EXPORT`ed | `ASYNC: true` for `async function` | Primary language |
+| C# | Explicit `public/private/protected/internal` keywords | `ASYNC: true` for `async Task<T>` | Good-effort |
+| C++ | From `public:`/`private:` sections in class | Usually N/A (set for coroutines if applicable) | Good-effort |
+| Python | Leading `_` = private by convention, `__` = private-mangled | `ASYNC: true` for `async def` | Opportunistic |
+| Go | Capital first letter = exported; visibility marker is redundant (use EXPORT instead) | N/A | — |
+| Rust | `pub`/`pub(crate)` → `public`/`internal` | N/A | — |
 
 ## Key Reminders
 
