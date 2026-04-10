@@ -1,7 +1,0 @@
-// Spinner
-// Animated loading spinner with configurable size and accessible screen-reader text.
-
-FUNCTION Spinner(props) -> ReactNode                                      EXPORT
-  Renders an SVG spinner with an animation.
-  Size is controlled by the size prop (sm, md, lg), mapping to Tailwind size classes.
-  Includes a visually hidden span with "Loading..." text for screen readers.

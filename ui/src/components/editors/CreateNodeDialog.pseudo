@@ -1,9 +1,0 @@
-// CreateNodeDialog
-// Modal dialog for creating a new node in the SMACH diagram editor.
-// Collects node ID, label, and type, then calls onCreate.
-
-FUNCTION CreateNodeDialog(onClose, onCreate, existingNodeIds) -> JSX   EXPORT
-  Tracks nodeId, label, nodeType fields plus validation errors.
-  Validates: nodeId non-empty, no whitespace, not already in existingNodeIds.
-  Confirms on Enter (in any field) or OK button. Cancels on Escape or Cancel.
-  Calls onCreate({nodeId, label, nodeType}) on valid submit.

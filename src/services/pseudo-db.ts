@@ -8,10 +8,8 @@
  */
 
 import Database from 'bun:sqlite';
-import { join, dirname, relative, isAbsolute, extname } from 'path';
-import { existsSync, mkdirSync, readdirSync, statSync, readFileSync } from 'fs';
-import { createHash } from 'crypto';
-import { parsePseudo, type ParsedPseudoFile, type ParsedMethod } from './pseudo-parser.js';
+import { join, relative, isAbsolute, extname } from 'path';
+import { existsSync, mkdirSync, readdirSync } from 'fs';
 
 // ============================================================================
 // Types
@@ -48,8 +46,9 @@ export interface PseudoFileWithMethods {
   title: string;
   purpose: string;
   moduleContext: string;
-  syncedAt: string | null;
-  sourceFilePath: string | null;
+  proseUpdatedAt: string | null;
+  hasProse: boolean;
+  structuralIndexedAt: string;
   language: string | null;
   methods: PseudoMethodWithMeta[];
 }
@@ -113,11 +112,64 @@ export interface FunctionForSource {
   kind: string | null;
 }
 
+// ---- v2 types (two-level indexing) ----
+
+export interface StructuralMethod {
+  name: string;
+  params: string;
+  paramCount: number;
+  returnType: string;
+  sourceLine: number;
+  sourceLineEnd: number | null;
+  visibility: 'public' | 'private' | 'protected' | 'internal' | null;
+  isAsync: boolean;
+  kind: 'function' | 'method' | 'constructor' | 'getter' | 'setter' | 'callback' | null;
+  isExported: boolean;
+  owningSymbol: string | null;
+}
+
+export interface ScanResult {
+  language: string;
+  methods: StructuralMethod[];
+  lineCount: number;
+  sourceHash: string;
+}
+
+export interface ProseStep {
+  content: string;
+  depth: number;
+}
+
+export interface ProseMethod {
+  name: string;
+  params?: string;
+  steps: ProseStep[];
+  calls: Array<{ name: string; fileStem: string }>;
+}
+
+export interface ProseData {
+  title?: string;
+  purpose?: string;
+  moduleContext?: string;
+  methods: ProseMethod[];
+}
+
+export interface FileState {
+  methods: Array<{
+    name: string;
+    params: string;
+    sourceHash: string | null;
+    hasSteps: boolean;
+  }>;
+  proseUpdatedAt: string | null;
+  hasProse: boolean;
+}
+
 // ============================================================================
-// Schema (v1)
+// Schema (v2)
 // ============================================================================
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -129,17 +181,17 @@ CREATE TABLE IF NOT EXISTS files (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   file_path TEXT UNIQUE NOT NULL,
   file_stem TEXT NOT NULL DEFAULT '',
-  title TEXT NOT NULL,
-  purpose TEXT NOT NULL DEFAULT '',
-  module_context TEXT NOT NULL DEFAULT '',
-  synced_at TEXT,
-  source_file_path TEXT,
+  language TEXT,
   source_mtime TEXT,
   source_hash TEXT,
-  language TEXT,
   line_count INTEGER,
+  title TEXT NOT NULL DEFAULT '',
+  purpose TEXT NOT NULL DEFAULT '',
+  module_context TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  indexed_at TEXT NOT NULL DEFAULT (datetime('now'))
+  structural_indexed_at TEXT NOT NULL DEFAULT (datetime('now')),
+  prose_updated_at TEXT,
+  has_prose INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS methods (
@@ -186,12 +238,12 @@ CREATE VIRTUAL TABLE IF NOT EXISTS pseudo_fts USING fts5(
   module_context,
   params,
   content='',
+  contentless_delete=1,
   tokenize='porter unicode61'
 );
 
 CREATE INDEX IF NOT EXISTS idx_files_path ON files(file_path);
 CREATE INDEX IF NOT EXISTS idx_files_stem ON files(file_stem);
-CREATE INDEX IF NOT EXISTS idx_files_source_path ON files(source_file_path);
 CREATE INDEX IF NOT EXISTS idx_methods_file ON methods(file_id);
 CREATE INDEX IF NOT EXISTS idx_methods_name ON methods(name);
 CREATE INDEX IF NOT EXISTS idx_method_steps_method ON method_steps(method_id);
@@ -231,6 +283,7 @@ function isCoverageTestFile(name: string): boolean {
 class PseudoDbService {
   private db: Database;
   private project: string;
+  public needsInitialScan: boolean = false;
 
   constructor(project: string) {
     this.project = project;
@@ -248,7 +301,6 @@ class PseudoDbService {
   }
 
   private migrate(): void {
-    // Check current version (table may not exist on fresh DBs or pre-v1 DBs)
     let currentVersion = 0;
     try {
       const row = this.db.prepare('SELECT version FROM schema_version WHERE id = 1').get() as any;
@@ -256,17 +308,15 @@ class PseudoDbService {
         currentVersion = row.version;
       }
     } catch {
-      // schema_version table doesn't exist → v0
       currentVersion = 0;
     }
 
     if (currentVersion >= SCHEMA_VERSION) {
-      // Already at target version — just ensure schema exists (idempotent CREATE IF NOT EXISTS)
       this.db.exec(SCHEMA);
+      this.needsInitialScan = false;
       return;
     }
 
-    // v0 → v1: drop all data tables and recreate. DB is a gitignored cache so users re-ingest.
     console.log(`[pseudo-db] migrating from v${currentVersion} → v${SCHEMA_VERSION}`);
     this.db.exec(`
       DROP TABLE IF EXISTS pseudo_fts;
@@ -277,107 +327,288 @@ class PseudoDbService {
       DROP TABLE IF EXISTS schema_version;
     `);
     this.db.exec(SCHEMA);
-    this.db.prepare('INSERT INTO schema_version (id, version) VALUES (1, ?)').run(SCHEMA_VERSION);
+    // Use INSERT OR REPLACE to guarantee the row is written even if a prior
+    // partial migration left a stale row behind. This ensures subsequent opens
+    // read version=SCHEMA_VERSION and skip migration.
+    this.db.prepare('INSERT OR REPLACE INTO schema_version (id, version) VALUES (1, ?)').run(SCHEMA_VERSION);
+    this.needsInitialScan = true;
   }
 
-  upsertFile(filePath: string, parsed: ParsedPseudoFile): void {
+  /**
+   * Level 1 — upsert structural metadata for a source file.
+   * Preserves existing prose (method_steps, method_calls, title, purpose, module_context).
+   * Deletes methods that are no longer in the source (matched by name+params).
+   */
+  upsertStructural(filePath: string, language: string, scan: ScanResult): void {
     const tx = this.db.transaction(() => {
-      // Clean up FTS entries before cascade delete
-      this.clearFtsForFile(filePath);
+      const fileStem = this.deriveFileStem(filePath);
 
-      // Delete existing file (cascades to methods, steps, calls)
-      this.db.prepare('DELETE FROM files WHERE file_path = ?').run(filePath);
-
-      // Compute source file metadata if source path is present
-      const sourceFilePath = this.resolveSourceFilePath(filePath, parsed);
-      const sourceMeta = sourceFilePath ? this.computeSourceMeta(sourceFilePath) : null;
-
-      const scanLanguage = parsed.language ?? sourceMeta?.language ?? null;
-      if (sourceFilePath && parsed.methods.length > 0) {
-        this.scanSourceFileForLines(sourceFilePath, parsed.methods, scanLanguage);
+      // Upsert file row
+      const existing = this.db.prepare('SELECT id FROM files WHERE file_path = ?').get(filePath) as { id: number } | undefined;
+      let fileId: number;
+      if (existing) {
+        this.db.prepare(`
+          UPDATE files
+          SET file_stem = ?, language = ?, source_hash = ?, line_count = ?,
+              source_mtime = datetime('now'), structural_indexed_at = datetime('now')
+          WHERE id = ?
+        `).run(fileStem, language, scan.sourceHash, scan.lineCount, existing.id);
+        fileId = existing.id;
+      } else {
+        const result = this.db.prepare(`
+          INSERT INTO files (file_path, file_stem, language, source_hash, line_count, source_mtime, structural_indexed_at)
+          VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+        `).run(filePath, fileStem, language, scan.sourceHash, scan.lineCount);
+        fileId = Number(result.lastInsertRowid);
       }
 
-      // Insert file with new columns
-      const stem = filePath.split('/').pop()?.replace('.pseudo', '') || filePath;
-      const fileResult = this.db.prepare(
-        `INSERT INTO files
-         (file_path, file_stem, title, purpose, module_context, synced_at,
-          source_file_path, source_mtime, source_hash, language, line_count, indexed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
-      ).run(
-        filePath,
-        stem,
-        parsed.title,
-        parsed.purpose,
-        parsed.moduleContext,
-        parsed.syncedAt,
-        sourceFilePath,
-        sourceMeta?.mtime ?? null,
-        sourceMeta?.hash ?? null,
-        parsed.language ?? sourceMeta?.language ?? null,
-        sourceMeta?.lineCount ?? null,
+      // Load existing methods for this file
+      const existingMethods = this.db.prepare(
+        'SELECT id, name, params FROM methods WHERE file_id = ?'
+      ).all(fileId) as Array<{ id: number; name: string; params: string }>;
+
+      const existingByKey = new Map<string, number>();
+      for (const m of existingMethods) {
+        existingByKey.set(`${m.name}||${m.params}`, m.id);
+      }
+
+      const seenKeys = new Set<string>();
+
+      // Upsert each method from the scan
+      for (let i = 0; i < scan.methods.length; i++) {
+        const sm = scan.methods[i];
+        const key = `${sm.name}||${sm.params}`;
+        seenKeys.add(key);
+
+        const existingId = existingByKey.get(key);
+        if (existingId != null) {
+          // Update structural fields, preserve date/step_count
+          this.db.prepare(`
+            UPDATE methods
+            SET return_type = ?, is_exported = ?, visibility = ?, is_async = ?,
+                kind = ?, source_line = ?, source_line_end = ?,
+                param_count = ?, owning_symbol = ?, sort_order = ?
+            WHERE id = ?
+          `).run(
+            sm.returnType,
+            sm.isExported ? 1 : 0,
+            sm.visibility,
+            sm.isAsync ? 1 : 0,
+            sm.kind,
+            sm.sourceLine,
+            sm.sourceLineEnd,
+            sm.paramCount,
+            sm.owningSymbol,
+            i,
+            existingId,
+          );
+        } else {
+          // Insert new method row
+          this.db.prepare(`
+            INSERT INTO methods
+            (file_id, name, params, return_type, is_exported, sort_order, visibility,
+             is_async, kind, source_line, source_line_end, param_count, step_count, owning_symbol)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+          `).run(
+            fileId,
+            sm.name,
+            sm.params,
+            sm.returnType,
+            sm.isExported ? 1 : 0,
+            i,
+            sm.visibility,
+            sm.isAsync ? 1 : 0,
+            sm.kind,
+            sm.sourceLine,
+            sm.sourceLineEnd,
+            sm.paramCount,
+            sm.owningSymbol,
+          );
+        }
+      }
+
+      // Delete methods that are no longer in the scan
+      for (const [key, id] of existingByKey) {
+        if (!seenKeys.has(key)) {
+          // Delete FTS entry first (contentless_delete=1 allows standard DELETE)
+          this.db.prepare('DELETE FROM pseudo_fts WHERE rowid = ?').run(id);
+          this.db.prepare('DELETE FROM methods WHERE id = ?').run(id);
+        }
+      }
+    });
+    tx();
+  }
+
+  /**
+   * Level 2 — upsert prose (title/purpose/module_context + method steps and calls).
+   * Preserves structural fields. Matches methods by name + params.
+   */
+  upsertProse(filePath: string, data: ProseData): void {
+    const tx = this.db.transaction(() => {
+      const fileRow = this.db.prepare('SELECT id FROM files WHERE file_path = ?').get(filePath) as { id: number } | undefined;
+      if (!fileRow) {
+        console.warn(`[pseudo-db] upsertProse: file not found: ${filePath}`);
+        return;
+      }
+      const fileId = fileRow.id;
+
+      // Update file-level prose fields (title/purpose/moduleContext are
+      // always safe to refresh, even if no methods match).
+      this.db.prepare(`
+        UPDATE files
+        SET title = ?, purpose = ?, module_context = ?
+        WHERE id = ?
+      `).run(
+        data.title ?? '',
+        data.purpose ?? '',
+        data.moduleContext ?? '',
+        fileId,
       );
-      const fileId = Number(fileResult.lastInsertRowid);
 
-      // Insert methods with new metadata columns
-      for (const method of parsed.methods) {
-        const methodResult = this.db.prepare(
-          `INSERT INTO methods
-           (file_id, name, params, return_type, is_exported, date, sort_order,
-            visibility, is_async, kind, source_line, source_line_end,
-            param_count, step_count, owning_symbol)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(
-          fileId,
-          method.name,
-          method.params,
-          method.returnType,
-          method.isExport ? 1 : 0,
-          method.date,
-          method.sortOrder,
-          method.visibility,
-          method.isAsync ? 1 : 0,
-          method.kind,
-          method.sourceLine,
-          method.sourceLineEnd,
-          method.paramCount,
-          method.stepCount,
-          method.owningSymbol,
-        );
-        const methodId = Number(methodResult.lastInsertRowid);
+      // Load existing methods
+      const existingMethods = this.db.prepare(
+        'SELECT id, name, params FROM methods WHERE file_id = ?'
+      ).all(fileId) as Array<{ id: number; name: string; params: string }>;
 
-        for (const step of method.steps) {
+      // Match each prose method and update
+      let matchCount = 0;
+      for (const pm of data.methods) {
+        let methodId: number | null = null;
+        if (pm.params != null) {
+          const exact = existingMethods.find(m => m.name === pm.name && m.params === pm.params);
+          if (exact) methodId = exact.id;
+        } else {
+          const byNameMatches = existingMethods.filter(m => m.name === pm.name);
+          if (byNameMatches.length === 0) {
+            console.warn(
+              `[pseudo-db] upsertProse: method not found: ${pm.name}() in ${filePath}`,
+            );
+            continue;
+          } else if (byNameMatches.length === 1) {
+            methodId = byNameMatches[0].id;
+          } else {
+            console.warn(
+              `[pseudo-db] upsertProse: method name "${pm.name}" has ${byNameMatches.length} overloads in ${filePath}; supply \`params\` to disambiguate. Skipping.`,
+            );
+            continue;
+          }
+        }
+        if (methodId == null) {
+          console.warn(`[pseudo-db] upsertProse: method not found: ${pm.name}(${pm.params ?? ''}) in ${filePath}`);
+          continue;
+        }
+        matchCount++;
+
+        // Clear existing steps and calls
+        this.db.prepare('DELETE FROM method_steps WHERE method_id = ?').run(methodId);
+        this.db.prepare('DELETE FROM method_calls WHERE caller_method_id = ?').run(methodId);
+
+        // Insert new steps
+        for (let i = 0; i < pm.steps.length; i++) {
+          const s = pm.steps[i];
           this.db.prepare(
             'INSERT INTO method_steps (method_id, content, depth, sort_order) VALUES (?, ?, ?, ?)'
-          ).run(methodId, step.content, step.depth, step.sortOrder);
+          ).run(methodId, s.content, s.depth, i);
         }
 
-        for (const call of method.calls) {
+        // Insert new calls
+        for (const c of pm.calls) {
           this.db.prepare(
             'INSERT INTO method_calls (caller_method_id, callee_name, callee_file_stem) VALUES (?, ?, ?)'
-          ).run(methodId, call.name, call.fileStem);
+          ).run(methodId, c.name, c.fileStem);
         }
 
-        // Insert into widened FTS
-        const joinedSteps = method.steps.map(s => s.content).join(' ');
+        // Update step_count
+        this.db.prepare('UPDATE methods SET step_count = ? WHERE id = ?').run(pm.steps.length, methodId);
+
+        // Refresh FTS entry for this method (contentless_delete=1 allows standard DELETE)
+        const joinedSteps = pm.steps.map(s => s.content).join(' ');
+        this.db.prepare('DELETE FROM pseudo_fts WHERE rowid = ?').run(methodId);
+        const methodRow = this.db.prepare('SELECT name, params FROM methods WHERE id = ?').get(methodId) as any;
         this.db.prepare(
           `INSERT INTO pseudo_fts (rowid, method_name, step_content, title, purpose, module_context, params)
            VALUES (?, ?, ?, ?, ?, ?, ?)`
         ).run(
           methodId,
-          method.name,
+          methodRow.name,
           joinedSteps,
-          parsed.title,
-          parsed.purpose,
-          parsed.moduleContext,
-          method.params,
+          data.title ?? '',
+          data.purpose ?? '',
+          data.moduleContext ?? '',
+          methodRow.params,
         );
       }
 
-      // Resolve call edges for this file (both directions)
+      // Only flag the file as having prose if at least one method matched.
+      // If data.methods is empty, this is a "refresh file-level fields only"
+      // call — preserve existing has_prose / prose_updated_at state.
+      if (data.methods.length > 0) {
+        if (matchCount > 0) {
+          this.db.prepare(`
+            UPDATE files
+            SET has_prose = 1, prose_updated_at = datetime('now')
+            WHERE id = ?
+          `).run(fileId);
+        } else {
+          console.warn(
+            `[pseudo-db] upsertProse: no methods matched in ${filePath} (${data.methods.length} prose methods, ${existingMethods.length} existing); has_prose not set.`,
+          );
+        }
+      }
+
+      // Re-resolve call graph edges
       this.resolveCalleesForFile(fileId);
     });
     tx();
+  }
+
+  /**
+   * Level 1 complement — delete a file's entire db row (cascades to methods/steps/calls).
+   */
+  deleteStructural(filePath: string): void {
+    this.clearFtsForFilePath(filePath);
+    this.db.prepare('DELETE FROM files WHERE file_path = ?').run(filePath);
+  }
+
+  /**
+   * Read current file state — used by the /pseudocode skill to decide what to regenerate.
+   */
+  getFileState(filePath: string): FileState | null {
+    const fileRow = this.db.prepare(
+      'SELECT id, source_hash, prose_updated_at, has_prose FROM files WHERE file_path = ?'
+    ).get(filePath) as any;
+    if (!fileRow) return null;
+
+    const methodRows = this.db.prepare(`
+      SELECT m.name, m.params, m.step_count
+      FROM methods m
+      WHERE m.file_id = ?
+      ORDER BY m.sort_order
+    `).all(fileRow.id) as Array<{ name: string; params: string; step_count: number }>;
+
+    return {
+      methods: methodRows.map(r => ({
+        name: r.name,
+        params: r.params,
+        sourceHash: fileRow.source_hash,
+        hasSteps: r.step_count > 0,
+      })),
+      proseUpdatedAt: fileRow.prose_updated_at,
+      hasProse: fileRow.has_prose === 1,
+    };
+  }
+
+  /**
+   * Checkpoint the WAL into the main db file. Used by pre-commit hook before staging the db.
+   */
+  checkpointWal(): void {
+    this.db.exec('PRAGMA wal_checkpoint(FULL)');
+  }
+
+  private deriveFileStem(filePath: string): string {
+    const base = filePath.split('/').pop() || '';
+    const dot = base.lastIndexOf('.');
+    return dot > 0 ? base.slice(0, dot) : base;
   }
 
   private resolveCalleesForFile(fileId: number): void {
@@ -413,233 +644,21 @@ class PseudoDbService {
     `).run(fileId, fileStem);
   }
 
-  private resolveSourceFilePath(pseudoFilePath: string, parsed: ParsedPseudoFile): string | null {
-    // 1. Prefer the explicit // source: header
-    if (parsed.sourceFilePath) {
-      const p = parsed.sourceFilePath;
-      // Resolve relative to project root if not absolute
-      const abs = isAbsolute(p) ? p : join(this.project, p);
-      if (existsSync(abs)) return abs;
-      return null;
-    }
-
-    // 2. Fallback: probe common extensions next to the .pseudo file
-    const base = pseudoFilePath.replace(/\.pseudo$/, '');
-    const probes = ['.ts', '.tsx', '.js', '.jsx', '.py', '.cs', '.cpp', '.cc', '.c', '.h', '.hpp', '.go', '.rs'];
-    for (const ext of probes) {
-      const candidate = base + ext;
-      if (existsSync(candidate)) return candidate;
-    }
-    return null;
-  }
-
-  private computeSourceMeta(sourceFilePath: string): {
-    mtime: string;
-    hash: string | null;
-    lineCount: number | null;
-    language: string | null;
-  } | null {
-    try {
-      const stat = statSync(sourceFilePath);
-      const mtime = stat.mtime.toISOString();
-
-      let hash: string | null = null;
-      let lineCount: number | null = null;
-      // Only read small files into memory for hash + line count
-      if (stat.size <= 1_000_000) {
-        try {
-          const content = readFileSync(sourceFilePath, 'utf-8');
-          hash = createHash('sha1').update(content).digest('hex').slice(0, 16);
-          lineCount = content.split('\n').length;
-        } catch {
-          // ignore read failure; keep nulls
-        }
-      }
-
-      const language = extToLanguage(extname(sourceFilePath));
-      return { mtime, hash, lineCount, language };
-    } catch {
-      return null;
-    }
-  }
-
-  private scanSourceFileForLines(
-    sourceFilePath: string,
-    methods: ParsedMethod[],
-    language: string | null,
-  ): void {
-    let content: string;
-    try {
-      const stat = statSync(sourceFilePath);
-      if (stat.size > 1_000_000) return; // too big
-      content = readFileSync(sourceFilePath, 'utf-8');
-    } catch {
-      return;
-    }
-
-    const lines = content.split('\n');
-
-    for (const method of methods) {
-      // Don't overwrite values a caller explicitly provided
-      if (method.sourceLine != null) continue;
-
-      const searchName = method.name.includes('.')
-        ? method.name.split('.').pop()!
-        : method.name;
-
-      const result = findMethodLineForLanguage(lines, searchName, language);
-      if (result) {
-        method.sourceLine = result.line;
-        if (method.sourceLineEnd == null) {
-          method.sourceLineEnd = result.lineEnd;
-        }
-      }
-    }
-  }
-
-  private clearFtsForFile(filePath: string): void {
+  private clearFtsForFilePath(filePath: string): void {
     const existingFile = this.db.prepare('SELECT id FROM files WHERE file_path = ?').get(filePath) as any;
     if (!existingFile) return;
     const existingMethods = this.db.prepare(
-      `SELECT m.id, m.name, COALESCE(GROUP_CONCAT(ms.content, ' '), '') AS step_content
-       FROM methods m
-       LEFT JOIN method_steps ms ON ms.method_id = m.id
-       WHERE m.file_id = ?
-       GROUP BY m.id`
-    ).all(existingFile.id) as any[];
+      'SELECT id FROM methods WHERE file_id = ?'
+    ).all(existingFile.id) as Array<{ id: number }>;
     for (const m of existingMethods) {
-      this.db.prepare(
-        "INSERT INTO pseudo_fts(pseudo_fts, rowid, method_name, step_content, title, purpose, module_context, params) VALUES('delete', ?, ?, ?, '', '', '', '')"
-      ).run(m.id, m.name, m.step_content ?? '');
+      // contentless_delete=1 allows standard DELETE
+      this.db.prepare('DELETE FROM pseudo_fts WHERE rowid = ?').run(m.id);
     }
-  }
-
-  deleteFile(filePath: string): void {
-    this.clearFtsForFile(filePath);
-    this.db.prepare('DELETE FROM files WHERE file_path = ?').run(filePath);
-  }
-
-  bulkIngest(files: Array<{ filePath: string; content: string }>): void {
-    const tx = this.db.transaction(() => {
-      // Clean slate: drop + recreate FTS (cheaper than per-row delete)
-      this.db.exec('DROP TABLE IF EXISTS pseudo_fts');
-      this.db.exec(`
-        CREATE VIRTUAL TABLE pseudo_fts USING fts5(
-          method_name,
-          step_content,
-          title,
-          purpose,
-          module_context,
-          params,
-          content='',
-          tokenize='porter unicode61'
-        )
-      `);
-      this.db.exec('DELETE FROM files');
-
-      for (const file of files) {
-        const parsed = parsePseudo(file.content);
-        const sourceFilePath = this.resolveSourceFilePath(file.filePath, parsed);
-        const sourceMeta = sourceFilePath ? this.computeSourceMeta(sourceFilePath) : null;
-
-        const scanLanguage = parsed.language ?? sourceMeta?.language ?? null;
-        if (sourceFilePath && parsed.methods.length > 0) {
-          this.scanSourceFileForLines(sourceFilePath, parsed.methods, scanLanguage);
-        }
-
-        const stem = file.filePath.split('/').pop()?.replace('.pseudo', '') || file.filePath;
-        const fileResult = this.db.prepare(
-          `INSERT INTO files
-           (file_path, file_stem, title, purpose, module_context, synced_at,
-            source_file_path, source_mtime, source_hash, language, line_count, indexed_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
-        ).run(
-          file.filePath,
-          stem,
-          parsed.title,
-          parsed.purpose,
-          parsed.moduleContext,
-          parsed.syncedAt,
-          sourceFilePath,
-          sourceMeta?.mtime ?? null,
-          sourceMeta?.hash ?? null,
-          parsed.language ?? sourceMeta?.language ?? null,
-          sourceMeta?.lineCount ?? null,
-        );
-        const fileId = Number(fileResult.lastInsertRowid);
-
-        for (const method of parsed.methods) {
-          const methodResult = this.db.prepare(
-            `INSERT INTO methods
-             (file_id, name, params, return_type, is_exported, date, sort_order,
-              visibility, is_async, kind, source_line, source_line_end,
-              param_count, step_count, owning_symbol)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          ).run(
-            fileId,
-            method.name,
-            method.params,
-            method.returnType,
-            method.isExport ? 1 : 0,
-            method.date,
-            method.sortOrder,
-            method.visibility,
-            method.isAsync ? 1 : 0,
-            method.kind,
-            method.sourceLine,
-            method.sourceLineEnd,
-            method.paramCount,
-            method.stepCount,
-            method.owningSymbol,
-          );
-          const methodId = Number(methodResult.lastInsertRowid);
-
-          for (const step of method.steps) {
-            this.db.prepare(
-              'INSERT INTO method_steps (method_id, content, depth, sort_order) VALUES (?, ?, ?, ?)'
-            ).run(methodId, step.content, step.depth, step.sortOrder);
-          }
-
-          for (const call of method.calls) {
-            this.db.prepare(
-              'INSERT INTO method_calls (caller_method_id, callee_name, callee_file_stem) VALUES (?, ?, ?)'
-            ).run(methodId, call.name, call.fileStem);
-          }
-
-          const joinedSteps = method.steps.map(s => s.content).join(' ');
-          this.db.prepare(
-            `INSERT INTO pseudo_fts (rowid, method_name, step_content, title, purpose, module_context, params)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`
-          ).run(
-            methodId,
-            method.name,
-            joinedSteps,
-            parsed.title,
-            parsed.purpose,
-            parsed.moduleContext,
-            method.params,
-          );
-        }
-      }
-
-      // Single-pass resolve all call edges now that every file is ingested
-      this.db.exec(`
-        UPDATE method_calls
-        SET callee_method_id = (
-          SELECT m.id FROM methods m
-          JOIN files f ON f.id = m.file_id
-          WHERE f.file_stem = method_calls.callee_file_stem
-            AND m.name = method_calls.callee_name
-          LIMIT 1
-        )
-      `);
-    });
-    tx();
   }
 
   listFiles(): PseudoFileSummary[] {
     const rows = this.db.prepare(`
-      SELECT f.file_path, f.title, f.indexed_at,
+      SELECT f.file_path, f.title, f.structural_indexed_at,
         COUNT(m.id) as methodCount,
         SUM(CASE WHEN m.is_exported = 1 THEN 1 ELSE 0 END) as exportCount
       FROM files f
@@ -652,7 +671,7 @@ class PseudoDbService {
       title: r.title,
       methodCount: r.methodCount,
       exportCount: r.exportCount ?? 0,
-      lastUpdated: r.indexed_at,
+      lastUpdated: r.structural_indexed_at,
     }));
   }
 
@@ -666,8 +685,8 @@ class PseudoDbService {
     // Single-query fetch using json_group_array (replaces N+1)
     const row = this.db.prepare(`
       SELECT
-        f.file_path, f.title, f.purpose, f.module_context, f.synced_at,
-        f.source_file_path, f.language,
+        f.file_path, f.title, f.purpose, f.module_context, f.prose_updated_at,
+        f.has_prose, f.structural_indexed_at, f.language,
         (
           SELECT COALESCE(json_group_array(json_object(
             'name', m.name,
@@ -727,8 +746,9 @@ class PseudoDbService {
       title: row.title,
       purpose: row.purpose,
       moduleContext: row.module_context,
-      syncedAt: row.synced_at,
-      sourceFilePath: row.source_file_path,
+      proseUpdatedAt: row.prose_updated_at,
+      hasProse: row.has_prose === 1,
+      structuralIndexedAt: row.structural_indexed_at,
       language: row.language,
       methods,
     };
@@ -835,7 +855,7 @@ class PseudoDbService {
 
   getFilesByDirectory(dir: string): PseudoFileSummary[] {
     const rows = this.db.prepare(`
-      SELECT f.file_path, f.title, f.indexed_at,
+      SELECT f.file_path, f.title, f.structural_indexed_at,
         COUNT(m.id) as methodCount,
         SUM(CASE WHEN m.is_exported = 1 THEN 1 ELSE 0 END) as exportCount
       FROM files f
@@ -849,7 +869,7 @@ class PseudoDbService {
       title: r.title,
       methodCount: r.methodCount,
       exportCount: r.exportCount ?? 0,
-      lastUpdated: r.indexed_at,
+      lastUpdated: r.structural_indexed_at,
     }));
   }
 
@@ -945,7 +965,7 @@ class PseudoDbService {
   }
 
   getCoverage(directory?: string): CoverageReport {
-    // Walk the source tree and compare against indexed source_file_path
+    // Walk the source tree and compare against indexed file_path
     const rootDir = directory
       ? (isAbsolute(directory) ? directory : join(this.project, directory))
       : this.project;
@@ -958,9 +978,9 @@ class PseudoDbService {
     this.walkSourceTree(rootDir, allSourceFiles);
 
     const indexedRows = this.db.prepare(
-      `SELECT source_file_path FROM files WHERE source_file_path IS NOT NULL`
+      `SELECT file_path FROM files`
     ).all() as any[];
-    const indexed = new Set<string>(indexedRows.map(r => r.source_file_path));
+    const indexed = new Set<string>(indexedRows.map(r => r.file_path));
 
     let covered = 0;
     const missing: string[] = [];
@@ -1010,20 +1030,18 @@ class PseudoDbService {
 
   getSourceLink(name: string, hintFileStem?: string): SourceLinkCandidate[] {
     const sql = hintFileStem
-      ? `SELECT f.source_file_path, m.source_line, m.source_line_end, f.language, m.is_exported
+      ? `SELECT f.file_path AS source_file_path, m.source_line, m.source_line_end, f.language, m.is_exported
          FROM methods m
          JOIN files f ON f.id = m.file_id
          WHERE m.name = ?
            AND m.source_line IS NOT NULL
-           AND f.source_file_path IS NOT NULL
            AND f.file_stem = ?
          ORDER BY m.is_exported DESC, f.file_stem`
-      : `SELECT f.source_file_path, m.source_line, m.source_line_end, f.language, m.is_exported
+      : `SELECT f.file_path AS source_file_path, m.source_line, m.source_line_end, f.language, m.is_exported
          FROM methods m
          JOIN files f ON f.id = m.file_id
          WHERE m.name = ?
            AND m.source_line IS NOT NULL
-           AND f.source_file_path IS NOT NULL
          ORDER BY m.is_exported DESC, f.file_stem`;
 
     const stmt = this.db.prepare(sql);
@@ -1056,7 +1074,7 @@ class PseudoDbService {
         m.kind
       FROM methods m
       JOIN files f ON f.id = m.file_id
-      WHERE f.source_file_path = ?
+      WHERE f.file_path = ?
       ORDER BY
         CASE WHEN m.source_line IS NULL THEN 1 ELSE 0 END,
         m.source_line ASC,
@@ -1077,12 +1095,12 @@ class PseudoDbService {
   }
 
   /**
-   * Look up the source line and source file path for a given method in a given pseudo file.
+   * Look up the source line and source file path for a given method in a given file.
    * Used by the code search endpoint to enrich FTS hits with navigation metadata.
    */
   getMethodLocation(filePath: string, methodName: string): { sourceLine: number | null; sourceFilePath: string | null } | null {
     const row = this.db.prepare(`
-      SELECT m.source_line, f.source_file_path
+      SELECT m.source_line, f.file_path AS source_file_path
       FROM methods m
       JOIN files f ON f.id = m.file_id
       WHERE f.file_path = ? AND m.name = ?
@@ -1098,113 +1116,6 @@ class PseudoDbService {
   close(): void {
     this.db.close();
   }
-}
-
-// ============================================================================
-// Language detection
-// ============================================================================
-
-function extToLanguage(ext: string): string | null {
-  const map: Record<string, string> = {
-    '.ts': 'typescript',
-    '.tsx': 'typescript',
-    '.js': 'javascript',
-    '.jsx': 'javascript',
-    '.mjs': 'javascript',
-    '.py': 'python',
-    '.cs': 'csharp',
-    '.cpp': 'cpp',
-    '.cc': 'cpp',
-    '.cxx': 'cpp',
-    '.c': 'c',
-    '.h': 'cpp',
-    '.hpp': 'cpp',
-    '.go': 'go',
-    '.rs': 'rust',
-  };
-  return map[ext.toLowerCase()] ?? null;
-}
-
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-/**
- * Dispatches to language-specific regex for finding a method's definition line
- * in a source file. Returns 1-based line numbers. Good-effort per language.
- */
-function findMethodLineForLanguage(
-  lines: string[],
-  name: string,
-  language: string | null,
-): { line: number; lineEnd: number | null } | null {
-  const n = escapeRegex(name);
-
-  const patterns: RegExp[] = [];
-  let computeEnd = false;
-
-  if (language === 'typescript' || language === 'javascript') {
-    computeEnd = true;
-    patterns.push(
-      new RegExp(`^\\s*(?:export\\s+)?(?:async\\s+)?function\\s+${n}\\s*[<(]`),
-      new RegExp(`^\\s*(?:export\\s+)?const\\s+${n}\\s*=\\s*(?:async\\s+)?(?:function|\\()`),
-      new RegExp(`^\\s*(?:public|private|protected|static|async|\\s)*\\b${n}\\s*[<(]`),
-      new RegExp(`^\\s*${n}\\s*:\\s*(?:async\\s+)?(?:function|\\()`),
-    );
-  } else if (language === 'csharp') {
-    patterns.push(
-      new RegExp(`^\\s*(?:public|private|protected|internal|static|async|override|virtual|\\s)*[A-Za-z_<>,\\s\\[\\]]*\\s+${n}\\s*\\(`),
-    );
-  } else if (language === 'cpp' || language === 'c') {
-    patterns.push(
-      new RegExp(`\\b${n}\\s*\\([^)]*\\)\\s*(?:const)?\\s*\\{`),
-    );
-  } else if (language === 'python') {
-    patterns.push(
-      new RegExp(`^\\s*(?:async\\s+)?def\\s+${n}\\s*\\(`),
-    );
-  } else {
-    return null;
-  }
-
-  for (let i = 0; i < lines.length; i++) {
-    for (const re of patterns) {
-      if (re.test(lines[i])) {
-        const lineNumber = i + 1;
-        let lineEnd: number | null = null;
-        if (computeEnd) {
-          lineEnd = findClosingBrace(lines, i);
-        }
-        return { line: lineNumber, lineEnd };
-      }
-    }
-  }
-  return null;
-}
-
-/**
- * From a starting line, walk forward tracking `{`/`}` depth to find the closing
- * brace. Returns the 1-based line number of the closing brace, or null if not found.
- */
-function findClosingBrace(lines: string[], startIdx: number): number | null {
-  let depth = 0;
-  let seenOpen = false;
-  for (let i = startIdx; i < lines.length; i++) {
-    const line = lines[i];
-    // Simple char walk (doesn't handle strings/comments but good enough for heuristic)
-    for (const ch of line) {
-      if (ch === '{') {
-        depth++;
-        seenOpen = true;
-      } else if (ch === '}') {
-        depth--;
-        if (seenOpen && depth === 0) {
-          return i + 1;
-        }
-      }
-    }
-  }
-  return null;
 }
 
 // ============================================================================

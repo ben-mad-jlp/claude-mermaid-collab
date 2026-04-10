@@ -29,6 +29,10 @@ import {
   unregisterProjectSchema,
 } from './tools/projects.js';
 import { getPseudoDb } from '../services/pseudo-db.js';
+import type { ProseData } from '../services/pseudo-db.js';
+import { scanSourceFile, isSupportedExtension } from '../services/source-scanner.js';
+import { readdirSync } from 'fs';
+import { extname } from 'path';
 import { getWebSocketHandler } from '../services/ws-handler-manager.js';
 import { sessionRegistry } from '../services/session-registry.js';
 import { projectRegistry } from '../services/project-registry.js';
@@ -1961,6 +1965,95 @@ IMPORTANT - Common pitfalls to avoid:
         },
       },
       {
+        name: 'pseudo_index_structural',
+        description: 'Run the Level 1 structural scan on a single source file and upsert results into the pseudo-db. Cheap, no LLM, good for ad-hoc re-indexing.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            filePath: { type: 'string', description: 'Absolute path to the source file to index' },
+          },
+          required: ['project', 'filePath'],
+        },
+      },
+      {
+        name: 'pseudo_index_project',
+        description: 'Run Level 1 structural scan on every source file in the project. Used for initial indexing after schema migration. Slow — hundreds of files.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+          },
+          required: ['project'],
+        },
+      },
+      {
+        name: 'pseudo_upsert_prose',
+        description: 'Level 2 — write prose (title, purpose, module_context, method steps, CALLS references) directly to the pseudo-db for a source file. Used by the /pseudocode skill.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string' },
+            filePath: { type: 'string', description: 'Absolute path to the source file' },
+            data: {
+              type: 'object',
+              properties: {
+                title: { type: 'string' },
+                purpose: { type: 'string' },
+                moduleContext: { type: 'string' },
+                methods: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      name: { type: 'string' },
+                      params: { type: 'string' },
+                      steps: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            content: { type: 'string' },
+                            depth: { type: 'number' },
+                          },
+                          required: ['content', 'depth'],
+                        },
+                      },
+                      calls: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            name: { type: 'string' },
+                            fileStem: { type: 'string' },
+                          },
+                          required: ['name', 'fileStem'],
+                        },
+                      },
+                    },
+                    required: ['name', 'steps', 'calls'],
+                  },
+                },
+              },
+              required: ['methods'],
+            },
+          },
+          required: ['project', 'filePath', 'data'],
+        },
+      },
+      {
+        name: 'pseudo_get_file_state',
+        description: 'Query the current db state for a source file — list of methods, prose status, last updated timestamp. Used by the /pseudocode skill to decide what to regenerate.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string' },
+            filePath: { type: 'string' },
+          },
+          required: ['project', 'filePath'],
+        },
+      },
+      {
         name: 'link_code_file',
         description: 'Link a source file from disk as a tracked code artifact. Reads the file and creates a snippet envelope with change tracking.',
         inputSchema: linkCodeFileSchema,
@@ -3577,6 +3670,80 @@ IMPORTANT - Common pitfalls to avoid:
             const db = getPseudoDb(project);
             const coverageResult = db.getCoverage(directory);
             return JSON.stringify(coverageResult, null, 2);
+          }
+
+          case 'pseudo_index_structural': {
+            const { project, filePath } = args as { project: string; filePath: string };
+            if (!project || !filePath) throw new Error('Missing required: project, filePath');
+            const scan = scanSourceFile(filePath);
+            if (!scan) {
+              return JSON.stringify({ success: false, reason: 'unsupported or unreadable' }, null, 2);
+            }
+            getPseudoDb(project).upsertStructural(filePath, scan.language, scan);
+            return JSON.stringify({ success: true, methodCount: scan.methods.length }, null, 2);
+          }
+
+          case 'pseudo_index_project': {
+            const { project } = args as { project: string };
+            if (!project) throw new Error('Missing required: project');
+
+            const EXCLUDES = new Set([
+              'node_modules', '.git', '.collab', '.worktrees', 'dist', 'build', 'out',
+              '.next', '.nuxt', 'coverage', '.cache', '__pycache__', '__tests__',
+            ]);
+
+            function walk(dir: string, out: string[]): void {
+              try {
+                const entries = readdirSync(dir, { withFileTypes: true });
+                for (const entry of entries) {
+                  if (EXCLUDES.has(entry.name)) continue;
+                  if (entry.name.startsWith('.')) continue;
+                  if (entry.name.includes('.test.') || entry.name.includes('.spec.') || entry.name.endsWith('.d.ts')) continue;
+                  const full = `${dir}/${entry.name}`;
+                  if (entry.isDirectory()) {
+                    walk(full, out);
+                  } else if (entry.isFile()) {
+                    const ext = extname(entry.name).toLowerCase();
+                    if (isSupportedExtension(ext)) out.push(full);
+                  }
+                }
+              } catch {
+                // skip unreadable dirs
+              }
+            }
+
+            const files: string[] = [];
+            walk(project, files);
+
+            const db = getPseudoDb(project);
+            let scanned = 0;
+            let errors = 0;
+            for (const file of files) {
+              try {
+                const scan = scanSourceFile(file);
+                if (!scan) continue;
+                db.upsertStructural(file, scan.language, scan);
+                scanned++;
+              } catch {
+                errors++;
+              }
+            }
+            return JSON.stringify({ success: true, filesScanned: scanned, errors }, null, 2);
+          }
+
+          case 'pseudo_upsert_prose': {
+            const { project, filePath, data } = args as { project: string; filePath: string; data: any };
+            if (!project || !filePath || !data) throw new Error('Missing required: project, filePath, data');
+            if (!Array.isArray(data.methods)) throw new Error('data.methods must be an array');
+            getPseudoDb(project).upsertProse(filePath, data as ProseData);
+            return JSON.stringify({ success: true }, null, 2);
+          }
+
+          case 'pseudo_get_file_state': {
+            const { project, filePath } = args as { project: string; filePath: string };
+            if (!project || !filePath) throw new Error('Missing required: project, filePath');
+            const state = getPseudoDb(project).getFileState(filePath);
+            return JSON.stringify(state, null, 2);
           }
 
           case 'link_code_file': {

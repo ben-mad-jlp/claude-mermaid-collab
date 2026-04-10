@@ -1,36 +1,55 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdir, rm, writeFile } from 'fs/promises';
 import * as fs from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { handlePseudoAPI } from './pseudo-api';
-import { getPseudoDb } from '../services/pseudo-db';
+import { getPseudoDb, type ScanResult, type ProseData, type StructuralMethod, type ProseMethod } from '../services/pseudo-db';
 
-function makeParsedFile(opts: any = {}): any {
+function makeScanResult(opts: {
+  language?: string;
+  lineCount?: number;
+  sourceHash?: string;
+  methods?: Array<Partial<StructuralMethod>>;
+}): ScanResult {
+  return {
+    language: opts.language ?? 'typescript',
+    lineCount: opts.lineCount ?? 10,
+    sourceHash: opts.sourceHash ?? 'hash',
+    methods: (opts.methods ?? []).map((m, i) => {
+      const params = m.params ?? '';
+      return {
+        name: m.name ?? `fn${i}`,
+        params,
+        paramCount: m.paramCount ?? (params.trim() ? params.split(',').length : 0),
+        returnType: m.returnType ?? '',
+        sourceLine: m.sourceLine ?? i + 1,
+        sourceLineEnd: m.sourceLineEnd ?? null,
+        visibility: m.visibility ?? null,
+        isAsync: m.isAsync ?? false,
+        kind: m.kind ?? 'function',
+        isExported: m.isExported ?? false,
+        owningSymbol: m.owningSymbol ?? null,
+      };
+    }),
+  };
+}
+
+function makeProseData(opts: {
+  title?: string;
+  purpose?: string;
+  moduleContext?: string;
+  methods?: Array<Partial<ProseMethod> & { name: string }>;
+}): ProseData {
   return {
     title: opts.title ?? 'T',
     purpose: opts.purpose ?? 'P',
-    syncedAt: opts.syncedAt ?? null,
-    sourceFilePath: opts.sourceFilePath ?? null,
-    language: opts.language ?? null,
     moduleContext: opts.moduleContext ?? '',
-    methods: (opts.methods ?? []).map((m: any, i: number) => ({
-      name: m.name ?? `fn${i}`,
-      params: m.params ?? '',
-      returnType: m.returnType ?? '',
-      isExport: m.isExport ?? false,
-      date: m.date ?? null,
-      calls: m.calls ?? [],
+    methods: (opts.methods ?? []).map(m => ({
+      name: m.name,
+      params: m.params,
       steps: m.steps ?? [],
-      sortOrder: m.sortOrder ?? i,
-      visibility: m.visibility ?? null,
-      isAsync: m.isAsync ?? false,
-      kind: m.kind ?? null,
-      paramCount: m.paramCount ?? 0,
-      stepCount: m.stepCount ?? (m.steps?.length ?? 0),
-      owningSymbol: m.owningSymbol ?? null,
-      sourceLine: m.sourceLine ?? null,
-      sourceLineEnd: m.sourceLineEnd ?? null,
+      calls: m.calls ?? [],
     })),
   };
 }
@@ -72,11 +91,20 @@ describe('Pseudo API Routes', () => {
       expect(data.files).toEqual([]);
     });
 
-    it('should return list of .pseudo files with extensions stripped', async () => {
-      // Create some .pseudo files
-      await writeFile(join(testProjectPath, 'auth.pseudo'), 'FUNCTION auth()');
-      await writeFile(join(testProjectPath, 'utils.pseudo'), 'FUNCTION helper()');
-      await writeFile(join(testProjectPath, 'other.txt'), 'not a pseudo file');
+    it('should return list of indexed files', async () => {
+      // Seed via DB (post-Phase 3: /files reads from pseudo-db, not disk)
+      const authSrc = join(testProjectPath, 'auth.ts');
+      const utilsSrc = join(testProjectPath, 'utils.ts');
+      await writeFile(authSrc, 'export function auth() {}\n');
+      await writeFile(utilsSrc, 'export function helper() {}\n');
+
+      const db = getPseudoDb(testProjectPath);
+      db.upsertStructural(authSrc, 'typescript', makeScanResult({
+        methods: [{ name: 'auth', isExported: true }],
+      }));
+      db.upsertStructural(utilsSrc, 'typescript', makeScanResult({
+        methods: [{ name: 'helper', isExported: true }],
+      }));
 
       const url = `http://localhost/api/pseudo/files?project=${encodeURIComponent(testProjectPath)}`;
       const req = new Request(url, { method: 'GET' });
@@ -85,16 +113,29 @@ describe('Pseudo API Routes', () => {
       expect(response.status).toBe(200);
       const data = await response.json();
       expect(data.files).toHaveLength(2);
-      expect(data.files).toContain('auth');
-      expect(data.files).toContain('utils');
-      expect(data.files).not.toContain('other.txt');
+      const paths = data.files.map((f: any) => f.filePath);
+      expect(paths).toContain(authSrc);
+      expect(paths).toContain(utilsSrc);
     });
 
-    it('should return files sorted alphabetically', async () => {
-      // Create files in non-alphabetical order
-      await writeFile(join(testProjectPath, 'zebra.pseudo'), 'FUNCTION z()');
-      await writeFile(join(testProjectPath, 'apple.pseudo'), 'FUNCTION a()');
-      await writeFile(join(testProjectPath, 'banana.pseudo'), 'FUNCTION b()');
+    it('should return each file with summary metadata', async () => {
+      const aSrc = join(testProjectPath, 'apple.ts');
+      const bSrc = join(testProjectPath, 'banana.ts');
+      const zSrc = join(testProjectPath, 'zebra.ts');
+      await writeFile(aSrc, 'export function a() {}\n');
+      await writeFile(bSrc, 'export function b() {}\n');
+      await writeFile(zSrc, 'export function z() {}\n');
+
+      const db = getPseudoDb(testProjectPath);
+      db.upsertStructural(zSrc, 'typescript', makeScanResult({
+        methods: [{ name: 'z', isExported: true }],
+      }));
+      db.upsertStructural(aSrc, 'typescript', makeScanResult({
+        methods: [{ name: 'a', isExported: true }],
+      }));
+      db.upsertStructural(bSrc, 'typescript', makeScanResult({
+        methods: [{ name: 'b', isExported: false }],
+      }));
 
       const url = `http://localhost/api/pseudo/files?project=${encodeURIComponent(testProjectPath)}`;
       const req = new Request(url, { method: 'GET' });
@@ -102,15 +143,31 @@ describe('Pseudo API Routes', () => {
 
       expect(response.status).toBe(200);
       const data = await response.json();
-      expect(data.files).toEqual(['apple', 'banana', 'zebra']);
+      expect(data.files).toHaveLength(3);
+      // Each entry should have summary fields from PseudoFileSummary
+      for (const entry of data.files) {
+        expect(entry).toHaveProperty('filePath');
+        expect(entry).toHaveProperty('methodCount');
+        expect(entry).toHaveProperty('exportCount');
+      }
     });
 
-    it('should scan recursively in subdirectories', async () => {
-      // Create nested .pseudo files
+    it('should include files from subdirectories', async () => {
+      // Seed files from nested source paths
+      const rootSrc = join(testProjectPath, 'root.ts');
       const subdir = join(testProjectPath, 'subdir');
       await mkdir(subdir, { recursive: true });
-      await writeFile(join(testProjectPath, 'root.pseudo'), 'FUNCTION root()');
-      await writeFile(join(subdir, 'nested.pseudo'), 'FUNCTION nested()');
+      const nestedSrc = join(subdir, 'nested.ts');
+      await writeFile(rootSrc, 'export function root() {}\n');
+      await writeFile(nestedSrc, 'export function nested() {}\n');
+
+      const db = getPseudoDb(testProjectPath);
+      db.upsertStructural(rootSrc, 'typescript', makeScanResult({
+        methods: [{ name: 'root', isExported: true }],
+      }));
+      db.upsertStructural(nestedSrc, 'typescript', makeScanResult({
+        methods: [{ name: 'nested', isExported: true }],
+      }));
 
       const url = `http://localhost/api/pseudo/files?project=${encodeURIComponent(testProjectPath)}`;
       const req = new Request(url, { method: 'GET' });
@@ -119,8 +176,9 @@ describe('Pseudo API Routes', () => {
       expect(response.status).toBe(200);
       const data = await response.json();
       expect(data.files).toHaveLength(2);
-      expect(data.files).toContain('root');
-      expect(data.files).toContain('subdir/nested');
+      const paths = data.files.map((f: any) => f.filePath);
+      expect(paths).toContain(rootSrc);
+      expect(paths).toContain(nestedSrc);
     });
   });
 
@@ -145,9 +203,27 @@ describe('Pseudo API Routes', () => {
       expect(data.error).toBeDefined();
     });
 
-    it('should return file content and path', async () => {
-      const content = 'FUNCTION test()\n  return 42\nEND FUNCTION';
-      await writeFile(join(testProjectPath, 'test.pseudo'), content);
+    it('should return file with methods by stem lookup', async () => {
+      const srcPath = join(testProjectPath, 'test.ts');
+      await writeFile(srcPath, 'export function test() { return 42; }\n');
+
+      const db = getPseudoDb(testProjectPath);
+      db.upsertStructural(srcPath, 'typescript', makeScanResult({
+        methods: [
+          { name: 'test', isExported: true, sourceLine: 1, sourceLineEnd: 1, returnType: 'number' },
+        ],
+      }));
+      db.upsertProse(srcPath, makeProseData({
+        title: 'Test Module',
+        purpose: 'Test file',
+        methods: [
+          {
+            name: 'test',
+            params: '',
+            steps: [{ content: 'return 42', depth: 0 }],
+          },
+        ],
+      }));
 
       const url = `http://localhost/api/pseudo/file?project=${encodeURIComponent(testProjectPath)}&file=test`;
       const req = new Request(url, { method: 'GET' });
@@ -155,24 +231,35 @@ describe('Pseudo API Routes', () => {
 
       expect(response.status).toBe(200);
       const data = await response.json();
-      expect(data.content).toBe(content);
-      expect(data.path).toBeDefined();
-      expect(data.path).toContain('test.pseudo');
+      expect(data.filePath).toBe(srcPath);
+      expect(data.title).toBe('Test Module');
+      expect(Array.isArray(data.methods)).toBe(true);
+      expect(data.methods).toHaveLength(1);
+      expect(data.methods[0].name).toBe('test');
     });
 
-    it('should handle nested file paths', async () => {
+    it('should handle nested file paths via exact filePath lookup', async () => {
       const subdir = join(testProjectPath, 'src', 'lib');
       await mkdir(subdir, { recursive: true });
-      const content = 'FUNCTION nested()';
-      await writeFile(join(subdir, 'helper.pseudo'), content);
+      const srcPath = join(subdir, 'helper.ts');
+      await writeFile(srcPath, 'export function nested() {}\n');
 
-      const url = `http://localhost/api/pseudo/file?project=${encodeURIComponent(testProjectPath)}&file=src/lib/helper`;
+      const db = getPseudoDb(testProjectPath);
+      db.upsertStructural(srcPath, 'typescript', makeScanResult({
+        methods: [
+          { name: 'nested', isExported: true, sourceLine: 1, sourceLineEnd: 1 },
+        ],
+      }));
+
+      const url = `http://localhost/api/pseudo/file?project=${encodeURIComponent(testProjectPath)}&file=${encodeURIComponent(srcPath)}`;
       const req = new Request(url, { method: 'GET' });
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(200);
       const data = await response.json();
-      expect(data.content).toBe(content);
+      expect(data.filePath).toBe(srcPath);
+      expect(data.methods).toHaveLength(1);
+      expect(data.methods[0].name).toBe('nested');
     });
   });
 
@@ -188,7 +275,16 @@ describe('Pseudo API Routes', () => {
     });
 
     it('should return empty results when no matches found', async () => {
-      await writeFile(join(testProjectPath, 'test.pseudo'), 'FUNCTION foo()');
+      const srcPath = join(testProjectPath, 'test.ts');
+      await writeFile(srcPath, 'export function foo() {}\n');
+
+      const db = getPseudoDb(testProjectPath);
+      db.upsertStructural(srcPath, 'typescript', makeScanResult({
+        methods: [{ name: 'foo', isExported: true }],
+      }));
+      db.upsertProse(srcPath, makeProseData({
+        methods: [{ name: 'foo', params: '', steps: [{ content: 'do something', depth: 0 }] }],
+      }));
 
       const url = `http://localhost/api/pseudo/search?project=${encodeURIComponent(testProjectPath)}&q=nonexistent`;
       const req = new Request(url, { method: 'GET' });
@@ -196,32 +292,55 @@ describe('Pseudo API Routes', () => {
 
       expect(response.status).toBe(200);
       const data = await response.json();
-      expect(data.matches).toEqual({});
+      expect(Array.isArray(data.matches)).toBe(true);
+      expect(data.matches).toEqual([]);
     });
 
     it('should find matches case-insensitively', async () => {
-      const content = 'FUNCTION test()\n  return DEBUG\nEND FUNCTION';
-      await writeFile(join(testProjectPath, 'test.pseudo'), content);
+      const srcPath = join(testProjectPath, 'test.ts');
+      await writeFile(srcPath, 'export function test() {}\n');
 
+      const db = getPseudoDb(testProjectPath);
+      db.upsertStructural(srcPath, 'typescript', makeScanResult({
+        methods: [{ name: 'test', isExported: true }],
+      }));
+      db.upsertProse(srcPath, makeProseData({
+        methods: [{
+          name: 'test',
+          params: '',
+          steps: [{ content: 'return DEBUG value', depth: 0 }],
+        }],
+      }));
+
+      // FTS uses porter stemmer + unicode61 which lowercases tokens
       const url = `http://localhost/api/pseudo/search?project=${encodeURIComponent(testProjectPath)}&q=debug`;
       const req = new Request(url, { method: 'GET' });
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(200);
       const data = await response.json();
-      expect(data.matches).toBeDefined();
-      expect(Object.keys(data.matches)).toContain('test');
+      expect(Array.isArray(data.matches)).toBe(true);
+      expect(data.matches.length).toBeGreaterThan(0);
+      expect(data.matches[0].filePath).toBe(srcPath);
     });
 
-    it('should track current FUNCTION name as it scans', async () => {
-      const content = `FUNCTION first()
-  print "in first"
-END FUNCTION
+    it('should return a SearchResult for each matching method', async () => {
+      const srcPath = join(testProjectPath, 'test.ts');
+      await writeFile(srcPath, 'export function first() {}\nexport function second() {}\n');
 
-FUNCTION second()
-  print "in second"
-END FUNCTION`;
-      await writeFile(join(testProjectPath, 'test.pseudo'), content);
+      const db = getPseudoDb(testProjectPath);
+      db.upsertStructural(srcPath, 'typescript', makeScanResult({
+        methods: [
+          { name: 'first', isExported: true },
+          { name: 'second', isExported: true },
+        ],
+      }));
+      db.upsertProse(srcPath, makeProseData({
+        methods: [
+          { name: 'first', params: '', steps: [{ content: 'print "in first"', depth: 0 }] },
+          { name: 'second', params: '', steps: [{ content: 'print "in second"', depth: 0 }] },
+        ],
+      }));
 
       const url = `http://localhost/api/pseudo/search?project=${encodeURIComponent(testProjectPath)}&q=print`;
       const req = new Request(url, { method: 'GET' });
@@ -229,15 +348,24 @@ END FUNCTION`;
 
       expect(response.status).toBe(200);
       const data = await response.json();
-      expect(data.matches.test).toBeDefined();
-      expect(data.matches.test).toHaveLength(2);
+      expect(Array.isArray(data.matches)).toBe(true);
+      // Both methods contain "print" in their steps, so both should match
+      expect(data.matches).toHaveLength(2);
+      const methodNames = data.matches.map((m: any) => m.methodName).sort();
+      expect(methodNames).toEqual(['first', 'second']);
     });
 
-    it('should flag FUNCTION line matches with isFunctionLine: true', async () => {
-      const content = `FUNCTION calculateSum(a, b)
-  return a + b
-END FUNCTION`;
-      await writeFile(join(testProjectPath, 'math.pseudo'), content);
+    it('should match on method name', async () => {
+      const srcPath = join(testProjectPath, 'math.ts');
+      await writeFile(srcPath, 'export function calculateSum(a, b) {}\n');
+
+      const db = getPseudoDb(testProjectPath);
+      db.upsertStructural(srcPath, 'typescript', makeScanResult({
+        methods: [{ name: 'calculateSum', isExported: true, params: 'a, b' }],
+      }));
+      db.upsertProse(srcPath, makeProseData({
+        methods: [{ name: 'calculateSum', params: 'a, b', steps: [{ content: 'return a + b', depth: 0 }] }],
+      }));
 
       const url = `http://localhost/api/pseudo/search?project=${encodeURIComponent(testProjectPath)}&q=calculateSum`;
       const req = new Request(url, { method: 'GET' });
@@ -245,16 +373,22 @@ END FUNCTION`;
 
       expect(response.status).toBe(200);
       const data = await response.json();
-      expect(data.matches.math).toBeDefined();
-      const matches = data.matches.math;
-      expect(matches.some((m: any) => m.isFunctionLine === true)).toBe(true);
+      expect(Array.isArray(data.matches)).toBe(true);
+      expect(data.matches.length).toBeGreaterThan(0);
+      expect(data.matches.some((m: any) => m.methodName === 'calculateSum')).toBe(true);
     });
 
-    it('should sort FUNCTION line matches above body matches', async () => {
-      const content = `FUNCTION search()
-  print "searching for search"
-END FUNCTION`;
-      await writeFile(join(testProjectPath, 'test.pseudo'), content);
+    it('should include snippet and rank in each result', async () => {
+      const srcPath = join(testProjectPath, 'test.ts');
+      await writeFile(srcPath, 'export function search() {}\n');
+
+      const db = getPseudoDb(testProjectPath);
+      db.upsertStructural(srcPath, 'typescript', makeScanResult({
+        methods: [{ name: 'search', isExported: true }],
+      }));
+      db.upsertProse(srcPath, makeProseData({
+        methods: [{ name: 'search', params: '', steps: [{ content: 'searching for search term', depth: 0 }] }],
+      }));
 
       const url = `http://localhost/api/pseudo/search?project=${encodeURIComponent(testProjectPath)}&q=search`;
       const req = new Request(url, { method: 'GET' });
@@ -262,17 +396,37 @@ END FUNCTION`;
 
       expect(response.status).toBe(200);
       const data = await response.json();
-      const matches = data.matches.test;
-      // FUNCTION line should come first
-      expect(matches[0].isFunctionLine).toBe(true);
+      expect(Array.isArray(data.matches)).toBe(true);
+      expect(data.matches.length).toBeGreaterThan(0);
+      const first = data.matches[0];
+      expect(first).toHaveProperty('filePath');
+      expect(first).toHaveProperty('methodName');
+      expect(first).toHaveProperty('snippet');
+      expect(first).toHaveProperty('rank');
     });
 
-    it('should track CALLS from function lines', async () => {
-      const content = `FUNCTION main()
-  CALLS helper
-  CALLS other
-END FUNCTION`;
-      await writeFile(join(testProjectPath, 'test.pseudo'), content);
+    it('should match step content containing search term', async () => {
+      const srcPath = join(testProjectPath, 'test.ts');
+      await writeFile(srcPath, 'export function main() {}\n');
+
+      const db = getPseudoDb(testProjectPath);
+      db.upsertStructural(srcPath, 'typescript', makeScanResult({
+        methods: [{ name: 'main', isExported: true }],
+      }));
+      db.upsertProse(srcPath, makeProseData({
+        methods: [{
+          name: 'main',
+          params: '',
+          steps: [
+            { content: 'CALLS helper', depth: 0 },
+            { content: 'CALLS other', depth: 0 },
+          ],
+          calls: [
+            { name: 'helper', fileStem: 'test' },
+            { name: 'other', fileStem: 'test' },
+          ],
+        }],
+      }));
 
       const url = `http://localhost/api/pseudo/search?project=${encodeURIComponent(testProjectPath)}&q=helper`;
       const req = new Request(url, { method: 'GET' });
@@ -280,16 +434,31 @@ END FUNCTION`;
 
       expect(response.status).toBe(200);
       const data = await response.json();
-      const matches = data.matches.test;
-      expect(matches.length).toBeGreaterThan(0);
-      // Verify the CALLS line is captured
-      const callsMatch = matches.find((m: any) => m.line.includes('CALLS'));
-      expect(callsMatch).toBeDefined();
+      expect(Array.isArray(data.matches)).toBe(true);
+      expect(data.matches.length).toBeGreaterThan(0);
+      // The snippet should highlight the matching token
+      expect(data.matches.some((m: any) => m.methodName === 'main')).toBe(true);
     });
 
-    it('should group results by file', async () => {
-      await writeFile(join(testProjectPath, 'file1.pseudo'), 'FUNCTION test1()\nCOMPARE items');
-      await writeFile(join(testProjectPath, 'file2.pseudo'), 'FUNCTION test2()\nCOMPARE values');
+    it('should return matches across multiple files', async () => {
+      const file1Src = join(testProjectPath, 'file1.ts');
+      const file2Src = join(testProjectPath, 'file2.ts');
+      await writeFile(file1Src, 'export function test1() {}\n');
+      await writeFile(file2Src, 'export function test2() {}\n');
+
+      const db = getPseudoDb(testProjectPath);
+      db.upsertStructural(file1Src, 'typescript', makeScanResult({
+        methods: [{ name: 'test1', isExported: true }],
+      }));
+      db.upsertStructural(file2Src, 'typescript', makeScanResult({
+        methods: [{ name: 'test2', isExported: true }],
+      }));
+      db.upsertProse(file1Src, makeProseData({
+        methods: [{ name: 'test1', params: '', steps: [{ content: 'COMPARE items', depth: 0 }] }],
+      }));
+      db.upsertProse(file2Src, makeProseData({
+        methods: [{ name: 'test2', params: '', steps: [{ content: 'COMPARE values', depth: 0 }] }],
+      }));
 
       const url = `http://localhost/api/pseudo/search?project=${encodeURIComponent(testProjectPath)}&q=compare`;
       const req = new Request(url, { method: 'GET' });
@@ -297,18 +466,30 @@ END FUNCTION`;
 
       expect(response.status).toBe(200);
       const data = await response.json();
-      expect(Object.keys(data.matches)).toHaveLength(2);
-      expect(data.matches.file1).toBeDefined();
-      expect(data.matches.file2).toBeDefined();
+      expect(Array.isArray(data.matches)).toBe(true);
+      expect(data.matches).toHaveLength(2);
+      const filePaths = data.matches.map((m: any) => m.filePath).sort();
+      expect(filePaths).toEqual([file1Src, file2Src].sort());
     });
 
     it('should cap results at 50 total matches', async () => {
-      let content = '';
-      // Create content with 60 matching lines
-      for (let i = 0; i < 60; i++) {
-        content += `line with target text ${i}\n`;
-      }
-      await writeFile(join(testProjectPath, 'test.pseudo'), content);
+      const srcPath = join(testProjectPath, 'test.ts');
+      await writeFile(srcPath, 'export function test() {}\n');
+
+      const db = getPseudoDb(testProjectPath);
+      // Seed 60 methods each containing the term "target"
+      const methods = Array.from({ length: 60 }, (_, i) => ({
+        name: `fn${i}`,
+        isExported: false,
+      }));
+      db.upsertStructural(srcPath, 'typescript', makeScanResult({ methods }));
+      db.upsertProse(srcPath, makeProseData({
+        methods: methods.map((_, i) => ({
+          name: `fn${i}`,
+          params: '',
+          steps: [{ content: `line with target text ${i}`, depth: 0 }],
+        })),
+      }));
 
       const url = `http://localhost/api/pseudo/search?project=${encodeURIComponent(testProjectPath)}&q=target`;
       const req = new Request(url, { method: 'GET' });
@@ -316,20 +497,43 @@ END FUNCTION`;
 
       expect(response.status).toBe(200);
       const data = await response.json();
-      const totalMatches = Object.values(data.matches).reduce((sum: number, matches: any) => sum + matches.length, 0);
-      expect(totalMatches).toBeLessThanOrEqual(50);
+      expect(Array.isArray(data.matches)).toBe(true);
+      expect(data.matches.length).toBeLessThanOrEqual(50);
     });
 
     it('should handle multiple files with complex search', async () => {
-      await writeFile(join(testProjectPath, 'auth.pseudo'), `FUNCTION authenticate(user)
-  CALLS validatePassword
-  CHECK permissions
-END FUNCTION`);
+      const authSrc = join(testProjectPath, 'auth.ts');
+      const utilsSrc = join(testProjectPath, 'utils.ts');
+      await writeFile(authSrc, 'export function authenticate(user) {}\n');
+      await writeFile(utilsSrc, 'export function validatePassword() {}\n');
 
-      await writeFile(join(testProjectPath, 'utils.pseudo'), `FUNCTION validatePassword()
-  CHECK rules
-  COMPARE hashes
-END FUNCTION`);
+      const db = getPseudoDb(testProjectPath);
+      db.upsertStructural(authSrc, 'typescript', makeScanResult({
+        methods: [{ name: 'authenticate', isExported: true, params: 'user' }],
+      }));
+      db.upsertStructural(utilsSrc, 'typescript', makeScanResult({
+        methods: [{ name: 'validatePassword', isExported: true }],
+      }));
+      db.upsertProse(authSrc, makeProseData({
+        methods: [{
+          name: 'authenticate',
+          params: 'user',
+          steps: [
+            { content: 'CALLS validatePassword', depth: 0 },
+            { content: 'CHECK permissions', depth: 0 },
+          ],
+        }],
+      }));
+      db.upsertProse(utilsSrc, makeProseData({
+        methods: [{
+          name: 'validatePassword',
+          params: '',
+          steps: [
+            { content: 'CHECK rules', depth: 0 },
+            { content: 'COMPARE hashes', depth: 0 },
+          ],
+        }],
+      }));
 
       const url = `http://localhost/api/pseudo/search?project=${encodeURIComponent(testProjectPath)}&q=check`;
       const req = new Request(url, { method: 'GET' });
@@ -337,10 +541,11 @@ END FUNCTION`);
 
       expect(response.status).toBe(200);
       const data = await response.json();
-      expect(Object.keys(data.matches).length).toBeGreaterThan(0);
-      // Verify matches are found in both files
-      const totalMatches = Object.values(data.matches).reduce((sum: number, matches: any) => sum + matches.length, 0);
-      expect(totalMatches).toBeGreaterThan(0);
+      expect(Array.isArray(data.matches)).toBe(true);
+      expect(data.matches.length).toBeGreaterThan(0);
+      // Verify matches come from both files
+      const filePaths = new Set(data.matches.map((m: any) => m.filePath));
+      expect(filePaths.size).toBe(2);
     });
   });
 
@@ -357,17 +562,15 @@ END FUNCTION`);
 
     it('returns correct counts after indexing', async () => {
       const db = getPseudoDb(testProjectPath);
-      db.upsertFile('/virtual/a.pseudo', makeParsedFile({
-        title: 'A',
+      db.upsertStructural(join(testProjectPath, 'a.ts'), 'typescript', makeScanResult({
         methods: [
-          { name: 'foo', isExport: true },
-          { name: 'bar', isExport: false },
+          { name: 'foo', isExported: true },
+          { name: 'bar', isExported: false },
         ],
       }));
-      db.upsertFile('/virtual/b.pseudo', makeParsedFile({
-        title: 'B',
+      db.upsertStructural(join(testProjectPath, 'b.ts'), 'typescript', makeScanResult({
         methods: [
-          { name: 'baz', isExport: false },
+          { name: 'baz', isExported: false },
         ],
       }));
 
@@ -407,18 +610,13 @@ END FUNCTION`);
       // Source file must exist on disk for pseudo-db to record it
       const srcPath = join(testProjectPath, 'foo.ts');
       await writeFile(srcPath, 'export function foo() {}\n');
-      const pseudoPath = join(testProjectPath, 'foo.pseudo');
-      await writeFile(pseudoPath, '');
 
       const db = getPseudoDb(testProjectPath);
-      db.upsertFile(pseudoPath, makeParsedFile({
-        title: 'Foo',
-        sourceFilePath: srcPath,
-        language: 'typescript',
+      db.upsertStructural(srcPath, 'typescript', makeScanResult({
         methods: [
           {
             name: 'foo',
-            isExport: true,
+            isExported: true,
             sourceLine: 42,
             sourceLineEnd: 58,
           },
@@ -446,26 +644,16 @@ END FUNCTION`);
       const bSrc = join(testProjectPath, 'b.ts');
       await writeFile(aSrc, 'export function foo() {}\n');
       await writeFile(bSrc, 'export function foo() {}\n');
-      const aPseudo = join(testProjectPath, 'a.pseudo');
-      const bPseudo = join(testProjectPath, 'b.pseudo');
-      await writeFile(aPseudo, '');
-      await writeFile(bPseudo, '');
 
       const db = getPseudoDb(testProjectPath);
-      db.upsertFile(aPseudo, makeParsedFile({
-        title: 'A',
-        sourceFilePath: aSrc,
-        language: 'typescript',
+      db.upsertStructural(aSrc, 'typescript', makeScanResult({
         methods: [
-          { name: 'foo', isExport: true, sourceLine: 10, sourceLineEnd: 20 },
+          { name: 'foo', isExported: true, sourceLine: 10, sourceLineEnd: 20 },
         ],
       }));
-      db.upsertFile(bPseudo, makeParsedFile({
-        title: 'B',
-        sourceFilePath: bSrc,
-        language: 'typescript',
+      db.upsertStructural(bSrc, 'typescript', makeScanResult({
         methods: [
-          { name: 'foo', isExport: true, sourceLine: 30, sourceLineEnd: 40 },
+          { name: 'foo', isExported: true, sourceLine: 30, sourceLineEnd: 40 },
         ],
       }));
 
@@ -507,21 +695,18 @@ END FUNCTION`);
       const srcPath = join(testProjectPath, 'module.ts');
       await writeFile(srcPath, 'placeholder');
 
-      const pseudoPath = join(testProjectPath, 'module.pseudo');
-      db.upsertFile(pseudoPath, makeParsedFile({
-        sourceFilePath: srcPath,
-        language: 'haskell',
+      db.upsertStructural(srcPath, 'typescript', makeScanResult({
         methods: [
           {
             name: 'foo',
-            isExport: true,
+            isExported: true,
             sourceLine: 1,
             sourceLineEnd: 1,
             params: '',
             returnType: 'void',
           },
         ],
-      }) as any);
+      }));
 
       const req = new Request(
         `http://localhost/api/pseudo/functions-for-source?project=${encodeURIComponent(testProjectPath)}&sourcePath=${encodeURIComponent(srcPath)}`
@@ -548,16 +733,24 @@ END FUNCTION`);
     });
 
     it('returns entries with stepSummary field (not purpose)', async () => {
+      const srcPath = join(testProjectPath, 'login.ts');
+      await writeFile(srcPath, 'export function login() {}\n');
+
       const db = getPseudoDb(testProjectPath);
-      db.upsertFile('/virtual/login.pseudo', makeParsedFile({
+      db.upsertStructural(srcPath, 'typescript', makeScanResult({
+        methods: [
+          { name: 'login', isExported: true },
+        ],
+      }));
+      db.upsertProse(srcPath, makeProseData({
         title: 'Login',
         methods: [
           {
             name: 'login',
-            isExport: true,
+            params: '',
             steps: [
-              { content: 'Validate credentials', depth: 0, sortOrder: 0 },
-              { content: 'Create session', depth: 0, sortOrder: 1 },
+              { content: 'Validate credentials', depth: 0 },
+              { content: 'Create session', depth: 0 },
             ],
           },
         ],

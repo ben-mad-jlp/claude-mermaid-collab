@@ -1,9 +1,0 @@
-// ProgressBar
-// Determinate or indeterminate progress bar with color variants.
-// Indeterminate mode uses a CSS keyframe animation for the sliding bar effect.
-
-FUNCTION ProgressBar(props) -> ReactNode                                  EXPORT
-  Renders a track div with a fill div inside.
-  IF indeterminate, applies an animated sliding style; the value prop is ignored.
-  IF determinate, sets the fill width to value% (clamped 0–100).
-  Color variants (default/success/warning/error) map to Tailwind background colors.

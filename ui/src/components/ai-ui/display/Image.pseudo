@@ -1,6 +1,0 @@
-// Image
-// Displays an image with an optional caption using semantic figure/figcaption markup.
-
-FUNCTION Image(props) -> ReactNode                                        EXPORT
-  Renders an img element with the provided src and alt text.
-  IF a caption is provided, wraps in a figure element with a figcaption below the image.

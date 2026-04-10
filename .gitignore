@@ -6,9 +6,6 @@
 # Worktrees
 .worktrees/
 
-# Pseudo file staleness manifest (local, not committed)
-.pseudo-needs-update
-
 # Dependencies
 node_modules/
 
@@ -28,5 +25,15 @@ Thumbs.db
 /diagrams/
 /documents/
 /metadata.json
-/.collab/
+# Collab data directory
+# The main pseudo-db IS committed for team sharing.
+# Sessions and WAL sidecars stay local.
+/.collab/sessions/
+/.collab/pseudo/pseudo.db-wal
+/.collab/pseudo/pseudo.db-shm
+!/.collab/pseudo/pseudo.db
+/.collab/**/*.tmp
 .worktrees/
+
+# Legacy pseudo file format (deleted in Phase 6, never coming back)
+*.pseudo

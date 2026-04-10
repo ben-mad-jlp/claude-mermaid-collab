@@ -1,9 +1,0 @@
-// ChatTab
-// Full-screen mobile wrapper for the chat interface.
-// Delegates entirely to ChatPanel and passes the onAutoSwitch callback so the
-// parent MobileLayout can switch to the chat tab when an AI UI message arrives.
-
-FUNCTION ChatTab(messages, onSendMessage, onAutoSwitch) -> JSX         EXPORT
-  CALLS: ChatPanel (ChatPanel)
-  Wraps ChatPanel in a full-height flex container.
-  Passes onAutoSwitch directly to ChatPanel.

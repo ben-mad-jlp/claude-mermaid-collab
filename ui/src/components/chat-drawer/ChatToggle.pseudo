@@ -1,9 +1,0 @@
-// ChatToggle
-// Fixed-position button that opens and closes the chat drawer.
-// Shows an unread message count badge when the drawer is closed and there are unread messages.
-
-FUNCTION ChatToggle(props) -> ReactNode                                   EXPORT
-  Renders a circular button fixed to the edge of the screen.
-  IF the drawer is open, shows a close icon; otherwise shows a chat bubble icon.
-  IF unreadCount > 0 and the drawer is closed, overlays a red badge with the count.
-  Calls onToggle when clicked.

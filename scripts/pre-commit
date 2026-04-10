@@ -1,0 +1,7 @@
+#!/bin/bash
+# Git pre-commit hook — runs Level 1 structural index on staged source files.
+# Install with: cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+
+PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+bun run "$PROJECT_ROOT/bin/structural-index.ts" "$PROJECT_ROOT" 2>&1
+exit 0  # Never block the commit; errors are logged

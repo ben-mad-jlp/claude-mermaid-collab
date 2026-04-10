@@ -1,7 +1,0 @@
-// Divider
-// Horizontal or vertical visual separator, optionally with a centered label.
-
-FUNCTION Divider(props) -> ReactNode                                      EXPORT
-  Renders an hr (horizontal) or a vertical bar element.
-  IF a label is provided, renders the label centered within the divider line using a flex layout.
-  Orientation (horizontal/vertical) is controlled by the orientation prop.
