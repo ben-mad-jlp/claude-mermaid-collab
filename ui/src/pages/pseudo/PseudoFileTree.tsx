@@ -160,15 +160,58 @@ export function PseudoFileTree({
   const [filter, setFilter] = useState('');
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
 
-  // Extract file paths for tree building
-  const filePaths = useMemo(() => fileList.map(f => f.filePath), [fileList]);
+  // Strip the project prefix so the tree starts at the project root instead
+  // of the filesystem root. Keep a map back to the absolute path for navigation
+  // and metadata lookups.
+  const projectPrefix = useMemo(
+    () => (project ? (project.endsWith('/') ? project : project + '/') : ''),
+    [project]
+  );
 
-  // Build lookup map for metadata
+  const toRelative = useCallback(
+    (absPath: string): string => {
+      if (projectPrefix && absPath.startsWith(projectPrefix)) {
+        return absPath.slice(projectPrefix.length);
+      }
+      return absPath;
+    },
+    [projectPrefix]
+  );
+
+  // File paths for tree building (relative to project root)
+  const filePaths = useMemo(
+    () => fileList.map(f => toRelative(f.filePath)),
+    [fileList, toRelative]
+  );
+
+  // Relative path → absolute path, used when navigating
+  const relativeToAbsolute = useMemo(() => {
+    const map = new Map<string, string>();
+    fileList.forEach(f => map.set(toRelative(f.filePath), f.filePath));
+    return map;
+  }, [fileList, toRelative]);
+
+  // Build lookup map for metadata, keyed by relative path to match tree nodes
   const fileMeta = useMemo(() => {
     const map = new Map<string, PseudoFileSummary>();
-    fileList.forEach(f => map.set(f.filePath, f));
+    fileList.forEach(f => map.set(toRelative(f.filePath), f));
     return map;
-  }, [fileList]);
+  }, [fileList, toRelative]);
+
+  // currentPath arrives as an absolute path from the URL — relativize it for
+  // the isActive comparison against tree node paths.
+  const currentRelativePath = useMemo(
+    () => (currentPath ? toRelative(currentPath) : ''),
+    [currentPath, toRelative]
+  );
+
+  // Wrap onNavigate to convert the tree node's relative path back to absolute.
+  const handleTreeNavigate = useCallback(
+    (relPath: string) => {
+      onNavigate(relativeToAbsolute.get(relPath) ?? relPath);
+    },
+    [onNavigate, relativeToAbsolute]
+  );
 
   // Load collapsed state from localStorage on mount
   useEffect(() => {
@@ -257,10 +300,10 @@ export function PseudoFileTree({
               key={node.path}
               node={node}
               level={0}
-              currentPath={currentPath}
+              currentPath={currentRelativePath}
               collapsedDirs={collapsedDirs}
               onToggleCollapse={handleToggleCollapse}
-              onNavigate={onNavigate}
+              onNavigate={handleTreeNavigate}
               filterExpanded={filterExpanded}
               fileMeta={fileMeta}
             />

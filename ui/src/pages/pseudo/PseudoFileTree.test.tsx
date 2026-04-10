@@ -89,6 +89,66 @@ describe('PseudoFileTree', () => {
       expect(screen.getByText('a')).toBeInTheDocument();
     });
 
+    it('should strip project prefix from absolute file paths', () => {
+      // Real fileList contains absolute paths; tree must render relative to project root.
+      const fileList = [
+        '/Users/me/Code/my-project/src/index.ts',
+        '/Users/me/Code/my-project/src/utils/helper.ts',
+      ].map(fileSummary);
+      render(
+        <PseudoFileTree
+          fileList={fileList}
+          currentPath="/Users/me/Code/my-project/src/index.ts"
+          onNavigate={mockOnNavigate}
+          project="/Users/me/Code/my-project"
+          onProjectChange={mockOnProjectChange}
+        />
+      );
+
+      // Tree starts at the project root, not at the filesystem root
+      expect(screen.getByText('src')).toBeInTheDocument();
+      expect(screen.queryByText('Users')).not.toBeInTheDocument();
+      expect(screen.queryByText('Code')).not.toBeInTheDocument();
+      expect(screen.queryByText('my-project')).not.toBeInTheDocument();
+    });
+
+    it('should call onNavigate with absolute path when tree node clicked', async () => {
+      const user = userEvent.setup();
+      const fileList = ['/Users/me/proj/src/index.ts'].map(fileSummary);
+      render(
+        <PseudoFileTree
+          fileList={fileList}
+          currentPath=""
+          onNavigate={mockOnNavigate}
+          project="/Users/me/proj"
+          onProjectChange={mockOnProjectChange}
+        />
+      );
+
+      // Click the file — displayed as relative "index.ts" but onNavigate should
+      // receive the original absolute path so downstream routes/lookups still work.
+      await user.click(screen.getByText('index.ts'));
+      expect(mockOnNavigate).toHaveBeenCalledWith('/Users/me/proj/src/index.ts');
+    });
+
+    it('should highlight active file when currentPath is absolute', () => {
+      const fileList = ['/Users/me/proj/src/index.ts'].map(fileSummary);
+      const { container } = render(
+        <PseudoFileTree
+          fileList={fileList}
+          currentPath="/Users/me/proj/src/index.ts"
+          onNavigate={mockOnNavigate}
+          project="/Users/me/proj"
+          onProjectChange={mockOnProjectChange}
+        />
+      );
+
+      // The active file node should have the purple highlight class
+      const activeNode = container.querySelector('.bg-purple-50');
+      expect(activeNode).not.toBeNull();
+      expect(activeNode?.textContent).toContain('index.ts');
+    });
+
     it('should handle empty file list', () => {
       const { container } = render(
         <PseudoFileTree
