@@ -19,7 +19,14 @@ import { homedir } from 'os';
 import { existsSync } from 'fs';
 import { archiveSession, type ArchiveOptions } from '../mcp/tools/collab-state';
 import { addLesson, listLessons, type LessonCategory } from '../mcp/tools/lessons';
-import { listTodos, addTodo, removeTodo, updateTodo } from '../mcp/tools/todos';
+import {
+  listSessionTodos,
+  addSessionTodo,
+  updateSessionTodo,
+  removeSessionTodo,
+  clearCompletedSessionTodos,
+  reorderSessionTodos,
+} from '../mcp/tools/session-todos';
 import {
   listDesignsHandler,
   createDesignHandler,
@@ -2242,90 +2249,169 @@ export async function handleAPI(
   }
 
   // ============================================
-  // Todos Routes (project-level, no session required)
+  // Session Todos Routes (per-session checklist)
   // ============================================
 
-  // GET /api/todos?project=...
-  if (path === '/api/todos' && req.method === 'GET') {
-    const project = url.searchParams.get('project');
-    if (!project) {
-      return Response.json({ error: 'project query param required' }, { status: 400 });
+  // GET /api/session-todos?project=...&session=...&includeCompleted=...
+  if (path === '/api/session-todos' && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
     }
 
+    const includeCompletedParam = url.searchParams.get('includeCompleted');
+    const includeCompleted = includeCompletedParam === null
+      ? true
+      : includeCompletedParam !== 'false';
+
     try {
-      const result = await listTodos(project);
-      return Response.json(result);
+      const todos = await listSessionTodos(params.project, params.session, { includeCompleted });
+      return Response.json({ todos });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 500 });
     }
   }
 
-  // POST /api/todos - Add a todo
-  if (path === '/api/todos' && req.method === 'POST') {
+  // POST /api/session-todos - Add a session todo
+  if (path === '/api/session-todos' && req.method === 'POST') {
     try {
-      const { project, title, description } = await req.json() as { project?: string; title?: string; description?: string };
+      const { project, session, text } = await req.json() as {
+        project?: string;
+        session?: string;
+        text?: string;
+      };
 
-      if (!project || !title) {
-        return Response.json({ error: 'project and title required' }, { status: 400 });
+      if (!project || !session || !text) {
+        return Response.json({ error: 'project, session, and text required' }, { status: 400 });
+      }
+      if (!text.trim()) {
+        return Response.json({ error: 'text must be non-empty' }, { status: 400 });
       }
 
-      const result = await addTodo(project, title);
+      const todo = await addSessionTodo(project, session, text);
 
-      // Register the auto-created vibe session
-      await sessionRegistry.register(project, result.todo.sessionName, 'vibe', true);
-      wsHandler.broadcast({ type: 'session_created', project, session: result.todo.sessionName });
+      wsHandler.broadcast({
+        type: 'session_todos_updated',
+        project,
+        session,
+      });
 
-      // If description provided, create it as a document in the todo's session
-      if (description) {
-        const { documentManager } = await createManagers(project, result.todo.sessionName);
-        await documentManager.createDocument('description', description);
-      }
-
-      return Response.json(result, { status: 201 });
+      return Response.json({ todo }, { status: 201 });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
     }
   }
 
-  // PATCH /api/todos/:id - Update a todo
-  const todosPatchMatch = path.match(/^\/api\/todos\/(\d+)$/);
-  if (todosPatchMatch && req.method === 'PATCH') {
+  // POST /api/session-todos/clear-completed - Clear all completed session todos
+  if (path === '/api/session-todos/clear-completed' && req.method === 'POST') {
     try {
-      const { project, title } = await req.json() as { project?: string; title?: string };
+      const { project, session } = await req.json() as { project?: string; session?: string };
 
-      if (!project) {
-        return Response.json({ error: 'project required' }, { status: 400 });
+      if (!project || !session) {
+        return Response.json({ error: 'project and session required' }, { status: 400 });
       }
 
-      const id = parseInt(todosPatchMatch[1], 10);
-      const result = await updateTodo(project, id, { title });
-      if (!result.success) {
-        return Response.json(result, { status: 404 });
+      const result = await clearCompletedSessionTodos(project, session);
+
+      if (result.removedCount > 0) {
+        wsHandler.broadcast({
+          type: 'session_todos_updated',
+          project,
+          session,
+        });
       }
+
       return Response.json(result);
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
     }
   }
 
-  // DELETE /api/todos/:id?project=...
-  const todosDeleteMatch = path.match(/^\/api\/todos\/(\d+)$/);
-  if (todosDeleteMatch && req.method === 'DELETE') {
-    const project = url.searchParams.get('project');
-    if (!project) {
-      return Response.json({ error: 'project query param required' }, { status: 400 });
+  // POST /api/session-todos/reorder - Reorder session todos
+  if (path === '/api/session-todos/reorder' && req.method === 'POST') {
+    try {
+      const { project, session, orderedIds } = await req.json() as {
+        project?: string;
+        session?: string;
+        orderedIds?: number[];
+      };
+
+      if (!project || !session || !Array.isArray(orderedIds)) {
+        return Response.json({ error: 'project, session, and orderedIds required' }, { status: 400 });
+      }
+
+      const todos = await reorderSessionTodos(project, session, orderedIds);
+
+      wsHandler.broadcast({
+        type: 'session_todos_updated',
+        project,
+        session,
+      });
+
+      return Response.json({ todos });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // PATCH /api/session-todos/:id - Update a session todo
+  const sessionTodosPatchMatch = path.match(/^\/api\/session-todos\/(\d+)$/);
+  if (sessionTodosPatchMatch && req.method === 'PATCH') {
+    try {
+      const { project, session, text, completed, order } = await req.json() as {
+        project?: string;
+        session?: string;
+        text?: string;
+        completed?: boolean;
+        order?: number;
+      };
+
+      if (!project || !session) {
+        return Response.json({ error: 'project and session required' }, { status: 400 });
+      }
+      if (text !== undefined && !text.trim()) {
+        return Response.json({ error: 'text must be non-empty' }, { status: 400 });
+      }
+
+      const id = parseInt(sessionTodosPatchMatch[1], 10);
+      const todo = await updateSessionTodo(project, session, id, { text, completed, order });
+
+      wsHandler.broadcast({
+        type: 'session_todos_updated',
+        project,
+        session,
+      });
+
+      return Response.json({ todo });
+    } catch (error: any) {
+      const status = error.message === 'Todo not found' ? 404 : 400;
+      return Response.json({ error: error.message }, { status });
+    }
+  }
+
+  // DELETE /api/session-todos/:id?project=...&session=...
+  const sessionTodosDeleteMatch = path.match(/^\/api\/session-todos\/(\d+)$/);
+  if (sessionTodosDeleteMatch && req.method === 'DELETE') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session query params required' }, { status: 400 });
     }
 
-    const id = parseInt(todosDeleteMatch[1], 10);
+    const id = parseInt(sessionTodosDeleteMatch[1], 10);
 
     try {
-      const result = await removeTodo(project, id);
-      if (!result.success) {
-        return Response.json(result, { status: 404 });
-      }
-      return Response.json(result);
+      const todo = await removeSessionTodo(params.project, params.session, id);
+
+      wsHandler.broadcast({
+        type: 'session_todos_updated',
+        project: params.project,
+        session: params.session,
+      });
+
+      return Response.json({ todo });
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
+      const status = error.message === 'Todo not found' ? 404 : 500;
+      return Response.json({ error: error.message }, { status });
     }
   }
 

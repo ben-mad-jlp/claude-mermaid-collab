@@ -12,7 +12,7 @@ export * from './item';
 export * from './proposal';
 export * from './status';
 export * from './artifacts';
-export * from './todo';
+export * from './sessionTodo';
 export * from './embed';
 
 // Re-export WebSocket types from websocket module

@@ -1,13 +1,13 @@
 ---
 name: collab-todo
-description: Vibe on a project todo - select a todo and enter freeform mode to create artifacts
+description: Pick a session to vibe on — lists available sessions in the current project
 user-invocable: true
 allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Glob, Grep, Bash
 ---
 
 # Collab Todo
 
-Select a project todo and enter vibe mode to create artifacts for it.
+Select a session and enter freeform vibe mode on it.
 
 ## Step 1: Check Server Health
 
@@ -32,61 +32,53 @@ Then restart Claude Code and run /collab-todo again.
 
 **STOP** - Do not proceed without a healthy server.
 
-## Step 2: List Todos
+## Step 2: List Sessions for This Project
 
-Get the project's todos:
+Get all sessions and filter to the current project:
 ```
-Tool: mcp__plugin_mermaid-collab_mermaid__list_todos
-Args: { "project": "<cwd>" }
+Tool: mcp__plugin_mermaid-collab_mermaid__list_sessions
+Args: {}
 ```
 
-**If no todos exist:** Tell the user:
-```
-No todos found for this project.
+Filter the returned sessions to only those whose `project` field equals the absolute path of the current working directory (cwd). Use the exact absolute cwd string for comparison.
 
-You can add todos through the collab UI (Todos section in the header),
-or use the add_todo MCP tool directly.
+**If zero sessions match the current project:** Tell the user:
+```
+No sessions in this project yet. Run /collab to create one.
 ```
 **STOP**
 
-**If todos exist:** Continue to Step 3.
+**If one or more sessions match:** Continue to Step 3.
 
-## Step 3: Select a Todo
+## Step 3: Present Sessions and Wait for Pick
 
-Present the todos to the user via render_ui with a RadioGroup:
+Present the filtered sessions as a numbered list to the user directly in the chat:
+
 ```
-Tool: mcp__plugin_mermaid-collab_mermaid__render_ui
-Args: {
-  "project": "<cwd>",
-  "session": "_collab-todo",
-  "ui": {
-    "form": {
-      "fields": [
-        {
-          "type": "RadioGroup",
-          "name": "todoId",
-          "label": "Select a todo to work on",
-          "options": [
-            { "value": "<id>", "label": "<title>" }
-          ]
-        }
-      ],
-      "submitLabel": "Start Vibing"
-    }
-  }
-}
+1. <session name> — <short description or summary, if available>
+2. <session name> — <short description or summary, if available>
+3. <session name> — <short description or summary, if available>
 ```
 
-Wait for the user's selection:
+Ask the user:
 ```
-Tool: mcp__plugin_mermaid-collab_mermaid__get_ui_response
-Args: { "project": "<cwd>", "session": "_collab-todo" }
+Which session do you want to vibe on? Reply with the number or name.
 ```
 
-## Step 4: Enter Vibe Mode
+**Wait for the user's response.** Do not proceed until the user picks a session.
 
-Once the user selects a todo:
+Match the user's reply against the numbered list (by index or by session name) to determine the selected session.
 
-1. Get the selected todo's `sessionName` from the todos list
-2. Tell the user which todo they selected and that they're entering vibe mode
-3. Follow the **vibe-active** skill instructions - enter freeform mode where the user can create diagrams, documents, and designs for this todo's session
+## Step 4: Register and Enter Vibe Mode
+
+Once the user has picked a session:
+
+1. Register the current Claude session for notifications on the picked session:
+   ```
+   Tool: mcp__plugin_mermaid-collab_mermaid__register_claude_session
+   Args: { "project": "<cwd>", "session": "<picked session name>" }
+   ```
+
+2. Tell the user which session they selected and that they're entering vibe mode.
+
+3. Follow the **vibe-active** skill instructions — enter freeform mode where the user can create diagrams, documents, and designs on this session.

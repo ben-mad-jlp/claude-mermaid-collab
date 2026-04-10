@@ -60,9 +60,6 @@ import { TaskGraphView } from '@/components/task-graph';
 // Import embed viewer
 import { EmbedViewer } from '@/components/EmbedViewer';
 
-// Import todos views
-import { TodosView } from '@/components/todos/TodosView';
-
 // Import notification components
 import { ToastContainer } from '@/components/notifications';
 import { requestNotificationPermission, showUserInputNotification } from '@/services/notification-service';
@@ -186,10 +183,6 @@ const App: React.FC = () => {
     snippets,
     selectedSnippetId,
     taskGraphSelected,
-    todosSelected,
-    todosProject,
-    selectedTodoId,
-    todos,
     updateDiagram,
     updateDocument,
     updateDesign,
@@ -227,10 +220,6 @@ const App: React.FC = () => {
       snippets: state.snippets,
       selectedSnippetId: state.selectedSnippetId,
       taskGraphSelected: state.taskGraphSelected,
-      todosSelected: state.todosSelected,
-      todosProject: state.todosProject,
-      selectedTodoId: state.selectedTodoId,
-      todos: state.todos,
       updateDiagram: state.updateDiagram,
       updateDocument: state.updateDocument,
       updateDesign: state.updateDesign,
@@ -756,6 +745,24 @@ const App: React.FC = () => {
             updateDocument(itemId, updates);
             updateSpreadsheet(itemId, updates);
             updateSnippet(itemId, updates);
+          }
+          break;
+        }
+
+        case 'session_todos_updated': {
+          // Keep UI in sync when MCP clients (e.g. Claude) edit session todos
+          const { project, session } = message as any;
+
+          if (currentSession &&
+              project === currentSession.project &&
+              session === currentSession.name) {
+            api.getSessionTodos(project, session, true)
+              .then((todos) => {
+                useSessionStore.getState().setSessionTodos(todos);
+              })
+              .catch((err) => {
+                console.error('Failed to refresh session todos after session_todos_updated:', err);
+              });
           }
           break;
         }
@@ -1296,13 +1303,6 @@ const App: React.FC = () => {
         </div>
       );
     }
-
-    // Render todos list when no specific todo is selected
-    if (todosSelected && todosProject && !selectedTodoId) {
-      return <TodosView />;
-    }
-    // When a todo IS selected, currentSession is already set by selectTodo(),
-    // so the normal session flow handles it — items in sidebar, editor in main content.
 
     // Render task graph view when selected
     if (taskGraphSelected && currentSession) {

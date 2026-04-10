@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { Session, Diagram, Document, CollabState, ProjectTodo, Snippet, Embed } from '../types';
+import { Session, Diagram, Document, CollabState, Snippet, Embed, SessionTodo } from '../types';
+import { api } from '../lib/api';
 
 /**
  * Design type definition
@@ -75,10 +76,10 @@ export interface SessionState {
   // Task graph selection state
   taskGraphSelected: boolean;
 
-  // Todos state
-  todos: ProjectTodo[];
-  todosSelected: boolean;
-  todosProject: string | null;
+  // Session todos state (per-session, not per-project)
+  sessionTodos: SessionTodo[];
+  sessionTodosShowCompleted: boolean;
+  sessionTodosFetchSeq: number;
 
   // Collab state for current session
   collabState: CollabState | null;
@@ -148,14 +149,12 @@ export interface SessionState {
   selectTaskGraph: () => void;
   clearTaskGraphSelection: () => void;
 
-  // Todo actions
-  setTodos: (todos: ProjectTodo[]) => void;
-  addTodo: (todo: ProjectTodo) => void;
-  removeTodo: (id: number) => void;
-  selectTodos: (project: string) => void;
-  selectedTodoId: number | null;
-  selectTodo: (id: number | null) => void;
-  updateStoreTodo: (id: number, updates: Partial<ProjectTodo>) => void;
+  // Session todo actions
+  setSessionTodos: (todos: SessionTodo[]) => void;
+  upsertSessionTodo: (todo: SessionTodo) => void;
+  removeSessionTodoLocal: (id: number) => void;
+  setSessionTodosList: (todos: SessionTodo[]) => void;
+  setSessionTodosShowCompleted: (value: boolean) => void;
 
   // Diff state actions
   setPendingDiff: (diff: DiffState | null) => void;
@@ -189,10 +188,9 @@ const initialState = {
   embeds: [],
   selectedEmbedId: null,
   taskGraphSelected: false,
-  todos: [],
-  todosSelected: false,
-  todosProject: null,
-  selectedTodoId: null,
+  sessionTodos: [],
+  sessionTodosShowCompleted: false,
+  sessionTodosFetchSeq: 0,
   collabState: null,
   pendingDiff: null,
 };
@@ -224,6 +222,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       return;
     }
 
+    const target = session;
+
     // Clear diagrams, documents, designs, spreadsheets, and related state when session changes
     // This ensures clean state when switching between sessions
     set({
@@ -242,9 +242,25 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       selectedSnippetId: null,
       selectedEmbedId: null,
       taskGraphSelected: false,
-      todosSelected: false,
+      sessionTodos: [],
       collabState: null,
     });
+
+    // Fire-and-forget fetch of session todos for the new session
+    if (target && target.project && target.name) {
+      const seq = get().sessionTodosFetchSeq + 1;
+      set({ sessionTodosFetchSeq: seq });
+      api
+        .getSessionTodos(target.project, target.name, true)
+        .then((todos) => {
+          if (get().sessionTodosFetchSeq === seq) {
+            set({ sessionTodos: todos });
+          }
+        })
+        .catch((err) => {
+          console.error('Failed to load session todos:', err);
+        });
+    }
   },
 
   setLoading: (loading: boolean) => set({ isLoading: loading }),
@@ -519,75 +535,34 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     set({ taskGraphSelected: false });
   },
 
-  // Todo management
-  setTodos: (todos: ProjectTodo[]) => {
-    set({ todos });
+  // Session todo management
+  setSessionTodos: (todos: SessionTodo[]) => {
+    set({ sessionTodos: todos });
   },
 
-  addTodo: (todo: ProjectTodo) => {
-    const { todos } = get();
-    set({ todos: [...todos, todo] });
-  },
-
-  removeTodo: (id: number) => {
-    const { todos } = get();
-    set({ todos: todos.filter((t) => t.id !== id) });
-  },
-
-  selectTodos: (project: string) => {
-    set({
-      todosSelected: true,
-      todosProject: project,
-      selectedTodoId: null,
-      currentSession: null,
-      selectedDiagramId: null,
-      selectedDocumentId: null,
-      selectedDesignId: null,
-      selectedSpreadsheetId: null,
-      selectedSnippetId: null,
-      selectedEmbedId: null,
-      taskGraphSelected: false,
-      diagrams: [],
-      documents: [],
-      designs: [],
-      spreadsheets: [],
-      snippets: [],
-      embeds: [],
-      collabState: null,
-    });
-  },
-
-  selectTodo: (id: number | null) => {
-    if (id === null) {
-      set({ selectedTodoId: null, currentSession: null, diagrams: [], documents: [], designs: [], spreadsheets: [], snippets: [], embeds: [], selectedEmbedId: null, collabState: null });
-      return;
+  upsertSessionTodo: (todo: SessionTodo) => {
+    const { sessionTodos } = get();
+    const idx = sessionTodos.findIndex((t) => t.id === todo.id);
+    if (idx >= 0) {
+      const next = sessionTodos.slice();
+      next[idx] = todo;
+      set({ sessionTodos: next });
+    } else {
+      set({ sessionTodos: [...sessionTodos, todo] });
     }
-    const { todos, todosProject } = get();
-    const todo = todos.find(t => t.id === id);
-    if (!todo || !todosProject) return;
-    set({
-      selectedTodoId: id,
-      selectedDiagramId: null,
-      selectedDocumentId: null,
-      selectedDesignId: null,
-      selectedSpreadsheetId: null,
-      selectedSnippetId: null,
-      selectedEmbedId: null,
-      taskGraphSelected: false,
-      currentSession: { project: todosProject, name: todo.sessionName } as Session,
-      diagrams: [],
-      documents: [],
-      designs: [],
-      spreadsheets: [],
-      snippets: [],
-      embeds: [],
-      collabState: null,
-    });
   },
 
-  updateStoreTodo: (id: number, updates: Partial<ProjectTodo>) => {
-    const { todos } = get();
-    set({ todos: todos.map(t => t.id === id ? { ...t, ...updates } : t) });
+  removeSessionTodoLocal: (id: number) => {
+    const { sessionTodos } = get();
+    set({ sessionTodos: sessionTodos.filter((t) => t.id !== id) });
+  },
+
+  setSessionTodosList: (todos: SessionTodo[]) => {
+    set({ sessionTodos: todos });
+  },
+
+  setSessionTodosShowCompleted: (value: boolean) => {
+    set({ sessionTodosShowCompleted: value });
   },
 
   // Diff state management
@@ -616,10 +591,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       selectedSnippetId: null,
       selectedEmbedId: null,
       taskGraphSelected: false,
-      todosSelected: false,
-      todosProject: null,
-      selectedTodoId: null,
-      todos: [],
+      sessionTodos: [],
       collabState: null,
       error: null,
     });

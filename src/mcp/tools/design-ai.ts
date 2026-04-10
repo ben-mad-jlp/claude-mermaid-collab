@@ -402,8 +402,7 @@ function applyConvenienceProps(type: string, props: Record<string, any>): Record
 
 const sessionParamsDesc = {
   project: { type: 'string', description: 'Absolute path to project root' },
-  session: { type: 'string', description: 'Session name. Either session or todoId is required.' },
-  todoId: { type: 'number', description: 'Todo ID. Alternative to session.' },
+  session: { type: 'string', description: 'Session name.' },
 }
 
 export const addDesignNodeSchema = {
@@ -513,7 +512,7 @@ export async function handleAddDesignNode(
   if (!parentId) throw new Error('No parent found. Design may be empty.')
 
   // Extract known non-property args, pass the rest through convenience translation
-  const { project: _p, session: _s, designId: _d, type: _t, parentId: _pid, todoId: _tid, ...rawProps } = args
+  const { project: _p, session: _s, designId: _d, type: _t, parentId: _pid, ...rawProps } = args
   const overrides = applyConvenienceProps(args.type, rawProps)
 
   const node = createDefaultNode(args.type, overrides)
@@ -2531,7 +2530,6 @@ export const designToDiagramSchema = {
   properties: {
     project: { type: 'string', description: 'Absolute path to the project root directory' },
     session: { type: 'string', description: 'Session name' },
-    todoId: { type: 'number', description: 'Todo ID. Alternative to session.' },
     designId: { type: 'string', description: 'Design ID to convert' },
     maxDepth: { type: 'number', description: 'Maximum depth to traverse (default: unlimited)' },
     style: { type: 'string', enum: ['tree', 'component-map'], description: 'tree = full hierarchy, component-map = only FRAME/COMPONENT/SECTION nodes (default: tree)' },

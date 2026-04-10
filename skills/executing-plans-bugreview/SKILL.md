@@ -187,10 +187,11 @@ For each bug with severity Critical or Important:
 **If user chooses Add as Todo:**
 - Create a project todo for future work:
   ```
-  Tool: mcp__plugin_mermaid-collab_mermaid__add_todo
+  Tool: mcp__plugin_mermaid-collab_mermaid__add_session_todo
   Args: {
     "project": "<cwd>",
-    "title": "Bug: {short title} in {file}"
+    "session": "<session>",
+    "text": "Bug: {short title} in {file}"
   }
   ```
 - Continue to next bug

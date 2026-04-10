@@ -1052,16 +1052,6 @@ describe('useSessionStore', () => {
       expect(useSessionStore.getState().selectedSnippetId).toBeNull();
     });
 
-    it('should clear snippets when selecting todos', () => {
-      const snippet = createMockSnippet();
-      useSessionStore.getState().addSnippet(snippet);
-      useSessionStore.getState().selectSnippet(snippet.id);
-
-      useSessionStore.getState().selectTodos('test-project');
-
-      expect(useSessionStore.getState().snippets).toEqual([]);
-      expect(useSessionStore.getState().selectedSnippetId).toBeNull();
-    });
   });
 
   describe('Snippet with Metadata', () => {

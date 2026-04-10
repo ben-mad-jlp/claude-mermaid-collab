@@ -63,8 +63,7 @@ export interface ExportSnippetResult {
 
 const sessionParamsDesc = {
   project: { type: 'string', description: 'Absolute path to project root' },
-  session: { type: 'string', description: 'Session name. Either session or todoId is required.' },
-  todoId: { type: 'number', description: 'Todo ID. Alternative to session - will resolve to the todo\'s session.' },
+  session: { type: 'string', description: 'Session name.' },
 };
 
 export const createSnippetSchema = {

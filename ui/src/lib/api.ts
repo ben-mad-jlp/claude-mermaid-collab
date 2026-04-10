@@ -2,7 +2,7 @@
  * API Client - HTTP fetch methods for communicating with the backend
  */
 
-import type { Session, Diagram, Document, CollabState, ProjectTodo, Snippet } from '@/types';
+import type { Session, Diagram, Document, CollabState, Snippet, SessionTodo } from '@/types';
 import type { TerminalSession, CreateSessionResult } from '@/types/terminal';
 import type { Design, Spreadsheet } from '@/stores/sessionStore';
 import { getWebSocketClient } from './websocket';
@@ -84,10 +84,12 @@ export interface ApiClient {
   getSnippet(project: string, session: string, id: string): Promise<Snippet | null>;
   updateSnippet(project: string, session: string, id: string, content: string): Promise<void>;
   deleteSnippet(project: string, session: string, id: string): Promise<void>;
-  getTodos(project: string): Promise<ProjectTodo[]>;
-  addTodo(project: string, title: string, description: string): Promise<ProjectTodo>;
-  updateTodo(project: string, id: number, updates: { title?: string }): Promise<ProjectTodo>;
-  removeTodo(project: string, id: number): Promise<void>;
+  getSessionTodos(project: string, session: string, includeCompleted?: boolean): Promise<SessionTodo[]>;
+  addSessionTodo(project: string, session: string, text: string): Promise<SessionTodo>;
+  patchSessionTodo(project: string, session: string, id: number, updates: { text?: string; completed?: boolean; order?: number }): Promise<SessionTodo>;
+  removeSessionTodo(project: string, session: string, id: number): Promise<void>;
+  reorderSessionTodos(project: string, session: string, orderedIds: number[]): Promise<SessionTodo[]>;
+  clearCompletedSessionTodos(project: string, session: string): Promise<{ removedCount: number }>;
   setDeprecated(project: string, session: string, id: string, deprecated: boolean): Promise<void>;
   setPinned(project: string, session: string, id: string, pinned: boolean): Promise<void>;
   setBlueprint(project: string, session: string, id: string, blueprint: boolean): Promise<void>;
@@ -663,11 +665,14 @@ export const api: ApiClient = {
   },
 
   /**
-   * Fetch project todos
+   * Fetch session todos
    */
-  async getTodos(project: string): Promise<ProjectTodo[]> {
-    const url = `/api/todos?project=${encodeURIComponent(project)}`;
-    const response = await fetch(url);
+  async getSessionTodos(project: string, session: string, includeCompleted?: boolean): Promise<SessionTodo[]> {
+    const params = new URLSearchParams({ project, session });
+    if (includeCompleted === false) {
+      params.set('includeCompleted', 'false');
+    }
+    const response = await fetch(`/api/session-todos?${params}`);
     if (!response.ok) {
       throw new Error(response.statusText);
     }
@@ -676,13 +681,13 @@ export const api: ApiClient = {
   },
 
   /**
-   * Add a project todo
+   * Add a session todo
    */
-  async addTodo(project: string, title: string, description: string): Promise<ProjectTodo> {
-    const response = await fetch('/api/todos', {
+  async addSessionTodo(project: string, session: string, text: string): Promise<SessionTodo> {
+    const response = await fetch('/api/session-todos', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project, title, description }),
+      body: JSON.stringify({ project, session, text }),
     });
     if (!response.ok) {
       throw new Error(response.statusText);
@@ -692,13 +697,18 @@ export const api: ApiClient = {
   },
 
   /**
-   * Update a project todo
+   * Patch a session todo
    */
-  async updateTodo(project: string, id: number, updates: { title?: string }): Promise<ProjectTodo> {
-    const response = await fetch(`/api/todos/${id}`, {
+  async patchSessionTodo(
+    project: string,
+    session: string,
+    id: number,
+    updates: { text?: string; completed?: boolean; order?: number }
+  ): Promise<SessionTodo> {
+    const response = await fetch(`/api/session-todos/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project, ...updates }),
+      body: JSON.stringify({ project, session, ...updates }),
     });
     if (!response.ok) {
       throw new Error(response.statusText);
@@ -708,14 +718,45 @@ export const api: ApiClient = {
   },
 
   /**
-   * Remove a project todo
+   * Remove a session todo
    */
-  async removeTodo(project: string, id: number): Promise<void> {
-    const url = `/api/todos/${id}?project=${encodeURIComponent(project)}`;
+  async removeSessionTodo(project: string, session: string, id: number): Promise<void> {
+    const url = `/api/session-todos/${id}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
     const response = await fetch(url, { method: 'DELETE' });
     if (!response.ok) {
       throw new Error(response.statusText);
     }
+  },
+
+  /**
+   * Reorder session todos
+   */
+  async reorderSessionTodos(project: string, session: string, orderedIds: number[]): Promise<SessionTodo[]> {
+    const response = await fetch('/api/session-todos/reorder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project, session, orderedIds }),
+    });
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+    const data = await response.json();
+    return data.todos || [];
+  },
+
+  /**
+   * Clear completed session todos
+   */
+  async clearCompletedSessionTodos(project: string, session: string): Promise<{ removedCount: number }> {
+    const response = await fetch('/api/session-todos/clear-completed', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project, session }),
+    });
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+    return response.json();
   },
 
   /**

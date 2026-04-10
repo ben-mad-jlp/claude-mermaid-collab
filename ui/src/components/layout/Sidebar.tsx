@@ -8,9 +8,10 @@ import { api } from '@/lib/api';
 import { downloadArtifact } from '@/lib/downloadArtifact';
 import { emailArtifact } from '@/lib/emailArtifact';
 import { importArtifact, detectType } from '@/lib/importArtifact';
-import { AddTodoDialog } from '@/components/dialogs';
 import { SubscriptionsPanel } from '@/components/layout/SubscriptionsPanel';
+import { SessionTodosSection } from '@/components/layout/SessionTodosSection';
 import { FileBrowserDialog } from '@/components/dialogs/FileBrowserDialog';
+import { ConfirmDialog } from '@/components/dialogs/ConfirmDialog';
 import { useGlobalSearch } from '@/stores/globalSearch';
 
 export interface SidebarProps {
@@ -41,14 +42,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     removeSpreadsheet,
     removeSnippet,
     selectSnippet,
-    todosSelected,
-    todosProject,
-    todos,
-    selectedTodoId,
-    selectTodo,
-    removeTodo: storeRemoveTodo,
-    setTodos,
-    addTodo: storeAddTodo,
     updateDiagram,
     updateDocument,
     updateSpreadsheet,
@@ -80,14 +73,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       removeSpreadsheet: state.removeSpreadsheet,
       removeSnippet: state.removeSnippet,
       selectSnippet: state.selectSnippet,
-      todosSelected: state.todosSelected,
-      todosProject: state.todosProject,
-      todos: state.todos,
-      selectedTodoId: state.selectedTodoId,
-      selectTodo: state.selectTodo,
-      removeTodo: state.removeTodo,
-      setTodos: state.setTodos,
-      addTodo: state.addTodo,
       updateDiagram: state.updateDiagram,
       updateDocument: state.updateDocument,
       updateSpreadsheet: state.updateSpreadsheet,
@@ -103,14 +88,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const { selectDiagramWithContent, selectDocumentWithContent, selectDesignWithContent, selectSpreadsheetWithContent } = useDataLoader();
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [showAddTodoDialog, setShowAddTodoDialog] = useState(false);
-  const [isTodoDropdownOpen, setIsTodoDropdownOpen] = useState(false);
   const [showDeprecated, setShowDeprecated] = useState(false);
   const [blueprintCollapsed, setBlueprintCollapsed] = useState(false);
   const [tasksCollapsed, setTasksCollapsed] = useState(false);
   const [embedsCollapsed, setEmbedsCollapsed] = useState(false);
   const [codeFilesCollapsed, setCodeFilesCollapsed] = useState(false);
   const [fileBrowserOpen, setFileBrowserOpen] = useState(false);
+  const [pendingDeleteItem, setPendingDeleteItem] = useState<Item | null>(null);
+  const [pendingDeprecateBlueprint, setPendingDeprecateBlueprint] = useState<Item | null>(null);
 
   const handleDeleteEmbed = useCallback(
     async (embedId: string, embedName: string) => {
@@ -130,38 +115,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
     [currentSession, removeEmbed],
   );
 
-  const handleDeleteItem = useCallback(
-    async (item: Item) => {
-      if (!currentSession) return;
+  const handleDeleteItem = useCallback((item: Item) => {
+    setPendingDeleteItem(item);
+  }, []);
 
-      const typeLabel = item.type === 'diagram' ? 'diagram' : item.type === 'design' ? 'design' : item.type === 'spreadsheet' ? 'spreadsheet' : item.type === 'snippet' ? 'snippet' : 'document';
-      if (!window.confirm(`Delete ${typeLabel} "${item.name}"?`)) {
-        return;
-      }
+  const handleConfirmDeleteItem = useCallback(async () => {
+    const item = pendingDeleteItem;
+    if (!item || !currentSession) {
+      setPendingDeleteItem(null);
+      return;
+    }
+    setPendingDeleteItem(null);
 
-      try {
-        if (item.type === 'diagram') {
-          await api.deleteDiagram(currentSession.project, currentSession.name, item.id);
-          removeDiagram(item.id);
-        } else if (item.type === 'document') {
-          await api.deleteDocument(currentSession.project, currentSession.name, item.id);
-          removeDocument(item.id);
-        } else if (item.type === 'design') {
-          await api.deleteDesign(currentSession.project, currentSession.name, item.id);
-          removeDesign(item.id);
-        } else if (item.type === 'spreadsheet') {
-          await api.deleteSpreadsheet(currentSession.project, currentSession.name, item.id);
-          removeSpreadsheet(item.id);
-        } else if (item.type === 'snippet') {
-          await api.deleteSnippet(currentSession.project, currentSession.name, item.id);
-          removeSnippet(item.id);
-        }
-      } catch (error) {
-        console.error('Failed to delete item:', error);
+    try {
+      if (item.type === 'diagram') {
+        await api.deleteDiagram(currentSession.project, currentSession.name, item.id);
+        removeDiagram(item.id);
+      } else if (item.type === 'document') {
+        await api.deleteDocument(currentSession.project, currentSession.name, item.id);
+        removeDocument(item.id);
+      } else if (item.type === 'design') {
+        await api.deleteDesign(currentSession.project, currentSession.name, item.id);
+        removeDesign(item.id);
+      } else if (item.type === 'spreadsheet') {
+        await api.deleteSpreadsheet(currentSession.project, currentSession.name, item.id);
+        removeSpreadsheet(item.id);
+      } else if (item.type === 'snippet') {
+        await api.deleteSnippet(currentSession.project, currentSession.name, item.id);
+        removeSnippet(item.id);
       }
-    },
-    [currentSession, removeDiagram, removeDocument, removeDesign, removeSpreadsheet, removeSnippet]
-  );
+    } catch (error) {
+      console.error('Failed to delete item:', error);
+    }
+  }, [pendingDeleteItem, currentSession, removeDiagram, removeDocument, removeDesign, removeSpreadsheet, removeSnippet]);
 
   const handleDeprecateItem = useCallback(
     async (item: Item) => {
@@ -284,43 +270,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     []
   );
-
-  // Todo-specific handlers
-  const handleAddTodoConfirm = useCallback(async (title: string, description: string) => {
-    if (!todosProject) return;
-    try {
-      const todo = await api.addTodo(todosProject, title, description);
-      storeAddTodo(todo);
-      selectTodo(todo.id);
-    } catch (error) {
-      console.error('Failed to add todo:', error);
-    } finally {
-      setShowAddTodoDialog(false);
-    }
-  }, [todosProject, storeAddTodo, selectTodo]);
-
-  const handleDeleteTodo = useCallback(async (id: number) => {
-    if (!todosProject) return;
-    try {
-      await api.removeTodo(todosProject, id);
-      storeRemoveTodo(id);
-      if (selectedTodoId === id) {
-        selectTodo(null);
-      }
-    } catch (error) {
-      console.error('Failed to remove todo:', error);
-    }
-  }, [todosProject, storeRemoveTodo, selectedTodoId, selectTodo]);
-
-  const handleSelectTodo = useCallback((id: number) => {
-    selectTodo(id);
-    setIsTodoDropdownOpen(false);
-  }, [selectTodo]);
-
-  const selectedTodo = useMemo(() => {
-    if (!selectedTodoId) return null;
-    return todos.find(t => t.id === selectedTodoId) || null;
-  }, [todos, selectedTodoId]);
 
   const project = currentSession?.project ?? '';
   const session = currentSession?.name ?? '';
@@ -483,14 +432,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
     [selectedDiagramId, selectedDocumentId, selectedDesignId, selectedSpreadsheetId, selectedSnippetId]
   );
 
-  const isDisabled = !currentSession && !todosSelected;
+  const isDisabled = !currentSession;
 
   const hasBatches = collabState?.batches && collabState.batches.length > 0;
   const hasActiveBlueprints = blueprintItems.length > 0;
   const isImplementationPhase = hasBatches && hasActiveBlueprints;
 
   // Determine if delete buttons should show for items
-  const showItemDelete = todosSelected || !!currentSession;
+  const showItemDelete = !!currentSession;
 
   return (
     <aside
@@ -503,68 +452,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ${className}
       `.trim()}
     >
-      {/* Top section: Search bar OR Todo controls */}
-      {todosSelected ? (
-        <div className="p-2 border-b border-gray-200 dark:border-gray-700 space-y-2">
-          {/* Add Todo button */}
-          <button
-            onClick={() => setShowAddTodoDialog(true)}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-            </svg>
-            Add Todo
-          </button>
-
-          {/* Combobox dropdown */}
-          <div className="relative">
-            <button
-              onClick={() => setIsTodoDropdownOpen(prev => !prev)}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-left text-gray-900 dark:text-white hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors"
-            >
-              <span className="flex-1 truncate">
-                {selectedTodo ? selectedTodo.title : 'Select a todo...'}
-              </span>
-              <svg className={`w-4 h-4 transition-transform ${isTodoDropdownOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-              </svg>
-            </button>
-
-            {isTodoDropdownOpen && (
-              <div className="absolute left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto">
-                {todos.length === 0 ? (
-                  <div className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">No todos yet</div>
-                ) : (
-                  todos.map((todo) => (
-                    <div
-                      key={todo.id}
-                      className={`flex items-center group hover:bg-gray-100 dark:hover:bg-gray-700 ${selectedTodoId === todo.id ? 'bg-accent-50 dark:bg-accent-900/30' : ''}`}
-                    >
-                      <button
-                        onClick={() => handleSelectTodo(todo.id)}
-                        className="flex-1 px-3 py-2 text-left text-sm text-gray-900 dark:text-white truncate"
-                      >
-                        {todo.title}
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDeleteTodo(todo.id); }}
-                        className="p-1.5 mr-1 text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="Delete todo"
-                      >
-                        <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                        </svg>
-                      </button>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      ) : null}
-
       {/* Vibe Instructions — pinned at top of sidebar */}
       {vibeInstructionsDoc && !isDisabled && (
         <div className="px-2 py-1 border-b border-gray-200 dark:border-gray-700">
@@ -651,7 +538,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       {/* Blueprint Section */}
-      {blueprintItems.length > 0 && !isDisabled && !todosSelected && (
+      {blueprintItems.length > 0 && !isDisabled && (
         <div className="border-b border-gray-200 dark:border-gray-700">
           <button
             onClick={() => setBlueprintCollapsed((c) => !c)}
@@ -696,9 +583,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (window.confirm(`Deprecate blueprint "${item.name}" and clear its task graph?`)) {
-                          handleDeprecateItem(item);
-                        }
+                        setPendingDeprecateBlueprint(item);
                       }}
                       title="Deprecate blueprint and clear task graph"
                       className="opacity-0 group-hover:opacity-100 px-2 py-2 text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-opacity"
@@ -715,8 +600,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       )}
 
+      {/* Session Todos Section */}
+      {!isDisabled && <SessionTodosSection />}
+
       {/* Embeds Section */}
-      {embeds.length > 0 && !isDisabled && !todosSelected && (
+      {embeds.length > 0 && !isDisabled && (
         <div className="border-b border-gray-200 dark:border-gray-700">
           <button
             onClick={() => setEmbedsCollapsed((c) => !c)}
@@ -770,7 +658,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       {/* Code Files Section — always shown when a session is active */}
-      {!isDisabled && !todosSelected && (
+      {!isDisabled && (
         <div className="border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center">
             <button
@@ -856,7 +744,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Items List */}
       <div className={`flex-1 overflow-y-auto ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`} role="navigation" aria-label="Sidebar items">
         {/* Items section header with search */}
-        {!isDisabled && !todosSelected && (
+        {!isDisabled && (
           <div className="px-2 pt-2 pb-1">
             <div className="flex items-center justify-between px-1 pb-1">
               <span className="text-xs font-semibold text-gray-900 dark:text-gray-100">Items</span>
@@ -909,14 +797,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div data-testid="sidebar-empty" className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 text-center">
             Select a session to view items
           </div>
-        ) : todosSelected && !selectedTodoId ? (
-          <div data-testid="sidebar-empty" className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 text-center">
-            Select a todo to view items
-          </div>
-        ) : todosSelected && selectedTodoId && filteredItems.length === 0 ? (
-          <div data-testid="sidebar-empty" className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 text-center">
-            No items yet
-          </div>
         ) : filteredItems.length === 0 ? (
           <div data-testid="sidebar-empty" className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
             {searchQuery ? 'No matching items' : 'No items'}
@@ -942,18 +822,42 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
 
-      {/* Add Todo Dialog */}
-      {showAddTodoDialog && (
-        <AddTodoDialog
-          onConfirm={handleAddTodoConfirm}
-          onClose={() => setShowAddTodoDialog(false)}
-        />
-      )}
       <FileBrowserDialog
         open={fileBrowserOpen}
         onClose={() => setFileBrowserOpen(false)}
         onSelect={handleLinkFile}
         project={project}
+      />
+
+      <ConfirmDialog
+        isOpen={pendingDeleteItem !== null}
+        title={`Delete ${pendingDeleteItem?.type ?? 'item'}`}
+        message={
+          <>
+            Delete {pendingDeleteItem?.type ?? 'item'}{' '}
+            <span className="font-semibold">"{pendingDeleteItem?.name}"</span>? This cannot be undone.
+          </>
+        }
+        onConfirm={handleConfirmDeleteItem}
+        onCancel={() => setPendingDeleteItem(null)}
+      />
+
+      <ConfirmDialog
+        isOpen={pendingDeprecateBlueprint !== null}
+        title="Deprecate blueprint"
+        message={
+          <>
+            Deprecate blueprint{' '}
+            <span className="font-semibold">"{pendingDeprecateBlueprint?.name}"</span> and clear its task graph?
+          </>
+        }
+        confirmLabel="Deprecate"
+        onConfirm={() => {
+          const item = pendingDeprecateBlueprint;
+          setPendingDeprecateBlueprint(null);
+          if (item) handleDeprecateItem(item);
+        }}
+        onCancel={() => setPendingDeprecateBlueprint(null)}
       />
     </aside>
   );

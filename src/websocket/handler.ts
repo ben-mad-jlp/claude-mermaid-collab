@@ -39,6 +39,7 @@ export type WSMessage =
   | { type: 'ui_dismissed'; project: string; session: string }
   | { type: 'ui_updated'; patch: Record<string, unknown>; project: string; session: string }
   | { type: 'session_created'; project: string; session: string }
+  | { type: 'session_todos_updated'; project: string; session: string }
   | { type: 'notification'; data: NotificationData }
   | { type: 'status_changed'; status: 'working' | 'waiting' | 'idle'; message?: string; lastActivity: string }
   | { type: 'session_state_updated'; lastActivity: string; completedTasks?: string[]; pendingTasks?: string[] };

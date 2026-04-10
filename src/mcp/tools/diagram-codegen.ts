@@ -36,7 +36,6 @@ export const diagramFromCodeSchema = {
   properties: {
     project: { type: 'string', description: 'Absolute path to the project root directory' },
     session: { type: 'string', description: 'Session name' },
-    todoId: { type: 'number', description: 'Todo ID. Alternative to session.' },
     filePaths: {
       type: 'array',
       items: { type: 'string' },

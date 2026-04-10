@@ -183,7 +183,7 @@ After both agents return, summarize:
 **If critical bugs found:**
 - Present each one and ask: Fix now / Add as todo / Accept risk / Dispute
 - For "Fix": implement inline and re-run affected tests
-- For "Add as todo": `mcp__plugin_mermaid-collab_mermaid__add_todo`
+- For "Add as todo": `mcp__plugin_mermaid-collab_mermaid__add_session_todo`
 - For "Accept risk": note it and continue
 
 **If completeness gaps found:**

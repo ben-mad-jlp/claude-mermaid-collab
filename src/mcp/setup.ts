@@ -45,16 +45,21 @@ import {
   listLessonsSchema,
 } from './tools/lessons.js';
 import {
-  listTodos,
-  addTodo,
-  removeTodo,
-  updateTodo,
-  listTodosSchema,
-  addTodoSchema,
-  removeTodoSchema,
-  updateTodoSchema,
-  listTodoItemsSchema,
-} from './tools/todos.js';
+  listSessionTodos,
+  addSessionTodo,
+  updateSessionTodo,
+  toggleSessionTodo,
+  removeSessionTodo,
+  clearCompletedSessionTodos,
+  reorderSessionTodos,
+  listSessionTodosSchema,
+  addSessionTodoSchema,
+  updateSessionTodoSchema,
+  toggleSessionTodoSchema,
+  removeSessionTodoSchema,
+  clearCompletedSessionTodosSchema,
+  reorderSessionTodosSchema,
+} from './tools/session-todos.js';
 import {
   handleCreateDesign,
   handleUpdateDesign,
@@ -807,11 +812,7 @@ export async function setupMCPServer(): Promise<Server> {
     },
     session: {
       type: 'string',
-      description: 'Session name (e.g., "bright-calm-river"). Either session or todoId is required.',
-    },
-    todoId: {
-      type: 'number',
-      description: 'Todo ID. Alternative to session — resolves the session from the todo.',
+      description: 'Session name (e.g., "bright-calm-river").',
     },
   };
 
@@ -1599,31 +1600,41 @@ IMPORTANT - Common pitfalls to avoid:
         description: 'Get all lessons from a session.',
         inputSchema: listLessonsSchema,
       },
-      // Todos tools
+      // Session todos tools
       {
-        name: 'list_todos',
-        description: 'List all project-level todos.',
-        inputSchema: listTodosSchema,
+        name: 'list_session_todos',
+        description: 'List per-session todos (checkable list attached to a collab session). Set includeCompleted=false to filter out completed items. Results are sorted by order ascending.',
+        inputSchema: listSessionTodosSchema,
       },
       {
-        name: 'add_todo',
-        description: 'Add a project-level todo.',
-        inputSchema: addTodoSchema,
+        name: 'add_session_todo',
+        description: 'Add a new per-session todo. Appended to the end of the list with an order value greater than any existing todo.',
+        inputSchema: addSessionTodoSchema,
       },
       {
-        name: 'remove_todo',
-        description: 'Remove a project-level todo by ID.',
-        inputSchema: removeTodoSchema,
+        name: 'update_session_todo',
+        description: 'Update a per-session todo. Any combination of text, completed, and order can be provided; omitted fields are left unchanged.',
+        inputSchema: updateSessionTodoSchema,
       },
       {
-        name: 'update_todo',
-        description: 'Update a project-level todo title.',
-        inputSchema: updateTodoSchema,
+        name: 'toggle_session_todo',
+        description: 'Toggle the completed state of a per-session todo. If completed is omitted, the current value is flipped.',
+        inputSchema: toggleSessionTodoSchema,
       },
       {
-        name: 'list_todo_items',
-        description: 'List all diagrams, documents, designs, and spreadsheets for a specific todo.',
-        inputSchema: listTodoItemsSchema,
+        name: 'remove_session_todo',
+        description: 'Remove a per-session todo by id.',
+        inputSchema: removeSessionTodoSchema,
+      },
+      {
+        name: 'clear_completed_session_todos',
+        description: 'Remove all completed per-session todos for a session. Returns the number of todos removed.',
+        inputSchema: clearCompletedSessionTodosSchema,
+      },
+      {
+        name: 'reorder_session_todos',
+        description: 'Reorder per-session todos by providing a full permutation of existing todo ids. Assigns new order values (10, 20, 30, ...) in the provided sequence.',
+        inputSchema: reorderSessionTodosSchema,
       },
       // Spreadsheet tools
       {
@@ -2090,14 +2101,6 @@ IMPORTANT - Common pitfalls to avoid:
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     try {
       const { name, arguments: args } = request.params;
-
-      // Resolve todoId → session
-      if (args?.todoId && !args?.session) {
-        const todosResult = await listTodos(args.project as string);
-        const todo = todosResult.todos.find(t => t.id === (args.todoId as number));
-        if (!todo) throw new Error(`Todo with id ${args.todoId} not found`);
-        (args as any).session = todo.sessionName;
-      }
 
       const result = await (async () => {
         switch (name) {
@@ -3132,61 +3135,82 @@ IMPORTANT - Common pitfalls to avoid:
             return JSON.stringify(result, null, 2);
           }
 
-          case 'list_todos': {
-            const { project } = args as { project: string };
-            if (!project) throw new Error('Missing required: project');
-            const result = await listTodos(project);
+          // Session todos tools
+          case 'list_session_todos': {
+            const { project, session, includeCompleted } = args as {
+              project: string;
+              session: string;
+              includeCompleted?: boolean;
+            };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            const result = await listSessionTodos(project, session, { includeCompleted });
             return JSON.stringify(result, null, 2);
           }
 
-          case 'add_todo': {
-            const { project, title, description } = args as { project: string; title: string; description?: string };
-            if (!project || !title) throw new Error('Missing required: project, title');
-            const result = await addTodo(project, title);
-            // Register the session
-            await sessionRegistry.register(project, result.todo.sessionName, 'vibe', true, 'vibe-active');
-            // If description provided, create it as a document in the todo's session
-            if (description) {
-              await createDocument(project, result.todo.sessionName, 'description', description);
-            }
+          case 'add_session_todo': {
+            const { project, session, text } = args as {
+              project: string;
+              session: string;
+              text: string;
+            };
+            if (!project || !session || !text) throw new Error('Missing required: project, session, text');
+            const result = await addSessionTodo(project, session, text);
             return JSON.stringify(result, null, 2);
           }
 
-          case 'remove_todo': {
-            const { project, id } = args as { project: string; id: number };
-            if (!project || id === undefined) throw new Error('Missing required: project, id');
-            const result = await removeTodo(project, id);
+          case 'update_session_todo': {
+            const { project, session, id, text, completed, order } = args as {
+              project: string;
+              session: string;
+              id: number;
+              text?: string;
+              completed?: boolean;
+              order?: number;
+            };
+            if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
+            const result = await updateSessionTodo(project, session, id, { text, completed, order });
             return JSON.stringify(result, null, 2);
           }
 
-          case 'update_todo': {
-            const { project, id, title } = args as { project: string; id: number; title?: string };
-            if (!project || id === undefined) throw new Error('Missing required: project, id');
-            const result = await updateTodo(project, id, { title });
+          case 'toggle_session_todo': {
+            const { project, session, id, completed } = args as {
+              project: string;
+              session: string;
+              id: number;
+              completed?: boolean;
+            };
+            if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
+            const result = await toggleSessionTodo(project, session, id, completed);
             return JSON.stringify(result, null, 2);
           }
 
-          case 'list_todo_items': {
-            const { project, id } = args as { project: string; id: number };
-            if (!project || id === undefined) throw new Error('Missing required: project, id');
-            const todosResult = await listTodos(project);
-            const todo = todosResult.todos.find(t => t.id === id);
-            if (!todo) throw new Error(`Todo with id ${id} not found`);
-            const session = todo.sessionName;
-            const [diagrams, documents, designs, spreadsheets] = await Promise.all([
-              listDiagrams(project, session).catch(() => '[]'),
-              listDocuments(project, session).catch(() => '[]'),
-              handleListDesigns(project, session).catch(() => ({ designs: [], count: 0 })),
-              listSpreadsheets(project, session).catch(() => '{"spreadsheets":[]}'),
-            ]);
-            return JSON.stringify({
-              todo,
-              session,
-              diagrams: JSON.parse(diagrams),
-              documents: JSON.parse(documents),
-              designs,
-              spreadsheets: JSON.parse(spreadsheets),
-            }, null, 2);
+          case 'remove_session_todo': {
+            const { project, session, id } = args as {
+              project: string;
+              session: string;
+              id: number;
+            };
+            if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
+            const result = await removeSessionTodo(project, session, id);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'clear_completed_session_todos': {
+            const { project, session } = args as { project: string; session: string };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            const result = await clearCompletedSessionTodos(project, session);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'reorder_session_todos': {
+            const { project, session, orderedIds } = args as {
+              project: string;
+              session: string;
+              orderedIds: number[];
+            };
+            if (!project || !session || !Array.isArray(orderedIds)) throw new Error('Missing required: project, session, orderedIds');
+            const result = await reorderSessionTodos(project, session, orderedIds);
+            return JSON.stringify(result, null, 2);
           }
 
           // Spreadsheet tools
