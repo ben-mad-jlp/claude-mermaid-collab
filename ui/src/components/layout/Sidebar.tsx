@@ -11,6 +11,7 @@ import { importArtifact, detectType } from '@/lib/importArtifact';
 import { AddTodoDialog } from '@/components/dialogs';
 import { SubscriptionsPanel } from '@/components/layout/SubscriptionsPanel';
 import { FileBrowserDialog } from '@/components/dialogs/FileBrowserDialog';
+import { useGlobalSearch } from '@/stores/globalSearch';
 
 export interface SidebarProps {
   className?: string;
@@ -768,8 +769,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       )}
 
-      {/* Code Files Section */}
-      {linkedSnippets.length > 0 && !isDisabled && !todosSelected && (
+      {/* Code Files Section — always shown when a session is active */}
+      {!isDisabled && !todosSelected && (
         <div className="border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center">
             <button
@@ -787,6 +788,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </svg>
             </button>
             <button
+              onClick={() => useGlobalSearch.getState().open()}
+              className="p-1.5 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+              title="Search code (Cmd+K)"
+              data-testid="sidebar-global-search-button"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={2}>
+                <circle cx="9" cy="9" r="6" />
+                <line x1="14" y1="14" x2="18" y2="18" strokeLinecap="round" />
+              </svg>
+            </button>
+            <button
               onClick={() => setFileBrowserOpen(true)}
               className="p-1.5 mr-2 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
               title="Link a code file"
@@ -796,7 +808,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </svg>
             </button>
           </div>
-          {!codeFilesCollapsed && (
+          {!codeFilesCollapsed && linkedSnippets.length === 0 && (
+            <div className="px-3 pb-2 text-xs text-gray-400 dark:text-gray-500 italic">
+              No linked code files. Click + to link one.
+            </div>
+          )}
+          {!codeFilesCollapsed && linkedSnippets.length > 0 && (
             <div className="space-y-1 px-2 pb-2">
               {linkedSnippets.map((snip) => (
                 <div

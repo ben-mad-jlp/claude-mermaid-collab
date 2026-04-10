@@ -15,6 +15,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom';
 import { useSessionStore } from '@/stores/sessionStore';
 import { usePendingJump } from '@/stores/pendingJump';
+import { useGlobalSearch } from '@/stores/globalSearch';
 import { fetchCodeSearch, type CodeSearchResult } from '@/lib/code-search-api';
 import { linkFile } from '@/lib/link-file';
 import { LinkAndNavigateDialog } from '@/components/editors/LinkAndNavigateDialog';
@@ -87,7 +88,11 @@ export const GlobalSearch: React.FC = () => {
   const currentSession = useSessionStore((s) => s.currentSession);
   const snippets = useSessionStore((s) => s.snippets);
 
-  const [isOpen, setIsOpen] = useState(false);
+  // Open state lives in a shared store so external buttons (Sidebar) can trigger it.
+  const isOpen = useGlobalSearch((s) => s.isOpen);
+  const openStore = useGlobalSearch((s) => s.open);
+  const closeStore = useGlobalSearch((s) => s.close);
+
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<CodeSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -105,15 +110,15 @@ export const GlobalSearch: React.FC = () => {
   const reqIdRef = useRef(0);
 
   const openOverlay = useCallback(() => {
-    setIsOpen(true);
+    openStore();
     setQuery('');
     setResults([]);
     setError(null);
     setSelectedIdx(0);
-  }, []);
+  }, [openStore]);
 
   const closeOverlay = useCallback(() => {
-    setIsOpen(false);
+    closeStore();
     setQuery('');
     setResults([]);
     setError(null);
@@ -122,7 +127,7 @@ export const GlobalSearch: React.FC = () => {
       clearTimeout(debounceRef.current);
       debounceRef.current = null;
     }
-  }, []);
+  }, [closeStore]);
 
   // Cmd/Ctrl+K global listener
   useEffect(() => {
