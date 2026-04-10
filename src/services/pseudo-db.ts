@@ -1076,6 +1076,25 @@ class PseudoDbService {
     }));
   }
 
+  /**
+   * Look up the source line and source file path for a given method in a given pseudo file.
+   * Used by the code search endpoint to enrich FTS hits with navigation metadata.
+   */
+  getMethodLocation(filePath: string, methodName: string): { sourceLine: number | null; sourceFilePath: string | null } | null {
+    const row = this.db.prepare(`
+      SELECT m.source_line, f.source_file_path
+      FROM methods m
+      JOIN files f ON f.id = m.file_id
+      WHERE f.file_path = ? AND m.name = ?
+      LIMIT 1
+    `).get(filePath, methodName) as any;
+    if (!row) return null;
+    return {
+      sourceLine: row.source_line ?? null,
+      sourceFilePath: row.source_file_path ?? null,
+    };
+  }
+
   close(): void {
     this.db.close();
   }

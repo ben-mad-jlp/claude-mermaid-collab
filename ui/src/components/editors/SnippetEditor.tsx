@@ -48,6 +48,8 @@ export interface SnippetEditorProps {
   onEditorReady?: (view: EditorView | null) => void;
   /** Called when a symbol (function/identifier) is clicked in the editor */
   onSymbolClick?: (symbol: string, rect: DOMRect) => void;
+  /** Called when the user Cmd/Ctrl-clicks or right-clicks a symbol (go-to-definition) */
+  onSymbolGoToDefinition?: (symbol: string, rect: DOMRect) => void;
 }
 
 /**
@@ -136,6 +138,7 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
   hideFilePath = false,
   onEditorReady,
   onSymbolClick,
+  onSymbolGoToDefinition,
 }) => {
   const { selectedSnippet, updateSnippet, getSnippetById } = useSnippet();
 
@@ -551,6 +554,7 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
             onSelectionChange={setCurrentSelection}
             onEditorReady={onEditorReady}
             onSymbolClick={onSymbolClick}
+            onSymbolGoToDefinition={onSymbolGoToDefinition}
           />
         </div>
       )}

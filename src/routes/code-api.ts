@@ -12,6 +12,7 @@ import { sessionRegistry } from '../services/session-registry.js';
 import { SnippetManager } from '../services/snippet-manager.js';
 import { validatePathUnderRoot } from '../utils/path-security.js';
 import { getWebSocketHandler } from '../services/ws-handler-manager.js';
+import { getPseudoDb } from '../services/pseudo-db.js';
 
 // Directories and files to exclude from file listings
 const EXCLUDED_NAMES = new Set([
@@ -97,6 +98,15 @@ export async function handleCodeAPI(req: Request): Promise<Response> {
       return handleGetDiff(project, session, id);
     }
 
+    // POST /search — cross-artifact search over pseudo FTS + linked snippet content
+    if (path === '/search' && req.method === 'POST') {
+      if (!session) {
+        return jsonError('Missing required query parameter: session', 400);
+      }
+      const body = await req.json().catch(() => ({})) as { query?: unknown; limit?: unknown };
+      return handleCodeSearch(project, session, body);
+    }
+
     return jsonError('Not found', 404);
   } catch (error) {
     console.error('[Code API] Error:', error);
@@ -115,6 +125,20 @@ interface FileEntry {
   type: 'file' | 'directory';
   size?: number;
   extension?: string;
+}
+
+interface CodeSearchResult {
+  kind: 'pseudo' | 'code';
+  filePath: string;
+  methodName?: string;
+  line?: number;
+  snippet: string;
+  snippetId?: string;
+}
+
+interface CodeSearchResponse {
+  results: CodeSearchResult[];
+  truncated: boolean;
 }
 
 async function handleListProjectFiles(project: string, dirPath?: string): Promise<Response> {
@@ -507,6 +531,133 @@ async function handleGetDiff(project: string, session: string, id: string): Prom
   );
 
   return Response.json({ localVsOriginal, localVsDisk });
+}
+
+async function handleCodeSearch(
+  project: string,
+  session: string,
+  body: { query?: unknown; limit?: unknown },
+): Promise<Response> {
+  if (typeof body.query !== 'string' || body.query.trim() === '') {
+    return jsonError('body.query must be a non-empty string', 400);
+  }
+
+  const truncatedQuery = body.query.trim().slice(0, 200);
+  const limit = Math.min(
+    typeof body.limit === 'number' && body.limit > 0 ? body.limit : 50,
+    100,
+  );
+
+  const results: CodeSearchResult[] = [];
+  let totalHits = 0;
+
+  // 1. Pseudo fan-out — FTS with per-row location lookup
+  try {
+    const db = getPseudoDb(project);
+    const ftsHits = db.search(truncatedQuery);
+    for (const hit of ftsHits) {
+      totalHits++;
+      if (results.length < limit) {
+        const loc = db.getMethodLocation(hit.filePath, hit.methodName);
+        results.push({
+          kind: 'pseudo',
+          filePath: loc?.sourceFilePath ?? hit.filePath,
+          methodName: hit.methodName,
+          line: loc?.sourceLine ?? undefined,
+          snippet: escapePseudoSnippet(hit.snippet), // already has <mark> from FTS snippet()
+        });
+      }
+    }
+  } catch {
+    // Pseudo FTS errors (e.g. punctuation-only queries) → skip pseudo branch
+  }
+
+  // 2. Code fan-out — grep over linked snippet content
+  try {
+    const snippetsDir = sessionRegistry.resolvePath(project, session, 'snippets');
+    const snippetManager = new SnippetManager(snippetsDir);
+    await snippetManager.initialize();
+    const snippets = await snippetManager.listSnippets();
+
+    const loweredQuery = truncatedQuery.toLowerCase();
+
+    for (const snippet of snippets) {
+      if (results.length >= limit + 1) break; // already over cap; bail early
+      let envelope: any;
+      try {
+        envelope = JSON.parse(snippet.content);
+      } catch {
+        continue;
+      }
+      if (envelope.linked !== true || typeof envelope.code !== 'string') continue;
+
+      const code = envelope.code;
+      const loweredCode = code.toLowerCase();
+
+      let searchFrom = 0;
+      while (true) {
+        const matchIdx = loweredCode.indexOf(loweredQuery, searchFrom);
+        if (matchIdx < 0) break;
+
+        totalHits++;
+        if (results.length < limit) {
+          const ctxStart = Math.max(0, matchIdx - 40);
+          const ctxEnd = Math.min(code.length, matchIdx + truncatedQuery.length + 40);
+          const before = code.substring(ctxStart, matchIdx);
+          const matched = code.substring(matchIdx, matchIdx + truncatedQuery.length);
+          const after = code.substring(matchIdx + truncatedQuery.length, ctxEnd);
+          const excerpt = htmlEscape(before) + '<mark>' + htmlEscape(matched) + '</mark>' + htmlEscape(after);
+
+          // Compute 1-based line number
+          const linesBefore = (code.substring(0, matchIdx).match(/\n/g) || []).length;
+          const line = linesBefore + 1;
+
+          results.push({
+            kind: 'code',
+            filePath: typeof envelope.filePath === 'string' ? envelope.filePath : '',
+            line,
+            snippet: excerpt,
+            snippetId: snippet.id,
+          });
+        }
+
+        searchFrom = matchIdx + truncatedQuery.length;
+      }
+    }
+  } catch (err) {
+    console.error('[Code Search] snippet grep error:', err);
+  }
+
+  const truncated = totalHits > results.length;
+  return Response.json({ results, truncated });
+}
+
+function htmlEscape(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Escape the snippet's embedded <mark>...</mark> safely:
+// 1. Replace the literal <mark> tokens with sentinels
+// 2. HTML-escape the entire string (which is safe because sentinels are pure ASCII)
+// 3. Swap sentinels back to real <mark> tags
+function escapePseudoSnippet(snippet: string): string {
+  const OPEN_SENTINEL = '\u0001MARK_OPEN\u0001';
+  const CLOSE_SENTINEL = '\u0001MARK_CLOSE\u0001';
+  return snippet
+    .replace(/<mark>/g, OPEN_SENTINEL)
+    .replace(/<\/mark>/g, CLOSE_SENTINEL)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(new RegExp(OPEN_SENTINEL, 'g'), '<mark>')
+    .replace(new RegExp(CLOSE_SENTINEL, 'g'), '</mark>');
 }
 
 // ============================================================================

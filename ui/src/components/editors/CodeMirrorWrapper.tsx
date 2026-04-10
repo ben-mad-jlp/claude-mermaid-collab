@@ -73,6 +73,8 @@ export interface CodeMirrorWrapperProps {
   onSelectionChange?: (selection: { startLine: number; endLine: number } | null) => void;
   /** Called when a symbol (function/identifier) is clicked in the editor */
   onSymbolClick?: (symbol: string, rect: DOMRect) => void;
+  /** Called when the user cmd/ctrl-clicks or right-clicks a symbol — triggers Go-to-Definition */
+  onSymbolGoToDefinition?: (symbol: string, rect: DOMRect) => void;
 }
 
 /**
@@ -438,6 +440,7 @@ function buildSymbolClickExtension(
 ) {
   return EditorView.domEventHandlers({
     click(event, view) {
+      if (event.metaKey || event.ctrlKey) return false; // cmd/ctrl-click is Go-to-Definition, handled separately
       const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
       if (pos == null) return false;
       const symbol = findSymbolAtPos(view, pos);
@@ -452,6 +455,49 @@ function buildSymbolClickExtension(
       );
       onSymbolClick(symbol, rect);
       return false;
+    },
+  });
+}
+
+function buildSymbolGoToDefExtension(
+  onSymbolGoToDefinition: (symbol: string, rect: DOMRect) => void,
+) {
+  return EditorView.domEventHandlers({
+    contextmenu(event, view) {
+      const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+      if (pos == null) return false;
+      const symbol = findSymbolAtPos(view, pos);
+      if (!symbol) return false;
+      event.preventDefault();
+      const coords = view.coordsAtPos(pos);
+      if (!coords) return false;
+      const rect = new DOMRect(
+        coords.left,
+        coords.top,
+        coords.right - coords.left,
+        coords.bottom - coords.top,
+      );
+      onSymbolGoToDefinition(symbol, rect);
+      return true;
+    },
+    mousedown(event, view) {
+      if (!event.metaKey && !event.ctrlKey) return false;
+      if (event.button !== 0) return false;
+      const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+      if (pos == null) return false;
+      const symbol = findSymbolAtPos(view, pos);
+      if (!symbol) return false;
+      event.preventDefault();
+      const coords = view.coordsAtPos(pos);
+      if (!coords) return false;
+      const rect = new DOMRect(
+        coords.left,
+        coords.top,
+        coords.right - coords.left,
+        coords.bottom - coords.top,
+      );
+      onSymbolGoToDefinition(symbol, rect);
+      return true;
     },
   });
 }
@@ -502,6 +548,7 @@ export const CodeMirrorWrapper: React.FC<CodeMirrorWrapperProps> = ({
   onAnnotationDelete,
   onSelectionChange,
   onSymbolClick,
+  onSymbolGoToDefinition,
 }) => {
   const { theme } = useTheme();
   const [isLoaded, setIsLoaded] = useState(false);
@@ -568,10 +615,16 @@ export const CodeMirrorWrapper: React.FC<CodeMirrorWrapperProps> = ({
     return [buildSymbolClickExtension(onSymbolClick)];
   }, [onSymbolClick]);
 
+  // Memoize symbol go-to-definition extension
+  const symbolGoToDefExtension = useMemo(() => {
+    if (!onSymbolGoToDefinition) return [];
+    return [buildSymbolGoToDefExtension(onSymbolGoToDefinition)];
+  }, [onSymbolGoToDefinition]);
+
   // Memoize the editor extensions to prevent unnecessary re-initialization
   const extensions = useMemo(() => {
-    return [languageExtension, ...highlightExtension, ...annotationExtension, ...selectionListenerExtension, ...symbolClickExtension];
-  }, [languageExtension, highlightExtension, annotationExtension, selectionListenerExtension, symbolClickExtension]);
+    return [languageExtension, ...highlightExtension, ...annotationExtension, ...selectionListenerExtension, ...symbolClickExtension, ...symbolGoToDefExtension];
+  }, [languageExtension, highlightExtension, annotationExtension, selectionListenerExtension, symbolClickExtension, symbolGoToDefExtension]);
 
   // Memoize onChange callback to prevent unnecessary re-renders
   const handleChange = useCallback(

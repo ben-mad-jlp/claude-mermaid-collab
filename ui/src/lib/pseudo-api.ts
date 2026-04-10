@@ -167,3 +167,30 @@ export async function fetchFunctionsForSource(
   const data = await response.json();
   return data.functions || [];
 }
+
+export interface SourceLinkCandidate {
+  sourceFilePath: string;
+  sourceLine: number | null;
+  sourceLineEnd: number | null;
+  language: string | null;
+  isExported: boolean;
+}
+
+/**
+ * Resolve a symbol name to one or more source file + line candidates via the pseudo-db.
+ * GET /api/pseudo/source-link?project=...&name=...&hintFileStem=...
+ */
+export async function fetchSourceLink(
+  project: string,
+  name: string,
+  hintFileStem?: string,
+): Promise<SourceLinkCandidate[]> {
+  const params = new URLSearchParams({ project, name });
+  if (hintFileStem) params.set('hintFileStem', hintFileStem);
+  const response = await fetch(`${API_BASE}/api/pseudo/source-link?${params}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch source link: ${response.statusText}`);
+  }
+  const data = await response.json();
+  return data.candidates || [];
+}

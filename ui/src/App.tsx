@@ -43,6 +43,7 @@ import type { Item, Session, ToolbarAction } from '@/types';
 // Import layout components
 import Header from '@/components/layout/Header';
 import Sidebar from '@/components/layout/Sidebar';
+import { GlobalSearch } from '@/components/layout/GlobalSearch';
 import EditorToolbar from '@/components/layout/EditorToolbar';
 import { SplitPane } from '@/components/layout/SplitPane';
 import { MobileLayout } from '@/components/layout/MobileLayout';
@@ -1557,6 +1558,9 @@ const App: React.FC = () => {
 
         {/* Notification Toast Container */}
         <ToastContainer />
+
+        {/* Global Search (Cmd+K) */}
+        <GlobalSearch />
       </div>
     </ErrorBoundary>
   );

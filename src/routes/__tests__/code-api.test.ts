@@ -287,3 +287,178 @@ describe('Code API — /proposed-edit endpoints', () => {
     });
   });
 });
+
+describe('Code API — POST /search', () => {
+  let manager: SnippetManager;
+  let snippetsPath: string;
+
+  beforeAll(async () => {
+    await sessionRegistry.register(TEST_PROJECT, TEST_SESSION);
+    snippetsPath = sessionRegistry.resolvePath(TEST_PROJECT, TEST_SESSION, 'snippets');
+    await mkdir(join(TEST_PROJECT, 'src'), { recursive: true });
+    await writeFile(join(TEST_PROJECT, 'src', 'sample.ts'), 'const x = 1;\n');
+  });
+
+  afterAll(async () => {
+    try {
+      await rm(TEST_PROJECT, { recursive: true, force: true });
+    } catch {
+      // ignore
+    }
+  });
+
+  beforeEach(async () => {
+    manager = new SnippetManager(snippetsPath);
+    await manager.initialize();
+    const all = await manager.listSnippets();
+    for (const s of all) {
+      await manager.deleteSnippet(s.id);
+    }
+  });
+
+  it('returns 400 when query is missing', async () => {
+    const req = new Request(buildUrl('/search'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const res = await handleCodeAPI(req);
+    expect(res.status).toBe(400);
+    const body = await res.json() as any;
+    expect(body.error).toMatch(/query/i);
+  });
+
+  it('returns 400 when query is empty string', async () => {
+    const req = new Request(buildUrl('/search'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: '' }),
+    });
+    const res = await handleCodeAPI(req);
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 when query is whitespace only', async () => {
+    const req = new Request(buildUrl('/search'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: '   ' }),
+    });
+    const res = await handleCodeAPI(req);
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 when session query param is missing', async () => {
+    // Build URL without session
+    const url = `http://localhost:3737/api/code/search?project=${encodeURIComponent(TEST_PROJECT)}`;
+    const req = new Request(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'foo' }),
+    });
+    const res = await handleCodeAPI(req);
+    expect(res.status).toBe(400);
+    const body = await res.json() as any;
+    expect(body.error).toMatch(/session/i);
+  });
+
+  it('returns code results when query hits linked snippet content', async () => {
+    const id = await createLinkedSnippet(manager, 'auth.ts', 'function handleLogin() { return true; }\n');
+
+    const req = new Request(buildUrl('/search'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'handleLogin' }),
+    });
+    const res = await handleCodeAPI(req);
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.results.length).toBeGreaterThanOrEqual(1);
+    expect(body.results[0].kind).toBe('code');
+    expect(body.results[0].snippetId).toBe(id);
+    expect(body.results[0].line).toBe(1);
+    expect(body.results[0].snippet).toContain('<mark>handleLogin</mark>');
+    expect(body.truncated).toBe(false);
+  });
+
+  it('returns empty results when nothing matches', async () => {
+    await createLinkedSnippet(manager, 'sample.ts', 'const x = 1;\n');
+
+    const req = new Request(buildUrl('/search'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'zzznomatchzzz' }),
+    });
+    const res = await handleCodeAPI(req);
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.results).toEqual([]);
+    expect(body.truncated).toBe(false);
+  });
+
+  it('truncates when results exceed limit', async () => {
+    // Create a snippet with many matches
+    const code = 'foo '.repeat(60); // 60 occurrences
+    await createLinkedSnippet(manager, 'many.ts', code);
+
+    const req = new Request(buildUrl('/search'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'foo', limit: 10 }),
+    });
+    const res = await handleCodeAPI(req);
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.results.length).toBe(10);
+    expect(body.truncated).toBe(true);
+  });
+
+  it('HTML-escapes match context to prevent injection', async () => {
+    await createLinkedSnippet(manager, 'xss.ts', '<script>alert(1)</script> findme here\n');
+
+    const req = new Request(buildUrl('/search'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'findme' }),
+    });
+    const res = await handleCodeAPI(req);
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.results.length).toBe(1);
+    const excerpt: string = body.results[0].snippet;
+    expect(excerpt).not.toContain('<script>');
+    expect(excerpt).toContain('&lt;script&gt;');
+    expect(excerpt).toContain('<mark>findme</mark>');
+  });
+
+  it('skips snippets with non-JSON content', async () => {
+    await manager.createSnippet('broken', 'not valid json');
+    const id = await createLinkedSnippet(manager, 'good.ts', 'const findme = 1;\n');
+
+    const req = new Request(buildUrl('/search'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'findme' }),
+    });
+    const res = await handleCodeAPI(req);
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    // Should NOT throw, and should include the valid snippet's match
+    expect(body.results.some((r: any) => r.snippetId === id)).toBe(true);
+  });
+
+  it('skips non-linked snippets', async () => {
+    // Create a non-linked snippet with matching content
+    await manager.createSnippet('plain', JSON.stringify({ code: 'findme here', linked: false }));
+
+    const req = new Request(buildUrl('/search'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'findme' }),
+    });
+    const res = await handleCodeAPI(req);
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.results).toEqual([]);
+  });
+});

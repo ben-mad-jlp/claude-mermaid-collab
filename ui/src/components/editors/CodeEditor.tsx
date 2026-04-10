@@ -18,9 +18,15 @@ import { ReferencesPopover } from './ReferencesPopover';
 import { useSnippet } from '@/hooks/useSnippet';
 import { useSessionStore } from '@/stores/sessionStore';
 import { api } from '@/lib/api';
-import { fetchFunctionsForSource, fetchPseudoReferences, type Reference } from '@/lib/pseudo-api';
+import { fetchFunctionsForSource, fetchPseudoReferences, fetchSourceLink, type Reference, type SourceLinkCandidate } from '@/lib/pseudo-api';
 import { extractFunctions } from '@/lib/extract-functions';
 import { Snippet } from '@/types';
+import { resolveDefinition, type ResolveDecision } from '@/lib/definition-resolver';
+import { linkFile } from '@/lib/link-file';
+import { useNavHistory } from '@/hooks/useNavHistory';
+import { usePendingJump } from '@/stores/pendingJump';
+import { DefinitionPickerPopover } from './DefinitionPickerPopover';
+import { LinkAndNavigateDialog } from './LinkAndNavigateDialog';
 
 /**
  * Format a timestamp as a human-readable relative time string.
@@ -81,11 +87,33 @@ function fileStemFromPath(filePath: string): string {
   return dot > 0 ? base.slice(0, dot) : base;
 }
 
+function buildLinkedSnippetRefs(snippets: Array<{ id: string; content: string | undefined }>): { id: string; filePath: string }[] {
+  const out: { id: string; filePath: string }[] = [];
+  for (const s of snippets) {
+    try {
+      const data = JSON.parse(s.content || '');
+      if (data.linked === true && typeof data.filePath === 'string' && data.filePath) {
+        out.push({ id: s.id, filePath: data.filePath });
+      }
+    } catch {
+      // skip
+    }
+  }
+  return out;
+}
+
 export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToolbarControls }) => {
   const { getSnippetById } = useSnippet();
   const currentSession = useSessionStore((state) => state.currentSession);
   const storeUpdateSnippet = useSessionStore((state) => state.updateSnippet);
   const storeRemoveSnippet = useSessionStore((state) => state.removeSnippet);
+  const selectSnippet = useSessionStore((state) => state.selectSnippet);
+  const snippets = useSessionStore((state) => state.snippets);
+  const setPendingJumpStore = usePendingJump((state) => state.setPending);
+  const consumePendingJump = usePendingJump((state) => state.consume);
+
+  // Nav history
+  const navHistory = useNavHistory();
 
   const snippet = getSnippetById(snippetId);
   const envelope = useMemo(() => parseLinkedEnvelope(snippet?.content), [snippet?.content]);
@@ -103,6 +131,29 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
   const [useTier2, setUseTier2] = useState(false);
   const editorViewRef = useRef<EditorView | null>(null);
   const [popover, setPopover] = useState<{ symbol: string; refs: Reference[]; rect: DOMRect } | null>(null);
+
+  // Feature B state
+  const [pickerState, setPickerState] = useState<{ symbol: string; candidates: SourceLinkCandidate[]; rect: DOMRect } | null>(null);
+  const [linkDialog, setLinkDialog] = useState<{ candidate: SourceLinkCandidate; symbol: string } | null>(null);
+
+  // Editor ready flag (so pending-jump consumption effect can fire)
+  const [editorReady, setEditorReady] = useState(false);
+
+  // Stable refs for callbacks (so handleGoToDefinition doesn't re-memoize on state changes)
+  const snippetsRef = useRef(snippets);
+  useEffect(() => { snippetsRef.current = snippets; }, [snippets]);
+
+  const currentSessionRef = useRef(currentSession);
+  useEffect(() => { currentSessionRef.current = currentSession; }, [currentSession]);
+
+  const snippetIdRef = useRef(snippetId);
+  useEffect(() => { snippetIdRef.current = snippetId; }, [snippetId]);
+
+  const navPushRef = useRef(navHistory.push);
+  useEffect(() => { navPushRef.current = navHistory.push; }, [navHistory.push]);
+
+  const navBackRef = useRef(navHistory.back);
+  useEffect(() => { navBackRef.current = navHistory.back; }, [navHistory.back]);
 
   // Keep envelope.filePath in a ref so handleSymbolClick has a stable identity
   const envelopeFilePathRef = useRef<string | null>(null);
@@ -166,6 +217,56 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
     }
   }, [currentSession?.project]);
 
+  const handleGoToDefinition = useCallback(async (symbol: string, rect: DOMRect) => {
+    const session = currentSessionRef.current;
+    const filePath = envelopeFilePathRef.current;
+    if (!session || !filePath) return;
+    const fileStem = fileStemFromPath(filePath);
+    try {
+      const candidates = await fetchSourceLink(session.project, symbol, fileStem);
+      const linked = buildLinkedSnippetRefs(snippetsRef.current);
+      const decision: ResolveDecision = resolveDefinition(candidates, linked);
+      if (decision.type === 'not-found') return;
+      if (decision.type === 'found-linked') {
+        // Same-file jump → don't push onto nav history
+        if (decision.snippetId === snippetIdRef.current) {
+          jumpToLineRef.current?.(decision.line);
+          return;
+        }
+        // Cross-file jump → push current position onto nav history, then navigate
+        const curView = editorViewRef.current;
+        const curLine = curView ? curView.state.doc.lineAt(curView.state.selection.main.head).number : 1;
+        navPushRef.current({ snippetId: snippetIdRef.current, line: curLine });
+        setPendingJumpStore({ snippetId: decision.snippetId, line: decision.line });
+        selectSnippet(decision.snippetId);
+        return;
+      }
+      if (decision.type === 'needs-link') {
+        setLinkDialog({ candidate: decision.candidate, symbol });
+        return;
+      }
+      if (decision.type === 'needs-link-picker') {
+        setPickerState({ symbol, candidates: decision.candidates, rect });
+        return;
+      }
+    } catch (err) {
+      console.warn('Go-to-definition failed:', err);
+    }
+  }, [selectSnippet, setPendingJumpStore]);
+
+  const handleLinkAndNavigate = useCallback(async () => {
+    const session = currentSessionRef.current;
+    if (!session || !linkDialog) return;
+    const { candidate } = linkDialog;
+    const newSnippetId = await linkFile(session.project, session.name, candidate.sourceFilePath);
+    const curView = editorViewRef.current;
+    const curLine = curView ? curView.state.doc.lineAt(curView.state.selection.main.head).number : 1;
+    navPushRef.current({ snippetId: snippetIdRef.current, line: curLine });
+    setPendingJumpStore({ snippetId: newSnippetId, line: candidate.sourceLine ?? 1 });
+    selectSnippet(newSnippetId);
+    setLinkDialog(null);
+  }, [linkDialog, selectSnippet, setPendingJumpStore]);
+
   // Capture SnippetEditor's toolbar controls
   const handleSnippetToolbarControls = useCallback((controls: React.ReactNode) => {
     setSnippetControls(controls);
@@ -173,6 +274,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
 
   const handleEditorReady = useCallback((view: EditorView | null) => {
     editorViewRef.current = view;
+    setEditorReady(view !== null);
   }, []);
 
   const jumpToLine = useCallback((line: number) => {
@@ -187,6 +289,29 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
     });
     view.focus();
   }, []);
+
+  const jumpToLineRef = useRef(jumpToLine);
+  useEffect(() => { jumpToLineRef.current = jumpToLine; }, [jumpToLine]);
+
+  const handleBack = useCallback(() => {
+    const entry = navBackRef.current();
+    if (!entry) return;
+    if (entry.snippetId === snippetIdRef.current) {
+      jumpToLineRef.current?.(entry.line);
+      return;
+    }
+    setPendingJumpStore({ snippetId: entry.snippetId, line: entry.line });
+    selectSnippet(entry.snippetId);
+  }, [selectSnippet, setPendingJumpStore]);
+
+  // Pending-jump consumption: when editor mounts for a snippet with a pending jump, apply it
+  useEffect(() => {
+    if (!editorReady) return;
+    const line = consumePendingJump(snippetId);
+    if (line != null) {
+      jumpToLine(line);
+    }
+  }, [editorReady, snippetId, consumePendingJump, jumpToLine]);
 
   const filePath = envelope?.filePath || '';
   const dirty = envelope?.dirty || false;
@@ -337,6 +462,19 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
     if (!envelope || !currentSession) return snippetControls;
     return (
       <>
+        {/* Back button — Feature B nav history */}
+        <button
+          onClick={handleBack}
+          disabled={!navHistory.canGoBack}
+          title={navHistory.canGoBack ? 'Back' : 'No history'}
+          className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+            navHistory.canGoBack
+              ? 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+              : 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600 cursor-not-allowed'
+          }`}
+        >
+          ← Back
+        </button>
         {/* Push to File (opens diff confirmation modal) */}
         <button
           onClick={handlePush}
@@ -415,7 +553,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
         />
       </>
     );
-  }, [envelope, currentSession, snippetControls, handlePush, handlePreview, handleSync, isPushing, isSyncing, dirty, conflict, flashMessage, showPseudo, snippetId, filePath, handleDeprecate, handleDelete, functions, jumpToLine]);
+  }, [envelope, currentSession, snippetControls, handlePush, handlePreview, handleSync, isPushing, isSyncing, dirty, conflict, flashMessage, showPseudo, snippetId, filePath, handleDeprecate, handleDelete, functions, jumpToLine, navHistory.canGoBack, handleBack]);
 
   // Push merged controls to parent EditorToolbar
   // Short-circuit when envelope is null — SnippetEditor handles onToolbarControls directly
@@ -489,6 +627,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
               hideFilePath
               onEditorReady={handleEditorReady}
               onSymbolClick={handleSymbolClick}
+              onSymbolGoToDefinition={handleGoToDefinition}
             />
           </PseudoSideBySideView>
         ) : (
@@ -499,6 +638,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
             hideFilePath
             onEditorReady={handleEditorReady}
             onSymbolClick={handleSymbolClick}
+            onSymbolGoToDefinition={handleGoToDefinition}
           />
         )}
       </div>
@@ -539,6 +679,45 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
           onClose={() => setPopover(null)}
         />
       )}
+
+      {/* Definition picker popover (Feature B: multiple candidate defs) */}
+      {pickerState && currentSession && (
+        <DefinitionPickerPopover
+          candidates={pickerState.candidates}
+          symbolName={pickerState.symbol}
+          anchorRect={pickerState.rect}
+          onPick={(candidate) => {
+            const pickerSymbol = pickerState.symbol;
+            setPickerState(null);
+            // Check if already linked
+            const linked = buildLinkedSnippetRefs(snippetsRef.current);
+            const already = linked.find((l) => l.filePath === candidate.sourceFilePath);
+            if (already) {
+              if (already.id === snippetId) {
+                jumpToLine(candidate.sourceLine ?? 1);
+              } else {
+                const curView = editorViewRef.current;
+                const curLine = curView ? curView.state.doc.lineAt(curView.state.selection.main.head).number : 1;
+                navHistory.push({ snippetId, line: curLine });
+                setPendingJumpStore({ snippetId: already.id, line: candidate.sourceLine ?? 1 });
+                selectSnippet(already.id);
+              }
+            } else {
+              setLinkDialog({ candidate, symbol: pickerSymbol });
+            }
+          }}
+          onClose={() => setPickerState(null)}
+        />
+      )}
+
+      {/* Link-and-navigate confirmation dialog (Feature B) */}
+      <LinkAndNavigateDialog
+        open={linkDialog !== null}
+        candidate={linkDialog?.candidate ?? null}
+        symbolName={linkDialog?.symbol ?? ''}
+        onClose={() => setLinkDialog(null)}
+        onConfirm={handleLinkAndNavigate}
+      />
     </div>
   );
 };
