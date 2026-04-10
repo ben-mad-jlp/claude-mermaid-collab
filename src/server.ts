@@ -12,7 +12,7 @@ import { handleAPI } from './routes/api';
 import { handlePseudoAPI } from './routes/pseudo-api';
 import { handleCodeAPI } from './routes/code-api.js';
 import { handleOnboardingAPI } from './routes/onboarding-api';
-import { sessionRegistry } from './services/session-registry';
+import { sessionRegistry, SessionRegistryCorruptError } from './services/session-registry';
 import { statusManager } from './services/status-manager';
 import { initializeWebSocketHandler } from './services/ws-handler-manager';
 import { handleMCPRequest, getActiveSessionCount } from './mcp/http-handler';
@@ -27,9 +27,28 @@ import {
 const SCRATCH_PROJECT = join(homedir(), '.mermaid-collab');
 const SCRATCH_SESSION = 'scratch';
 
-// Register scratch session on startup
-await sessionRegistry.register(SCRATCH_PROJECT, SCRATCH_SESSION);
-console.log(`📋 Scratch session: ${SCRATCH_PROJECT}/.collab/sessions/${SCRATCH_SESSION}/`);
+// Register scratch session on startup.
+// This MUST be idempotent and non-fatal on corrupt registry — otherwise
+// the very first thing every boot does is a destructive read-modify-write
+// that can wipe sessions.json if the file is transiently unreadable.
+try {
+  const startupResult = await sessionRegistry.registerIfAbsent(SCRATCH_PROJECT, SCRATCH_SESSION);
+  if (startupResult.alreadyPresent) {
+    console.log(`📋 Scratch session (already registered): ${SCRATCH_PROJECT}/.collab/sessions/${SCRATCH_SESSION}/`);
+  } else {
+    console.log(`📋 Scratch session: ${SCRATCH_PROJECT}/.collab/sessions/${SCRATCH_SESSION}/`);
+  }
+} catch (error) {
+  if (error instanceof SessionRegistryCorruptError) {
+    console.error('');
+    console.error('!!! SESSION REGISTRY IS CORRUPT !!!');
+    console.error(error.message);
+    console.error('Server startup will continue, but session registration is disabled until this is resolved.');
+    console.error('');
+  } else {
+    console.error('Failed to register scratch session on startup:', error);
+  }
+}
 
 // Initialize shared services (stateless, no storage)
 const validator = new Validator();
