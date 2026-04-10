@@ -4,6 +4,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { SnippetManager } from '../../services/snippet-manager';
 import { sessionRegistry } from '../../services/session-registry';
+import { projectRegistry } from '../../services/project-registry';
 import { handleCodeAPI } from '../code-api';
 
 /**
@@ -460,5 +461,129 @@ describe('Code API — POST /search', () => {
     expect(res.status).toBe(200);
     const body = await res.json() as any;
     expect(body.results).toEqual([]);
+  });
+});
+
+describe('Code API — GET /files (listProjectFiles)', () => {
+  const FILES_PROJECT = join(homedir(), '.test-collab-files');
+  const FILES_SESSION = 'test-session';
+
+  function buildFilesUrl(params: Record<string, string | undefined>): string {
+    const usp = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined) usp.set(k, v);
+    }
+    return `http://localhost:3737/api/code/files?${usp.toString()}`;
+  }
+
+  beforeAll(async () => {
+    // Create a real project tree and register it so isKnownProject() passes.
+    await mkdir(join(FILES_PROJECT, 'src'), { recursive: true });
+    await mkdir(join(FILES_PROJECT, 'src', 'routes'), { recursive: true });
+    await writeFile(join(FILES_PROJECT, 'src', 'index.ts'), 'export {};\n');
+    await writeFile(join(FILES_PROJECT, 'README.md'), '# test\n');
+
+    await projectRegistry.register(FILES_PROJECT);
+    await sessionRegistry.register(FILES_PROJECT, FILES_SESSION);
+  });
+
+  afterAll(async () => {
+    try {
+      await projectRegistry.unregister(FILES_PROJECT);
+    } catch { /* ignore */ }
+    try {
+      await sessionRegistry.unregister(FILES_PROJECT, FILES_SESSION);
+    } catch { /* ignore */ }
+    try {
+      await rm(FILES_PROJECT, { recursive: true, force: true });
+    } catch { /* ignore */ }
+  });
+
+  it('rejects unknown project with 400', async () => {
+    const req = new Request(buildFilesUrl({ project: '/Users' }));
+    const res = await handleCodeAPI(req);
+    expect(res.status).toBe(400);
+    const body = await res.json() as any;
+    expect(body.error).toMatch(/unknown project/i);
+  });
+
+  it('rejects filesystem root as project with 400', async () => {
+    const req = new Request(buildFilesUrl({ project: '/' }));
+    const res = await handleCodeAPI(req);
+    expect(res.status).toBe(400);
+  });
+
+  it('accepts absolute dirPath that is under the project root', async () => {
+    const req = new Request(buildFilesUrl({
+      project: FILES_PROJECT,
+      path: join(FILES_PROJECT, 'src'),
+    }));
+    const res = await handleCodeAPI(req);
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(Array.isArray(body.entries)).toBe(true);
+    // Should contain index.ts + the routes subdir.
+    const names = body.entries.map((e: any) => e.name).sort();
+    expect(names).toContain('index.ts');
+    expect(names).toContain('routes');
+  });
+
+  it('accepts relative dirPath', async () => {
+    const req = new Request(buildFilesUrl({ project: FILES_PROJECT, path: 'src' }));
+    const res = await handleCodeAPI(req);
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    const names = body.entries.map((e: any) => e.name);
+    expect(names).toContain('index.ts');
+  });
+
+  it('rejects absolute dirPath outside the project with 400', async () => {
+    const req = new Request(buildFilesUrl({ project: FILES_PROJECT, path: '/etc' }));
+    const res = await handleCodeAPI(req);
+    expect(res.status).toBe(400);
+    const body = await res.json() as any;
+    expect(body.error).toMatch(/escapes project root/i);
+  });
+
+  it('rejects dirPath with .. segments that escape project with 400', async () => {
+    const req = new Request(buildFilesUrl({ project: FILES_PROJECT, path: '../../etc' }));
+    const res = await handleCodeAPI(req);
+    expect(res.status).toBe(400);
+    const body = await res.json() as any;
+    expect(body.error).toMatch(/escapes project root/i);
+  });
+
+  it('returns relativePath on every entry, computed from project root', async () => {
+    const req = new Request(buildFilesUrl({ project: FILES_PROJECT }));
+    const res = await handleCodeAPI(req);
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.entries.length).toBeGreaterThan(0);
+
+    for (const entry of body.entries) {
+      expect(typeof entry.relativePath).toBe('string');
+      // Should NOT be absolute
+      expect(entry.relativePath.startsWith('/')).toBe(false);
+      // Should be consistent with the absolute path
+      expect(join(FILES_PROJECT, entry.relativePath)).toBe(entry.path);
+    }
+
+    // Specifically verify the src entry
+    const srcEntry = body.entries.find((e: any) => e.name === 'src');
+    expect(srcEntry).toBeDefined();
+    expect(srcEntry.relativePath).toBe('src');
+  });
+
+  it('does not double-resolve when an absolute path under the project is passed as dirPath (regression)', async () => {
+    // Before the fix, passing an absolute subdir caused join(project, absolutePath)
+    // to produce a doubled path and the handler would return 500.
+    const req = new Request(buildFilesUrl({
+      project: FILES_PROJECT,
+      path: join(FILES_PROJECT, 'src', 'routes'),
+    }));
+    const res = await handleCodeAPI(req);
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(Array.isArray(body.entries)).toBe(true);
   });
 });

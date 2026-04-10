@@ -18,7 +18,8 @@ interface FileBrowserDialogProps {
 
 interface FileEntry {
   name: string;
-  path: string;
+  path: string;          // absolute — used for the final onSelect callback
+  relativePath: string;  // relative to project root — used as tree key and for subsequent requests
   type: 'file' | 'directory';
   size?: number;
   extension?: string;
@@ -106,6 +107,7 @@ export const FileBrowserDialog: React.FC<FileBrowserDialogProps> = ({
       const fileEntries: FileEntry[] = (result.entries || []).map((f: any) => ({
         name: f.name,
         path: f.path,
+        relativePath: f.relativePath ?? '',
         type: f.type,
         size: f.size,
         extension: f.extension,
@@ -146,6 +148,7 @@ export const FileBrowserDialog: React.FC<FileBrowserDialogProps> = ({
           const fileEntries: FileEntry[] = (result.entries || []).map((f: any) => ({
             name: f.name,
             path: f.path,
+            relativePath: f.relativePath ?? '',
             type: f.type,
             size: f.size,
             extension: f.extension,
@@ -220,18 +223,22 @@ export const FileBrowserDialog: React.FC<FileBrowserDialogProps> = ({
 
     return sorted.map(entry => {
       const isDir = entry.type === 'directory';
-      const isExpanded = expandedDirs.has(entry.path);
-      const isLoading = loading.has(entry.path);
+      // Key/loading/expansion are tracked by relativePath so the backend
+      // only ever sees paths scoped to the project root.
+      const key = entry.relativePath;
+      const isExpanded = expandedDirs.has(key);
+      const isLoading = loading.has(key);
       const isTooLarge = !isDir && entry.size != null && entry.size > ONE_MB;
+      // Selection uses the absolute path — that's what onSelect passes back.
       const isSelected = selectedFile === entry.path;
 
       if (isDir) {
         return (
-          <div key={entry.path}>
+          <div key={key}>
             <div
               style={{ paddingLeft: `${level * 16 + 4}px` }}
               className="flex items-center gap-1 px-2 py-1 cursor-pointer rounded hover:bg-gray-100 dark:hover:bg-gray-700"
-              onClick={() => toggleDir(entry.path)}
+              onClick={() => toggleDir(key)}
             >
               <span className="flex-shrink-0">
                 <ChevronIcon isOpen={isExpanded} />
@@ -251,7 +258,7 @@ export const FileBrowserDialog: React.FC<FileBrowserDialogProps> = ({
                     <span className="text-xs text-gray-400">Loading...</span>
                   </div>
                 ) : (
-                  renderEntries(entry.path, level + 1)
+                  renderEntries(key, level + 1)
                 )}
               </div>
             )}
@@ -262,7 +269,7 @@ export const FileBrowserDialog: React.FC<FileBrowserDialogProps> = ({
       // File entry
       return (
         <div
-          key={entry.path}
+          key={key}
           style={{ paddingLeft: `${level * 16 + 4}px` }}
           className={`flex items-center gap-1 px-2 py-1 rounded ${
             isTooLarge

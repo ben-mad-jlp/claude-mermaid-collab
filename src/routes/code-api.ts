@@ -6,9 +6,10 @@
  */
 
 import { readdir, readFile, writeFile, stat } from 'fs/promises';
-import { join, extname } from 'path';
+import { join, extname, resolve, relative, isAbsolute } from 'path';
 import { createPatch } from 'diff';
 import { sessionRegistry } from '../services/session-registry.js';
+import { projectRegistry } from '../services/project-registry.js';
 import { SnippetManager } from '../services/snippet-manager.js';
 import { validatePathUnderRoot } from '../utils/path-security.js';
 import { getWebSocketHandler } from '../services/ws-handler-manager.js';
@@ -21,6 +22,7 @@ const EXCLUDED_NAMES = new Set([
   '.collab',
   '.DS_Store',
   '.env',
+  '.worktrees',
 ]);
 
 /**
@@ -121,10 +123,43 @@ export async function handleCodeAPI(req: Request): Promise<Response> {
 
 interface FileEntry {
   name: string;
-  path: string;
+  path: string;          // absolute path (for display/tooltips and onSelect callback)
+  relativePath: string;  // relative to project root — use this as tree key + subsequent request param
   type: 'file' | 'directory';
   size?: number;
   extension?: string;
+}
+
+/**
+ * Check whether a given absolute path matches a known project root.
+ * A project is "known" if it appears in projects.json OR if it's the project
+ * of any registered session. Both sides are normalized via resolve() before
+ * comparison to avoid false negatives from trailing slashes or relative paths.
+ */
+async function isKnownProject(projectPath: string): Promise<boolean> {
+  const resolvedCandidate = resolve(projectPath);
+
+  // Check projects.json first
+  try {
+    const data = await projectRegistry.load();
+    for (const p of data.projects) {
+      if (resolve(p.path) === resolvedCandidate) return true;
+    }
+  } catch {
+    // fall through to session registry
+  }
+
+  // Fallback: check sessions.json (any session whose project field matches)
+  try {
+    const sessionsData = await sessionRegistry.load();
+    for (const s of sessionsData.sessions) {
+      if (resolve(s.project) === resolvedCandidate) return true;
+    }
+  } catch {
+    // corrupt registry or other issue — treat as unknown
+  }
+
+  return false;
 }
 
 interface CodeSearchResult {
@@ -142,12 +177,55 @@ interface CodeSearchResponse {
 }
 
 async function handleListProjectFiles(project: string, dirPath?: string): Promise<Response> {
-  const targetDir = dirPath ? join(project, dirPath) : project;
+  // 1. Resolve project to canonical absolute path.
+  if (!isAbsolute(project)) {
+    return jsonError('project must be an absolute path', 400);
+  }
+  const projectRoot = resolve(project);
 
-  // Validate the path is under the project root
-  await validatePathUnderRoot(targetDir, project);
+  // 2. Validate project is a known/registered project.
+  if (!(await isKnownProject(projectRoot))) {
+    return jsonError(`Unknown project: ${projectRoot}`, 400);
+  }
 
-  const dirEntries = await readdir(targetDir, { withFileTypes: true });
+  // 3. Normalize dirPath to be relative to the project root.
+  let relativeDirPath = '';
+  if (dirPath && dirPath.length > 0) {
+    if (isAbsolute(dirPath)) {
+      const resolvedDirPath = resolve(dirPath);
+      if (resolvedDirPath === projectRoot) {
+        relativeDirPath = '';
+      } else if (resolvedDirPath.startsWith(projectRoot + '/')) {
+        relativeDirPath = resolvedDirPath.slice(projectRoot.length + 1);
+      } else {
+        return jsonError('dirPath escapes project root', 400);
+      }
+    } else {
+      relativeDirPath = dirPath;
+    }
+  }
+
+  // 4. Resolve the target directory.
+  const targetDir = relativeDirPath
+    ? resolve(projectRoot, relativeDirPath)
+    : projectRoot;
+
+  // 5. Second-layer guard: validatePathUnderRoot (handles .. segments + symlinks).
+  try {
+    await validatePathUnderRoot(targetDir, projectRoot);
+  } catch {
+    return jsonError('dirPath escapes project root', 400);
+  }
+
+  let dirEntries;
+  try {
+    dirEntries = await readdir(targetDir, { withFileTypes: true });
+  } catch (err: any) {
+    if (err && (err.code === 'ENOENT' || err.code === 'ENOTDIR')) {
+      return jsonError(`Directory not found: ${relativeDirPath || '.'}`, 404);
+    }
+    throw err;
+  }
 
   const entries: FileEntry[] = [];
   for (const entry of dirEntries) {
@@ -159,6 +237,7 @@ async function handleListProjectFiles(project: string, dirPath?: string): Promis
     const fileEntry: FileEntry = {
       name: entry.name,
       path: entryPath,
+      relativePath: relative(projectRoot, entryPath),
       type: isDir ? 'directory' : 'file',
     };
 
