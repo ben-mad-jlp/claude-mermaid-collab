@@ -16,8 +16,8 @@ fi
 CLAUDE_PID=""
 PID=$PPID
 while [ "$PID" != "1" ] && [ -n "$PID" ]; do
-  CMD=$(ps -o cmd= -p "$PID" 2>/dev/null)
-  if echo "$CMD" | grep -q "^claude"; then
+  CMD=$(ps -o command= -p "$PID" 2>/dev/null)
+  if echo "$CMD" | grep -qE "(^|/)claude( |$)"; then
     CLAUDE_PID="$PID"
     break
   fi
