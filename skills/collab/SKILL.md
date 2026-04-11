@@ -68,19 +68,32 @@ Otherwise:
    Tool: mcp__plugin_mermaid-collab_mermaid__create_document
    Args: { "project": "<cwd>", "session": "<name>", "name": "vibe.vibeinstructions", "content": "# Vibe: <name>\n\n## Goal\n[Not yet defined]\n\n## Context\n[No context recorded]\n\n## Currently Doing\n[Nothing recorded yet]" }
    ```
-4. Register this Claude Code session for notifications:
+4. Discover this Claude Code CLI's PID by running the Bash tool:
+   ```
+   Tool: Bash
+   Command: echo "$PPID"
+   ```
+   (`$PPID` inside a Bash tool command is the Claude CLI process — verified empirically, since the tool forks `/bin/zsh` as a direct child of Claude.)
+5. Register this Claude Code session for notifications, passing the PID from the previous step:
    ```
    Tool: mcp__plugin_mermaid-collab_mermaid__register_claude_session
-   Args: { "project": "<cwd>", "session": "<name>" }
+   Args: { "project": "<cwd>", "session": "<name>", "claudePid": "<number-from-previous-bash-call>" }
    ```
-5. Invoke skill: `vibe-active`
+6. Invoke skill: `vibe-active`
 
 ## Step 4: Resume Existing Session
 
-Register this Claude Code session for notifications:
+First, discover this Claude Code CLI's PID by running the Bash tool:
+```
+Tool: Bash
+Command: echo "$PPID"
+```
+(`$PPID` inside a Bash tool command is the Claude CLI process — verified empirically, since the tool forks `/bin/zsh` as a direct child of Claude.)
+
+Then register this Claude Code session for notifications, passing the PID from the previous step:
 ```
 Tool: mcp__plugin_mermaid-collab_mermaid__register_claude_session
-Args: { "project": "<cwd>", "session": "<selected-session>" }
+Args: { "project": "<cwd>", "session": "<selected-session>", "claudePid": "<number-from-previous-bash-call>" }
 ```
 
 Then invoke skill: `vibe-active`

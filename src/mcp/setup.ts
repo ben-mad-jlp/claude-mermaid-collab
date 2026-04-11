@@ -1438,14 +1438,15 @@ IMPORTANT - Common pitfalls to avoid:
       },
       {
         name: 'register_claude_session',
-        description: 'Register the current Claude Code session with a collab session for notifications. Reads the Claude session ID from a PID-keyed temp file written by the SessionStart hook.',
+        description: 'Register the current Claude Code session with a collab session for notifications. Before calling this tool, run Bash with command "echo $PPID" to discover the Claude Code process PID, then pass that value as claudePid. The tool reads /tmp/.claude-session-id-<claudePid> (written by the SessionStart hook) to resolve the Claude session ID, writes a binding file, and triggers the initial WebSocket broadcast.',
         inputSchema: {
           type: 'object' as const,
           properties: {
             project: { type: 'string', description: 'Project path' },
             session: { type: 'string', description: 'Collab session name' },
+            claudePid: { type: 'string', description: 'Claude Code process PID discovered via Bash "echo $PPID" (passed as string or number)' },
           },
-          required: ['project', 'session'],
+          required: ['project', 'session', 'claudePid'],
         },
       },
       {
@@ -2901,23 +2902,65 @@ IMPORTANT - Common pitfalls to avoid:
           }
 
           case 'register_claude_session': {
-            const { project, session } = args as { project: string; session: string };
-            if (!project || !session) throw new Error('Missing required: project, session');
+            const { project, session, claudePid } = args as { project: string; session: string; claudePid: string | number };
+            if (!project || !session || claudePid === undefined || claudePid === null || claudePid === '') {
+              return JSON.stringify({ success: false, error: 'Missing required: project, session, claudePid' });
+            }
+            const pidStr = String(claudePid).trim();
+            if (!/^[0-9]+$/.test(pidStr)) {
+              return JSON.stringify({ success: false, error: 'claudePid must be a positive integer' });
+            }
             const fs = await import('fs');
-            const pidFile = `/tmp/.claude-session-id-${process.ppid}`;
+            const pidFile = `/tmp/.claude-session-id-${pidStr}`;
             let claudeSessionId: string;
             try {
               claudeSessionId = fs.readFileSync(pidFile, 'utf-8').trim();
-            } catch {
-              return JSON.stringify({ success: false, error: 'No Claude session ID found. Restart Claude Code to initialize the session hook.' });
+            } catch (err: any) {
+              if (err && err.code === 'ENOENT') {
+                return JSON.stringify({ success: false, error: `No Claude session ID file at ${pidFile}. Restart Claude so the SessionStart hook runs.` });
+              }
+              return JSON.stringify({ success: false, error: `Failed to read ${pidFile}: ${err?.message || String(err)}` });
             }
-            const response = await fetch(buildUrl('/api/claude-session/register', project, session), {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ claudeSessionId }),
-            });
-            const data = await response.json();
-            return JSON.stringify(data, null, 2);
+            if (!claudeSessionId) {
+              return JSON.stringify({ success: false, error: `Claude session ID file ${pidFile} is empty. Restart Claude so the SessionStart hook runs.` });
+            }
+            if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(claudeSessionId)) {
+              return JSON.stringify({ success: false, error: `Invalid session id format in ${pidFile} (expected UUID)` });
+            }
+            const bindingFile = `/tmp/.mermaid-collab-binding-${claudeSessionId}.json`;
+            const bindingTmp = `${bindingFile}.tmp.${process.pid}`;
+            try {
+              fs.writeFileSync(
+                bindingTmp,
+                JSON.stringify({
+                  claudeSessionId,
+                  project,
+                  session,
+                  claudePid: pidStr,
+                  boundAt: new Date().toISOString(),
+                }, null, 2),
+                'utf-8'
+              );
+              fs.renameSync(bindingTmp, bindingFile);
+            } catch (err: any) {
+              try { fs.unlinkSync(bindingTmp); } catch {}
+              return JSON.stringify({ success: false, error: `Failed to write binding file ${bindingFile}: ${err?.message || String(err)}` });
+            }
+            try {
+              const response = await fetch(buildUrl('/api/claude-session/register', project, session), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ claudeSessionId }),
+              });
+              if (!response.ok) {
+                const text = await response.text().catch(() => '');
+                return JSON.stringify({ success: false, error: `Server returned ${response.status}: ${text}` });
+              }
+              const data = await response.json();
+              return JSON.stringify(data, null, 2);
+            } catch (err: any) {
+              return JSON.stringify({ success: false, error: `Failed to reach collab server: ${err?.message || String(err)}. Binding file was still written at ${bindingFile}.` });
+            }
           }
 
           case 'check_server_health': {

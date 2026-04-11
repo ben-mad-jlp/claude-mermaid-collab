@@ -55,13 +55,6 @@ function expandPath(path: string): string {
 // Track server start time for uptime calculation
 const serverStartTime = Date.now();
 
-const claudeSessionMap = new Map<string, {
-  project: string;
-  session: string;
-  status: 'active' | 'waiting' | 'permission';
-  lastUpdate: number;
-}>();
-
 /**
  * Extract project and session from query params.
  * Returns null if either is missing.
@@ -2149,13 +2142,6 @@ export async function handleAPI(
       return Response.json({ error: 'claudeSessionId required' }, { status: 400 });
     }
 
-    claudeSessionMap.set(claudeSessionId, {
-      project: params.project,
-      session: params.session,
-      status: 'active',
-      lastUpdate: Date.now(),
-    });
-
     wsHandler.broadcast({
       type: 'claude_session_registered',
       claudeSessionId,
@@ -2168,26 +2154,53 @@ export async function handleAPI(
 
   // POST /api/session-notify
   if (path === '/api/session-notify' && req.method === 'POST') {
-    const { claudeSessionId, status } = await req.json() as { claudeSessionId?: string; status?: string };
+    const { claudeSessionId, project, session, status } = await req.json() as {
+      claudeSessionId?: string;
+      project?: string;
+      session?: string;
+      status?: string;
+    };
 
-    if (!claudeSessionId) {
-      return Response.json({ error: 'claudeSessionId required' }, { status: 400 });
+    const ALLOWED_STATUS = new Set(['active', 'waiting', 'permission']);
+    if (!claudeSessionId || !project || !session || !status || !ALLOWED_STATUS.has(status)) {
+      return Response.json({ error: 'claudeSessionId, project, session, and valid status (active|waiting|permission) required' }, { status: 400 });
     }
 
-    const mapping = claudeSessionMap.get(claudeSessionId);
-    if (!mapping) {
-      return Response.json({ success: false, error: 'Unknown session' });
+    // Validate claudeSessionId is a strict UUID before using it as a filename component.
+    if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(claudeSessionId)) {
+      return Response.json({ error: 'Invalid claudeSessionId format (expected UUID)' }, { status: 400 });
     }
 
-    if (status) {
-      mapping.status = status as 'active' | 'waiting' | 'permission';
+    // Trust boundary: require a matching on-disk binding file written by register_claude_session.
+    // This replaces the in-memory claudeSessionMap registry check. Use async fs to avoid
+    // blocking the event loop.
+    const bindingPath = `/tmp/.mermaid-collab-binding-${claudeSessionId}.json`;
+    let bindingRaw: string;
+    try {
+      const fsPromises = await import('fs/promises');
+      bindingRaw = await fsPromises.readFile(bindingPath, 'utf-8');
+    } catch (err: any) {
+      if (err && err.code === 'ENOENT') {
+        return Response.json({ error: 'Unknown session (no binding)' }, { status: 404 });
+      }
+      return Response.json({ error: `Failed to read binding: ${err?.message || String(err)}` }, { status: 500 });
     }
-    mapping.lastUpdate = Date.now();
+    try {
+      const binding = JSON.parse(bindingRaw) as { project?: string; session?: string };
+      if (binding.project !== project || binding.session !== session) {
+        return Response.json({ error: 'Binding mismatch' }, { status: 403 });
+      }
+    } catch (err: any) {
+      return Response.json({ error: `Corrupt binding file: ${err?.message || String(err)}` }, { status: 500 });
+    }
 
     wsHandler.broadcast({
       type: 'claude_session_status',
       claudeSessionId,
-      ...mapping,
+      project,
+      session,
+      status: status as 'active' | 'waiting' | 'permission',
+      lastUpdate: Date.now(),
     });
 
     return Response.json({ success: true });
