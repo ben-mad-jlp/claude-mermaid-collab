@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { dismissUI, dismissUISchema } from '../dismiss-ui';
 
 // Mock fetch globally
-global.fetch = vi.fn();
+global.fetch = vi.fn() as unknown as typeof fetch;
 
 describe('dismissUI', () => {
   const mockProject = '/path/to/project';

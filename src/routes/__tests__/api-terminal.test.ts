@@ -56,9 +56,9 @@ vi.mock('crypto', () => ({
 
 describe('Terminal API Routes', () => {
   let mockWSHandler: any;
-  const mockManagers = { diagramManager: {}, documentManager: {}, metadataManager: {} };
-  const mockValidator = {};
-  const mockRenderer = {};
+  const mockManagers = { diagramManager: {} as any, documentManager: {} as any, metadataManager: {} as any };
+  const mockValidator = {} as any;
+  const mockRenderer = {} as any;
 
   beforeEach(() => {
     // Reset all mocks

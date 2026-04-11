@@ -68,7 +68,8 @@ const documentManager = new DocumentManager('/tmp');
 const metadataManager = new MetadataManager('/tmp');
 
 // Create HTTP server
-const server = Bun.serve({
+type WsData = { type: string; sessionId?: string; subscriptions: Set<string> };
+const server = Bun.serve<WsData>({
   port: config.PORT,
   hostname: config.HOST,
 
@@ -96,7 +97,7 @@ const server = Bun.serve({
       }
 
       const upgraded = server.upgrade(req, {
-        data: { type: 'terminal', sessionId },
+        data: { type: 'terminal', sessionId, subscriptions: new Set<string>() },
       });
 
       if (upgraded) return undefined;
@@ -208,19 +209,15 @@ const server = Bun.serve({
       const data = ws.data as { type: string };
 
       if (data.type === 'terminal') {
-        handleTerminalClose(ws as any);
+        try {
+          handleTerminalClose(ws as any);
+        } catch (error) {
+          // Surface unexpected close-time errors through the terminal error path
+          handleTerminalError(ws as any, error instanceof Error ? error : new Error(String(error)));
+        }
       } else {
         wsHandler.handleDisconnection(ws);
       }
-    },
-
-    error(ws, error) {
-      const data = ws.data as { type: string };
-
-      if (data.type === 'terminal') {
-        handleTerminalError(ws as any, error);
-      }
-      // Collab errors are handled elsewhere
     },
   },
 });

@@ -193,7 +193,7 @@ export async function handleListStorybookStories(port?: number, host?: string) {
     if (!response.ok) {
       throw new Error(`Storybook returned ${response.status}`);
     }
-    const data = await response.json();
+    const data = (await response.json()) as { entries?: Record<string, unknown> };
     const entries = data.entries || {};
     const stories = Object.values(entries)
       .filter((entry: any) => entry.type === 'story')

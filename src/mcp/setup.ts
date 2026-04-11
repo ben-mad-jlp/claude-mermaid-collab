@@ -261,6 +261,16 @@ function buildUrl(path: string, project: string, session: string, extraParams?: 
   return url.toString();
 }
 
+// Loose JSON shape for arbitrary API response bodies. The MCP setup glues
+// many internal HTTP endpoints together; rather than declaring a precise
+// type for every payload, we treat them as generic key/value records and
+// rely on runtime callers to extract the fields they need. This keeps the
+// surface tsc-clean without weakening overall strict mode.
+type AnyJson = Record<string, any>;
+async function asJson(res: Response): Promise<AnyJson> {
+  return (await res.json()) as AnyJson;
+}
+
 // ============= Diagram Tools =============
 
 async function listDiagrams(project: string, session: string): Promise<string> {
@@ -268,7 +278,7 @@ async function listDiagrams(project: string, session: string): Promise<string> {
   if (!response.ok) {
     throw new Error(`Failed to list diagrams: ${response.statusText}`);
   }
-  const data = await response.json();
+  const data = await asJson(response);
   return JSON.stringify(data, null, 2);
 }
 
@@ -280,7 +290,7 @@ async function getDiagram(project: string, session: string, id: string): Promise
     }
     throw new Error(`Failed to get diagram: ${response.statusText}`);
   }
-  const data = await response.json();
+  const data = await asJson(response);
   return JSON.stringify(data, null, 2);
 }
 
@@ -291,10 +301,10 @@ async function createDiagram(project: string, session: string, name: string, con
     body: JSON.stringify({ name, content }),
   });
   if (!response.ok) {
-    const error = await response.json();
+    const error = await asJson(response);
     throw new Error(`Failed to create diagram: ${error.error || response.statusText}`);
   }
-  const data = await response.json();
+  const data = await asJson(response);
   const previewUrl = `${API_BASE_URL}/diagram.html?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}&id=${data.id}`;
   return JSON.stringify({
     success: true,
@@ -311,7 +321,7 @@ async function updateDiagram(project: string, session: string, id: string, conte
     body: JSON.stringify({ content }),
   });
   if (!response.ok) {
-    const error = await response.json();
+    const error = await asJson(response);
     throw new Error(`Failed to update diagram: ${error.error || response.statusText}`);
   }
   return JSON.stringify({ success: true, id, message: 'Diagram updated successfully' }, null, 2);
@@ -326,7 +336,7 @@ async function validateDiagram(content: string): Promise<string> {
   if (!response.ok) {
     throw new Error(`Failed to validate diagram: ${response.statusText}`);
   }
-  const data = await response.json();
+  const data = await asJson(response);
   return JSON.stringify(data, null, 2);
 }
 
@@ -349,10 +359,10 @@ async function previewDiagram(project: string, session: string, id: string): Pro
 async function transpileDiagram(project: string, session: string, id: string): Promise<string> {
   const response = await fetch(buildUrl(`/api/transpile/${id}`, project, session));
   if (!response.ok) {
-    const error = await response.json();
+    const error = await asJson(response);
     throw new Error(`Failed to transpile diagram: ${error.error || response.statusText}`);
   }
-  const data = await response.json();
+  const data = await asJson(response);
   return data.mermaid;
 }
 
@@ -381,46 +391,17 @@ async function exportDiagramSVG(project: string, session: string, id: string, th
   }, null, 2);
 }
 
-async function exportDiagramPNG(project: string, session: string, id: string, theme?: string, scale?: number): Promise<string> {
-  // First get the SVG
-  const themeParam = theme ? `&theme=${encodeURIComponent(theme)}` : '';
-  const response = await fetch(buildUrl(`/api/render/${id}`, project, session) + themeParam);
-  if (!response.ok) {
-    if (response.status === 404) {
-      throw new Error(`Diagram not found: ${id}`);
-    }
-    throw new Error(`Failed to export diagram: ${response.statusText}`);
-  }
-  const svg = await response.text();
-
-  // Convert SVG to PNG using resvg
-  const resvg = new Resvg(svg, {
-    background: '#ffffff',
-    fitTo: scale ? {
-      mode: 'zoom' as const,
-      value: scale,
-    } : {
-      mode: 'original' as const,
-    },
-  });
-
-  const pngData = resvg.render();
-  const pngBuffer = pngData.asPng();
-  const png = Buffer.from(pngBuffer).toString('base64');
-
-  // Extract dimensions
-  const widthMatch = svg.match(/width="([^"]+)"/);
-  const heightMatch = svg.match(/height="([^"]+)"/);
-  const width = widthMatch ? widthMatch[1] : 'auto';
-  const height = heightMatch ? heightMatch[1] : 'auto';
-
-  return JSON.stringify({
-    id,
-    png,
-    width,
-    height,
-    note: 'PNG is base64 encoded. Save with: echo "<png>" | base64 -d > diagram.png',
-  }, null, 2);
+async function exportDiagramPNG(project: string, session: string, id: string, _theme?: string, _scale?: number): Promise<string> {
+  // PNG export was previously implemented in-process via @resvg/resvg-js,
+  // but that dependency is no longer installed. The diagram SVG endpoint
+  // remains available — callers wanting PNG should rasterize client-side
+  // or use export_design_png for designs.
+  void project; void session; void id;
+  throw new Error(
+    'export_diagram_png is not supported in this build (no server-side ' +
+    'rasterizer). Use export_diagram_svg and rasterize externally, or ' +
+    'use export_design_png for designs.'
+  );
 }
 
 // ============= Document Tools =============
@@ -430,7 +411,7 @@ async function listDocuments(project: string, session: string): Promise<string> 
   if (!response.ok) {
     throw new Error(`Failed to list documents: ${response.statusText}`);
   }
-  const data = await response.json();
+  const data = await asJson(response);
   return JSON.stringify(data, null, 2);
 }
 
@@ -442,7 +423,7 @@ async function getDocument(project: string, session: string, id: string): Promis
     }
     throw new Error(`Failed to get document: ${response.statusText}`);
   }
-  const data = await response.json();
+  const data = await asJson(response);
   return JSON.stringify(data, null, 2);
 }
 
@@ -453,10 +434,10 @@ async function createDocument(project: string, session: string, name: string, co
     body: JSON.stringify({ name, content }),
   });
   if (!response.ok) {
-    const error = await response.json();
+    const error = await asJson(response);
     throw new Error(`Failed to create document: ${error.error || response.statusText}`);
   }
-  const data = await response.json();
+  const data = await asJson(response);
   const previewUrl = `${API_BASE_URL}/document.html?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}&id=${data.id}`;
   return JSON.stringify({
     success: true,
@@ -473,7 +454,7 @@ async function updateDocument(project: string, session: string, id: string, cont
     body: JSON.stringify({ content }),
   });
   if (!response.ok) {
-    const error = await response.json();
+    const error = await asJson(response);
     throw new Error(`Failed to update document: ${error.error || response.statusText}`);
   }
   return JSON.stringify({ success: true, id, message: 'Document updated successfully' }, null, 2);
@@ -487,7 +468,7 @@ async function patchDocument(project: string, session: string, id: string, oldSt
     }
     throw new Error(`Failed to get document: ${getResponse.statusText}`);
   }
-  const docData = await getResponse.json();
+  const docData = await asJson(getResponse);
   const currentContent = docData.content;
 
   const occurrences = currentContent.split(oldString).length - 1;
@@ -512,7 +493,7 @@ async function patchDocument(project: string, session: string, id: string, oldSt
   });
 
   if (!updateResponse.ok) {
-    const error = await updateResponse.json();
+    const error = await asJson(updateResponse);
     throw new Error(`Failed to patch document: ${error.error || updateResponse.statusText}`);
   }
 
@@ -575,7 +556,7 @@ async function getDesignItem(project: string, session: string, id: string, itemN
     }
     throw new Error(`Failed to get document: ${response.statusText}`);
   }
-  const data = await response.json();
+  const data = await asJson(response);
   const { itemText, itemCount } = extractDesignItem(data.content, itemNumber);
 
   return JSON.stringify({
@@ -593,7 +574,7 @@ async function patchDesignItem(project: string, session: string, id: string, ite
     }
     throw new Error(`Failed to get document: ${getResponse.statusText}`);
   }
-  const docData = await getResponse.json();
+  const docData = await asJson(getResponse);
   const fullContent = docData.content;
 
   const { itemText, startIndex, endIndex } = extractDesignItem(fullContent, itemNumber);
@@ -619,7 +600,7 @@ async function patchDesignItem(project: string, session: string, id: string, ite
   });
 
   if (!updateResponse.ok) {
-    const error = await updateResponse.json();
+    const error = await asJson(updateResponse);
     throw new Error(`Failed to patch document: ${error.error || updateResponse.statusText}`);
   }
 
@@ -646,7 +627,7 @@ async function patchDiagram(project: string, session: string, id: string, oldStr
     throw new Error(`Failed to get diagram: ${getResponse.statusText}`);
   }
 
-  const diagram = await getResponse.json();
+  const diagram = await asJson(getResponse);
   const currentContent = diagram.content;
 
   const occurrences = currentContent.split(oldString).length - 1;
@@ -669,7 +650,7 @@ async function patchDiagram(project: string, session: string, id: string, oldStr
   });
 
   if (!updateResponse.ok) {
-    const error = await updateResponse.json();
+    const error = await asJson(updateResponse);
     throw new Error(`Failed to patch diagram: ${error.error || updateResponse.statusText}`);
   }
 
@@ -695,7 +676,7 @@ async function patchSnippet(project: string, session: string, id: string, startL
     throw new Error(`Failed to get snippet: ${getResponse.statusText}`);
   }
 
-  const snippetData = await getResponse.json();
+  const snippetData = await asJson(getResponse);
   const rawContent: string = snippetData.content;
 
   // Snippets store code inside a JSON envelope: { code, language, filePath, ... }
@@ -739,7 +720,7 @@ async function patchSnippet(project: string, session: string, id: string, startL
   });
 
   if (!updateResponse.ok) {
-    const error = await updateResponse.json();
+    const error = await asJson(updateResponse);
     throw new Error(`Failed to patch snippet: ${error.error || updateResponse.statusText}`);
   }
 
@@ -773,7 +754,7 @@ async function listSpreadsheets(project: string, session: string): Promise<strin
   if (!response.ok) {
     throw new Error(`Failed to list spreadsheets: ${response.statusText}`);
   }
-  const data = await response.json();
+  const data = await asJson(response);
   return JSON.stringify(data, null, 2);
 }
 
@@ -785,7 +766,7 @@ async function getSpreadsheet(project: string, session: string, id: string): Pro
     }
     throw new Error(`Failed to get spreadsheet: ${response.statusText}`);
   }
-  const data = await response.json();
+  const data = await asJson(response);
   return JSON.stringify(data, null, 2);
 }
 
@@ -796,10 +777,10 @@ async function createSpreadsheet(project: string, session: string, name: string,
     body: JSON.stringify({ name, content }),
   });
   if (!response.ok) {
-    const error = await response.json();
+    const error = await asJson(response);
     throw new Error(`Failed to create spreadsheet: ${error.error || response.statusText}`);
   }
-  const data = await response.json();
+  const data = await asJson(response);
   return JSON.stringify({
     success: true,
     id: data.id,
@@ -814,7 +795,7 @@ async function updateSpreadsheet(project: string, session: string, id: string, c
     body: JSON.stringify({ content }),
   });
   if (!response.ok) {
-    const error = await response.json();
+    const error = await asJson(response);
     throw new Error(`Failed to update spreadsheet: ${error.error || response.statusText}`);
   }
   return JSON.stringify({ success: true, id, message: 'Spreadsheet updated successfully' }, null, 2);
@@ -827,7 +808,7 @@ async function listSessions(): Promise<string> {
   if (!response.ok) {
     throw new Error(`Failed to list sessions: ${response.statusText}`);
   }
-  const data = await response.json();
+  const data = await asJson(response);
   return JSON.stringify(data, null, 2);
 }
 
@@ -2493,7 +2474,7 @@ IMPORTANT - Common pitfalls to avoid:
               }
               throw new Error(`Failed to get diagram history: ${response.statusText}`);
             }
-            const data = await response.json();
+            const data = await asJson(response);
             return JSON.stringify(data, null, 2);
           }
 
@@ -2505,7 +2486,7 @@ IMPORTANT - Common pitfalls to avoid:
             if (!versionResponse.ok) {
               throw new Error(`Failed to get diagram version: ${versionResponse.statusText}`);
             }
-            const versionData = await versionResponse.json();
+            const versionData = await asJson(versionResponse);
             // Save as current content
             const updateResponse = await fetch(buildUrl(`/api/diagram/${id}`, project, session), {
               method: 'POST',
@@ -2513,7 +2494,7 @@ IMPORTANT - Common pitfalls to avoid:
               body: JSON.stringify({ content: versionData.content }),
             });
             if (!updateResponse.ok) {
-              const error = await updateResponse.json();
+              const error = await asJson(updateResponse);
               throw new Error(`Failed to revert diagram: ${error.error || updateResponse.statusText}`);
             }
             return JSON.stringify({
@@ -2565,7 +2546,7 @@ IMPORTANT - Common pitfalls to avoid:
               }
               throw new Error(`Failed to get document history: ${response.statusText}`);
             }
-            const data = await response.json();
+            const data = await asJson(response);
             return JSON.stringify(data, null, 2);
           }
 
@@ -2851,7 +2832,7 @@ IMPORTANT - Common pitfalls to avoid:
               }
               throw new Error(`Failed to get design history: ${response.statusText}`);
             }
-            const data = await response.json();
+            const data = await asJson(response);
             return JSON.stringify(data, null, 2);
           }
 
@@ -2862,14 +2843,14 @@ IMPORTANT - Common pitfalls to avoid:
             if (!versionResponse.ok) {
               throw new Error(`Failed to get design version: ${versionResponse.statusText}`);
             }
-            const versionData = await versionResponse.json();
+            const versionData = await asJson(versionResponse);
             const updateResponse = await fetch(buildUrl(`/api/design/${id}`, project, session), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ content: versionData.content }),
             });
             if (!updateResponse.ok) {
-              const error = await updateResponse.json();
+              const error = await asJson(updateResponse);
               throw new Error(`Failed to revert design: ${error.error || updateResponse.statusText}`);
             }
             return JSON.stringify({
@@ -3077,7 +3058,7 @@ IMPORTANT - Common pitfalls to avoid:
               }
               throw new Error(`Failed to get design history: ${historyResponse.statusText}`);
             }
-            const historyData = await historyResponse.json();
+            const historyData = await asJson(historyResponse);
             // Get the previous graph
             let previousContent: any;
             if (since) {
@@ -3165,7 +3146,7 @@ IMPORTANT - Common pitfalls to avoid:
             });
 
             if (!response.ok) {
-              const error = await response.json();
+              const error = await asJson(response);
               throw new Error(`Failed to render UI: ${error.error || response.statusText}`);
             }
 
@@ -3193,7 +3174,7 @@ IMPORTANT - Common pitfalls to avoid:
             );
 
             if (!response.ok) {
-              const error = await response.json();
+              const error = await asJson(response);
               throw new Error(`Failed to get UI response: ${error.error || response.statusText}`);
             }
 
@@ -3255,7 +3236,7 @@ IMPORTANT - Common pitfalls to avoid:
                 const text = await response.text().catch(() => '');
                 return JSON.stringify({ success: false, error: `Server returned ${response.status}: ${text}` });
               }
-              const data = await response.json();
+              const data = await asJson(response);
               return JSON.stringify(data, null, 2);
             } catch (err: any) {
               return JSON.stringify({ success: false, error: `Failed to reach collab server: ${err?.message || String(err)}. Binding file was still written at ${bindingFile}.` });
@@ -3297,16 +3278,16 @@ IMPORTANT - Common pitfalls to avoid:
             if (!project || !session) throw new Error('Missing required: project, session');
 
             const [diagrams, documents, designs, snippets] = await Promise.all([
-              fetch(buildUrl('/api/diagrams', project, session)).then(r => r.ok ? r.json() : { diagrams: [] }),
-              fetch(buildUrl('/api/documents', project, session)).then(r => r.ok ? r.json() : { documents: [] }),
-              handleListDesigns(project, session).catch(() => ({ designs: [] })),
-              handleListSnippets(project, session).catch(() => ({ snippets: [] })),
+              fetch(buildUrl('/api/diagrams', project, session)).then(r => r.ok ? r.json() as Promise<AnyJson> : ({ diagrams: [] } as AnyJson)),
+              fetch(buildUrl('/api/documents', project, session)).then(r => r.ok ? r.json() as Promise<AnyJson> : ({ documents: [] } as AnyJson)),
+              handleListDesigns(project, session).catch(() => ({ designs: [] }) as AnyJson),
+              handleListSnippets(project, session).catch(() => ({ snippets: [] }) as AnyJson),
             ]);
 
-            const diagramIds: string[] = (diagrams.diagrams || []).map((d: any) => d.id);
-            const documentIds: string[] = (documents.documents || []).map((d: any) => d.id);
-            const designIds: string[] = (designs.designs || []).map((d: any) => d.id);
-            const snippetIds: string[] = (snippets.snippets || []).map((s: any) => s.id);
+            const diagramIds: string[] = ((diagrams as AnyJson).diagrams || []).map((d: any) => d.id);
+            const documentIds: string[] = ((documents as AnyJson).documents || []).map((d: any) => d.id);
+            const designIds: string[] = ((designs as AnyJson).designs || []).map((d: any) => d.id);
+            const snippetIds: string[] = ((snippets as AnyJson).snippets || []).map((s: any) => s.id);
 
             await Promise.all([
               ...diagramIds.map(id => fetch(buildUrl(`/api/diagram/${id}`, project, session), { method: 'DELETE' })),
@@ -3639,7 +3620,7 @@ IMPORTANT - Common pitfalls to avoid:
               }
               throw new Error(`Failed to get spreadsheet history: ${response.statusText}`);
             }
-            const data = await response.json();
+            const data = await asJson(response);
             return JSON.stringify(data, null, 2);
           }
 
@@ -3689,7 +3670,7 @@ IMPORTANT - Common pitfalls to avoid:
             if (!getResp.ok) {
               throw new Error(`Spreadsheet not found: ${id}`);
             }
-            const ssData = await getResp.json();
+            const ssData = await asJson(getResp);
             const data = JSON.parse(ssData.content) as {
               columns: Array<{ id: string; name: string; type: string; width?: number }>;
               rows: Array<{ id: string; cells: Record<string, any> }>;
@@ -3789,7 +3770,7 @@ IMPORTANT - Common pitfalls to avoid:
             if (!getResp.ok) {
               throw new Error(`Spreadsheet not found: ${id}`);
             }
-            const ssData = await getResp.json();
+            const ssData = await asJson(getResp);
             const data = JSON.parse(ssData.content) as {
               columns: Array<{ id: string; name: string; type: string }>;
               rows: Array<{ id: string; cells: Record<string, any> }>;

@@ -189,7 +189,7 @@ describe('PTYManager', () => {
 
     it('should initialize both fields to false on auto-create via attach', () => {
       const sessionId = 'test-fields-attach-auto';
-      const ws = new MockWebSocket() as any as ServerWebSocket;
+      const ws = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
 
       manager.attach(sessionId, ws);
 
@@ -202,7 +202,7 @@ describe('PTYManager', () => {
       const sessionId = 'test-fields-preserve';
       await manager.create(sessionId);
 
-      const ws = new MockWebSocket() as any as ServerWebSocket;
+      const ws = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
       manager.attach(sessionId, ws);
 
       manager.resize(sessionId, 100, 30);
@@ -218,7 +218,7 @@ describe('PTYManager', () => {
       const sessionId = 'test-attach';
       await manager.create(sessionId);
 
-      const ws = new MockWebSocket() as any as ServerWebSocket;
+      const ws = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
       manager.attach(sessionId, ws);
 
       expect(manager.get(sessionId)!.connectedClients).toBe(1);
@@ -226,7 +226,7 @@ describe('PTYManager', () => {
 
     it('should auto-create session if it does not exist', () => {
       const sessionId = 'test-attach-auto-create';
-      const ws = new MockWebSocket() as any as ServerWebSocket;
+      const ws = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
 
       manager.attach(sessionId, ws);
 
@@ -238,8 +238,8 @@ describe('PTYManager', () => {
       const sessionId = 'test-attach-multiple';
       await manager.create(sessionId);
 
-      const ws1 = new MockWebSocket() as any as ServerWebSocket;
-      const ws2 = new MockWebSocket() as any as ServerWebSocket;
+      const ws1 = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
+      const ws2 = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
 
       manager.attach(sessionId, ws1);
       manager.attach(sessionId, ws2);
@@ -253,7 +253,7 @@ describe('PTYManager', () => {
 
       await new Promise(resolve => setTimeout(resolve, 10));
 
-      const ws = new MockWebSocket() as any as ServerWebSocket;
+      const ws = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
       manager.attach(sessionId, ws);
       const after = manager.get(sessionId);
 
@@ -266,7 +266,7 @@ describe('PTYManager', () => {
       const sessionId = 'test-defer-accept';
       await manager.create(sessionId);
 
-      const ws = new MockWebSocket() as any as ServerWebSocket;
+      const ws = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
 
       // Should not throw
       expect(() => {
@@ -280,7 +280,7 @@ describe('PTYManager', () => {
       const sessionId = 'test-defer-buffer';
       await manager.create(sessionId);
 
-      const ws = new MockWebSocket() as any as ServerWebSocket;
+      const ws = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
 
       // Attach with deferReplay: true
       manager.attach(sessionId, ws, { deferReplay: true });
@@ -293,7 +293,7 @@ describe('PTYManager', () => {
       const sessionId = 'test-defer-false';
       await manager.create(sessionId);
 
-      const ws = new MockWebSocket() as any as ServerWebSocket;
+      const ws = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
 
       // Attach with deferReplay: false (explicit)
       manager.attach(sessionId, ws, { deferReplay: false });
@@ -307,7 +307,7 @@ describe('PTYManager', () => {
       const sessionId = 'test-defer-undefined';
       await manager.create(sessionId);
 
-      const ws = new MockWebSocket() as any as ServerWebSocket;
+      const ws = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
 
       // Attach without options (deferReplay undefined)
       manager.attach(sessionId, ws);
@@ -320,7 +320,7 @@ describe('PTYManager', () => {
       const sessionId = 'test-defer-has-received-resize';
       await manager.create(sessionId);
 
-      const ws = new MockWebSocket() as any as ServerWebSocket;
+      const ws = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
       manager.attach(sessionId, ws, { deferReplay: true });
 
       // hasReceivedResize should be false (we can't directly access it, but we test via resize behavior)
@@ -335,7 +335,7 @@ describe('PTYManager', () => {
     it('should be a public method that sends buffered output', () => {
       // Verify method exists and can be called
       const sessionId = 'test-replay-exists';
-      const ws = new MockWebSocket() as any as ServerWebSocket;
+      const ws = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
 
       expect(() => {
         manager.replayBuffer(sessionId, ws);
@@ -343,7 +343,7 @@ describe('PTYManager', () => {
     });
 
     it('should not throw if session does not exist', () => {
-      const ws = new MockWebSocket() as any as ServerWebSocket;
+      const ws = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
 
       expect(() => {
         manager.replayBuffer('nonexistent', ws);
@@ -354,7 +354,7 @@ describe('PTYManager', () => {
       const sessionId = 'test-replay-on-resize';
       await manager.create(sessionId);
 
-      const ws = new MockWebSocket() as any as ServerWebSocket;
+      const ws = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
 
       // Attach with defer
       manager.attach(sessionId, ws, { deferReplay: true });
@@ -374,7 +374,7 @@ describe('PTYManager', () => {
       const sessionId = 'test-replay-closed-ws';
       await manager.create(sessionId);
 
-      const ws = new MockWebSocket() as any as ServerWebSocket;
+      const ws = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
 
       // Write some data to create buffer content
       manager.write(sessionId, 'test\n');
@@ -395,7 +395,7 @@ describe('PTYManager', () => {
       const sessionId = 'test-resize-trigger-replay';
       await manager.create(sessionId);
 
-      const ws = new MockWebSocket() as any as ServerWebSocket;
+      const ws = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
 
       // Attach with deferReplay
       manager.attach(sessionId, ws, { deferReplay: true });
@@ -413,7 +413,7 @@ describe('PTYManager', () => {
       const sessionId = 'test-resize-single-replay';
       await manager.create(sessionId);
 
-      const ws = new MockWebSocket() as any as ServerWebSocket;
+      const ws = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
 
       manager.attach(sessionId, ws, { deferReplay: true });
 
@@ -433,7 +433,7 @@ describe('PTYManager', () => {
       const sessionId = 'test-resize-no-defer';
       await manager.create(sessionId);
 
-      const ws = new MockWebSocket() as any as ServerWebSocket;
+      const ws = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
 
       // Attach without deferReplay
       manager.attach(sessionId, ws);
@@ -452,7 +452,7 @@ describe('PTYManager', () => {
       const sessionId = 'test-detach';
       await manager.create(sessionId);
 
-      const ws = new MockWebSocket() as any as ServerWebSocket;
+      const ws = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
       manager.attach(sessionId, ws);
       expect(manager.get(sessionId)!.connectedClients).toBe(1);
 
@@ -461,7 +461,7 @@ describe('PTYManager', () => {
     });
 
     it('should be no-op if session not found', () => {
-      const ws = new MockWebSocket() as any as ServerWebSocket;
+      const ws = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
       expect(() => {
         manager.detach('nonexistent', ws);
       }).not.toThrow();
@@ -471,7 +471,7 @@ describe('PTYManager', () => {
       const sessionId = 'test-detach-pty-running';
       await manager.create(sessionId);
 
-      const ws = new MockWebSocket() as any as ServerWebSocket;
+      const ws = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
       manager.attach(sessionId, ws);
       manager.detach(sessionId, ws);
 
@@ -496,8 +496,8 @@ describe('PTYManager', () => {
       const sessionId = 'test-kill-websockets';
       await manager.create(sessionId);
 
-      const ws1 = new MockWebSocket() as any as ServerWebSocket;
-      const ws2 = new MockWebSocket() as any as ServerWebSocket;
+      const ws1 = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
+      const ws2 = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
 
       manager.attach(sessionId, ws1);
       manager.attach(sessionId, ws2);
@@ -536,8 +536,8 @@ describe('PTYManager', () => {
     it('should include connected client counts', async () => {
       await manager.create('session-with-clients');
 
-      const ws1 = new MockWebSocket() as any as ServerWebSocket;
-      const ws2 = new MockWebSocket() as any as ServerWebSocket;
+      const ws1 = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
+      const ws2 = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
 
       manager.attach('session-with-clients', ws1);
       manager.attach('session-with-clients', ws2);
@@ -611,8 +611,8 @@ describe('PTYManager', () => {
       await manager.create('session-1');
       await manager.create('session-2');
 
-      const ws1 = new MockWebSocket() as any as ServerWebSocket;
-      const ws2 = new MockWebSocket() as any as ServerWebSocket;
+      const ws1 = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
+      const ws2 = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
 
       manager.attach('session-1', ws1);
       manager.attach('session-2', ws2);
@@ -639,7 +639,7 @@ describe('PTYManager', () => {
       expect(manager.has(sessionId)).toBe(true);
 
       // Attach WebSocket
-      const ws = new MockWebSocket() as any as ServerWebSocket;
+      const ws = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
       manager.attach(sessionId, ws);
       expect(manager.get(sessionId)!.connectedClients).toBe(1);
 
@@ -696,7 +696,7 @@ describe('PTYManager', () => {
       const sessionId = 'attach-detach-test';
       await manager.create(sessionId);
 
-      const ws = new MockWebSocket() as any as ServerWebSocket;
+      const ws = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
 
       manager.attach(sessionId, ws);
       expect(manager.get(sessionId)!.connectedClients).toBe(1);

@@ -15,7 +15,7 @@ import {
 } from '../snippet';
 
 // Mock fetch globally
-global.fetch = vi.fn();
+global.fetch = vi.fn() as unknown as typeof fetch;
 
 const mockFetch = global.fetch as any;
 

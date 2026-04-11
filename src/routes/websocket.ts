@@ -37,7 +37,7 @@ interface TerminalWebSocketData {
 /**
  * Send error message to WebSocket
  */
-function sendError(ws: ServerWebSocket, message: string): void {
+function sendError(ws: ServerWebSocket<any>, message: string): void {
   try {
     ws.send(JSON.stringify({ type: 'error', message } as ServerMessage));
   } catch (error) {

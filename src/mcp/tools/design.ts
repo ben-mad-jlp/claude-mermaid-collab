@@ -135,11 +135,11 @@ export async function handleCreateDesign(
   });
 
   if (!response.ok) {
-    const error = await response.json();
+    const error = (await response.json()) as { error?: string };
     throw new Error(`Failed to create design: ${error.error || response.statusText}`);
   }
 
-  const data = await response.json();
+  const data = (await response.json()) as { id: string };
   return { success: true, id: data.id };
 }
 
@@ -156,7 +156,7 @@ export async function handleUpdateDesign(
   });
 
   if (!response.ok) {
-    const error = await response.json();
+    const error = (await response.json()) as { error?: string };
     throw new Error(`Failed to update design: ${error.error || response.statusText}`);
   }
 
@@ -174,7 +174,7 @@ export async function handleGetDesign(
     throw new Error(`Design not found: ${id}`);
   }
 
-  const data = await response.json();
+  const data = (await response.json()) as { id: string; content: string | unknown; lastModified: number };
   return {
     id: data.id,
     name: data.id,
@@ -193,8 +193,8 @@ export async function handleListDesigns(
     throw new Error(`Failed to list designs: ${response.statusText}`);
   }
 
-  const data = await response.json();
-  return { designs: data.designs || [] };
+  const data = (await response.json()) as { designs?: unknown[] };
+  return { designs: (data.designs as any) || [] };
 }
 
 export async function handleDeleteDesign(
@@ -207,7 +207,7 @@ export async function handleDeleteDesign(
   });
 
   if (!response.ok) {
-    const error = await response.json();
+    const error = (await response.json()) as { error?: string };
     throw new Error(`Failed to delete design: ${error.error || response.statusText}`);
   }
 
@@ -228,7 +228,7 @@ export async function handleExportDesign(
   );
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
+    const error = (await response.json().catch(() => ({ error: response.statusText }))) as { error?: string };
     throw new Error(`Failed to export design: ${error.error || response.statusText}`);
   }
 

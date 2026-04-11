@@ -40,13 +40,13 @@ export async function dismissUI(project: string, session: string): Promise<strin
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
+      const error = (await response.json().catch(() => ({}))) as { error?: string };
       throw new Error(
         `Failed to dismiss UI: ${error.error || response.statusText}`
       );
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as { message?: string };
     return JSON.stringify({
       success: true,
       message: data.message || 'UI dismissed successfully',

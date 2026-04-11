@@ -60,7 +60,7 @@ describe('Alias Generator', () => {
     });
 
     it('should handle empty keyword list', () => {
-      const keywords = [];
+      const keywords: string[] = [];
       const result = expandWithSynonyms(keywords);
       expect(result).toEqual([]);
     });
@@ -186,7 +186,7 @@ describe('Alias Generator', () => {
     });
 
     it('should handle empty keyword list', () => {
-      const keywords = [];
+      const keywords: string[] = [];
       const result = expandWithAbbreviations(keywords);
       expect(result).toEqual([]);
     });
@@ -477,6 +477,7 @@ describe('Alias Generator', () => {
       technical,
       files: '',
       related: '',
+      diagrams: '',
     });
 
     it('should extract keywords from content sections', () => {
@@ -690,6 +691,7 @@ describe('Alias Generator', () => {
         technical: 'token based',
         files: 'authentication.ts auth-service.ts',
         related: 'authorization security',
+        diagrams: '',
       };
       const result = extractContentKeywords(content, 5);
       // Should only use conceptual and technical
@@ -735,6 +737,7 @@ describe('Alias Generator', () => {
       technical,
       files: '',
       related: '',
+      diagrams: '',
     });
 
     it('should generate aliases from topic title only', () => {

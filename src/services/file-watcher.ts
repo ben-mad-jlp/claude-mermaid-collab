@@ -16,7 +16,12 @@ export class FileWatcher {
 
   start(): void {
     // Watch diagrams
-    const diagramWatcher = chokidar.watch(`${config.DIAGRAMS_FOLDER}/*.mmd`, {
+    // NOTE: This legacy watcher is not wired into the current session-aware
+    // server and retains the old flat-folder layout. `config` no longer
+    // exposes `DIAGRAMS_FOLDER` / `DOCUMENTS_FOLDER`, so we fall back to
+    // reasonable defaults under `PUBLIC_DIR`.
+    const diagramsFolder = (config as any).DIAGRAMS_FOLDER || `${config.PUBLIC_DIR}/diagrams`;
+    const diagramWatcher = chokidar.watch(`${diagramsFolder}/*.mmd`, {
       persistent: true,
       ignoreInitial: true,
       awaitWriteFinish: {
@@ -40,8 +45,9 @@ export class FileWatcher {
       this.emit({ type: 'deleted', resourceType: 'diagram', id, path });
     });
 
-    // Watch documents
-    const documentWatcher = chokidar.watch(`${config.DOCUMENTS_FOLDER}/*.md`, {
+    // Watch documents (see note above about legacy layout)
+    const documentsFolder = (config as any).DOCUMENTS_FOLDER || `${config.PUBLIC_DIR}/documents`;
+    const documentWatcher = chokidar.watch(`${documentsFolder}/*.md`, {
       persistent: true,
       ignoreInitial: true,
       awaitWriteFinish: {

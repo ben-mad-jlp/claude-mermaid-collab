@@ -11,7 +11,7 @@ import { test, expect, describe, beforeEach, vi, afterEach } from 'vitest';
 import { mkdir, writeFile, unlink } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import type { WebSocketHandler } from '../../websocket/handler';
+import type { WebSocketHandler } from '../../../websocket/handler';
 import { updateSessionState, type StateUpdateParams, type CollabState } from '../collab-state';
 
 describe('updateSessionState - Broadcast Functionality', () => {

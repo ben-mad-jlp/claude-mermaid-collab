@@ -163,7 +163,7 @@ describe('POST /api/render-ui', () => {
 
       // Cancel the pending request by dismissing the UI
       uiManager.dismissUI('test-project:test-session');
-    }, { timeout: 10000 });
+    }, 10000);
 
     test('should handle non-blocking request without timeout', async () => {
       const ui = {
@@ -452,7 +452,7 @@ describe('POST /api/render-ui', () => {
 
       // Clean up by dismissing the UI
       uiManager.dismissUI('test-project:test-session');
-    }, { timeout: 10000 });
+    }, 10000);
   });
 
   describe('UIManager Integration', () => {

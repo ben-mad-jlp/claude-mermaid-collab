@@ -183,7 +183,7 @@ describe('renderUI', () => {
   let wsHandler: any;
 
   beforeEach(() => {
-    wsHandler = new MockWebSocketHandler();
+    wsHandler = new MockWebSocketHandler() as unknown as WebSocketHandler;
   });
 
   it('should validate project parameter', async () => {
@@ -338,7 +338,7 @@ describe('handleUIResponse', () => {
   let wsHandler: any;
 
   beforeEach(() => {
-    wsHandler = new MockWebSocketHandler();
+    wsHandler = new MockWebSocketHandler() as unknown as WebSocketHandler;
   });
 
   it('should handle valid response', () => {
@@ -427,7 +427,7 @@ describe('createUIResponse', () => {
 
 describe('timeout removal verification', () => {
   it('renderUI should accept 5 parameters (no timeout)', async () => {
-    const wsHandler = new MockWebSocketHandler();
+    const wsHandler = new MockWebSocketHandler() as unknown as WebSocketHandler;
     const ui = { type: 'Card', props: {} };
 
     // This should not throw - function signature should be:
@@ -450,7 +450,7 @@ describe('timeout removal verification', () => {
   });
 
   it('should not accept timeout parameter in renderUI', async () => {
-    const wsHandler = new MockWebSocketHandler();
+    const wsHandler = new MockWebSocketHandler() as unknown as WebSocketHandler;
     const ui = { type: 'Card', props: {} };
 
     // TypeScript should error if we try to pass 6 parameters with timeout

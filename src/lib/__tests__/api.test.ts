@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { APIClient, type APIError } from '../api';
 
 // Mock fetch globally
-global.fetch = vi.fn();
+global.fetch = vi.fn() as unknown as typeof fetch;
 
 describe('APIClient', () => {
   let client: APIClient;
@@ -14,7 +14,7 @@ describe('APIClient', () => {
 
   beforeEach(() => {
     client = new APIClient('http://localhost:3737');
-    fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    fetchMock = global.fetch as unknown as ReturnType<typeof vi.fn>;
     fetchMock.mockClear();
   });
 

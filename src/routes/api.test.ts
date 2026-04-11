@@ -66,7 +66,7 @@ describe('API Projects Endpoints', () => {
       const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.projects).toEqual([]);
     });
 
@@ -79,7 +79,7 @@ describe('API Projects Endpoints', () => {
       const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.projects).toHaveLength(2);
       expect(data.projects.map((p: any) => p.path)).toContain(testProjectPath);
       expect(data.projects.map((p: any) => p.path)).toContain(testProjectPath2);
@@ -92,7 +92,7 @@ describe('API Projects Endpoints', () => {
       const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       const project = data.projects[0];
       expect(project).toHaveProperty('path');
       expect(project).toHaveProperty('name');
@@ -110,7 +110,7 @@ describe('API Projects Endpoints', () => {
       const req = new Request('http://localhost/api/projects', { method: 'GET' });
       const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.projects[0].path).toBe(testProjectPath2);
       expect(data.projects[1].path).toBe(testProjectPath);
     });
@@ -126,7 +126,7 @@ describe('API Projects Endpoints', () => {
       const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
       expect(response.status).toBe(201);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.success).toBe(true);
       expect(data.project).toBeDefined();
       expect(data.project.path).toBe(testProjectPath);
@@ -143,7 +143,7 @@ describe('API Projects Endpoints', () => {
       const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
       expect(response.status).toBe(400);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.success).toBe(false);
       expect(data.error).toBeTruthy();
     });
@@ -157,7 +157,7 @@ describe('API Projects Endpoints', () => {
       const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
       expect(response.status).toBe(400);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.success).toBe(false);
       expect(data.error).toBeTruthy();
     });
@@ -171,7 +171,7 @@ describe('API Projects Endpoints', () => {
       const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
       expect(response.status).toBe(400);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.success).toBe(false);
       expect(data.error).toBeTruthy();
     });
@@ -194,7 +194,7 @@ describe('API Projects Endpoints', () => {
       const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
       expect(response.status).toBe(201);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.success).toBe(true);
       expect(data.project.lastAccess).not.toBe(firstTime);
     });
@@ -228,7 +228,7 @@ describe('API Projects Endpoints', () => {
       const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.success).toBe(true);
     });
 
@@ -240,7 +240,7 @@ describe('API Projects Endpoints', () => {
       const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
       expect(response.status).toBe(404);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.success).toBe(false);
       expect(data.error).toBeTruthy();
     });
@@ -250,7 +250,7 @@ describe('API Projects Endpoints', () => {
       const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
       expect(response.status).toBe(400);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.success).toBe(false);
       expect(data.error).toBeTruthy();
     });
@@ -305,7 +305,7 @@ describe('API Projects Endpoints', () => {
       const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.success).toBe(true);
       expect(data.uiId).toBeDefined();
     });
@@ -344,7 +344,7 @@ describe('API Projects Endpoints', () => {
       const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
       expect(response.status).toBe(400);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.error).toBeTruthy();
     });
 
@@ -363,7 +363,7 @@ describe('API Projects Endpoints', () => {
       const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
       expect(response.status).toBe(400);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.error).toBeTruthy();
     });
 
@@ -444,7 +444,7 @@ describe('API Projects Endpoints', () => {
         const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler2);
 
         expect(response.status).toBe(400);
-        const data = await response.json();
+        const data = await response.json() as any;
         expect(data.error).toContain('project and session');
       });
 
@@ -453,7 +453,7 @@ describe('API Projects Endpoints', () => {
         const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler2);
 
         expect(response.status).toBe(200);
-        const data = await response.json();
+        const data = await response.json() as any;
         expect(data.sessions).toBeDefined();
         expect(Array.isArray(data.sessions)).toBe(true);
       });
@@ -467,7 +467,7 @@ describe('API Projects Endpoints', () => {
         const response = await handleAPI(deleteReq, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler2);
 
         expect(response.status).toBe(400);
-        const data = await response.json();
+        const data = await response.json() as any;
         expect(data.error).toContain('project and session');
       });
 
@@ -478,7 +478,7 @@ describe('API Projects Endpoints', () => {
         const response = await handleAPI(deleteReq, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler2);
 
         expect(response.status).toBe(404);
-        const data = await response.json();
+        const data = await response.json() as any;
         expect(data.error).toContain('not found');
       });
     });
@@ -492,7 +492,7 @@ describe('API Projects Endpoints', () => {
         const response = await handleAPI(renameReq, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler2);
 
         expect(response.status).toBe(400);
-        const data = await response.json();
+        const data = await response.json() as any;
         expect(data.error).toContain('project and session');
       });
 
@@ -504,7 +504,7 @@ describe('API Projects Endpoints', () => {
         const response = await handleAPI(renameReq, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler2);
 
         expect(response.status).toBe(404);
-        const data = await response.json();
+        const data = await response.json() as any;
         expect(data.error).toContain('not found');
       });
     });
@@ -565,7 +565,7 @@ describe('API Projects Endpoints', () => {
         const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
         expect(response.status).toBe(400);
-        const data = await response.json();
+        const data = await response.json() as any;
         expect(data.error).toContain('project and session');
       });
 
@@ -578,7 +578,7 @@ describe('API Projects Endpoints', () => {
         const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
         expect(response.status).toBe(400);
-        const data = await response.json();
+        const data = await response.json() as any;
         expect(data.error).toContain('Name and content');
       });
 
@@ -591,7 +591,7 @@ describe('API Projects Endpoints', () => {
         const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
         expect(response.status).toBe(200);
-        const data = await response.json();
+        const data = await response.json() as any;
         expect(data.success).toBe(true);
         expect(data.id).toBeDefined();
         expect(mockWSHandler.broadcast).toHaveBeenCalled();
@@ -604,7 +604,7 @@ describe('API Projects Endpoints', () => {
         const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
         expect(response.status).toBe(400);
-        const data = await response.json();
+        const data = await response.json() as any;
         expect(data.error).toContain('project and session');
       });
 
@@ -615,7 +615,7 @@ describe('API Projects Endpoints', () => {
         const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
         expect(response.status).toBe(200);
-        const data = await response.json();
+        const data = await response.json() as any;
         expect(data.snippets).toEqual([]);
       });
 
@@ -635,7 +635,7 @@ describe('API Projects Endpoints', () => {
         const response = await handleAPI(listReq, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
         expect(response.status).toBe(200);
-        const data = await response.json();
+        const data = await response.json() as any;
         expect(Array.isArray(data.snippets)).toBe(true);
         expect(data.snippets.length).toBe(1);
         expect(data.snippets[0].id).toBe('test-snippet');
@@ -648,7 +648,7 @@ describe('API Projects Endpoints', () => {
         const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
         expect(response.status).toBe(400);
-        const data = await response.json();
+        const data = await response.json() as any;
         expect(data.error).toContain('project and session');
       });
 
@@ -659,7 +659,7 @@ describe('API Projects Endpoints', () => {
         const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
         expect(response.status).toBe(404);
-        const data = await response.json();
+        const data = await response.json() as any;
         expect(data.error).toContain('not found');
       });
 
@@ -679,7 +679,7 @@ describe('API Projects Endpoints', () => {
         const response = await handleAPI(getReq, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
         expect(response.status).toBe(200);
-        const data = await response.json();
+        const data = await response.json() as any;
         expect(data.id).toBe('test-snippet');
         expect(data.content).toBe('console.log("test");');
         expect(data.lastModified).toBeDefined();
@@ -696,7 +696,7 @@ describe('API Projects Endpoints', () => {
         const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
         expect(response.status).toBe(400);
-        const data = await response.json();
+        const data = await response.json() as any;
         expect(data.error).toContain('project and session');
       });
 
@@ -716,7 +716,7 @@ describe('API Projects Endpoints', () => {
         const response = await handleAPI(updateReq, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
         expect(response.status).toBe(400);
-        const data = await response.json();
+        const data = await response.json() as any;
         expect(data.error).toContain('Content');
       });
 
@@ -738,7 +738,7 @@ describe('API Projects Endpoints', () => {
         const response = await handleAPI(updateReq, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
         expect(response.status).toBe(200);
-        const data = await response.json();
+        const data = await response.json() as any;
         expect(data.success).toBe(true);
 
         // Verify the update
@@ -746,7 +746,7 @@ describe('API Projects Endpoints', () => {
           method: 'GET',
         });
         const getResponse = await handleAPI(getReq, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
-        const getData = await getResponse.json();
+        const getData = await getResponse.json() as any;
         expect(getData.content).toBe('updated content');
       });
     });
@@ -757,7 +757,7 @@ describe('API Projects Endpoints', () => {
         const response = await handleAPI(req, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
         expect(response.status).toBe(400);
-        const data = await response.json();
+        const data = await response.json() as any;
         expect(data.error).toContain('project and session');
       });
 
@@ -777,7 +777,7 @@ describe('API Projects Endpoints', () => {
         const response = await handleAPI(deleteReq, {} as any, {} as any, {} as any, mockValidator, mockRenderer, mockWSHandler);
 
         expect(response.status).toBe(200);
-        const data = await response.json();
+        const data = await response.json() as any;
         expect(data.success).toBe(true);
 
         // Verify deletion

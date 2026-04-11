@@ -8,7 +8,7 @@ export class DiagramManager {
   private basePath: string;
 
   constructor(basePath?: string) {
-    this.basePath = basePath || this.basePath;
+    this.basePath = basePath || '';
   }
 
   async initialize(): Promise<void> {

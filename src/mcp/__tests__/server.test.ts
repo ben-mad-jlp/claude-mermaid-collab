@@ -16,13 +16,13 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 // requires stdio transport setup which is complex in testing environment
 
 // Import the tool functions and schemas
-import { renderUISchema, validateUIStructure, validateTimeout } from '../tools/render-ui.js';
+import { renderUISchema, validateUIStructure } from '../tools/render-ui.js';
 import { updateUI, updateUISchema } from '../tools/update-ui.js';
 import { dismissUI, dismissUISchema } from '../tools/dismiss-ui.js';
 import type { UIComponent } from '../../ai-ui.js';
 
 // Mock fetch globally
-global.fetch = vi.fn();
+global.fetch = vi.fn() as unknown as typeof fetch;
 
 // ============================================================================
 // TEST HELPERS
@@ -156,7 +156,7 @@ describe('render_ui Tool Integration (MCP Server)', () => {
     });
 
     if (!response.ok) {
-      const error = await response.json();
+      const error = await response.json() as any;
       throw new Error(`Failed to render UI: ${error.error || response.statusText}`);
     }
 
@@ -235,7 +235,7 @@ describe('render_ui Tool Integration (MCP Server)', () => {
     });
 
     if (!response.ok) {
-      const error = await response.json();
+      const error = await response.json() as any;
       expect(error.error).toBe('ui required');
     }
   });
@@ -671,7 +671,7 @@ describe('MCP Tools Integration Scenarios', () => {
         body: JSON.stringify({ ui: null }),
       });
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json() as any;
         throw new Error(`Failed to render UI: ${error.error}`);
       }
     } catch (error: any) {

@@ -1,4 +1,8 @@
-import { UINode } from './ai-ui';
+// UINode represents an arbitrary JSON UI tree passed through MCP to the
+// browser renderer. The schema is defined by the UI side; we treat it as an
+// opaque record on the backend to avoid coupling the server to the frontend
+// node taxonomy.
+export type UINode = Record<string, unknown>;
 
 /**
  * Question object representing a question from Claude

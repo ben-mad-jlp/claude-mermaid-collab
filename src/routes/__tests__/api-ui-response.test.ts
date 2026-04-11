@@ -115,7 +115,7 @@ describe('POST /api/ui-response', () => {
 
       // Clean up the render promise
       await renderPromise.catch(() => {});
-    }, { timeout: 15000 });
+    }, 15000);
 
     test('should accept response without source param (default to browser)', async () => {
       const sessionKey = 'test-project:test-session';
@@ -176,7 +176,7 @@ describe('POST /api/ui-response', () => {
 
       // Clean up
       await renderPromise.catch(() => {});
-    }, { timeout: 15000 });
+    }, 15000);
 
     test('should accept response with action and data', async () => {
       const sessionKey = 'test-project:test-session';
@@ -236,7 +236,7 @@ describe('POST /api/ui-response', () => {
 
       // Clean up
       await renderPromise.catch(() => {});
-    }, { timeout: 15000 });
+    }, 15000);
 
     test('should accept response with only uiId (no action/data)', async () => {
       const sessionKey = 'test-project:test-session';
@@ -291,7 +291,7 @@ describe('POST /api/ui-response', () => {
 
       // Clean up
       await renderPromise.catch(() => {});
-    }, { timeout: 15000 });
+    }, 15000);
   });
 
   describe('Error Handling - Missing Params', () => {
@@ -482,7 +482,7 @@ describe('POST /api/ui-response', () => {
 
       // Clean up
       await renderPromise.catch(() => {});
-    }, { timeout: 15000 });
+    }, 15000);
 
     test('should resolve pending UI promise when response is received', async () => {
       const sessionKey = 'test-project:test-session';
@@ -546,7 +546,7 @@ describe('POST /api/ui-response', () => {
       expect(renderData.source).toBe('browser');
       expect(renderData.action).toBe('submit');
       expect(renderData.data).toEqual({ result: 'success' });
-    }, { timeout: 15000 });
+    }, 15000);
   });
 
   describe('Source Parameter', () => {
@@ -607,7 +607,7 @@ describe('POST /api/ui-response', () => {
       const renderResponse = await renderPromise;
       const renderData = await renderResponse.json() as any;
       expect(renderData.source).toBe('terminal');
-    }, { timeout: 15000 });
+    }, 15000);
 
     test('should default source to browser when not provided', async () => {
       const sessionKey = 'test-project:test-session';
@@ -663,6 +663,6 @@ describe('POST /api/ui-response', () => {
       const renderResponse = await renderPromise;
       const renderData = await renderResponse.json() as any;
       expect(renderData.source).toBe('browser');
-    }, { timeout: 15000 });
+    }, 15000);
   });
 });

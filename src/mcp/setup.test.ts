@@ -23,7 +23,7 @@ vi.mock('../services/project-registry.js', () => ({
 }));
 
 // Mock fetch for render_ui tests
-global.fetch = vi.fn();
+global.fetch = vi.fn() as unknown as typeof fetch;
 
 describe('MCP Server Setup - Projects Tools', () => {
   beforeEach(() => {

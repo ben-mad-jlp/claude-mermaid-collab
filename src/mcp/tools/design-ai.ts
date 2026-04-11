@@ -27,6 +27,10 @@ interface Fill {
   color: Color
   opacity: number
   visible: boolean
+  // Image fills additionally carry the imageHash of the embedded image plus
+  // a scale mode describing how to size the image within the frame.
+  imageHash?: string
+  imageScaleMode?: string
 }
 
 interface Stroke {

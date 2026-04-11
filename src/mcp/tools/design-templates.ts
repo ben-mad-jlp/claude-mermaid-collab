@@ -503,7 +503,7 @@ export async function handleCreateDesignTokens(
   preset?: string,
   custom?: Partial<TokenSet>
 ): Promise<{ success: boolean; collectionId: string; variableIds: string[] }> {
-  const tokenSet: Partial<TokenSet> = preset ? TOKEN_PRESETS[preset] : custom
+  const tokenSet: Partial<TokenSet> | undefined = preset ? TOKEN_PRESETS[preset] : custom
   if (!tokenSet) throw new Error(`Unknown preset: ${preset}. Available: ${Object.keys(TOKEN_PRESETS).join(', ')}`)
 
   const design = await handleGetDesign(project, session, designId)

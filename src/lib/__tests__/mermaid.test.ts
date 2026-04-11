@@ -1,3 +1,4 @@
+import { describe, it, expect, beforeEach } from 'vitest';
 import {
   initializeMermaid,
   renderToSVG,
@@ -131,7 +132,7 @@ describe('Mermaid Library', () => {
 
       try {
         await renderToSVG(invalidDiagram);
-        fail('Should have thrown MermaidError');
+        expect.fail('Should have thrown MermaidError');
       } catch (error) {
         expect(error).toBeInstanceOf(MermaidError);
         expect((error as MermaidError).message).toContain('Failed to render diagram');
@@ -143,7 +144,7 @@ describe('Mermaid Library', () => {
 
       try {
         await renderToSVG(incompleteDiagram);
-        fail('Should have thrown MermaidError');
+        expect.fail('Should have thrown MermaidError');
       } catch (error) {
         expect(error).toBeInstanceOf(MermaidError);
       }
@@ -224,7 +225,7 @@ describe('Mermaid Library', () => {
     it('should throw MermaidError for invalid diagrams', async () => {
       try {
         await renderWithDimensions('invalid');
-        fail('Should have thrown MermaidError');
+        expect.fail('Should have thrown MermaidError');
       } catch (error) {
         expect(error).toBeInstanceOf(MermaidError);
       }

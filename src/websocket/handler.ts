@@ -13,25 +13,29 @@ export interface NotificationData {
 
 export type WSMessage =
   | { type: 'connected'; diagramCount: number }
-  | { type: 'diagram_updated'; id: string; content: string; lastModified: number; patch?: { oldString: string; newString: string } }
+  | { type: 'diagram_updated'; id: string; content: string; lastModified: number; patch?: { oldString: string; newString: string }; project?: string; session?: string }
   | { type: 'diagram_created'; id: string; name: string; content: string; lastModified: number; project: string; session: string }
   | { type: 'diagram_deleted'; id: string; project: string; session: string }
-  | { type: 'document_updated'; id: string; content: string; lastModified: number; patch?: { oldString: string; newString: string } }
+  | { type: 'diagram_history_updated'; id: string; project: string; session: string; changeCount?: number }
+  | { type: 'document_updated'; id: string; content: string; lastModified: number; patch?: { oldString: string; newString: string }; project?: string; session?: string }
   | { type: 'document_created'; id: string; name: string; content: string; lastModified: number; project: string; session: string }
   | { type: 'document_deleted'; id: string; project: string; session: string }
+  | { type: 'document_history_updated'; id: string; project: string; session: string; changeCount?: number }
   | { type: 'spreadsheet_updated'; id: string; content: string; lastModified: number; project: string; session: string }
   | { type: 'spreadsheet_created'; id: string; name: string; content: string; lastModified: number; project: string; session: string }
   | { type: 'spreadsheet_deleted'; id: string; project: string; session: string }
   | { type: 'snippet_updated'; id: string; content: string; lastModified: number; project: string; session: string }
   | { type: 'snippet_created'; id: string; name: string; content: string; lastModified: number; project: string; session: string }
   | { type: 'snippet_deleted'; id: string; project: string; session: string }
-  | { type: 'embed_created'; id: string; name: string; url: string; subtype?: 'storybook'; createdAt: string; storybook?: { storyId: string; port: number }; project: string; session: string }
+  | { type: 'embed_created'; id: string; name: string; url: string; subtype?: 'storybook'; createdAt: string; storybook?: { storyId: string; port: number }; width?: string; height?: string; project: string; session: string }
   | { type: 'embed_deleted'; id: string; project: string; session: string }
+  | { type: 'image_created'; id: string; name: string; url?: string; project: string; session: string; [k: string]: unknown }
+  | { type: 'image_deleted'; id: string; project: string; session: string }
   | { type: 'design_updated'; id: string; content: string; sender?: string; project: string; session: string }
   | { type: 'design_created'; id: string; project: string; session: string }
   | { type: 'design_deleted'; id: string; project: string; session: string }
   | { type: 'design_history_updated'; id: string; project: string; session: string; changeCount: number }
-  | { type: 'metadata_updated'; itemId?: string; updates?: Record<string, unknown>; foldersChanged?: boolean }
+  | { type: 'metadata_updated'; itemId?: string; updates?: Record<string, unknown>; foldersChanged?: boolean; project?: string; session?: string }
   | { type: 'subscribe'; id?: string; channel?: string }
   | { type: 'unsubscribe'; id?: string; channel?: string }
   | { type: 'question_responded'; questionId: string; response: string; project: string; session: string }
@@ -39,10 +43,14 @@ export type WSMessage =
   | { type: 'ui_dismissed'; project: string; session: string }
   | { type: 'ui_updated'; patch: Record<string, unknown>; project: string; session: string }
   | { type: 'session_created'; project: string; session: string }
+  | { type: 'session_deleted'; project: string; session: string }
   | { type: 'session_todos_updated'; project: string; session: string }
+  | { type: 'claude_session_registered'; project: string; session: string; claudePid?: string | number; claudeSessionId?: string; [k: string]: unknown }
+  | { type: 'claude_session_status'; project: string; session: string; status: string; [k: string]: unknown }
+  | { type: 'lesson_added'; project: string; session: string; [k: string]: unknown }
   | { type: 'notification'; data: NotificationData }
   | { type: 'status_changed'; status: 'working' | 'waiting' | 'idle'; message?: string; lastActivity: string }
-  | { type: 'session_state_updated'; lastActivity: string; completedTasks?: string[]; pendingTasks?: string[] };
+  | { type: 'session_state_updated'; lastActivity?: string; completedTasks?: string[]; pendingTasks?: string[]; project?: string; session?: string; state?: unknown };
 
 export class WebSocketHandler {
   private connections: Set<ServerWebSocket<{ subscriptions: Set<string> }>> = new Set();

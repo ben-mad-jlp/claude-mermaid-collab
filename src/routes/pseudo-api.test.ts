@@ -74,7 +74,7 @@ describe('Pseudo API Routes', () => {
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(400);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.error).toBeDefined();
       expect(data.error).toContain('project');
     });
@@ -87,7 +87,7 @@ describe('Pseudo API Routes', () => {
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.files).toEqual([]);
     });
 
@@ -111,7 +111,7 @@ describe('Pseudo API Routes', () => {
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.files).toHaveLength(2);
       const paths = data.files.map((f: any) => f.filePath);
       expect(paths).toContain(authSrc);
@@ -142,7 +142,7 @@ describe('Pseudo API Routes', () => {
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.files).toHaveLength(3);
       // Each entry should have summary fields from PseudoFileSummary
       for (const entry of data.files) {
@@ -174,7 +174,7 @@ describe('Pseudo API Routes', () => {
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.files).toHaveLength(2);
       const paths = data.files.map((f: any) => f.filePath);
       expect(paths).toContain(rootSrc);
@@ -189,7 +189,7 @@ describe('Pseudo API Routes', () => {
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(400);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.error).toBeDefined();
     });
 
@@ -199,7 +199,7 @@ describe('Pseudo API Routes', () => {
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(404);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.error).toBeDefined();
     });
 
@@ -230,7 +230,7 @@ describe('Pseudo API Routes', () => {
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.filePath).toBe(srcPath);
       expect(data.title).toBe('Test Module');
       expect(Array.isArray(data.methods)).toBe(true);
@@ -256,7 +256,7 @@ describe('Pseudo API Routes', () => {
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.filePath).toBe(srcPath);
       expect(data.methods).toHaveLength(1);
       expect(data.methods[0].name).toBe('nested');
@@ -270,7 +270,7 @@ describe('Pseudo API Routes', () => {
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(400);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.error).toBeDefined();
     });
 
@@ -291,7 +291,7 @@ describe('Pseudo API Routes', () => {
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(Array.isArray(data.matches)).toBe(true);
       expect(data.matches).toEqual([]);
     });
@@ -318,7 +318,7 @@ describe('Pseudo API Routes', () => {
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(Array.isArray(data.matches)).toBe(true);
       expect(data.matches.length).toBeGreaterThan(0);
       expect(data.matches[0].filePath).toBe(srcPath);
@@ -347,7 +347,7 @@ describe('Pseudo API Routes', () => {
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(Array.isArray(data.matches)).toBe(true);
       // Both methods contain "print" in their steps, so both should match
       expect(data.matches).toHaveLength(2);
@@ -372,7 +372,7 @@ describe('Pseudo API Routes', () => {
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(Array.isArray(data.matches)).toBe(true);
       expect(data.matches.length).toBeGreaterThan(0);
       expect(data.matches.some((m: any) => m.methodName === 'calculateSum')).toBe(true);
@@ -395,7 +395,7 @@ describe('Pseudo API Routes', () => {
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(Array.isArray(data.matches)).toBe(true);
       expect(data.matches.length).toBeGreaterThan(0);
       const first = data.matches[0];
@@ -433,7 +433,7 @@ describe('Pseudo API Routes', () => {
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(Array.isArray(data.matches)).toBe(true);
       expect(data.matches.length).toBeGreaterThan(0);
       // The snippet should highlight the matching token
@@ -465,7 +465,7 @@ describe('Pseudo API Routes', () => {
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(Array.isArray(data.matches)).toBe(true);
       expect(data.matches).toHaveLength(2);
       const filePaths = data.matches.map((m: any) => m.filePath).sort();
@@ -496,7 +496,7 @@ describe('Pseudo API Routes', () => {
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(Array.isArray(data.matches)).toBe(true);
       expect(data.matches.length).toBeLessThanOrEqual(50);
     });
@@ -540,7 +540,7 @@ describe('Pseudo API Routes', () => {
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(Array.isArray(data.matches)).toBe(true);
       expect(data.matches.length).toBeGreaterThan(0);
       // Verify matches come from both files
@@ -556,7 +556,7 @@ describe('Pseudo API Routes', () => {
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data).toEqual({ fileCount: 0, methodCount: 0, exportCount: 0 });
     });
 
@@ -579,7 +579,7 @@ describe('Pseudo API Routes', () => {
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data).toEqual({ fileCount: 2, methodCount: 3, exportCount: 1 });
     });
   });
@@ -591,7 +591,7 @@ describe('Pseudo API Routes', () => {
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(400);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.error).toBeDefined();
       expect(data.error).toContain('name');
     });
@@ -602,7 +602,7 @@ describe('Pseudo API Routes', () => {
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data).toEqual({ candidates: [] });
     });
 
@@ -628,7 +628,7 @@ describe('Pseudo API Routes', () => {
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.candidates).toHaveLength(1);
       expect(data.candidates[0]).toEqual({
         sourceFilePath: srcPath,
@@ -662,7 +662,7 @@ describe('Pseudo API Routes', () => {
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.candidates).toHaveLength(1);
       expect(data.candidates[0].sourceFilePath).toBe(aSrc);
       expect(data.candidates[0].sourceLine).toBe(10);
@@ -728,7 +728,7 @@ describe('Pseudo API Routes', () => {
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data).toEqual([]);
     });
 
@@ -761,7 +761,7 @@ describe('Pseudo API Routes', () => {
       const response = await handlePseudoAPI(req);
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(Array.isArray(data)).toBe(true);
       expect(data).toHaveLength(1);
       const entry = data[0];

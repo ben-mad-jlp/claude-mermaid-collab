@@ -141,7 +141,7 @@ export function handleTerminalConnection(
 
     // Store active terminal
     activeTerminals.set(ws, {
-      process: proc as Subprocess<'ignore', 'ignore', 'ignore'>,
+      process: proc as unknown as Subprocess<'ignore', 'ignore', 'ignore'>,
       terminal: proc.terminal!,
       tmuxSession,
     });

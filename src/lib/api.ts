@@ -391,7 +391,7 @@ export class APIClient {
     );
 
     if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
+      const data = (await response.json().catch(() => ({}))) as { error?: string };
       const apiError = new Error(data.error || `HTTP ${response.status}`) as APIError;
       apiError.status = response.status;
       apiError.data = data;
@@ -414,7 +414,7 @@ export class APIClient {
     );
 
     if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
+      const data = (await response.json().catch(() => ({}))) as { error?: string };
       const apiError = new Error(data.error || `HTTP ${response.status}`) as APIError;
       apiError.status = response.status;
       apiError.data = data;

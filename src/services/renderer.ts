@@ -148,7 +148,9 @@ export class Renderer {
     // Cache it (implement LRU if cache grows too large)
     if (this.thumbnailCache.size >= 100) {
       const firstKey = this.thumbnailCache.keys().next().value;
-      this.thumbnailCache.delete(firstKey);
+      if (firstKey !== undefined) {
+        this.thumbnailCache.delete(firstKey);
+      }
     }
 
     this.thumbnailCache.set(id, buffer);

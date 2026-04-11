@@ -49,7 +49,7 @@ describe('WebSocketHandler', () => {
       handler.handleConnection(ws1);
       handler.handleConnection(ws2);
 
-      const message: WSMessage = {
+      const message = {
         type: 'ui_render',
         uiId: 'ui_123',
         project: 'test-project',
@@ -59,7 +59,7 @@ describe('WebSocketHandler', () => {
         timestamp: Date.now(),
       };
 
-      handler.broadcast(message);
+      handler.broadcast(message as unknown as WSMessage);
 
       expect(mockWebSockets[0].send).toHaveBeenCalledOnce();
       expect(mockWebSockets[1].send).toHaveBeenCalledOnce();
@@ -73,13 +73,13 @@ describe('WebSocketHandler', () => {
       const clients = [createMockWS(), createMockWS(), createMockWS()];
       clients.forEach((ws) => handler.handleConnection(ws));
 
-      const message: WSMessage = {
+      const message = {
         type: 'diagram_created',
         id: 'diagram_1',
         name: 'test.mmd',
       };
 
-      handler.broadcast(message);
+      handler.broadcast(message as unknown as WSMessage);
 
       expect(mockWebSockets).toHaveLength(3);
       mockWebSockets.forEach((tracker, index) => {
@@ -101,7 +101,7 @@ describe('WebSocketHandler', () => {
 
       expect(handler.getConnectionCount()).toBe(3);
 
-      const message: WSMessage = {
+      const message = {
         type: 'ui_render',
         uiId: 'ui_456',
         project: 'proj',
@@ -114,7 +114,7 @@ describe('WebSocketHandler', () => {
       // Suppress console.error for this test
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      handler.broadcast(message);
+      handler.broadcast(message as unknown as WSMessage);
 
       expect(consoleErrorSpy).toHaveBeenCalled();
       expect(handler.getConnectionCount()).toBe(2); // Dead connection removed
@@ -143,7 +143,7 @@ describe('WebSocketHandler', () => {
       expect(handler.getConnectionCount()).toBe(2);
 
       // Second broadcast: only remaining valid connections should receive
-      handler.broadcast({ type: 'diagram_created', id: 'test', name: 'test.mmd' });
+      handler.broadcast({ type: 'diagram_created', id: 'test', name: 'test.mmd' } as any);
       expect(mockWebSockets[0].send).toHaveBeenCalledTimes(2); // Called in both broadcasts
       expect(mockWebSockets[2].send).toHaveBeenCalledTimes(2); // Called in both broadcasts
       expect(mockWebSockets[1].send).toHaveBeenCalledOnce(); // Only first broadcast, then removed
@@ -161,7 +161,7 @@ describe('WebSocketHandler', () => {
         children: [],
       };
 
-      const message: WSMessage = {
+      const message = {
         type: 'ui_render',
         uiId: 'ui_test_12345_abc123',
         project: 'my-project',
@@ -171,7 +171,7 @@ describe('WebSocketHandler', () => {
         timestamp: 1234567890,
       };
 
-      handler.broadcast(message);
+      handler.broadcast(message as unknown as WSMessage);
 
       const sentJson = mockWebSockets[0].send.mock.calls[0][0];
       const parsed = JSON.parse(sentJson);
@@ -202,14 +202,14 @@ describe('WebSocketHandler', () => {
       ws1.data.subscriptions.add('diagram_1');
       ws3.data.subscriptions.add('diagram_1');
 
-      const message: WSMessage = {
+      const message = {
         type: 'diagram_updated',
         id: 'diagram_1',
         content: 'graph TD; A-->B',
         lastModified: Date.now(),
       };
 
-      handler.broadcastToDiagram('diagram_1', message);
+      handler.broadcastToDiagram('diagram_1', message as unknown as WSMessage);
 
       expect(mockWebSockets[0].send).toHaveBeenCalledOnce(); // ws1 subscribed
       expect(mockWebSockets[1].send).not.toHaveBeenCalled(); // ws2 not subscribed
@@ -230,12 +230,12 @@ describe('WebSocketHandler', () => {
 
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      const message: WSMessage = {
+      const message = {
         type: 'diagram_deleted',
         id: 'diagram_1',
       };
 
-      handler.broadcastToDiagram('diagram_1', message);
+      handler.broadcastToDiagram('diagram_1', message as unknown as WSMessage);
 
       expect(handler.getConnectionCount()).toBe(1); // ws2 removed
       expect(mockWebSockets[0].send).toHaveBeenCalled();
@@ -254,14 +254,14 @@ describe('WebSocketHandler', () => {
 
       ws1.data.subscriptions.add('doc_1');
 
-      const message: WSMessage = {
+      const message = {
         type: 'document_updated',
         id: 'doc_1',
         content: '# Test Document',
         lastModified: Date.now(),
       };
 
-      handler.broadcastToDocument('doc_1', message);
+      handler.broadcastToDocument('doc_1', message as unknown as WSMessage);
 
       expect(mockWebSockets[0].send).toHaveBeenCalledOnce();
       expect(mockWebSockets[1].send).not.toHaveBeenCalled();
@@ -279,13 +279,13 @@ describe('WebSocketHandler', () => {
 
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      const message: WSMessage = {
+      const message = {
         type: 'document_created',
         id: 'doc_1',
         name: 'new-doc.md',
       };
 
-      handler.broadcastToDocument('doc_1', message);
+      handler.broadcastToDocument('doc_1', message as unknown as WSMessage);
 
       expect(mockWebSockets[0].send).toHaveBeenCalled();
       expect(handler.getConnectionCount()).toBe(1);
@@ -304,7 +304,7 @@ describe('WebSocketHandler', () => {
 
       ws1.data.subscriptions.add('snippet_1');
 
-      const message: WSMessage = {
+      const message = {
         type: 'snippet_updated',
         id: 'snippet_1',
         content: 'console.log("test");',
@@ -313,7 +313,7 @@ describe('WebSocketHandler', () => {
         session: 'test-session',
       };
 
-      handler.broadcastToSnippet('snippet_1', message);
+      handler.broadcastToSnippet('snippet_1', message as unknown as WSMessage);
 
       expect(mockWebSockets[0].send).toHaveBeenCalledOnce();
       expect(mockWebSockets[1].send).not.toHaveBeenCalled();
@@ -331,7 +331,7 @@ describe('WebSocketHandler', () => {
 
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      const message: WSMessage = {
+      const message = {
         type: 'snippet_created',
         id: 'snippet_1',
         name: 'new-snippet.js',
@@ -341,7 +341,7 @@ describe('WebSocketHandler', () => {
         session: 'test-session',
       };
 
-      handler.broadcastToSnippet('snippet_1', message);
+      handler.broadcastToSnippet('snippet_1', message as unknown as WSMessage);
 
       expect(mockWebSockets[0].send).toHaveBeenCalled();
       expect(handler.getConnectionCount()).toBe(1);
@@ -363,14 +363,14 @@ describe('WebSocketHandler', () => {
 
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      const message: WSMessage = {
+      const message = {
         type: 'snippet_deleted',
         id: 'snippet_1',
         project: '/test/project',
         session: 'test-session',
       };
 
-      handler.broadcastToSnippet('snippet_1', message);
+      handler.broadcastToSnippet('snippet_1', message as unknown as WSMessage);
 
       expect(handler.getConnectionCount()).toBe(1); // ws2 removed
       expect(mockWebSockets[0].send).toHaveBeenCalled();
@@ -413,7 +413,7 @@ describe('WebSocketHandler', () => {
       const ws = createMockWS();
       handler.handleConnection(ws);
 
-      const message: WSMessage = {
+      const message = {
         type: 'ui_render',
         uiId: 'ui_123',
         project: 'test',
@@ -423,7 +423,7 @@ describe('WebSocketHandler', () => {
         timestamp: Date.now(),
       };
 
-      expect(() => handler.broadcast(message)).not.toThrow();
+      expect(() => handler.broadcast(message as unknown as WSMessage)).not.toThrow();
       expect(mockWebSockets[0].send).toHaveBeenCalled();
     });
 
@@ -431,7 +431,7 @@ describe('WebSocketHandler', () => {
       const ws = createMockWS();
       handler.handleConnection(ws);
 
-      const message: WSMessage = {
+      const message = {
         type: 'diagram_updated',
         id: 'diagram_1',
         content: 'graph TD; A-->B',
@@ -442,7 +442,7 @@ describe('WebSocketHandler', () => {
         },
       };
 
-      handler.broadcast(message);
+      handler.broadcast(message as unknown as WSMessage);
       expect(mockWebSockets[0].send).toHaveBeenCalled();
 
       const sent = JSON.parse(mockWebSockets[0].send.mock.calls[0][0]);
@@ -463,12 +463,12 @@ describe('WebSocketHandler', () => {
 
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      const message: WSMessage = {
+      const message = {
         type: 'connected',
         diagramCount: 5,
       };
 
-      handler.broadcast(message);
+      handler.broadcast(message as unknown as WSMessage);
 
       // ws1 and ws3 should have received the message
       expect(mockWebSockets[0].send).toHaveBeenCalled();
@@ -489,7 +489,7 @@ describe('WebSocketHandler', () => {
       handler.broadcast({ type: 'connected', diagramCount: 0 });
       expect(handler.getConnectionCount()).toBe(0);
 
-      handler.broadcast({ type: 'diagram_created', id: 'test', name: 'test.mmd' });
+      handler.broadcast({ type: 'diagram_created', id: 'test', name: 'test.mmd' } as any);
       expect(handler.getConnectionCount()).toBe(0);
 
       // Dead connection should only be cleaned up once
@@ -509,7 +509,7 @@ describe('WebSocketHandler', () => {
 
       const messages: WSMessage[] = [
         { type: 'connected', diagramCount: 0 },
-        { type: 'diagram_created', id: 'diagram_1', name: 'test.mmd' },
+        { type: 'diagram_created', id: 'diagram_1', name: 'test.mmd' } as unknown as WSMessage,
         {
           type: 'ui_render',
           uiId: 'ui_123',

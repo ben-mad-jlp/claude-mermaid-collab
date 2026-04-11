@@ -77,6 +77,9 @@ export interface TaskGraphResponse {
   /** Whether the operation was successful (optional, defaults to true) */
   success?: boolean;
 
+  /** Error message set when `success` is false */
+  error?: string;
+
   /** Mermaid diagram syntax representing the current task execution graph */
   diagram: string;
 
@@ -136,7 +139,7 @@ export interface TaskGraphUpdatedPayload {
  */
 export async function updateTaskStatus(
   params: UpdateTaskStatusParams,
-  wsHandler?: { broadcast: (msg: unknown) => void }
+  wsHandler?: { broadcast: (msg: any) => void }
 ): Promise<TaskGraphResponse> {
   // Step 1: Validate params
   if (!params.project || !params.session || !params.taskId || !params.status) {
@@ -347,7 +350,7 @@ export async function getTaskGraph(
  */
 export async function updateTasksStatus(
   params: UpdateTasksStatusParams,
-  wsHandler?: { broadcast: (msg: unknown) => void }
+  wsHandler?: { broadcast: (msg: any) => void }
 ): Promise<TaskGraphResponse> {
   // Step 1: Validate params
   if (!params.project || !params.session || !params.updates || params.updates.length === 0) {

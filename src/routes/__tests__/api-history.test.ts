@@ -63,7 +63,7 @@ describe('API Document History Endpoints', () => {
       );
 
       expect(response.status).toBe(400);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.error).toContain('project and session');
     });
 
@@ -78,7 +78,7 @@ describe('API Document History Endpoints', () => {
       );
 
       expect(response.status).toBe(400);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.error).toContain('project and session');
     });
 
@@ -93,7 +93,7 @@ describe('API Document History Endpoints', () => {
       );
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.original).toBeNull();
       expect(data.changes).toEqual([]);
     });
@@ -117,7 +117,7 @@ describe('API Document History Endpoints', () => {
       );
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.original).toBe('original content');
       expect(data.changes).toHaveLength(2);
       expect(data.changes[0].diff).toBeDefined();
@@ -139,7 +139,7 @@ describe('API Document History Endpoints', () => {
       );
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
 
       // Verify response structure
       expect(data).toHaveProperty('original');
@@ -167,7 +167,7 @@ describe('API Document History Endpoints', () => {
       );
 
       expect(response.status).toBe(400);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.error).toContain('project and session');
     });
 
@@ -182,7 +182,7 @@ describe('API Document History Endpoints', () => {
       );
 
       expect(response.status).toBe(400);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.error).toContain('project and session');
     });
 
@@ -197,7 +197,7 @@ describe('API Document History Endpoints', () => {
       );
 
       expect(response.status).toBe(400);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.error).toContain('timestamp');
     });
 
@@ -212,7 +212,7 @@ describe('API Document History Endpoints', () => {
       );
 
       expect(response.status).toBe(404);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.error).toBeDefined();
     });
 
@@ -242,7 +242,7 @@ describe('API Document History Endpoints', () => {
       );
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.content).toBe('updated content');
       expect(data.timestamp).toBe(firstChangeTimestamp);
     });
@@ -268,7 +268,7 @@ describe('API Document History Endpoints', () => {
       );
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.content).toBe('original content');
       expect(data.timestamp).toBe(beforeTimestamp);
     });
@@ -291,7 +291,7 @@ describe('API Document History Endpoints', () => {
       );
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
 
       // Verify response structure
       expect(data).toHaveProperty('content');

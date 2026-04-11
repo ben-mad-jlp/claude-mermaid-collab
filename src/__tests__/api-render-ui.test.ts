@@ -77,7 +77,7 @@ describe('Render UI API Endpoints', () => {
       );
 
       expect(response.status).toBe(400);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.error).toContain('project and session query params required');
     });
 
@@ -98,7 +98,7 @@ describe('Render UI API Endpoints', () => {
       );
 
       expect(response.status).toBe(400);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.error).toContain('ui required');
     });
 
@@ -152,7 +152,7 @@ describe('Render UI API Endpoints', () => {
       );
 
       expect(response.status).toBe(200);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.success).toBe(true);
       expect(data.uiId).toBeDefined();
       expect(data.uiId).toMatch(/^ui_\d+_[0-9a-f]{6}$/);
@@ -176,7 +176,7 @@ describe('Render UI API Endpoints', () => {
         mockWSHandler
       );
 
-      const data1 = await response1.json();
+      const data1 = await response1.json() as any;
 
       const req2 = new Request('http://localhost/api/render-ui?project=test-project&session=test-session', {
         method: 'POST',
@@ -193,7 +193,7 @@ describe('Render UI API Endpoints', () => {
         mockWSHandler
       );
 
-      const data2 = await response2.json();
+      const data2 = await response2.json() as any;
 
       expect(data1.uiId).not.toBe(data2.uiId);
     });
@@ -269,7 +269,7 @@ describe('Render UI API Endpoints', () => {
       );
 
       expect(response.status).toBe(400);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.error).toContain('project and session query params required');
     });
 
@@ -290,7 +290,7 @@ describe('Render UI API Endpoints', () => {
       );
 
       expect(response.status).toBe(400);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.error).toContain('uiId required');
     });
 
@@ -314,7 +314,7 @@ describe('Render UI API Endpoints', () => {
       );
 
       expect(response.status).toBe(404);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.error).toContain('No pending UI');
     });
   });
@@ -365,7 +365,7 @@ describe('Render UI API Endpoints', () => {
 
       // API should still respond with error
       expect(response.status).toBe(400);
-      const data = await response.json();
+      const data = await response.json() as any;
       expect(data.error).toBeDefined();
     });
   });

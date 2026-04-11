@@ -919,7 +919,7 @@ export async function handleAPI(
     }
 
     try {
-      const { name, content } = await req.json();
+      const { name, content } = (await req.json()) as { name?: string; content?: string };
 
       if (!name || !content) {
         return Response.json({ error: 'Name and content required' }, { status: 400 });
@@ -1045,7 +1045,7 @@ export async function handleAPI(
     const id = decodeURIComponent(path.split('/').pop()!);
 
     try {
-      const { content } = await req.json();
+      const { content } = (await req.json()) as { content?: string };
 
       if (!content) {
         return Response.json({ error: 'Content required' }, { status: 400 });
@@ -1486,7 +1486,7 @@ export async function handleAPI(
 
       // Auto-undeprecate on update
       if (metadataManager.isDeprecated(id)) {
-        metadataManager.setDeprecated(id, false);
+        await metadataManager.updateItem(id, { deprecated: false });
       }
 
       // Log the update (don't fail the request if logging fails)
@@ -2056,7 +2056,7 @@ export async function handleAPI(
     const { name, url: embedUrl, subtype, width, height, storybook } = await req.json() as {
       name?: string;
       url?: string;
-      subtype?: string;
+      subtype?: 'storybook';
       width?: string;
       height?: string;
       storybook?: { storyId: string; port: number };
@@ -2268,7 +2268,7 @@ export async function handleAPI(
       if (!response.ok) {
         return Response.json({ valid: false, storyId, error: 'Storybook returned HTTP ' + response.status });
       }
-      const data = await response.json();
+      const data = (await response.json()) as { entries?: Record<string, unknown> };
       const valid = storyId in (data.entries || {});
       return Response.json({ valid, storyId, error: valid ? undefined : 'Story "' + storyId + '" not found in Storybook index' });
     } catch (error: any) {
@@ -2794,7 +2794,7 @@ export async function handleAPI(
 
       // Build WebSocket message
       const message = {
-        type: 'ui_render',
+        type: 'ui_render' as const,
         uiId,
         project: params.project,
         session: params.session,

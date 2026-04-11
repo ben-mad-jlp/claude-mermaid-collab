@@ -7,7 +7,7 @@ export interface PTYSession {
   process: Subprocess<'ignore', 'ignore', 'ignore'>;
   terminal: Terminal;
   buffer: RingBuffer;
-  websockets: Set<ServerWebSocket>;
+  websockets: Set<ServerWebSocket<any>>;
   shell: string;
   cwd: string;
   createdAt: Date;
@@ -157,7 +157,7 @@ export class PTYManager {
         },
       });
 
-      session.process = proc as Subprocess<'ignore', 'ignore', 'ignore'>;
+      session.process = proc as unknown as Subprocess<'ignore', 'ignore', 'ignore'>;
       session.terminal = proc.terminal!;
 
       // Handle process exit (backup cleanup)
@@ -239,7 +239,7 @@ export class PTYManager {
    * @param ws - WebSocket connection
    * @param options - Attach options including deferReplay
    */
-  attach(sessionId: string, ws: ServerWebSocket, options?: AttachOptions): void {
+  attach(sessionId: string, ws: ServerWebSocket<any>, options?: AttachOptions): void {
     let session = this.sessions.get(sessionId);
 
     // Auto-create session if it doesn't exist
@@ -304,7 +304,7 @@ export class PTYManager {
           },
         });
 
-        session.process = proc as Subprocess<'ignore', 'ignore', 'ignore'>;
+        session.process = proc as unknown as Subprocess<'ignore', 'ignore', 'ignore'>;
         session.terminal = proc.terminal!;
 
         proc.exited.then((exitCode) => {
@@ -346,7 +346,7 @@ export class PTYManager {
    * Replay buffered output to WebSocket.
    * Called after first resize when deferReplay was true.
    */
-  replayBuffer(sessionId: string, ws: ServerWebSocket): void {
+  replayBuffer(sessionId: string, ws: ServerWebSocket<any>): void {
     const session = this.sessions.get(sessionId);
     if (!session) {
       return;
@@ -366,7 +366,7 @@ export class PTYManager {
   /**
    * Detach a WebSocket (PTY continues running).
    */
-  detach(sessionId: string, ws: ServerWebSocket): void {
+  detach(sessionId: string, ws: ServerWebSocket<any>): void {
     const session = this.sessions.get(sessionId);
     if (!session) {
       return;

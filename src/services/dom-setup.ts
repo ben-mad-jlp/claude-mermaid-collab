@@ -5,9 +5,9 @@ const dom = new JSDOM('<!DOCTYPE html><body></body>');
 const window = dom.window as any;
 
 // Set global DOM objects
-global.document = window.document;
-global.window = window;
-global.navigator = window.navigator;
+(global as any).document = window.document;
+(global as any).window = window;
+(global as any).navigator = window.navigator;
 
 // Import isomorphic-dompurify which auto-initializes with jsdom
 import DOMPurify from 'isomorphic-dompurify';
@@ -32,4 +32,5 @@ if (typeof window.SVGElement !== 'undefined') {
   }
 }
 
-export { window, document };
+const documentRef = window.document;
+export { window, documentRef as document };
