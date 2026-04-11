@@ -24,6 +24,10 @@
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/session-start-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "mkdir -p \"${HOME}/.claude-mermaid-collab\" && touch \"${HOME}/.claude-mermaid-collab/pseudo-rescan-${PWD//\\//_}.marker\""
           }
         ]
       }

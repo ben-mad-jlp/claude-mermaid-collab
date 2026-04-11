@@ -48,3 +48,19 @@ Plain English, numbered steps. Use IF/ELSE for branching. Follow the 30-second r
 ## Report
 
 After processing, report how many files were processed and how many methods had their prose regenerated.
+
+## v6 Rename Detection & Heuristic Upgrade (new)
+
+The pseudo-db v6 overlay produces `match_quality` metadata for each prose attachment:
+- `exact` — stable match
+- `param_mismatch` — signature drifted; prose preserved with a warning
+- `class_mismatch` — method moved between classes
+- `fuzzy_rename` — same body fingerprint inside the same file (likely renamed)
+- `fuzzy_move` — same body fingerprint across files (likely moved)
+- `orphan` — prose has no source counterpart
+
+When `pseudo_get_file_state` surfaces `fuzzy_rename` or `fuzzy_move` warnings on a method, run `pseudo_reassign_prose` to update the prose entry's name/class/params while preserving the stable ID. For post-refactor batch fixes, use `pseudo_reassign_prose_bulk` with `confirm: true`.
+
+Heuristic prose (extracted from docstrings at scan time) is flagged with `prose_origin: 'heuristic'` and is always a DRAFT. When you upgrade heuristic prose to manual/LLM content, pass `origin: 'manual'` or `origin: 'llm'` to `pseudo_upsert_prose`. The upsert tool rejects writes that drop more than 50% of existing methods as a diff-sanity check.
+
+The v6 tools auto-invalidate after upsert/reassign via a fire-and-forget incremental scan, so no manual rescan is needed.

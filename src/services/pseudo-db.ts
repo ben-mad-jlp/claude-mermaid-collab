@@ -1130,3 +1130,315 @@ export function getPseudoDb(project: string): PseudoDbService {
   }
   return instances.get(project)!;
 }
+
+// ============================================================================
+// V6 in-memory factory (additive — does not replace getPseudoDb)
+// ============================================================================
+
+import { join as joinV6 } from 'node:path';
+import { createHash as createHashV6 } from 'node:crypto';
+import { promises as fspV6 } from 'node:fs';
+import { spawn as spawnV6 } from 'node:child_process';
+import { createSchema as createSchemaV6 } from './pseudo-schema.js';
+import {
+  validateSnapshot as validateSnapshotV6,
+  loadSnapshot as loadSnapshotV6,
+} from './pseudo-snapshot.js';
+import { createPseudoIndexer, type PseudoIndexer } from './pseudo-indexer.js';
+import { createDriftChecker, type DriftChecker } from './pseudo-drift.js';
+import { createPseudoWatcher, type PseudoWatcher } from './pseudo-watcher.js';
+import { runMigrationFromV1 as runMigrationFromV1V6 } from './pseudo-migration.js';
+
+/**
+ * Best-effort probe of the project to collect real inputs for validateSnapshotV6.
+ * Uses `git ls-files` to count tracked files and picks up to 5 random file paths,
+ * computing the sha1 of their current bytes. If git is unavailable or fails, we
+ * return {count: 0, samples: new Map()} which causes validation to cold-fail
+ * (forcing a full cold-scan). This fallback is intentional — a missing git
+ * environment should not crash startup, merely skip the snapshot shortcut.
+ */
+async function probeSnapshotInputsV6(
+  project: string,
+): Promise<{ count: number; samples: Map<string, string> }> {
+  return new Promise((resolve) => {
+    try {
+      const proc = spawnV6('git', ['ls-files', '-z'], { cwd: project });
+      const chunks: Buffer[] = [];
+      let errored = false;
+      proc.stdout.on('data', (c: Buffer) => chunks.push(c));
+      proc.on('error', () => {
+        errored = true;
+        resolve({ count: 0, samples: new Map() });
+      });
+      proc.on('close', async (code) => {
+        if (errored) return;
+        if (code !== 0) {
+          resolve({ count: 0, samples: new Map() });
+          return;
+        }
+        try {
+          const out = Buffer.concat(chunks).toString('utf8');
+          const rels = out.split('\0').filter((s) => s.length > 0);
+          const count = rels.length;
+          if (count === 0) {
+            resolve({ count: 0, samples: new Map() });
+            return;
+          }
+          // Pick up to 5 random tracked files.
+          const pool = rels.slice();
+          const picks: string[] = [];
+          const n = Math.min(5, pool.length);
+          for (let i = 0; i < n; i++) {
+            const j = Math.floor(Math.random() * pool.length);
+            picks.push(pool[j]);
+            pool.splice(j, 1);
+          }
+          const samples = new Map<string, string>();
+          for (const rel of picks) {
+            const abs = joinV6(project, rel);
+            try {
+              const buf = await fspV6.readFile(abs);
+              const hash = createHashV6('sha1').update(buf).digest('hex');
+              samples.set(abs, hash);
+            } catch {
+              // Skip unreadable sample — validator simply checks fewer entries.
+            }
+          }
+          resolve({ count, samples });
+        } catch {
+          resolve({ count: 0, samples: new Map() });
+        }
+      });
+    } catch {
+      resolve({ count: 0, samples: new Map() });
+    }
+  });
+}
+
+const V6_FAILURE_BACKOFF_MS = 5 * 60 * 1000;
+
+export type PseudoDbV6Status =
+  | 'init'
+  | 'warm-loading'
+  | 'warm-loaded'
+  | 'cold-scanning'
+  | 'ready'
+  | 'failed';
+
+export interface PseudoDbV6Handle {
+  readonly project: string;
+  readonly db: Database;
+  readonly indexer: PseudoIndexer;
+  readonly drift: DriftChecker | null;
+  readonly watcher: PseudoWatcher | null;
+  readonly ready: Promise<void>;
+  status(): PseudoDbV6Status;
+  lastError(): Error | null;
+  retryScan(): Promise<void>;
+  dispose(): Promise<void>;
+}
+
+interface V6Internal extends Omit<PseudoDbV6Handle, 'ready'> {
+  ready: Promise<void>;
+  _state: PseudoDbV6Status;
+  _lastError: Error | null;
+  _lastFailureAt: number;
+  _scanInFlight: Promise<void> | null;
+  _disposed: boolean;
+}
+
+const v6Instances = new Map<string, V6Internal>();
+
+export function initPseudoDbV6(project: string, opts?: {
+  attachWatcher?: boolean;
+  attachDrift?: boolean;
+}): PseudoDbV6Handle {
+  const existing = v6Instances.get(project);
+  if (existing && !existing._disposed) return existing;
+
+  const attachWatcher = opts?.attachWatcher ?? true;
+  const attachDrift = opts?.attachDrift ?? true;
+
+  const db = new Database(':memory:');
+  db.exec('PRAGMA foreign_keys=ON');
+
+  // B2: If a legacy v1 db exists, kick off migration before creating the v6
+  // schema so prose files are written to disk early. runMigrationFromV1 is
+  // a no-op if migration has already run or no legacy db is present. We
+  // retain the resulting promise on the handle so `ready` can await it before
+  // the initial scan picks up the migrated prose files. Failures are logged
+  // and swallowed — v6 still cold-scans to populate its own tables.
+  const migrationPromise: Promise<void> = (async () => {
+    try {
+      const report = await runMigrationFromV1V6(project);
+      if (report.migrated > 0 || report.errors.length > 0) {
+        console.error(
+          `[pseudo-db-v6] migration report: migrated=${report.migrated} skipped=${report.skipped} errors=${report.errors.length}`,
+        );
+      }
+    } catch (err) {
+      console.warn('[pseudo-db-v6] migration failed:', err);
+    }
+  })();
+
+  createSchemaV6(db);
+
+  const indexer = createPseudoIndexer(project, db);
+
+  let driftChecker: DriftChecker | null = null;
+  let watcher: PseudoWatcher | null = null;
+  if (attachDrift) {
+    try {
+      driftChecker = createDriftChecker(project, db, indexer);
+    } catch (err) {
+      console.warn('[pseudo-db-v6] drift checker attach failed:', err);
+    }
+  }
+  if (attachWatcher) {
+    try {
+      watcher = createPseudoWatcher(project, indexer);
+    } catch (err) {
+      console.warn('[pseudo-db-v6] watcher attach failed:', err);
+    }
+  }
+
+  // C1: Actually start the drift checker and watcher. createX() only wires them
+  // up; without start() the timers/file-watchers are never armed. Start failures
+  // are logged but do not block init — the handle still returns so queries work.
+  if (driftChecker) {
+    try {
+      driftChecker.start();
+    } catch (err) {
+      console.warn('[pseudo-db-v6] drift checker start failed:', err);
+    }
+  }
+  if (watcher) {
+    // start() is async but we intentionally do not await here — watcher
+    // initialization (chokidar import + initial scan) can take a moment and
+    // we want init to return promptly. Errors are logged.
+    void watcher.start().catch((err) => {
+      console.warn('[pseudo-db-v6] watcher start failed:', err);
+    });
+  }
+
+  const handle: V6Internal = {
+    project,
+    db,
+    indexer,
+    drift: driftChecker,
+    watcher,
+    ready: Promise.resolve(),
+    _state: 'init',
+    _lastError: null,
+    _lastFailureAt: 0,
+    _scanInFlight: null,
+    _disposed: false,
+    status() { return this._state; },
+    lastError() { return this._lastError; },
+    async retryScan() {
+      if (this._disposed) return;
+      const sinceFailure = Date.now() - this._lastFailureAt;
+      if (this._lastError && sinceFailure < V6_FAILURE_BACKOFF_MS) return;
+      if (this._scanInFlight) return this._scanInFlight;
+      this._scanInFlight = (async () => {
+        try {
+          this._state = 'cold-scanning';
+          await indexer.runFullScan({ trigger: 'manual' });
+          this._state = 'ready';
+          this._lastError = null;
+        } catch (err) {
+          this._state = 'failed';
+          this._lastError = err instanceof Error ? err : new Error(String(err));
+          this._lastFailureAt = Date.now();
+        } finally {
+          this._scanInFlight = null;
+        }
+      })();
+      return this._scanInFlight;
+    },
+    async dispose() {
+      if (this._disposed) return;
+      this._disposed = true;
+      try { await this.watcher?.stop(); } catch {}
+      // I1: drift.stop() is synchronous but best-effort — internal timers
+      // (periodic setInterval + idle setTimeout) are cleared, and any in-flight
+      // checkNow() is guarded by drift's own `scanActive` flag so a new call
+      // cannot start. Awaiting here is a no-op on a sync return but harmless
+      // and future-proofs the contract. There is no mechanism to synchronously
+      // await an in-flight idle hash_sample call; it completes against the
+      // still-open db and any write-after-close is caught by the try/catch
+      // inside drift. Documented as best-effort cleanup.
+      try { await this.drift?.stop(); } catch {}
+      try { indexer.cancel(); } catch {}
+      if (this._scanInFlight) {
+        try { await this._scanInFlight; } catch {}
+      }
+      try { db.close(); } catch {}
+      v6Instances.delete(project);
+    },
+  };
+
+  handle.ready = (async () => {
+    // B2: ensure any legacy-v1 migration has finished writing prose files
+    // before the initial scan starts, so migrated prose is picked up.
+    try { await migrationPromise; } catch {}
+
+    handle._state = 'warm-loading';
+    const snapPath = joinV6(project, '.cache', 'derived.sqlite');
+    let warmLoaded = false;
+    try {
+      // C3: use a real git-ls-files probe instead of placeholder args so the
+      // snapshot validator actually gets meaningful file_count + sample_hash
+      // inputs. If git is unavailable the probe returns empty inputs and
+      // validation cold-fails — which forces a full cold-scan. See
+      // probeSnapshotInputsV6 for the documented fallback.
+      const probe = await probeSnapshotInputsV6(project);
+      const validation = await validateSnapshotV6(snapPath, probe.count, probe.samples);
+      if (validation.valid) {
+        await loadSnapshotV6(db, snapPath);
+        warmLoaded = true;
+        handle._state = 'warm-loaded';
+      }
+    } catch (err) {
+      handle._lastError = err instanceof Error ? err : new Error(String(err));
+    }
+
+    // C2: capture the inner scan promise locally and await it before the
+    // outer IIFE resolves. Previously the outer IIFE returned immediately
+    // after kicking off the scan, so `handle.ready` resolved before the DB
+    // was populated. Consumers awaiting `ready` would query an empty DB.
+    const scanPromise = (async () => {
+      try {
+        if (!warmLoaded) {
+          handle._state = 'cold-scanning';
+        }
+        await indexer.runFullScan({
+          trigger: warmLoaded ? 'auto' : 'sessionstart',
+        });
+        handle._state = 'ready';
+        handle._lastError = null;
+      } catch (err) {
+        handle._state = 'failed';
+        handle._lastError = err instanceof Error ? err : new Error(String(err));
+        handle._lastFailureAt = Date.now();
+      } finally {
+        handle._scanInFlight = null;
+      }
+    })();
+    handle._scanInFlight = scanPromise;
+    await scanPromise;
+  })();
+
+  v6Instances.set(project, handle);
+  return handle;
+}
+
+export async function disposeAllPseudoDbV6(): Promise<void> {
+  const handles = Array.from(v6Instances.values());
+  await Promise.all(handles.map(h => h.dispose().catch(() => {})));
+  v6Instances.clear();
+}
+
+export function _v6InstanceCount(): number {
+  return v6Instances.size;
+}
