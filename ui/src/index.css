@@ -112,6 +112,22 @@ body {
   animation: status-pulse 2s infinite ease-in-out;
 }
 
+/* Card-level pulse: amber background fade for active sessions */
+@keyframes card-pulse-amber {
+  0%, 100% { background-color: rgb(254 243 199); }
+  50% { background-color: rgb(253 230 138); }
+}
+@keyframes card-pulse-amber-dark {
+  0%, 100% { background-color: rgb(120 53 15 / 0.4); }
+  50% { background-color: rgb(146 64 14 / 0.6); }
+}
+.card-pulse-amber {
+  animation: card-pulse-amber 4s infinite ease-in-out;
+}
+.dark .card-pulse-amber {
+  animation: card-pulse-amber-dark 4s infinite ease-in-out;
+}
+
 /* Permission / waiting — static, scaled up */
 .status-scaled {
   transform: scale(1.7);

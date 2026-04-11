@@ -48,34 +48,31 @@ const SubscriptionRow: React.FC<{
 }> = ({ subKey, sub, onNavigate, onUnsubscribe, onDragStart, onDragOver, onDragEnd, isDragOver }) => {
   const elapsed = useElapsed(sub.lastUpdate, sub.status);
 
+  const statusBg =
+    sub.status === 'permission'
+      ? 'bg-red-100 hover:bg-red-200 dark:bg-red-900/40 dark:hover:bg-red-900/60 border border-red-400 dark:border-red-700'
+      : sub.status === 'active'
+        ? 'card-pulse-amber border border-amber-400 dark:border-amber-700'
+        : sub.status === 'waiting'
+          ? 'bg-green-100 hover:bg-green-200 dark:bg-green-900/40 dark:hover:bg-green-900/60 border border-green-400 dark:border-green-700'
+          : 'hover:bg-gray-100 dark:hover:bg-gray-800 border border-gray-300 dark:border-gray-700';
+
   return (
     <div
-      className={`group flex items-center gap-3 px-2 py-1.5 rounded text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors ${isDragOver ? 'border-t-2 border-blue-400' : ''}`}
+      className={`group flex items-center gap-3 pl-4 pr-2 py-1.5 rounded text-sm cursor-pointer transition-colors ${statusBg} ${isDragOver ? 'border-t-2 border-t-blue-400' : ''}`}
       draggable
       onDragStart={(e) => onDragStart(e, subKey)}
       onDragOver={(e) => onDragOver(e, subKey)}
       onDragEnd={onDragEnd}
       onClick={() => onNavigate(sub.project, sub.session)}
     >
-      {/* Status dot */}
-      <span
-        className={`w-2 h-2 rounded-full flex-shrink-0 ${
-          sub.status === 'permission'
-            ? 'status-scaled bg-red-400'
-            : sub.status === 'active'
-              ? 'status-pulse bg-amber-400'
-              : sub.status === 'waiting'
-                ? 'status-scaled bg-green-400'
-                : 'bg-gray-400'
-        }`}
-      />
       {/* Project / Session on two lines */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1">
-          <span className="text-xs text-gray-400 dark:text-gray-500 truncate">{sub.project.split('/').pop()}</span>
+          <span className="text-xs text-gray-700 dark:text-gray-300 truncate">{sub.project.split('/').pop()}</span>
           {/* Elapsed time */}
           {elapsed && (
-            <span className="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums flex-shrink-0 ml-auto">
+            <span className="text-[10px] text-gray-700 dark:text-gray-300 tabular-nums flex-shrink-0 ml-auto">
               {elapsed}
             </span>
           )}
