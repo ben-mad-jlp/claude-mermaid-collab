@@ -48,6 +48,16 @@
         ]
       }
     ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/active-hook.sh"
+          }
+        ]
+      }
+    ],
     "PermissionRequest": [
       {
         "hooks": [
