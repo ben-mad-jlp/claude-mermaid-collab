@@ -131,7 +131,7 @@ function getSnippetMetadata(item: Item): SnippetMetadata {
 /**
  * Get icon for item type
  */
-function getItemIcon(type: 'diagram' | 'document' | 'design' | 'spreadsheet' | 'snippet' | 'embed'): React.ReactNode {
+function getItemIcon(type: 'diagram' | 'document' | 'design' | 'spreadsheet' | 'snippet' | 'embed' | 'image'): React.ReactNode {
   if (type === 'diagram') {
     return (
       <svg
@@ -202,6 +202,22 @@ function getItemIcon(type: 'diagram' | 'document' | 'design' | 'spreadsheet' | '
         aria-hidden="true"
       >
         <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3" />
+      </svg>
+    );
+  }
+  if (type === 'image') {
+    return (
+      <svg
+        className="w-4 h-4"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        aria-hidden="true"
+      >
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <circle cx="9" cy="9" r="2" />
+        <path d="M21 15l-5-5L5 21" />
       </svg>
     );
   }
@@ -308,7 +324,7 @@ export const ItemCard: React.FC<ItemCardProps> = ({
           {/* Item Name */}
           <h3
             className={`
-              text-sm font-semibold truncate
+              text-xs font-semibold truncate
               transition-colors
               ${
                 isSelected

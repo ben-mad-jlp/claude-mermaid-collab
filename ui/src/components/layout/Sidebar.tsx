@@ -51,6 +51,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
     selectedEmbedId,
     selectEmbed,
     removeEmbed,
+    images,
+    selectedImageId,
+    selectImage,
+    removeImage,
   } = useSessionStore(
     useShallow((state) => ({
       diagrams: state.diagrams,
@@ -82,6 +86,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
       selectedEmbedId: state.selectedEmbedId,
       selectEmbed: state.selectEmbed,
       removeEmbed: state.removeEmbed,
+      images: state.images,
+      selectedImageId: state.selectedImageId,
+      selectImage: state.selectImage,
+      removeImage: state.removeImage,
     }))
   );
 
@@ -92,6 +100,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [blueprintCollapsed, setBlueprintCollapsed] = useState(false);
   const [tasksCollapsed, setTasksCollapsed] = useState(false);
   const [embedsCollapsed, setEmbedsCollapsed] = useState(false);
+  const [imagesCollapsed, setImagesCollapsed] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const [codeFilesCollapsed, setCodeFilesCollapsed] = useState(false);
   const [fileBrowserOpen, setFileBrowserOpen] = useState(false);
   const [pendingDeleteItem, setPendingDeleteItem] = useState<Item | null>(null);
@@ -143,11 +153,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       } else if (item.type === 'snippet') {
         await api.deleteSnippet(currentSession.project, currentSession.name, item.id);
         removeSnippet(item.id);
+      } else if (item.type === 'image') {
+        await api.deleteImage(currentSession.project, currentSession.name, item.id);
+        removeImage(item.id);
       }
     } catch (error) {
       console.error('Failed to delete item:', error);
     }
-  }, [pendingDeleteItem, currentSession, removeDiagram, removeDocument, removeDesign, removeSpreadsheet, removeSnippet]);
+  }, [pendingDeleteItem, currentSession, removeDiagram, removeDocument, removeDesign, removeSpreadsheet, removeSnippet, removeImage]);
 
   const handleDeprecateItem = useCallback(
     async (item: Item) => {
@@ -231,7 +244,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       if (!file) return;
       // Check if an artifact with this name already exists
       const { type, name } = detectType(file.name);
-      const allItems = [...diagrams, ...documents, ...designs, ...spreadsheets, ...snippets];
+      const allItems = [...diagrams, ...documents, ...designs, ...spreadsheets, ...snippets, ...images];
       const existing = allItems.find((item) => item.name === name || item.id === name.replace(/[^a-zA-Z0-9-_]/g, '-'));
       if (existing && !window.confirm(`An artifact named "${name}" already exists. Overwrite it?`)) {
         return;
@@ -243,7 +256,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
       }
     };
     input.click();
-  }, [currentSession, diagrams, documents, designs, spreadsheets, snippets]);
+  }, [currentSession, diagrams, documents, designs, spreadsheets, snippets, images]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('Files')) return;
+    e.preventDefault();
+    setDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    if (e.currentTarget === e.target) setDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    if (!currentSession) return;
+    const files = Array.from(e.dataTransfer.files);
+    for (const file of files) {
+      try {
+        await importArtifact(currentSession.project, currentSession.name, file);
+      } catch (err) {
+        console.error(`Import failed for ${file.name}:`, err);
+      }
+    }
+  }, [currentSession]);
 
   const handleItemClick = useCallback(
     (item: Item) => {
@@ -257,11 +294,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
         selectSpreadsheetWithContent(currentSession.project, currentSession.name, item.id);
       } else if (item.type === 'snippet') {
         selectSnippet(item.id);
+      } else if (item.type === 'image') {
+        selectImage(item.id);
       } else {
         selectDocumentWithContent(currentSession.project, currentSession.name, item.id);
       }
     },
-    [currentSession, selectDiagramWithContent, selectDocumentWithContent, selectDesignWithContent, selectSpreadsheetWithContent, selectSnippet]
+    [currentSession, selectDiagramWithContent, selectDocumentWithContent, selectDesignWithContent, selectSpreadsheetWithContent, selectSnippet, selectImage]
   );
 
   const handleSearchChange = useCallback(
@@ -427,9 +466,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
       if (item.type === 'design') return item.id === selectedDesignId;
       if (item.type === 'spreadsheet') return item.id === selectedSpreadsheetId;
       if (item.type === 'snippet') return item.id === selectedSnippetId;
+      if (item.type === 'image') return item.id === selectedImageId;
       return item.id === selectedDocumentId;
     },
-    [selectedDiagramId, selectedDocumentId, selectedDesignId, selectedSpreadsheetId, selectedSnippetId]
+    [selectedDiagramId, selectedDocumentId, selectedDesignId, selectedSpreadsheetId, selectedSnippetId, selectedImageId]
   );
 
   const isDisabled = !currentSession;
@@ -446,11 +486,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
       data-testid="sidebar"
       className={`
         flex flex-col
-        w-72
+        w-72 relative
         bg-gray-50 dark:bg-gray-900
         border-r border-gray-200 dark:border-gray-700
+        ${dragOver ? 'ring-2 ring-blue-400 ring-inset' : ''}
         ${className}
       `.trim()}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
     >
       {/* Vibe Instructions — pinned at top of sidebar */}
       {vibeInstructionsDoc && !isDisabled && (
@@ -460,7 +504,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             className={`
               w-full text-left px-3 py-2 rounded-lg
               flex items-center gap-2
-              text-sm font-medium
+              text-xs font-medium
               transition-colors
               ${selectedDocumentId === vibeInstructionsDoc.id
                 ? 'bg-accent-100 dark:bg-accent-900 text-accent-700 dark:text-accent-300'
@@ -500,7 +544,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               className={`
                 w-full text-left px-3 py-2 rounded-lg
                 flex items-center gap-2
-                text-sm font-medium
+                text-xs font-medium
                 transition-colors
                 ${taskGraphSelected
                   ? 'bg-accent-100 dark:bg-accent-900 text-accent-700 dark:text-accent-300'
@@ -519,7 +563,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 className={`
                   w-full text-left px-3 py-2 rounded-lg
                   flex items-center gap-2
-                  text-sm font-medium
+                  text-xs font-medium
                   transition-colors
                   ${selectedDocumentId === taskGraphDoc.id
                     ? 'bg-accent-100 dark:bg-accent-900 text-accent-700 dark:text-accent-300'
@@ -561,7 +605,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   className={`
                     group relative w-full rounded-lg
                     flex items-center gap-2
-                    text-sm font-medium
+                    text-xs font-medium
                     transition-colors
                     ${isItemSelected(item)
                       ? 'bg-accent-100 dark:bg-accent-900 text-accent-700 dark:text-accent-300'
@@ -625,7 +669,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {embeds.map((embed) => (
                 <div
                   key={embed.id}
-                  className={`group w-full text-left px-2 py-1.5 rounded text-sm flex items-center gap-2 cursor-pointer ${
+                  className={`group w-full text-left px-2 py-1.5 rounded text-xs flex items-center gap-2 cursor-pointer ${
                     embed.id === selectedEmbedId
                       ? 'bg-accent-100 dark:bg-accent-900 text-accent-700 dark:text-accent-300'
                       : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
@@ -652,6 +696,52 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </button>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Images Section */}
+      {images.length > 0 && !isDisabled && (
+        <div className="border-b border-gray-200 dark:border-gray-700">
+          <button
+            onClick={() => setImagesCollapsed((c) => !c)}
+            className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+          >
+            <span>Images</span>
+            <span className="ml-1 text-gray-400 dark:text-gray-500 font-normal">{images.length}</span>
+            <svg
+              className={`w-3 h-3 ml-auto text-gray-400 transition-transform ${imagesCollapsed ? '-rotate-90' : ''}`}
+              viewBox="0 0 20 20"
+              fill="currentColor"
+            >
+              <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+            </svg>
+          </button>
+          {!imagesCollapsed && (
+            <div className="space-y-1 px-2 pb-2 max-h-80 overflow-y-auto">
+              {images.map((image) => {
+                const item: Item = {
+                  id: image.id,
+                  type: 'image' as const,
+                  name: image.name,
+                  lastModified: new Date(image.uploadedAt).getTime(),
+                  content: '',
+                  deprecated: image.deprecated,
+                  pinned: image.pinned,
+                  locked: image.locked,
+                };
+                return (
+                  <ItemCard
+                    key={`image-${image.id}`}
+                    item={item}
+                    isSelected={image.id === selectedImageId}
+                    onClick={() => handleItemClick(item)}
+                    showDelete={showItemDelete}
+                    onDelete={() => handleDeleteItem(item)}
+                  />
+                );
+              })}
             </div>
           )}
         </div>
@@ -706,7 +796,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {linkedSnippets.map((snip) => (
                 <div
                   key={snip.id}
-                  className={`group w-full text-left px-2 py-1.5 rounded text-sm flex items-center gap-2 cursor-pointer ${
+                  className={`group w-full text-left px-2 py-1.5 rounded text-xs flex items-center gap-2 cursor-pointer ${
                     snip.id === selectedSnippetId
                       ? 'bg-accent-100 dark:bg-accent-900 text-accent-700 dark:text-accent-300'
                       : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
@@ -742,7 +832,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       {/* Items List */}
-      <div className={`flex-1 overflow-y-auto ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`} role="navigation" aria-label="Sidebar items">
+      <div
+        className={`flex-1 overflow-y-auto ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`}
+        role="navigation"
+        aria-label="Sidebar items"
+      >
         {/* Items section header with search */}
         {!isDisabled && (
           <div className="px-2 pt-2 pb-1">
@@ -767,7 +861,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               className="
                   w-full
                   px-3 py-1.5
-                  text-sm
+                  text-xs
                   bg-white dark:bg-gray-800
                   border border-gray-300 dark:border-gray-600
                   rounded-lg
@@ -794,11 +888,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
         {isDisabled ? (
-          <div data-testid="sidebar-empty" className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 text-center">
+          <div data-testid="sidebar-empty" className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 text-center">
             Select a session to view items
           </div>
         ) : filteredItems.length === 0 ? (
-          <div data-testid="sidebar-empty" className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+          <div data-testid="sidebar-empty" className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">
             {searchQuery ? 'No matching items' : 'No items'}
           </div>
         ) : (

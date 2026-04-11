@@ -3,6 +3,7 @@ import { DocumentManager } from '../services/document-manager';
 import { SpreadsheetManager } from '../services/spreadsheet-manager';
 import { SnippetManager } from '../services/snippet-manager';
 import { EmbedManager } from '../services/embed-manager';
+import { ImageManager } from '../services/image-manager';
 import { MetadataManager } from '../services/metadata-manager';
 import { Validator } from '../services/validator';
 import { Renderer, type Theme } from '../services/renderer';
@@ -54,6 +55,28 @@ function expandPath(path: string): string {
 
 // Track server start time for uptime calculation
 const serverStartTime = Date.now();
+
+// Minimal source loader for image routes when loadImageBytes isn't exported
+async function loadImageSourceToBuffer(source: string): Promise<{ buffer: Buffer; mimeType: string }> {
+  if (source.startsWith('data:')) {
+    const match = source.match(/^data:([^;]+);base64,(.*)$/);
+    if (!match) throw new Error('Invalid data URI');
+    return { buffer: Buffer.from(match[2], 'base64'), mimeType: match[1] };
+  }
+  if (source.startsWith('http://') || source.startsWith('https://')) {
+    const res = await fetch(source);
+    if (!res.ok) throw new Error(`Failed to fetch image: ${res.statusText}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    return { buffer: buf, mimeType: res.headers.get('content-type') || 'application/octet-stream' };
+  }
+  // Assume file path
+  const { readFile } = await import('fs/promises');
+  const buf = await readFile(source);
+  // Infer mime from extension
+  const ext = source.toLowerCase().split('.').pop() || '';
+  const extMap: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', bmp: 'image/bmp', tif: 'image/tiff', tiff: 'image/tiff' };
+  return { buffer: buf, mimeType: extMap[ext] || 'application/octet-stream' };
+}
 
 /**
  * Extract project and session from query params.
@@ -126,12 +149,14 @@ async function createManagers(project: string, session: string) {
   const spreadsheetsDir = sessionRegistry.resolvePath(project, session, 'spreadsheets');
   const snippetsDir = sessionRegistry.resolvePath(project, session, 'snippets');
   const embedsDir = sessionRegistry.resolvePath(project, session, 'embeds');
+  const imagesDir = sessionRegistry.resolvePath(project, session, 'images');
 
   const diagramManager = new DiagramManager(diagramsDir);
   const documentManager = new DocumentManager(documentsDir);
   const spreadsheetManager = new SpreadsheetManager(spreadsheetsDir);
   const snippetManager = new SnippetManager(snippetsDir);
   const embedManager = new EmbedManager(embedsDir);
+  const imageManager = new ImageManager(imagesDir);
   const sessionDir = sessionRegistry.resolvePath(project, session, '.');
   const metadataManager = new MetadataManager(sessionDir);
 
@@ -141,9 +166,10 @@ async function createManagers(project: string, session: string) {
   await spreadsheetManager.initialize();
   await snippetManager.initialize();
   await embedManager.initialize();
+  await imageManager.initialize();
   await metadataManager.initialize();
 
-  return { diagramManager, documentManager, spreadsheetManager, snippetManager, embedManager, metadataManager };
+  return { diagramManager, documentManager, spreadsheetManager, snippetManager, embedManager, imageManager, metadataManager };
 }
 
 export async function handleAPI(
@@ -2103,6 +2129,127 @@ export async function handleAPI(
       return Response.json({ success: true });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 404 });
+    }
+  }
+
+  // ============================================
+  // Image Routes
+  // ============================================
+
+  // GET /api/image/:id/content — stream binary
+  if (path.match(/^\/api\/image\/[^/]+\/content$/) && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    const segments = path.split('/');
+    const id = decodeURIComponent(segments[segments.length - 2]);
+    try {
+      const { imageManager } = await createManagers(params.project, params.session);
+      const content = await imageManager.getContent(id);
+      if (!content) return Response.json({ error: 'Image not found' }, { status: 404 });
+      return new Response(content.buffer, {
+        headers: {
+          'Content-Type': content.mimeType,
+          'Content-Length': String(content.buffer.length),
+          'Cache-Control': 'private, max-age=3600',
+        },
+      });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // GET /api/image/:id — metadata
+  if (path.match(/^\/api\/image\/[^/]+$/) && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    const id = decodeURIComponent(path.split('/').pop()!);
+    try {
+      const { imageManager } = await createManagers(params.project, params.session);
+      const image = await imageManager.get(id);
+      if (!image) return Response.json({ error: 'Image not found' }, { status: 404 });
+      return Response.json(image);
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // DELETE /api/image/:id
+  if (path.match(/^\/api\/image\/[^/]+$/) && req.method === 'DELETE') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    const id = decodeURIComponent(path.split('/').pop()!);
+    try {
+      const { imageManager } = await createManagers(params.project, params.session);
+      await imageManager.delete(id);
+      wsHandler.broadcast({
+        type: 'image_deleted',
+        id,
+        project: params.project,
+        session: params.session,
+      });
+      return Response.json({ success: true });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 404 });
+    }
+  }
+
+  // POST /api/image — accepts multipart OR JSON { name, source }
+  if (path === '/api/image' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+
+    try {
+      const contentType = req.headers.get('content-type') || '';
+      let name: string;
+      let buffer: Buffer;
+      let mimeType: string;
+
+      if (contentType.startsWith('multipart/form-data')) {
+        const form = await req.formData();
+        const file = form.get('file');
+        if (!(file instanceof File)) return Response.json({ error: 'file field required' }, { status: 400 });
+        name = (form.get('name') as string) || file.name;
+        buffer = Buffer.from(await file.arrayBuffer());
+        mimeType = file.type || 'application/octet-stream';
+      } else {
+        const body = await req.json() as { name?: string; source?: string };
+        if (!body.name || !body.source) return Response.json({ error: 'name and source required' }, { status: 400 });
+        const loaded = await loadImageSourceToBuffer(body.source);
+        name = body.name;
+        buffer = loaded.buffer;
+        mimeType = loaded.mimeType;
+      }
+
+      const { imageManager } = await createManagers(params.project, params.session);
+      const image = await imageManager.create({ name, buffer, mimeType });
+
+      wsHandler.broadcast({
+        type: 'image_created',
+        id: image.id,
+        name: image.name,
+        mimeType: image.mimeType,
+        size: image.size,
+        uploadedAt: image.uploadedAt,
+        project: params.project,
+        session: params.session,
+      });
+
+      return Response.json({ ...image, success: true });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // GET /api/images — list
+  if (path === '/api/images' && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    try {
+      const { imageManager } = await createManagers(params.project, params.session);
+      const images = await imageManager.list();
+      return Response.json({ images });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
     }
   }
 

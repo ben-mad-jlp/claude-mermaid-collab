@@ -73,6 +73,7 @@ export function useDataLoader(): UseDataLoaderReturn {
   const setSpreadsheets = useSessionStore((state) => state.setSpreadsheets);
   const setSnippets = useSessionStore((state) => state.setSnippets);
   const setEmbeds = useSessionStore((state) => state.setEmbeds);
+  const setImages = useSessionStore((state) => state.setImages);
   const selectDiagram = useSessionStore((state) => state.selectDiagram);
   const selectDocument = useSessionStore((state) => state.selectDocument);
   const selectDesign = useSessionStore((state) => state.selectDesign);
@@ -126,13 +127,14 @@ export function useDataLoader(): UseDataLoaderReturn {
       setError(null);
 
       try {
-        const [diagrams, documents, designs, spreadsheets, snippets, embeds] = await Promise.all([
+        const [diagrams, documents, designs, spreadsheets, snippets, embeds, images] = await Promise.all([
           api.getDiagrams(project, session),
           api.getDocuments(project, session),
           api.getDesigns(project, session),
           api.getSpreadsheets(project, session),
           api.getSnippets(project, session),
           embedsApi.fetchEmbeds(session, project),
+          api.listImages(project, session),
         ]);
         setDiagrams(diagrams);
         setDocuments(documents);
@@ -140,6 +142,7 @@ export function useDataLoader(): UseDataLoaderReturn {
         setSpreadsheets(spreadsheets);
         setSnippets(snippets);
         setEmbeds(embeds);
+        setImages(images);
 
         // Also load collab state
         await loadCollabState(project, session);
@@ -150,7 +153,7 @@ export function useDataLoader(): UseDataLoaderReturn {
         setIsLoading(false);
       }
     },
-    [setDiagrams, setDocuments, setDesigns, setSpreadsheets, setSnippets, setEmbeds, loadCollabState]
+    [setDiagrams, setDocuments, setDesigns, setSpreadsheets, setSnippets, setEmbeds, setImages, loadCollabState]
   );
 
   /**

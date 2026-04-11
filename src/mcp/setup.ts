@@ -183,6 +183,7 @@ import {
   handleProposeCodeEdit,
 } from './tools/code.js';
 import { createEmbedSchema, listEmbedsSchema, deleteEmbedSchema, handleCreateEmbed, handleListEmbeds, handleDeleteEmbed, createStorybookEmbedSchema, listStorybookStoriesSchema, handleCreateStorybookEmbed, handleListStorybookStories } from './tools/embed.js';
+import { createImageSchema, listImagesSchema, getImageSchema, deleteImageSchema, handleCreateImage, handleListImages, handleGetImage, handleDeleteImage } from './tools/image.js';
 
 // Configuration
 const API_PORT = parseInt(process.env.PORT || '3737', 10);
@@ -1501,7 +1502,7 @@ IMPORTANT - Common pitfalls to avoid:
           properties: {
             prompt: { type: 'string', description: 'The question or prompt to send to Grok' },
             system: { type: 'string', description: 'Optional system prompt to set context for Grok' },
-            model: { type: 'string', description: 'Grok model to use. Default: grok-3' },
+            model: { type: 'string', description: 'Grok model to use. Default: grok-4.20-reasoning' },
           },
           required: ['prompt'],
         },
@@ -1868,6 +1869,10 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'delete_embed', description: 'Delete an embed by ID.', inputSchema: deleteEmbedSchema },
       { name: 'create_storybook_embed', description: 'Create a Storybook embed from a story ID. Constructs the iframe URL and creates an embed artifact with storybook metadata.', inputSchema: createStorybookEmbedSchema },
       { name: 'list_storybook_stories', description: 'List available Storybook stories by fetching index.json from the running Storybook dev server.', inputSchema: listStorybookStoriesSchema },
+      { name: 'create_image', description: 'Create an image artifact from a file path, URL, or base64 data URI.', inputSchema: createImageSchema },
+      { name: 'list_images', description: 'List all image artifacts in a session.', inputSchema: listImagesSchema },
+      { name: 'get_image', description: 'Get image artifact metadata by ID.', inputSchema: getImageSchema },
+      { name: 'delete_image', description: 'Delete an image artifact by ID.', inputSchema: deleteImageSchema },
       {
         name: 'deprecate_artifact',
         description: 'Mark an artifact as deprecated (hidden by default) or restore it. Deprecated artifacts remain in the session but are filtered from the default view.',
@@ -3029,7 +3034,7 @@ IMPORTANT - Common pitfalls to avoid:
           }
 
           case 'consult_grok': {
-            const { prompt, system, model = 'grok-3' } = args as { prompt: string; system?: string; model?: string };
+            const { prompt, system, model = 'grok-4.20-reasoning' } = args as { prompt: string; system?: string; model?: string };
             if (!prompt) throw new Error('Missing required: prompt');
 
             const apiKey = process.env.XAI_API_KEY;
@@ -3622,6 +3627,30 @@ IMPORTANT - Common pitfalls to avoid:
             const { project, session, id } = args as any;
             if (!project || !session || !id) throw new Error('Missing required: project, session, id');
             const result = await handleDeleteEmbed(project, session, id);
+            return JSON.stringify(result, null, 2);
+          }
+          case 'create_image': {
+            const { project, session, name, source } = args as any;
+            if (!project || !session || !name || !source) throw new Error('Missing required: project, session, name, source');
+            const result = await handleCreateImage(project, session, name, source);
+            return JSON.stringify(result, null, 2);
+          }
+          case 'list_images': {
+            const { project, session } = args as any;
+            if (!project || !session) throw new Error('Missing required: project, session');
+            const result = await handleListImages(project, session);
+            return JSON.stringify(result, null, 2);
+          }
+          case 'get_image': {
+            const { project, session, id } = args as any;
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            const result = await handleGetImage(project, session, id);
+            return JSON.stringify(result, null, 2);
+          }
+          case 'delete_image': {
+            const { project, session, id } = args as any;
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            const result = await handleDeleteImage(project, session, id);
             return JSON.stringify(result, null, 2);
           }
           case 'create_storybook_embed': {

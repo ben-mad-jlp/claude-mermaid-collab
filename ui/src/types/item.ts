@@ -11,7 +11,7 @@ import type React from 'react';
  * ItemType: Union of all artifact types
  * Represents any artifact that can be created and edited in the system
  */
-export type ItemType = 'diagram' | 'document' | 'design' | 'spreadsheet' | 'snippet' | 'embed';
+export type ItemType = 'diagram' | 'document' | 'design' | 'spreadsheet' | 'snippet' | 'embed' | 'image';
 
 /**
  * ItemMetadata: Common properties shared by all artifacts
@@ -73,7 +73,8 @@ export function isItemType(value: unknown): value is ItemType {
     value === 'design' ||
     value === 'spreadsheet' ||
     value === 'snippet' ||
-    value === 'embed'
+    value === 'embed' ||
+    value === 'image'
   );
 }
 
@@ -113,6 +114,13 @@ export function isSnippet(item: Item): item is Item & { type: 'snippet' } {
 }
 
 /**
+ * Type guard: Check if an Item is an image
+ */
+export function isImage(item: Item): item is Item & { type: 'image' } {
+  return item.type === 'image';
+}
+
+/**
  * Get human-readable label for an item type
  */
 export function getItemLabel(type: ItemType): string {
@@ -123,6 +131,7 @@ export function getItemLabel(type: ItemType): string {
     spreadsheet: 'Spreadsheet',
     snippet: 'Snippet',
     embed: 'Embed',
+    image: 'Image',
   };
   return labels[type];
 }
@@ -138,6 +147,7 @@ export function getItemIconPath(type: ItemType): string {
     snippet: 'M9 12h6M9 16h6M17 21H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
     document: 'M9 12h6M9 16h6M17 21H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
     embed: 'M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3',
+    image: 'M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2zM8 12a2 2 0 1 0 4 0 2 2 0 0 0-4 0zm10-3v6',
   };
   return paths[type];
 }
@@ -179,6 +189,7 @@ export function getItemColor(type: ItemType): string {
     spreadsheet: 'green',
     snippet: 'orange',
     embed: 'cyan',
+    image: 'yellow',
   };
   return colors[type];
 }
@@ -194,6 +205,7 @@ export function getItemColorValue(type: ItemType): string {
     spreadsheet: '#10b981',
     snippet: '#f97316',
     embed: '#06b6d4',
+    image: '#eab308',
   };
   return colorMap[type];
 }

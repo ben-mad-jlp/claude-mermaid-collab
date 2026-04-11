@@ -46,6 +46,16 @@ export const config = {
   HOST: process.env.HOST || '0.0.0.0',
   PUBLIC_DIR: join(PROJECT_ROOT, 'public'),
   MAX_FILE_SIZE: 1048576, // 1MB
+  MAX_IMAGE_SIZE: 50 * 1024 * 1024, // 50 MB
+  ALLOWED_IMAGE_MIME_TYPES: [
+    'image/png',
+    'image/jpeg',
+    'image/gif',
+    'image/webp',
+    'image/svg+xml',
+    'image/bmp',
+    'image/tiff',
+  ] as const,
   THUMBNAIL_CACHE_SIZE: 100,
   UNDO_HISTORY_SIZE: 50,
   WS_RECONNECT_MAX_DELAY: 30000,

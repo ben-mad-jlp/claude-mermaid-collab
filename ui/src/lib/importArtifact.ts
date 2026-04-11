@@ -3,7 +3,9 @@
  * and calling the appropriate create API endpoint.
  */
 
-export type ArtifactType = 'diagram' | 'document' | 'design' | 'snippet' | 'spreadsheet';
+export type ArtifactType = 'diagram' | 'document' | 'design' | 'snippet' | 'spreadsheet' | 'image';
+
+const IMAGE_EXTS = new Set(['png','jpg','jpeg','gif','webp','svg','bmp','tif','tiff']);
 
 interface ImportResult {
   type: ArtifactType;
@@ -26,6 +28,10 @@ export function detectType(filename: string): { type: ArtifactType; name: string
   if (filename.endsWith('.md')) {
     return { type: 'document', name: filename.replace(/\.md$/, '') };
   }
+  const ext = filename.split('.').pop()?.toLowerCase() ?? '';
+  if (IMAGE_EXTS.has(ext)) {
+    return { type: 'image', name: filename };
+  }
   // Everything else becomes a snippet; keep the full filename so the extension is visible
   return { type: 'snippet', name: filename };
 }
@@ -43,8 +49,26 @@ export async function importArtifact(
   session: string,
   file: File,
 ): Promise<ImportResult> {
-  const text = await file.text();
   const { type, name } = detectType(file.name);
+
+  if (type === 'image') {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('name', name);
+    const imageParams = new URLSearchParams({ project, session });
+    const imageResponse = await fetch(`/api/image?${imageParams}`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!imageResponse.ok) {
+      const errorBody = await imageResponse.text().catch(() => imageResponse.statusText);
+      throw new Error(`Failed to import image "${name}": ${errorBody}`);
+    }
+    const imageData = await imageResponse.json();
+    return { type, id: imageData.id };
+  }
+
+  const text = await file.text();
 
   // For design and spreadsheet JSON files, parse the content so it is sent as
   // an object rather than a string (the backend expects a JSON body with

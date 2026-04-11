@@ -59,6 +59,7 @@ import { TaskGraphView } from '@/components/task-graph';
 
 // Import embed viewer
 import { EmbedViewer } from '@/components/EmbedViewer';
+import { ImageViewer } from '@/components/ImageViewer';
 
 // Import notification components
 import { ToastContainer } from '@/components/notifications';
@@ -203,6 +204,10 @@ const App: React.FC = () => {
     selectedEmbedId,
     addEmbed,
     removeEmbed,
+    images,
+    selectedImageId,
+    addImage,
+    removeImage,
     setPendingDiff,
     setCollabState,
   } = useSessionStore(
@@ -240,6 +245,10 @@ const App: React.FC = () => {
       selectedEmbedId: state.selectedEmbedId,
       addEmbed: state.addEmbed,
       removeEmbed: state.removeEmbed,
+      images: state.images,
+      selectedImageId: state.selectedImageId,
+      addImage: state.addImage,
+      removeImage: state.removeImage,
       setPendingDiff: state.setPendingDiff,
       setCollabState: state.setCollabState,
     }))
@@ -649,6 +658,20 @@ const App: React.FC = () => {
           }
           break;
         }
+        case 'image_created': {
+          const { id, name, mimeType, size, uploadedAt, project, session } = message as any;
+          if (project === currentSession.project && session === currentSession.name) {
+            addImage({ id, name, mimeType, size, uploadedAt });
+          }
+          break;
+        }
+        case 'image_deleted': {
+          const { id, project, session } = message as any;
+          if (project === currentSession.project && session === currentSession.name) {
+            removeImage(id);
+          }
+          break;
+        }
 
         case 'design_export_request': {
           // Browser-side rendering for MCP export
@@ -818,7 +841,7 @@ const App: React.FC = () => {
     return () => {
       subscription.unsubscribe();
     };
-  }, [isConnected, currentSession, updateDiagram, updateDocument, updateDesign, updateSpreadsheet, addDiagram, addDocument, addDesign, addSpreadsheet, removeDiagram, removeDocument, removeDesign, removeSpreadsheet, addSnippet, updateSnippet, removeSnippet, addEmbed, removeEmbed, setPendingDiff, setCollabState, receiveQuestion, restoreUIState]);
+  }, [isConnected, currentSession, updateDiagram, updateDocument, updateDesign, updateSpreadsheet, addDiagram, addDocument, addDesign, addSpreadsheet, removeDiagram, removeDocument, removeDesign, removeSpreadsheet, addSnippet, updateSnippet, removeSnippet, addEmbed, removeEmbed, addImage, removeImage, setPendingDiff, setCollabState, receiveQuestion, restoreUIState]);
 
   // Compute selected item from diagrams/documents/designs
   const selectedItem: Item | null = useMemo(() => {
@@ -894,8 +917,20 @@ const App: React.FC = () => {
         return { id: embed.id, name: embed.name, type: 'embed' as const, content: embed.url, lastModified: new Date(embed.createdAt).getTime() };
       }
     }
+    if (selectedImageId) {
+      const image = images.find((i) => i.id === selectedImageId);
+      if (image) {
+        return {
+          id: image.id,
+          name: image.name,
+          type: 'image' as const,
+          content: '',
+          lastModified: new Date(image.uploadedAt).getTime(),
+        };
+      }
+    }
     return null;
-  }, [diagrams, documents, designs, spreadsheets, snippets, embeds, selectedDiagramId, selectedDocumentId, selectedDesignId, selectedSpreadsheetId, selectedSnippetId, selectedEmbedId]);
+  }, [diagrams, documents, designs, spreadsheets, snippets, embeds, images, selectedDiagramId, selectedDocumentId, selectedDesignId, selectedSpreadsheetId, selectedSnippetId, selectedEmbedId, selectedImageId]);
 
   // Track local content for auto-save
   const [localContent, setLocalContent] = React.useState<string>('');
@@ -946,7 +981,7 @@ const App: React.FC = () => {
       // Send update via WebSocket if connected
       const client = getWebSocketClient();
       if (client.isConnected()) {
-        const typeMap = { diagram: 'update_diagram', document: 'update_document', design: 'update_design', spreadsheet: 'update_spreadsheet', snippet: 'snippet_updated', embed: 'update_embed' } as const;
+        const typeMap = { diagram: 'update_diagram', document: 'update_document', design: 'update_design', spreadsheet: 'update_spreadsheet', snippet: 'snippet_updated', embed: 'update_embed', image: 'update_image' } as const;
         const messageType = typeMap[selectedItem.type];
         if (messageType) {
           client.send({
@@ -1351,6 +1386,16 @@ const App: React.FC = () => {
       }
     }
 
+    if (selectedImageId) {
+      return (
+        <div className="flex flex-col h-full min-h-0">
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <ImageViewer />
+          </div>
+        </div>
+      );
+    }
+
     // Item 4: Use localContent (updated by editor changes and checkbox toggles)
     // localContent is always initialized from selectedItem.content via useEffect on item change
     const editorItem = selectedItem
@@ -1374,7 +1419,7 @@ const App: React.FC = () => {
           showZoom={selectedItem?.type !== 'document' && selectedItem?.type !== 'spreadsheet' && selectedItem?.type !== 'snippet'}
           onCenter={selectedItem?.type === 'diagram' ? handleCenter : undefined}
           onFitToView={selectedItem?.type === 'diagram' ? handleFitToView : undefined}
-          itemType={selectedItem?.type}
+          itemType={selectedItem && selectedItem.type !== 'image' ? selectedItem.type : undefined}
           documentId={selectedItem?.type === 'document' ? selectedItem.id : undefined}
           documentContent={selectedItem?.type === 'document' ? effectiveContent : undefined}
           onHistoryVersionSelect={selectedItem?.type === 'document' ? handleHistoryVersionSelect : undefined}

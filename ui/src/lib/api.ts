@@ -2,7 +2,7 @@
  * API Client - HTTP fetch methods for communicating with the backend
  */
 
-import type { Session, Diagram, Document, CollabState, Snippet, SessionTodo } from '@/types';
+import type { Session, Diagram, Document, CollabState, Snippet, SessionTodo, Image } from '@/types';
 import type { TerminalSession, CreateSessionResult } from '@/types/terminal';
 import type { Design, Spreadsheet } from '@/stores/sessionStore';
 import { getWebSocketClient } from './websocket';
@@ -100,6 +100,9 @@ export interface ApiClient {
   rejectProposedEdit(project: string, session: string, id: string): Promise<{ success: boolean; noop?: boolean }>;
   getCodeDiff(project: string, session: string, id: string): Promise<any>;
   clearTaskGraph(project: string, session: string): Promise<any>;
+  createImage(project: string, session: string, file: File): Promise<{ id: string; name: string; mimeType: string; size: number; uploadedAt: string; success: boolean }>;
+  listImages(project: string, session: string): Promise<Image[]>;
+  deleteImage(project: string, session: string, id: string): Promise<void>;
 }
 
 export interface CachedUIState {
@@ -860,5 +863,47 @@ export const api: ApiClient = {
     );
     if (!response.ok) throw new Error(response.statusText);
     return response.json();
+  },
+
+  /**
+   * Upload a new image
+   */
+  async createImage(project: string, session: string, file: File): Promise<{ id: string; name: string; mimeType: string; size: number; uploadedAt: string; success: boolean }> {
+    const url = `/api/image?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('name', file.name);
+    const response = await fetch(url, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+    return response.json();
+  },
+
+  /**
+   * Fetch images for a specific session
+   */
+  async listImages(project: string, session: string): Promise<Image[]> {
+    const url = `/api/images?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+    const data = await response.json();
+    return data.images || [];
+  },
+
+  /**
+   * Delete an image
+   */
+  async deleteImage(project: string, session: string, id: string): Promise<void> {
+    const url = `/api/image/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const response = await fetch(url, { method: 'DELETE' });
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
   },
 };

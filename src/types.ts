@@ -103,6 +103,32 @@ export interface EmbedListItem {
   createdAt: string;
 }
 
+export interface Image {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  uploadedAt: string; // ISO
+  ext: string;        // file extension without dot
+}
+
+export interface ImageMeta {
+  name: string;
+  path: string;
+  mimeType: string;
+  size: number;
+  uploadedAt: string;
+  ext: string;
+}
+
+export interface ImageListItem {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  uploadedAt: string;
+}
+
 export interface ItemMetadata {
   folder: string | null;
   locked: boolean;
