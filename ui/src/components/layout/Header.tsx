@@ -568,58 +568,61 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </div>
 
-          {/* Chat Panel Toggle */}
-          <button
-            data-testid="chat-panel-toggle"
-            onClick={handleChatToggle}
-            aria-label={chatPanelVisible ? 'Hide Chat' : 'Show Chat'}
-            aria-pressed={chatPanelVisible}
-            title={chatPanelVisible ? 'Hide Chat' : 'Show Chat'}
-            className={`
-              flex items-center gap-2
-              px-3 py-1.5
-              text-sm font-medium
-              rounded-lg
-              transition-colors
-              ${
-                chatPanelVisible
-                  ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-              }
-            `}
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-            </svg>
-            <span>Chat</span>
-          </button>
+          {/* Chat/Terminal toggles hidden — code retained for future re-enable */}
+          {false && (
+            <>
+              <button
+                data-testid="chat-panel-toggle"
+                onClick={handleChatToggle}
+                aria-label={chatPanelVisible ? 'Hide Chat' : 'Show Chat'}
+                aria-pressed={chatPanelVisible}
+                title={chatPanelVisible ? 'Hide Chat' : 'Show Chat'}
+                className={`
+                  flex items-center gap-2
+                  px-3 py-1.5
+                  text-sm font-medium
+                  rounded-lg
+                  transition-colors
+                  ${
+                    chatPanelVisible
+                      ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  }
+                `}
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+                <span>Chat</span>
+              </button>
 
-          {/* Terminal Panel Toggle */}
-          <button
-            data-testid="terminal-panel-toggle"
-            onClick={handleTerminalToggle}
-            aria-label={terminalPanelVisible ? 'Hide Terminal' : 'Show Terminal'}
-            aria-pressed={terminalPanelVisible}
-            title={terminalPanelVisible ? 'Hide Terminal' : 'Show Terminal'}
-            className={`
-              flex items-center gap-2
-              px-3 py-1.5
-              text-sm font-medium
-              rounded-lg
-              transition-colors
-              ${
-                terminalPanelVisible
-                  ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-              }
-            `}
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polyline points="4 17 10 11 4 5" />
-              <line x1="12" y1="19" x2="20" y2="19" />
-            </svg>
-            <span>Terminal</span>
-          </button>
+              <button
+                data-testid="terminal-panel-toggle"
+                onClick={handleTerminalToggle}
+                aria-label={terminalPanelVisible ? 'Hide Terminal' : 'Show Terminal'}
+                aria-pressed={terminalPanelVisible}
+                title={terminalPanelVisible ? 'Hide Terminal' : 'Show Terminal'}
+                className={`
+                  flex items-center gap-2
+                  px-3 py-1.5
+                  text-sm font-medium
+                  rounded-lg
+                  transition-colors
+                  ${
+                    terminalPanelVisible
+                      ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  }
+                `}
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="4 17 10 11 4 5" />
+                  <line x1="12" y1="19" x2="20" y2="19" />
+                </svg>
+                <span>Terminal</span>
+              </button>
+            </>
+          )}
 
           {/* Edit Mode Toggle */}
           <button

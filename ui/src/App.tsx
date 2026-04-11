@@ -165,7 +165,8 @@ const App: React.FC = () => {
   );
 
   // Show chat/terminal panel area when either is visible
-  const showSecondaryPanel = chatPanelVisible || terminalPanelVisible;
+  // Temporarily forced off — chat/terminal hidden for now, toggles also hidden in Header.
+  const showSecondaryPanel = false && (chatPanelVisible || terminalPanelVisible);
 
   // Session state
   const {
