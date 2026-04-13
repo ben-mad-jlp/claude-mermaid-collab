@@ -2,7 +2,8 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
-const API_PORT = process.env.PORT || '3737';
+const API_PORT = process.env.VITE_API_PORT || '3737';
+console.log(`[vite] proxying /api, /ws, /terminal → http://localhost:${API_PORT}`);
 
 export default defineConfig({
   plugins: [react()],
