@@ -1918,7 +1918,7 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'list_storybook_stories', description: 'List available Storybook stories by fetching index.json from the running Storybook dev server.', inputSchema: listStorybookStoriesSchema },
       { name: 'create_image', description: 'Create an image artifact from a file path, URL, or base64 data URI.', inputSchema: createImageSchema },
       { name: 'list_images', description: 'List all image artifacts in a session.', inputSchema: listImagesSchema },
-      { name: 'get_image', description: 'Get image artifact metadata by ID.', inputSchema: getImageSchema },
+      { name: 'get_image', description: 'Get image artifact metadata by ID. Returns an absolute disk path; use the Read tool on that path to view the image.', inputSchema: getImageSchema },
       { name: 'delete_image', description: 'Delete an image artifact by ID.', inputSchema: deleteImageSchema },
       {
         name: 'deprecate_artifact',

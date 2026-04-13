@@ -99,6 +99,7 @@ export class ImageManager {
       size: params.buffer.length,
       uploadedAt,
       ext,
+      path: binaryPath,
     };
   }
 
@@ -126,6 +127,7 @@ export class ImageManager {
       size: meta.size,
       uploadedAt: meta.uploadedAt,
       ext: meta.ext,
+      path: meta.path,
     };
   }
 

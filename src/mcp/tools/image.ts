@@ -30,6 +30,7 @@ export interface GetImageResult {
   size: number;
   uploadedAt: string;
   ext: string;
+  path: string;
 }
 
 export interface DeleteImageResult {

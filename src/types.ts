@@ -110,6 +110,7 @@ export interface Image {
   size: number;
   uploadedAt: string; // ISO
   ext: string;        // file extension without dot
+  path: string;       // absolute path to binary on disk
 }
 
 export interface ImageMeta {
