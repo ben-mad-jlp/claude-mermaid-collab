@@ -220,7 +220,7 @@ import {
 import { pseudo_get_file_state as pseudo_get_file_state_v6 } from './tools/pseudo-get-file-state.js';
 
 // Configuration
-const API_PORT = parseInt(process.env.PORT || '3737', 10);
+const API_PORT = parseInt(process.env.PORT || '9002', 10);
 const API_HOST = process.env.HOST || 'localhost';
 const API_BASE_URL = `http://${API_HOST}:${API_PORT}`;
 

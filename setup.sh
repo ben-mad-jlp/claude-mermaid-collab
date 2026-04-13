@@ -9,7 +9,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-PORT=${MERMAID_PORT:-3737}
+PORT=${MERMAID_PORT:-9002}
 
 # Colors for output
 RED='\033[0;31m'

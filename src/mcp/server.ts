@@ -17,7 +17,7 @@ const SERVER_VERSION = '5.59.0';
 
 async function main() {
   // Check if API server is running
-  const API_PORT = parseInt(process.env.PORT || '3737', 10);
+  const API_PORT = parseInt(process.env.PORT || '9002', 10);
   const API_HOST = process.env.HOST || 'localhost';
   const API_BASE_URL = `http://${API_HOST}:${API_PORT}`;
 

@@ -60,7 +60,7 @@ export async function terminalCreateSession(
   return {
     id,
     tmuxSession,
-    wsUrl: 'ws://localhost:3737/terminal',
+    wsUrl: 'ws://localhost:9002/terminal',
   };
 }
 

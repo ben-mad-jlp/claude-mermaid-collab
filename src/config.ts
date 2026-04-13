@@ -16,7 +16,7 @@ const PROJECT_ROOT = dirname(
  * @throws {Error} If PORT is not a valid number or out of range
  */
 function validatePort(): number {
-  const portValue = process.env.PORT || '3737';
+  const portValue = process.env.PORT || '9002';
   const port = parseInt(portValue, 10);
 
   if (isNaN(port)) {
@@ -33,7 +33,7 @@ function validatePort(): number {
 /**
  * Application configuration loaded from environment variables with sensible defaults.
  *
- * @property {number} PORT - Server port number (1-65535). Default: 3737. Set via PORT env var.
+ * @property {number} PORT - Server port number (1-65535). Default: 9002. Set via PORT env var.
  * @property {string} HOST - Server host address. Default: '0.0.0.0'. Set via HOST env var.
  * @property {string} PUBLIC_DIR - Directory path for static files.
  * @property {number} MAX_FILE_SIZE - Maximum allowed file size in bytes. Default: 1048576 (1MB).

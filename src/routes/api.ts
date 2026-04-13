@@ -110,14 +110,18 @@ async function handleHealthCheck(wsHandler: WebSocketHandler): Promise<Response>
 
   // API is running (if we're responding)
   const apiRunning = true;
-  const port = parseInt(process.env.PORT || '3737', 10);
+  const port = parseInt(process.env.PORT || '9002', 10);
 
-  // Check UI status by trying to serve index.html
+  // Probe the Vite dev server on its fixed port. Short timeout so health
+  // stays fast even when the UI is down.
+  const UI_PORT = 9102;
   let uiRunning = false;
   try {
-    const indexPath = join(process.cwd(), 'ui', 'dist', 'index.html');
-    const indexFile = Bun.file(indexPath);
-    uiRunning = await indexFile.exists();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 500);
+    const res = await fetch(`http://localhost:${UI_PORT}/`, { signal: controller.signal });
+    clearTimeout(timer);
+    uiRunning = res.ok;
   } catch {
     uiRunning = false;
   }
@@ -132,7 +136,7 @@ async function handleHealthCheck(wsHandler: WebSocketHandler): Promise<Response>
     healthy,
     services: {
       api: { running: apiRunning, port },
-      ui: { running: uiRunning },
+      ui: { running: uiRunning, port: UI_PORT },
       websocket: { connections },
     },
     pid: process.pid,
@@ -2939,7 +2943,7 @@ export async function handleAPI(
       return Response.json({
         id,
         tmuxSession: id,
-        wsUrl: `ws://localhost:3737/terminal/${id}`,
+        wsUrl: `ws://localhost:9002/terminal/${id}`,
       }, { status: 201 });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });

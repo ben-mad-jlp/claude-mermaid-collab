@@ -42,7 +42,7 @@ PAYLOAD=$(jq -nc \
   --arg session "$SESSION" \
   '{claudeSessionId: $sid, project: $project, session: $session, status: "active"}')
 
-curl -s -X POST http://localhost:3737/api/session-notify \
+curl -s -X POST http://localhost:9002/api/session-notify \
   -H "Content-Type: application/json" \
   -d "$PAYLOAD" \
   > /dev/null 2>&1 &

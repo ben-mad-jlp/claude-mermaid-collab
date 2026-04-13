@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 
 export interface XTermTerminalProps {
-  /** WebSocket URL base for terminal connection (e.g., ws://localhost:3737/terminal) */
+  /** WebSocket URL base for terminal connection (e.g., ws://localhost:9002/terminal) */
   wsUrl: string;
   /** Session ID to attach to (used in path: /terminal/:sessionId) */
   sessionId: string;

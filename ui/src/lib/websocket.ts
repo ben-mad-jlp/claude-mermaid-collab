@@ -95,7 +95,7 @@ export interface Subscription {
  *
  * Example usage:
  * ```typescript
- * const ws = new WebSocketClient('ws://localhost:3737/ws');
+ * const ws = new WebSocketClient('ws://localhost:9002/ws');
  *
  * // Listen for connection
  * ws.onConnect(() => {
@@ -387,12 +387,12 @@ export function getWebSocketClient(url: string = getDefaultWebSocketURL()): WebS
  * Get the default WebSocket URL based on current location
  * Works in browser environment
  *
- * In development, Vite proxies /ws to the API server (port 3737)
+ * In development, Vite proxies /ws to the API server (port 9002)
  */
 function getDefaultWebSocketURL(): string {
   if (typeof window === 'undefined') {
     // Server-side context (tests)
-    return 'ws://localhost:3737/ws';
+    return 'ws://localhost:9002/ws';
   }
 
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';

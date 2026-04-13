@@ -20,7 +20,7 @@ const LOG_FILE = join(DATA_DIR, 'server.log');
 const PROJECT_ROOT = dirname(dirname(import.meta.path));
 const SERVER_SCRIPT = join(PROJECT_ROOT, 'src', 'server.ts');
 const UI_DIST_DIR = join(PROJECT_ROOT, 'ui', 'dist');
-const PORT = process.env.PORT || 3737;
+const PORT = process.env.PORT || 9002;
 
 async function ensureDataDir(): Promise<void> {
   await mkdir(DATA_DIR, { recursive: true });
@@ -220,6 +220,6 @@ switch (command) {
     console.log('  mermaid-collab status  Check if server is running');
     console.log('');
     console.log('Environment:');
-    console.log('  PORT  Server port (default: 3737)');
+    console.log('  PORT  Server port (default: 9002)');
     process.exit(command ? 1 : 0);
 }
