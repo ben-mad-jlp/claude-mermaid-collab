@@ -152,9 +152,17 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
     const subscribedKeys = new Set(
       projectSubscriptions.map(([key]) => key),
     );
-    return sessions.filter(
-      (s) => !subscribedKeys.has(`${s.project}:${s.name}`),
-    );
+    return sessions
+      .filter((s) => !subscribedKeys.has(`${s.project}:${s.name}`))
+      .sort((a, b) => {
+        const projA = a.project.split('/').pop() ?? a.project;
+        const projB = b.project.split('/').pop() ?? b.project;
+        const projCmp = projA.localeCompare(projB, undefined, { sensitivity: 'base' });
+        if (projCmp !== 0) return projCmp;
+        const nameA = a.displayName || a.name;
+        const nameB = b.displayName || b.name;
+        return nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
+      });
   }, [sessions, projectSubscriptions]);
 
   const handleNavigate = useCallback(

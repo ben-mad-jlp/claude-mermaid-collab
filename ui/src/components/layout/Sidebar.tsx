@@ -105,25 +105,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [codeFilesCollapsed, setCodeFilesCollapsed] = useState(false);
   const [fileBrowserOpen, setFileBrowserOpen] = useState(false);
   const [pendingDeleteItem, setPendingDeleteItem] = useState<Item | null>(null);
+  const [pendingDeleteEmbed, setPendingDeleteEmbed] = useState<{ id: string; name: string } | null>(null);
   const [pendingDeprecateBlueprint, setPendingDeprecateBlueprint] = useState<Item | null>(null);
 
   const handleDeleteEmbed = useCallback(
-    async (embedId: string, embedName: string) => {
-      if (!currentSession) return;
-      if (!window.confirm(`Delete embed "${embedName}"?`)) return;
-      try {
-        const response = await fetch(
-          `/api/embed/${encodeURIComponent(embedId)}?project=${encodeURIComponent(currentSession.project)}&session=${encodeURIComponent(currentSession.name)}`,
-          { method: 'DELETE' },
-        );
-        if (!response.ok) throw new Error('Failed to delete embed');
-        removeEmbed(embedId);
-      } catch (error) {
-        console.error('Failed to delete embed:', error);
-      }
+    (embedId: string, embedName: string) => {
+      setPendingDeleteEmbed({ id: embedId, name: embedName });
     },
-    [currentSession, removeEmbed],
+    [],
   );
+
+  const handleConfirmDeleteEmbed = useCallback(async () => {
+    const embed = pendingDeleteEmbed;
+    if (!embed || !currentSession) {
+      setPendingDeleteEmbed(null);
+      return;
+    }
+    setPendingDeleteEmbed(null);
+    try {
+      const response = await fetch(
+        `/api/embed/${encodeURIComponent(embed.id)}?project=${encodeURIComponent(currentSession.project)}&session=${encodeURIComponent(currentSession.name)}`,
+        { method: 'DELETE' },
+      );
+      if (!response.ok) throw new Error('Failed to delete embed');
+      removeEmbed(embed.id);
+    } catch (error) {
+      console.error('Failed to delete embed:', error);
+    }
+  }, [pendingDeleteEmbed, currentSession, removeEmbed]);
 
   const handleDeleteItem = useCallback((item: Item) => {
     setPendingDeleteItem(item);
@@ -934,6 +943,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
         }
         onConfirm={handleConfirmDeleteItem}
         onCancel={() => setPendingDeleteItem(null)}
+      />
+
+      <ConfirmDialog
+        isOpen={pendingDeleteEmbed !== null}
+        title="Delete embed"
+        message={
+          <>
+            Delete embed{' '}
+            <span className="font-semibold">"{pendingDeleteEmbed?.name}"</span>? This cannot be undone.
+          </>
+        }
+        onConfirm={handleConfirmDeleteEmbed}
+        onCancel={() => setPendingDeleteEmbed(null)}
       />
 
       <ConfirmDialog

@@ -3478,6 +3478,7 @@ IMPORTANT - Common pitfalls to avoid:
             };
             if (!project || !session || !text) throw new Error('Missing required: project, session, text');
             const result = await addSessionTodo(project, session, text);
+            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
             return JSON.stringify(result, null, 2);
           }
 
@@ -3492,6 +3493,7 @@ IMPORTANT - Common pitfalls to avoid:
             };
             if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
             const result = await updateSessionTodo(project, session, id, { text, completed, order });
+            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
             return JSON.stringify(result, null, 2);
           }
 
@@ -3504,6 +3506,7 @@ IMPORTANT - Common pitfalls to avoid:
             };
             if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
             const result = await toggleSessionTodo(project, session, id, completed);
+            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
             return JSON.stringify(result, null, 2);
           }
 
@@ -3515,6 +3518,7 @@ IMPORTANT - Common pitfalls to avoid:
             };
             if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
             const result = await removeSessionTodo(project, session, id);
+            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
             return JSON.stringify(result, null, 2);
           }
 
@@ -3522,6 +3526,7 @@ IMPORTANT - Common pitfalls to avoid:
             const { project, session } = args as { project: string; session: string };
             if (!project || !session) throw new Error('Missing required: project, session');
             const result = await clearCompletedSessionTodos(project, session);
+            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
             return JSON.stringify(result, null, 2);
           }
 
@@ -3533,6 +3538,7 @@ IMPORTANT - Common pitfalls to avoid:
             };
             if (!project || !session || !Array.isArray(orderedIds)) throw new Error('Missing required: project, session, orderedIds');
             const result = await reorderSessionTodos(project, session, orderedIds);
+            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
             return JSON.stringify(result, null, 2);
           }
 
