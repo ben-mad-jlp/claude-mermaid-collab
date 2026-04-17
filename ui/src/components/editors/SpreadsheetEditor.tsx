@@ -95,6 +95,17 @@ export const SpreadsheetEditor: React.FC<SpreadsheetEditorProps> = ({ spreadshee
   }, []);
 
   useEffect(() => {
+    if (spreadsheet && !spreadsheet.content && currentSession) {
+      api
+        .getSpreadsheet(currentSession.project, currentSession.name, spreadsheet.id)
+        .then((full) => {
+          if (full?.content) updateSpreadsheet(spreadsheet.id, { content: full.content });
+        })
+        .catch(() => {});
+    }
+  }, [spreadsheet?.id, spreadsheet?.content, currentSession, updateSpreadsheet]);
+
+  useEffect(() => {
     if (editingCell && inputRef.current) {
       inputRef.current.focus();
     }
