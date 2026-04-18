@@ -16,7 +16,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { DocumentEditor, type DocumentEditorProps } from '../DocumentEditor';
+import { DocumentEditorLegacy as DocumentEditor, type DocumentEditorProps } from '../DocumentEditor.legacy';
 import { useDocument } from '@/hooks/useDocument';
 import { useTheme } from '@/hooks/useTheme';
 

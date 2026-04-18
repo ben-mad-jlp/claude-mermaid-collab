@@ -1,0 +1,31 @@
+/* Milkdown built-in Nord theme (canonical upstream theme).
+ * Per g1-typography-theme guiding principle: do NOT port legacy Tailwind
+ * per-element classes. Accept visual delta from legacy.
+ * Theme-nord's style.css is imported from MilkdownEditor.tsx instead of
+ * @import'd here — CSS @import inlines from disk before our Vite
+ * patchMilkdownThemeNord transform can rename the Tailwind-reserved
+ * @layer names. JS imports go through the plugin pipeline. */
+
+/* Thin wrapper: scope theme to our host and provide a minimal dark-mode
+ * override. Tailwind dark mode is class-based (`.dark` on <html>). */
+.milkdown-host {
+  font-size: 15px;
+  line-height: 1.65;
+  color: #1f2937;
+}
+
+.milkdown-host .milkdown {
+  background: transparent;
+}
+
+.dark .milkdown-host {
+  color: #e5e7eb;
+}
+
+.dark .milkdown-host .milkdown {
+  --crepe-color-background: transparent;
+  background: transparent;
+  color: #e5e7eb;
+}
+
+.ProseMirror .section-collapsed { display: none; }

@@ -24,6 +24,7 @@ import { AnnotationRenderer } from './AnnotationComponents';
 import { CollapsibleDetails, CollapsibleSummary } from './CollapsibleDetails';
 import { CollapsibleMarkdown } from './CollapsibleMarkdown';
 import { remarkDiagramEmbeds } from '@/lib/remarkDiagramEmbeds';
+import { resolveImageSrc } from '@/lib/resolveImageSrc';
 
 export interface MarkdownPreviewProps {
   /** The Markdown content to render */
@@ -189,47 +190,6 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
 }) => {
   const { theme } = useTheme();
 
-  /**
-   * Resolve image src to API endpoint if it's a special reference
-   * Supports:
-   * - @design/id -> /api/design/:id/render
-   * - @diagram/id -> /api/render/:id
-   * - ./designs/id or designs/id -> /api/design/:id/render
-   * - ./diagrams/id or diagrams/id -> /api/render/:id
-   * - Regular URLs pass through unchanged
-   */
-  const resolveImageSrc = (src: string): string | null => {
-    if (!project || !session) return src;
-
-    const params = new URLSearchParams({ project, session });
-
-    // Handle @design/id format
-    if (src.startsWith('@design/')) {
-      const id = src.replace('@design/', '');
-      return `/api/design/${id}/render?${params}`;
-    }
-
-    // Handle @diagram/id format
-    if (src.startsWith('@diagram/')) {
-      const id = src.replace('@diagram/', '');
-      return `/api/render/${id}?${params}&theme=${theme}`;
-    }
-
-    // Handle ./designs/id or designs/id path
-    if (src.match(/^\.?\/?(designs?)\/(.+)$/)) {
-      const id = src.replace(/^\.?\/?(designs?)\//, '').replace(/\.(json|design)$/, '');
-      return `/api/design/${id}/render?${params}`;
-    }
-
-    // Handle ./diagrams/id or diagrams/id path
-    if (src.match(/^\.?\/?(diagrams?)\/(.+)$/)) {
-      const id = src.replace(/^\.?\/?(diagrams?)\//, '').replace(/\.mmd$/, '');
-      return `/api/render/${id}?${params}&theme=${theme}`;
-    }
-
-    return src;
-  };
-
   // Track content in a ref so the checkbox handler always sees latest
   const contentRef = useRef(content);
   contentRef.current = content;
@@ -324,7 +284,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
 
       // Images - with support for embedded diagrams and designs
       img: ({ src, alt }: { src?: string; alt?: string }) => {
-        const resolvedSrc = src ? resolveImageSrc(src) : null;
+        const resolvedSrc = src ? resolveImageSrc(src, { project, session, theme }) : null;
 
         if (!resolvedSrc) {
           return (

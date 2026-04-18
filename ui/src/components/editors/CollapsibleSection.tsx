@@ -34,7 +34,7 @@ const headingClasses: Record<number, string> = {
 /**
  * Chevron icon that rotates based on expanded state
  */
-const ChevronIcon: React.FC<{ isExpanded: boolean }> = ({ isExpanded }) => (
+export const ChevronIcon: React.FC<{ isExpanded: boolean }> = ({ isExpanded }) => (
   <svg
     className={`w-4 h-4 transition-transform duration-200 flex-shrink-0 ${
       isExpanded ? 'rotate-90' : ''
