@@ -20,6 +20,11 @@ export type AgentEventKind =
   | 'permission_requested'
   | 'permission_resolved'
   | 'worktree_info'
+  | 'assistant_thinking'
+  | 'compaction'
+  | 'model_change'
+  | 'attachment_uploaded'
+  | 'session_cleared'
   | 'command_ack'
   | 'user_input_requested'
   | 'user_input_resolved'
@@ -196,6 +201,41 @@ export interface WorktreeInfoEvent extends BaseEvent {
   dirty: boolean;
 }
 
+export interface AssistantThinkingEvent extends BaseEvent {
+  kind: 'assistant_thinking';
+  turnId: string;
+  text: string;
+  delta?: boolean;
+}
+
+export interface CompactionEvent extends BaseEvent {
+  kind: 'compaction';
+  tokensBefore: number;
+  tokensAfter: number;
+  messagesRetained: number;
+}
+
+export interface ModelChangeEvent extends BaseEvent {
+  kind: 'model_change';
+  turnId: string;
+  model: string;
+}
+
+export interface AttachmentUploadedEvent extends BaseEvent {
+  kind: 'attachment_uploaded';
+  attachmentId: string;
+  mimeType: string;
+  url: string;
+  sizeBytes: number;
+}
+
+export interface SessionClearedEvent {
+  kind: 'session_cleared';
+  sessionId: string;
+  previousClaudeSessionId?: string;
+  ts: number;
+}
+
 export interface UserInputRequestedEvent extends BaseEvent {
   kind: 'user_input_requested';
   promptId: string;
@@ -241,6 +281,11 @@ export type AgentEvent =
   | PermissionRequestedEvent
   | PermissionResolvedEvent
   | WorktreeInfoEvent
+  | AssistantThinkingEvent
+  | CompactionEvent
+  | ModelChangeEvent
+  | AttachmentUploadedEvent
+  | SessionClearedEvent
   | CommandAckEvent
   | UserInputRequestedEvent
   | UserInputResolvedEvent

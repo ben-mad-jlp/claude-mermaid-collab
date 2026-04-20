@@ -1,6 +1,10 @@
 import * as React from 'react';
 import { cn } from '../lib/utils';
 import { groupByTurn, type TimelineItem } from './MessagesTimeline.logic';
+import { CompactionBanner } from './CompactionBanner';
+import { ThinkingBlock } from './ThinkingBlock';
+import { ModelPill } from './ModelPill';
+import type { CompactionEntry } from '@/stores/agentStore';
 
 export interface MessagesTimelineProps {
   items: readonly TimelineItem[];
@@ -11,6 +15,9 @@ export interface MessagesTimelineProps {
   checkpointsByTurn?: Record<string, { firstSeq: number; stashSha: string }>;
   onRevertToCheckpoint?: (turnId: string) => void;
   currentTurnId?: string | null;
+  compactions?: readonly CompactionEntry[];
+  thinkingByTurn?: Record<string, string>;
+  modelByTurn?: Record<string, string>;
 }
 
 interface ConfirmState {
@@ -27,6 +34,9 @@ export const MessagesTimeline: React.FC<MessagesTimelineProps> = ({
   checkpointsByTurn,
   onRevertToCheckpoint,
   currentTurnId,
+  compactions,
+  thinkingByTurn,
+  modelByTurn,
 }) => {
   const [confirm, setConfirm] = React.useState<ConfirmState | null>(null);
   const dialogRef = React.useRef<HTMLDialogElement | null>(null);
@@ -54,6 +64,38 @@ export const MessagesTimeline: React.FC<MessagesTimelineProps> = ({
   }
   const groups = groupByTurn(items);
 
+  // Index compactions by the id of the timeline item they should render after.
+  // Use a Map<string, CompactionEntry[]> so multiple compactions after the same
+  // anchor render in the order they arrived.
+  const compactionsByAfterId = React.useMemo(() => {
+    const map = new Map<string, CompactionEntry[]>();
+    const leading: CompactionEntry[] = [];
+    for (const c of compactions ?? []) {
+      if (c.afterTimelineId == null) {
+        leading.push(c);
+      } else {
+        const list = map.get(c.afterTimelineId) ?? [];
+        list.push(c);
+        map.set(c.afterTimelineId, list);
+      }
+    }
+    return { map, leading };
+  }, [compactions]);
+
+  // Find the first assistant message id for each turn, so we can render a
+  // ThinkingBlock just above it.
+  const firstAssistantIdByTurn = React.useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const g of groups) {
+      for (const it of g.items) {
+        if (it.kind === 'message' && it.role === 'assistant') {
+          if (!(g.turnId in out)) out[g.turnId] = it.id;
+        }
+      }
+    }
+    return out;
+  }, [groups]);
+
   const onConfirm = () => {
     if (confirm && onRevertToCheckpoint) {
       onRevertToCheckpoint(confirm.turnId);
@@ -63,17 +105,32 @@ export const MessagesTimeline: React.FC<MessagesTimelineProps> = ({
 
   return (
     <div className={cn('flex flex-col gap-2 px-4 py-3', className)}>
+      {compactionsByAfterId.leading.map((c, i) => (
+        <CompactionBanner
+          key={`compaction-leading-${i}`}
+          tokensBefore={c.tokensBefore}
+          tokensAfter={c.tokensAfter}
+          messagesRetained={c.messagesRetained}
+          ts={c.ts}
+        />
+      ))}
       {groups.map((group, gi) => {
         const hasCheckpoint = !!(checkpointsByTurn && checkpointsByTurn[group.turnId]);
         const isInFlight = currentTurnId === group.turnId;
         const showRevert = hasCheckpoint && !isInFlight && !!onRevertToCheckpoint;
         const subsequentCount = groups.length - gi - 1;
+        const model = modelByTurn?.[group.turnId];
+        const thinking = thinkingByTurn?.[group.turnId];
+        const firstAssistantId = firstAssistantIdByTurn[group.turnId];
+        const showSeparatorRow =
+          !!renderTurnSeparator || showRevert || !!model;
         return (
           <React.Fragment key={group.turnId}>
-            {renderTurnSeparator || showRevert ? (
+            {showSeparatorRow ? (
               <div className="flex items-center gap-2">
-                <div className="flex-1">
+                <div className="flex-1 flex items-center gap-2">
                   {renderTurnSeparator ? renderTurnSeparator(group.turnId, gi === 0) : null}
+                  {model ? <ModelPill model={model} /> : null}
                 </div>
                 {showRevert ? (
                   <button
@@ -89,9 +146,34 @@ export const MessagesTimeline: React.FC<MessagesTimelineProps> = ({
                 ) : null}
               </div>
             ) : null}
-            {group.items.map((it) => (
-              <React.Fragment key={it.id}>{renderItem(it)}</React.Fragment>
-            ))}
+            {group.items.map((it) => {
+              const renderThinkingHere =
+                thinking != null &&
+                firstAssistantId === it.id;
+              const followingCompactions = compactionsByAfterId.map.get(it.id);
+              return (
+                <React.Fragment key={it.id}>
+                  {renderThinkingHere ? (
+                    <ThinkingBlock
+                      text={thinking}
+                      streaming={currentTurnId === group.turnId}
+                    />
+                  ) : null}
+                  {renderItem(it)}
+                  {followingCompactions
+                    ? followingCompactions.map((c, i) => (
+                        <CompactionBanner
+                          key={`compaction-${it.id}-${i}`}
+                          tokensBefore={c.tokensBefore}
+                          tokensAfter={c.tokensAfter}
+                          messagesRetained={c.messagesRetained}
+                          ts={c.ts}
+                        />
+                      ))
+                    : null}
+                </React.Fragment>
+              );
+            })}
           </React.Fragment>
         );
       })}

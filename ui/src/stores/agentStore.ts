@@ -104,6 +104,16 @@ export type AgentTimelineItem =
   | AgentToolCallItem
   | AgentPermissionItem;
 
+export interface CompactionEntry {
+  seq?: number;
+  ts: number;
+  tokensBefore: number;
+  tokensAfter: number;
+  messagesRetained: number;
+  /** id of the last timeline item at the time this compaction arrived (null when first) */
+  afterTimelineId: string | null;
+}
+
 interface DeltaBuffer {
   nextIndex: number;
   pending: Map<number, string>;
@@ -151,6 +161,9 @@ interface AgentState {
   lastSeenSeq: number | null;
   historicalDone: boolean;
   checkpointsByTurn: Record<string, { firstSeq: number; stashSha: string }>;
+  compactions: CompactionEntry[];
+  thinkingByTurn: Record<string, string>;
+  modelByTurn: Record<string, string>;
 }
 
 interface AgentActions {
@@ -213,6 +226,9 @@ const initialState: AgentState = {
   lastSeenSeq: null,
   historicalDone: false,
   checkpointsByTurn: {},
+  compactions: [],
+  thinkingByTurn: {},
+  modelByTurn: {},
 };
 
 const hydratedModes = hydrateModes();
@@ -525,6 +541,49 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
             [event.turnId]: { firstSeq: event.firstSeq, stashSha: event.stashSha },
           },
         });
+        return;
+      }
+      case 'session_cleared': {
+        // Reset stale per-session state. Preserve completed messages (timeline
+        // messages remain; streaming/pending state is cleared).
+        set({
+          currentTurnId: null,
+          streamingMessageId: null,
+          pendingUserInputs: {},
+          thinkingByTurn: {},
+          thinkingBlocks: {},
+          modelByTurn: {},
+          compactions: [],
+          deltaBuffers: {},
+          pendingPromptCount: 0,
+        });
+        return;
+      }
+      case 'compaction': {
+        const { timeline, compactions } = get();
+        const last = timeline.length > 0 ? timeline[timeline.length - 1].id : null;
+        const entry: CompactionEntry = {
+          seq: (event as unknown as { seq?: number }).seq,
+          ts: event.ts,
+          tokensBefore: event.tokensBefore,
+          tokensAfter: event.tokensAfter,
+          messagesRetained: event.messagesRetained,
+          afterTimelineId: last,
+        };
+        set({ compactions: [...compactions, entry] });
+        return;
+      }
+      case 'assistant_thinking': {
+        const cur = get().thinkingByTurn;
+        const prev = cur[event.turnId] ?? '';
+        const next = event.delta === true ? prev + event.text : event.text;
+        set({ thinkingByTurn: { ...cur, [event.turnId]: next } });
+        return;
+      }
+      case 'model_change': {
+        const cur = get().modelByTurn;
+        if (cur[event.turnId] === event.model) return;
+        set({ modelByTurn: { ...cur, [event.turnId]: event.model } });
         return;
       }
       case 'checkpoint_reverted': {

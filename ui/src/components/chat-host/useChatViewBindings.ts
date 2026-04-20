@@ -49,6 +49,9 @@ export function useChatViewBindings(args: ChatViewBindingsArgs): ChatViewProps {
       pendingUserInputs: s.pendingUserInputs,
       checkpointsByTurn: s.checkpointsByTurn,
       currentTurnId: s.currentTurnId,
+      compactions: s.compactions,
+      thinkingByTurn: s.thinkingByTurn,
+      modelByTurn: s.modelByTurn,
     }))
   );
 
@@ -136,6 +139,9 @@ export function useChatViewBindings(args: ChatViewBindingsArgs): ChatViewProps {
     checkpointsByTurn: store.checkpointsByTurn,
     onRevertToCheckpoint,
     currentTurnId: store.currentTurnId,
+    compactions: store.compactions,
+    thinkingByTurn: store.thinkingByTurn,
+    modelByTurn: store.modelByTurn,
     composer: {
       value: draft.plain,
       onChange,

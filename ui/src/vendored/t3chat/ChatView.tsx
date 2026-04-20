@@ -4,7 +4,7 @@ import { MessagesTimeline } from './chat/MessagesTimeline';
 import type { TimelineItem } from './chat/MessagesTimeline.logic';
 import { ChatComposer, type ChatComposerProps } from './chat/ChatComposer';
 import { UserInputCard } from './chat/UserInputCard';
-import type { PendingUserInputItem } from '@/stores/agentStore';
+import type { PendingUserInputItem, CompactionEntry } from '@/stores/agentStore';
 import type { UserInputValue } from '@/types/agent';
 
 export interface ChatViewProps {
@@ -21,6 +21,9 @@ export interface ChatViewProps {
   checkpointsByTurn?: Record<string, { firstSeq: number; stashSha: string }>;
   onRevertToCheckpoint?: (turnId: string) => void;
   currentTurnId?: string | null;
+  compactions?: readonly CompactionEntry[];
+  thinkingByTurn?: Record<string, string>;
+  modelByTurn?: Record<string, string>;
   className?: string;
 }
 
@@ -38,6 +41,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
   checkpointsByTurn,
   onRevertToCheckpoint,
   currentTurnId,
+  compactions,
+  thinkingByTurn,
+  modelByTurn,
   className,
 }) => {
   return (
@@ -54,6 +60,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
             checkpointsByTurn={checkpointsByTurn}
             onRevertToCheckpoint={onRevertToCheckpoint}
             currentTurnId={currentTurnId}
+            compactions={compactions}
+            thinkingByTurn={thinkingByTurn}
+            modelByTurn={modelByTurn}
           />
         </div>
         {rail ? <div className="w-60 shrink-0 border-l overflow-auto">{rail}</div> : null}
