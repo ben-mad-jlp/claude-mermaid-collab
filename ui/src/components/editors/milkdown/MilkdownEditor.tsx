@@ -1,4 +1,5 @@
-import { Editor, rootCtx, defaultValueCtx, editorViewOptionsCtx, editorViewCtx, prosePluginsCtx } from '@milkdown/core';
+import { Editor, rootCtx, defaultValueCtx, editorViewOptionsCtx, editorViewCtx, prosePluginsCtx, commandsCtx } from '@milkdown/core';
+import type { CmdKey } from '@milkdown/core';
 import type { MilkdownPlugin } from '@milkdown/ctx';
 import type { EditorView } from '@milkdown/prose/view';
 import { commonmark } from '@milkdown/preset-commonmark';
@@ -43,7 +44,7 @@ import { imageResolverView } from './plugins/imageResolver';
 import { emitTelemetry, nowMs } from './plugins/telemetry';
 import { createAnnotationsPlugin, setAnnotationsMeta } from './plugins/annotations/decoration';
 import type { Annotation } from './plugins/annotations/schema';
-import '@milkdown/theme-nord/style.css';
+import 'github-markdown-css/github-markdown.css';
 import './milkdown-prose.css';
 
 export interface MilkdownEditorProps {
@@ -68,6 +69,7 @@ export interface MilkdownEditorProps {
 export interface MilkdownEditorHandle {
   setMarkdown(md: string): void;
   getView(): EditorView | null;
+  runCommand<T>(key: CmdKey<T>, payload?: T): boolean;
 }
 
 interface MilkdownInnerProps extends MilkdownEditorProps {
@@ -274,6 +276,16 @@ const MilkdownInner = forwardRef<MilkdownEditorHandle, MilkdownInnerProps>(funct
           return null;
         }
       },
+      runCommand<T>(key: CmdKey<T>, payload?: T) {
+        if (loading) return false;
+        const editor = getEditor();
+        if (!editor) return false;
+        try {
+          return editor.action((ctx) => ctx.get(commandsCtx).call(key, payload));
+        } catch {
+          return false;
+        }
+      },
     }),
     [loading, getEditor],
   );
@@ -369,7 +381,7 @@ export const MilkdownEditor = forwardRef<MilkdownEditorHandle, MilkdownEditorPro
       <MilkdownProvider>
         <ProsemirrorAdapterProvider>
           <ProjectSessionContext.Provider value={ctxValue}>
-            <div ref={hostRef} className="milkdown-host">
+            <div ref={hostRef} className="milkdown-host markdown-body">
               <MilkdownInner
                 ref={setRefs}
                 {...props}

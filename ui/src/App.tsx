@@ -30,6 +30,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useQuestionStore } from '@/stores/questionStore';
 import { useChatStore } from '@/stores/chatStore';
 import { useDataLoader } from '@/hooks/useDataLoader';
+import { useTabsStore, sessionKey } from '@/stores/tabsStore';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useSessionPolling } from '@/hooks/useSessionPolling';
@@ -49,9 +50,12 @@ import { SplitPane } from '@/components/layout/SplitPane';
 import { MobileLayout } from '@/components/layout/MobileLayout';
 import QuestionPanel from '@/components/question-panel/QuestionPanel';
 import { ChatPanel } from '@/components/chat-drawer';
+import PinnedTabBar from '@/components/layout/tabs/PinnedTabBar';
+import TabBar from '@/components/layout/tabs/TabBar';
 
 // Import unified editor component
 import UnifiedEditor from '@/components/editors/UnifiedEditor';
+import DocumentView from '@/components/editors/DocumentView';
 import type { MermaidPreviewRef } from '@/components/editors/MermaidPreview';
 
 // Import task graph view
@@ -60,6 +64,7 @@ import { TaskGraphView } from '@/components/task-graph';
 // Import embed viewer
 import { EmbedViewer } from '@/components/EmbedViewer';
 import { ImageViewer } from '@/components/ImageViewer';
+import { PseudoViewer } from '@/pages/pseudo/PseudoViewer';
 
 // Import notification components
 import { ToastContainer } from '@/components/notifications';
@@ -151,8 +156,7 @@ const App: React.FC = () => {
     zoomIn,
     zoomOut,
     setZoomLevel,
-    chatPanelVisible,
-    terminalPanelVisible,
+    agentChatVisible,
   } = useUIStore(
     useShallow((state) => ({
       editMode: state.editMode,
@@ -160,14 +164,11 @@ const App: React.FC = () => {
       zoomIn: state.zoomIn,
       zoomOut: state.zoomOut,
       setZoomLevel: state.setZoomLevel,
-      chatPanelVisible: state.chatPanelVisible,
-      terminalPanelVisible: state.terminalPanelVisible,
+      agentChatVisible: state.agentChatVisible,
     }))
   );
 
-  // Show chat/terminal panel area when either is visible
-  // Temporarily forced off — chat/terminal hidden for now, toggles also hidden in Header.
-  const showSecondaryPanel = false && (chatPanelVisible || terminalPanelVisible);
+  const showSecondaryPanel = agentChatVisible;
 
   // Session state
   const {
@@ -208,6 +209,7 @@ const App: React.FC = () => {
     selectedImageId,
     addImage,
     removeImage,
+    selectedPseudoPath,
     setPendingDiff,
     setCollabState,
   } = useSessionStore(
@@ -249,6 +251,7 @@ const App: React.FC = () => {
       selectedImageId: state.selectedImageId,
       addImage: state.addImage,
       removeImage: state.removeImage,
+      selectedPseudoPath: state.selectedPseudoPath,
       setPendingDiff: state.setPendingDiff,
       setCollabState: state.setCollabState,
     }))
@@ -260,7 +263,16 @@ const App: React.FC = () => {
   );
 
   // Data loading
-  const { isLoading, error: dataError, loadSessions, loadSessionItems } = useDataLoader();
+  const {
+    isLoading,
+    error: dataError,
+    loadSessions,
+    loadSessionItems,
+    selectDiagramWithContent,
+    selectDocumentWithContent,
+    selectDesignWithContent,
+    selectSpreadsheetWithContent,
+  } = useDataLoader();
 
   // Ref for MermaidPreview imperative methods
   const mermaidPreviewRef = useRef<MermaidPreviewRef>(null);
@@ -1039,13 +1051,33 @@ const App: React.FC = () => {
     }
   }, [sessions, currentSession, setCurrentSession]);
 
-  // Load session items when current session changes
+  // Load session items when current session changes, then restore the
+  // active tab's content (fixes reload where persisted tabs have metadata
+  // only and `selectDocument` / `selectDiagram` etc. don't fetch content).
   useEffect(() => {
-    if (currentSession) {
-      const project = currentSession.project || '';
-      loadSessionItems(project, currentSession.name);
-    }
-  }, [currentSession, loadSessionItems]);
+    if (!currentSession) return;
+    const project = currentSession.project || '';
+    (async () => {
+      await loadSessionItems(project, currentSession.name);
+      const entry = useTabsStore.getState().bySession[sessionKey(project, currentSession.name)];
+      if (!entry?.activeTabId) return;
+      const tab = entry.tabs.find((t) => t.id === entry.activeTabId);
+      if (!tab || tab.kind !== 'artifact' || !tab.artifactType) return;
+      switch (tab.artifactType) {
+        case 'document': selectDocumentWithContent(project, currentSession.name, tab.artifactId); break;
+        case 'diagram': selectDiagramWithContent(project, currentSession.name, tab.artifactId); break;
+        case 'design': selectDesignWithContent(project, currentSession.name, tab.artifactId); break;
+        case 'spreadsheet': selectSpreadsheetWithContent(project, currentSession.name, tab.artifactId); break;
+      }
+    })();
+  }, [
+    currentSession,
+    loadSessionItems,
+    selectDocumentWithContent,
+    selectDiagramWithContent,
+    selectDesignWithContent,
+    selectSpreadsheetWithContent,
+  ]);
 
   // Cross-route project sync: Collab session → onboarding/pseudo
   useEffect(() => {
@@ -1344,6 +1376,8 @@ const App: React.FC = () => {
     if (taskGraphSelected && currentSession) {
       return (
         <div className="flex flex-col h-full min-h-0">
+          <PinnedTabBar />
+          <TabBar />
           {/* Toolbar for Task Graph */}
           <EditorToolbar
             itemName="Task Graph"
@@ -1378,6 +1412,8 @@ const App: React.FC = () => {
       if (embed) {
         return (
           <div className="flex flex-col h-full min-h-0">
+            <PinnedTabBar />
+            <TabBar />
             <div className="flex-1 min-h-0 overflow-hidden">
               <EmbedViewer embed={embed} />
             </div>
@@ -1389,8 +1425,25 @@ const App: React.FC = () => {
     if (selectedImageId) {
       return (
         <div className="flex flex-col h-full min-h-0">
+          <PinnedTabBar />
+          <TabBar />
           <div className="flex-1 min-h-0 overflow-hidden">
             <ImageViewer />
+          </div>
+        </div>
+      );
+    }
+
+    if (selectedPseudoPath && currentSession) {
+      return (
+        <div className="flex flex-col h-full min-h-0">
+          <PinnedTabBar />
+          <TabBar />
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <PseudoViewer
+              path={selectedPseudoPath}
+              project={currentSession.project}
+            />
           </div>
         </div>
       );
@@ -1404,6 +1457,8 @@ const App: React.FC = () => {
 
     return (
       <div className="flex flex-col h-full min-h-0">
+        <PinnedTabBar />
+        <TabBar />
         {/* Editor Toolbar */}
         <EditorToolbar
           itemName={selectedItem?.name || ''}
@@ -1433,29 +1488,38 @@ const App: React.FC = () => {
           inlineControls={selectedItem?.type === 'snippet' ? snippetToolbarControls : undefined}
         />
 
-        {/* Unified Editor */}
+        {/* Editor: Documents go through DocumentView (Milkdown inline).
+            Everything else (diagrams, snippets, designs, spreadsheets) stays
+            on UnifiedEditor. */}
         <div className="flex-1 min-h-0 overflow-hidden">
-          <UnifiedEditor
-            item={editorItem}
-            editMode={editMode}
-            project={currentSession?.project}
-            session={currentSession?.name}
-            onContentChange={handleContentChange}
-            zoomLevel={zoomLevel}
-            onZoomIn={zoomIn}
-            onZoomOut={zoomOut}
-            onSetZoom={setZoomLevel}
-            previewRef={mermaidPreviewRef}
-            historyDiff={selectedItem?.type === 'document' ? historyDiff : null}
-            onClearHistoryDiff={handleClearHistoryDiff}
-            diagramHistoryPreview={selectedItem?.type === 'diagram' ? diagramHistoryPreview : null}
-            onDiagramRevert={handleDiagramRevert}
-            onClearDiagramHistoryPreview={handleClearDiagramHistoryPreview}
-            designHistoryPreview={selectedItem?.type === 'design' ? designHistoryPreview : null}
-            onDesignRevert={handleDesignRevert}
-            onClearDesignHistoryPreview={handleClearDesignHistoryPreview}
-            onSnippetToolbarControls={setSnippetToolbarControls}
-          />
+          {editorItem?.type === 'document' ? (
+            <DocumentView
+              document={editorItem}
+              onContentChange={handleContentChange}
+            />
+          ) : (
+            <UnifiedEditor
+              item={editorItem}
+              editMode={editMode}
+              project={currentSession?.project}
+              session={currentSession?.name}
+              onContentChange={handleContentChange}
+              zoomLevel={zoomLevel}
+              onZoomIn={zoomIn}
+              onZoomOut={zoomOut}
+              onSetZoom={setZoomLevel}
+              previewRef={mermaidPreviewRef}
+              historyDiff={selectedItem?.type === 'document' ? historyDiff : null}
+              onClearHistoryDiff={handleClearHistoryDiff}
+              diagramHistoryPreview={selectedItem?.type === 'diagram' ? diagramHistoryPreview : null}
+              onDiagramRevert={handleDiagramRevert}
+              onClearDiagramHistoryPreview={handleClearDiagramHistoryPreview}
+              designHistoryPreview={selectedItem?.type === 'design' ? designHistoryPreview : null}
+              onDesignRevert={handleDesignRevert}
+              onClearDesignHistoryPreview={handleClearDesignHistoryPreview}
+              onSnippetToolbarControls={setSnippetToolbarControls}
+            />
+          )}
         </div>
       </div>
     );

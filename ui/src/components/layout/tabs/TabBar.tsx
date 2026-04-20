@@ -20,6 +20,8 @@ import {
   useTabsStore,
   type TabDescriptor,
 } from '../../../stores/tabsStore';
+import { useSessionStore } from '../../../stores/sessionStore';
+import { useDataLoader } from '../../../hooks/useDataLoader';
 
 export interface TabBarProps {
   onContextMenu?: (e: React.MouseEvent, tab: TabDescriptor) => void;
@@ -32,6 +34,7 @@ interface SortableTabProps {
   onClose: () => void;
   onContextMenu?: (e: React.MouseEvent) => void;
   onTogglePin: () => void;
+  onPromote: () => void;
 }
 
 const SortableTab: React.FC<SortableTabProps> = ({
@@ -41,6 +44,7 @@ const SortableTab: React.FC<SortableTabProps> = ({
   onClose,
   onContextMenu,
   onTogglePin,
+  onPromote,
 }) => {
   const { attributes, listeners, setNodeRef, transform, transition } =
     useSortable({ id: tab.id });
@@ -57,6 +61,7 @@ const SortableTab: React.FC<SortableTabProps> = ({
         onClose={onClose}
         onContextMenu={onContextMenu ?? (() => {})}
         onTogglePin={onTogglePin}
+        onPromote={onPromote}
       />
     </div>
   );
@@ -68,6 +73,38 @@ export const TabBar: React.FC<TabBarProps> = ({ onContextMenu }) => {
   const closeTab = useTabsStore((s) => s.closeTab);
   const reorderTabs = useTabsStore((s) => s.reorderTabs);
   const pinTab = useTabsStore((s) => s.pinTab);
+  const promoteToPermanent = useTabsStore((s) => s.promoteToPermanent);
+  const {
+    selectDiagramWithContent,
+    selectDocumentWithContent,
+    selectDesignWithContent,
+    selectSpreadsheetWithContent,
+  } = useDataLoader();
+
+  const activateTab = React.useCallback((tab: TabDescriptor) => {
+    setActive(tab.id);
+    const s = useSessionStore.getState();
+    const cs = s.currentSession;
+    if (tab.kind === 'embed') {
+      s.selectEmbed(tab.artifactId);
+      return;
+    }
+    if (tab.kind === 'code-file') {
+      s.selectPseudoPath(tab.artifactId);
+      return;
+    }
+    if (tab.kind === 'artifact' && tab.artifactType && cs) {
+      const { project, name } = cs;
+      switch (tab.artifactType) {
+        case 'diagram': selectDiagramWithContent(project, name, tab.artifactId); break;
+        case 'document': selectDocumentWithContent(project, name, tab.artifactId); break;
+        case 'design': selectDesignWithContent(project, name, tab.artifactId); break;
+        case 'spreadsheet': selectSpreadsheetWithContent(project, name, tab.artifactId); break;
+        case 'snippet': s.selectSnippet(tab.artifactId); break;
+        case 'image': s.selectImage(tab.artifactId); break;
+      }
+    }
+  }, [setActive, selectDiagramWithContent, selectDocumentWithContent, selectDesignWithContent, selectSpreadsheetWithContent]);
 
   const permanentTabs = tabs
     .filter((t) => !t.isPinned && !t.isPreview)
@@ -116,12 +153,13 @@ export const TabBar: React.FC<TabBarProps> = ({ onContextMenu }) => {
               key={tab.id}
               tab={tab}
               isActive={tab.id === activeTabId}
-              onClick={() => setActive(tab.id)}
+              onClick={() => activateTab(tab)}
               onClose={() => closeTab(tab.id)}
               onContextMenu={
                 onContextMenu ? (e) => onContextMenu(e, tab) : undefined
               }
               onTogglePin={() => pinTab(tab.id)}
+              onPromote={() => promoteToPermanent(tab.id)}
             />
           ))}
           {previewTabs.length > 0 && <div className="flex-1" aria-hidden="true" />}
@@ -130,12 +168,13 @@ export const TabBar: React.FC<TabBarProps> = ({ onContextMenu }) => {
               key={tab.id}
               tab={tab}
               isActive={tab.id === activeTabId}
-              onClick={() => setActive(tab.id)}
+              onClick={() => activateTab(tab)}
               onClose={() => closeTab(tab.id)}
               onContextMenu={
                 onContextMenu ? (e) => onContextMenu(e, tab) : undefined
               }
               onTogglePin={() => pinTab(tab.id)}
+              onPromote={() => promoteToPermanent(tab.id)}
             />
           ))}
         </SortableContext>

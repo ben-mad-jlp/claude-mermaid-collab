@@ -44,12 +44,18 @@ export function getHeadingSectionId(pos: number): string {
 /** Shared state bridge updated by useHeadingCollapseBridge. */
 interface CollapseStateRef {
   expanded: Set<string>;
+  /** Sections the React context knows about (registered by NodeViews).
+   * Section IDs are position-based; unknown IDs default to expanded so that
+   * typing — which shifts positions — doesn't auto-collapse everything. */
+  knownSections: Set<string>;
+  /** Sections observed by the PM plugin during buildDecorations. */
   allSections: Set<string>;
   version: number;
 }
 
 const collapseStateRef: CollapseStateRef = {
   expanded: new Set<string>(),
+  knownSections: new Set<string>(),
   allSections: new Set<string>(),
   version: 0,
 };
@@ -81,11 +87,38 @@ function buildDecorations(doc: ProseMirrorNode): DecorationSet {
     return false;
   });
 
+  // Stamp every top-level block with `section-level-N` where N is the level
+  // of the most recent heading — lets CSS indent whole sections.
+  {
+    let currentLevel = 0;
+    doc.forEach((child, offset) => {
+      if (child.type.name === 'heading') {
+        currentLevel = (child.attrs?.level ?? 1) as number;
+      }
+      if (currentLevel >= 2) {
+        decos.push(
+          Decoration.node(offset, offset + child.nodeSize, {
+            class: `section-level-${currentLevel}`,
+          }),
+        );
+      }
+    });
+  }
+
   // For each collapsed heading, find the range of following siblings up to
   // the next heading with level <= L, and mark each as collapsed.
+  //
+  // Collapse semantics: ID must be known (registered by a NodeView) AND
+  // not in `expanded`. Unknown IDs default to expanded — this is important
+  // because section IDs are position-based and shift with every edit; the
+  // plugin sees fresh positions before the React registerSection effect
+  // has caught up, so without this guard every keystroke would collapse
+  // every section.
   for (let i = 0; i < seen.length; i++) {
     const h = seen[i];
-    if (collapseStateRef.expanded.has(h.id)) continue;
+    const known = collapseStateRef.knownSections.has(h.id);
+    const expanded = collapseStateRef.expanded.has(h.id);
+    if (!known || expanded) continue;
     // Collect blocks to collapse: walk siblings after this heading.
     // Since headings are direct children of the doc, iterate the doc's
     // children array starting at the heading's index.
@@ -242,6 +275,7 @@ export function useHeadingCollapseBridge(): void {
   useEffect(() => {
     if (!context) return;
     collapseStateRef.expanded = new Set(context.expandedSections);
+    collapseStateRef.knownSections = new Set(context.allSections);
     collapseStateRef.version += 1;
     if (loading) return;
     const editor = getEditor();
@@ -263,19 +297,25 @@ export function useHeadingCollapseBridge(): void {
       }
     });
     void handle;
-  }, [context, context?.expandedSections, loading, getEditor]);
+  }, [context, context?.expandedSections, context?.allSections, loading, getEditor]);
 }
 
 /** Test-only: reset the module-level bridge (used by unit tests). */
 export function __resetHeadingCollapseStateForTests() {
   collapseStateRef.expanded = new Set();
+  collapseStateRef.knownSections = new Set();
   collapseStateRef.allSections = new Set();
   collapseStateRef.version = 0;
 }
 
-/** Test-only: set collapsed headings directly. */
-export function __setHeadingCollapseExpandedForTests(ids: Iterable<string>) {
+/** Test-only: set the expanded + known-sections sets directly. When only
+ *  `expanded` is passed, `knownSections` defaults to the same IDs. */
+export function __setHeadingCollapseExpandedForTests(
+  ids: Iterable<string>,
+  knownIds?: Iterable<string>,
+) {
   collapseStateRef.expanded = new Set(ids);
+  collapseStateRef.knownSections = new Set(knownIds ?? ids);
   collapseStateRef.version += 1;
 }
 

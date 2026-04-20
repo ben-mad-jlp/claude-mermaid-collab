@@ -92,7 +92,9 @@ describe('heading-collapse PM plugin decorations', () => {
     expect(nps).toBeDefined();
     // With every heading expanded, decorationSet should have 0 decos.
     // DecorationSet exposes .find() to list decorations in a range.
-    const decos = nps!.decorations.find(0, doc.content.size);
+    const decos = nps!.decorations
+      .find(0, doc.content.size)
+      .filter((d) => (d as any).type.attrs?.class?.includes('section-collapsed'));
     expect(decos.length).toBe(0);
   });
 
@@ -107,16 +109,20 @@ describe('heading-collapse PM plugin decorations', () => {
       }
       return false;
     });
-    // Expanded set: all headings EXCEPT first H1.
+    // Expanded set: all headings EXCEPT first H1. Known set: all headings
+    // (so the first-H1's id is known — otherwise it would default to expanded).
+    const allIds = headings.map((h) => getHeadingSectionId(h.pos));
     const expanded = headings
       .filter((_, i) => i !== 0)
       .map((h) => getHeadingSectionId(h.pos));
-    __setHeadingCollapseExpandedForTests(expanded);
+    __setHeadingCollapseExpandedForTests(expanded, allIds);
 
     const state = EditorState.create({ doc, plugins: [plugin] });
     const ps = headingCollapsePluginKey.getState(state);
     expect(ps).toBeDefined();
-    const decos = ps!.decorations.find(0, doc.content.size);
+    const decos = ps!.decorations
+      .find(0, doc.content.size)
+      .filter((d) => (d as any).type.attrs?.class?.includes('section-collapsed'));
     // Should decorate: para1, H2, para2 (everything until next H1b at index 4).
     expect(decos.length).toBe(3);
   });

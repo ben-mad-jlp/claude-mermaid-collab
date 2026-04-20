@@ -130,6 +130,7 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
  */
 interface CollapsibleSectionsContextValue {
   expandedSections: Set<string>;
+  allSections: Set<string>;
   toggleSection: (id: string) => void;
   expandAll: () => void;
   collapseAll: () => void;
@@ -199,12 +200,13 @@ export const CollapsibleSectionsProvider: React.FC<CollapsibleSectionsProviderPr
 
   const value = React.useMemo(() => ({
     expandedSections,
+    allSections,
     toggleSection,
     expandAll,
     collapseAll,
     registerSection,
     sectionCount: allSections.size,
-  }), [expandedSections, toggleSection, expandAll, collapseAll, registerSection, allSections.size]);
+  }), [expandedSections, allSections, toggleSection, expandAll, collapseAll, registerSection]);
 
   return (
     <CollapsibleSectionsContext.Provider value={value}>

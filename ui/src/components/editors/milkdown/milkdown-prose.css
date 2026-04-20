@@ -1,31 +1,41 @@
-/* Milkdown built-in Nord theme (canonical upstream theme).
- * Per g1-typography-theme guiding principle: do NOT port legacy Tailwind
- * per-element classes. Accept visual delta from legacy.
- * Theme-nord's style.css is imported from MilkdownEditor.tsx instead of
- * @import'd here — CSS @import inlines from disk before our Vite
- * patchMilkdownThemeNord transform can rename the Tailwind-reserved
- * @layer names. JS imports go through the plugin pipeline. */
+/* Uses github-markdown-css on the `.markdown-body` host class, imported
+ * from MilkdownEditor.tsx. This file is a thin wrapper for editor-specific
+ * tweaks (width, section indent, collapsed-section hide). */
 
-/* Thin wrapper: scope theme to our host and provide a minimal dark-mode
- * override. Tailwind dark mode is class-based (`.dark` on <html>). */
-.milkdown-host {
-  font-size: 15px;
-  line-height: 1.65;
-  color: #1f2937;
+.milkdown-host.markdown-body {
+  background: transparent;
+  padding: 1rem 1.5rem;
 }
 
 .milkdown-host .milkdown {
   background: transparent;
 }
 
-.dark .milkdown-host {
-  color: #e5e7eb;
-}
-
-.dark .milkdown-host .milkdown {
-  --crepe-color-background: transparent;
-  background: transparent;
-  color: #e5e7eb;
+.milkdown-host .ProseMirror {
+  max-width: 288ch;
+  margin-inline: 0;
+  outline: none;
 }
 
 .ProseMirror .section-collapsed { display: none; }
+
+/* Section indent: each block under a heading (including the heading itself)
+ * is decorated with `section-level-N`. Use margin-left so we don't clobber
+ * intrinsic padding on lists (github-markdown-css sets padding-left on ul/ol
+ * which produces the bullet indent). */
+.milkdown-host .ProseMirror .section-level-2 { margin-left: 1rem; }
+.milkdown-host .ProseMirror .section-level-3 { margin-left: 2rem; }
+.milkdown-host .ProseMirror .section-level-4 { margin-left: 3rem; }
+.milkdown-host .ProseMirror .section-level-5 { margin-left: 4rem; }
+.milkdown-host .ProseMirror .section-level-6 { margin-left: 5rem; }
+
+/* Heading NodeView: keep chevron on the same row as the heading text. */
+.milkdown-host .ProseMirror .heading-collapsible {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.milkdown-host .ProseMirror .heading-collapsible-content {
+  flex: 1 1 auto;
+  min-width: 0;
+}
