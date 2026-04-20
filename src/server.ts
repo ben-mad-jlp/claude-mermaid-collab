@@ -10,6 +10,11 @@ import { Renderer } from './services/renderer';
 import { WebSocketHandler } from './websocket/handler';
 import { AgentSessionRegistry } from './agent/session-registry';
 import { AgentDispatcher } from './agent/dispatcher';
+import { CheckpointStore } from './agent/checkpoint-store';
+import { CheckpointReactor } from './agent/checkpoint-reactor';
+import { createGitOps } from './agent/git-ops';
+import { userInputBridge } from './agent/user-input-bridge';
+import { initializeAgentRegistry } from './agent/agent-registry-manager';
 import { handleAPI } from './routes/api';
 import { handlePseudoAPI } from './routes/pseudo-api';
 import { handleCodeAPI } from './routes/code-api.js';
@@ -71,10 +76,19 @@ const agentRegistry = new AgentSessionRegistry({
   broadcast: (msg) => wsHandler.broadcastToChannel(msg.channel, msg as any),
   persistDir: join(process.cwd(), '.collab', 'agent-sessions'),
 });
+initializeAgentRegistry(agentRegistry);
+const checkpointStore = new CheckpointStore(join(process.cwd(), '.collab', 'agent-checkpoints.db'));
+const gitOps = createGitOps();
+const checkpointReactor = new CheckpointReactor(gitOps, checkpointStore, agentRegistry.getEventLog());
 const agentDispatcher = new AgentDispatcher({
   registry: agentRegistry,
   wsHandler,
   resolvedCwd: process.cwd(),
+  userInputBridge,
+  gitOps,
+  checkpointStore,
+  eventLog: agentRegistry.getEventLog(),
+  reactor: checkpointReactor,
 });
 wsHandler.setAgentDispatcher(agentDispatcher);
 

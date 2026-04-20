@@ -1,6 +1,6 @@
 import React from 'react';
 import { useSessionStore } from '../../stores/sessionStore';
-import { AgentChat } from '../agent-chat/AgentChat';
+import { ChatHost } from '../chat-host/ChatHost';
 import { MigrationBannerV5 } from '../layout/MigrationBannerV5';
 
 export interface ChatPanelProps {
@@ -9,7 +9,7 @@ export interface ChatPanelProps {
 }
 
 /**
- * ChatPanel — right-side panel rendering the AgentChat full-height.
+ * ChatPanel — right-side panel rendering the ChatHost full-height.
  */
 export const ChatPanel: React.FC<ChatPanelProps> = ({ className }) => {
   const currentSession = useSessionStore(state => state.currentSession);
@@ -34,7 +34,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ className }) => {
         </div>
       ) : (
         <div className="flex-1 min-h-0 h-full">
-          <AgentChat sessionId={currentSession?.name ?? null} />
+          <ChatHost sessionId={currentSession?.name ?? ''} />
         </div>
       )}
     </div>

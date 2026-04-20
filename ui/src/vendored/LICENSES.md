@@ -2,19 +2,18 @@
 
 This directory contains source files vendored from external projects. Each entry below documents the origin, license, scope of what was copied, and modifications made.
 
-## t3code (chat UI)
+## t3code / t3chat (chat UI)
 
-- **Upstream:** t3code (Claude Code companion UI)
+- **Upstream:** t3code / t3chat (Theo Browne's open-source Claude Code companion UI)
 - **License:** MIT
 - **Vendored at:** wave 1 of `t3-inspiration` session, 2026-04
 - **Files copied:** ChatView component, message composer, shared UI primitives (button, card, tooltip, badge, select, popover, separator, scroll-area, skeleton, spinner, collapsible, textarea, toast, kbd), icon re-exports, and oklch design tokens.
 - **Modifications:** adapted for mermaid-collab; refactored to prop-driven; types updated for React 19.
-
-TODO: confirm exact copyright holder from the upstream LICENSE file when the vendor pull is finalized; the placeholder below uses a generic attribution line.
+- **Copyright-holder source:** the upstream project's top-level LICENSE file; if the vendor pull is re-synced, re-verify the attribution line against the current LICENSE contents.
 
 ### MIT License
 
-Copyright (c) t3code contributors
+Copyright (c) Theo Browne and t3code contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

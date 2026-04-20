@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { useAgentStore, type AgentTimelineItem } from '@/stores/agentStore';
+import { useAgentStore, type AgentTimelineItem, type PendingUserInputItem } from '@/stores/agentStore';
+import type { UserInputValue } from '@/types/agent';
 import { useComposerDraftStore } from '@/stores/composerDraftStore';
 import { useAgentSession } from '@/hooks/useAgentSession';
 import type { ChatViewProps } from '@/vendored/t3chat/ChatView';
@@ -45,6 +46,9 @@ export function useChatViewBindings(args: ChatViewBindingsArgs): ChatViewProps {
       timeline: s.timeline,
       streamingMessageId: s.streamingMessageId,
       usage: s.usage,
+      pendingUserInputs: s.pendingUserInputs,
+      checkpointsByTurn: s.checkpointsByTurn,
+      currentTurnId: s.currentTurnId,
     }))
   );
 
@@ -103,6 +107,23 @@ export function useChatViewBindings(args: ChatViewBindingsArgs): ChatViewProps {
   const contextUsed =
     store.usage != null ? store.usage.inputTokens + store.usage.outputTokens : undefined;
 
+  const pendingUserInput: PendingUserInputItem | null = React.useMemo(() => {
+    const entries = Object.values(store.pendingUserInputs);
+    if (entries.length === 0) return null;
+    // First pending (oldest by ts).
+    return entries.reduce((a, b) => (a.ts <= b.ts ? a : b));
+  }, [store.pendingUserInputs]);
+
+  const onRespondUserInput = React.useCallback(
+    (promptId: string, value: UserInputValue) => session.respondUserInput(promptId, value),
+    [session],
+  );
+
+  const onRevertToCheckpoint = React.useCallback(
+    (turnId: string) => session.revertToCheckpoint(turnId),
+    [session],
+  );
+
   return {
     items,
     renderItem: renderMapped,
@@ -110,6 +131,11 @@ export function useChatViewBindings(args: ChatViewBindingsArgs): ChatViewProps {
     header,
     banner,
     rail,
+    pendingUserInput,
+    onRespondUserInput,
+    checkpointsByTurn: store.checkpointsByTurn,
+    onRevertToCheckpoint,
+    currentTurnId: store.currentTurnId,
     composer: {
       value: draft.plain,
       onChange,

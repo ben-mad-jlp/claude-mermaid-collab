@@ -61,6 +61,10 @@ export type WSMessage =
   | { type: 'agent_stop'; sessionId: string }
   | { type: 'agent_delete_session'; sessionId: string }
   | { type: 'agent_clear'; sessionId: string }
+  | { type: 'agent_user_input_respond'; sessionId: string; promptId: string; value: import('../agent/contracts.ts').UserInputValue }
+  | { type: 'agent_checkpoint_revert'; sessionId: string; turnId: string }
+  | { type: 'agent_permission_resolve'; sessionId: string; promptId: string; decision: import('../agent/contracts.ts').PermissionDecision }
+  | { type: 'agent_commit_push_pr'; sessionId: string; title: string; body?: string; draft?: boolean }
   | { type: 'agent_event'; channel: string; event: AgentEvent };
 
 export class WebSocketHandler {
@@ -105,7 +109,11 @@ export class WebSocketHandler {
         data.type === 'agent_resume' ||
         data.type === 'agent_stop' ||
         data.type === 'agent_delete_session' ||
-        data.type === 'agent_clear'
+        data.type === 'agent_clear' ||
+        data.type === 'agent_user_input_respond' ||
+        data.type === 'agent_checkpoint_revert' ||
+        data.type === 'agent_permission_resolve' ||
+        data.type === 'agent_commit_push_pr'
       ) {
         if (this.agentDispatcher) {
           const { type, ...rest } = data;

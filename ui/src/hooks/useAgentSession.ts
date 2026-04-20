@@ -10,6 +10,7 @@ import type {
   CommandId,
   PermissionDecision,
   PermissionMode,
+  UserInputValue,
 } from '../types/agent';
 
 export interface CommitPushPRInput {
@@ -24,6 +25,8 @@ export interface UseAgentSessionReturn {
   resolvePermission: (promptId: string, decision: PermissionDecision) => void;
   setPermissionMode: (mode: PermissionMode) => void;
   commitPushPR: (input: CommitPushPRInput) => void;
+  respondUserInput: (promptId: string, value: UserInputValue) => void;
+  revertToCheckpoint: (turnId: string) => void;
 }
 
 function mintCommandId(): CommandId {
@@ -167,10 +170,12 @@ export function useAgentSession(sessionId: string | null): UseAgentSessionReturn
   const setPermissionMode = useCallback(
     (mode: PermissionMode) => {
       if (!sessionId) return;
+      // Legacy permission-mode command alias was removed; this now only
+      // updates local optimistic state. Use setRuntimeMode / setInteractionMode
+      // for the split replacements wired to WS.
       useAgentStore.getState().setPermissionMode(sessionId, mode);
-      sendCmd({ kind: 'agent_set_permission_mode', sessionId, mode });
     },
-    [sessionId, sendCmd],
+    [sessionId],
   );
 
   const commitPushPR = useCallback(
@@ -189,5 +194,29 @@ export function useAgentSession(sessionId: string | null): UseAgentSessionReturn
     [sessionId, sendCmd],
   );
 
-  return { send, cancel, resolvePermission, setPermissionMode, commitPushPR };
+  const respondUserInput = useCallback(
+    (promptId: string, value: UserInputValue) => {
+      if (!sessionId) return;
+      sendCmd({ kind: 'agent_user_input_respond', sessionId, promptId, value });
+    },
+    [sessionId, sendCmd],
+  );
+
+  const revertToCheckpoint = useCallback(
+    (turnId: string) => {
+      if (!sessionId) return;
+      sendCmd({ kind: 'agent_checkpoint_revert', sessionId, turnId });
+    },
+    [sessionId, sendCmd],
+  );
+
+  return {
+    send,
+    cancel,
+    resolvePermission,
+    setPermissionMode,
+    commitPushPR,
+    respondUserInput,
+    revertToCheckpoint,
+  };
 }

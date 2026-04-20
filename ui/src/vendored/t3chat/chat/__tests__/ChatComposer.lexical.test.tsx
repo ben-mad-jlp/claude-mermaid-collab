@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, act, cleanup } from '@testing-library/react';
 import { ChatComposer } from '../ChatComposer';
 
@@ -36,37 +36,8 @@ function flushTimers() {
   });
 }
 
-describe('ChatComposer (Lexical flag off)', () => {
-  beforeEach(() => {
-    vi.stubEnv('VITE_COMPOSER_LEXICAL', 'false');
-  });
+describe('ChatComposer (Lexical)', () => {
   afterEach(() => {
-    vi.unstubAllEnvs();
-    cleanup();
-  });
-
-  it('renders the legacy textarea when the flag is off', () => {
-    render(
-      <ChatComposer
-        value=""
-        onChange={() => {}}
-        onSend={() => {}}
-        slashCommands={SLASH_COMMANDS}
-      />,
-    );
-    // shadcn Textarea renders an actual <textarea>.
-    const tas = document.querySelectorAll('textarea');
-    expect(tas.length).toBeGreaterThan(0);
-    expect(screen.queryByLabelText('Message composer')).toBeNull();
-  });
-});
-
-describe('ChatComposer (Lexical flag on)', () => {
-  beforeEach(() => {
-    vi.stubEnv('VITE_COMPOSER_LEXICAL', 'true');
-  });
-  afterEach(() => {
-    vi.unstubAllEnvs();
     cleanup();
   });
 

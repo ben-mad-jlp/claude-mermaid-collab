@@ -109,8 +109,19 @@ interface DeltaBuffer {
   pending: Map<number, string>;
 }
 
+export interface PendingUserInputItem {
+  promptId: string;
+  sessionId: string;
+  prompt: string;
+  expectedKind: 'text' | 'choice';
+  choices?: Array<{ id: string; label: string }>;
+  deadlineMs: number;
+  ts: number;
+}
+
 interface AgentState {
   timeline: AgentTimelineItem[];
+  pendingUserInputs: Record<string, PendingUserInputItem>;
   currentTurnId: string | null;
   streamingMessageId: string | null;
   claudeSessionId: string | null;
@@ -139,6 +150,7 @@ interface AgentState {
   attachments: Record<string, Array<{ attachmentId: string; mimeType: string; url: string; sizeBytes: number }>>;
   lastSeenSeq: number | null;
   historicalDone: boolean;
+  checkpointsByTurn: Record<string, { firstSeq: number; stashSha: string }>;
 }
 
 interface AgentActions {
@@ -174,6 +186,7 @@ interface AgentActions {
 
 const initialState: AgentState = {
   timeline: [],
+  pendingUserInputs: {},
   currentTurnId: null,
   streamingMessageId: null,
   claudeSessionId: null,
@@ -199,6 +212,7 @@ const initialState: AgentState = {
   attachments: {},
   lastSeenSeq: null,
   historicalDone: false,
+  checkpointsByTurn: {},
 };
 
 const hydratedModes = hydrateModes();
@@ -476,6 +490,52 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
         set({ worktree: event.info, worktreeDirty: event.dirty });
         return;
       }
+      case 'user_input_requested': {
+        const cur = get().pendingUserInputs;
+        if (cur[event.promptId]) return;
+        set({
+          pendingUserInputs: {
+            ...cur,
+            [event.promptId]: {
+              promptId: event.promptId,
+              sessionId: event.sessionId,
+              prompt: event.prompt,
+              expectedKind: event.expectedKind,
+              choices: event.choices,
+              deadlineMs: event.deadlineMs,
+              ts: event.ts,
+            },
+          },
+        });
+        return;
+      }
+      case 'user_input_resolved': {
+        const cur = get().pendingUserInputs;
+        if (!cur[event.promptId]) return;
+        const { [event.promptId]: _, ...rest } = cur;
+        set({ pendingUserInputs: rest });
+        return;
+      }
+      case 'checkpoint_created': {
+        const cur = get().checkpointsByTurn;
+        if (cur[event.turnId]) return;
+        set({
+          checkpointsByTurn: {
+            ...cur,
+            [event.turnId]: { firstSeq: event.firstSeq, stashSha: event.stashSha },
+          },
+        });
+        return;
+      }
+      case 'checkpoint_reverted': {
+        const cur = get().checkpointsByTurn;
+        const next: Record<string, { firstSeq: number; stashSha: string }> = {};
+        for (const [tid, entry] of Object.entries(cur)) {
+          if (entry.firstSeq < event.firstSeq) next[tid] = entry;
+        }
+        set({ checkpointsByTurn: next });
+        return;
+      }
       default: {
         // eslint-disable-next-line no-console
         console.warn('[agentStore] unknown event kind', event);
@@ -515,7 +575,8 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
   },
 
   setPermissionMode: (_sessionId, mode) => {
-    // Optimistically update local mode; useAgentSession hook will send WS agent_set_permission_mode.
+    // Optimistically update local mode. The legacy WS command was removed in
+    // the w3 cutover; callers should use setRuntimeMode/setInteractionMode.
     set({ permissionMode: mode });
   },
 

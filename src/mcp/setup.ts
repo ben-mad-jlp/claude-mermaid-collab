@@ -12,6 +12,13 @@ import {
   ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { dismissUI, dismissUISchema } from './tools/dismiss-ui.js';
+import {
+  requestUserInput,
+  requestUserInputSchema,
+  type RequestUserInputArgs,
+} from './tools/request-user-input.js';
+import { userInputBridge } from '../agent/user-input-bridge.js';
+import { getAgentRegistry } from '../agent/agent-registry-manager.js';
 import { updateUI, updateUISchema } from './tools/update-ui.js';
 import { renderUISchema } from './tools/render-ui.js';
 import { terminalToolSchemas } from './tools/terminal-sessions.js';
@@ -1471,6 +1478,11 @@ IMPORTANT - Common pitfalls to avoid:
         inputSchema: dismissUISchema,
       },
       {
+        name: 'request_user_input',
+        description: 'Ask the user a question and wait for their response. Returns the user-provided value.',
+        inputSchema: requestUserInputSchema,
+      },
+      {
         name: 'get_ui_response',
         description: 'Poll for UI response status. Use after render_ui with blocking=false to check if user has responded.',
         inputSchema: {
@@ -2381,6 +2393,28 @@ IMPORTANT - Common pitfalls to avoid:
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     try {
       const { name, arguments: args } = request.params;
+
+      // Tools that need to return a full CallToolResult (e.g. to set isError
+      // based on runtime outcome rather than thrown errors) short-circuit here.
+      if (name === 'request_user_input') {
+        const registry = getAgentRegistry();
+        if (!registry) {
+          throw new Error('Agent registry not initialized');
+        }
+        const ruiArgs = (args ?? {}) as unknown as RequestUserInputArgs;
+        const res = await requestUserInput(
+          {
+            bridge: userInputBridge,
+            eventSink: {
+              // Route through recordAndDispatch so the event is persisted via
+              // EventLog AND broadcast to live WS subscribers (see review C3).
+              emit: (ev) => { registry.recordAndDispatch(ev.sessionId, ev); },
+            },
+          },
+          ruiArgs,
+        );
+        return res as any;
+      }
 
       const result = await (async () => {
         switch (name) {

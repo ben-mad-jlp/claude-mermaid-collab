@@ -3,6 +3,9 @@ import { cn } from './lib/utils';
 import { MessagesTimeline } from './chat/MessagesTimeline';
 import type { TimelineItem } from './chat/MessagesTimeline.logic';
 import { ChatComposer, type ChatComposerProps } from './chat/ChatComposer';
+import { UserInputCard } from './chat/UserInputCard';
+import type { PendingUserInputItem } from '@/stores/agentStore';
+import type { UserInputValue } from '@/types/agent';
 
 export interface ChatViewProps {
   items: readonly TimelineItem[];
@@ -13,6 +16,11 @@ export interface ChatViewProps {
   header?: React.ReactNode;
   banner?: React.ReactNode;
   rail?: React.ReactNode;
+  pendingUserInput?: PendingUserInputItem | null;
+  onRespondUserInput?: (promptId: string, value: UserInputValue) => void;
+  checkpointsByTurn?: Record<string, { firstSeq: number; stashSha: string }>;
+  onRevertToCheckpoint?: (turnId: string) => void;
+  currentTurnId?: string | null;
   className?: string;
 }
 
@@ -25,6 +33,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
   header,
   banner,
   rail,
+  pendingUserInput,
+  onRespondUserInput,
+  checkpointsByTurn,
+  onRevertToCheckpoint,
+  currentTurnId,
   className,
 }) => {
   return (
@@ -38,10 +51,25 @@ export const ChatView: React.FC<ChatViewProps> = ({
             renderItem={renderItem}
             renderTurnSeparator={renderTurnSeparator}
             emptyState={emptyState}
+            checkpointsByTurn={checkpointsByTurn}
+            onRevertToCheckpoint={onRevertToCheckpoint}
+            currentTurnId={currentTurnId}
           />
         </div>
         {rail ? <div className="w-60 shrink-0 border-l overflow-auto">{rail}</div> : null}
       </div>
+      {pendingUserInput && onRespondUserInput ? (
+        <div className="shrink-0 border-t bg-background px-3 pt-3">
+          <UserInputCard
+            promptId={pendingUserInput.promptId}
+            prompt={pendingUserInput.prompt}
+            expectedKind={pendingUserInput.expectedKind}
+            choices={pendingUserInput.choices}
+            deadlineMs={pendingUserInput.deadlineMs}
+            onRespond={(value) => onRespondUserInput(pendingUserInput.promptId, value)}
+          />
+        </div>
+      ) : null}
       <div className="shrink-0">
         <ChatComposer {...composer} />
       </div>

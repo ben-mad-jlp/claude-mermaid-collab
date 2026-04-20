@@ -292,8 +292,19 @@ export class AgentSessionRegistry {
     return entry && entry.child.isAlive ? entry.child : null;
   }
 
-  recordAndDispatch(sessionId: string, event: AgentEvent): void {
-    this.dispatch(sessionId, event);
+  recordAndDispatch(sessionId: string, event: AgentEvent): number | undefined {
+    return this.dispatch(sessionId, event);
+  }
+
+  /**
+   * Mark a turnId that should be used by the projector the next time it mints
+   * a top-level turn for this session. Lets the dispatcher reuse the same
+   * turnId across `checkpoint_created` and the subsequent `turn_start`.
+   */
+  setPendingTurnId(sessionId: string, turnId: string): void {
+    const entry = this.map.get(sessionId);
+    if (!entry) return;
+    entry.ctx.pendingTurnId = turnId;
   }
 
   /**
@@ -653,12 +664,13 @@ export class AgentSessionRegistry {
     }
   }
 
-  private dispatch(sessionId: string, event: AgentEvent): void {
+  private dispatch(sessionId: string, event: AgentEvent): number | undefined {
     // Route single synthetic events through the EventLog as a 1-event batch so
     // they also get a monotonic `seq`. Then broadcast + cache the stamped copy.
     const [stamped] = this.projector.appendSynthetic(sessionId, [event]);
-    if (!stamped) return;
+    if (!stamped) return undefined;
     this.broadcastAndCache(sessionId, stamped);
+    return (stamped as { seq?: number }).seq;
   }
 
   private broadcastAndCache(sessionId: string, event: AgentEvent): void {

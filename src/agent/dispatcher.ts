@@ -1,8 +1,19 @@
 import type { ServerWebSocket } from 'bun';
-import type { AgentCommand, AgentEvent, UserMessageEvent, ErrorEvent, CommandAckEvent } from './contracts.ts';
+import type { AgentCommand, AgentEvent, UserMessageEvent, ErrorEvent, CommandAckEvent, UserInputResolvedEvent, CheckpointRevertedEvent } from './contracts.ts';
 import type { AgentSessionRegistry } from './session-registry.ts';
 import type { WebSocketHandler } from '../websocket/handler.ts';
+import type { UserInputBridge } from './user-input-bridge.ts';
 import { CommandReceiptsStore, hashCommand } from './command-receipts.ts';
+import type { CheckpointReactor } from './checkpoint-reactor.ts';
+import type { CheckpointStore } from './checkpoint-store.ts';
+import type { EventLog } from './event-log.ts';
+import type { GitOps } from './git-ops.ts';
+
+class DispatchError extends Error {
+  constructor(public code: string, message: string) {
+    super(message);
+  }
+}
 
 type AgentWS = ServerWebSocket<{ subscriptions: Set<string> }>;
 
@@ -10,9 +21,24 @@ const RECEIPT_TTL_MS = 10 * 60 * 1000;
 
 export class AgentDispatcher {
   private receipts: CommandReceiptsStore;
+  private revertMutex = new Map<string, Promise<unknown>>();
 
-  constructor(private opts: { registry: AgentSessionRegistry; wsHandler: WebSocketHandler; resolvedCwd: string; receipts?: CommandReceiptsStore }) {
+  constructor(private opts: {
+    registry: AgentSessionRegistry;
+    wsHandler: WebSocketHandler;
+    resolvedCwd: string;
+    receipts?: CommandReceiptsStore;
+    reactor?: CheckpointReactor;
+    userInputBridge?: UserInputBridge;
+    gitOps?: GitOps;
+    checkpointStore?: CheckpointStore;
+    eventLog?: EventLog;
+  }) {
     this.receipts = opts.receipts ?? new CommandReceiptsStore(opts.resolvedCwd, { isProjectRoot: true });
+  }
+
+  setReactor(reactor: CheckpointReactor): void {
+    this.opts.reactor = reactor;
   }
 
   async handle(ws: AgentWS, cmd: AgentCommand): Promise<void> {
@@ -37,10 +63,16 @@ export class AgentDispatcher {
         this.emitErrorFrame(ws, cmd, { code: 'COMMAND_REJECTED', message: prior.errorMessage ?? 'rejected' });
         return;
       }
-      // pending (crash recovery scenario): fall through and try again
-    } else {
-      this.receipts.insertPending(cmd as { commandId: string }, payloadHash, Date.now() + RECEIPT_TTL_MS);
+      // pending: an earlier invocation with this commandId is either in-flight
+      // or crashed mid-dispatch. Reject as duplicate rather than re-dispatching,
+      // which would double-execute side effects (see review I2). The original
+      // invocation will emit the ack/error when it settles.
+      this.emitErrorFrame(ws, cmd, { code: 'COMMAND_IN_FLIGHT', message: 'command already being processed' });
+      return;
     }
+    // First-time path: insert the pending row BEFORE dispatching so concurrent
+    // re-sends observe it and short-circuit above.
+    this.receipts.insertPending(cmd as { commandId: string }, payloadHash, Date.now() + RECEIPT_TTL_MS);
 
     try {
       const resultSeq = (await this.dispatch(ws, cmd)) ?? 0;
@@ -49,6 +81,10 @@ export class AgentDispatcher {
     } catch (err) {
       const msg = (err as Error)?.message ?? String(err);
       this.receipts.markRejected(commandId, msg);
+      if (err instanceof DispatchError) {
+        this.emitErrorFrame(ws, cmd, { code: err.code, message: err.message });
+        return;
+      }
       throw err;
     }
   }
@@ -111,6 +147,18 @@ export class AgentDispatcher {
             this.emitErrorToCaller(ws, cmd.sessionId, 'child', 'agent not alive', true);
             break;
           }
+          if (this.opts.reactor) {
+            try {
+              const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+              // Publish the turnId so the projector will reuse it for the
+              // upcoming `turn_start`, keeping `checkpoint_created.turnId`
+              // and `turn_start.turnId` in sync (see review I1).
+              this.opts.registry.setPendingTurnId(cmd.sessionId, turnId);
+              await this.opts.reactor.snapshot(cmd.sessionId, this.opts.resolvedCwd, turnId);
+            } catch {
+              // best-effort: reactor failures must not block the send
+            }
+          }
           child.writeUserMessage(cmd.text);
           const userEvent: UserMessageEvent = {
             kind: 'user_message',
@@ -142,18 +190,131 @@ export class AgentDispatcher {
           this.opts.registry.resolvePermission(cmd.sessionId, cmd.promptId, cmd.decision);
           break;
         }
-        case 'agent_set_permission_mode': {
-          this.opts.registry.setPermissionMode(cmd.sessionId, cmd.mode);
-          break;
-        }
         case 'agent_commit_push_pr': {
           await this.opts.registry.runCommitPushPR(cmd.sessionId, { title: cmd.title, body: cmd.body, draft: cmd.draft });
           break;
         }
+        case 'agent_checkpoint_revert': {
+          return await this.handleCheckpointRevert(cmd.sessionId, cmd.turnId);
+        }
+        case 'agent_user_input_respond': {
+          const bridge = this.opts.userInputBridge;
+          if (!bridge) {
+            throw new DispatchError('NO_PENDING_USER_INPUT', 'user input bridge not configured');
+          }
+          const ok = bridge.respond(cmd.sessionId, cmd.promptId, cmd.value);
+          if (!ok) {
+            throw new DispatchError('NO_PENDING_USER_INPUT', 'no pending user input for promptId');
+          }
+          const resolved: UserInputResolvedEvent = {
+            kind: 'user_input_resolved',
+            sessionId: cmd.sessionId,
+            ts: Date.now(),
+            promptId: cmd.promptId,
+            value: cmd.value,
+          };
+          const seq = this.opts.registry.recordAndDispatch(cmd.sessionId, resolved);
+          return seq;
+        }
       }
     } catch (err) {
+      if (err instanceof DispatchError) throw err;
       this.emitErrorToCaller(ws, cmd.sessionId, 'child', (err as Error).message ?? String(err), true);
     }
+  }
+
+  private async handleCheckpointRevert(sessionId: string, turnId: string): Promise<number> {
+    // Serialize concurrent reverts per session. The second caller sees the
+    // checkpoint already deleted and throws CHECKPOINT_NOT_FOUND.
+    const prev = this.revertMutex.get(sessionId);
+    const run = (async () => {
+      if (prev) {
+        try { await prev; } catch { /* first revert failed; we still try */ }
+      }
+      return this.doRevert(sessionId, turnId);
+    })();
+    this.revertMutex.set(sessionId, run);
+    try {
+      return await run;
+    } finally {
+      if (this.revertMutex.get(sessionId) === run) {
+        this.revertMutex.delete(sessionId);
+      }
+    }
+  }
+
+  private async doRevert(sessionId: string, turnId: string): Promise<number> {
+    const checkpointStore = this.opts.checkpointStore;
+    const eventLog = this.opts.eventLog ?? this.opts.registry.getEventLog();
+    const gitOps = this.opts.gitOps;
+    if (!checkpointStore) {
+      throw new DispatchError('CHECKPOINT_NOT_CONFIGURED', 'checkpoint store not configured');
+    }
+
+    const cp = checkpointStore.get(sessionId, turnId);
+    if (!cp) {
+      throw new DispatchError('CHECKPOINT_NOT_FOUND', `no checkpoint for turn ${turnId}`);
+    }
+
+    // 2. Quiesce the child: fully stop it (awaits process.exited) before any
+    //    log mutation or git restore, so no late child frames slip in between
+    //    the truncate and the revert event (see review I3). The next
+    //    `agent_send` will re-spawn via getOrCreate.
+    await this.opts.registry.stop(sessionId);
+
+    // 3. Pre-revert safety stash (only if git available and in a repo).
+    let safetyStashSha: string | undefined;
+    const cwd = this.opts.resolvedCwd;
+    if (gitOps) {
+      try {
+        const inRepo = await gitOps.isGitRepo(cwd);
+        if (inRepo) {
+          const sha = await gitOps.stashCreate(cwd, `cmc:pre-revert:${Date.now()}`);
+          if (sha) safetyStashSha = sha;
+        }
+      } catch {
+        // best-effort safety stash; proceed with revert
+      }
+    }
+
+    // 4. Restore worktree from checkpoint stash.
+    //    Treat empty-string stashSha as the 'HEAD' sentinel (no changes) so we
+    //    never invoke `git checkout '' -- .` (see review I5).
+    if (
+      gitOps &&
+      cp.stashSha !== 'none' &&
+      cp.stashSha !== 'HEAD' &&
+      cp.stashSha !== ''
+    ) {
+      try {
+        await gitOps.resetHard(cwd, 'HEAD');
+        // Remove post-checkpoint untracked files/dirs so `checkout <sha> -- .`
+        // truly yields the pre-turn worktree. Scoped to `cwd` (the session
+        // worktree), respects .gitignore (see review I4).
+        await gitOps.cleanUntracked(cwd);
+        await gitOps.checkoutAll(cwd, cp.stashSha);
+      } catch (err) {
+        throw new DispatchError('REVERT_FAILED', (err as Error).message ?? String(err));
+      }
+    }
+
+    // 5. Truncate event log.
+    eventLog.deleteFromSeq(sessionId, cp.firstSeq);
+
+    // 6. Truncate checkpoint store.
+    checkpointStore.deleteFromSeq(sessionId, cp.firstSeq);
+
+    // 7. Emit CheckpointRevertedEvent as the new tail.
+    const event: CheckpointRevertedEvent = {
+      kind: 'checkpoint_reverted',
+      sessionId,
+      ts: Date.now(),
+      turnId,
+      firstSeq: cp.firstSeq,
+      safetyStashSha,
+    };
+    const seq = this.opts.registry.recordAndDispatch(sessionId, event) ?? 0;
+    return seq;
   }
 
   private subscribeAndReplay(ws: AgentWS, sessionId: string): void {

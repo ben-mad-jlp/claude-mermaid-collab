@@ -24,7 +24,9 @@ export type AgentEventKind =
   | 'session_cleared'
   | 'command_ack'
   | 'user_input_requested'
-  | 'user_input_resolved';
+  | 'user_input_resolved'
+  | 'checkpoint_created'
+  | 'checkpoint_reverted';
 
 export type PermissionMode = 'supervised' | 'accept-edits' | 'plan' | 'bypass';
 export type PermissionDecision = 'allow_once' | 'allow_session' | 'deny';
@@ -248,6 +250,20 @@ export interface UserInputResolvedEvent extends BaseEvent {
   value: UserInputValue | { kind: 'timeout' };
 }
 
+export interface CheckpointCreatedEvent extends BaseEvent {
+  kind: 'checkpoint_created';
+  turnId: string;
+  firstSeq: number;
+  stashSha: string; // may be 'HEAD' (no changes) or 'none' (non-git)
+}
+
+export interface CheckpointRevertedEvent extends BaseEvent {
+  kind: 'checkpoint_reverted';
+  turnId: string;
+  firstSeq: number;   // the seq we reverted to (exclusive)
+  safetyStashSha?: string;
+}
+
 export type AgentEvent =
   | UserMessageEvent
   | TurnStartEvent
@@ -271,7 +287,9 @@ export type AgentEvent =
   | SessionClearedEvent
   | CommandAckEvent
   | UserInputRequestedEvent
-  | UserInputResolvedEvent;
+  | UserInputResolvedEvent
+  | CheckpointCreatedEvent
+  | CheckpointRevertedEvent;
 
 export type CommandId = string; // ULID
 
@@ -292,7 +310,6 @@ export type AgentCommandBody =
   | { kind: 'agent_clear'; sessionId: string }
   | { kind: 'agent_delete_session'; sessionId: string }
   | { kind: 'agent_permission_resolve'; sessionId: string; promptId: string; decision: PermissionDecision }
-  | { kind: 'agent_set_permission_mode'; sessionId: string; mode: PermissionMode }
   | { kind: 'agent_set_runtime_mode'; sessionId: string; mode: RuntimeMode }
   | { kind: 'agent_set_interaction_mode'; sessionId: string; mode: InteractionMode }
   | { kind: 'agent_user_input_respond'; sessionId: string; promptId: string; value: UserInputValue }
@@ -315,4 +332,14 @@ export interface ProjectionCtx {
   toolProgressSeq: Record<string, number>;
   thinkingDeltas: Record<string, string>;
   turnIdByToolUseId: Record<string, string>;
+  /**
+   * Optional pre-minted turnId for the next top-level turn. When set, the
+   * projector uses this value (instead of generating a new uuid) the next time
+   * it would mint a turnId for a `turn_start`. This lets the dispatcher reuse
+   * a single turnId across the checkpoint row + the projected turn so the UI
+   * can match `checkpoint_created.turnId` against `turn_start.turnId`.
+   *
+   * Cleared by the projector once consumed.
+   */
+  pendingTurnId?: string | null;
 }

@@ -123,6 +123,26 @@ export class EventLog {
     }
   }
 
+  /**
+   * Delete all events for a session with seq >= fromSeqInclusive, and update
+   * the session's last_seq to fromSeqInclusive - 1. Runs in one transaction.
+   * Returns the number of rows deleted.
+   */
+  deleteFromSeq(sessionId: string, fromSeqInclusive: number): number {
+    const del = this.db.prepare(
+      'DELETE FROM agent_events WHERE session_id = ? AND seq >= ?',
+    );
+    const updateLast = this.db.prepare(
+      'UPDATE agent_sessions SET last_seq = ? WHERE session_id = ?',
+    );
+    const tx = this.db.transaction((): number => {
+      const result = del.run(sessionId, fromSeqInclusive) as { changes: number };
+      updateLast.run(fromSeqInclusive - 1, sessionId);
+      return result.changes ?? 0;
+    });
+    return tx();
+  }
+
   getLastSeq(sessionId: string): number {
     const row = this.db
       .prepare('SELECT last_seq FROM agent_sessions WHERE session_id = ?')

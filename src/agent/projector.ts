@@ -58,7 +58,8 @@ export function projectFrame(frame: any, ctx: ProjectionCtx): AgentEvent[] {
           ctx.currentAssistantMessageId = event.message?.id ?? randomUUID();
           return [];
         }
-        const turnId = randomUUID();
+        const turnId = ctx.pendingTurnId ?? randomUUID();
+        ctx.pendingTurnId = null;
         ctx.currentTurnId = turnId;
         ctx.currentAssistantMessageId = event.message?.id ?? randomUUID();
         ctx.nextDeltaIndex = 0;
@@ -191,7 +192,8 @@ export function projectFrame(frame: any, ctx: ProjectionCtx): AgentEvent[] {
       if (evType === 'content_block_delta' && event?.delta?.type === 'text_delta') {
         const out: AgentEvent[] = [];
         if (ctx.currentTurnId == null) {
-          const turnId = randomUUID();
+          const turnId = ctx.pendingTurnId ?? randomUUID();
+          ctx.pendingTurnId = null;
           ctx.currentTurnId = turnId;
           ctx.currentAssistantMessageId = randomUUID();
           ctx.nextDeltaIndex = 0;

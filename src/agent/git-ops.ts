@@ -15,6 +15,12 @@ export interface GitOps {
   resetHard(cwd: string, ref?: string): Promise<void>;
   /** `git checkout <sha> -- .` — restore worktree contents from a commit/stash SHA. */
   checkoutAll(cwd: string, sha: string): Promise<void>;
+  /**
+   * `git clean -fd` — delete untracked files and directories inside the given
+   * worktree. Scoped to `cwd` (i.e. the per-session worktree); NOT run globally
+   * across the project. Respects `.gitignore` (no `-x`).
+   */
+  cleanUntracked(cwd: string): Promise<void>;
   /** `git rev-parse --is-inside-work-tree` — true if cwd is inside a git working tree. */
   isGitRepo(cwd: string): Promise<boolean>;
 }
@@ -56,7 +62,11 @@ export function createGitOps(): GitOps {
       // message param is informational-only for `git stash create`.
       void message;
       const stdout = await runGitOrThrow(cwd, ['stash', 'create']);
-      return stdout.trim();
+      const trimmed = stdout.trim();
+      // Coerce empty stdout ("no local changes") to the 'HEAD' sentinel so
+      // downstream sentinel checks for "no-op restore" match uniformly
+      // regardless of git version output quirks (see review I5).
+      return trimmed === '' ? 'HEAD' : trimmed;
     },
 
     async resetHard(cwd: string, ref: string = 'HEAD'): Promise<void> {
@@ -65,6 +75,12 @@ export function createGitOps(): GitOps {
 
     async checkoutAll(cwd: string, sha: string): Promise<void> {
       await runGitOrThrow(cwd, ['checkout', sha, '--', '.']);
+    },
+
+    async cleanUntracked(cwd: string): Promise<void> {
+      // Scoped to the provided cwd (per-session worktree). `-f` force, `-d`
+      // include directories. No `-x`, so gitignored files are preserved.
+      await runGitOrThrow(cwd, ['clean', '-fd']);
     },
 
     async isGitRepo(cwd: string): Promise<boolean> {

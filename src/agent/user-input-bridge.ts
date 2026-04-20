@@ -118,3 +118,11 @@ export class UserInputBridge {
     this.pending.delete(sessionId);
   }
 }
+
+/**
+ * Shared singleton UserInputBridge. MCP tools and other callers that need to
+ * await user input without direct access to the session registry may use this
+ * instance. The agent dispatcher reads responses via `respond(...)` and emits
+ * the resolved event through its EventLog.
+ */
+export const userInputBridge = new UserInputBridge();
