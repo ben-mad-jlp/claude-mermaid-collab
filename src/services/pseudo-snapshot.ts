@@ -1,7 +1,7 @@
 /**
  * Pseudo DB Snapshot — write/validate/load SQLite snapshot of pseudo cache.
  *
- * Snapshot location: <project>/.cache/derived.sqlite
+ * Snapshot location: <project>/.collab/pseudo/cache/derived.sqlite
  */
 
 import { Database } from 'bun:sqlite';
@@ -25,7 +25,10 @@ const SNAPSHOT_TABLES = [
 const FILE_COUNT_TOLERANCE = 0.05;
 const SAMPLE_SIZE = 30;
 const TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const SNAPSHOT_REL = '.cache/derived.sqlite';
+const SNAPSHOT_REL = '.collab/pseudo/cache/derived.sqlite';
+const LEGACY_SNAPSHOT_REL = '.cache/derived.sqlite';
+
+let cleanedLegacy = false;
 
 export interface SnapshotValidation {
   valid: boolean;
@@ -44,6 +47,16 @@ export async function writeSnapshot(db: Database, project: string): Promise<void
   const snapPath = snapshotPath(project);
   fs.mkdirSync(path.dirname(snapPath), { recursive: true });
   if (fs.existsSync(snapPath)) fs.unlinkSync(snapPath);
+
+  // One-time cleanup: remove legacy snapshot at <project>/.cache/derived.sqlite
+  // (relocated to .collab/pseudo/cache/derived.sqlite). Best-effort — never fail.
+  if (!cleanedLegacy) {
+    cleanedLegacy = true;
+    try {
+      const legacy = path.join(project, LEGACY_SNAPSHOT_REL);
+      if (fs.existsSync(legacy)) fs.unlinkSync(legacy);
+    } catch {}
+  }
 
   const escaped = escapeForAttach(snapPath);
   db.exec(`ATTACH DATABASE '${escaped}' AS snap`);

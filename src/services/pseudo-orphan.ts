@@ -71,7 +71,7 @@ export async function runOrphanDetection(
 
     let parsed;
     try {
-      parsed = await readProseFile(proseFilePath);
+      parsed = await readProseFile(proseFilePath, project);
     } catch (err) {
       console.warn('[pseudo-orphan] failed to read prose file', proseFilePath, err);
       continue;

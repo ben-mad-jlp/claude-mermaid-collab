@@ -80,7 +80,7 @@ export function createPseudoWatcher(
 
     for (const prosePath of prosePaths) {
       try {
-        const prose = await readProseFile(prosePath);
+        const prose = await readProseFile(prosePath, projectAbs);
         if (!prose) continue;
         const sourceRel = prose.file;
         const sourceAbs = isAbsolute(sourceRel) ? sourceRel : resolve(projectAbs, sourceRel);

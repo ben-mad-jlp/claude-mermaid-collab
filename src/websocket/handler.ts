@@ -1,4 +1,7 @@
 import type { ServerWebSocket } from 'bun';
+import type { AgentCommand, AgentEvent } from '../agent/contracts.ts';
+
+type AgentDispatcherLike = { handle(ws: ServerWebSocket<{ subscriptions: Set<string> }>, cmd: AgentCommand): Promise<void> };
 
 export type NotificationType = 'info' | 'success' | 'warning' | 'error';
 
@@ -50,10 +53,23 @@ export type WSMessage =
   | { type: 'lesson_added'; project: string; session: string; [k: string]: unknown }
   | { type: 'notification'; data: NotificationData }
   | { type: 'status_changed'; status: 'working' | 'waiting' | 'idle'; message?: string; lastActivity: string }
-  | { type: 'session_state_updated'; lastActivity?: string; completedTasks?: string[]; pendingTasks?: string[]; project?: string; session?: string; state?: unknown };
+  | { type: 'session_state_updated'; lastActivity?: string; completedTasks?: string[]; pendingTasks?: string[]; project?: string; session?: string; state?: unknown }
+  | { type: 'agent_start'; sessionId: string; cwd: string }
+  | { type: 'agent_send'; sessionId: string; text: string }
+  | { type: 'agent_cancel'; sessionId: string; turnId?: string }
+  | { type: 'agent_resume'; sessionId: string }
+  | { type: 'agent_stop'; sessionId: string }
+  | { type: 'agent_delete_session'; sessionId: string }
+  | { type: 'agent_clear'; sessionId: string }
+  | { type: 'agent_event'; channel: string; event: AgentEvent };
 
 export class WebSocketHandler {
   private connections: Set<ServerWebSocket<{ subscriptions: Set<string> }>> = new Set();
+  private agentDispatcher: AgentDispatcherLike | null = null;
+
+  setAgentDispatcher(dispatcher: AgentDispatcherLike): void {
+    this.agentDispatcher = dispatcher;
+  }
 
   handleConnection(ws: ServerWebSocket<{ subscriptions: Set<string> }>): void {
     ws.data.subscriptions = new Set();
@@ -81,6 +97,22 @@ export class WebSocketHandler {
           ws.data.subscriptions.delete(data.id);
         } else if (data.channel) {
           ws.data.subscriptions.delete(`channel:${data.channel}`);
+        }
+      } else if (
+        data.type === 'agent_start' ||
+        data.type === 'agent_send' ||
+        data.type === 'agent_cancel' ||
+        data.type === 'agent_resume' ||
+        data.type === 'agent_stop' ||
+        data.type === 'agent_delete_session' ||
+        data.type === 'agent_clear'
+      ) {
+        if (this.agentDispatcher) {
+          const { type, ...rest } = data;
+          const cmd = { kind: type, ...rest } as AgentCommand;
+          void this.agentDispatcher.handle(ws, cmd);
+        } else {
+          console.error('Agent command received but no dispatcher registered:', data.type);
         }
       }
     } catch (error) {
@@ -187,6 +219,27 @@ export class WebSocketHandler {
     }
 
     // Clean up disconnected clients
+    for (const ws of deadConnections) {
+      this.connections.delete(ws);
+    }
+  }
+
+  broadcastToChannel(channel: string, message: WSMessage): void {
+    const json = JSON.stringify(message);
+    const key = `channel:${channel}`;
+    const deadConnections: ServerWebSocket<{ subscriptions: Set<string> }>[] = [];
+
+    for (const ws of this.connections) {
+      if (ws.data.subscriptions.has(key)) {
+        try {
+          ws.send(json);
+        } catch (error) {
+          deadConnections.push(ws);
+          console.error('Failed to send channel message:', error);
+        }
+      }
+    }
+
     for (const ws of deadConnections) {
       this.connections.delete(ws);
     }

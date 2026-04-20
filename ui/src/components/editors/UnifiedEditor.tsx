@@ -288,22 +288,13 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
   const { setEditor, undo, redo, canUndo, canRedo } = useEditorHistory();
   const { svgContainerRef, exportAsSVG, exportAsPNG, canExport } = useExportDiagram();
 
-  // Get proposal store functions
-  const {
-    proposals: allProposals,
-    addProposal,
-    approveProposal,
-    rejectProposal,
-    clearProposals,
-    getProposalsForItem,
-  } = useProposalStore((state) => ({
-    proposals: state.proposals,
-    addProposal: state.addProposal,
-    approveProposal: state.approveProposal,
-    rejectProposal: state.rejectProposal,
-    clearProposals: state.clearProposals,
-    getProposalsForItem: state.getProposalsForItem,
-  }));
+  // Get proposal store functions — individual selectors to avoid unstable object snapshots
+  const allProposals = useProposalStore((state) => state.proposals);
+  const addProposal = useProposalStore((state) => state.addProposal);
+  const approveProposal = useProposalStore((state) => state.approveProposal);
+  const rejectProposal = useProposalStore((state) => state.rejectProposal);
+  const clearProposals = useProposalStore((state) => state.clearProposals);
+  const getProposalsForItem = useProposalStore((state) => state.getProposalsForItem);
 
   // Get proposals for current item
   const itemProposals = item ? getProposalsForItem(item.id) : [];

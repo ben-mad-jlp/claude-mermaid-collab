@@ -5,6 +5,7 @@
 
 import { openSync, writeSync, fsyncSync, closeSync, renameSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { toRelPosixPath } from './pseudo-path-escape.js';
 
 export interface ProseStep {
   order: number;
@@ -125,7 +126,7 @@ export function validateProseSchema(raw: unknown): ProseFileV3 {
   return { schema_version: 3, file, title, purpose, module_context, methods };
 }
 
-export async function readProseFile(path: string): Promise<ProseFileV3 | null> {
+export async function readProseFile(path: string, project?: string): Promise<ProseFileV3 | null> {
   if (!existsSync(path)) return null;
   let text: string;
   try {
@@ -139,7 +140,16 @@ export async function readProseFile(path: string): Promise<ProseFileV3 | null> {
   } catch (err) {
     throw new Error(`Malformed JSON in prose file ${path}: ${(err as Error).message}`);
   }
-  return validateProseSchema(parsed);
+  const proseFile = validateProseSchema(parsed);
+  if (project !== undefined) {
+    try {
+      proseFile.file = toRelPosixPath(project, proseFile.file);
+    } catch {
+      // Cross-machine / escapes-root paths left untouched so
+      // migrateProseFilesToRelative can bucket them into _orphan/.
+    }
+  }
+  return proseFile;
 }
 
 export async function writeProseFile(path: string, content: ProseFileV3): Promise<void> {

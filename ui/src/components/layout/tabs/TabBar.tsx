@@ -16,6 +16,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import Tab from './Tab';
 import {
+  sessionKey,
   useSessionTabs,
   useTabsStore,
   type TabDescriptor,
@@ -93,6 +94,22 @@ export const TabBar: React.FC<TabBarProps> = ({ onContextMenu }) => {
       s.selectPseudoPath(tab.artifactId);
       return;
     }
+    // Blueprints and task-details are documents at their core; task-graph is a
+    // first-class view. Without handling these kinds, clicking such a tab left
+    // selectedXxxId untouched and the viewer kept showing the previous tab's
+    // artifact — producing the "off-by-one" tab switch bug.
+    if (tab.kind === 'blueprint' && cs) {
+      selectDocumentWithContent(cs.project, cs.name, tab.artifactId);
+      return;
+    }
+    if (tab.kind === 'task-graph') {
+      s.selectTaskGraph();
+      return;
+    }
+    if (tab.kind === 'task-details' && cs) {
+      selectDocumentWithContent(cs.project, cs.name, tab.artifactId);
+      return;
+    }
     if (tab.kind === 'artifact' && tab.artifactType && cs) {
       const { project, name } = cs;
       switch (tab.artifactType) {
@@ -105,6 +122,21 @@ export const TabBar: React.FC<TabBarProps> = ({ onContextMenu }) => {
       }
     }
   }, [setActive, selectDiagramWithContent, selectDocumentWithContent, selectDesignWithContent, selectSpreadsheetWithContent]);
+
+  // closeTab updates activeTabId in the tabs store but does not trigger the
+  // sessionStore selection / content load that activateTab performs, so the
+  // viewer would keep showing the old artifact. After closing, look up the
+  // now-active tab and activate it so the viewer follows.
+  const handleClose = React.useCallback((id: string) => {
+    closeTab(id);
+    const cs = useSessionStore.getState().currentSession;
+    if (!cs) return;
+    const key = sessionKey(cs.project, cs.name);
+    const entry = useTabsStore.getState().bySession[key];
+    if (!entry?.activeTabId) return;
+    const next = entry.tabs.find((t) => t.id === entry.activeTabId);
+    if (next) activateTab(next);
+  }, [closeTab, activateTab]);
 
   const permanentTabs = tabs
     .filter((t) => !t.isPinned && !t.isPreview)
@@ -154,7 +186,7 @@ export const TabBar: React.FC<TabBarProps> = ({ onContextMenu }) => {
               tab={tab}
               isActive={tab.id === activeTabId}
               onClick={() => activateTab(tab)}
-              onClose={() => closeTab(tab.id)}
+              onClose={() => handleClose(tab.id)}
               onContextMenu={
                 onContextMenu ? (e) => onContextMenu(e, tab) : undefined
               }
@@ -169,7 +201,7 @@ export const TabBar: React.FC<TabBarProps> = ({ onContextMenu }) => {
               tab={tab}
               isActive={tab.id === activeTabId}
               onClick={() => activateTab(tab)}
-              onClose={() => closeTab(tab.id)}
+              onClose={() => handleClose(tab.id)}
               onContextMenu={
                 onContextMenu ? (e) => onContextMenu(e, tab) : undefined
               }

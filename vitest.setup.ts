@@ -26,6 +26,14 @@ vi.mock('bun:sqlite', () => {
       };
     }
 
+    prepare(sql: string) {
+      return this.db.prepare(sql);
+    }
+
+    transaction(fn: (...args: any[]) => any) {
+      return this.db.transaction(fn);
+    }
+
     run(sql: string, ...params: any[]) {
       return this.db.prepare(sql).run(...params);
     }

@@ -28,7 +28,8 @@
     "isomorphic-dompurify": "^2.35.0",
     "js-yaml": "^4.1.0",
     "jsdom": "^23.0.0",
-    "mermaid": "^10.6.1"
+    "mermaid": "^10.6.1",
+    "ulid": "^2.4.0"
   },
   "devDependencies": {
     "@types/diff": "^7.0.2",

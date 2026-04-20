@@ -77,6 +77,9 @@ export interface SessionState {
   images: Image[];
   selectedImageId: string | null;
 
+  // Currently selected pseudo file path (if viewing a code-file tab)
+  selectedPseudoPath: string | null;
+
   // Task graph selection state
   taskGraphSelected: boolean;
 
@@ -154,6 +157,9 @@ export interface SessionState {
   removeImage: (id: string) => void;
   getSelectedImage: () => Image | undefined;
 
+  // Pseudo file selection actions
+  selectPseudoPath: (path: string | null) => void;
+
   // Collab state actions
   setCollabState: (state: CollabState | null) => void;
 
@@ -201,6 +207,7 @@ const initialState = {
   selectedEmbedId: null,
   images: [],
   selectedImageId: null,
+  selectedPseudoPath: null,
   taskGraphSelected: false,
   sessionTodos: [],
   sessionTodosShowCompleted: false,
@@ -257,6 +264,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       selectedSnippetId: null,
       selectedEmbedId: null,
       selectedImageId: null,
+      selectedPseudoPath: null,
       taskGraphSelected: false,
       sessionTodos: [],
       collabState: null,
@@ -317,11 +325,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   selectDiagram: (id: string | null) => {
-    const { diagrams } = get();
-    // Only select if diagram exists or if clearing selection
-    if (id === null || diagrams.find((d) => d.id === id)) {
-      set({ selectedDiagramId: id, selectedDocumentId: null, selectedDesignId: null, selectedSpreadsheetId: null, selectedSnippetId: null, selectedEmbedId: null, selectedImageId: null, taskGraphSelected: false });
-    }
+    // Set unconditionally — selectedItem gracefully handles missing artifacts,
+    // and guarding here causes tab clicks to silently no-op when the list hasn't
+    // been loaded yet, leaving the viewer showing the previously-selected item.
+    set({ selectedDiagramId: id, selectedDocumentId: null, selectedDesignId: null, selectedSpreadsheetId: null, selectedSnippetId: null, selectedEmbedId: null, selectedImageId: null, selectedPseudoPath: null, taskGraphSelected: false });
   },
 
   getSelectedDiagram: () => {
@@ -363,11 +370,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   selectDocument: (id: string | null) => {
-    const { documents } = get();
-    // Only select if document exists or if clearing selection
-    if (id === null || documents.find((d) => d.id === id)) {
-      set({ selectedDocumentId: id, selectedDiagramId: null, selectedDesignId: null, selectedSpreadsheetId: null, selectedSnippetId: null, selectedEmbedId: null, selectedImageId: null, taskGraphSelected: false });
-    }
+    set({ selectedDocumentId: id, selectedDiagramId: null, selectedDesignId: null, selectedSpreadsheetId: null, selectedSnippetId: null, selectedEmbedId: null, selectedImageId: null, selectedPseudoPath: null, taskGraphSelected: false });
   },
 
   getSelectedDocument: () => {
@@ -409,11 +412,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   selectDesign: (id: string | null) => {
-    const { designs } = get();
-    // Only select if design exists or if clearing selection
-    if (id === null || designs.find((w) => w.id === id)) {
-      set({ selectedDesignId: id, selectedDiagramId: null, selectedDocumentId: null, selectedSpreadsheetId: null, selectedSnippetId: null, selectedEmbedId: null, selectedImageId: null, taskGraphSelected: false });
-    }
+    set({ selectedDesignId: id, selectedDiagramId: null, selectedDocumentId: null, selectedSpreadsheetId: null, selectedSnippetId: null, selectedEmbedId: null, selectedImageId: null, selectedPseudoPath: null, taskGraphSelected: false });
   },
 
   getSelectedDesign: () => {
@@ -453,10 +452,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   selectSpreadsheet: (id: string | null) => {
-    const { spreadsheets } = get();
-    if (id === null || spreadsheets.find((s) => s.id === id)) {
-      set({ selectedSpreadsheetId: id, selectedDiagramId: null, selectedDocumentId: null, selectedDesignId: null, selectedSnippetId: null, selectedEmbedId: null, selectedImageId: null, taskGraphSelected: false });
-    }
+    set({ selectedSpreadsheetId: id, selectedDiagramId: null, selectedDocumentId: null, selectedDesignId: null, selectedSnippetId: null, selectedEmbedId: null, selectedImageId: null, selectedPseudoPath: null, taskGraphSelected: false });
   },
 
   getSelectedSpreadsheet: () => {
@@ -496,10 +492,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   selectSnippet: (id: string | null) => {
-    const { snippets } = get();
-    if (id === null || snippets.find((s) => s.id === id)) {
-      set({ selectedSnippetId: id, selectedDiagramId: null, selectedDocumentId: null, selectedDesignId: null, selectedSpreadsheetId: null, selectedEmbedId: null, selectedImageId: null, taskGraphSelected: false });
-    }
+    set({ selectedSnippetId: id, selectedDiagramId: null, selectedDocumentId: null, selectedDesignId: null, selectedSpreadsheetId: null, selectedEmbedId: null, selectedImageId: null, selectedPseudoPath: null, taskGraphSelected: false });
   },
 
   getSelectedSnippet: () => {
@@ -519,19 +512,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     selectedEmbedId: state.selectedEmbedId === id ? null : state.selectedEmbedId,
   })),
   selectEmbed: (id) => {
-    const { embeds } = get();
-    if (id === null || embeds.find((e) => e.id === id)) {
-      set({
-        selectedEmbedId: id,
-        selectedDiagramId: null,
-        selectedDocumentId: null,
-        selectedDesignId: null,
-        selectedSpreadsheetId: null,
-        selectedSnippetId: null,
-        selectedImageId: null,
-        taskGraphSelected: false,
-      });
-    }
+    set({
+      selectedEmbedId: id,
+      selectedDiagramId: null,
+      selectedDocumentId: null,
+      selectedDesignId: null,
+      selectedSpreadsheetId: null,
+      selectedSnippetId: null,
+      selectedImageId: null,
+      selectedPseudoPath: null,
+      taskGraphSelected: false,
+    });
   },
   getSelectedEmbed: () => {
     const { embeds, selectedEmbedId } = get();
@@ -570,24 +561,36 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   selectImage: (id) => {
-    const { images } = get();
-    if (id === null || images.find((img) => img.id === id)) {
-      set({
-        selectedImageId: id,
-        selectedDiagramId: null,
-        selectedDocumentId: null,
-        selectedDesignId: null,
-        selectedSpreadsheetId: null,
-        selectedSnippetId: null,
-        selectedEmbedId: null,
-        taskGraphSelected: false,
-      });
-    }
+    set({
+      selectedImageId: id,
+      selectedDiagramId: null,
+      selectedDocumentId: null,
+      selectedDesignId: null,
+      selectedSpreadsheetId: null,
+      selectedSnippetId: null,
+      selectedEmbedId: null,
+      selectedPseudoPath: null,
+      taskGraphSelected: false,
+    });
   },
 
   getSelectedImage: () => {
     const { images, selectedImageId } = get();
     return images.find((img) => img.id === selectedImageId);
+  },
+
+  selectPseudoPath: (path) => {
+    set({
+      selectedPseudoPath: path,
+      selectedDiagramId: null,
+      selectedDocumentId: null,
+      selectedDesignId: null,
+      selectedSpreadsheetId: null,
+      selectedSnippetId: null,
+      selectedEmbedId: null,
+      selectedImageId: null,
+      taskGraphSelected: false,
+    });
   },
 
   // Collab state management
@@ -597,7 +600,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   // Task graph selection
   selectTaskGraph: () => {
-    set({ taskGraphSelected: true, selectedDiagramId: null, selectedDocumentId: null, selectedDesignId: null, selectedSpreadsheetId: null, selectedSnippetId: null, selectedEmbedId: null, selectedImageId: null });
+    set({ taskGraphSelected: true, selectedDiagramId: null, selectedDocumentId: null, selectedDesignId: null, selectedSpreadsheetId: null, selectedSnippetId: null, selectedEmbedId: null, selectedImageId: null, selectedPseudoPath: null });
   },
 
   clearTaskGraphSelection: () => {
@@ -661,6 +664,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       selectedSnippetId: null,
       selectedEmbedId: null,
       selectedImageId: null,
+      selectedPseudoPath: null,
       taskGraphSelected: false,
       sessionTodos: [],
       collabState: null,
@@ -671,3 +675,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   // Reset store to initial state
   reset: () => set(initialState),
 }));
+
+if (typeof window !== 'undefined') {
+  (window as unknown as { __SESSION_STORE__: typeof useSessionStore }).__SESSION_STORE__ = useSessionStore;
+}

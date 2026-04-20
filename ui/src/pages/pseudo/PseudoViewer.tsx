@@ -45,21 +45,29 @@ export const PseudoViewer = forwardRef<PseudoViewerHandle, PseudoViewerProps>(
         return;
       }
 
+      const controller = new AbortController();
+
       const loadFile = async () => {
         try {
           setLoading(true);
           setError(null);
-          const data = await fetchPseudoFile(project, path);
+          const data = await fetchPseudoFile(project, path, { signal: controller.signal });
+          if (controller.signal.aborted) return;
           setFileData(data);
         } catch (err) {
+          if (controller.signal.aborted || (err as any)?.name === 'AbortError') return;
           setError(err instanceof Error ? err.message : 'Failed to load file');
           setFileData(null);
         } finally {
-          setLoading(false);
+          if (!controller.signal.aborted) setLoading(false);
         }
       };
 
       loadFile();
+
+      return () => {
+        controller.abort();
+      };
     }, [path, project]);
 
     // Notify parent of methods change

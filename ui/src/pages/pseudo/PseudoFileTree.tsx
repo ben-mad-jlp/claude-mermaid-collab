@@ -1,17 +1,19 @@
 /**
  * PseudoFileTree Component
  *
- * Left sidebar component for pseudo-file navigation.
- * Features:
- * - Nested tree display from flat file list
- * - Filter with case-insensitive substring matching
- * - Collapse/expand state persistence to localStorage
- * - Active file highlighting
- * - Project dropdown selector
+ * Page-level wrapper around PseudoTreeBody. Owns the search input and
+ * delegates rendering to the shared body component which reads collapse
+ * state from useSidebarTreeStore. Also exports TreeNodeRenderer for reuse
+ * by the sidebar-embedded body.
  */
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { buildTree, deepSortTree, filterTree, type TreeNode } from './tree.utils';
+import { memo, useEffect } from 'react';
+import { PseudoTreeBody } from '@/components/layout/sidebar-tree/PseudoTreeBody';
+import { useSidebarTreeStore } from '@/stores/sidebarTreeStore';
+import { useSessionStore } from '@/stores/sessionStore';
+import { useTabsStore } from '@/stores/tabsStore';
+import { linkFile } from '@/lib/link-file';
+import type { TreeNode } from './tree.utils';
 import type { PseudoFileSummary } from '@/lib/pseudo-api';
 
 // Re-export TreeNode for public API
@@ -49,19 +51,7 @@ function ChevronIcon({ isDown }: { isDown: boolean }) {
   );
 }
 
-/**
- * TreeNode renderer component
- */
-function TreeNodeRenderer({
-  node,
-  level,
-  currentPath,
-  collapsedDirs,
-  onToggleCollapse,
-  onNavigate,
-  filterExpanded,
-  fileMeta,
-}: {
+type TreeNodeRendererProps = {
   node: TreeNode;
   level: number;
   currentPath: string;
@@ -70,19 +60,66 @@ function TreeNodeRenderer({
   onNavigate: (path: string) => void;
   filterExpanded: Set<string>;
   fileMeta: Map<string, PseudoFileSummary>;
-}) {
+};
+
+/**
+ * TreeNode renderer component.
+ *
+ * Memoized so unrelated parent re-renders (and sibling activations) don't
+ * cascade through hundreds of nodes. Relies on stable prop references from
+ * PseudoTreeBody (memoized fileMeta/filterExpanded, store-derived
+ * collapsedDirs, useCallback'd handlers).
+ */
+function TreeNodeRendererImpl({
+  node,
+  level,
+  currentPath,
+  collapsedDirs,
+  onToggleCollapse,
+  onNavigate,
+  filterExpanded,
+  fileMeta,
+}: TreeNodeRendererProps) {
   const isCollapsed = collapsedDirs.has(node.path);
   const isActive = !node.isDir && node.path === currentPath;
   const hasChildren = node.children.length > 0;
   const shouldShowChildren = !isCollapsed || filterExpanded.has(node.path);
   const fileCount = node.children.length;
 
+  const currentSession = useSessionStore((s) => s.currentSession);
+  const selectSnippet = useSessionStore((s) => s.selectSnippet);
+  const openPermanent = useTabsStore((s) => s.openPermanent);
+
+  const handleLinkAndOpen = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!currentSession) return;
+    const absPath = fileMeta.get(node.path)?.filePath;
+    if (!absPath) return;
+    try {
+      const snippetId = await linkFile(
+        currentSession.project,
+        currentSession.name,
+        absPath,
+      );
+      openPermanent({
+        id: snippetId,
+        kind: 'artifact',
+        artifactType: 'snippet',
+        artifactId: snippetId,
+        name: node.name,
+      });
+      selectSnippet(snippetId);
+    } catch (err) {
+      console.error('[PseudoFileTree] link-and-open failed', err);
+    }
+  };
+
   return (
     <div key={node.path}>
       <div
         data-testid="tree-node"
         style={{ paddingLeft: `${level * 16}px` }}
-        className={`flex items-center gap-1 px-2 py-1 cursor-pointer rounded ${
+        className={`group flex items-center gap-1 px-2 py-1 cursor-pointer rounded ${
           isActive ? 'bg-purple-50 text-purple-700' : 'hover:bg-gray-100'
         }`}
       >
@@ -103,7 +140,7 @@ function TreeNodeRenderer({
         )}
 
         <div
-          className="flex-1 text-sm flex items-center gap-1"
+          className="flex-1 text-xs flex items-center gap-1"
           onClick={() => !node.isDir && onNavigate(node.path)}
         >
           <span className="truncate">{node.name}</span>
@@ -124,6 +161,30 @@ function TreeNodeRenderer({
             );
           })()}
         </div>
+
+        {!node.isDir && currentSession && (
+          <button
+            type="button"
+            aria-label={`Link ${node.name} to session`}
+            title="Link file to session and open as tab"
+            onClick={handleLinkAndOpen}
+            className="opacity-0 group-hover:opacity-100 flex-shrink-0 p-1 text-gray-500 hover:text-purple-700 hover:bg-gray-200 rounded"
+          >
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+            </svg>
+          </button>
+        )}
       </div>
 
       {shouldShowChildren && node.children.length > 0 && (
@@ -147,6 +208,8 @@ function TreeNodeRenderer({
   );
 }
 
+export const TreeNodeRenderer = memo(TreeNodeRendererImpl);
+
 /**
  * PseudoFileTree Component
  */
@@ -156,114 +219,30 @@ export function PseudoFileTree({
   onNavigate,
   project,
 }: PseudoFileTreeProps) {
+  const searchQuery = useSidebarTreeStore((s) => s.searchQuery);
+  const setSearchQuery = useSidebarTreeStore((s) => s.setSearchQuery);
 
-  const [filter, setFilter] = useState('');
-  const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
-
-  // Strip the project prefix so the tree starts at the project root instead
-  // of the filesystem root. Keep a map back to the absolute path for navigation
-  // and metadata lookups.
-  const projectPrefix = useMemo(
-    () => (project ? (project.endsWith('/') ? project : project + '/') : ''),
-    [project]
-  );
-
-  const toRelative = useCallback(
-    (absPath: string): string => {
-      if (projectPrefix && absPath.startsWith(projectPrefix)) {
-        return absPath.slice(projectPrefix.length);
-      }
-      return absPath;
-    },
-    [projectPrefix]
-  );
-
-  // File paths for tree building (relative to project root)
-  const filePaths = useMemo(
-    () => fileList.map(f => toRelative(f.filePath)),
-    [fileList, toRelative]
-  );
-
-  // Relative path → absolute path, used when navigating
-  const relativeToAbsolute = useMemo(() => {
-    const map = new Map<string, string>();
-    fileList.forEach(f => map.set(toRelative(f.filePath), f.filePath));
-    return map;
-  }, [fileList, toRelative]);
-
-  // Build lookup map for metadata, keyed by relative path to match tree nodes
-  const fileMeta = useMemo(() => {
-    const map = new Map<string, PseudoFileSummary>();
-    fileList.forEach(f => map.set(toRelative(f.filePath), f));
-    return map;
-  }, [fileList, toRelative]);
-
-  // currentPath arrives as an absolute path from the URL — relativize it for
-  // the isActive comparison against tree node paths.
-  const currentRelativePath = useMemo(
-    () => (currentPath ? toRelative(currentPath) : ''),
-    [currentPath, toRelative]
-  );
-
-  // Wrap onNavigate to convert the tree node's relative path back to absolute.
-  const handleTreeNavigate = useCallback(
-    (relPath: string) => {
-      onNavigate(relativeToAbsolute.get(relPath) ?? relPath);
-    },
-    [onNavigate, relativeToAbsolute]
-  );
-
-  // Load collapsed state from localStorage on mount
+  // One-time migration of the legacy per-project collapsed set into the
+  // shared store, so existing users don't lose their folded state.
   useEffect(() => {
-    const key = `pseudo-tree-collapsed-${project}`;
-    const stored = localStorage.getItem(key);
-    if (stored) {
-      try {
-        const collapsed = JSON.parse(stored);
-        setCollapsedDirs(new Set(collapsed));
-      } catch {
-        // Ignore parse errors
-      }
+    if (!project) return;
+    const legacyKey = `pseudo-tree-collapsed-${project}`;
+    const raw = localStorage.getItem(legacyKey);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return;
+      const legacyPaths = parsed.filter((x): x is string => typeof x === 'string');
+      const current = useSidebarTreeStore.getState().pseudoCollapsedPaths;
+      const merged = new Set(current);
+      for (const p of legacyPaths) merged.add(p);
+      useSidebarTreeStore.setState({ pseudoCollapsedPaths: merged });
+      localStorage.removeItem(legacyKey);
+    } catch {
+      // ignore malformed legacy data
     }
   }, [project]);
 
-  // Build and sort the tree
-  const tree = useMemo(() => {
-    const builtTree = buildTree(filePaths);
-    return deepSortTree(builtTree);
-  }, [filePaths]);
-
-  // Filter tree and get auto-expand paths
-  const { nodes: filteredTree, expandedPaths: filterExpanded } = useMemo(() => {
-    const trimmedFilter = filter.trim();
-    if (!trimmedFilter) {
-      return { nodes: tree, expandedPaths: new Set<string>() };
-    }
-    return filterTree(tree, trimmedFilter);
-  }, [tree, filter]);
-
-  // Handle collapse/expand with localStorage persistence
-  const handleToggleCollapse = useCallback(
-    (path: string) => {
-      setCollapsedDirs((prev) => {
-        const updated = new Set(prev);
-        if (updated.has(path)) {
-          updated.delete(path);
-        } else {
-          updated.add(path);
-        }
-
-        // Persist to localStorage
-        const key = `pseudo-tree-collapsed-${project}`;
-        localStorage.setItem(key, JSON.stringify(Array.from(updated)));
-
-        return updated;
-      });
-    },
-    [project]
-  );
-
-  // Render empty state
   if (fileList.length === 0) {
     return (
       <div className="w-full h-full p-4 flex flex-col">
@@ -275,40 +254,26 @@ export function PseudoFileTree({
 
   return (
     <div className="w-full p-4 flex flex-col h-full overflow-hidden">
-      {/* Header */}
       <div className="mb-4">
         <div className="text-sm font-semibold text-gray-700">Files</div>
       </div>
 
-      {/* Filter Input */}
       <input
         type="text"
         placeholder="Filter files..."
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Escape') setFilter(''); }}
+        value={searchQuery}
+        onChange={(e) => setSearchQuery(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Escape') setSearchQuery(''); }}
         className="w-full px-2 py-1 text-sm border border-gray-300 rounded mb-4 focus:outline-none focus:ring-2 focus:ring-purple-500"
       />
 
-      {/* Tree */}
       <div className="flex-1 overflow-y-auto">
-        {filteredTree.length === 0 && filter ? (
-          <p className="text-sm text-gray-500">No matches</p>
-        ) : (
-          filteredTree.map((node) => (
-            <TreeNodeRenderer
-              key={node.path}
-              node={node}
-              level={0}
-              currentPath={currentRelativePath}
-              collapsedDirs={collapsedDirs}
-              onToggleCollapse={handleToggleCollapse}
-              onNavigate={handleTreeNavigate}
-              filterExpanded={filterExpanded}
-              fileMeta={fileMeta}
-            />
-          ))
-        )}
+        <PseudoTreeBody
+          fileList={fileList}
+          currentPath={currentPath}
+          onNavigate={onNavigate}
+          project={project}
+        />
       </div>
     </div>
   );

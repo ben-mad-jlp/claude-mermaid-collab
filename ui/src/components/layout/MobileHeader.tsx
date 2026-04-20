@@ -108,6 +108,12 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
   const { theme, toggleTheme } = useTheme();
   const { currentSession } = useSession();
   const collabState = useSessionStore((state) => state.collabState);
+  const { agentChatVisible, toggleAgentChat } = useUIStore(
+    useShallow((state) => ({
+      agentChatVisible: state.agentChatVisible,
+      toggleAgentChat: state.toggleAgentChat,
+    }))
+  );
 
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
   const [isSessionDropdownOpen, setIsSessionDropdownOpen] = useState(false);
@@ -206,6 +212,10 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
   const handleThemeToggle = useCallback(() => {
     toggleTheme();
   }, [toggleTheme]);
+
+  const handleAgentChatToggle = useCallback(() => {
+    toggleAgentChat();
+  }, [toggleAgentChat]);
 
   const handleRefreshSessions = useCallback(() => {
     onRefreshSessions?.();
@@ -527,6 +537,28 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
             </svg>
           </button>
         )}
+
+        {/* Agent Chat Toggle */}
+        <button
+          data-testid="mobile-agent-chat-toggle"
+          onClick={handleAgentChatToggle}
+          aria-label={agentChatVisible ? 'Hide Agent Chat' : 'Show Agent Chat'}
+          aria-pressed={agentChatVisible}
+          title={agentChatVisible ? 'Hide Agent Chat' : 'Show Agent Chat'}
+          className={`p-1.5 rounded-lg transition-colors flex-shrink-0 ${
+            agentChatVisible
+              ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
+              : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700'
+          }`}
+        >
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="11" width="18" height="10" rx="2" />
+            <circle cx="12" cy="5" r="2" />
+            <path d="M12 7v4" />
+            <line x1="8" y1="16" x2="8" y2="16" />
+            <line x1="16" y1="16" x2="16" y2="16" />
+          </svg>
+        </button>
 
         {/* Theme Toggle */}
         <button

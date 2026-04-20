@@ -3,7 +3,7 @@
  *
  * Root mobile layout container that:
  * - Renders: MobileHeader + active tab content + BottomTabBar
- * - Manages activeTab state: 'preview' | 'chat' | 'terminal'
+ * - Manages activeTab state: 'preview' | 'chat'
  * - Full viewport height with flex column layout
  * - Keeps all tabs mounted (hidden with display:none) to preserve state
  *
@@ -13,11 +13,10 @@
 import React, { useState, useCallback } from 'react';
 import { MobileHeader } from './MobileHeader';
 import { BottomTabBar, MobileTab } from './BottomTabBar';
-import { PreviewTab } from '../mobile/PreviewTab';
+import { WorktreeBadge } from './WorktreeBadge';
+import { MobilePreviewTab } from '../mobile/MobilePreviewTab';
 import { ChatTab } from '../mobile/ChatTab';
-import { TerminalTab } from '../mobile/TerminalTab';
 import { useSessionStore } from '../../stores/sessionStore';
-import { useTerminalTabs } from '../../hooks/useTerminalTabs';
 import type { Session } from '@/types';
 
 export interface MobileLayoutHandlers {
@@ -69,20 +68,7 @@ export const MobileLayout: React.FC<MobileLayoutProps> = ({
 
   // Get current session from store (like desktop does)
   const currentSession = useSessionStore(state => state.currentSession);
-  const project = currentSession?.project || '';
   const sessionName = currentSession?.name || '';
-
-  // Use the terminal tabs hook (same as desktop)
-  const {
-    tabs,
-    activeTabId,
-    activeTab: activeTerminalTab,
-    isLoading,
-    error,
-    addTab,
-    removeTab,
-    setActiveTab: setActiveTerminalTab,
-  } = useTerminalTabs({ project, session: sessionName });
 
   // Handler for tab changes from BottomTabBar
   const handleTabChange = useCallback((tab: MobileTab) => {
@@ -93,26 +79,6 @@ export const MobileLayout: React.FC<MobileLayoutProps> = ({
   const handleAutoSwitchToChat = useCallback(() => {
     setActiveTab('chat');
   }, []);
-
-  // Handler for adding a new terminal tab
-  const handleAddTerminal = useCallback(async () => {
-    try {
-      await addTab();
-      // Auto-switch to terminal tab when creating a new terminal
-      setActiveTab('terminal');
-    } catch (err) {
-      console.error('Failed to create terminal:', err);
-    }
-  }, [addTab]);
-
-  // Handler for closing a terminal tab
-  const handleCloseTerminal = useCallback(async (id: string) => {
-    try {
-      await removeTab(id);
-    } catch (err) {
-      console.error('Failed to close terminal:', err);
-    }
-  }, [removeTab]);
 
   return (
     <div
@@ -133,6 +99,12 @@ export const MobileLayout: React.FC<MobileLayoutProps> = ({
         isConnecting={isConnecting}
       />
 
+      {sessionName && (
+        <div className="px-3 py-1 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex items-center gap-2">
+          <WorktreeBadge sessionId={sessionName} />
+        </div>
+      )}
+
       {/* Content Area - Tab Container */}
       <div
         data-testid="mobile-layout-content"
@@ -147,7 +119,7 @@ export const MobileLayout: React.FC<MobileLayoutProps> = ({
             display: activeTab === 'preview' ? 'flex' : 'none',
           }}
         >
-          <PreviewTab />
+          <MobilePreviewTab />
         </div>
 
         {/* Chat Tab - ChatTab component renders the data-testid */}
@@ -161,26 +133,6 @@ export const MobileLayout: React.FC<MobileLayoutProps> = ({
             messages={[]}
             onSendMessage={() => {}}
             onAutoSwitch={handleAutoSwitchToChat}
-          />
-        </div>
-
-        {/* Terminal Tab */}
-        <div
-          data-testid="terminal-tab-wrapper"
-          className="flex-1 flex flex-col absolute inset-0"
-          style={{
-            display: activeTab === 'terminal' ? 'flex' : 'none',
-          }}
-        >
-          <TerminalTab
-            tabs={tabs}
-            activeTabId={activeTabId}
-            activeTab={activeTerminalTab}
-            isLoading={isLoading}
-            error={error}
-            onTabSelect={setActiveTerminalTab}
-            onTabClose={handleCloseTerminal}
-            onTabAdd={handleAddTerminal}
           />
         </div>
       </div>

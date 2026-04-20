@@ -11,6 +11,7 @@ Mermaid Collab is a Claude Code plugin that provides:
 1. **Collaboration Server** - Real-time Mermaid diagrams, code snippets, wireframes, and documents with a React GUI
 2. **Structured Workflow** - A state machine that guides you from idea to implementation
 3. **40+ Skills** - Orchestrated design patterns for brainstorming, planning, and development
+4. **Agent Chat (Preview)** - An early in-UI chat surface for talking to Claude directly from the browser (Phase 1: echo preview).
 
 ## Quick Start
 
@@ -47,7 +48,7 @@ Then use: `collab-server start`, `collab-server stop`, `collab-server status`
 ### 3. Start a Session
 
 ```bash
-# In Claude Code (restart Claude Code after starting server)
+# In Claude Code in your terminal (restart Claude Code after starting server). An in-UI chat is in preview — see "Agent Chat" below.
 /collab
 ```
 
@@ -191,6 +192,10 @@ The `render_ui` tool pushes interactive components to the browser:
 - **Layout**: Card, Section, Columns, Accordion, Alert
 - **Interactive**: Wizard, Checklist, ApprovalButtons, ProgressBar, Tabs
 - **Inputs**: TextInput, TextArea, Checkbox, RadioGroup, Toggle, Slider
+
+### Agent Chat (Preview)
+
+An early in-UI chat panel is shipping incrementally. Today (Phase 1) it runs an **echo preview** so you can see the wiring — messages round-trip through the server and render in the chat drawer. Future phases will spawn a managed `claude` child process so you can drive sessions from the browser without a separate terminal. Until then, the existing Claude Code workflow (install the plugin, run `/collab` in your terminal) remains the primary way to collaborate.
 
 ---
 

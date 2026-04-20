@@ -71,8 +71,10 @@ export async function handlePseudoAPI(req: Request): Promise<Response> {
     }
 
     if (path === '/stale' && req.method === 'GET') {
-      const days = parseInt(url.searchParams.get('days') || '30', 10);
-      return Response.json(getPseudoDb(project).getStaleFunctions(days));
+      return jsonError(
+        'The /stale endpoint was retired when pseudo-db unified on V6, which does not track per-method timestamps. See the degradation ledger in pseudo-db-unification-design.',
+        410,
+      );
     }
 
     if (path === '/coverage' && req.method === 'GET') {

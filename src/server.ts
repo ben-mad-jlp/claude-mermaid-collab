@@ -8,10 +8,15 @@ import { MetadataManager } from './services/metadata-manager';
 import { Validator } from './services/validator';
 import { Renderer } from './services/renderer';
 import { WebSocketHandler } from './websocket/handler';
+import { AgentSessionRegistry } from './agent/session-registry';
+import { AgentDispatcher } from './agent/dispatcher';
 import { handleAPI } from './routes/api';
 import { handlePseudoAPI } from './routes/pseudo-api';
 import { handleCodeAPI } from './routes/code-api.js';
 import { handleOnboardingAPI } from './routes/onboarding-api';
+import { handleAttachments } from './routes/agent-attachments';
+import { handleAgentSessionsAPI } from './routes/agent-sessions';
+import { handleWorktreeDiffAPI } from './routes/worktree-diff';
 import { sessionRegistry, SessionRegistryCorruptError } from './services/session-registry';
 import { statusManager } from './services/status-manager';
 import { initializeWebSocketHandler } from './services/ws-handler-manager';
@@ -60,6 +65,18 @@ initializeWebSocketHandler(wsHandler);
 
 // Initialize status manager with WebSocket handler
 statusManager.setWebSocketHandler(wsHandler);
+
+// Initialize agent chat session registry + dispatcher.
+const agentRegistry = new AgentSessionRegistry({
+  broadcast: (msg) => wsHandler.broadcastToChannel(msg.channel, msg as any),
+  persistDir: join(process.cwd(), '.collab', 'agent-sessions'),
+});
+const agentDispatcher = new AgentDispatcher({
+  registry: agentRegistry,
+  wsHandler,
+  resolvedCwd: process.cwd(),
+});
+wsHandler.setAgentDispatcher(agentDispatcher);
 
 // Placeholder managers - these are created per-session in api.ts
 // but we need them for the handleAPI signature (they're unused there now)
@@ -122,6 +139,17 @@ const server = Bun.serve<WsData>({
     // Onboarding API routes
     if (url.pathname.startsWith('/api/onboarding')) {
       return handleOnboardingAPI(req);
+    }
+
+    if (url.pathname.startsWith('/api/agent/attachments')) {
+      const res = await handleAttachments(req, url);
+      if (res) return res;
+    }
+    if (url.pathname.startsWith('/api/agent/sessions')) {
+      return handleAgentSessionsAPI(req);
+    }
+    if (url.pathname.startsWith('/api/agent/worktree-diff')) {
+      return handleWorktreeDiffAPI(req);
     }
 
     // API routes

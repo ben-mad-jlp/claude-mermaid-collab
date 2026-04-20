@@ -957,7 +957,23 @@ const App: React.FC = () => {
     return selectedItem.content;
   }, [selectedItem?.id, selectedItem?.content]);
 
-  // Update local content when selected item changes
+  // Update local content when selected item changes.
+  //
+  // Synchronous reset on id change (setState-during-render pattern): a
+  // post-render effect is too late — `editorItem` is computed from
+  // `localContent` in the same render, so `<DocumentView>` / `<MilkdownEditor>`
+  // would mount with the PREVIOUS tab's content under the new tab's id. That
+  // produced the "off-by-one" tab-switch bug: switching from a preview tab to
+  // a permanent document tab showed the preview's content because
+  // MilkdownEditor's `key={document.id}` remounts on id change but reads
+  // `initialMarkdown` only once at mount.
+  const prevSelectedIdRef = useRef<string | undefined>(selectedItem?.id);
+  if (prevSelectedIdRef.current !== selectedItem?.id) {
+    prevSelectedIdRef.current = selectedItem?.id;
+    setLocalContent(selectedItem?.content ?? '');
+  }
+  // Keep localContent in sync when content updates arrive for the same item
+  // (e.g., async fetch completes, remote update via websocket).
   useEffect(() => {
     if (selectedItem) {
       setLocalContent(selectedItem.content);
@@ -1493,8 +1509,16 @@ const App: React.FC = () => {
             on UnifiedEditor. */}
         <div className="flex-1 min-h-0 overflow-hidden">
           {editorItem?.type === 'document' ? (
+            // Pass selectedItem (store content), NOT editorItem whose content
+            // is `localContent`. Milkdown reads `initialMarkdown` once during
+            // `useEditor` (post-commit), so even with the setState-in-render
+            // reset there is a window where localContent still holds the
+            // previous tab's content — producing the off-by-one tab-switch
+            // bug when moving between a preview doc and permanent docs.
+            // `key={document.id}` already forces a remount on tab change, so
+            // reading straight from the store is both safe and correct.
             <DocumentView
-              document={editorItem}
+              document={selectedItem!}
               onContentChange={handleContentChange}
             />
           ) : (

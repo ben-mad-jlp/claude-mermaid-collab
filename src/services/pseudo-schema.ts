@@ -1,5 +1,5 @@
 /**
- * Pseudo DB Schema (v6 / SCHEMA_VERSION 3)
+ * Pseudo DB Schema (v6 / SCHEMA_VERSION 4)
  *
  * DDL-only module: exports createSchema() and dropSchema() helpers.
  * Supports two-level indexing (structural + prose), body-fingerprint matching,
@@ -8,7 +8,7 @@
 
 import type { Database } from 'bun:sqlite';
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 const DDL = `
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -62,7 +62,9 @@ CREATE TABLE IF NOT EXISTS method_calls (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   caller_method_id TEXT NOT NULL REFERENCES methods(id) ON DELETE CASCADE,
   callee_name TEXT NOT NULL,
+  callee_name_hint TEXT,
   callee_method_id TEXT REFERENCES methods(id) ON DELETE SET NULL,
+  resolution_quality TEXT NOT NULL DEFAULT 'unresolved',
   file_path TEXT NOT NULL
 );
 
@@ -141,6 +143,8 @@ CREATE INDEX IF NOT EXISTS idx_method_calls_caller ON method_calls(caller_method
 CREATE INDEX IF NOT EXISTS idx_method_calls_callee_name ON method_calls(callee_name);
 CREATE INDEX IF NOT EXISTS idx_method_calls_callee_id ON method_calls(callee_method_id);
 CREATE INDEX IF NOT EXISTS idx_method_calls_file ON method_calls(file_path);
+CREATE INDEX IF NOT EXISTS idx_method_calls_resolution
+  ON method_calls(callee_method_id, resolution_quality);
 
 CREATE INDEX IF NOT EXISTS idx_file_imports_file ON file_imports(file_path);
 CREATE INDEX IF NOT EXISTS idx_file_imports_target ON file_imports(imported_path);

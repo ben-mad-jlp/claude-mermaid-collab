@@ -12,6 +12,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { isAbsolute, relative, resolve } from 'node:path';
 
 export interface PathMap {
   [escaped: string]: string;
@@ -113,4 +114,36 @@ export function unescapePath(escaped: string, map?: PathMap): string {
     }
   }
   return segments.join('/');
+}
+
+/**
+ * Normalize an arbitrary path input into a project-relative POSIX path.
+ *
+ * - If `input` is already a clean POSIX rel path (no backslashes, doesn't start with `..` or `/`),
+ *   return it unchanged (fast path).
+ * - Otherwise compute `path.relative(project, resolve(project, input))` (after normalizing
+ *   Windows-absolute paths) and replace backslashes with forward slashes.
+ * - Throws if the resulting path is outside the project (starts with `..`), except the caller
+ *   (migration) may want that signal to route the file to `_orphan/`.
+ */
+export function toRelPosixPath(project: string, input: string): string {
+  // Fast path: already rel POSIX, no backslashes
+  if (!isAbsolute(input) && !input.includes('\\') && !input.startsWith('..')) {
+    return input;
+  }
+
+  // Windows-absolute heuristic (for cross-platform prose files)
+  const isWindowsAbs = /^[A-Za-z]:[/\\]/.test(input);
+  const absolute = isAbsolute(input) || isWindowsAbs ? input : resolve(project, input);
+
+  const rel = relative(project, absolute);
+  const posixRel = rel.replace(/\\/g, '/');
+
+  if (posixRel.startsWith('..')) {
+    throw new Error(
+      `Path is outside project root: input=${input} project=${project} rel=${posixRel}`,
+    );
+  }
+
+  return posixRel;
 }

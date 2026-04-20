@@ -1,12 +1,12 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('zustand/react/shallow', () => ({
   useShallow: (fn: any) => fn,
 }));
 
-import { SessionTodosSection } from '../SessionTodosSection';
+import { SessionTodosSection, SessionTodosSectionHandle } from '../SessionTodosSection';
 import * as useSessionStoreModule from '@/stores/sessionStore';
 import * as apiModule from '@/lib/api';
 import { SessionTodo } from '@/types';
@@ -185,6 +185,41 @@ describe('SessionTodosSection', () => {
     expect(removeSessionTodoLocal).toHaveBeenCalledWith(1);
     await waitFor(() => {
       expect(removeSpy).toHaveBeenCalledWith('/tmp/proj', 'sess-1', 1);
+    });
+  });
+
+  it('uses external collapsed prop when provided', () => {
+    mockStore(makeState());
+    const { rerender } = render(<SessionTodosSection collapsed={true} />);
+    expect(screen.queryByLabelText('Add a new todo')).toBeNull();
+
+    rerender(<SessionTodosSection collapsed={false} />);
+    expect(screen.getByLabelText('Add a new todo')).toBeInTheDocument();
+  });
+
+  it('invokes onToggle on header click when provided', () => {
+    mockStore(makeState());
+    const onToggle = vi.fn();
+    render(<SessionTodosSection collapsed={false} onToggle={onToggle} />);
+
+    const headerButton = screen.getByText('Todos').closest('button')!;
+    fireEvent.click(headerButton);
+
+    expect(onToggle).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText('Add a new todo')).toBeInTheDocument();
+  });
+
+  it('revealAddInput imperative handle focuses the add input', async () => {
+    mockStore(makeState());
+    const ref = React.createRef<SessionTodosSectionHandle>();
+    render(<SessionTodosSection ref={ref} />);
+
+    act(() => {
+      ref.current!.revealAddInput();
+    });
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByLabelText('Add a new todo'));
     });
   });
 });

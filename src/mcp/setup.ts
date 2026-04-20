@@ -42,7 +42,6 @@ import { join as _joinPseudoMarker } from 'node:path';
 // unlink it so the marker is consumed exactly once. This is a minimal
 // consumer; a follow-up task may expand the semantics (per-project markers,
 // rescan scope hints, etc.).
-import { scanSourceFile, isSupportedExtension } from '../services/source-scanner.js';
 import { readdirSync } from 'fs';
 import { extname } from 'path';
 import { getWebSocketHandler } from '../services/ws-handler-manager.js';
@@ -4033,12 +4032,14 @@ IMPORTANT - Common pitfalls to avoid:
           }
 
           case 'pseudo_stale_check': {
-            const { project, file_path, days_threshold } = args as { project: string; file_path?: string; days_threshold?: number };
+            const { project, file_path } = args as { project: string; file_path?: string; days_threshold?: number };
             if (!project) throw new Error('Missing required: project');
-            const db = getPseudoDb(project);
-            let staleResults = db.getStaleFunctions(days_threshold || 30);
-            if (file_path) staleResults = staleResults.filter(r => r.filePath === file_path);
-            return JSON.stringify(staleResults, null, 2);
+            return JSON.stringify({
+              stale: [],
+              deprecated: true,
+              reason: 'pseudo_stale_check is not supported under pseudo-db v6 (no per-method timestamp column). Use pseudo_db_status or pseudo_coverage_report instead.',
+              file_path: file_path ?? null,
+            }, null, 2);
           }
 
           case 'pseudo_coverage_report': {
@@ -4052,68 +4053,57 @@ IMPORTANT - Common pitfalls to avoid:
           case 'pseudo_index_structural': {
             const { project, filePath } = args as { project: string; filePath: string };
             if (!project || !filePath) throw new Error('Missing required: project, filePath');
-            const scan = scanSourceFile(filePath);
-            if (!scan) {
-              return JSON.stringify({ success: false, reason: 'unsupported or unreadable' }, null, 2);
+            try {
+              const handle = initPseudoDbV6(project);
+              await handle.indexer.runIncrementalScanForFile(filePath, { trigger: 'manual' });
+              return JSON.stringify({ success: true, filePath }, null, 2);
+            } catch (err) {
+              return JSON.stringify({ success: false, reason: err instanceof Error ? err.message : String(err) }, null, 2);
             }
-            getPseudoDb(project).upsertStructural(filePath, scan.language, scan);
-            return JSON.stringify({ success: true, methodCount: scan.methods.length }, null, 2);
           }
 
           case 'pseudo_index_project': {
             const { project } = args as { project: string };
             if (!project) throw new Error('Missing required: project');
-
-            const EXCLUDES = new Set([
-              'node_modules', '.git', '.collab', '.worktrees', 'dist', 'build', 'out',
-              '.next', '.nuxt', 'coverage', '.cache', '__pycache__', '__tests__',
-            ]);
-
-            function walk(dir: string, out: string[]): void {
-              try {
-                const entries = readdirSync(dir, { withFileTypes: true });
-                for (const entry of entries) {
-                  if (EXCLUDES.has(entry.name)) continue;
-                  if (entry.name.startsWith('.')) continue;
-                  if (entry.name.includes('.test.') || entry.name.includes('.spec.') || entry.name.endsWith('.d.ts')) continue;
-                  const full = `${dir}/${entry.name}`;
-                  if (entry.isDirectory()) {
-                    walk(full, out);
-                  } else if (entry.isFile()) {
-                    const ext = extname(entry.name).toLowerCase();
-                    if (isSupportedExtension(ext)) out.push(full);
-                  }
-                }
-              } catch {
-                // skip unreadable dirs
-              }
+            try {
+              const handle = initPseudoDbV6(project);
+              const run = await handle.indexer.runFullScan({ trigger: 'manual' });
+              return JSON.stringify({
+                success: run.status === 'done',
+                filesScanned: run.files_scanned,
+                errors: run.errors,
+                runId: run.id,
+                status: run.status,
+              }, null, 2);
+            } catch (err) {
+              return JSON.stringify({ success: false, filesScanned: 0, errors: 1, reason: err instanceof Error ? err.message : String(err) }, null, 2);
             }
-
-            const files: string[] = [];
-            walk(project, files);
-
-            const db = getPseudoDb(project);
-            let scanned = 0;
-            let errors = 0;
-            for (const file of files) {
-              try {
-                const scan = scanSourceFile(file);
-                if (!scan) continue;
-                db.upsertStructural(file, scan.language, scan);
-                scanned++;
-              } catch {
-                errors++;
-              }
-            }
-            return JSON.stringify({ success: true, filesScanned: scanned, errors }, null, 2);
           }
 
           case 'pseudo_upsert_prose': {
-            const { project, filePath, data } = args as { project: string; filePath: string; data: any };
+            const { project, filePath, data } = args as { project: string; filePath: string; data: ProseData };
             if (!project || !filePath || !data) throw new Error('Missing required: project, filePath, data');
             if (!Array.isArray(data.methods)) throw new Error('data.methods must be an array');
-            getPseudoDb(project).upsertProse(filePath, data as ProseData);
-            return JSON.stringify({ success: true }, null, 2);
+            for (const m of data.methods) {
+              if (!Array.isArray(m.steps)) {
+                throw new Error(`data.methods[].steps must be an array (got ${typeof m.steps} for method '${m.name}')`);
+              }
+            }
+            const input = {
+              file: filePath,
+              title: data.title,
+              purpose: data.purpose,
+              module_context: data.moduleContext,
+              origin: 'llm' as const,
+              methods: data.methods.map((m) => ({
+                name: m.name,
+                enclosing_class: null,
+                normalized_params: m.params ?? '',
+                steps: m.steps.map((s, i) => ({ order: i + 1, content: s.content })),
+              })),
+            };
+            const res = await pseudo_upsert_prose_v6(project, input);
+            return JSON.stringify({ success: true, prose_file_path: res.prose_file_path, methods_written: res.methods_written, methods_preserved: res.methods_preserved }, null, 2);
           }
 
           case 'pseudo_get_file_state': {

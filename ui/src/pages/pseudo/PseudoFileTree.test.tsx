@@ -14,6 +14,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { PseudoFileTree } from './PseudoFileTree';
 import type { PseudoFileSummary } from '@/lib/pseudo-api';
+import { useSidebarTreeStore } from '@/stores/sidebarTreeStore';
 
 /** Helper to create a PseudoFileSummary from a file path */
 function fileSummary(filePath: string): PseudoFileSummary {
@@ -33,6 +34,10 @@ describe('PseudoFileTree', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    useSidebarTreeStore.setState({
+      pseudoCollapsedPaths: new Set<string>(),
+      searchQuery: '',
+    });
   });
 
   afterEach(() => {
@@ -259,12 +264,12 @@ describe('PseudoFileTree', () => {
       });
     });
 
-    it('should persist collapsed state to localStorage', async () => {
+    it('should persist collapsed state to the shared sidebar store', async () => {
       const fileList = ['src/main.ts', 'src/utils.ts'].map(fileSummary);
       const user = userEvent.setup();
       const project = '/test-project';
 
-      const { rerender } = render(
+      render(
         <PseudoFileTree
           fileList={fileList}
           currentPath="src/main.ts"
@@ -274,20 +279,23 @@ describe('PseudoFileTree', () => {
         />
       );
 
-      // Collapse directory
       const srcDir = screen.getByText('src');
       const chevronButton = srcDir.closest('[data-testid="tree-node"]')?.querySelector('button');
       await user.click(chevronButton!);
 
-      // Check localStorage was updated
-      const key = `pseudo-tree-collapsed-${project}`;
-      const stored = localStorage.getItem(key);
-      expect(stored).toBeTruthy();
-      const collapsed = JSON.parse(stored!);
-      expect(collapsed).toContain('src');
+      const { pseudoCollapsedPaths } = useSidebarTreeStore.getState();
+      expect(pseudoCollapsedPaths.has('src')).toBe(true);
+    });
 
-      // Re-render and verify state is restored
-      rerender(
+    it('should migrate legacy localStorage collapsed state into the store', async () => {
+      const project = '/legacy-project';
+      localStorage.setItem(
+        `pseudo-tree-collapsed-${project}`,
+        JSON.stringify(['src']),
+      );
+
+      const fileList = ['src/main.ts', 'src/utils.ts'].map(fileSummary);
+      render(
         <PseudoFileTree
           fileList={fileList}
           currentPath="src/main.ts"
@@ -297,7 +305,15 @@ describe('PseudoFileTree', () => {
         />
       );
 
-      // Children should not be in the document (directory should still be collapsed)
+      await waitFor(() => {
+        const { pseudoCollapsedPaths } = useSidebarTreeStore.getState();
+        expect(pseudoCollapsedPaths.has('src')).toBe(true);
+      });
+
+      // Legacy key should be removed after migration
+      expect(localStorage.getItem(`pseudo-tree-collapsed-${project}`)).toBeNull();
+
+      // Directory is collapsed so children are hidden
       await waitFor(() => {
         expect(screen.queryByText('main.ts')).not.toBeInTheDocument();
       });

@@ -14,6 +14,7 @@ import { SnippetManager } from '../services/snippet-manager.js';
 import { validatePathUnderRoot } from '../utils/path-security.js';
 import { getWebSocketHandler } from '../services/ws-handler-manager.js';
 import { getPseudoDb } from '../services/pseudo-db.js';
+import { walkProject } from '../services/source-scanner.js';
 
 // Directories and files to exclude from file listings
 const EXCLUDED_NAMES = new Set([
@@ -41,6 +42,10 @@ export async function handleCodeAPI(req: Request): Promise<Response> {
   try {
     // GET /files — list project files
     if (path === '/files' && req.method === 'GET') {
+      const recursive = url.searchParams.get('recursive') === 'true';
+      if (recursive) {
+        return handleListAllProjectFiles(project);
+      }
       const dirPath = url.searchParams.get('path') || undefined;
       return handleListProjectFiles(project, dirPath);
     }
@@ -174,6 +179,39 @@ interface CodeSearchResult {
 interface CodeSearchResponse {
   results: CodeSearchResult[];
   truncated: boolean;
+}
+
+async function handleListAllProjectFiles(project: string): Promise<Response> {
+  if (!isAbsolute(project)) {
+    return jsonError('project must be an absolute path', 400);
+  }
+  const projectRoot = resolve(project);
+  if (!(await isKnownProject(projectRoot))) {
+    return jsonError(`Unknown project: ${projectRoot}`, 400);
+  }
+
+  const entries: FileEntry[] = [];
+  try {
+    for await (const abs of walkProject(projectRoot, {
+      respectGitignore: true,
+      skipTests: false,
+    })) {
+      const rel = relative(projectRoot, abs);
+      const name = rel.slice(rel.lastIndexOf('/') + 1);
+      const ext = extname(name);
+      entries.push({
+        name,
+        path: abs,
+        relativePath: rel,
+        type: 'file',
+        ...(ext ? { extension: ext } : {}),
+      });
+    }
+  } catch (err: any) {
+    return jsonError(`Failed to walk project: ${err?.message ?? err}`, 500);
+  }
+  entries.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+  return Response.json({ entries });
 }
 
 async function handleListProjectFiles(project: string, dirPath?: string): Promise<Response> {

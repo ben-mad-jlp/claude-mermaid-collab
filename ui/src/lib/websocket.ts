@@ -379,6 +379,9 @@ let sharedClient: WebSocketClient | null = null;
 export function getWebSocketClient(url: string = getDefaultWebSocketURL()): WebSocketClient {
   if (!sharedClient) {
     sharedClient = new WebSocketClient(url);
+    if (typeof window !== 'undefined') {
+      (window as unknown as { __WS_CLIENT__: WebSocketClient }).__WS_CLIENT__ = sharedClient;
+    }
   }
   return sharedClient;
 }

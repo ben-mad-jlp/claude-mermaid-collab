@@ -62,14 +62,12 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const { theme, toggleTheme } = useTheme();
   const { currentSession } = useSession();
-  const { editMode, toggleEditMode, chatPanelVisible, toggleChatPanel, terminalPanelVisible, toggleTerminalPanel } = useUIStore(
+  const { editMode, toggleEditMode, agentChatVisible, toggleAgentChat } = useUIStore(
     useShallow((state) => ({
       editMode: state.editMode,
       toggleEditMode: state.toggleEditMode,
-      chatPanelVisible: state.chatPanelVisible,
-      toggleChatPanel: state.toggleChatPanel,
-      terminalPanelVisible: state.terminalPanelVisible,
-      toggleTerminalPanel: state.toggleTerminalPanel,
+      agentChatVisible: state.agentChatVisible,
+      toggleAgentChat: state.toggleAgentChat,
     }))
   );
 
@@ -190,13 +188,9 @@ export const Header: React.FC<HeaderProps> = ({
     toggleEditMode();
   }, [toggleEditMode]);
 
-  const handleChatToggle = useCallback(() => {
-    toggleChatPanel();
-  }, [toggleChatPanel]);
-
-  const handleTerminalToggle = useCallback(() => {
-    toggleTerminalPanel();
-  }, [toggleTerminalPanel]);
+  const handleAgentToggle = useCallback(() => {
+    toggleAgentChat();
+  }, [toggleAgentChat]);
 
   const handleRefreshSessions = useCallback(() => {
     onRefreshSessions?.();
@@ -568,61 +562,28 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </div>
 
-          {/* Chat/Terminal toggles hidden — code retained for future re-enable */}
-          {false && (
-            <>
-              <button
-                data-testid="chat-panel-toggle"
-                onClick={handleChatToggle}
-                aria-label={chatPanelVisible ? 'Hide Chat' : 'Show Chat'}
-                aria-pressed={chatPanelVisible}
-                title={chatPanelVisible ? 'Hide Chat' : 'Show Chat'}
-                className={`
-                  flex items-center gap-2
-                  px-3 py-1.5
-                  text-sm font-medium
-                  rounded-lg
-                  transition-colors
-                  ${
-                    chatPanelVisible
-                      ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
-                      : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                  }
-                `}
-              >
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                </svg>
-                <span>Chat</span>
-              </button>
-
-              <button
-                data-testid="terminal-panel-toggle"
-                onClick={handleTerminalToggle}
-                aria-label={terminalPanelVisible ? 'Hide Terminal' : 'Show Terminal'}
-                aria-pressed={terminalPanelVisible}
-                title={terminalPanelVisible ? 'Hide Terminal' : 'Show Terminal'}
-                className={`
-                  flex items-center gap-2
-                  px-3 py-1.5
-                  text-sm font-medium
-                  rounded-lg
-                  transition-colors
-                  ${
-                    terminalPanelVisible
-                      ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
-                      : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                  }
-                `}
-              >
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <polyline points="4 17 10 11 4 5" />
-                  <line x1="12" y1="19" x2="20" y2="19" />
-                </svg>
-                <span>Terminal</span>
-              </button>
-            </>
-          )}
+          {/* Agent Chat Toggle */}
+          <button
+            data-testid="agent-toggle"
+            onClick={handleAgentToggle}
+            aria-label={agentChatVisible ? 'Hide Agent Chat' : 'Show Agent Chat'}
+            aria-pressed={agentChatVisible}
+            title={agentChatVisible ? 'Hide Agent Chat' : 'Show Agent Chat'}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+              agentChatVisible
+                ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
+                : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700'
+            }`}
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="11" width="18" height="10" rx="2" />
+              <circle cx="12" cy="5" r="2" />
+              <path d="M12 7v4" />
+              <line x1="8" y1="16" x2="8" y2="16" />
+              <line x1="16" y1="16" x2="16" y2="16" />
+            </svg>
+            <span className="hidden sm:inline">Agent</span>
+          </button>
 
           {/* Edit Mode Toggle */}
           <button
@@ -640,7 +601,7 @@ export const Header: React.FC<HeaderProps> = ({
               ${
                 editMode
                   ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700'
               }
             `}
           >

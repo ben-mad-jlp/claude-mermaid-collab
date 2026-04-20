@@ -12,7 +12,7 @@ import {
   type ProseFileV3,
   type ProseMethod,
 } from '../../services/pseudo-prose-file.js';
-import { escapePath } from '../../services/pseudo-path-escape.js';
+import { escapePath, toRelPosixPath } from '../../services/pseudo-path-escape.js';
 import { computeMethodId } from '../../services/pseudo-id.js';
 
 const fileMutex = new Map<string, Promise<void>>();
@@ -65,11 +65,13 @@ export async function pseudo_upsert_prose(
   if (!input.file) throw new Error(`pseudo_upsert_prose: file is required`);
   if (!Array.isArray(input.methods)) throw new Error(`pseudo_upsert_prose: methods array required`);
 
+  input.file = toRelPosixPath(project, input.file);
+
   const escaped = escapePath(input.file);
   const proseFilePath = join(project, '.collab', 'pseudo', 'prose', escaped + '.json');
 
   return withFileLock(proseFilePath, async () => {
-    const existing = await readProseFile(proseFilePath).catch(() => null);
+    const existing = await readProseFile(proseFilePath, project).catch(() => null);
 
     const existingMethodById = new Map<string, ProseMethod>();
     if (existing) {
@@ -129,7 +131,10 @@ export async function pseudo_upsert_prose(
 
     try {
       const handle = initPseudoDbV6(project);
-      handle.indexer.runIncrementalScanForFile(input.file, { trigger: 'manual' }).catch(() => {});
+      const absSource = join(project, input.file);
+      handle.indexer
+        .runIncrementalScanForFile(absSource, { trigger: 'manual' })
+        .catch((err) => console.warn('[pseudo-upsert-prose] re-index failed:', err));
     } catch {}
 
     return {

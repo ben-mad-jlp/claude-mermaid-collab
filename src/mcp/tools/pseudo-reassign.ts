@@ -36,7 +36,7 @@ export interface ReassignResult {
 async function applyOne(project: string, mapping: ReassignMapping): Promise<'updated' | 'not_found'> {
   const escaped = escapePath(mapping.file);
   const path = join(project, '.collab', 'pseudo', 'prose', escaped + '.json');
-  const existing = await readProseFile(path);
+  const existing = await readProseFile(path, project);
   if (!existing) return 'not_found';
 
   let changed = false;

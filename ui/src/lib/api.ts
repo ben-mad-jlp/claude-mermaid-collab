@@ -3,7 +3,6 @@
  */
 
 import type { Session, Diagram, Document, CollabState, Snippet, SessionTodo, Image } from '@/types';
-import type { TerminalSession, CreateSessionResult } from '@/types/terminal';
 import type { Design, Spreadsheet } from '@/stores/sessionStore';
 import { getWebSocketClient } from './websocket';
 
@@ -58,13 +57,6 @@ export interface ApiClient {
   getDocument(project: string, session: string, id: string): Promise<Document | null>;
   updateDiagram(project: string, session: string, id: string, content: string): Promise<void>;
   updateDocument(project: string, session: string, id: string, content: string): Promise<void>;
-  killTerminalSession(sessionName: string): Promise<void>;
-  cleanupTerminalSessions(activeSessions: string[]): Promise<{ killed: string[]; kept: string[] }>;
-  getTerminalSessions(project: string, session: string): Promise<TerminalSession[]>;
-  createTerminalSession(project: string, session: string, name?: string): Promise<CreateSessionResult>;
-  deleteTerminalSession(project: string, session: string, id: string): Promise<void>;
-  renameTerminalSession(project: string, session: string, id: string, name: string): Promise<void>;
-  reorderTerminalSessions(project: string, session: string, orderedIds: string[]): Promise<void>;
   getSessionState(project: string, session: string): Promise<CollabState | null>;
   getUIState(project: string, session: string): Promise<CachedUIState | null>;
   getDesigns(project: string, session: string): Promise<Design[]>;
@@ -94,6 +86,7 @@ export interface ApiClient {
   setPinned(project: string, session: string, id: string, pinned: boolean): Promise<void>;
   setBlueprint(project: string, session: string, id: string, blueprint: boolean): Promise<void>;
   listProjectFiles(project: string, dirPath?: string): Promise<any>;
+  listAllProjectFiles(project: string): Promise<{ entries: Array<{ name: string; path: string; relativePath: string; type: 'file' | 'directory'; extension?: string }> }>;
   pushCodeToFile(project: string, session: string, id: string): Promise<any>;
   syncCodeFromDisk(project: string, session: string, id: string): Promise<any>;
   acceptProposedEdit(project: string, session: string, id: string): Promise<{ success: boolean; dirty: boolean }>;
@@ -291,108 +284,6 @@ export const api: ApiClient = {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ content }),
-    });
-    if (!response.ok) {
-      throw new Error(response.statusText);
-    }
-  },
-
-  /**
-   * Kill a terminal tmux session
-   */
-  async killTerminalSession(sessionName: string): Promise<void> {
-    const response = await fetch('/api/terminal/kill-session', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ sessionName }),
-    });
-    if (!response.ok) {
-      throw new Error(response.statusText);
-    }
-  },
-
-  /**
-   * Cleanup orphaned terminal sessions
-   */
-  async cleanupTerminalSessions(activeSessions: string[]): Promise<{ killed: string[]; kept: string[] }> {
-    const response = await fetch('/api/terminal/cleanup', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ activeSessions }),
-    });
-    if (!response.ok) {
-      throw new Error(response.statusText);
-    }
-    return response.json();
-  },
-
-  /**
-   * Get all terminal sessions for a collab session
-   */
-  async getTerminalSessions(project: string, session: string): Promise<TerminalSession[]> {
-    const url = `/api/terminal/sessions?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(response.statusText);
-    }
-    const data = await response.json();
-    return data.sessions || [];
-  },
-
-  /**
-   * Create a new terminal session
-   */
-  async createTerminalSession(project: string, session: string, name?: string): Promise<CreateSessionResult> {
-    const response = await fetch('/api/terminal/sessions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project, session, name }),
-    });
-    if (!response.ok) {
-      throw new Error(response.statusText);
-    }
-    return response.json();
-  },
-
-  /**
-   * Delete a terminal session
-   */
-  async deleteTerminalSession(project: string, session: string, id: string): Promise<void> {
-    const url = `/api/terminal/sessions/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
-    const response = await fetch(url, { method: 'DELETE' });
-    if (!response.ok) {
-      throw new Error(response.statusText);
-    }
-  },
-
-  /**
-   * Rename a terminal session
-   */
-  async renameTerminalSession(project: string, session: string, id: string, name: string): Promise<void> {
-    const url = `/api/terminal/sessions/${encodeURIComponent(id)}/rename?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
-    });
-    if (!response.ok) {
-      throw new Error(response.statusText);
-    }
-  },
-
-  /**
-   * Reorder terminal sessions
-   */
-  async reorderTerminalSessions(project: string, session: string, orderedIds: string[]): Promise<void> {
-    const url = `/api/terminal/sessions/reorder?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
-    const response = await fetch(url, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ orderedIds }),
     });
     if (!response.ok) {
       throw new Error(response.statusText);
@@ -807,6 +698,15 @@ export const api: ApiClient = {
   async listProjectFiles(project: string, dirPath?: string) {
     const params = new URLSearchParams({ project });
     if (dirPath) params.set('path', dirPath);
+    const response = await fetch(`/api/code/files?${params}`);
+    if (!response.ok) throw new Error(response.statusText);
+    return response.json();
+  },
+
+  async listAllProjectFiles(
+    project: string,
+  ): Promise<{ entries: Array<{ name: string; path: string; relativePath: string; type: 'file' | 'directory'; extension?: string }> }> {
+    const params = new URLSearchParams({ project, recursive: 'true' });
     const response = await fetch(`/api/code/files?${params}`);
     if (!response.ok) throw new Error(response.statusText);
     return response.json();

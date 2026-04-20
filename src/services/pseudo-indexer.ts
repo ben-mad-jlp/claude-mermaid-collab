@@ -17,6 +17,7 @@ import { readProseFile, type ProseFileV3 } from './pseudo-prose-file.js';
 import { extractDocstrings } from './pseudo-docstring.js';
 import { upsertFileFts, clearFts, ensureFtsMapTable, deleteFileFts } from './pseudo-fts.js';
 import { writeSnapshot } from './pseudo-snapshot.js';
+import { resolveCallEdges } from './pseudo-resolver.js';
 
 export type ScanTrigger = 'auto' | 'manual' | 'incremental' | 'watcher' | 'reconcile' | 'sessionstart';
 
@@ -124,7 +125,7 @@ function prepareScanStmts(db: Database): ScanStmts {
       `INSERT INTO method_steps(method_id, "order", content) VALUES (?, ?, ?)`,
     ),
     insertCall: db.prepare(
-      `INSERT INTO method_calls(caller_method_id, callee_name, callee_method_id, file_path) VALUES (?, ?, NULL, ?)`,
+      `INSERT INTO method_calls(caller_method_id, callee_name, callee_name_hint, callee_method_id, file_path, resolution_quality) VALUES (?, ?, ?, NULL, ?, 'unresolved')`,
     ),
     insertImport: db.prepare(
       `INSERT OR IGNORE INTO file_imports(file_path, imported_path) VALUES (?, ?)`,
@@ -296,7 +297,7 @@ async function scanOneFile(ctx: ScanContext, absPath: string): Promise<FileScanO
     if (Array.isArray(m.call_edges)) {
       for (const edge of m.call_edges) {
         try {
-          insertCall.run(id, edge.callee_name, absPath);
+          insertCall.run(id, edge.callee_name, edge.receiver_hint ?? null, absPath);
         } catch (err) {
           recordScanError(ctx, absPath, 'insert_call', err);
         }
@@ -429,7 +430,7 @@ async function loadAllProseFiles(project: string): Promise<Map<string, ProseFile
   const files = listProseFiles(proseRoot);
   for (const file of files) {
     try {
-      const pf = await readProseFile(file);
+      const pf = await readProseFile(file, project);
       if (pf) out.set(file, pf);
     } catch (err) {
       console.warn('[pseudo-indexer] readProseFile failed:', file, err);
@@ -526,6 +527,9 @@ export function createPseudoIndexer(project: string, db: Database): PseudoIndexe
         applyOverlay(db, overlay);
 
         checkAbort(signal);
+        resolveCallEdges(db);
+
+        checkAbort(signal);
         populateFtsFor(db, outcomes);
         db.exec('COMMIT');
       } catch (innerErr) {
@@ -605,6 +609,9 @@ export function createPseudoIndexer(project: string, db: Database): PseudoIndexe
         const allRows = outcomes.flatMap((o) => o.rows);
         const overlay = overlayProseOnMethods(relevantProse, allRows);
         applyOverlay(db, overlay);
+
+        checkAbort(signal);
+        resolveCallEdges(db, { scopeFiles: paths });
 
         checkAbort(signal);
         populateFtsFor(db, outcomes);

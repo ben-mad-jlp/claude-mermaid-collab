@@ -7,11 +7,11 @@
  */
 
 import Database from 'bun:sqlite';
-import { existsSync, readFileSync, unlinkSync, writeFileSync, mkdirSync } from 'node:fs';
-import { join, isAbsolute } from 'node:path';
+import { existsSync, readFileSync, unlinkSync, writeFileSync, mkdirSync, readdirSync, renameSync, statSync } from 'node:fs';
+import { join, isAbsolute, relative, basename } from 'node:path';
 import { computeMethodId, normalizeParams, computeBodyFingerprint } from './pseudo-id';
-import { escapePath } from './pseudo-path-escape';
-import { writeProseFile, type ProseFileV3, type ProseMethod, type ProseStep } from './pseudo-prose-file';
+import { escapePath, toRelPosixPath } from './pseudo-path-escape';
+import { readProseFile, writeProseFile, type ProseFileV3, type ProseMethod, type ProseStep } from './pseudo-prose-file';
 import { scanSourceFileStructural, type StructuralMethod as ScannerMethod } from './source-scanner';
 
 export interface MigrationReport {
@@ -58,6 +58,12 @@ function proseDir(project: string): string {
 }
 function migrationFlagPath(project: string): string {
   return join(pseudoDir(project), '.migrated');
+}
+function relMigrationFlagPath(project: string): string {
+  return join(pseudoDir(project), '.migrated-rel');
+}
+function orphanDir(project: string): string {
+  return join(proseDir(project), '_orphan');
 }
 
 export async function runMigrationFromV1(project: string): Promise<MigrationReport> {
@@ -174,16 +180,23 @@ export async function runMigrationFromV1(project: string): Promise<MigrationRepo
           continue;
         }
 
+        let relPath: string;
+        try {
+          relPath = toRelPosixPath(project, fr.file_path);
+        } catch {
+          relPath = toRelPosixPath(project, absSource);
+        }
+
         const v3: ProseFileV3 = {
           schema_version: 3,
-          file: absSource,
+          file: relPath,
           title: fr.title ?? '',
           purpose: fr.purpose ?? '',
           module_context: fr.module_context ?? '',
           methods: proseMethods,
         };
 
-        const escaped = escapePath(fr.file_path);
+        const escaped = escapePath(relPath);
         const outPath = join(proseDir(project), escaped + '.json');
         await writeProseFile(outPath, v3);
 
@@ -222,6 +235,152 @@ export async function runMigrationFromV1(project: string): Promise<MigrationRepo
       file_path: migrationFlagPath(project),
       error: `flag write failed: ${(err as Error).message}`,
     });
+  }
+
+  return report;
+}
+
+export interface RelMigrationReport {
+  migrated: number;
+  orphaned: number;
+  skipped: number;
+  failed: number;
+  errors: Array<{ file_path: string; error: string }>;
+}
+
+/**
+ * Fallback path recovery: given an absolute path authored on a different
+ * machine (e.g. `/Users/foo/Code/proj/src/x.ts`), walk its segments from
+ * longest suffix down to shortest and return the first suffix that resolves
+ * to an existing file under `project`. Returns null if no match.
+ */
+function recoverRelPathBySuffix(project: string, input: string): string | null {
+  const segs = input.replace(/\\/g, '/').split('/').filter((s) => s.length > 0);
+  for (let i = 1; i < segs.length; i++) {
+    const suffix = segs.slice(i).join('/');
+    if (existsSync(join(project, suffix))) return suffix;
+  }
+  return null;
+}
+
+export async function migrateProseFilesToRelative(project: string): Promise<RelMigrationReport> {
+  const report: RelMigrationReport = { migrated: 0, orphaned: 0, skipped: 0, failed: 0, errors: [] };
+
+  const sentinel = relMigrationFlagPath(project);
+  if (existsSync(sentinel)) return report;
+
+  const dir = proseDir(project);
+  if (!existsSync(dir)) {
+    try {
+      mkdirSync(pseudoDir(project), { recursive: true });
+      writeFileSync(sentinel, JSON.stringify({ migrated_at: new Date().toISOString(), migrated: 0, orphaned: 0 }, null, 2));
+    } catch {}
+    return report;
+  }
+
+  const jsonFiles: string[] = [];
+  function walk(curr: string, insideOrphan: boolean): void {
+    let entries: string[];
+    try { entries = readdirSync(curr); } catch { return; }
+    for (const name of entries) {
+      const full = join(curr, name);
+      let st;
+      try { st = statSync(full); } catch { continue; }
+      if (st.isDirectory()) {
+        if (name === '_attic') continue;
+        walk(full, insideOrphan || name === '_orphan');
+      } else if (st.isFile() && name.endsWith('.json') && name !== '_path_map.json') {
+        jsonFiles.push(full);
+      }
+    }
+  }
+  walk(dir, false);
+
+  for (const oldPath of jsonFiles) {
+    let prose: ProseFileV3 | null;
+    try {
+      prose = await readProseFile(oldPath);
+    } catch (err) {
+      report.failed++;
+      report.errors.push({ file_path: oldPath, error: `read/validate failed: ${(err as Error).message}` });
+      continue;
+    }
+    if (!prose || prose.schema_version !== 3) {
+      report.skipped++;
+      continue;
+    }
+
+    const currentFile = prose.file;
+    const alreadyRel =
+      !isAbsolute(currentFile) &&
+      !currentFile.includes('\\') &&
+      !currentFile.startsWith('..') &&
+      !/^[A-Za-z]:[/\\]/.test(currentFile);
+    if (alreadyRel) {
+      report.skipped++;
+      continue;
+    }
+
+    let rel: string;
+    try {
+      rel = toRelPosixPath(project, currentFile);
+    } catch {
+      const recovered = recoverRelPathBySuffix(project, currentFile);
+      if (recovered) {
+        rel = recovered;
+      } else {
+        try {
+          mkdirSync(orphanDir(project), { recursive: true });
+          const dest = join(orphanDir(project), basename(oldPath));
+          if (oldPath !== dest) renameSync(oldPath, dest);
+          report.orphaned++;
+        } catch (err) {
+          report.failed++;
+          report.errors.push({ file_path: oldPath, error: `orphan move failed: ${(err as Error).message}` });
+        }
+        continue;
+      }
+    }
+
+    const rewritten: ProseFileV3 = { ...prose, file: rel };
+    const newPath = join(dir, escapePath(rel) + '.json');
+
+    try {
+      await writeProseFile(newPath, rewritten);
+      if (newPath !== oldPath && existsSync(oldPath)) {
+        try { unlinkSync(oldPath); } catch {}
+      }
+      report.migrated++;
+    } catch (err) {
+      report.failed++;
+      report.errors.push({ file_path: oldPath, error: `rewrite failed: ${(err as Error).message}` });
+    }
+  }
+
+  if (report.failed === 0) {
+    try {
+      mkdirSync(pseudoDir(project), { recursive: true });
+      writeFileSync(
+        sentinel,
+        JSON.stringify({
+          migrated_at: new Date().toISOString(),
+          migrated: report.migrated,
+          orphaned: report.orphaned,
+          skipped: report.skipped,
+          error_count: report.errors.length,
+        }, null, 2),
+      );
+    } catch (err) {
+      report.errors.push({
+        file_path: sentinel,
+        error: `sentinel write failed: ${(err as Error).message}`,
+      });
+    }
+  } else {
+    console.warn(
+      '[pseudo-migration] %d files failed; sentinel not written — will retry on next run',
+      report.failed,
+    );
   }
 
   return report;

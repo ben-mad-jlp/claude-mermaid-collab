@@ -11,6 +11,7 @@ export interface MarkdownProps {
   tables?: boolean;
   codeHighlight?: boolean;
   ariaLabel?: string;
+  unstyled?: boolean;
 }
 
 export const Markdown: React.FC<MarkdownProps> = ({
@@ -20,6 +21,7 @@ export const Markdown: React.FC<MarkdownProps> = ({
   tables = true,
   codeHighlight = true,
   ariaLabel,
+  unstyled = false,
 }) => {
   const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
 
@@ -83,14 +85,14 @@ export const Markdown: React.FC<MarkdownProps> = ({
 
       if (hasBlockChildren) {
         return (
-          <div className="mb-3 text-gray-700 dark:text-gray-300 leading-relaxed" {...props}>
+          <div className="mb-3 text-black dark:text-white leading-relaxed" {...props}>
             {children}
           </div>
         );
       }
 
       return (
-        <p className="mb-3 text-gray-700 dark:text-gray-300 leading-relaxed" {...props}>
+        <p className="mb-3 text-black dark:text-white leading-relaxed" {...props}>
           {children}
         </p>
       );
@@ -102,10 +104,10 @@ export const Markdown: React.FC<MarkdownProps> = ({
       />
     ),
     ul: ({ node, ...props }: any) => (
-      <ul className="list-disc list-inside mb-3 text-gray-700 dark:text-gray-300" {...props} />
+      <ul className="list-disc list-inside mb-3 text-black dark:text-white" {...props} />
     ),
     ol: ({ node, ...props }: any) => (
-      <ol className="list-decimal list-inside mb-3 text-gray-700 dark:text-gray-300" {...props} />
+      <ol className="list-decimal list-inside mb-3 text-black dark:text-white" {...props} />
     ),
     li: ({ node, ...props }: any) => <li className="mb-1" {...props} />,
     table: ({ node, ...props }: any) => (
@@ -137,7 +139,7 @@ export const Markdown: React.FC<MarkdownProps> = ({
     ),
     td: ({ node, ...props }: any) => (
       <td
-        className="px-4 py-2 text-gray-700 dark:text-gray-300 border-r border-gray-300 dark:border-gray-600"
+        className="px-4 py-2 text-black dark:text-white border-r border-gray-300 dark:border-gray-600"
         {...props}
       />
     ),
@@ -205,6 +207,24 @@ export const Markdown: React.FC<MarkdownProps> = ({
       <del className="line-through text-gray-600 dark:text-gray-400" {...props} />
     ),
   };
+
+  if (unstyled) {
+    return (
+      <div
+        className="prose prose-sm dark:prose-invert max-w-none text-black dark:text-white prose-p:text-black dark:prose-p:text-white prose-headings:text-black dark:prose-headings:text-white prose-li:text-black dark:prose-li:text-white prose-strong:text-black dark:prose-strong:text-white"
+        role="region"
+        aria-label={ariaLabel || 'Markdown content'}
+      >
+        <ReactMarkdown
+          components={components as any}
+          remarkPlugins={tables !== false ? [remarkGfm] : []}
+          skipHtml={!allowHtml}
+        >
+          {content}
+        </ReactMarkdown>
+      </div>
+    );
+  }
 
   return (
     <div

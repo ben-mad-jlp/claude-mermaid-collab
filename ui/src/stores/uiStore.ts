@@ -23,14 +23,21 @@ export interface UIState {
   setEditMode: (mode: boolean) => void;
   toggleEditMode: () => void;
 
-  // Chat and Terminal panel visibility
-  chatPanelVisible: boolean;
-  setChatPanelVisible: (visible: boolean) => void;
-  toggleChatPanel: () => void;
+  // Document inline edit toggle (guards against accidental edits during review).
+  // When false: MilkdownEditor is read-only. When true: editable.
+  documentEditable: boolean;
+  setDocumentEditable: (editable: boolean) => void;
+  toggleDocumentEditable: () => void;
 
-  terminalPanelVisible: boolean;
-  setTerminalPanelVisible: (visible: boolean) => void;
-  toggleTerminalPanel: () => void;
+  // Agent chat panel visibility
+  agentChatVisible: boolean;
+  setAgentChatVisible: (visible: boolean) => void;
+  toggleAgentChat: () => void;
+
+  // Migration banner v5 dismissal flag
+  seenMigrationBannerV5: boolean;
+  setSeenMigrationBannerV5: (seen: boolean) => void;
+  dismissMigrationBannerV5: () => void;
 
   // Split pane positions (stored as percentages)
   sidebarSplitPosition: number;
@@ -108,20 +115,26 @@ export const useUIStore = create<UIState>()(
         set({ editMode: !current });
       },
 
-      // Chat and Terminal panel visibility (default off)
-      chatPanelVisible: false,
-      setChatPanelVisible: (visible: boolean) => set({ chatPanelVisible: visible }),
-      toggleChatPanel: () => {
-        const current = get().chatPanelVisible;
-        set({ chatPanelVisible: !current });
+      // Document inline edit — defaults to read-only (review mode)
+      documentEditable: false,
+      setDocumentEditable: (editable: boolean) => set({ documentEditable: editable }),
+      toggleDocumentEditable: () => {
+        const current = get().documentEditable;
+        set({ documentEditable: !current });
       },
 
-      terminalPanelVisible: false,
-      setTerminalPanelVisible: (visible: boolean) => set({ terminalPanelVisible: visible }),
-      toggleTerminalPanel: () => {
-        const current = get().terminalPanelVisible;
-        set({ terminalPanelVisible: !current });
+      // Agent chat panel (default visible — primary interaction surface)
+      agentChatVisible: true,
+      setAgentChatVisible: (visible: boolean) => set({ agentChatVisible: visible }),
+      toggleAgentChat: () => {
+        const current = get().agentChatVisible;
+        set({ agentChatVisible: !current });
       },
+
+      // Migration banner v5
+      seenMigrationBannerV5: false,
+      setSeenMigrationBannerV5: (seen: boolean) => set({ seenMigrationBannerV5: seen }),
+      dismissMigrationBannerV5: () => set({ seenMigrationBannerV5: true }),
 
       // Split pane positions
       sidebarSplitPosition: DEFAULT_SIDEBAR_POSITION,
@@ -171,8 +184,8 @@ export const useUIStore = create<UIState>()(
           sidebarVisible: true,
           sessionPanelVisible: true,
           editMode: true,
-          chatPanelVisible: false,
-          terminalPanelVisible: false,
+          agentChatVisible: true,
+          seenMigrationBannerV5: false,
           sidebarSplitPosition: DEFAULT_SIDEBAR_POSITION,
           sessionPanelSplitPosition: DEFAULT_SESSION_PANEL_POSITION,
           editorSplitPosition: DEFAULT_EDITOR_SPLIT_POSITION,
@@ -181,7 +194,34 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'ui-preferences', // localStorage key
-      version: 3,
+      version: 5,
+      migrate: (persistedState: unknown, version: number) => {
+        // v5: terminal/shell removed entirely. Drop legacy panel flags and
+        // default agentChatVisible to true so chat is visible by default.
+        if (!persistedState || typeof persistedState !== 'object') {
+          return persistedState as UIState;
+        }
+        if (version < 5) {
+          const old = persistedState as Record<string, unknown>;
+          const {
+            terminalPanelVisible: _tpv,
+            shellDrawerVisible: _sdv,
+            chatPanelVisible: _cpv,
+            ...rest
+          } = old;
+          return {
+            ...rest,
+            agentChatVisible: true,
+            seenMigrationBannerV5:
+              typeof old.seenMigrationBannerV5 === 'boolean' ? old.seenMigrationBannerV5 : false,
+          } as UIState;
+        }
+        return persistedState as UIState;
+      },
     }
   )
 );
+
+if (typeof window !== 'undefined') {
+  (window as unknown as { __UI_STORE__: typeof useUIStore }).__UI_STORE__ = useUIStore;
+}

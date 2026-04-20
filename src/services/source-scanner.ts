@@ -33,7 +33,7 @@ export interface StructuralMethod {
   is_exported: boolean;
   raw_params: string;
   body: string;
-  call_edges: Array<{ callee_name: string }>;
+  call_edges: Array<{ callee_name: string; receiver_hint: string | null }>;
 }
 
 export interface StructuralScanResult {
@@ -1182,9 +1182,9 @@ const CALL_EDGE_STOPWORDS = new Set([
   'yield', 'delete', 'in', 'of', 'do', 'else', 'try', 'finally',
 ]);
 
-function extractCallEdges(body: string): Array<{ callee_name: string }> {
+function extractCallEdges(body: string): Array<{ callee_name: string; receiver_hint: string | null }> {
   const seen = new Set<string>();
-  const edges: Array<{ callee_name: string }> = [];
+  const edges: Array<{ callee_name: string; receiver_hint: string | null }> = [];
   const stripped = body
     .replace(/\/\*[\s\S]*?\*\//g, ' ')
     .replace(/\/\/[^\n]*/g, ' ')
@@ -1197,9 +1197,12 @@ function extractCallEdges(body: string): Array<{ callee_name: string }> {
     const full = m[1];
     const last = full.includes('.') ? full.slice(full.lastIndexOf('.') + 1) : full;
     if (!last || CALL_EDGE_STOPWORDS.has(last)) continue;
-    if (seen.has(last)) continue;
-    seen.add(last);
-    edges.push({ callee_name: last });
+    const dotIdx = full.indexOf('.');
+    const receiver_hint = dotIdx > 0 ? full.slice(0, dotIdx) : null;
+    const key = `${receiver_hint ?? ''}::${last}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    edges.push({ callee_name: last, receiver_hint });
   }
   return edges;
 }

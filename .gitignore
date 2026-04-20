@@ -31,6 +31,7 @@ Thumbs.db
 /.collab/sessions/
 /.collab/pseudo/pseudo.db-wal
 /.collab/pseudo/pseudo.db-shm
+/.collab/pseudo/cache/
 !/.collab/pseudo/pseudo.db
 /.collab/**/*.tmp
 .worktrees/

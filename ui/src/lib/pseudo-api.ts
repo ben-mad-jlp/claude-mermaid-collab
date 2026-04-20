@@ -90,23 +90,52 @@ export async function fetchPseudoFiles(project: string): Promise<PseudoFileSumma
  * GET /api/pseudo/file?project=...&file=...
  * Returns: string - File contents
  */
-export async function fetchPseudoFile(project: string, file: string): Promise<PseudoFileWithMethods> {
-  try {
-    const encodedProject = encodeURIComponent(project);
-    const encodedFile = encodeURIComponent(file);
-    const response = await fetch(
-      `${API_BASE}/api/pseudo/file?project=${encodedProject}&file=${encodedFile}`
-    );
+// Small LRU of recently-viewed pseudo files so rapid back-and-forth clicks
+// don't hit the server. Entries are invalidated by fetchPseudoFiles (which
+// runs on rescan) via invalidatePseudoFileCache.
+const PSEUDO_FILE_CACHE_MAX = 32;
+const pseudoFileCache = new Map<string, PseudoFileWithMethods>();
 
-    if (!response.ok) {
-      throw new Error(`Failed to fetch pseudo file: ${response.statusText}`);
-    }
+function pseudoFileCacheKey(project: string, file: string): string {
+  return `${project}\u0000${file}`;
+}
 
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    throw error;
+export function invalidatePseudoFileCache(): void {
+  pseudoFileCache.clear();
+}
+
+export async function fetchPseudoFile(
+  project: string,
+  file: string,
+  opts?: { signal?: AbortSignal },
+): Promise<PseudoFileWithMethods> {
+  const cacheKey = pseudoFileCacheKey(project, file);
+  const cached = pseudoFileCache.get(cacheKey);
+  if (cached) {
+    // refresh LRU position
+    pseudoFileCache.delete(cacheKey);
+    pseudoFileCache.set(cacheKey, cached);
+    return cached;
   }
+
+  const encodedProject = encodeURIComponent(project);
+  const encodedFile = encodeURIComponent(file);
+  const response = await fetch(
+    `${API_BASE}/api/pseudo/file?project=${encodedProject}&file=${encodedFile}`,
+    { signal: opts?.signal },
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch pseudo file: ${response.statusText}`);
+  }
+
+  const data: PseudoFileWithMethods = await response.json();
+  pseudoFileCache.set(cacheKey, data);
+  if (pseudoFileCache.size > PSEUDO_FILE_CACHE_MAX) {
+    const oldest = pseudoFileCache.keys().next().value;
+    if (oldest !== undefined) pseudoFileCache.delete(oldest);
+  }
+  return data;
 }
 
 /**

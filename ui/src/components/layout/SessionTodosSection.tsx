@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { forwardRef, useCallback, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useSessionStore } from '@/stores/sessionStore';
 import { api } from '@/lib/api';
@@ -118,7 +118,7 @@ const TodoRow: React.FC<TodoRowProps> = ({
           />
         ) : (
           <span
-            className={`block cursor-text break-words ${
+            className={`block cursor-text whitespace-normal break-words [overflow-wrap:anywhere] ${
               todo.completed
                 ? 'line-through text-gray-400 dark:text-gray-500'
                 : 'text-gray-700 dark:text-gray-300'
@@ -147,7 +147,16 @@ const TodoRow: React.FC<TodoRowProps> = ({
   );
 };
 
-export const SessionTodosSection: React.FC = () => {
+export interface SessionTodosSectionHandle {
+  revealAddInput: () => void;
+}
+
+export interface SessionTodosSectionProps {
+  collapsed?: boolean;
+  onToggle?: () => void;
+}
+
+export const SessionTodosSection = forwardRef<SessionTodosSectionHandle, SessionTodosSectionProps>((props, ref) => {
   const {
     currentSession,
     sessionTodos,
@@ -168,12 +177,25 @@ export const SessionTodosSection: React.FC = () => {
     })),
   );
 
-  const [collapsed, setCollapsed] = useState(false);
+  const [internalCollapsed, setInternalCollapsed] = useState(false);
+  const isCollapsed = props.collapsed ?? internalCollapsed;
+  const handleToggle = props.onToggle ?? (() => setInternalCollapsed((c) => !c));
   const [newTodoText, setNewTodoText] = useState('');
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const [dragOverId, setDragOverId] = useState<number | null>(null);
+  const [addInputVisible, setAddInputVisible] = useState(true);
+  const addInputRef = useRef<HTMLInputElement>(null);
   const dragIdRef = useRef<number | null>(null);
   const didDropRef = useRef(false);
+
+  const revealAddInput = useCallback(() => {
+    setAddInputVisible(true);
+    setTimeout(() => {
+      addInputRef.current?.focus();
+    }, 0);
+  }, []);
+
+  useImperativeHandle(ref, () => ({ revealAddInput }), [revealAddInput]);
 
   const orderedTodos = useMemo(() => {
     return [...sessionTodos].sort((a, b) => a.order - b.order);
@@ -307,7 +329,7 @@ export const SessionTodosSection: React.FC = () => {
     <div className="border-b border-gray-200 dark:border-gray-700" data-testid="session-todos-section">
       <div className="flex items-center">
         <button
-          onClick={() => setCollapsed((c) => !c)}
+          onClick={handleToggle}
           className="flex-1 flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
         >
           <span>Todos</span>
@@ -316,7 +338,7 @@ export const SessionTodosSection: React.FC = () => {
           </span>
           <svg
             className={`w-3 h-3 ml-auto text-gray-400 transition-transform ${
-              collapsed ? '-rotate-90' : ''
+              isCollapsed ? '-rotate-90' : ''
             }`}
             viewBox="0 0 20 20"
             fill="currentColor"
@@ -330,7 +352,7 @@ export const SessionTodosSection: React.FC = () => {
         </button>
       </div>
 
-      {!collapsed && (
+      {!isCollapsed && (
         <div className="px-2 pb-2">
           <div className="flex items-center justify-between px-1 py-1">
             <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400 cursor-pointer select-none">
@@ -352,22 +374,25 @@ export const SessionTodosSection: React.FC = () => {
             </button>
           </div>
 
-          <div className="px-1 py-1">
-            <input
-              type="text"
-              value={newTodoText}
-              onChange={(e) => setNewTodoText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  handleAddTodo();
-                }
-              }}
-              placeholder="Add a todo..."
-              className="w-full bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
-              aria-label="Add a new todo"
-            />
-          </div>
+          {addInputVisible && (
+            <div className="px-1 py-1">
+              <input
+                ref={addInputRef}
+                type="text"
+                value={newTodoText}
+                onChange={(e) => setNewTodoText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddTodo();
+                  }
+                }}
+                placeholder="Add a todo..."
+                className="w-full bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                aria-label="Add a new todo"
+              />
+            </div>
+          )}
 
           {visibleTodos.length === 0 ? (
             <div className="px-2 py-2 text-xs text-gray-400 dark:text-gray-500 italic">
@@ -406,6 +431,8 @@ export const SessionTodosSection: React.FC = () => {
       />
     </div>
   );
-};
+});
+
+SessionTodosSection.displayName = 'SessionTodosSection';
 
 export default SessionTodosSection;

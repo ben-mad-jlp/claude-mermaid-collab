@@ -73,8 +73,8 @@ describe('pseudo integration (single platform)', () => {
       const indexer = createPseudoIndexer(root, db1);
       await indexer.runFullScan({ trigger: 'manual' });
 
-      const snapPath = join(root, '.cache', 'derived.sqlite');
-      mkdirSync(join(root, '.cache'), { recursive: true });
+      const snapPath = join(root, '.collab', 'pseudo', 'cache', 'derived.sqlite');
+      mkdirSync(join(root, '.collab', 'pseudo', 'cache'), { recursive: true });
       await writeSnapshot(db1, root);
       expect(existsSync(snapPath)).toBe(true);
 
