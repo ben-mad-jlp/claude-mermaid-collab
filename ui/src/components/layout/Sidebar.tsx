@@ -1,7 +1,7 @@
 import React from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useSessionStore } from '@/stores/sessionStore';
-import { useDataLoader } from '@/hooks/useDataLoader';
+import { useTabsStore, useSessionTabs } from '@/stores/tabsStore';
 import { SubscriptionsPanel } from '@/components/layout/SubscriptionsPanel';
 import { ArtifactTree } from '@/components/layout/sidebar-tree/ArtifactTree';
 import { WorktreeBadge } from '@/components/layout/WorktreeBadge';
@@ -15,17 +15,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const {
     documents,
-    selectedDocumentId,
     currentSession,
   } = useSessionStore(
     useShallow((state) => ({
       documents: state.documents,
-      selectedDocumentId: state.selectedDocumentId,
       currentSession: state.currentSession,
     }))
   );
 
-  const { selectDocumentWithContent } = useDataLoader();
+  const openPreview = useTabsStore((s) => s.openPreview);
+  const { activeTabId } = useSessionTabs();
 
   const isDisabled = !currentSession;
   const vibeInstructionsDoc = documents.find((d) => d.name.endsWith('vibeinstructions')) || null;
@@ -48,13 +47,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <WorktreeBadge sessionId={currentSession.name} />
           </div>
           <button
-            onClick={() => selectDocumentWithContent(currentSession.project, currentSession.name, vibeInstructionsDoc.id)}
+            onClick={() =>
+              openPreview({
+                id: vibeInstructionsDoc.id,
+                kind: 'artifact',
+                artifactType: 'document',
+                artifactId: vibeInstructionsDoc.id,
+                name: vibeInstructionsDoc.name,
+              })
+            }
             className={`
               w-full text-left px-3 py-2 rounded-lg
               flex items-center gap-2
               text-xs font-medium
               transition-colors
-              ${selectedDocumentId === vibeInstructionsDoc.id
+              ${activeTabId === vibeInstructionsDoc.id
                 ? 'bg-accent-100 dark:bg-accent-900 text-accent-700 dark:text-accent-300'
                 : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
               }
