@@ -6,7 +6,7 @@
  * MenuAction list produced by getActionsForNode.
  */
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   getActionsForNode,
   getActionsForSelection,
@@ -42,6 +42,26 @@ export const SidebarNodeContextMenu: React.FC<SidebarNodeContextMenuProps> = (
   const nodes = (props as { nodes?: TreeNode[] }).nodes;
 
   const menuRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ left: number; top: number }>({ left: x, top: y });
+
+  useLayoutEffect(() => {
+    const el = menuRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const margin = 4;
+    let left = x;
+    let top = y;
+    if (left + rect.width > window.innerWidth - margin) {
+      left = Math.max(margin, window.innerWidth - rect.width - margin);
+    }
+    if (top + rect.height > window.innerHeight - margin) {
+      top = Math.max(margin, y - rect.height);
+      if (top + rect.height > window.innerHeight - margin) {
+        top = Math.max(margin, window.innerHeight - rect.height - margin);
+      }
+    }
+    if (left !== pos.left || top !== pos.top) setPos({ left, top });
+  }, [x, y, pos.left, pos.top]);
 
   const targetNodes: TreeNode[] = nodes ?? (node ? [node] : []);
   const resolvedActions =
@@ -87,7 +107,7 @@ export const SidebarNodeContextMenu: React.FC<SidebarNodeContextMenuProps> = (
       role="menu"
       data-testid="sidebar-node-context-menu"
       className="fixed bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg z-50 py-1 min-w-max"
-      style={{ left: `${x}px`, top: `${y}px` }}
+      style={{ left: `${pos.left}px`, top: `${pos.top}px` }}
     >
       {titleText !== null && (
         <div

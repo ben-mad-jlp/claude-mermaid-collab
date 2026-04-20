@@ -12,7 +12,9 @@
 
 import React, { useEffect, useRef, useState, useCallback, useId, useImperativeHandle } from 'react';
 import mermaid from 'mermaid';
+import { useShallow } from 'zustand/react/shallow';
 import { useTheme } from '@/hooks/useTheme';
+import { useUIStore } from '@/stores/uiStore';
 import { extractNodeId, extractEdgeInfo } from '@/lib/diagramUtils';
 import { initializeMermaid } from '@/lib/mermaidConfig';
 
@@ -103,6 +105,12 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
     error: null,
   });
   const { theme } = useTheme();
+  const { splitEditMode, toggleSplitEditMode } = useUIStore(
+    useShallow((s) => ({
+      splitEditMode: s.editMode,
+      toggleSplitEditMode: s.toggleEditMode,
+    })),
+  );
 
   // Pan state for middle-click drag
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
@@ -432,6 +440,26 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
       className={`mermaid-preview-container relative w-full h-full flex flex-col ${theme === 'dark' ? 'dark' : ''} ${className}`}
       data-testid="mermaid-preview"
     >
+      {/* Edit-mode toggle (split code+preview pane) */}
+      <button
+        type="button"
+        data-testid="mermaid-preview-edit-toggle"
+        onClick={toggleSplitEditMode}
+        aria-label={splitEditMode ? 'Hide code editor' : 'Show code editor'}
+        aria-pressed={splitEditMode}
+        title={splitEditMode ? 'Hide code editor' : 'Show code editor'}
+        className={`absolute top-2 right-2 z-10 flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
+          splitEditMode
+            ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/70'
+            : 'bg-white/80 dark:bg-gray-800/80 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
+        }`}
+      >
+        <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+          <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+        </svg>
+        <span>Edit</span>
+      </button>
+
       {/* Loading indicator */}
       {state.isLoading && (
         <div

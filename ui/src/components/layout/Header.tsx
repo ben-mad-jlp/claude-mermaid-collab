@@ -62,10 +62,8 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const { theme, toggleTheme } = useTheme();
   const { currentSession } = useSession();
-  const { editMode, toggleEditMode, agentChatVisible, toggleAgentChat } = useUIStore(
+  const { agentChatVisible, toggleAgentChat } = useUIStore(
     useShallow((state) => ({
-      editMode: state.editMode,
-      toggleEditMode: state.toggleEditMode,
       agentChatVisible: state.agentChatVisible,
       toggleAgentChat: state.toggleAgentChat,
     }))
@@ -183,10 +181,6 @@ export const Header: React.FC<HeaderProps> = ({
   const handleThemeToggle = useCallback(() => {
     toggleTheme();
   }, [toggleTheme]);
-
-  const handleEditModeToggle = useCallback(() => {
-    toggleEditMode();
-  }, [toggleEditMode]);
 
   const handleAgentToggle = useCallback(() => {
     toggleAgentChat();
@@ -583,37 +577,6 @@ export const Header: React.FC<HeaderProps> = ({
               <line x1="16" y1="16" x2="16" y2="16" />
             </svg>
             <span className="hidden sm:inline">Agent</span>
-          </button>
-
-          {/* Edit Mode Toggle */}
-          <button
-            data-testid="edit-mode-toggle"
-            onClick={handleEditModeToggle}
-            aria-label={editMode ? 'Hide Edit Panel' : 'Show Edit Panel'}
-            aria-pressed={editMode}
-            title={editMode ? 'Hide Edit Panel' : 'Show Edit Panel'}
-            className={`
-              flex items-center gap-2
-              px-3 py-1.5
-              text-sm font-medium
-              rounded-lg
-              transition-colors
-              ${
-                editMode
-                  ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
-                  : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700'
-              }
-            `}
-          >
-            <svg
-              className="w-4 h-4"
-              viewBox="0 0 20 20"
-              fill="currentColor"
-              aria-hidden="true"
-            >
-              <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-            </svg>
-            <span>Edit</span>
           </button>
 
           {/* Theme Toggle */}
