@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useSessionTabs } from '../stores/tabsStore';
 
 function formatSize(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -22,19 +23,34 @@ function formatDate(isoString: string): string {
   });
 }
 
-export const ImageViewer: React.FC = () => {
+export interface ImageViewerProps {
+  imageId?: string;
+  project?: string;
+  session?: string;
+}
+
+export const ImageViewer: React.FC<ImageViewerProps> = ({ imageId, project, session }) => {
   const [imageError, setImageError] = useState(false);
-  const { currentSession, images, selectedImageId } = useSessionStore(
+  const { currentSession, images } = useSessionStore(
     useShallow((state) => ({
       currentSession: state.currentSession,
       images: state.images,
-      selectedImageId: state.selectedImageId,
     }))
   );
+  const { tabs, activeTabId } = useSessionTabs();
+  const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
 
-  const image = images.find((img) => img.id === selectedImageId);
+  const effectiveImageId =
+    imageId ??
+    (activeTab?.kind === 'artifact' && activeTab.artifactType === 'image'
+      ? activeTab.artifactId
+      : undefined);
+  const effectiveProject = project ?? currentSession?.project;
+  const effectiveSession = session ?? currentSession?.name;
 
-  if (!image || !currentSession) {
+  const image = images.find((img) => img.id === effectiveImageId);
+
+  if (!image || !effectiveProject || !effectiveSession) {
     return (
       <div className="flex flex-col h-full items-center justify-center bg-gray-50 dark:bg-gray-900">
         <p className="text-gray-500 dark:text-gray-400 text-sm">No image selected</p>
@@ -43,8 +59,8 @@ export const ImageViewer: React.FC = () => {
   }
 
   const apiUrl = `/api/image/${encodeURIComponent(image.id)}/content?project=${encodeURIComponent(
-    currentSession.project
-  )}&session=${encodeURIComponent(currentSession.name)}`;
+    effectiveProject
+  )}&session=${encodeURIComponent(effectiveSession)}`;
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-gray-900">

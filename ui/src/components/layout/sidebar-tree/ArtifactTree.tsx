@@ -31,7 +31,7 @@ import { importArtifact } from '../../../lib/importArtifact';
 import { downloadArtifact } from '../../../lib/downloadArtifact';
 import { emailArtifact } from '../../../lib/emailArtifact';
 import { api } from '../../../lib/api';
-import { useTabsStore } from '../../../stores/tabsStore';
+import { useTabsStore, useSessionTabs } from '../../../stores/tabsStore';
 import { ConfirmDialog } from '../../dialogs/ConfirmDialog';
 import type { Item, ItemType } from '../../../types/item';
 
@@ -60,6 +60,12 @@ function toTabDescriptor(node: TreeNode) {
       artifactId: node.id,
       name: node.name,
     };
+  }
+  if (node.kind === 'task-graph') {
+    return { id: node.id, kind: 'task-graph' as const, artifactId: node.id, name: node.name ?? 'Task Graph' };
+  }
+  if (node.kind === 'task-details') {
+    return { id: node.id, kind: 'task-details' as const, artifactId: node.id, name: node.name };
   }
   return null;
 }
@@ -130,20 +136,16 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
   const selectedDesignId = useSessionStore((s) => s.selectedDesignId);
   const selectedSpreadsheetId = useSessionStore((s) => s.selectedSpreadsheetId);
   const selectedSnippetId = useSessionStore((s) => s.selectedSnippetId);
-  const selectedEmbedId = useSessionStore((s) => s.selectedEmbedId);
-  const selectedImageId = useSessionStore((s) => s.selectedImageId);
 
   const selectDiagram = useSessionStore((s) => s.selectDiagram);
   const selectDocument = useSessionStore((s) => s.selectDocument);
   const selectDesign = useSessionStore((s) => s.selectDesign);
   const selectSpreadsheet = useSessionStore((s) => s.selectSpreadsheet);
   const selectSnippet = useSessionStore((s) => s.selectSnippet);
-  const selectEmbed = useSessionStore((s) => s.selectEmbed);
-  const selectImage = useSessionStore((s) => s.selectImage);
-  const selectPseudoPath = useSessionStore((s) => s.selectPseudoPath);
-  const selectTaskGraph = useSessionStore((s) => s.selectTaskGraph);
-  const taskGraphSelected = useSessionStore((s) => s.taskGraphSelected);
   const collabState = useSessionStore((s) => s.collabState);
+
+  const { activeTabId, tabs } = useSessionTabs();
+  const activeTabDescriptor = tabs.find((t) => t.id === activeTabId) ?? null;
 
   const collapsedSections = useSidebarTreeStore((s) => s.collapsedSections);
   const forceExpandedSections = useSidebarTreeStore((s) => s.forceExpandedSections);
@@ -168,9 +170,9 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
   const clearSelection = useSidebarTreeStore((s) => s.clearSelection);
 
   const [pseudoFileList, setPseudoFileList] = useState<PseudoFileSummary[]>([]);
-  const selectedPseudoPathForTree = useSessionStore((s) => s.selectedPseudoPath) ?? '';
+  const selectedPseudoPathForTree =
+    activeTabDescriptor?.kind === 'code-file' ? activeTabDescriptor.artifactId : '';
 
-  const openPreview = useTabsStore((s) => s.openPreview);
   const openPermanent = useTabsStore((s) => s.openPermanent);
 
   const removeDiagram = useSessionStore((s) => s.removeDiagram);
@@ -602,16 +604,15 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
           selectSnippet(node.id);
           break;
         case 'image':
-          selectImage(node.id);
           break;
       }
     } else if (node.kind === 'embed') {
-      selectEmbed(node.id);
+      // handled by openPermanent
     } else if (node.kind === 'blueprint') {
       selectDocument(node.id);
       loadDocumentContent(node.id);
     } else if (node.kind === 'task-graph') {
-      selectTaskGraph();
+      // handled by openPermanent
     } else if (node.kind === 'task-details') {
       selectDocument(node.id);
       loadDocumentContent(node.id);
@@ -631,9 +632,11 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
       setSelection([node.id], node.id);
       openNode(node);
       const d = toTabDescriptor(node);
-      if (d) openPreview(d);
+      if (d) {
+        openPermanent(d);
+      }
     },
-    [toggleInSelection, extendSelectionTo, setSelection, visibleOrder, openPreview, openNode],
+    [toggleInSelection, extendSelectionTo, setSelection, visibleOrder, openPermanent, openNode],
   );
 
   const isSelected = (node: TreeNode): boolean => {
@@ -650,14 +653,21 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
         case 'snippet':
           return selectedSnippetId === node.id;
         case 'image':
-          return selectedImageId === node.id;
+          return (
+            activeTabDescriptor?.kind === 'artifact' &&
+            activeTabDescriptor.artifactType === 'image' &&
+            activeTabDescriptor.artifactId === node.id
+          );
       }
     } else if (node.kind === 'embed') {
-      return selectedEmbedId === node.id;
+      return (
+        activeTabDescriptor?.kind === 'embed' &&
+        activeTabDescriptor.artifactId === node.id
+      );
     } else if (node.kind === 'blueprint') {
       return selectedDocumentId === node.id;
     } else if (node.kind === 'task-graph') {
-      return taskGraphSelected;
+      return activeTabDescriptor?.kind === 'task-graph';
     } else if (node.kind === 'task-details') {
       return selectedDocumentId === node.id;
     }
@@ -935,6 +945,7 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
     nodes: TreeNode[],
   ): React.ReactElement | null => {
     const multiselectEnabled = !MULTISELECT_EXCLUDED_SECTIONS.has(id);
+    const showSelectedHighlight = id !== 'recent';
     const filtered = filterNodes(nodes)
       .slice()
       .sort((a, b) => (b.lastModified ?? 0) - (a.lastModified ?? 0));
@@ -957,14 +968,16 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
             <div key={node.id} style={{ paddingLeft: '16px' }}>
               <ArtifactTreeNode
                 node={node}
-                selected={isSelected(node)}
+                selected={showSelectedHighlight && isSelected(node)}
                 isInMultiSelection={multiselectEnabled && multiSelection.ids.has(node.id)}
                 onClick={(e) => {
                   if (!multiselectEnabled) {
                     setSelection([node.id], node.id);
                     openNode(node);
                     const d = toTabDescriptor(node);
-                    if (d) openPreview(d);
+                    if (d) {
+                      openPermanent(d);
+                    }
                     return;
                   }
                   handleNodeClick(node, e);
@@ -1164,13 +1177,12 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
             currentPath={selectedPseudoPathForTree}
             onNavigate={(stem) => {
               const basename = stem.split('/').pop() || stem;
-              openPreview({
+              openPermanent({
                 id: `pseudo::${stem}`,
                 kind: 'code-file',
                 artifactId: stem,
                 name: basename,
               });
-              selectPseudoPath(stem);
             }}
             project={currentSession.project}
           />

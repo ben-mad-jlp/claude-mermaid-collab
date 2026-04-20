@@ -54,6 +54,21 @@ describe('agentStore.applyEvent — tool_call_*', () => {
     expect(item.output).toBe('live');
   });
 
+  it('sub_agent_turn adds childTurnId to nestedTimelines keyed by parentTurnId', () => {
+    const s = useAgentStore.getState();
+    s.applyEvent({
+      ...base, kind: 'sub_agent_turn', turnId: 'child-1', parentTurnId: 'parent-1', name: 'sub',
+    } as AgentEvent);
+    s.applyEvent({
+      ...base, kind: 'sub_agent_turn', turnId: 'child-2', parentTurnId: 'parent-1',
+    } as AgentEvent);
+    // dedup
+    s.applyEvent({
+      ...base, kind: 'sub_agent_turn', turnId: 'child-1', parentTurnId: 'parent-1',
+    } as AgentEvent);
+    expect(useAgentStore.getState().nestedTimelines['parent-1']).toEqual(['child-1', 'child-2']);
+  });
+
   it('tool_call_started dedups by toolUseId', () => {
     const s = useAgentStore.getState();
     const ev = { ...base, kind: 'tool_call_started', turnId: 't', messageId: 'm', toolUseId: 'tu', name: 'Bash', input: {}, index: 0 } as AgentEvent;

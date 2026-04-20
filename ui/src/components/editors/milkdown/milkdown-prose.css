@@ -39,3 +39,105 @@
   flex: 1 1 auto;
   min-width: 0;
 }
+
+/* Code blocks — remove gray background, use border instead; bolder syntax colors. */
+.milkdown-host .ProseMirror pre,
+.milkdown-host .ProseMirror pre[class*='language-'] {
+  background: transparent !important;
+  border: 1px solid rgb(209 213 219); /* gray-300 */
+  border-radius: 6px;
+  padding: 1.5rem 2.25rem;
+  text-shadow: none;
+  width: fit-content;
+  max-width: 100%;
+}
+.dark .milkdown-host .ProseMirror pre,
+.dark .milkdown-host .ProseMirror pre[class*='language-'] {
+  border-color: rgb(55 65 81); /* gray-700 */
+}
+.milkdown-host .ProseMirror pre code,
+.milkdown-host .ProseMirror pre > code {
+  background: transparent !important;
+  padding: 0;
+  text-shadow: none;
+}
+
+/* Prism token colors — bolder, higher-contrast palette (light mode). */
+.milkdown-host .ProseMirror .token.comment,
+.milkdown-host .ProseMirror .token.prolog,
+.milkdown-host .ProseMirror .token.doctype,
+.milkdown-host .ProseMirror .token.cdata { color: #6b7280; font-style: italic; }
+
+.milkdown-host .ProseMirror .token.punctuation { color: #111827; }
+
+.milkdown-host .ProseMirror .token.property,
+.milkdown-host .ProseMirror .token.tag,
+.milkdown-host .ProseMirror .token.constant,
+.milkdown-host .ProseMirror .token.symbol,
+.milkdown-host .ProseMirror .token.deleted { color: #b91c1c; font-weight: 600; } /* red-700 */
+
+.milkdown-host .ProseMirror .token.boolean,
+.milkdown-host .ProseMirror .token.number { color: #c2410c; font-weight: 600; } /* orange-700 */
+
+.milkdown-host .ProseMirror .token.selector,
+.milkdown-host .ProseMirror .token.attr-name,
+.milkdown-host .ProseMirror .token.string,
+.milkdown-host .ProseMirror .token.char,
+.milkdown-host .ProseMirror .token.builtin,
+.milkdown-host .ProseMirror .token.inserted { color: #047857; font-weight: 600; } /* emerald-700 */
+
+.milkdown-host .ProseMirror .token.operator,
+.milkdown-host .ProseMirror .token.entity,
+.milkdown-host .ProseMirror .token.url,
+.milkdown-host .ProseMirror .language-css .token.string,
+.milkdown-host .ProseMirror .style .token.string { color: #7c3aed; font-weight: 600; } /* violet-600 */
+
+.milkdown-host .ProseMirror .token.atrule,
+.milkdown-host .ProseMirror .token.attr-value,
+.milkdown-host .ProseMirror .token.keyword { color: #1d4ed8; font-weight: 700; } /* blue-700 bold */
+
+.milkdown-host .ProseMirror .token.function,
+.milkdown-host .ProseMirror .token.class-name { color: #be185d; font-weight: 600; } /* pink-700 */
+
+.milkdown-host .ProseMirror .token.regex,
+.milkdown-host .ProseMirror .token.important,
+.milkdown-host .ProseMirror .token.variable { color: #a16207; font-weight: 600; } /* yellow-700 */
+
+/* Dark mode overrides — brighter variants for readability. */
+.dark .milkdown-host .ProseMirror .token.comment,
+.dark .milkdown-host .ProseMirror .token.prolog,
+.dark .milkdown-host .ProseMirror .token.doctype,
+.dark .milkdown-host .ProseMirror .token.cdata { color: #9ca3af; }
+
+.dark .milkdown-host .ProseMirror .token.punctuation { color: #e5e7eb; }
+
+.dark .milkdown-host .ProseMirror .token.property,
+.dark .milkdown-host .ProseMirror .token.tag,
+.dark .milkdown-host .ProseMirror .token.constant,
+.dark .milkdown-host .ProseMirror .token.symbol,
+.dark .milkdown-host .ProseMirror .token.deleted { color: #f87171; }
+
+.dark .milkdown-host .ProseMirror .token.boolean,
+.dark .milkdown-host .ProseMirror .token.number { color: #fb923c; }
+
+.dark .milkdown-host .ProseMirror .token.selector,
+.dark .milkdown-host .ProseMirror .token.attr-name,
+.dark .milkdown-host .ProseMirror .token.string,
+.dark .milkdown-host .ProseMirror .token.char,
+.dark .milkdown-host .ProseMirror .token.builtin,
+.dark .milkdown-host .ProseMirror .token.inserted { color: #34d399; }
+
+.dark .milkdown-host .ProseMirror .token.operator,
+.dark .milkdown-host .ProseMirror .token.entity,
+.dark .milkdown-host .ProseMirror .token.url { color: #a78bfa; }
+
+.dark .milkdown-host .ProseMirror .token.atrule,
+.dark .milkdown-host .ProseMirror .token.attr-value,
+.dark .milkdown-host .ProseMirror .token.keyword { color: #60a5fa; }
+
+.dark .milkdown-host .ProseMirror .token.function,
+.dark .milkdown-host .ProseMirror .token.class-name { color: #f472b6; }
+
+.dark .milkdown-host .ProseMirror .token.regex,
+.dark .milkdown-host .ProseMirror .token.important,
+.dark .milkdown-host .ProseMirror .token.variable { color: #fbbf24; }

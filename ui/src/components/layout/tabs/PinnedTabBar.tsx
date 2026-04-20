@@ -28,14 +28,6 @@ export const PinnedTabBar: React.FC = () => {
   const activateTab = (tab: TabDescriptor) => {
     setActive(tab.id);
     const s = useSessionStore.getState();
-    if (tab.kind === 'embed') {
-      s.selectEmbed(tab.artifactId);
-      return;
-    }
-    if (tab.kind === 'code-file') {
-      s.selectPseudoPath(tab.artifactId);
-      return;
-    }
     if (tab.kind === 'artifact' && tab.artifactType) {
       switch (tab.artifactType) {
         case 'diagram': s.selectDiagram(tab.artifactId); break;
@@ -43,7 +35,6 @@ export const PinnedTabBar: React.FC = () => {
         case 'design': s.selectDesign(tab.artifactId); break;
         case 'spreadsheet': s.selectSpreadsheet(tab.artifactId); break;
         case 'snippet': s.selectSnippet(tab.artifactId); break;
-        case 'image': s.selectImage(tab.artifactId); break;
       }
     }
   };

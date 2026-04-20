@@ -19,10 +19,6 @@ const selectDocumentSpy = vi.fn();
 const selectDesignSpy = vi.fn();
 const selectSpreadsheetSpy = vi.fn();
 const selectSnippetSpy = vi.fn();
-const selectEmbedSpy = vi.fn();
-const selectImageSpy = vi.fn();
-const selectPseudoPathSpy = vi.fn();
-const selectTaskGraphSpy = vi.fn();
 const openPreviewSpy = vi.fn();
 const openPermanentSpy = vi.fn();
 
@@ -47,11 +43,7 @@ function resetStores() {
     snippets: [],
     selectedSnippetId: null,
     embeds: [],
-    selectedEmbedId: null,
     images: [],
-    selectedImageId: null,
-    selectedPseudoPath: null,
-    taskGraphSelected: false,
     sessionTodos: [],
     sessionTodosShowCompleted: false,
     sessionTodosFetchSeq: 0,
@@ -62,10 +54,6 @@ function resetStores() {
     selectDesign: selectDesignSpy,
     selectSpreadsheet: selectSpreadsheetSpy,
     selectSnippet: selectSnippetSpy,
-    selectEmbed: selectEmbedSpy,
-    selectImage: selectImageSpy,
-    selectPseudoPath: selectPseudoPathSpy,
-    selectTaskGraph: selectTaskGraphSpy,
   } as any);
 
   useSidebarTreeStore.setState({
@@ -98,10 +86,6 @@ describe('ArtifactTree click handling', () => {
     selectDesignSpy.mockClear();
     selectSpreadsheetSpy.mockClear();
     selectSnippetSpy.mockClear();
-    selectEmbedSpy.mockClear();
-    selectImageSpy.mockClear();
-    selectPseudoPathSpy.mockClear();
-    selectTaskGraphSpy.mockClear();
     openPreviewSpy.mockClear();
     openPermanentSpy.mockClear();
     resetStores();
@@ -188,10 +172,6 @@ describe('ArtifactTree context menu + summary bar', () => {
     selectDesignSpy.mockClear();
     selectSpreadsheetSpy.mockClear();
     selectSnippetSpy.mockClear();
-    selectEmbedSpy.mockClear();
-    selectImageSpy.mockClear();
-    selectPseudoPathSpy.mockClear();
-    selectTaskGraphSpy.mockClear();
     openPreviewSpy.mockClear();
     openPermanentSpy.mockClear();
     resetStores();

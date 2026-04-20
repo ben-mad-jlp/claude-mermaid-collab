@@ -444,6 +444,15 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
         set({ timeline: next });
         return;
       }
+      case 'sub_agent_turn': {
+        // Associate the child turnId with its parent Task's tool call so the
+        // TaskView can render a nested timeline for the subagent.
+        const cur = get().nestedTimelines;
+        const list = cur[event.parentTurnId] ?? [];
+        if (list.includes(event.turnId)) return;
+        set({ nestedTimelines: { ...cur, [event.parentTurnId]: [...list, event.turnId] } });
+        return;
+      }
       case 'permission_requested': {
         const { timeline, pendingPromptCount } = get();
         if (

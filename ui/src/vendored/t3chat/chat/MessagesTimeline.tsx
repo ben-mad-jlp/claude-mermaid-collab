@@ -55,14 +55,7 @@ export const MessagesTimeline: React.FC<MessagesTimelineProps> = ({
     }
   }, [confirm]);
 
-  if (items.length === 0) {
-    return (
-      <div className={cn('flex items-center justify-center h-full text-sm text-muted-foreground', className)}>
-        {emptyState ?? 'No messages yet'}
-      </div>
-    );
-  }
-  const groups = groupByTurn(items);
+  const groups = React.useMemo(() => groupByTurn(items), [items]);
 
   // Index compactions by the id of the timeline item they should render after.
   // Use a Map<string, CompactionEntry[]> so multiple compactions after the same
@@ -95,6 +88,14 @@ export const MessagesTimeline: React.FC<MessagesTimelineProps> = ({
     }
     return out;
   }, [groups]);
+
+  if (items.length === 0) {
+    return (
+      <div className={cn('flex items-center justify-center h-full text-sm text-muted-foreground', className)}>
+        {emptyState ?? 'No messages yet'}
+      </div>
+    );
+  }
 
   const onConfirm = () => {
     if (confirm && onRevertToCheckpoint) {

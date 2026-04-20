@@ -27,8 +27,6 @@ describe('Sidebar', () => {
     selectedDesignId: null,
     selectedSpreadsheetId: null,
     selectedSnippetId: null,
-    taskGraphSelected: false,
-    selectTaskGraph: vi.fn(),
     removeDiagram: vi.fn(),
     removeDocument: vi.fn(),
     removeDesign: vi.fn(),
@@ -190,7 +188,6 @@ describe('Sidebar', () => {
     it('should show Task Graph entry when in execute-batch state', () => {
       mockUseSessionStore.mockImplementation((selector) =>
         selector(createMockState({
-          taskGraphSelected: false,
           currentSession: { project: '/test', name: 'test-session' } as any,
           collabState: { state: 'execute-batch' } as any,
         }))
@@ -209,7 +206,6 @@ describe('Sidebar', () => {
     it('should show Task Graph entry when in ready-to-implement state', () => {
       mockUseSessionStore.mockImplementation((selector) =>
         selector(createMockState({
-          taskGraphSelected: false,
           currentSession: { project: '/test', name: 'test-session' } as any,
           collabState: { state: 'ready-to-implement' } as any,
         }))
@@ -227,7 +223,6 @@ describe('Sidebar', () => {
     it('should NOT show Task Graph entry when not in implementation phase', () => {
       mockUseSessionStore.mockImplementation((selector) =>
         selector(createMockState({
-          taskGraphSelected: false,
           currentSession: { project: '/test', name: 'test-session' } as any,
           collabState: { state: 'brainstorming' } as any,
         }))
@@ -245,7 +240,6 @@ describe('Sidebar', () => {
     it('should NOT show Task Graph entry when no session is selected', () => {
       mockUseSessionStore.mockImplementation((selector) =>
         selector(createMockState({
-          taskGraphSelected: false,
           currentSession: null,
           collabState: { state: 'execute-batch' } as any,
         }))
@@ -260,46 +254,5 @@ describe('Sidebar', () => {
       expect(screen.queryByTestId('task-graph-entry')).not.toBeInTheDocument();
     });
 
-    it('should highlight Task Graph entry when selected', () => {
-      mockUseSessionStore.mockImplementation((selector) =>
-        selector(createMockState({
-          taskGraphSelected: true,
-          currentSession: { project: '/test', name: 'test-session' } as any,
-          collabState: { state: 'execute-batch' } as any,
-        }))
-      );
-
-      render(
-        <BrowserRouter>
-          <Sidebar />
-        </BrowserRouter>
-      );
-
-      const taskGraphEntry = screen.getByTestId('task-graph-entry');
-      expect(taskGraphEntry).toHaveClass('bg-accent-100');
-    });
-
-    it('should call selectTaskGraph when clicked', () => {
-      const mockSelectTaskGraph = vi.fn();
-      mockUseSessionStore.mockImplementation((selector) =>
-        selector(createMockState({
-          taskGraphSelected: false,
-          currentSession: { project: '/test', name: 'test-session' } as any,
-          collabState: { state: 'execute-batch' } as any,
-          selectTaskGraph: mockSelectTaskGraph,
-        }))
-      );
-
-      render(
-        <BrowserRouter>
-          <Sidebar />
-        </BrowserRouter>
-      );
-
-      const taskGraphEntry = screen.getByTestId('task-graph-entry');
-      taskGraphEntry.click();
-
-      expect(mockSelectTaskGraph).toHaveBeenCalled();
-    });
   });
 });

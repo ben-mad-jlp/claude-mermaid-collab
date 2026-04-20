@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { ChatView } from '@/vendored/t3chat/ChatView';
 import { ChatMarkdown } from '@/vendored/t3chat/ChatMarkdown';
+import { ToolCallCard } from '@/vendored/t3chat/chat/tool-cards/ToolCallCard';
 import { useChatViewBindings } from './useChatViewBindings';
 import type { AgentTimelineItem } from '@/stores/agentStore';
 
@@ -13,12 +14,7 @@ export interface ChatHostProps {
 
 function renderItem(it: AgentTimelineItem): React.ReactNode {
   if (it.type === 'tool_call') {
-    return (
-      <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs font-mono">
-        <span className="font-semibold">{it.name}</span>
-        <span className="ml-2 text-muted-foreground">{it.status}</span>
-      </div>
-    );
+    return <ToolCallCard item={it} />;
   }
   if (it.type === 'permission') {
     return (

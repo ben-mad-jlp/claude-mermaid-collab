@@ -54,17 +54,8 @@ import PinnedTabBar from '@/components/layout/tabs/PinnedTabBar';
 import TabBar from '@/components/layout/tabs/TabBar';
 
 // Import unified editor component
-import UnifiedEditor from '@/components/editors/UnifiedEditor';
-import DocumentView from '@/components/editors/DocumentView';
+import SplitEditorHost from '@/components/layout/editor/SplitEditorHost';
 import type { MermaidPreviewRef } from '@/components/editors/MermaidPreview';
-
-// Import task graph view
-import { TaskGraphView } from '@/components/task-graph';
-
-// Import embed viewer
-import { EmbedViewer } from '@/components/EmbedViewer';
-import { ImageViewer } from '@/components/ImageViewer';
-import { PseudoViewer } from '@/pages/pseudo/PseudoViewer';
 
 // Import notification components
 import { ToastContainer } from '@/components/notifications';
@@ -185,7 +176,6 @@ const App: React.FC = () => {
     selectedSpreadsheetId,
     snippets,
     selectedSnippetId,
-    taskGraphSelected,
     updateDiagram,
     updateDocument,
     updateDesign,
@@ -202,14 +192,11 @@ const App: React.FC = () => {
     updateSnippet,
     removeSnippet,
     embeds,
-    selectedEmbedId,
     addEmbed,
     removeEmbed,
     images,
-    selectedImageId,
     addImage,
     removeImage,
-    selectedPseudoPath,
     setPendingDiff,
     setCollabState,
   } = useSessionStore(
@@ -227,7 +214,6 @@ const App: React.FC = () => {
       selectedSpreadsheetId: state.selectedSpreadsheetId,
       snippets: state.snippets,
       selectedSnippetId: state.selectedSnippetId,
-      taskGraphSelected: state.taskGraphSelected,
       updateDiagram: state.updateDiagram,
       updateDocument: state.updateDocument,
       updateDesign: state.updateDesign,
@@ -244,14 +230,11 @@ const App: React.FC = () => {
       updateSnippet: state.updateSnippet,
       removeSnippet: state.removeSnippet,
       embeds: state.embeds,
-      selectedEmbedId: state.selectedEmbedId,
       addEmbed: state.addEmbed,
       removeEmbed: state.removeEmbed,
       images: state.images,
-      selectedImageId: state.selectedImageId,
       addImage: state.addImage,
       removeImage: state.removeImage,
-      selectedPseudoPath: state.selectedPseudoPath,
       setPendingDiff: state.setPendingDiff,
       setCollabState: state.setCollabState,
     }))
@@ -923,32 +906,21 @@ const App: React.FC = () => {
         };
       }
     }
-    if (selectedEmbedId) {
-      const embed = embeds.find((e) => e.id === selectedEmbedId);
-      if (embed) {
-        return { id: embed.id, name: embed.name, type: 'embed' as const, content: embed.url, lastModified: new Date(embed.createdAt).getTime() };
-      }
-    }
-    if (selectedImageId) {
-      const image = images.find((i) => i.id === selectedImageId);
-      if (image) {
-        return {
-          id: image.id,
-          name: image.name,
-          type: 'image' as const,
-          content: '',
-          lastModified: new Date(image.uploadedAt).getTime(),
-        };
-      }
-    }
     return null;
-  }, [diagrams, documents, designs, spreadsheets, snippets, embeds, images, selectedDiagramId, selectedDocumentId, selectedDesignId, selectedSpreadsheetId, selectedSnippetId, selectedEmbedId, selectedImageId]);
+  }, [diagrams, documents, designs, spreadsheets, snippets, selectedDiagramId, selectedDocumentId, selectedDesignId, selectedSpreadsheetId, selectedSnippetId]);
 
   // Track local content for auto-save
   const [localContent, setLocalContent] = React.useState<string>('');
 
   // Snippet inline toolbar controls (pushed up from SnippetEditor)
   const [snippetToolbarControls, setSnippetToolbarControls] = React.useState<React.ReactNode>(null);
+
+  // Derive active left-pane tab from tabsStore for toolbar visibility gating
+  const tabsEntry = useTabsStore((s) =>
+    currentSession ? s.bySession[sessionKey(currentSession.project, currentSession.name)] : undefined
+  );
+  const activeTab = tabsEntry?.tabs.find((t) => t.id === tabsEntry.activeTabId) ?? null;
+  const showToolbar = activeTab?.kind === 'artifact' && activeTab.artifactType !== 'image';
 
   // Item 4: Use useMemo to compute effective content based on selectedItem
   // This ensures type switches get fresh content immediately without async race condition
@@ -1388,83 +1360,6 @@ const App: React.FC = () => {
       );
     }
 
-    // Render task graph view when selected
-    if (taskGraphSelected && currentSession) {
-      return (
-        <div className="flex flex-col h-full min-h-0">
-          <PinnedTabBar />
-          <TabBar />
-          {/* Toolbar for Task Graph */}
-          <EditorToolbar
-            itemName="Task Graph"
-            hasUnsavedChanges={false}
-            onUndo={() => {}}
-            onRedo={() => {}}
-            canUndo={false}
-            canRedo={false}
-            zoom={zoomLevel}
-            onZoomIn={zoomIn}
-            onZoomOut={zoomOut}
-            overflowActions={[]}
-            showZoom={true}
-            onCenter={handleCenter}
-            onFitToView={handleFitToView}
-            itemType="diagram"
-          />
-
-          {/* Task Graph View */}
-          <div className="flex-1 min-h-0 overflow-hidden">
-            <TaskGraphView
-              project={currentSession.project}
-              session={currentSession.name}
-            />
-          </div>
-        </div>
-      );
-    }
-
-    if (selectedEmbedId) {
-      const embed = embeds.find((e) => e.id === selectedEmbedId);
-      if (embed) {
-        return (
-          <div className="flex flex-col h-full min-h-0">
-            <PinnedTabBar />
-            <TabBar />
-            <div className="flex-1 min-h-0 overflow-hidden">
-              <EmbedViewer embed={embed} />
-            </div>
-          </div>
-        );
-      }
-    }
-
-    if (selectedImageId) {
-      return (
-        <div className="flex flex-col h-full min-h-0">
-          <PinnedTabBar />
-          <TabBar />
-          <div className="flex-1 min-h-0 overflow-hidden">
-            <ImageViewer />
-          </div>
-        </div>
-      );
-    }
-
-    if (selectedPseudoPath && currentSession) {
-      return (
-        <div className="flex flex-col h-full min-h-0">
-          <PinnedTabBar />
-          <TabBar />
-          <div className="flex-1 min-h-0 overflow-hidden">
-            <PseudoViewer
-              path={selectedPseudoPath}
-              project={currentSession.project}
-            />
-          </div>
-        </div>
-      );
-    }
-
     // Item 4: Use localContent (updated by editor changes and checkbox toggles)
     // localContent is always initialized from selectedItem.content via useEffect on item change
     const editorItem = selectedItem
@@ -1473,10 +1368,8 @@ const App: React.FC = () => {
 
     return (
       <div className="flex flex-col h-full min-h-0">
-        <PinnedTabBar />
-        <TabBar />
-        {/* Editor Toolbar */}
-        <EditorToolbar
+        {/* Editor Toolbar - only render for toolbar-applicable artifact kinds */}
+        {showToolbar && <EditorToolbar
           itemName={selectedItem?.name || ''}
           hasUnsavedChanges={hasUnsavedChanges || isSaving}
           onUndo={() => {}} // TODO: Implement undo/redo
@@ -1502,48 +1395,18 @@ const App: React.FC = () => {
           designId={selectedItem?.type === 'design' ? selectedItem.id : undefined}
           onDesignHistorySelect={selectedItem?.type === 'design' ? handleDesignHistorySelect : undefined}
           inlineControls={selectedItem?.type === 'snippet' ? snippetToolbarControls : undefined}
-        />
+        />}
 
-        {/* Editor: Documents go through DocumentView (Milkdown inline).
-            Everything else (diagrams, snippets, designs, spreadsheets) stays
-            on UnifiedEditor. */}
+        {/* Editor: all content flows through SplitEditorHost → PaneContent.
+            NOTE: zoom/history/preview props are temporarily not threaded through
+            the split host — deferred follow-up. */}
         <div className="flex-1 min-h-0 overflow-hidden">
-          {editorItem?.type === 'document' ? (
-            // Pass selectedItem (store content), NOT editorItem whose content
-            // is `localContent`. Milkdown reads `initialMarkdown` once during
-            // `useEditor` (post-commit), so even with the setState-in-render
-            // reset there is a window where localContent still holds the
-            // previous tab's content — producing the off-by-one tab-switch
-            // bug when moving between a preview doc and permanent docs.
-            // `key={document.id}` already forces a remount on tab change, so
-            // reading straight from the store is both safe and correct.
-            <DocumentView
-              document={selectedItem!}
-              onContentChange={handleContentChange}
-            />
-          ) : (
-            <UnifiedEditor
-              item={editorItem}
-              editMode={editMode}
-              project={currentSession?.project}
-              session={currentSession?.name}
-              onContentChange={handleContentChange}
-              zoomLevel={zoomLevel}
-              onZoomIn={zoomIn}
-              onZoomOut={zoomOut}
-              onSetZoom={setZoomLevel}
-              previewRef={mermaidPreviewRef}
-              historyDiff={selectedItem?.type === 'document' ? historyDiff : null}
-              onClearHistoryDiff={handleClearHistoryDiff}
-              diagramHistoryPreview={selectedItem?.type === 'diagram' ? diagramHistoryPreview : null}
-              onDiagramRevert={handleDiagramRevert}
-              onClearDiagramHistoryPreview={handleClearDiagramHistoryPreview}
-              designHistoryPreview={selectedItem?.type === 'design' ? designHistoryPreview : null}
-              onDesignRevert={handleDesignRevert}
-              onClearDesignHistoryPreview={handleClearDesignHistoryPreview}
-              onSnippetToolbarControls={setSnippetToolbarControls}
-            />
-          )}
+          <SplitEditorHost
+            editMode={editMode}
+            project={currentSession?.project}
+            session={currentSession?.name}
+            onContentChange={(_id, content) => handleContentChange(content)}
+          />
         </div>
       </div>
     );

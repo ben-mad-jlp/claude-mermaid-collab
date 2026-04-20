@@ -120,11 +120,11 @@ export const SplitPane: React.FC<SplitPaneProps> = ({
         {/* Primary Panel */}
         <Panel
           ref={primaryPanelRef}
-          defaultSizePercentage={defaultPrimarySize}
-          minSizePercentage={minPrimarySize}
-          maxSizePercentage={maxPrimarySize}
+          defaultSize={defaultPrimarySize}
+          minSize={minPrimarySize}
+          maxSize={maxPrimarySize}
           collapsible={primaryCollapsible}
-          collapsedSizePercentage={0}
+          collapsedSize={0}
           onCollapse={onPrimaryCollapse}
           onExpand={onPrimaryExpand}
           data-testid="split-pane-primary"
@@ -162,7 +162,7 @@ export const SplitPane: React.FC<SplitPaneProps> = ({
 
         {/* Secondary Panel */}
         <Panel
-          minSizePercentage={minSecondarySize}
+          minSize={minSecondarySize}
           collapsible={secondaryCollapsible}
           data-testid="split-pane-secondary"
         >
@@ -233,10 +233,10 @@ export const ThreeWaySplitPane: React.FC<ThreeWaySplitPaneProps> = ({
       >
         {/* Left Panel */}
         <Panel
-          defaultSizePercentage={defaultSizes[0]}
-          minSizePercentage={minLeftSize}
+          defaultSize={defaultSizes[0]}
+          minSize={minLeftSize}
           collapsible={leftCollapsible}
-          collapsedSizePercentage={0}
+          collapsedSize={0}
           data-testid="split-pane-left"
         >
           <div className="w-full h-full min-w-0 overflow-hidden">
@@ -270,8 +270,8 @@ export const ThreeWaySplitPane: React.FC<ThreeWaySplitPaneProps> = ({
 
         {/* Center Panel */}
         <Panel
-          defaultSizePercentage={defaultSizes[1]}
-          minSizePercentage={minCenterSize}
+          defaultSize={defaultSizes[1]}
+          minSize={minCenterSize}
           data-testid="split-pane-center"
         >
           <div className="w-full h-full min-w-0 overflow-hidden">
@@ -305,10 +305,10 @@ export const ThreeWaySplitPane: React.FC<ThreeWaySplitPaneProps> = ({
 
         {/* Right Panel */}
         <Panel
-          defaultSizePercentage={defaultSizes[2]}
-          minSizePercentage={minRightSize}
+          defaultSize={defaultSizes[2]}
+          minSize={minRightSize}
           collapsible={rightCollapsible}
-          collapsedSizePercentage={0}
+          collapsedSize={0}
           data-testid="split-pane-right"
         >
           <div className="w-full h-full min-w-0 overflow-hidden">
