@@ -470,7 +470,8 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
       if (!forceExpandedSections.has(id)) effectiveCollapsed.add(id);
     }
 
-    return orderVisibleNodes(roots, effectiveCollapsed);
+    const sectionIds = new Set(sectionDefs.map((s) => s.id));
+    return orderVisibleNodes(roots, effectiveCollapsed).filter((id) => !sectionIds.has(id));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     pinnedNodes,

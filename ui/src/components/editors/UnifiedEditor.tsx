@@ -529,7 +529,7 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
         minPrimarySize={20}
         maxPrimarySize={80}
         minSecondarySize={20}
-        storageId="unified-editor-split"
+        storageId="unified-editor-split-v2"
         onSizeChange={setEditorSplitPosition}
         primaryContent={
           <div className="flex flex-col h-full min-h-0" data-testid="unified-editor-code-panel">

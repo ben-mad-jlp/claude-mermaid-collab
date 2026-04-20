@@ -155,7 +155,7 @@ export const useUIStore = create<UIState>()(
       editorSplitPosition: DEFAULT_EDITOR_SPLIT_POSITION,
       setEditorSplitPosition: (position: number) => {
         // Clamp position between 10 and 90 percent
-        const clamped = Math.max(10, Math.min(90, position));
+        const clamped = Math.max(20, Math.min(80, position));
         set({ editorSplitPosition: clamped });
       },
 
