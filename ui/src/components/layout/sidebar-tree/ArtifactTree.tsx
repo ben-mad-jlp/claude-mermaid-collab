@@ -174,6 +174,7 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
     activeTabDescriptor?.kind === 'code-file' ? activeTabDescriptor.artifactId : '';
 
   const openPermanent = useTabsStore((s) => s.openPermanent);
+  const openPreview = useTabsStore((s) => s.openPreview);
 
   const removeDiagram = useSessionStore((s) => s.removeDiagram);
   const removeDocument = useSessionStore((s) => s.removeDocument);
@@ -634,10 +635,10 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
       openNode(node);
       const d = toTabDescriptor(node);
       if (d) {
-        openPermanent(d);
+        openPreview(d);
       }
     },
-    [toggleInSelection, extendSelectionTo, setSelection, visibleOrder, openPermanent, openNode],
+    [toggleInSelection, extendSelectionTo, setSelection, visibleOrder, openPreview, openNode],
   );
 
   const isSelected = (node: TreeNode): boolean => {
@@ -977,7 +978,7 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
                     openNode(node);
                     const d = toTabDescriptor(node);
                     if (d) {
-                      openPermanent(d);
+                      openPreview(d);
                     }
                     return;
                   }
