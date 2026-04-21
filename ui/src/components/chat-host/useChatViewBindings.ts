@@ -7,6 +7,8 @@ import { useAgentSession } from '@/hooks/useAgentSession';
 import type { ChatViewProps } from '@/vendored/t3chat/ChatView';
 import type { TimelineItem } from '@/vendored/t3chat/chat/MessagesTimeline.logic';
 import type { PendingApproval } from '@/vendored/t3chat/chat/ComposerPendingApprovalPanel';
+import type { ComposerSerialized } from '@/vendored/t3chat/chat/composer-editor-serialize';
+import type { ChatMessageAttachment } from '@/types/agent';
 
 const DEFAULT_CONTEXT_TOTAL = 200_000;
 
@@ -154,6 +156,19 @@ export function useChatViewBindings(args: ChatViewBindingsArgs): ChatViewProps {
     [session, clearDraft, sessionId]
   );
 
+  const onSendSerialized = React.useCallback(
+    (serialized: ComposerSerialized) => {
+      const { text, attachments } = serialized;
+      const typedAttachments: ChatMessageAttachment[] | undefined =
+        attachments && attachments.length > 0
+          ? attachments.map((a) => ({ attachmentId: a.attachmentId, mimeType: a.mimeType }))
+          : undefined;
+      session.send(text, typedAttachments);
+      clearDraft(sessionId);
+    },
+    [session, clearDraft, sessionId]
+  );
+
   const onChange = React.useCallback(
     (v: string) => setDraft(sessionId, { plain: v }),
     [setDraft, sessionId]
@@ -190,6 +205,11 @@ export function useChatViewBindings(args: ChatViewBindingsArgs): ChatViewProps {
     [session],
   );
 
+  const onRewindToMessage = React.useCallback(
+    (messageId: string) => session.rewindToMessage(messageId),
+    [session],
+  );
+
   return {
     items,
     renderItem: renderMapped,
@@ -201,6 +221,7 @@ export function useChatViewBindings(args: ChatViewBindingsArgs): ChatViewProps {
     onRespondUserInput,
     checkpointsByTurn: store.checkpointsByTurn,
     onRevertToCheckpoint,
+    onRewindToMessage,
     currentTurnId: store.currentTurnId,
     compactions: store.compactions,
     thinkingByTurn: store.thinkingByTurn,
@@ -209,6 +230,7 @@ export function useChatViewBindings(args: ChatViewBindingsArgs): ChatViewProps {
       value: draft.plain,
       onChange,
       onSend,
+      onSendSerialized,
       onCancel,
       isStreaming,
       pending,
@@ -216,6 +238,7 @@ export function useChatViewBindings(args: ChatViewBindingsArgs): ChatViewProps {
       onApprovalDeny,
       contextUsed,
       contextTotal: contextUsed != null ? DEFAULT_CONTEXT_TOTAL : undefined,
+      sessionId,
     },
   };
 }

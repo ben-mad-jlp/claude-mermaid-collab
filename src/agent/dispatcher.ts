@@ -1,5 +1,7 @@
 import type { ServerWebSocket } from 'bun';
-import type { AgentCommand, AgentEvent, UserMessageEvent, ErrorEvent, CommandAckEvent, UserInputResolvedEvent, CheckpointRevertedEvent, ModelChangedEvent, SessionRenamedEvent, AgentSetModelCommand, AgentRenameSessionCommand, EffortLevel } from './contracts.ts';
+import { stat } from 'node:fs/promises';
+import { join } from 'node:path';
+import type { AgentCommand, AgentEvent, UserMessageEvent, ErrorEvent, CommandAckEvent, UserInputResolvedEvent, CheckpointRevertedEvent, ModelChangedEvent, SessionRenamedEvent, AgentSetModelCommand, AgentRenameSessionCommand, EffortLevel, AttachmentReferencedEvent, AgentRewindToMessageCommand } from './contracts.ts';
 import type { AgentSessionRegistry } from './session-registry.ts';
 import type { WebSocketHandler } from '../websocket/handler.ts';
 import type { UserInputBridge } from './user-input-bridge.ts';
@@ -161,7 +163,31 @@ export class AgentDispatcher {
               // best-effort: reactor failures must not block the send
             }
           }
-          child.writeUserMessage(cmd.text);
+          // Verify attachments exist on disk; emit AttachmentReferencedEvent for each verified one.
+          for (const attachment of cmd.attachments ?? []) {
+            const attachPath = join(this.opts.resolvedCwd ?? '', '.collab', 'attachments', cmd.sessionId, attachment.attachmentId);
+            try {
+              await stat(attachPath);
+            } catch {
+              console.warn(`[dispatcher] attachment file missing, skipping: ${attachPath}`);
+              continue;
+            }
+            const resolvedMessageId = cmd.messageId || '';
+            if (!resolvedMessageId) {
+              console.warn('[dispatcher] agent_send missing messageId, skipping attachment_referenced');
+            } else {
+              const attachEvent: AttachmentReferencedEvent = {
+                kind: 'attachment_referenced',
+                sessionId: cmd.sessionId,
+                ts: Date.now(),
+                messageId: resolvedMessageId,
+                attachmentId: attachment.attachmentId,
+                mimeType: attachment.mimeType,
+              };
+              this.opts.registry.recordAndDispatch(cmd.sessionId, attachEvent);
+            }
+          }
+          await child.writeUserMessage(cmd.text, cmd.attachments ?? [], this.opts.resolvedCwd);
           const userEvent: UserMessageEvent = {
             kind: 'user_message',
             sessionId: cmd.sessionId,
@@ -222,9 +248,14 @@ export class AgentDispatcher {
           return await this.handleAgentSetModel(ws, cmd);
         case 'agent_rename_session':
           return await this.handleAgentRenameSession(ws, cmd);
+        case 'agent_rewind_to_message':
+          return await this.handleAgentRewindToMessage(cmd as unknown as AgentRewindToMessageCommand);
       }
     } catch (err) {
       if (err instanceof DispatchError) throw err;
+      // For rewind commands, re-throw so handle() can mark the receipt as
+      // rejected and send an error frame rather than silently acking.
+      if (cmd.kind === 'agent_rewind_to_message') throw err;
       this.emitErrorToCaller(ws, cmd.sessionId, 'child', (err as Error).message ?? String(err), true);
     }
   }
@@ -270,6 +301,36 @@ export class AgentDispatcher {
     const seq = this.opts.registry.recordAndDispatch(cmd.sessionId, event) ?? 0;
     this.opts.wsHandler.broadcast({ type: 'sessions_list_invalidated', sessionId: cmd.sessionId });
     return seq;
+  }
+
+  private async handleAgentRewindToMessage(cmd: AgentRewindToMessageCommand): Promise<number> {
+    if (!cmd.messageId) {
+      throw new DispatchError('INVALID_MESSAGE_ID', 'messageId must be non-empty');
+    }
+    const eventLog = this.opts.eventLog ?? this.opts.registry.getEventLog();
+    const events: AgentEvent[] = [];
+    for await (const ev of eventLog.replay(cmd.sessionId, 0)) {
+      events.push(ev);
+    }
+    const matchIndex = events.findLastIndex(
+      (ev) => ev.kind === 'user_message' && (ev as { messageId?: string }).messageId === cmd.messageId
+    );
+    if (matchIndex === -1) {
+      throw new DispatchError('MESSAGE_NOT_FOUND', `no user_message event with messageId ${cmd.messageId}`);
+    }
+    // Scan forward from the matched user_message to find the associated turn_start.
+    let turnId: string | undefined;
+    for (let i = matchIndex; i < events.length; i++) {
+      const ev = events[i];
+      if (ev.kind === 'turn_start') {
+        turnId = (ev as { turnId: string }).turnId;
+        break;
+      }
+    }
+    if (!turnId) {
+      throw new DispatchError('TURN_NOT_FOUND', `no turn_start found after messageId ${cmd.messageId}`);
+    }
+    return this.handleCheckpointRevert(cmd.sessionId, turnId);
   }
 
   private async handleCheckpointRevert(sessionId: string, turnId: string): Promise<number> {

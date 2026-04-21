@@ -10,6 +10,7 @@ export interface ChatComposerProps {
   value: string;
   onChange: (v: string) => void;
   onSend: (text: string) => void;
+  sessionId?: string;
   /**
    * Optional richer handler invoked in Lexical mode with the full serialized
    * editor state (text + mentions). When omitted, Lexical mode falls back to

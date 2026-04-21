@@ -18,6 +18,7 @@ export interface MessagesTimelineProps {
   compactions?: readonly CompactionEntry[];
   thinkingByTurn?: Record<string, string>;
   modelByTurn?: Record<string, string>;
+  onRewindToMessage?: (messageId: string) => void;
 }
 
 interface ConfirmState {
@@ -37,8 +38,10 @@ export const MessagesTimeline: React.FC<MessagesTimelineProps> = ({
   compactions,
   thinkingByTurn,
   modelByTurn,
+  onRewindToMessage,
 }) => {
   const [confirm, setConfirm] = React.useState<ConfirmState | null>(null);
+  const [rewindConfirmId, setRewindConfirmId] = React.useState<string | null>(null);
   const dialogRef = React.useRef<HTMLDialogElement | null>(null);
 
   React.useEffect(() => {
@@ -160,7 +163,43 @@ export const MessagesTimeline: React.FC<MessagesTimelineProps> = ({
                       streaming={currentTurnId === group.turnId}
                     />
                   ) : null}
-                  {renderItem(it)}
+                  {it.kind === 'message' && onRewindToMessage ? (
+                    <div
+                      className="relative group/msg"
+                      onMouseLeave={() => { if (rewindConfirmId === it.id) setRewindConfirmId(null); }}
+                    >
+                      {renderItem(it)}
+                      <div className="absolute top-1 right-1 opacity-0 group-hover/msg:opacity-100 transition-opacity flex items-center gap-1">
+                        {rewindConfirmId === it.id ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => { onRewindToMessage(it.id); setRewindConfirmId(null); }}
+                              className="text-xs px-2 py-0.5 rounded bg-red-500/90 text-white hover:bg-red-600"
+                            >
+                              Confirm rewind?
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setRewindConfirmId(null)}
+                              className="text-xs px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
+                            >
+                              ✕
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            aria-label="Rewind to this message"
+                            onClick={() => setRewindConfirmId(it.id)}
+                            className="text-sm px-1.5 py-0.5 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
+                          >
+                            ↺
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ) : renderItem(it)}
                   {followingCompactions
                     ? followingCompactions.map((c, i) => (
                         <CompactionBanner

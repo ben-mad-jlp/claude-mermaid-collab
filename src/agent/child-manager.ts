@@ -1,5 +1,7 @@
 import { EventEmitter } from 'node:events';
-import type { PermissionMode, RuntimeMode, EffortLevel } from './contracts';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import type { PermissionMode, RuntimeMode, EffortLevel, ChatMessageAttachment } from './contracts';
 import { splitPermissionMode } from './contracts';
 
 export interface ChildManagerOpts {
@@ -153,16 +155,40 @@ export class ChildManager extends EventEmitter {
     this.proc.exited.then((code: number | null) => this.handleExit(code));
   }
 
-  writeUserMessage(text: string): void {
+  async writeUserMessage(text: string, attachments: ChatMessageAttachment[] = [], resolvedCwd?: string): Promise<void> {
     if (!this.isAlive) {
       this.emit('error', { where: 'stdin', message: 'child not alive', recoverable: false });
       return;
     }
-    const frame =
-      JSON.stringify({
-        type: 'user',
-        message: { role: 'user', content: [{ type: 'text', text }] },
-      }) + '\n';
+    let frame: string;
+    if (attachments.length === 0) {
+      frame =
+        JSON.stringify({
+          type: 'user',
+          message: { role: 'user', content: [{ type: 'text', text }] },
+        }) + '\n';
+    } else {
+      const content: unknown[] = [];
+      const attachmentsDir = join(resolvedCwd ?? this.opts.cwd ?? '', '.collab', 'attachments', this.opts.sessionId);
+      for (const attachment of attachments) {
+        try {
+          const filePath = join(attachmentsDir, attachment.attachmentId);
+          const buf = await readFile(filePath);
+          const b64 = buf.toString('base64');
+          content.push({ type: 'image', source: { type: 'base64', media_type: attachment.mimeType, data: b64 } });
+        } catch (err) {
+          console.warn(`[ChildManager] skipping attachment ${attachment.attachmentId}:`, err instanceof Error ? err.message : String(err));
+        }
+      }
+      if (text.trim().length > 0) {
+        content.push({ type: 'text', text });
+      }
+      frame =
+        JSON.stringify({
+          type: 'user',
+          message: { role: 'user', content },
+        }) + '\n';
+    }
     try {
       this.proc.stdin.write(frame);
     } catch (err) {

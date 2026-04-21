@@ -25,12 +25,25 @@ export type AgentEventKind =
   | 'model_changed'
   | 'session_renamed'
   | 'attachment_uploaded'
+  | 'attachment_referenced'
   | 'session_cleared'
   | 'command_ack'
   | 'user_input_requested'
   | 'user_input_resolved'
   | 'checkpoint_created'
   | 'checkpoint_reverted';
+
+export interface ChatMessageAttachment {
+  attachmentId: string;
+  mimeType: string;
+}
+
+export interface ComposerHistoryEntry {
+  editorStateJson: string;
+  plain: string;
+  attachments: ChatMessageAttachment[];
+  ts: number;
+}
 
 export type PermissionMode = 'supervised' | 'accept-edits' | 'plan' | 'bypass';
 export type PermissionDecision = 'allow_once' | 'allow_session' | 'deny';
@@ -268,6 +281,13 @@ export interface AttachmentUploadedEvent extends BaseEvent {
   sizeBytes: number;
 }
 
+export interface AttachmentReferencedEvent extends BaseEvent {
+  kind: 'attachment_referenced';
+  messageId: string;
+  attachmentId: string;
+  mimeType: string;
+}
+
 export interface SessionClearedEvent {
   kind: 'session_cleared';
   sessionId: string;
@@ -325,6 +345,7 @@ export type AgentEvent =
   | ModelChangedEvent
   | SessionRenamedEvent
   | AttachmentUploadedEvent
+  | AttachmentReferencedEvent
   | SessionClearedEvent
   | CommandAckEvent
   | UserInputRequestedEvent
@@ -344,7 +365,7 @@ export interface CommandAckEvent {
 
 export type AgentCommandBody =
   | { kind: 'agent_start'; sessionId: string; cwd: string }
-  | { kind: 'agent_send'; sessionId: string; text: string; messageId?: string }
+  | { kind: 'agent_send'; sessionId: string; text: string; messageId?: string; attachments?: ChatMessageAttachment[] }
   | { kind: 'agent_cancel'; sessionId: string; turnId?: string }
   | { kind: 'agent_resume'; sessionId: string; lastSeq?: number }
   | { kind: 'agent_stop'; sessionId: string }
@@ -355,7 +376,8 @@ export type AgentCommandBody =
   | { kind: 'agent_checkpoint_revert'; sessionId: string; turnId: string }
   | { kind: 'agent_commit_push_pr'; sessionId: string; title: string; body?: string; draft?: boolean }
   | { kind: 'agent_set_model'; sessionId: string; model: string; effort?: EffortLevel }
-  | { kind: 'agent_rename_session'; sessionId: string; displayName: string };
+  | { kind: 'agent_rename_session'; sessionId: string; displayName: string }
+  | { kind: 'agent_rewind_to_message'; sessionId: string; messageId: string };
 
 export type AgentCommand = AgentCommandBody & { commandId?: CommandId };
 

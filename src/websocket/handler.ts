@@ -55,7 +55,7 @@ export type WSMessage =
   | { type: 'status_changed'; status: 'working' | 'waiting' | 'idle'; message?: string; lastActivity: string }
   | { type: 'session_state_updated'; lastActivity?: string; completedTasks?: string[]; pendingTasks?: string[]; project?: string; session?: string; state?: unknown }
   | { type: 'agent_start'; sessionId: string; cwd: string }
-  | { type: 'agent_send'; sessionId: string; text: string }
+  | { type: 'agent_send'; sessionId: string; text: string; messageId?: string; attachments?: { attachmentId: string; mimeType: string }[] }
   | { type: 'agent_cancel'; sessionId: string; turnId?: string }
   | { type: 'agent_resume'; sessionId: string }
   | { type: 'agent_stop'; sessionId: string }
@@ -67,6 +67,7 @@ export type WSMessage =
   | { type: 'agent_commit_push_pr'; sessionId: string; title: string; body?: string; draft?: boolean }
   | { type: 'agent_set_model'; sessionId: string; model: string; effort?: EffortLevel; commandId?: string }
   | { type: 'agent_rename_session'; sessionId: string; displayName: string; commandId?: string }
+  | { type: 'agent_rewind_to_message'; sessionId: string; messageId: string; commandId?: string }
   | { type: 'sessions_list_invalidated'; sessionId: string }
   | { type: 'agent_event'; channel: string; event: AgentEvent };
 
@@ -118,7 +119,8 @@ export class WebSocketHandler {
         data.type === 'agent_permission_resolve' ||
         data.type === 'agent_commit_push_pr' ||
         data.type === 'agent_set_model' ||
-        data.type === 'agent_rename_session'
+        data.type === 'agent_rename_session' ||
+        data.type === 'agent_rewind_to_message'
       ) {
         if (this.agentDispatcher) {
           const { type, ...rest } = data;

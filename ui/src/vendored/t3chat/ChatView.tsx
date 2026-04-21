@@ -21,6 +21,7 @@ export interface ChatViewProps {
   onRespondUserInput?: (promptId: string, value: UserInputValue) => void;
   checkpointsByTurn?: Record<string, { firstSeq: number; stashSha: string }>;
   onRevertToCheckpoint?: (turnId: string) => void;
+  onRewindToMessage?: (messageId: string) => void;
   currentTurnId?: string | null;
   compactions?: readonly CompactionEntry[];
   thinkingByTurn?: Record<string, string>;
@@ -41,6 +42,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onRespondUserInput,
   checkpointsByTurn,
   onRevertToCheckpoint,
+  onRewindToMessage,
   currentTurnId,
   compactions,
   thinkingByTurn,
@@ -74,6 +76,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               emptyState={emptyState}
               checkpointsByTurn={checkpointsByTurn}
               onRevertToCheckpoint={onRevertToCheckpoint}
+              onRewindToMessage={onRewindToMessage}
               currentTurnId={currentTurnId}
               compactions={compactions}
               thinkingByTurn={thinkingByTurn}

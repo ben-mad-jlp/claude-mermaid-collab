@@ -4,6 +4,7 @@ import { ChatMarkdown } from '@/vendored/t3chat/ChatMarkdown';
 import { ToolCallCard } from '@/vendored/t3chat/chat/tool-cards/ToolCallCard';
 import { useChatViewBindings } from './useChatViewBindings';
 import { useAgentStore, type AgentTimelineItem } from '@/stores/agentStore';
+import { IdleRecapBanner } from '@/components/agent-chat/IdleRecapBanner';
 
 export interface ChatHostProps {
   sessionId: string;
@@ -12,7 +13,7 @@ export interface ChatHostProps {
   rail?: React.ReactNode;
 }
 
-function makeRenderItem(streamingMessageId: string | null) {
+function makeRenderItem(streamingMessageId: string | null, sessionId: string) {
   return function renderItem(it: AgentTimelineItem): React.ReactNode {
     if (it.type === 'tool_call') {
       // Sub-agent (Task) inner tool calls render inside the parent Task card's
@@ -45,6 +46,31 @@ function makeRenderItem(streamingMessageId: string | null) {
           }
         >
           {isUser ? it.text : <ChatMarkdown content={content} />}
+          {isUser && it.attachments && it.attachments.length > 0 && (
+            <div className="flex flex-wrap gap-2 mt-1">
+              {it.attachments.map((att) => {
+                const url = `/api/agent/attachments/${att.attachmentId}?sessionId=${encodeURIComponent(sessionId)}`;
+                return (
+                  <a
+                    key={att.attachmentId}
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex flex-col items-center gap-0.5 rounded-md overflow-hidden border border-white/20 bg-white/10 p-1 hover:opacity-80 transition-opacity"
+                  >
+                    <img
+                      src={url}
+                      alt={att.mimeType}
+                      className="w-12 h-12 object-cover rounded"
+                    />
+                    <span className="text-[10px] text-white/60 max-w-[48px] truncate">
+                      {att.mimeType.split('/')[1] ?? att.mimeType}
+                    </span>
+                  </a>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -54,10 +80,16 @@ function makeRenderItem(streamingMessageId: string | null) {
 export const ChatHost: React.FC<ChatHostProps> = ({ sessionId, header, banner, rail }) => {
   const streamingMessageId = useAgentStore((s) => s.streamingMessageId);
   const renderItem = React.useMemo(
-    () => makeRenderItem(streamingMessageId),
-    [streamingMessageId]
+    () => makeRenderItem(streamingMessageId, sessionId),
+    [streamingMessageId, sessionId]
   );
-  const props = useChatViewBindings({ sessionId, renderItem, header, banner, rail });
+  const idleRecapBanner = (
+    <>
+      <IdleRecapBanner sessionId={sessionId} />
+      {banner}
+    </>
+  );
+  const props = useChatViewBindings({ sessionId, renderItem, header, banner: idleRecapBanner, rail });
   return <ChatView {...props} />;
 };
 

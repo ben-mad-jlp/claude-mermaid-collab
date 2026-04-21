@@ -21,6 +21,13 @@ export interface ComposerDraftV2 {
 // Back-compat alias so existing imports of `ComposerDraft` keep working.
 export type ComposerDraft = ComposerDraftV2;
 
+export interface ComposerHistoryEntry {
+  editorStateJson: string;
+  plain: string;
+  attachments: ChatMessageAttachment[];
+  ts: number;
+}
+
 interface ComposerDraftV1 {
   prompt: string;
   attachments: ChatMessageAttachment[];
@@ -28,6 +35,8 @@ interface ComposerDraftV1 {
 
 const STORAGE_KEY_V1 = 'cmc:composer-draft:v1';
 const STORAGE_KEY_V2 = 'cmc:composer-draft:v2';
+const STORAGE_KEY_HISTORY = 'cmc:composer-history:v1';
+const HISTORY_MAX = 100;
 const DEBOUNCE_MS = 300;
 const EMPTY_DRAFT: ComposerDraftV2 = Object.freeze({
   editorStateJson: null,
@@ -55,6 +64,31 @@ function scheduleFlush(): void {
   if (typeof window === 'undefined') return;
   if (flushTimer != null) clearTimeout(flushTimer);
   flushTimer = setTimeout(flushNow, DEBOUNCE_MS);
+}
+
+export function pushHistory(sessionId: string, entry: ComposerHistoryEntry): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY_HISTORY);
+    const all: Record<string, ComposerHistoryEntry[]> = raw ? (JSON.parse(raw) as Record<string, ComposerHistoryEntry[]>) : {};
+    const prev = Array.isArray(all[sessionId]) ? all[sessionId] : [];
+    all[sessionId] = [entry, ...prev].slice(0, HISTORY_MAX);
+    window.localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(all));
+  } catch (err) {
+    console.warn('[composerDraftStore] failed to persist history', err);
+  }
+}
+
+export function getHistory(sessionId: string): ComposerHistoryEntry[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY_HISTORY);
+    if (!raw) return [];
+    const all = JSON.parse(raw) as Record<string, ComposerHistoryEntry[]>;
+    return Array.isArray(all[sessionId]) ? all[sessionId] : [];
+  } catch {
+    return [];
+  }
 }
 
 function parseV2Entry(v: unknown): ComposerDraftV2 | null {

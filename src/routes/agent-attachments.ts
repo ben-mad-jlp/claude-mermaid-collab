@@ -1,6 +1,8 @@
 import { mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import type { AgentSessionRegistry } from '../agent/session-registry';
+import type { AttachmentUploadedEvent } from '../agent/contracts';
 
 function jsonError(message: string, status: number): Response {
   return new Response(JSON.stringify({ error: message }), {
@@ -17,7 +19,11 @@ async function dirExists(p: string): Promise<boolean> {
   try { await stat(p); return true; } catch { return false; }
 }
 
-export async function handleAttachments(req: Request, url: URL): Promise<Response | null> {
+export async function handleAttachments(
+  req: Request,
+  url: URL,
+  opts?: { registry?: AgentSessionRegistry },
+): Promise<Response | null> {
   if (!url.pathname.startsWith('/api/agent/attachments')) return null;
   try {
     const sessionId = url.searchParams.get('sessionId');
@@ -48,11 +54,22 @@ export async function handleAttachments(req: Request, url: URL): Promise<Respons
           createdAt: new Date().toISOString(),
         };
         await writeFile(join(baseDir, attachmentId + '.json'), JSON.stringify(meta));
+        const attachmentUrl = `/api/agent/attachments/${attachmentId}?sessionId=${encodeURIComponent(sessionId)}`;
+        const event: AttachmentUploadedEvent = {
+          kind: 'attachment_uploaded',
+          sessionId,
+          ts: Date.now(),
+          attachmentId,
+          mimeType,
+          url: attachmentUrl,
+          sizeBytes: file.size,
+        };
+        opts?.registry?.recordAndDispatch(sessionId, event);
         return new Response(
           JSON.stringify({
             attachmentId,
             mimeType,
-            url: `/api/agent/attachments/${attachmentId}?sessionId=${encodeURIComponent(sessionId)}`,
+            url: attachmentUrl,
             sizeBytes: file.size,
           }),
           { status: 201, headers: { 'Content-Type': 'application/json' } }

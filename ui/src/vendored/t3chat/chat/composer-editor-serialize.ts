@@ -20,10 +20,16 @@ export interface ComposerMention {
   display?: string;
 }
 
+export interface ComposerAttachmentRef {
+  attachmentId: string;
+  mimeType: string;
+}
+
 export interface ComposerSerialized {
   text: string;
   mentions: ComposerMention[];
   editorStateJson: string;
+  attachments?: ComposerAttachmentRef[];
 }
 
 /**

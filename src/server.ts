@@ -20,6 +20,7 @@ import { handlePseudoAPI } from './routes/pseudo-api';
 import { handleCodeAPI } from './routes/code-api.js';
 import { handleOnboardingAPI } from './routes/onboarding-api';
 import { handleAttachments } from './routes/agent-attachments';
+import { handleEditorRoundtrip } from './routes/editor-roundtrip';
 import { handleAgentSessionsAPI } from './routes/agent-sessions';
 import { handleWorktreeDiffAPI } from './routes/worktree-diff';
 import { handleWorktreeFilesAPI } from './routes/worktree-files';
@@ -157,7 +158,11 @@ const server = Bun.serve<WsData>({
     }
 
     if (url.pathname.startsWith('/api/agent/attachments')) {
-      const res = await handleAttachments(req, url);
+      const res = await handleAttachments(req, url, { registry: agentRegistry });
+      if (res) return res;
+    }
+    if (url.pathname.startsWith('/api/agent/editor-')) {
+      const res = await handleEditorRoundtrip(req, url);
       if (res) return res;
     }
     if (url.pathname.startsWith('/api/agent/sessions')) {

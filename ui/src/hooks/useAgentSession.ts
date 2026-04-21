@@ -12,6 +12,7 @@ import type {
   PermissionMode,
   UserInputValue,
   EffortLevel,
+  ChatMessageAttachment,
 } from '../types/agent';
 
 export interface CommitPushPRInput {
@@ -21,7 +22,7 @@ export interface CommitPushPRInput {
 }
 
 export interface UseAgentSessionReturn {
-  send: (text: string) => void;
+  send: (text: string, attachments?: ChatMessageAttachment[]) => void;
   cancel: (turnId?: string) => void;
   resolvePermission: (promptId: string, decision: PermissionDecision) => void;
   setPermissionMode: (mode: PermissionMode) => void;
@@ -30,6 +31,7 @@ export interface UseAgentSessionReturn {
   revertToCheckpoint: (turnId: string) => void;
   setModel: (model: string, effort?: EffortLevel) => void;
   renameSession: (displayName: string) => void;
+  rewindToMessage: (messageId: string) => void;
 }
 
 function mintCommandId(): CommandId {
@@ -141,14 +143,14 @@ export function useAgentSession(sessionId: string | null): UseAgentSessionReturn
   }, [sessionId, agentChatVisible, applyEvent, sendCmd]);
 
   const send = useCallback(
-    (text: string) => {
+    (text: string, attachments?: ChatMessageAttachment[]) => {
       if (!sessionId) return;
       const id =
         typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
           ? crypto.randomUUID()
           : `user-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
       useAgentStore.getState().send(text, id);
-      sendCmd({ kind: 'agent_send', sessionId, text, messageId: id });
+      sendCmd({ kind: 'agent_send', sessionId, text, messageId: id, ...(attachments && attachments.length > 0 ? { attachments } : {}) });
     },
     [sessionId, sendCmd],
   );
@@ -223,6 +225,11 @@ export function useAgentSession(sessionId: string | null): UseAgentSessionReturn
     sendCmd({ kind: 'agent_rename_session', sessionId, displayName });
   }, [sessionId, sendCmd]);
 
+  const rewindToMessage = useCallback((messageId: string) => {
+    if (!sessionId) return;
+    sendCmd({ kind: 'agent_rewind_to_message', sessionId, messageId } as any);
+  }, [sessionId, sendCmd]);
+
   return {
     send,
     cancel,
@@ -233,5 +240,6 @@ export function useAgentSession(sessionId: string | null): UseAgentSessionReturn
     revertToCheckpoint,
     setModel,
     renameSession,
+    rewindToMessage,
   };
 }

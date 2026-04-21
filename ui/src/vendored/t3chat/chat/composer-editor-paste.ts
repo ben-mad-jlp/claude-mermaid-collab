@@ -1,5 +1,6 @@
 import {
   $getSelection,
+  $insertNodes,
   $isRangeSelection,
   $createTextNode,
   COMMAND_PRIORITY_LOW,
@@ -10,6 +11,8 @@ import {
 } from 'lexical';
 import { $createMentionNode } from './ComposerMentionNode';
 import { $createSkillNode } from './ComposerSkillNode';
+import { $createComposerAttachmentNode } from '@/components/agent-chat/ComposerAttachmentNode';
+import { useNotificationStore } from '@/stores/notificationStore';
 
 export interface PasteHandler {
   command: LexicalCommand<ClipboardEvent>;
@@ -78,8 +81,42 @@ function parseMentions(segment: string): LexicalNode[] {
  * Build a PASTE_COMMAND handler that rewrites pasted plain text into
  * MentionNode / SkillNode where applicable.
  */
-export function createPasteHandler(): PasteHandler {
+export function createPasteHandler(options: { sessionId?: string } = {}): PasteHandler {
+  const { sessionId } = options;
   const handler = (event: ClipboardEvent, editor: LexicalEditor): boolean => {
+    // Image paste detection
+    const pasteItems = event.clipboardData?.items;
+    if (pasteItems && sessionId) {
+      let imageItem: DataTransferItem | null = null;
+      for (let i = 0; i < pasteItems.length; i++) {
+        if (pasteItems[i]?.type.startsWith('image/')) { imageItem = pasteItems[i]!; break; }
+      }
+      if (imageItem) {
+        const file = imageItem.getAsFile();
+        if (file) {
+          if (file.size > 10 * 1024 * 1024) {
+            useNotificationStore.getState().addToast({ type: 'error', title: 'Image too large', message: 'Pasted image must be under 10 MB.', duration: 5000 });
+            return true;
+          }
+          const mimeType = file.type || 'image/png';
+          const objectURL = URL.createObjectURL(file);
+          const fd = new FormData();
+          fd.append('file', file);
+          fetch(`/api/agent/attachments?sessionId=${encodeURIComponent(sessionId)}`, { method: 'POST', body: fd })
+            .then(async (res) => {
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const data = await res.json() as { attachmentId: string; mimeType: string };
+              editor.update(() => { $insertNodes([$createComposerAttachmentNode(data.attachmentId, data.mimeType, objectURL)]); });
+            })
+            .catch(() => {
+              URL.revokeObjectURL(objectURL);
+              useNotificationStore.getState().addToast({ type: 'error', title: 'Upload failed', message: 'Could not upload pasted image.', duration: 5000 });
+            });
+          return true;
+        }
+      }
+    }
+
     const text = event.clipboardData?.getData('text/plain');
     if (!text) return false;
     event.preventDefault();

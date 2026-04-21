@@ -14,6 +14,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { AgentEvent } from './contracts.js';
 import { migrate0002 } from './migrations/0002_phase1_session_cols.js';
+import { migrate0003 } from './migrations/0003_phase2_attachments.js';
 
 const REPLAY_PAGE_SIZE = 200;
 
@@ -58,6 +59,7 @@ export class EventLog {
       );
     `);
     migrate0002(this.db);
+    migrate0003(this.db);
   }
 
   /**

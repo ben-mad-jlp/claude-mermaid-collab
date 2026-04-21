@@ -17,6 +17,7 @@ import {
   type LexicalEditor,
 } from 'lexical';
 
+import { ComposerAttachmentNode } from '@/components/agent-chat/ComposerAttachmentNode';
 import { MentionNode } from './ComposerMentionNode';
 import { SkillNode } from './ComposerSkillNode';
 import { TerminalContextNode } from './ComposerTerminalContextNode';
@@ -38,6 +39,7 @@ export interface ComposerPromptEditorProps {
   onEditorReady?: (editor: LexicalEditor) => void;
   disabled?: boolean;
   autoFocus?: boolean;
+  sessionId?: string;
 }
 
 interface EditorReadyPluginProps {
@@ -96,12 +98,16 @@ function KeymapPlugin({ onSubmit, onCancel, onMenuOpen }: KeymapPluginProps) {
   return null;
 }
 
-function PastePlugin() {
+interface PastePluginProps {
+  sessionId?: string;
+}
+
+function PastePlugin({ sessionId }: PastePluginProps) {
   const [editor] = useLexicalComposerContext();
   useEffect(() => {
-    const handler = createPasteHandler();
+    const handler = createPasteHandler({ sessionId });
     return handler.register(editor);
-  }, [editor]);
+  }, [editor, sessionId]);
   return null;
 }
 
@@ -245,10 +251,11 @@ export function ComposerPromptEditor({
   onEditorReady,
   disabled = false,
   autoFocus = false,
+  sessionId,
 }: ComposerPromptEditorProps) {
   const initialConfig = {
     namespace: 'cmc-composer',
-    nodes: [MentionNode, SkillNode, TerminalContextNode],
+    nodes: [MentionNode, SkillNode, TerminalContextNode, ComposerAttachmentNode],
     theme: THEME,
     editable: !disabled,
     editorState: initialEditorStateJson
@@ -295,7 +302,7 @@ export function ComposerPromptEditor({
             if (trigger === '@' && onMentionTrigger) onMentionTrigger('', null);
           }}
         />
-        <PastePlugin />
+        <PastePlugin sessionId={sessionId} />
         <TriggerPlugin onSlash={onSlashTrigger} onMention={onMentionTrigger} />
         <DisabledPlugin disabled={disabled} />
         <EditorReadyPlugin onReady={onEditorReady} />

@@ -71,6 +71,7 @@ export interface AgentMessage {
   text: string;
   historical?: boolean;
   turnId?: string;
+  attachments?: Array<{ attachmentId: string; mimeType: string }>;
 }
 
 export interface ProgressChunk {
@@ -172,6 +173,7 @@ interface AgentState {
   userMessageHistory: string[];
   prStatus: Record<string, { number: number; url: string; checks?: string; reviews?: string }>;
   attachments: Record<string, Array<{ attachmentId: string; mimeType: string; url: string; sizeBytes: number }>>;
+  uploadedAttachments: Record<string, { attachmentId: string; mimeType: string; url: string; sizeBytes: number }>;
   lastSeenSeq: number | null;
   historicalDone: boolean;
   checkpointsByTurn: Record<string, { firstSeq: number; stashSha: string }>;
@@ -237,6 +239,7 @@ const initialState: AgentState = {
   userMessageHistory: [],
   prStatus: {},
   attachments: {},
+  uploadedAttachments: {},
   lastSeenSeq: null,
   historicalDone: false,
   checkpointsByTurn: {},
@@ -705,6 +708,33 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
           if (entry.firstSeq < event.firstSeq) next[tid] = entry;
         }
         set({ checkpointsByTurn: next });
+        return;
+      }
+      case 'attachment_uploaded': {
+        const cur = get().uploadedAttachments;
+        if (cur[(event as any).attachmentId]) return;
+        set({ uploadedAttachments: { ...cur, [(event as any).attachmentId]: {
+          attachmentId: (event as any).attachmentId,
+          mimeType: (event as any).mimeType,
+          url: (event as any).url,
+          sizeBytes: (event as any).sizeBytes,
+        }}});
+        return;
+      }
+      case 'attachment_referenced': {
+        const { timeline } = get();
+        const idx = timeline.findIndex(
+          (t) => t.type === 'message' && (t as AgentMessage).id === (event as any).messageId
+        );
+        if (idx < 0) return;
+        const msg = timeline[idx] as AgentMessage;
+        const attachments = [...(msg.attachments ?? []), {
+          attachmentId: (event as any).attachmentId,
+          mimeType: (event as any).mimeType,
+        }];
+        const next = [...timeline];
+        next[idx] = { ...msg, attachments } as AgentMessage;
+        set({ timeline: next });
         return;
       }
       default: {

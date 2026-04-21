@@ -15,8 +15,22 @@ import type { ComposerSerialized } from './composer-editor-serialize';
 import { insertMention, insertSkill } from './composer-editor-mentions';
 import { FileMentionPicker } from '@/components/agent-chat/FileMentionPicker';
 import type { LexicalEditor } from 'lexical';
-import { $getRoot } from 'lexical';
+import {
+  $getRoot,
+  $getSelection,
+  $isRangeSelection,
+  KEY_ARROW_UP_COMMAND,
+  KEY_ARROW_DOWN_COMMAND,
+  KEY_TAB_COMMAND,
+  COMMAND_PRIORITY_LOW,
+} from 'lexical';
 import type { ChatComposerProps } from './ChatComposer';
+import { HistorySearchPopover } from '@/components/agent-chat/HistorySearchPopover';
+import { ShortcutsDialog } from '@/components/agent-chat/ShortcutsDialog';
+import { triggerEditorRoundTrip } from '@/components/agent-chat/EditorRoundTrip';
+import { pushHistory, getHistory, type ComposerHistoryEntry } from '@/stores/composerDraftStore';
+import { $isComposerAttachmentNode } from '@/components/agent-chat/ComposerAttachmentNode';
+import { useNotificationStore } from '@/stores/notificationStore';
 
 // Locally-intercepted slash commands which, when submitted as a single-pill
 // skill mention with no surrounding content, route through `onSlashCommand`
@@ -56,9 +70,13 @@ const LexicalChatComposer: React.FC<ChatComposerProps> = ({
   onRuntimeChange,
   onInteractionChange,
   className,
+  sessionId,
 }) => {
   const [editor, setEditor] = React.useState<LexicalEditor | null>(null);
   const [mentionState, setMentionState] = React.useState<PickerState | null>(null);
+  const historyIdxRef = React.useRef<number>(-1);
+  const [showHistorySearch, setShowHistorySearch] = React.useState(false);
+  const [showShortcuts, setShowShortcuts] = React.useState(false);
   const [slashState, setSlashState] = React.useState<PickerState | null>(null);
   const [slashActiveIndex, setSlashActiveIndex] = React.useState(0);
   const [lastSerialized, setLastSerialized] =
@@ -83,6 +101,126 @@ const LexicalChatComposer: React.FC<ChatComposerProps> = ({
       },
       { discrete: true }
     );
+  }, [editor]);
+
+  const addToast = useNotificationStore((s) => s.addToast);
+
+  // Phase 2: history navigation + keyboard shortcuts
+  React.useEffect(() => {
+    if (!editor) return;
+
+    const isAtTopEdge = (): boolean => {
+      const root = editor.getRootElement();
+      if (!root) return true;
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) return true;
+      const range = sel.getRangeAt(0);
+      const selRect = range.getBoundingClientRect();
+      const rootRect = root.getBoundingClientRect();
+      // At top edge if selection top is within a line-height (24px) of the root top
+      return selRect.top - rootRect.top < 24;
+    };
+
+    const isAtBottomEdge = (): boolean => {
+      const root = editor.getRootElement();
+      if (!root) return true;
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) return true;
+      const range = sel.getRangeAt(0);
+      const selRect = range.getBoundingClientRect();
+      const rootRect = root.getBoundingClientRect();
+      return rootRect.bottom - selRect.bottom < 24;
+    };
+
+    const unregisterUp = editor.registerCommand(
+      KEY_ARROW_UP_COMMAND,
+      () => {
+        if (!isAtTopEdge()) return false;
+        const history = getHistory(sessionId ?? '');
+        if (!history.length) return false;
+        const currentIdx = historyIdxRef.current;
+        const nextIdx = currentIdx < history.length - 1 ? currentIdx + 1 : currentIdx;
+        if (nextIdx === currentIdx) return false;
+        const entry = history[nextIdx];
+        try {
+          editor.setEditorState(editor.parseEditorState(entry.editorStateJson));
+        } catch {
+          editor.update(() => { $getRoot().clear(); });
+        }
+        historyIdxRef.current = nextIdx;
+        return true;
+      },
+      COMMAND_PRIORITY_LOW
+    );
+
+    const unregisterDown = editor.registerCommand(
+      KEY_ARROW_DOWN_COMMAND,
+      () => {
+        if (!isAtBottomEdge()) return false;
+        const currentIdx = historyIdxRef.current;
+        if (currentIdx <= 0) {
+          if (currentIdx === 0) {
+            historyIdxRef.current = -1;
+            editor.update(() => { $getRoot().clear(); });
+          }
+          return false;
+        }
+        const history = getHistory(sessionId ?? '');
+        const nextIdx = currentIdx - 1;
+        const entry = history[nextIdx];
+        try {
+          editor.setEditorState(editor.parseEditorState(entry.editorStateJson));
+        } catch {
+          editor.update(() => { $getRoot().clear(); });
+        }
+        historyIdxRef.current = nextIdx;
+        return true;
+      },
+      COMMAND_PRIORITY_LOW
+    );
+
+    const unregisterTab = editor.registerCommand(
+      KEY_TAB_COMMAND,
+      () => false,
+      COMMAND_PRIORITY_LOW
+    );
+
+    let lastEscTime = 0;
+    const handleKeydown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === 'r') {
+        e.preventDefault();
+        setShowHistorySearch(true);
+      } else if (e.ctrlKey && e.key === 'e') {
+        e.preventDefault();
+        triggerEditorRoundTrip(editor, sessionId ?? '');
+      } else if (e.key === 'Escape') {
+        const now = Date.now();
+        if (now - lastEscTime < 500) {
+          addToast({ type: 'warning', title: 'Rewind feature coming soon', duration: 3000 });
+          lastEscTime = 0;
+        } else {
+          lastEscTime = now;
+        }
+      }
+    };
+
+    const rootEl = editor.getRootElement();
+    rootEl?.addEventListener('keydown', handleKeydown);
+
+    return () => {
+      unregisterUp();
+      unregisterDown();
+      unregisterTab();
+      rootEl?.removeEventListener('keydown', handleKeydown);
+    };
+  }, [editor, sessionId, addToast]);
+
+  const handleHistorySelect = React.useCallback((entry: ComposerHistoryEntry) => {
+    if (!editor) return;
+    try {
+      editor.setEditorState(editor.parseEditorState(entry.editorStateJson));
+    } catch { editor.update(() => { $getRoot().clear(); }); }
+    setShowHistorySearch(false);
   }, [editor]);
 
   const handleMentionTrigger = React.useCallback(
@@ -157,13 +295,39 @@ const LexicalChatComposer: React.FC<ChatComposerProps> = ({
       }
 
       if (!text.trim() && mentions.length === 0) return;
+
+      // Collect attachment nodes before sending
+      const collectedAttachments: Array<{ attachmentId: string; mimeType: string }> = [];
+      editor?.getEditorState().read(() => {
+        const root = $getRoot();
+        for (const child of root.getChildren()) {
+          if ($isComposerAttachmentNode(child)) {
+            collectedAttachments.push({
+              attachmentId: (child as any).__attachmentId ?? '',
+              mimeType: (child as any).__mimeType ?? 'image/*',
+            });
+          }
+        }
+      });
+
+      // Push to history ring
+      if (editor) {
+        pushHistory(sessionId ?? '', {
+          editorStateJson: JSON.stringify(editor.getEditorState().toJSON()),
+          plain: text,
+          attachments: [],
+          ts: Date.now(),
+        });
+      }
+      historyIdxRef.current = -1;
+
       if (onSendSerialized) {
-        onSendSerialized(serialized);
+        onSendSerialized({ ...serialized, attachments: collectedAttachments });
       } else {
         onSend(text);
       }
     },
-    [disabled, isStreaming, onSend, onSendSerialized, onSlashCommand, clearEditor]
+    [disabled, isStreaming, onSend, onSendSerialized, onSlashCommand, clearEditor, editor, sessionId]
   );
 
   const hasContent =
@@ -172,6 +336,8 @@ const LexicalChatComposer: React.FC<ChatComposerProps> = ({
 
   return (
     <div className={cn('relative flex flex-col gap-2 border-t bg-background p-3', className)}>
+      <HistorySearchPopover open={showHistorySearch} onClose={() => setShowHistorySearch(false)} sessionId={sessionId ?? ''} onSelect={handleHistorySelect} />
+      <ShortcutsDialog open={showShortcuts} onClose={() => setShowShortcuts(false)} />
       {runtimeMode && interactionMode && onRuntimeChange && onInteractionChange && (
         <div className="flex items-center">
           <ModeSelector
@@ -209,6 +375,7 @@ const LexicalChatComposer: React.FC<ChatComposerProps> = ({
             onMentionTrigger={handleMentionTrigger}
             onSlashTrigger={handleSlashTrigger}
             onEditorReady={setEditor}
+            sessionId={sessionId}
           />
         </div>
         {mentionState && (
