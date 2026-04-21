@@ -13,7 +13,7 @@ export const PinnedTabBar: React.FC = () => {
   const setActive = useTabsStore((s) => s.setActive);
   const closeTab = useTabsStore((s) => s.closeTab);
   const unpinTab = useTabsStore((s) => s.unpinTab);
-  const promoteToPermanent = useTabsStore((s) => s.promoteToPermanent);
+  const pinTabRight = useTabsStore((s) => s.pinTabRight);
 
   const [menu, setMenu] = useState<{
     tab: TabDescriptor;
@@ -53,6 +53,10 @@ export const PinnedTabBar: React.FC = () => {
     pinned.slice(idx + 1).forEach((t) => closeTab(t.id));
   };
 
+  const handleCloseAll = () => {
+    tabs.forEach((t) => closeTab(t.id));
+  };
+
   return (
     <div
       role="tablist"
@@ -83,8 +87,9 @@ export const PinnedTabBar: React.FC = () => {
           onClose={() => closeTab(menu.tab.id)}
           onCloseOthers={() => handleCloseOthers(menu.tab)}
           onCloseToRight={() => handleCloseToRight(menu.tab)}
+          onCloseAll={handleCloseAll}
+          onOpenInRightPane={() => pinTabRight(menu.tab.id)}
           onPinToggle={() => unpinTab(menu.tab.id)}
-          onReveal={() => promoteToPermanent(menu.tab.id)}
           onDismiss={() => setMenu(null)}
         />
       )}

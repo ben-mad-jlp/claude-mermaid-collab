@@ -209,6 +209,17 @@ export const Tab: React.FC<TabProps> = ({
       role="tab"
       className={`group ${baseClasses} ${stateClasses}`}
       onClick={onClick}
+      onAuxClick={(e) => {
+        if (e.button === 1 && !hideClose) {
+          e.preventDefault();
+          e.stopPropagation();
+          onClose();
+        }
+      }}
+      onMouseDown={(e) => {
+        // Prevent middle-click from triggering autoscroll on some browsers.
+        if (e.button === 1) e.preventDefault();
+      }}
       onContextMenu={(e) => {
         e.preventDefault();
         onContextMenu(e);

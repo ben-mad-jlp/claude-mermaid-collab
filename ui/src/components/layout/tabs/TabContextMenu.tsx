@@ -8,9 +8,12 @@ export interface TabContextMenuProps {
   onClose: () => void;
   onCloseOthers: () => void;
   onCloseToRight: () => void;
+  onCloseAll: () => void;
+  onOpenInRightPane: () => void;
   onPinToggle: () => void;
-  onReveal: () => void;
   onDismiss: () => void;
+  /** When true, hides "Open in Right Pane" (e.g. already in right pane). */
+  hideOpenInRightPane?: boolean;
 }
 
 export const TabContextMenu: React.FC<TabContextMenuProps> = ({
@@ -20,9 +23,11 @@ export const TabContextMenu: React.FC<TabContextMenuProps> = ({
   onClose,
   onCloseOthers,
   onCloseToRight,
+  onCloseAll,
+  onOpenInRightPane,
   onPinToggle,
-  onReveal,
   onDismiss,
+  hideOpenInRightPane,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -53,54 +58,67 @@ export const TabContextMenu: React.FC<TabContextMenuProps> = ({
     onDismiss();
   };
 
+  const itemClass =
+    'w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 transition-colors';
+
   return (
     <div
       ref={menuRef}
       role="menu"
       data-testid="tab-context-menu"
-      className="fixed bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg z-50 py-1 min-w-max"
+      className="fixed flex flex-col bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg z-50 py-1 min-w-max"
       style={{ left: `${x}px`, top: `${y}px` }}
     >
       <button
         role="menuitem"
-        data-testid="tab-menu-close"
+        data-testid="tab-context-close"
         onClick={() => handle(onClose)}
-        className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 transition-colors"
+        className={itemClass}
       >
         Close
       </button>
       <button
         role="menuitem"
-        data-testid="tab-menu-close-others"
+        data-testid="tab-context-close-others"
         onClick={() => handle(onCloseOthers)}
-        className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 transition-colors"
+        className={itemClass}
       >
         Close Others
       </button>
       <button
         role="menuitem"
-        data-testid="tab-menu-close-to-right"
+        data-testid="tab-context-close-to-right"
         onClick={() => handle(onCloseToRight)}
-        className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 transition-colors"
+        className={itemClass}
       >
         Close to the Right
       </button>
-      <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
       <button
         role="menuitem"
-        data-testid="tab-menu-pin-toggle"
+        data-testid="tab-context-close-all"
+        onClick={() => handle(onCloseAll)}
+        className={itemClass}
+      >
+        Close All
+      </button>
+      <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
+      {!hideOpenInRightPane && (
+        <button
+          role="menuitem"
+          data-testid="tab-context-open-right"
+          onClick={() => handle(onOpenInRightPane)}
+          className={itemClass}
+        >
+          Open in Right Pane
+        </button>
+      )}
+      <button
+        role="menuitem"
+        data-testid="tab-context-pin-toggle"
         onClick={() => handle(onPinToggle)}
-        className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 transition-colors"
+        className={itemClass}
       >
         {tab.isPinned ? 'Unpin Tab' : 'Pin Tab'}
-      </button>
-      <button
-        role="menuitem"
-        data-testid="tab-menu-reveal"
-        onClick={() => handle(onReveal)}
-        className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 transition-colors"
-      >
-        Reveal in Sidebar
       </button>
     </div>
   );

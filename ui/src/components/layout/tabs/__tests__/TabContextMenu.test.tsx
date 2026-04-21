@@ -19,8 +19,9 @@ function renderMenu(overrides: Record<string, unknown> = {}) {
     onClose: vi.fn(),
     onCloseOthers: vi.fn(),
     onCloseToRight: vi.fn(),
+    onCloseAll: vi.fn(),
+    onOpenInRightPane: vi.fn(),
     onPinToggle: vi.fn(),
-    onReveal: vi.fn(),
     onDismiss: vi.fn(),
   };
   const tab = { ...makeTab(), ...(overrides.tab as object || {}) };
@@ -45,8 +46,10 @@ describe('TabContextMenu', () => {
     expect(screen.getByText('Close')).toBeInTheDocument();
     expect(screen.getByText('Close Others')).toBeInTheDocument();
     expect(screen.getByText('Close to the Right')).toBeInTheDocument();
+    expect(screen.getByText('Close All')).toBeInTheDocument();
+    expect(screen.getByText('Open in Right Pane')).toBeInTheDocument();
     expect(screen.getByText('Pin Tab')).toBeInTheDocument();
-    expect(screen.getByText('Reveal in Sidebar')).toBeInTheDocument();
+    expect(screen.queryByText('Reveal in Sidebar')).not.toBeInTheDocument();
   });
 
   it('shows "Unpin Tab" when isPinned=true', () => {
@@ -82,10 +85,17 @@ describe('TabContextMenu', () => {
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
-  it('click Reveal in Sidebar calls onReveal and onDismiss', () => {
-    const { onReveal, onDismiss } = renderMenu();
-    fireEvent.click(screen.getByTestId('tab-context-reveal'));
-    expect(onReveal).toHaveBeenCalledTimes(1);
+  it('click Close All calls onCloseAll and onDismiss', () => {
+    const { onCloseAll, onDismiss } = renderMenu();
+    fireEvent.click(screen.getByTestId('tab-context-close-all'));
+    expect(onCloseAll).toHaveBeenCalledTimes(1);
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('click Open in Right Pane calls onOpenInRightPane and onDismiss', () => {
+    const { onOpenInRightPane, onDismiss } = renderMenu();
+    fireEvent.click(screen.getByTestId('tab-context-open-right'));
+    expect(onOpenInRightPane).toHaveBeenCalledTimes(1);
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 

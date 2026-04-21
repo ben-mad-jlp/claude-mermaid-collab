@@ -6,6 +6,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import Tab from './Tab';
+import TabContextMenu from './TabContextMenu';
 import {
   sessionKey,
   useSessionTabs,
@@ -14,8 +15,13 @@ import {
 } from '../../../stores/tabsStore';
 import { useSessionStore } from '../../../stores/sessionStore';
 import { useDataLoader } from '../../../hooks/useDataLoader';
+import { promoteCodeFile } from '../../../lib/promote-code-file';
 
 export interface TabBarProps {
+  /**
+   * Optional external context menu handler. When provided, TabBar delegates
+   * right-click to the caller and suppresses its built-in menu.
+   */
   onContextMenu?: (e: React.MouseEvent, tab: TabDescriptor) => void;
 }
 
@@ -60,11 +66,18 @@ const SortableTab: React.FC<SortableTabProps> = ({
 };
 
 export const TabBar: React.FC<TabBarProps> = ({ onContextMenu }) => {
-  const { tabs, activeTabId } = useSessionTabs();
+  const { tabs, activeTabId, rightPaneTabId } = useSessionTabs();
   const setActive = useTabsStore((s) => s.setActive);
   const closeTab = useTabsStore((s) => s.closeTab);
   const pinTab = useTabsStore((s) => s.pinTab);
+  const pinTabRight = useTabsStore((s) => s.pinTabRight);
   const promoteToPermanent = useTabsStore((s) => s.promoteToPermanent);
+
+  const [menu, setMenu] = React.useState<{
+    tab: TabDescriptor;
+    x: number;
+    y: number;
+  } | null>(null);
   const {
     selectDiagramWithContent,
     selectDocumentWithContent,
@@ -124,6 +137,45 @@ export const TabBar: React.FC<TabBarProps> = ({ onContextMenu }) => {
     if (next) activateTab(next);
   }, [closeTab, activateTab]);
 
+  const handleContextMenu = React.useCallback(
+    (e: React.MouseEvent, tab: TabDescriptor) => {
+      if (onContextMenu) {
+        onContextMenu(e, tab);
+        return;
+      }
+      e.preventDefault();
+      setMenu({ tab, x: e.clientX, y: e.clientY });
+    },
+    [onContextMenu],
+  );
+
+  const regularOrdered = React.useMemo(
+    () => tabs.filter((t) => !t.isPinned).sort((a, b) => a.order - b.order),
+    [tabs],
+  );
+
+  const handleCloseOthers = React.useCallback(
+    (tab: TabDescriptor) => {
+      regularOrdered.forEach((t) => {
+        if (t.id !== tab.id) closeTab(t.id);
+      });
+    },
+    [regularOrdered, closeTab],
+  );
+
+  const handleCloseToRight = React.useCallback(
+    (tab: TabDescriptor) => {
+      const idx = regularOrdered.findIndex((t) => t.id === tab.id);
+      if (idx < 0) return;
+      regularOrdered.slice(idx + 1).forEach((t) => closeTab(t.id));
+    },
+    [regularOrdered, closeTab],
+  );
+
+  const handleCloseAll = React.useCallback(() => {
+    tabs.forEach((t) => closeTab(t.id));
+  }, [tabs, closeTab]);
+
   const permanentTabs = tabs
     .filter((t) => !t.isPinned && !t.isPreview)
     .sort((a, b) => a.order - b.order);
@@ -149,11 +201,12 @@ export const TabBar: React.FC<TabBarProps> = ({ onContextMenu }) => {
             isActive={tab.id === activeTabId}
             onClick={() => activateTab(tab)}
             onClose={() => handleClose(tab.id)}
-            onContextMenu={
-              onContextMenu ? (e) => onContextMenu(e, tab) : undefined
-            }
+            onContextMenu={(e) => handleContextMenu(e, tab)}
             onTogglePin={() => pinTab(tab.id)}
-            onPromote={() => promoteToPermanent(tab.id)}
+            onPromote={() => {
+              if (tab.kind === 'code-file') void promoteCodeFile(tab.id);
+              else promoteToPermanent(tab.id);
+            }}
           />
         ))}
         {previewTabs.length > 0 && <div className="flex-1" aria-hidden="true" />}
@@ -164,14 +217,32 @@ export const TabBar: React.FC<TabBarProps> = ({ onContextMenu }) => {
             isActive={tab.id === activeTabId}
             onClick={() => activateTab(tab)}
             onClose={() => handleClose(tab.id)}
-            onContextMenu={
-              onContextMenu ? (e) => onContextMenu(e, tab) : undefined
-            }
+            onContextMenu={(e) => handleContextMenu(e, tab)}
             onTogglePin={() => pinTab(tab.id)}
-            onPromote={() => promoteToPermanent(tab.id)}
+            onPromote={() => {
+              if (tab.kind === 'code-file') void promoteCodeFile(tab.id);
+              else promoteToPermanent(tab.id);
+            }}
           />
         ))}
       </SortableContext>
+      {menu && (
+        <TabContextMenu
+          tab={menu.tab}
+          x={menu.x}
+          y={menu.y}
+          onClose={() => handleClose(menu.tab.id)}
+          onCloseOthers={() => handleCloseOthers(menu.tab)}
+          onCloseToRight={() => handleCloseToRight(menu.tab)}
+          onCloseAll={handleCloseAll}
+          onOpenInRightPane={() => pinTabRight(menu.tab.id)}
+          hideOpenInRightPane={rightPaneTabId === menu.tab.id}
+          onPinToggle={() =>
+            menu.tab.isPinned ? useTabsStore.getState().unpinTab(menu.tab.id) : pinTab(menu.tab.id)
+          }
+          onDismiss={() => setMenu(null)}
+        />
+      )}
     </div>
   );
 };
