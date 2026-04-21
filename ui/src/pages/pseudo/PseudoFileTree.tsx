@@ -60,6 +60,7 @@ type TreeNodeRendererProps = {
   onNavigate: (path: string) => void;
   filterExpanded: Set<string>;
   fileMeta: Map<string, PseudoFileSummary>;
+  onPrefetch?: (path: string) => void;
 };
 
 /**
@@ -79,6 +80,7 @@ function TreeNodeRendererImpl({
   onNavigate,
   filterExpanded,
   fileMeta,
+  onPrefetch,
 }: TreeNodeRendererProps) {
   const isCollapsed = collapsedDirs.has(node.path);
   const isActive = !node.isDir && node.path === currentPath;
@@ -142,6 +144,9 @@ function TreeNodeRendererImpl({
         <div
           className="flex-1 text-xs flex items-center gap-1"
           onClick={() => !node.isDir && onNavigate(node.path)}
+          onMouseEnter={() => {
+            if (!node.isDir) onPrefetch?.(node.path);
+          }}
         >
           <span className="truncate">{node.name}</span>
           {node.isDir && isCollapsed && fileCount > 0 && (
@@ -200,6 +205,7 @@ function TreeNodeRendererImpl({
               onNavigate={onNavigate}
               filterExpanded={filterExpanded}
               fileMeta={fileMeta}
+              onPrefetch={onPrefetch}
             />
           ))}
         </div>

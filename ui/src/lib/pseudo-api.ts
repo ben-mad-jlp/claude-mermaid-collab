@@ -139,6 +139,25 @@ export async function fetchPseudoFile(
 }
 
 /**
+ * Read a pseudo file from the LRU cache synchronously. Returns null if not cached.
+ * Used for SWR-style initial render without a loading flash.
+ */
+export function peekPseudoFile(project: string, file: string): PseudoFileWithMethods | null {
+  return pseudoFileCache.get(pseudoFileCacheKey(project, file)) ?? null;
+}
+
+/**
+ * Fire-and-forget prefetch: if not already in LRU, trigger a background fetch.
+ * Errors are swallowed (no toast, no throw) — caller is typically a hover handler.
+ */
+export function prefetchPseudoFile(project: string, file: string): void {
+  if (pseudoFileCache.has(pseudoFileCacheKey(project, file))) return;
+  fetchPseudoFile(project, file).catch(() => {
+    // intentional: hover-prefetch failures should not surface
+  });
+}
+
+/**
  * Find all functions that reference (CALL) a given function
  * GET /api/pseudo/references?project=...&functionName=...&fileStem=...
  */

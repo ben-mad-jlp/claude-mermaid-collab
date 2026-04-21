@@ -8,7 +8,7 @@
  * - Empty state when no file selected
  */
 
-import React, { forwardRef, useEffect, useState, useImperativeHandle, useRef } from 'react';
+import React, { forwardRef, useCallback, useEffect, useState, useImperativeHandle, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { fetchPseudoFile, PseudoFileWithMethods, PseudoMethod } from '@/lib/pseudo-api';
 import PseudoBlock from './PseudoBlock';
@@ -89,6 +89,18 @@ export const PseudoViewer = forwardRef<PseudoViewerHandle, PseudoViewerProps>(
       },
     }));
 
+    const handleBlockNavigate = useCallback(
+      (stem: string) => {
+        navigate(`/pseudo/${stem}`);
+      },
+      [navigate]
+    );
+
+    const currentFileStem = useMemo(
+      () => path.split('/').pop() || path,
+      [path]
+    );
+
     // Empty state
     if (!path) {
       return (
@@ -159,10 +171,8 @@ export const PseudoViewer = forwardRef<PseudoViewerHandle, PseudoViewerProps>(
                   key={idx}
                   func={method}
                   project={project}
-                  currentFileStem={path.split('/').pop() || path}
-                  onNavigate={(stem) => {
-                    navigate(`/pseudo/${stem}`);
-                  }}
+                  currentFileStem={currentFileStem}
+                  onNavigate={handleBlockNavigate}
                 />
               ))}
             </div>

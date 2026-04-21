@@ -1179,7 +1179,7 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
             currentPath={selectedPseudoPathForTree}
             onNavigate={(stem) => {
               const basename = stem.split('/').pop() || stem;
-              openPermanent({
+              openPreview({
                 id: `pseudo::${stem}`,
                 kind: 'code-file',
                 artifactId: stem,

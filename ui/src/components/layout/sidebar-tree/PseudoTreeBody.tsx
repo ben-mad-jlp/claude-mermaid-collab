@@ -18,7 +18,7 @@ import {
 } from '@/pages/pseudo/tree.utils';
 import { TreeNodeRenderer } from '@/pages/pseudo/PseudoFileTree';
 import { useSidebarTreeStore } from '@/stores/sidebarTreeStore';
-import type { PseudoFileSummary } from '@/lib/pseudo-api';
+import { prefetchPseudoFile, type PseudoFileSummary } from '@/lib/pseudo-api';
 
 export type PseudoTreeBodyProps = {
   fileList: PseudoFileSummary[];
@@ -97,6 +97,15 @@ export function PseudoTreeBody({
     [onNavigate, relativeToAbsolute]
   );
 
+  const handleTreePrefetch = useCallback(
+    (relPath: string) => {
+      if (!project) return;
+      const abs = relativeToAbsolute.get(relPath) ?? relPath;
+      prefetchPseudoFile(project, abs);
+    },
+    [project, relativeToAbsolute]
+  );
+
   const tree = useMemo(() => {
     const built = buildTree(filePaths);
     return deepSortTree(built);
@@ -137,6 +146,7 @@ export function PseudoTreeBody({
             onNavigate={handleTreeNavigate}
             filterExpanded={filterExpanded}
             fileMeta={fileMeta}
+            onPrefetch={handleTreePrefetch}
           />
         ))
       )}

@@ -73,7 +73,7 @@ function renderStep(step: { content: string; depth: number }, index: number) {
   );
 }
 
-export default function PseudoBlock({
+function PseudoBlock({
   func,
   project,
   currentFileStem,
@@ -205,3 +205,5 @@ export default function PseudoBlock({
     </div>
   );
 }
+
+export default React.memo(PseudoBlock);
