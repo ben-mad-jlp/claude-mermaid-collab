@@ -100,10 +100,12 @@ export function PseudoTreeBody({
   const handleTreePrefetch = useCallback(
     (relPath: string) => {
       if (!project) return;
+      const meta = fileList.find((f) => toRelative(f.filePath) === relPath);
+      if (!meta || (meta.methodCount === 0 && meta.exportCount === 0)) return;
       const abs = relativeToAbsolute.get(relPath) ?? relPath;
       prefetchPseudoFile(project, abs);
     },
-    [project, relativeToAbsolute]
+    [project, relativeToAbsolute, fileList, toRelative]
   );
 
   const tree = useMemo(() => {

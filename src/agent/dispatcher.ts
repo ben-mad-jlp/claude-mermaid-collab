@@ -1,5 +1,5 @@
 import type { ServerWebSocket } from 'bun';
-import type { AgentCommand, AgentEvent, UserMessageEvent, ErrorEvent, CommandAckEvent, UserInputResolvedEvent, CheckpointRevertedEvent } from './contracts.ts';
+import type { AgentCommand, AgentEvent, UserMessageEvent, ErrorEvent, CommandAckEvent, UserInputResolvedEvent, CheckpointRevertedEvent, ModelChangedEvent, SessionRenamedEvent, AgentSetModelCommand, AgentRenameSessionCommand, EffortLevel } from './contracts.ts';
 import type { AgentSessionRegistry } from './session-registry.ts';
 import type { WebSocketHandler } from '../websocket/handler.ts';
 import type { UserInputBridge } from './user-input-bridge.ts';
@@ -18,6 +18,8 @@ class DispatchError extends Error {
 type AgentWS = ServerWebSocket<{ subscriptions: Set<string> }>;
 
 const RECEIPT_TTL_MS = 10 * 60 * 1000;
+
+const ALLOWED_EFFORTS = new Set<EffortLevel>(['low', 'medium', 'high', 'xhigh', 'max']);
 
 export class AgentDispatcher {
   private receipts: CommandReceiptsStore;
@@ -216,11 +218,58 @@ export class AgentDispatcher {
           const seq = this.opts.registry.recordAndDispatch(cmd.sessionId, resolved);
           return seq;
         }
+        case 'agent_set_model':
+          return await this.handleAgentSetModel(ws, cmd);
+        case 'agent_rename_session':
+          return await this.handleAgentRenameSession(ws, cmd);
       }
     } catch (err) {
       if (err instanceof DispatchError) throw err;
       this.emitErrorToCaller(ws, cmd.sessionId, 'child', (err as Error).message ?? String(err), true);
     }
+  }
+
+  private async handleAgentSetModel(ws: AgentWS, cmd: AgentSetModelCommand): Promise<number> {
+    if (typeof cmd.model !== 'string' || cmd.model.trim().length === 0) {
+      throw new DispatchError('INVALID_MODEL', 'model must be non-empty string');
+    }
+    if (cmd.effort !== undefined && !ALLOWED_EFFORTS.has(cmd.effort)) {
+      throw new DispatchError('INVALID_EFFORT', 'unknown effort level');
+    }
+    const meta = this.opts.registry.getSession(cmd.sessionId);
+    if (!meta) throw new DispatchError('UNKNOWN_SESSION', 'unknown session');
+    this.opts.registry.setModel(cmd.sessionId, cmd.model, cmd.effort);
+    const event: ModelChangedEvent = {
+      kind: 'model_changed',
+      sessionId: cmd.sessionId,
+      ts: Date.now(),
+      model: cmd.model,
+      effort: cmd.effort,
+      seq: 0,
+    };
+    const seq = this.opts.registry.recordAndDispatch(cmd.sessionId, event) ?? 0;
+    this.opts.wsHandler.broadcast({ type: 'sessions_list_invalidated', sessionId: cmd.sessionId });
+    return seq;
+  }
+
+  private async handleAgentRenameSession(ws: AgentWS, cmd: AgentRenameSessionCommand): Promise<number> {
+    const trimmed = typeof cmd.displayName === 'string' ? cmd.displayName.trim() : '';
+    if (trimmed.length < 1 || trimmed.length > 128) {
+      throw new DispatchError('INVALID_DISPLAY_NAME', '1-128 chars required');
+    }
+    const meta = this.opts.registry.getSession(cmd.sessionId);
+    if (!meta) throw new DispatchError('UNKNOWN_SESSION', 'unknown session');
+    this.opts.registry.setDisplayName(cmd.sessionId, trimmed);
+    const event: SessionRenamedEvent = {
+      kind: 'session_renamed',
+      sessionId: cmd.sessionId,
+      ts: Date.now(),
+      displayName: trimmed,
+      seq: 0,
+    };
+    const seq = this.opts.registry.recordAndDispatch(cmd.sessionId, event) ?? 0;
+    this.opts.wsHandler.broadcast({ type: 'sessions_list_invalidated', sessionId: cmd.sessionId });
+    return seq;
   }
 
   private async handleCheckpointRevert(sessionId: string, turnId: string): Promise<number> {

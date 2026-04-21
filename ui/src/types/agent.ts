@@ -22,7 +22,8 @@ export type AgentEventKind =
   | 'worktree_info'
   | 'assistant_thinking'
   | 'compaction'
-  | 'model_change'
+  | 'model_changed'
+  | 'session_renamed'
   | 'attachment_uploaded'
   | 'session_cleared'
   | 'command_ack'
@@ -37,6 +38,7 @@ export type PermissionDecision = 'allow_once' | 'allow_session' | 'deny';
 export type RuntimeMode = 'read-only' | 'edit' | 'bypass';
 export type InteractionMode = 'ask' | 'accept-edits' | 'plan';
 export type UserInputKind = 'text' | 'choice';
+export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type UserInputValue =
   | { kind: 'text'; text: string }
   | { kind: 'choice'; choiceId: string };
@@ -59,6 +61,38 @@ export function joinModes(r: RuntimeMode, i: InteractionMode): PermissionMode {
 
 export interface BaseEvent {
   sessionId: string;
+  ts: number;
+}
+
+export interface CostTotals {
+  totalCostUsd: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheCreationTokens: number;
+}
+
+export interface SessionMetadata {
+  sessionId: string;
+  displayName?: string;
+  model?: string;
+  effort?: EffortLevel;
+  lastActivityTs?: number;
+  totalCostUsd: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheCreationTokens: number;
+}
+
+export interface SessionCostTurn {
+  turn: number;
+  model?: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheRead: number;
+  cacheCreate: number;
+  costUsd: number;
   ts: number;
 }
 
@@ -113,7 +147,7 @@ export interface AssistantMessageCompleteEvent extends BaseEvent {
 export interface TurnEndEvent extends BaseEvent {
   kind: 'turn_end';
   turnId: string;
-  usage?: { inputTokens: number; outputTokens: number; costUsd?: number };
+  usage?: { inputTokens: number; outputTokens: number; costUsd?: number; cacheReadInputTokens?: number; cacheCreationInputTokens?: number };
   stopReason?: string;
   canceled?: boolean;
 }
@@ -215,10 +249,15 @@ export interface CompactionEvent extends BaseEvent {
   messagesRetained: number;
 }
 
-export interface ModelChangeEvent extends BaseEvent {
-  kind: 'model_change';
-  turnId: string;
+export interface ModelChangedEvent extends BaseEvent {
+  kind: 'model_changed';
   model: string;
+  effort?: EffortLevel;
+}
+
+export interface SessionRenamedEvent extends BaseEvent {
+  kind: 'session_renamed';
+  displayName: string;
 }
 
 export interface AttachmentUploadedEvent extends BaseEvent {
@@ -283,7 +322,8 @@ export type AgentEvent =
   | WorktreeInfoEvent
   | AssistantThinkingEvent
   | CompactionEvent
-  | ModelChangeEvent
+  | ModelChangedEvent
+  | SessionRenamedEvent
   | AttachmentUploadedEvent
   | SessionClearedEvent
   | CommandAckEvent
@@ -313,7 +353,9 @@ export type AgentCommandBody =
   | { kind: 'agent_set_interaction_mode'; sessionId: string; mode: InteractionMode }
   | { kind: 'agent_user_input_respond'; sessionId: string; promptId: string; value: UserInputValue }
   | { kind: 'agent_checkpoint_revert'; sessionId: string; turnId: string }
-  | { kind: 'agent_commit_push_pr'; sessionId: string; title: string; body?: string; draft?: boolean };
+  | { kind: 'agent_commit_push_pr'; sessionId: string; title: string; body?: string; draft?: boolean }
+  | { kind: 'agent_set_model'; sessionId: string; model: string; effort?: EffortLevel }
+  | { kind: 'agent_rename_session'; sessionId: string; displayName: string };
 
 export type AgentCommand = AgentCommandBody & { commandId?: CommandId };
 

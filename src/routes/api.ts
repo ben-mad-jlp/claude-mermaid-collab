@@ -56,6 +56,8 @@ function expandPath(path: string): string {
 // Track server start time for uptime calculation
 const serverStartTime = Date.now();
 
+let pairMode = false;
+
 // Minimal source loader for image routes when loadImageBytes isn't exported
 async function loadImageSourceToBuffer(source: string): Promise<{ buffer: Buffer; mimeType: string }> {
   if (source.startsWith('data:')) {
@@ -642,6 +644,25 @@ export async function handleAPI(
   if (path === '/api/status' && req.method === 'GET') {
     const status = statusManager.getStatus();
     return Response.json(status);
+  }
+
+  // POST /api/pair-mode - Toggle or set pair mode
+  if (path === '/api/pair-mode' && req.method === 'POST') {
+    try {
+      const body = await req.json();
+      const { toggle, value } = body as { toggle?: boolean; value?: boolean };
+      if (toggle === true) {
+        pairMode = !pairMode;
+      } else if (typeof value === 'boolean') {
+        pairMode = value;
+      } else {
+        return Response.json({ error: 'Either toggle or value must be provided' }, { status: 400 });
+      }
+      wsHandler.broadcast({ type: 'pair_mode_changed', pairMode });
+      return Response.json({ pairMode });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
   }
 
   // ============================================
@@ -1487,11 +1508,6 @@ export async function handleAPI(
 
       // Save the document
       await documentManager.saveDocument(id, content);
-
-      // Auto-undeprecate on update
-      if (metadataManager.isDeprecated(id)) {
-        await metadataManager.updateItem(id, { deprecated: false });
-      }
 
       // Log the update (don't fail the request if logging fails)
       try {

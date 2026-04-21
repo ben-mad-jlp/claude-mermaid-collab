@@ -20,6 +20,8 @@ export interface ProposedEditReviewProps {
   proposedAt: number;
   onAccept: () => Promise<void>;
   onReject: () => Promise<void>;
+  diffExpanded?: boolean;
+  observeMode?: boolean;
 }
 
 function formatRelativeTime(ts: number): string {
@@ -37,6 +39,8 @@ export const ProposedEditReview: React.FC<ProposedEditReviewProps> = ({
   proposedAt,
   onAccept,
   onReject,
+  diffExpanded = false,
+  observeMode,
 }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -76,6 +80,76 @@ export const ProposedEditReview: React.FC<ProposedEditReviewProps> = ({
   }, [previewOpen]);
 
   const hasChanges = currentCode !== proposedCode;
+
+  if (diffExpanded) {
+    return (
+      <div className="flex flex-col flex-1 min-h-0">
+        {/* Compact amber header row */}
+        <div className="bg-amber-50 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-800 px-4 py-2 flex items-center justify-between text-sm flex-shrink-0">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <span className="text-amber-800 dark:text-amber-200 font-medium flex-shrink-0">
+              Claude proposed an edit
+            </span>
+            {proposedMessage && (
+              <>
+                <span className="text-amber-600 dark:text-amber-400 flex-shrink-0">—</span>
+                <span className="text-amber-800 dark:text-amber-200 truncate" title={proposedMessage}>
+                  {proposedMessage}
+                </span>
+              </>
+            )}
+            <span className="text-xs text-amber-600 dark:text-amber-400 flex-shrink-0">
+              ({formatRelativeTime(proposedAt)})
+            </span>
+          </div>
+          <div className="flex gap-2 flex-shrink-0">
+            {observeMode ? (
+              <span className="text-xs text-amber-600 dark:text-amber-400 italic">
+                Observing — flip to Review to act
+              </span>
+            ) : (
+              <>
+                <button
+                  onClick={handleAccept}
+                  disabled={isProcessing}
+                  className="px-2 py-0.5 rounded text-xs font-medium bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isProcessing ? 'Working…' : 'Accept'}
+                </button>
+                <button
+                  onClick={handleReject}
+                  disabled={isProcessing}
+                  className="px-2 py-0.5 rounded text-xs font-medium bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Reject
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Inline diff viewer */}
+        <div className="overflow-auto flex-1 min-h-0">
+          {!hasChanges ? (
+            <div className="flex items-center justify-center py-12 text-sm text-gray-500 dark:text-gray-400">
+              No changes detected
+            </div>
+          ) : (
+            <DiffViewer
+              oldValue={currentCode}
+              newValue={proposedCode}
+              splitView={true}
+              useDarkTheme={isDark}
+              leftTitle="Current"
+              rightTitle="Proposed"
+              hideLineNumbers={false}
+              showDiffOnly={true}
+            />
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>

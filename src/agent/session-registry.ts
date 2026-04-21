@@ -7,7 +7,7 @@ import { EventLog } from './event-log.ts';
 import { PermissionBridge } from './permission-bridge.ts';
 import { start as startPermissionSocket, type PermissionSocketServer } from './permission-socket.ts';
 import { WorktreeManager } from './worktree-manager.ts';
-import type { AgentEvent, PermissionMode, PermissionDecision, ProjectionCtx, SessionWorktree } from './contracts.ts';
+import type { AgentEvent, PermissionMode, PermissionDecision, ProjectionCtx, SessionWorktree, SessionMetadata, EffortLevel } from './contracts.ts';
 
 // Fixed namespace UUID for the collab agent (treated as 16 raw bytes; value is arbitrary but stable).
 export const NAMESPACE_COLLAB_AGENT = 'd16e4f3e-1d0e-4a1f-9f3a-c011a6a9e401';
@@ -66,6 +66,9 @@ interface Entry {
   socketPath: string | null;
   worktree: SessionWorktree | null;
   worktreeDirty?: boolean;
+  model?: string;
+  effort?: EffortLevel;
+  displayName?: string;
 }
 
 interface PersistRecord {
@@ -95,12 +98,14 @@ export class AgentSessionRegistry {
   private readonly projectRoot: string;
   private readonly eventLog: EventLog;
   private readonly projector: Projector;
+  private readonly db: ReturnType<EventLog['getDb']>;
 
   constructor(private opts: RegistryOpts) {
     this.persistDir = opts.persistDir ?? path.join(process.cwd(), '.collab', 'agent-sessions');
     this.projectRoot = opts.projectRoot ?? process.cwd();
     this.eventLog = opts.eventLog ?? new EventLog(path.join(this.persistDir, 'agent-events.db'));
     this.projector = new Projector(this.eventLog);
+    this.db = this.eventLog.getDb();
     const hookBinPath = opts.hookBinPath ?? path.resolve(process.cwd(), 'bin/permission-hook.ts');
     this.bridge = new PermissionBridge({
       broadcast: (event: AgentEvent) => this.dispatch(event.sessionId, event),
@@ -292,6 +297,131 @@ export class AgentSessionRegistry {
     return entry && entry.child.isAlive ? entry.child : null;
   }
 
+  getSession(sessionId: string): SessionMetadata | null {
+    const row = this.db
+      .prepare(
+        `SELECT session_id, display_name, model, effort, last_activity_ts,
+                total_cost_usd, total_input_tokens, total_output_tokens,
+                total_cache_read_tokens, total_cache_creation_tokens
+         FROM agent_sessions WHERE session_id = ?`,
+      )
+      .get(sessionId) as
+      | {
+          session_id: string;
+          display_name: string | null;
+          model: string | null;
+          effort: string | null;
+          last_activity_ts: number | null;
+          total_cost_usd: number | null;
+          total_input_tokens: number | null;
+          total_output_tokens: number | null;
+          total_cache_read_tokens: number | null;
+          total_cache_creation_tokens: number | null;
+        }
+      | undefined;
+    if (!row) {
+      // DB row doesn't exist yet (first spawn before any event is appended).
+      // Fall back to the in-memory Entry so model/effort/displayName are visible
+      // to child-manager before the first event commits (BUG-02).
+      const entry = this.map.get(sessionId);
+      if (!entry && !this.pendingStarts.has(sessionId)) return null;
+      return {
+        sessionId,
+        displayName: entry?.displayName,
+        model: entry?.model,
+        effort: entry?.effort,
+        lastActivityTs: undefined,
+        totalCostUsd: 0,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalCacheReadTokens: 0,
+        totalCacheCreationTokens: 0,
+      };
+    }
+    return {
+      sessionId: row.session_id,
+      displayName: row.display_name ?? undefined,
+      model: row.model ?? undefined,
+      effort: (row.effort as EffortLevel | null) ?? undefined,
+      lastActivityTs: row.last_activity_ts ?? undefined,
+      totalCostUsd: row.total_cost_usd ?? 0,
+      totalInputTokens: row.total_input_tokens ?? 0,
+      totalOutputTokens: row.total_output_tokens ?? 0,
+      totalCacheReadTokens: row.total_cache_read_tokens ?? 0,
+      totalCacheCreationTokens: row.total_cache_creation_tokens ?? 0,
+    };
+  }
+
+  listSessions(
+    opts: { projectRoot?: string; limit?: number; offset?: number; archived?: boolean } = {},
+  ): SessionMetadata[] {
+    // Note: `archived_at` / `project_root` columns do not yet exist on
+    // `agent_sessions` (migration 0002). The `opts.archived` and
+    // `opts.projectRoot` filters are a no-op / in-memory gate here until a
+    // later migration adds those columns and we can push them into SQL.
+    if (opts.projectRoot && opts.projectRoot !== this.projectRoot) return [];
+    const limit = Math.max(1, Math.min(200, opts.limit ?? 50));
+    const offset = Math.max(0, opts.offset ?? 0);
+    const rows = this.db
+      .prepare(
+        `SELECT session_id, display_name, model, effort, last_activity_ts,
+                total_cost_usd, total_input_tokens, total_output_tokens,
+                total_cache_read_tokens, total_cache_creation_tokens
+         FROM agent_sessions
+         ORDER BY COALESCE(last_activity_ts, 0) DESC, session_id ASC
+         LIMIT ? OFFSET ?`,
+      )
+      .all(limit, offset) as Array<{
+        session_id: string;
+        display_name: string | null;
+        model: string | null;
+        effort: string | null;
+        last_activity_ts: number | null;
+        total_cost_usd: number | null;
+        total_input_tokens: number | null;
+        total_output_tokens: number | null;
+        total_cache_read_tokens: number | null;
+        total_cache_creation_tokens: number | null;
+      }>;
+    return rows.map((r) => ({
+      sessionId: r.session_id,
+      displayName: r.display_name ?? undefined,
+      model: r.model ?? undefined,
+      effort: (r.effort as EffortLevel | null) ?? undefined,
+      lastActivityTs: r.last_activity_ts ?? undefined,
+      totalCostUsd: r.total_cost_usd ?? 0,
+      totalInputTokens: r.total_input_tokens ?? 0,
+      totalOutputTokens: r.total_output_tokens ?? 0,
+      totalCacheReadTokens: r.total_cache_read_tokens ?? 0,
+      totalCacheCreationTokens: r.total_cache_creation_tokens ?? 0,
+    }));
+  }
+
+  setModel(sessionId: string, model: string, effort?: EffortLevel): void {
+    this.db
+      .prepare('INSERT OR IGNORE INTO agent_sessions (session_id, last_seq) VALUES (?, 0)')
+      .run(sessionId);
+    this.db
+      .prepare('UPDATE agent_sessions SET model = ?, effort = ? WHERE session_id = ?')
+      .run(model, effort ?? null, sessionId);
+    const entry = this.map.get(sessionId);
+    if (entry) {
+      entry.model = model;
+      entry.effort = effort;
+    }
+  }
+
+  setDisplayName(sessionId: string, name: string): void {
+    this.db
+      .prepare('INSERT OR IGNORE INTO agent_sessions (session_id, last_seq) VALUES (?, 0)')
+      .run(sessionId);
+    this.db
+      .prepare('UPDATE agent_sessions SET display_name = ? WHERE session_id = ?')
+      .run(name, sessionId);
+    const entry = this.map.get(sessionId);
+    if (entry) entry.displayName = name;
+  }
+
   recordAndDispatch(sessionId: string, event: AgentEvent): number | undefined {
     return this.dispatch(sessionId, event);
   }
@@ -426,6 +556,8 @@ export class AgentSessionRegistry {
       },
     );
 
+    const existingMeta = this.getSession(sessionId);
+
     const child = new ChildManager({
       sessionId,
       cwd: spawnCwd,
@@ -437,6 +569,9 @@ export class AgentSessionRegistry {
       settingsPath,
       socketPath,
       extraArgs: isNonGit(wt) ? [] : ['--add-dir', this.projectRoot],
+      model: existingMeta?.model,
+      effort: existingMeta?.effort,
+      displayName: existingMeta?.displayName,
     });
 
     const ctx: ProjectionCtx = {
@@ -545,6 +680,9 @@ export class AgentSessionRegistry {
       socketPath,
       worktree: wt,
       worktreeDirty: dirty,
+      model: existingMeta?.model,
+      effort: existingMeta?.effort,
+      displayName: existingMeta?.displayName,
     });
 
     // Claude's stream-json input mode doesn't emit the system/init frame until

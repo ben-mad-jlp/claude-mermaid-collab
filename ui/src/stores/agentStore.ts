@@ -6,7 +6,17 @@ import type {
   SessionWorktree,
   RuntimeMode,
   InteractionMode,
+  CostTotals,
+  EffortLevel,
 } from '../types/agent';
+
+const ZERO_COST_TOTALS: CostTotals = {
+  totalCostUsd: 0,
+  totalInputTokens: 0,
+  totalOutputTokens: 0,
+  totalCacheReadTokens: 0,
+  totalCacheCreationTokens: 0,
+};
 import { splitPermissionMode } from '../types/agent';
 
 const MODE_V2_STORAGE_KEY = 'cmc:mode:v2';
@@ -157,7 +167,7 @@ interface AgentState {
   trustedTools: string[];
   multiSession: {
     activeSessionId: string | null;
-    sessions: Record<string, { name: string; unread: number }>;
+    sessions: Record<string, { name: string; unread: number; model?: string; effort?: EffortLevel; displayName?: string; costTotals: CostTotals }>;
   };
   userMessageHistory: string[];
   prStatus: Record<string, { number: number; url: string; checks?: string; reviews?: string }>;
@@ -361,11 +371,42 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
         // Backfill replays produce hist- turn ids; skip so they don't reset
         // streamingMessageId or usage for the live turn.
         if (typeof event.turnId === 'string' && event.turnId.startsWith('hist-')) return;
-        const cur = get().currentTurnId;
+        const state = get();
+        const cur = state.currentTurnId;
+        let multiSession = state.multiSession;
+        const existingSession = multiSession.sessions[event.sessionId];
+        if (existingSession && event.usage) {
+          const u = event.usage as {
+            inputTokens?: number;
+            outputTokens?: number;
+            costUsd?: number;
+            cacheReadInputTokens?: number;
+            cacheCreationInputTokens?: number;
+          };
+          // Guard against pre-Phase-1 persisted sessions that lack costTotals (BUG-06).
+          const prevTotals = existingSession.costTotals ?? ZERO_COST_TOTALS;
+          const updatedSession = {
+            ...existingSession,
+            costTotals: {
+              totalCostUsd: prevTotals.totalCostUsd + (u.costUsd ?? 0),
+              totalInputTokens: prevTotals.totalInputTokens + (u.inputTokens ?? 0),
+              totalOutputTokens: prevTotals.totalOutputTokens + (u.outputTokens ?? 0),
+              totalCacheReadTokens:
+                prevTotals.totalCacheReadTokens + (u.cacheReadInputTokens ?? 0),
+              totalCacheCreationTokens:
+                prevTotals.totalCacheCreationTokens + (u.cacheCreationInputTokens ?? 0),
+            },
+          };
+          multiSession = {
+            ...multiSession,
+            sessions: { ...multiSession.sessions, [event.sessionId]: updatedSession },
+          };
+        }
         set({
           streamingMessageId: null,
-          usage: event.usage ?? get().usage,
+          usage: event.usage ?? state.usage,
           currentTurnId: cur === event.turnId ? null : cur,
+          multiSession,
         });
         return;
       }
@@ -618,10 +659,43 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
         set({ thinkingByTurn: { ...cur, [event.turnId]: next } });
         return;
       }
-      case 'model_change': {
-        const cur = get().modelByTurn;
-        if (cur[event.turnId] === event.model) return;
-        set({ modelByTurn: { ...cur, [event.turnId]: event.model } });
+      case 'model_changed': {
+        const state = get();
+        const cur = state.modelByTurn;
+        const curTurnId = state.currentTurnId;
+        let modelByTurn = cur;
+        if (curTurnId && cur[curTurnId] !== event.model) {
+          modelByTurn = { ...cur, [curTurnId]: event.model };
+        }
+        let multiSession = state.multiSession;
+        const existingSession = multiSession.sessions[event.sessionId];
+        if (existingSession) {
+          const updatedSession = {
+            ...existingSession,
+            model: event.model,
+            ...(event.effort !== undefined ? { effort: event.effort } : {}),
+          };
+          multiSession = {
+            ...multiSession,
+            sessions: { ...multiSession.sessions, [event.sessionId]: updatedSession },
+          };
+        }
+        set({ modelByTurn, multiSession });
+        return;
+      }
+      case 'session_renamed': {
+        const state = get();
+        const existingSession = state.multiSession.sessions[event.sessionId];
+        if (!existingSession) return;
+        set({
+          multiSession: {
+            ...state.multiSession,
+            sessions: {
+              ...state.multiSession.sessions,
+              [event.sessionId]: { ...existingSession, displayName: event.displayName },
+            },
+          },
+        });
         return;
       }
       case 'checkpoint_reverted': {
@@ -707,7 +781,7 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
   addSession: (sessionId, name) => {
     const ms = get().multiSession;
     if (ms.sessions[sessionId]) return;
-    set({ multiSession: { ...ms, sessions: { ...ms.sessions, [sessionId]: { name, unread: 0 } } } });
+    set({ multiSession: { ...ms, sessions: { ...ms.sessions, [sessionId]: { name, unread: 0, costTotals: { ...ZERO_COST_TOTALS } } } } });
   },
   setActive: (sessionId) => {
     set({ multiSession: { ...get().multiSession, activeSessionId: sessionId } });

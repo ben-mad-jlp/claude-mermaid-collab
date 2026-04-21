@@ -1368,46 +1368,42 @@ const App: React.FC = () => {
 
     return (
       <div className="flex flex-col h-full min-h-0">
-        {/* Editor Toolbar - only render for toolbar-applicable artifact kinds */}
-        {showToolbar && <EditorToolbar
-          itemName={selectedItem?.name || ''}
-          hasUnsavedChanges={hasUnsavedChanges || isSaving}
-          onUndo={() => {}} // TODO: Implement undo/redo
-          onRedo={() => {}}
-          canUndo={false}
-          canRedo={false}
-          zoom={zoomLevel}
-          onZoomIn={zoomIn}
-          onZoomOut={zoomOut}
-          overflowActions={overflowActions}
-          showZoom={selectedItem?.type !== 'document' && selectedItem?.type !== 'spreadsheet' && selectedItem?.type !== 'snippet'}
-          onCenter={selectedItem?.type === 'diagram' ? handleCenter : undefined}
-          onFitToView={selectedItem?.type === 'diagram' ? handleFitToView : undefined}
-          itemType={selectedItem && selectedItem.type !== 'image' ? selectedItem.type : undefined}
-          documentId={selectedItem?.type === 'document' ? selectedItem.id : undefined}
-          documentContent={selectedItem?.type === 'document' ? effectiveContent : undefined}
-          onHistoryVersionSelect={selectedItem?.type === 'document' ? handleHistoryVersionSelect : undefined}
-          historyDiff={selectedItem?.type === 'document' ? historyDiff : null}
-          onClearHistoryDiff={handleClearHistoryDiff}
-          onHistorySettingsChange={selectedItem?.type === 'document' ? handleHistorySettingsChange : undefined}
-          diagramId={selectedItem?.type === 'diagram' ? selectedItem.id : undefined}
-          onDiagramHistorySelect={selectedItem?.type === 'diagram' ? handleDiagramHistorySelect : undefined}
-          designId={selectedItem?.type === 'design' ? selectedItem.id : undefined}
-          onDesignHistorySelect={selectedItem?.type === 'design' ? handleDesignHistorySelect : undefined}
-          inlineControls={selectedItem?.type === 'snippet' ? snippetToolbarControls : undefined}
-        />}
-
         {/* Editor: all content flows through SplitEditorHost → PaneContent.
             NOTE: zoom/history/preview props are temporarily not threaded through
             the split host — deferred follow-up. */}
-        <div className="flex-1 min-h-0 overflow-hidden">
-          <SplitEditorHost
-            editMode={editMode}
-            project={currentSession?.project}
-            session={currentSession?.name}
-            onContentChange={(_id, content) => handleContentChange(content)}
-          />
-        </div>
+        <SplitEditorHost
+          editMode={editMode}
+          project={currentSession?.project}
+          session={currentSession?.name}
+          onContentChange={(_id, content) => handleContentChange(content)}
+          toolbar={showToolbar ? <EditorToolbar
+            itemName={selectedItem?.name || ''}
+            hasUnsavedChanges={hasUnsavedChanges || isSaving}
+            onUndo={() => {}} // TODO: Implement undo/redo
+            onRedo={() => {}}
+            canUndo={false}
+            canRedo={false}
+            zoom={zoomLevel}
+            onZoomIn={zoomIn}
+            onZoomOut={zoomOut}
+            overflowActions={overflowActions}
+            showZoom={selectedItem?.type !== 'document' && selectedItem?.type !== 'spreadsheet' && selectedItem?.type !== 'snippet'}
+            onCenter={selectedItem?.type === 'diagram' ? handleCenter : undefined}
+            onFitToView={selectedItem?.type === 'diagram' ? handleFitToView : undefined}
+            itemType={selectedItem && selectedItem.type !== 'image' ? selectedItem.type : undefined}
+            documentId={selectedItem?.type === 'document' ? selectedItem.id : undefined}
+            documentContent={selectedItem?.type === 'document' ? effectiveContent : undefined}
+            onHistoryVersionSelect={selectedItem?.type === 'document' ? handleHistoryVersionSelect : undefined}
+            historyDiff={selectedItem?.type === 'document' ? historyDiff : null}
+            onClearHistoryDiff={handleClearHistoryDiff}
+            onHistorySettingsChange={selectedItem?.type === 'document' ? handleHistorySettingsChange : undefined}
+            diagramId={selectedItem?.type === 'diagram' ? selectedItem.id : undefined}
+            onDiagramHistorySelect={selectedItem?.type === 'diagram' ? handleDiagramHistorySelect : undefined}
+            designId={selectedItem?.type === 'design' ? selectedItem.id : undefined}
+            onDesignHistorySelect={selectedItem?.type === 'design' ? handleDesignHistorySelect : undefined}
+            inlineControls={selectedItem?.type === 'snippet' ? snippetToolbarControls : undefined}
+          /> : undefined}
+        />
       </div>
     );
   };

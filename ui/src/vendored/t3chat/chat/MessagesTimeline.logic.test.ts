@@ -19,7 +19,7 @@ describe('groupByTurn', () => {
 
   it('handles items without turnId', () => {
     const g = groupByTurn([{ id: 'x', kind: 'message' }]);
-    expect(g[0].turnId).toBe('no-turn');
+    expect(g[0].turnId).toMatch(/^no-turn-/);
   });
 });
 

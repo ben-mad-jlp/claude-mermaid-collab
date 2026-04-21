@@ -946,6 +946,7 @@ export async function* walkProject(
       for await (const rel of gitListFiles(absRoot)) {
         checkAbort();
         if (!rel) continue;
+        if (rel.split('/').some((seg) => seg.startsWith('.'))) continue;
         if (ignoreMatcher.ignores(rel)) continue;
         const base = rel.slice(rel.lastIndexOf('/') + 1);
         if (!isSupported(base)) continue;
@@ -986,6 +987,7 @@ export async function* walkProject(
         const rel = relative(absRoot, full).split(sep).join('/');
 
         if (SCANNER_EXCLUDES.has(name)) continue;
+        if (name.startsWith('.')) continue;
         if (ignoreMatcher.ignores(rel)) continue;
 
         let isDir = entry.isDirectory();

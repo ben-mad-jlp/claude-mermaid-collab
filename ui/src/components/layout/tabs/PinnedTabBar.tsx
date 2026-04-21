@@ -54,7 +54,9 @@ export const PinnedTabBar: React.FC = () => {
   };
 
   const handleCloseAll = () => {
-    tabs.forEach((t) => closeTab(t.id));
+    // Only close pinned tabs — "Close All" invoked from the pinned bar
+    // should not cascade to regular/preview tabs.
+    pinned.forEach((t) => closeTab(t.id));
   };
 
   return (

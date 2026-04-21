@@ -19,7 +19,8 @@ export type AgentEventKind =
   | 'worktree_info'
   | 'assistant_thinking'
   | 'compaction'
-  | 'model_change'
+  | 'model_changed'
+  | 'session_renamed'
   | 'attachment_uploaded'
   | 'session_cleared'
   | 'command_ack'
@@ -30,6 +31,8 @@ export type AgentEventKind =
 
 export type PermissionMode = 'supervised' | 'accept-edits' | 'plan' | 'bypass';
 export type PermissionDecision = 'allow_once' | 'allow_session' | 'deny';
+
+export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export type RuntimeMode = 'read-only' | 'edit' | 'bypass';
 export type InteractionMode = 'ask' | 'accept-edits' | 'plan';
@@ -73,6 +76,19 @@ export interface NonGitFallback {
 }
 export type SessionWorktree = WorktreeInfo | NonGitFallback;
 
+export interface SessionMetadata {
+  sessionId: string;
+  displayName?: string;
+  model?: string;
+  effort?: EffortLevel;
+  lastActivityTs?: number;
+  totalCostUsd: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheCreationTokens: number;
+}
+
 // Known Claude Code tool names; fallback to arbitrary string for forward compat.
 export type KnownToolName =
   | 'Read' | 'Edit' | 'Write' | 'Bash' | 'Grep' | 'Glob'
@@ -107,10 +123,18 @@ export interface AssistantMessageCompleteEvent extends BaseEvent {
   historical?: boolean;
 }
 
+export interface TurnEndUsage {
+  inputTokens: number;
+  outputTokens: number;
+  costUsd?: number;
+  cacheCreationInputTokens?: number;
+  cacheReadInputTokens?: number;
+}
+
 export interface TurnEndEvent extends BaseEvent {
   kind: 'turn_end';
   turnId: string;
-  usage?: { inputTokens: number; outputTokens: number; costUsd?: number };
+  usage?: TurnEndUsage;
   stopReason?: string;
   canceled?: boolean;
 }
@@ -214,10 +238,17 @@ export interface CompactionEvent extends BaseEvent {
   messagesRetained: number;
 }
 
-export interface ModelChangeEvent extends BaseEvent {
-  kind: 'model_change';
-  turnId: string;
+export interface ModelChangedEvent extends BaseEvent {
+  kind: 'model_changed';
   model: string;
+  effort?: EffortLevel;
+  seq: number;
+}
+
+export interface SessionRenamedEvent extends BaseEvent {
+  kind: 'session_renamed';
+  displayName: string;
+  seq: number;
 }
 
 export interface AttachmentUploadedEvent extends BaseEvent {
@@ -282,7 +313,8 @@ export type AgentEvent =
   | WorktreeInfoEvent
   | AssistantThinkingEvent
   | CompactionEvent
-  | ModelChangeEvent
+  | ModelChangedEvent
+  | SessionRenamedEvent
   | AttachmentUploadedEvent
   | SessionClearedEvent
   | CommandAckEvent
@@ -314,9 +346,14 @@ export type AgentCommandBody =
   | { kind: 'agent_set_interaction_mode'; sessionId: string; mode: InteractionMode }
   | { kind: 'agent_user_input_respond'; sessionId: string; promptId: string; value: UserInputValue }
   | { kind: 'agent_checkpoint_revert'; sessionId: string; turnId: string }
-  | { kind: 'agent_commit_push_pr'; sessionId: string; title: string; body?: string; draft?: boolean };
+  | { kind: 'agent_commit_push_pr'; sessionId: string; title: string; body?: string; draft?: boolean }
+  | { kind: 'agent_set_model'; sessionId: string; model: string; effort?: EffortLevel }
+  | { kind: 'agent_rename_session'; sessionId: string; displayName: string };
 
 export type AgentCommand = AgentCommandBody & { commandId?: CommandId };
+
+export type AgentSetModelCommand = Extract<AgentCommand, { kind: 'agent_set_model' }>;
+export type AgentRenameSessionCommand = Extract<AgentCommand, { kind: 'agent_rename_session' }>;
 
 export interface ProjectionCtx {
   sessionId: string;

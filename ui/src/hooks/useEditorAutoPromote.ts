@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useTabsStore, sessionKey } from '../stores/tabsStore';
 import { useSessionStore } from '../stores/sessionStore';
+import { promoteCodeFile } from '../lib/promote-code-file';
 
 type Listener = (tabId: string) => void;
 const listeners = new Set<Listener>();
@@ -35,7 +36,8 @@ export function useEditorAutoPromote(): void {
       const tab = entry.tabs.find((t) => t.id === tabId);
       if (!tab) return;
       if (tab.isPreview) {
-        useTabsStore.getState().promoteToPermanent(tabId);
+        if (tab.kind === 'code-file') void promoteCodeFile(tabId);
+        else useTabsStore.getState().promoteToPermanent(tabId);
       }
       promoted.add(tabId);
     });

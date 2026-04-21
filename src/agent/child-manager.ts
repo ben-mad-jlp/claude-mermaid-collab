@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { PermissionMode, RuntimeMode } from './contracts';
+import type { PermissionMode, RuntimeMode, EffortLevel } from './contracts';
 import { splitPermissionMode } from './contracts';
 
 export interface ChildManagerOpts {
@@ -14,6 +14,9 @@ export interface ChildManagerOpts {
   settingsPath?: string;
   socketPath?: string;
   extraArgs?: string[];
+  model?: string;
+  effort?: EffortLevel;
+  displayName?: string;
 }
 
 const PERMISSION_MODE_MAP: Record<PermissionMode, string> = {
@@ -109,6 +112,15 @@ export class ChildManager extends EventEmitter {
     if (runtimeFlags.length > 0) argv.push(...runtimeFlags);
     if (this.opts.extraArgs && this.opts.extraArgs.length > 0) {
       argv.push(...this.opts.extraArgs);
+    }
+    if (this.opts.model) {
+      argv.push('--model', this.opts.model);
+    }
+    if (this.opts.effort) {
+      argv.push('--effort', this.opts.effort);
+    }
+    if (this.opts.displayName) {
+      argv.push('--name', this.opts.displayName);
     }
     return argv;
   }

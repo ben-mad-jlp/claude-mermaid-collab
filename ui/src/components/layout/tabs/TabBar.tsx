@@ -70,6 +70,7 @@ export const TabBar: React.FC<TabBarProps> = ({ onContextMenu }) => {
   const setActive = useTabsStore((s) => s.setActive);
   const closeTab = useTabsStore((s) => s.closeTab);
   const pinTab = useTabsStore((s) => s.pinTab);
+  const unpinTab = useTabsStore((s) => s.unpinTab);
   const pinTabRight = useTabsStore((s) => s.pinTabRight);
   const promoteToPermanent = useTabsStore((s) => s.promoteToPermanent);
 
@@ -173,8 +174,10 @@ export const TabBar: React.FC<TabBarProps> = ({ onContextMenu }) => {
   );
 
   const handleCloseAll = React.useCallback(() => {
-    tabs.forEach((t) => closeTab(t.id));
-  }, [tabs, closeTab]);
+    // Only close regular (non-pinned) tabs — "Close All" invoked from the
+    // regular bar should not cascade to pinned tabs.
+    regularOrdered.forEach((t) => closeTab(t.id));
+  }, [regularOrdered, closeTab]);
 
   const permanentTabs = tabs
     .filter((t) => !t.isPinned && !t.isPreview)
@@ -238,7 +241,7 @@ export const TabBar: React.FC<TabBarProps> = ({ onContextMenu }) => {
           onOpenInRightPane={() => pinTabRight(menu.tab.id)}
           hideOpenInRightPane={rightPaneTabId === menu.tab.id}
           onPinToggle={() =>
-            menu.tab.isPinned ? useTabsStore.getState().unpinTab(menu.tab.id) : pinTab(menu.tab.id)
+            menu.tab.isPinned ? unpinTab(menu.tab.id) : pinTab(menu.tab.id)
           }
           onDismiss={() => setMenu(null)}
         />

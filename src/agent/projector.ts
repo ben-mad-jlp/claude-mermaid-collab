@@ -1,6 +1,33 @@
 import { randomUUID } from 'crypto';
-import type { AgentEvent, ProjectionCtx } from './contracts.js';
+import type { AgentEvent, ProjectionCtx, TurnEndUsage, TurnEndEvent } from './contracts.js';
 import type { EventLog } from './event-log.js';
+
+/** Per-million-token pricing in USD; keys match substrings in model ids. */
+const PRICING_PER_MTOK: Record<
+  string,
+  { in: number; out: number; cacheRead: number; cacheWrite: number }
+> = {
+  sonnet: { in: 3, out: 15, cacheRead: 0.30, cacheWrite: 3.75 },
+  opus: { in: 15, out: 75, cacheRead: 1.50, cacheWrite: 18.75 },
+  haiku: { in: 0.80, out: 4, cacheRead: 0.08, cacheWrite: 1 },
+};
+
+export function computeCostUsd(
+  model: string | null | undefined,
+  usage: TurnEndUsage,
+): number {
+  if (!model) return 0;
+  const lower = model.toLowerCase();
+  const key = Object.keys(PRICING_PER_MTOK).find((k) => lower.includes(k));
+  if (!key) return 0;
+  const p = PRICING_PER_MTOK[key]!;
+  const M = 1_000_000;
+  const inp = usage.inputTokens ?? 0;
+  const outp = usage.outputTokens ?? 0;
+  const cRead = usage.cacheReadInputTokens ?? 0;
+  const cWrite = usage.cacheCreationInputTokens ?? 0;
+  return (inp * p.in + outp * p.out + cRead * p.cacheRead + cWrite * p.cacheWrite) / M;
+}
 
 export function tagParent(toolUseId: string, ctx: ProjectionCtx): string | undefined {
   return ctx.subAgentParentMap.get(toolUseId);
@@ -336,11 +363,13 @@ export function projectFrame(frame: any, ctx: ProjectionCtx): AgentEvent[] {
 
     if (type === 'result') {
       const turnId = ctx.currentTurnId ?? randomUUID();
-      const usage = frame.usage
+      const usage: TurnEndUsage | undefined = frame.usage
         ? {
             inputTokens: frame.usage.input_tokens ?? 0,
             outputTokens: frame.usage.output_tokens ?? 0,
             costUsd: frame.total_cost_usd,
+            cacheCreationInputTokens: frame.usage.cache_creation_input_tokens ?? 0,
+            cacheReadInputTokens: frame.usage.cache_read_input_tokens ?? 0,
           }
         : undefined;
       const ev: AgentEvent = {
@@ -397,7 +426,38 @@ export class Projector {
   project(frame: unknown, ctx: ProjectionCtx): AgentEvent[] {
     const events = projectFrame(frame, ctx);
     if (events.length === 0) return [];
-    return this.eventLog.append(ctx.sessionId, events);
+    try {
+      let aggregate: {
+        costUsd: number;
+        inputTokens: number;
+        outputTokens: number;
+        cacheReadTokens: number;
+        cacheCreationTokens: number;
+        lastActivityTs: number;
+      } | null = null;
+      const turnEnd = events.find(
+        (e): e is TurnEndEvent => e.kind === 'turn_end' && !!(e as TurnEndEvent).usage,
+      );
+      if (turnEnd && turnEnd.usage) {
+        const usage = turnEnd.usage;
+        const costUsd =
+          usage.costUsd != null
+            ? usage.costUsd
+            : computeCostUsd(this.eventLog.getSessionModel(ctx.sessionId), usage);
+        aggregate = {
+          costUsd,
+          inputTokens: usage.inputTokens ?? 0,
+          outputTokens: usage.outputTokens ?? 0,
+          cacheReadTokens: usage.cacheReadInputTokens ?? 0,
+          cacheCreationTokens: usage.cacheCreationInputTokens ?? 0,
+          lastActivityTs: turnEnd.ts ?? Date.now(),
+        };
+      }
+      return this.eventLog.appendWithAggregates(ctx.sessionId, events, aggregate);
+    } catch (err) {
+      console.error('[projector] aggregation build failed', err);
+      return this.eventLog.append(ctx.sessionId, events);
+    }
   }
 
   /**

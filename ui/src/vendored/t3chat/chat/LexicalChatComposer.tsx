@@ -21,7 +21,14 @@ import type { ChatComposerProps } from './ChatComposer';
 // Locally-intercepted slash commands which, when submitted as a single-pill
 // skill mention with no surrounding content, route through `onSlashCommand`
 // instead of `onSend`.
-const LOCAL_INTERCEPT_COMMANDS = new Set(['clear', 'help']);
+const LOCAL_INTERCEPT_COMMANDS = new Set([
+  'clear',
+  'help',
+  'model',
+  'cost',
+  'resume',
+  'rename',
+]);
 
 interface PickerState {
   query: string;
@@ -117,15 +124,33 @@ const LexicalChatComposer: React.FC<ChatComposerProps> = ({
     (serialized: ComposerSerialized) => {
       if (disabled || isStreaming) return;
 
+      // Plain-text slash intercept: no mentions, text begins with '/'.
+      const { text, mentions } = serialized;
+      if (mentions.length === 0 && text.trimStart().startsWith('/')) {
+        const trimmed = text.trimStart();
+        const match = trimmed.match(/^\/(\S+)(\s+([\s\S]*))?$/);
+        if (match) {
+          const token = match[1];
+          const args = (match[3] ?? '').trim();
+          if (LOCAL_INTERCEPT_COMMANDS.has(token) && onSlashCommand) {
+            const handled = onSlashCommand(token, args);
+            if (handled) {
+              clearEditor();
+              return;
+            }
+          }
+        }
+      }
+
       // Single-pill intercept: exactly one skill mention with no non-whitespace
       // surrounding text maps to local slash command handling.
-      const { text, mentions } = serialized;
       if (mentions.length === 1 && mentions[0].kind === 'skill') {
         const m = mentions[0];
         const before = text.slice(0, m.range.from);
         const after = text.slice(m.range.to);
         if (!before.trim() && !after.trim() && LOCAL_INTERCEPT_COMMANDS.has(m.value)) {
-          if (onSlashCommand) onSlashCommand(m.value);
+          // No args when the whole message is the pill — pass undefined for clarity (BUG-09).
+          if (onSlashCommand) onSlashCommand(m.value, undefined);
           clearEditor();
           return;
         }

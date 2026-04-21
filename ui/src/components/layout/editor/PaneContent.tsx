@@ -20,7 +20,9 @@ import { EmbedViewer } from '@/components/EmbedViewer';
 import { ImageViewer } from '@/components/ImageViewer';
 import { TaskGraphView } from '@/components/task-graph';
 import { PseudoViewer } from '@/pages/pseudo/PseudoViewer';
+import CodeFileView from '@/components/editors/CodeFileView';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useUIStore } from '@/stores/uiStore';
 import type { TabDescriptor } from '@/stores/tabsStore';
 import type { Document, Item } from '@/types';
 
@@ -71,6 +73,7 @@ export const PaneContent: React.FC<PaneContentProps> = ({
       embeds: s.embeds,
     })),
   );
+  const codeFirstView = useUIStore((s) => s.codeFirstView);
 
   if (!tab) return <EmptyPane />;
 
@@ -179,6 +182,16 @@ export const PaneContent: React.FC<PaneContentProps> = ({
     case 'code-file': {
       if (!project) {
         return <NotFound message="Code file requires a project" />;
+      }
+      if (codeFirstView) {
+        return (
+          <CodeFileView
+            path={tab.artifactId}
+            project={project}
+            editMode={editMode}
+            tabId={tab.id}
+          />
+        );
       }
       return <PseudoViewer path={tab.artifactId} project={project} />;
     }

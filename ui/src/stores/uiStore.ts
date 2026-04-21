@@ -29,6 +29,10 @@ export interface UIState {
   setDocumentEditable: (editable: boolean) => void;
   toggleDocumentEditable: () => void;
 
+  codeFirstView: boolean;
+  setCodeFirstView: (v: boolean) => void;
+  toggleCodeFirstView: () => void;
+
   // Agent chat panel visibility
   agentChatVisible: boolean;
   setAgentChatVisible: (visible: boolean) => void;
@@ -38,6 +42,12 @@ export interface UIState {
   seenMigrationBannerV5: boolean;
   setSeenMigrationBannerV5: (seen: boolean) => void;
   dismissMigrationBannerV5: () => void;
+
+  pairMode: boolean;
+  setPairMode: (on: boolean) => void;
+  togglePairMode: () => void;
+  proposedEditObserveMode: boolean;
+  setProposedEditObserveMode: (on: boolean) => void;
 
   // Split pane positions (stored as percentages)
   sidebarSplitPosition: number;
@@ -123,6 +133,13 @@ export const useUIStore = create<UIState>()(
         set({ documentEditable: !current });
       },
 
+      codeFirstView: true,
+      setCodeFirstView: (v: boolean) => set({ codeFirstView: v }),
+      toggleCodeFirstView: () => {
+        const current = get().codeFirstView;
+        set({ codeFirstView: !current });
+      },
+
       // Agent chat panel (default visible — primary interaction surface)
       agentChatVisible: true,
       setAgentChatVisible: (visible: boolean) => set({ agentChatVisible: visible }),
@@ -135,6 +152,12 @@ export const useUIStore = create<UIState>()(
       seenMigrationBannerV5: false,
       setSeenMigrationBannerV5: (seen: boolean) => set({ seenMigrationBannerV5: seen }),
       dismissMigrationBannerV5: () => set({ seenMigrationBannerV5: true }),
+
+      pairMode: false,
+      setPairMode: (on: boolean) => set({ pairMode: on }),
+      togglePairMode: () => { const current = get().pairMode; set({ pairMode: !current }); },
+      proposedEditObserveMode: false,
+      setProposedEditObserveMode: (on: boolean) => set({ proposedEditObserveMode: on }),
 
       // Split pane positions
       sidebarSplitPosition: DEFAULT_SIDEBAR_POSITION,
@@ -184,8 +207,11 @@ export const useUIStore = create<UIState>()(
           sidebarVisible: true,
           sessionPanelVisible: true,
           editMode: true,
+          codeFirstView: true,
           agentChatVisible: true,
           seenMigrationBannerV5: false,
+          pairMode: false,
+          proposedEditObserveMode: false,
           sidebarSplitPosition: DEFAULT_SIDEBAR_POSITION,
           sessionPanelSplitPosition: DEFAULT_SESSION_PANEL_POSITION,
           editorSplitPosition: DEFAULT_EDITOR_SPLIT_POSITION,
@@ -194,7 +220,7 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'ui-preferences', // localStorage key
-      version: 5,
+      version: 6,
       migrate: (persistedState: unknown, version: number) => {
         // v5: terminal/shell removed entirely. Drop legacy panel flags and
         // default agentChatVisible to true so chat is visible by default.
@@ -215,6 +241,10 @@ export const useUIStore = create<UIState>()(
             seenMigrationBannerV5:
               typeof old.seenMigrationBannerV5 === 'boolean' ? old.seenMigrationBannerV5 : false,
           } as UIState;
+        }
+        if (version < 6) {
+          const old = persistedState as Record<string, unknown>;
+          return { ...old, pairMode: false, proposedEditObserveMode: false } as UIState;
         }
         return persistedState as UIState;
       },

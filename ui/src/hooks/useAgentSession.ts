@@ -11,6 +11,7 @@ import type {
   PermissionDecision,
   PermissionMode,
   UserInputValue,
+  EffortLevel,
 } from '../types/agent';
 
 export interface CommitPushPRInput {
@@ -27,6 +28,8 @@ export interface UseAgentSessionReturn {
   commitPushPR: (input: CommitPushPRInput) => void;
   respondUserInput: (promptId: string, value: UserInputValue) => void;
   revertToCheckpoint: (turnId: string) => void;
+  setModel: (model: string, effort?: EffortLevel) => void;
+  renameSession: (displayName: string) => void;
 }
 
 function mintCommandId(): CommandId {
@@ -210,6 +213,16 @@ export function useAgentSession(sessionId: string | null): UseAgentSessionReturn
     [sessionId, sendCmd],
   );
 
+  const setModel = useCallback((model: string, effort?: EffortLevel) => {
+    if (!sessionId) return;
+    sendCmd({ kind: 'agent_set_model', sessionId, model, ...(effort !== undefined ? { effort } : {}) });
+  }, [sessionId, sendCmd]);
+
+  const renameSession = useCallback((displayName: string) => {
+    if (!sessionId) return;
+    sendCmd({ kind: 'agent_rename_session', sessionId, displayName });
+  }, [sessionId, sendCmd]);
+
   return {
     send,
     cancel,
@@ -218,5 +231,7 @@ export function useAgentSession(sessionId: string | null): UseAgentSessionReturn
     commitPushPR,
     respondUserInput,
     revertToCheckpoint,
+    setModel,
+    renameSession,
   };
 }

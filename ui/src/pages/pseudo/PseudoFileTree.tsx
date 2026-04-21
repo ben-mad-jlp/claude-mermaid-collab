@@ -10,9 +10,7 @@
 import { memo, useEffect } from 'react';
 import { PseudoTreeBody } from '@/components/layout/sidebar-tree/PseudoTreeBody';
 import { useSidebarTreeStore } from '@/stores/sidebarTreeStore';
-import { useSessionStore } from '@/stores/sessionStore';
-import { useTabsStore } from '@/stores/tabsStore';
-import { linkFile } from '@/lib/link-file';
+import { mark } from '@/lib/perf-bus';
 import type { TreeNode } from './tree.utils';
 import type { PseudoFileSummary } from '@/lib/pseudo-api';
 
@@ -88,40 +86,12 @@ function TreeNodeRendererImpl({
   const shouldShowChildren = !isCollapsed || filterExpanded.has(node.path);
   const fileCount = node.children.length;
 
-  const currentSession = useSessionStore((s) => s.currentSession);
-  const selectSnippet = useSessionStore((s) => s.selectSnippet);
-  const openPermanent = useTabsStore((s) => s.openPermanent);
-
-  const handleLinkAndOpen = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!currentSession) return;
-    const absPath = fileMeta.get(node.path)?.filePath;
-    if (!absPath) return;
-    try {
-      const snippetId = await linkFile(
-        currentSession.project,
-        currentSession.name,
-        absPath,
-      );
-      openPermanent({
-        id: snippetId,
-        kind: 'artifact',
-        artifactType: 'snippet',
-        artifactId: snippetId,
-        name: node.name,
-      });
-      selectSnippet(snippetId);
-    } catch (err) {
-      console.error('[PseudoFileTree] link-and-open failed', err);
-    }
-  };
-
   return (
     <div key={node.path}>
       <div
         data-testid="tree-node"
         style={{ paddingLeft: `${level * 16}px` }}
-        className={`group flex items-center gap-1 px-2 py-1 cursor-pointer rounded ${
+        className={`flex items-center gap-1 px-2 py-1 cursor-pointer rounded ${
           isActive ? 'bg-purple-50 text-purple-700' : 'hover:bg-gray-100'
         }`}
       >
@@ -143,7 +113,7 @@ function TreeNodeRendererImpl({
 
         <div
           className="flex-1 text-xs flex items-center gap-1"
-          onClick={() => !node.isDir && onNavigate(node.path)}
+          onClick={() => { if (!node.isDir) { mark('code-click'); onNavigate(node.path); } }}
           onMouseEnter={() => {
             if (!node.isDir) onPrefetch?.(node.path);
           }}
@@ -167,29 +137,6 @@ function TreeNodeRendererImpl({
           })()}
         </div>
 
-        {!node.isDir && currentSession && (
-          <button
-            type="button"
-            aria-label={`Link ${node.name} to session`}
-            title="Link file to session and open as tab"
-            onClick={handleLinkAndOpen}
-            className="opacity-0 group-hover:opacity-100 flex-shrink-0 p-1 text-gray-500 hover:text-purple-700 hover:bg-gray-200 rounded"
-          >
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
-              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
-            </svg>
-          </button>
-        )}
       </div>
 
       {shouldShowChildren && node.children.length > 0 && (

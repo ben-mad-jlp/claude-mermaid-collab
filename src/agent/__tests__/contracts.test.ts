@@ -3,7 +3,7 @@ import type {
   AgentEvent,
   AssistantThinkingEvent,
   CompactionEvent,
-  ModelChangeEvent,
+  ModelChangedEvent,
   AttachmentUploadedEvent,
 } from '../contracts';
 
@@ -40,18 +40,18 @@ describe('contracts: new AgentEvent variants', () => {
     } else throw new Error('expected compaction');
   });
 
-  it('ModelChangeEvent narrows via kind', () => {
-    const ev: ModelChangeEvent = {
-      kind: 'model_change',
+  it('ModelChangedEvent narrows via kind', () => {
+    const ev: ModelChangedEvent = {
+      kind: 'model_changed',
       sessionId: 's1',
       ts: 3,
-      turnId: 't2',
+      seq: 0,
       model: 'claude-opus-4-7',
     };
     const wide: AgentEvent = ev;
-    if (wide.kind === 'model_change') {
+    if (wide.kind === 'model_changed') {
       expect(wide.model).toBe('claude-opus-4-7');
-    } else throw new Error('expected model_change');
+    } else throw new Error('expected model_changed');
   });
 
   it('AttachmentUploadedEvent narrows via kind', () => {

@@ -1,5 +1,5 @@
 import type { ServerWebSocket } from 'bun';
-import type { AgentCommand, AgentEvent } from '../agent/contracts.ts';
+import type { AgentCommand, AgentEvent, EffortLevel } from '../agent/contracts.ts';
 
 type AgentDispatcherLike = { handle(ws: ServerWebSocket<{ subscriptions: Set<string> }>, cmd: AgentCommand): Promise<void> };
 
@@ -65,6 +65,9 @@ export type WSMessage =
   | { type: 'agent_checkpoint_revert'; sessionId: string; turnId: string }
   | { type: 'agent_permission_resolve'; sessionId: string; promptId: string; decision: import('../agent/contracts.ts').PermissionDecision }
   | { type: 'agent_commit_push_pr'; sessionId: string; title: string; body?: string; draft?: boolean }
+  | { type: 'agent_set_model'; sessionId: string; model: string; effort?: EffortLevel; commandId?: string }
+  | { type: 'agent_rename_session'; sessionId: string; displayName: string; commandId?: string }
+  | { type: 'sessions_list_invalidated'; sessionId: string }
   | { type: 'agent_event'; channel: string; event: AgentEvent };
 
 export class WebSocketHandler {
@@ -113,7 +116,9 @@ export class WebSocketHandler {
         data.type === 'agent_user_input_respond' ||
         data.type === 'agent_checkpoint_revert' ||
         data.type === 'agent_permission_resolve' ||
-        data.type === 'agent_commit_push_pr'
+        data.type === 'agent_commit_push_pr' ||
+        data.type === 'agent_set_model' ||
+        data.type === 'agent_rename_session'
       ) {
         if (this.agentDispatcher) {
           const { type, ...rest } = data;

@@ -33,6 +33,8 @@ export interface SplitEditorHostProps {
   project?: string;
   session?: string;
   onContentChange?: (itemId: string, content: string, pane: PaneId) => void;
+  /** Optional toolbar rendered between the tab bars and the content area */
+  toolbar?: React.ReactNode;
 }
 
 // Exported for unit testing
@@ -80,7 +82,7 @@ function getCurrentEntry() {
 }
 
 export function SplitEditorHost(props: SplitEditorHostProps) {
-  const { editMode, project, session, onContentChange } = props;
+  const { editMode, project, session, onContentChange, toolbar } = props;
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
   );
@@ -178,6 +180,7 @@ export function SplitEditorHost(props: SplitEditorHostProps) {
       >
         <PinnedTabBar />
         <TabBar />
+        {toolbar}
         <div className="relative flex-1 min-h-0">
           {showRightPane ? (
             <SplitPane

@@ -22,7 +22,8 @@ export interface ChatComposerProps {
   disabled?: boolean;
   placeholder?: string;
   slashCommands?: readonly SlashCommand[];
-  onSlashCommand?: (id: string) => boolean | void;
+  /** Invoked when a slash command is submitted. Return `true` to suppress the normal send. */
+  onSlashCommand?: (id: string, args?: string) => boolean | void;
   pending?: PendingApproval | null;
   onApprovalAllow?: (promptId: string) => void;
   onApprovalAllowAlways?: (promptId: string) => void;

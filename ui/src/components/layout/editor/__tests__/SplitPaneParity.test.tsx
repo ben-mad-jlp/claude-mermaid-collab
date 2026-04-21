@@ -62,6 +62,16 @@ vi.mock('@/pages/pseudo/PseudoViewer', () => ({
   ),
 }));
 
+vi.mock('@/components/editors/CodeFileView', () => ({
+  __esModule: true,
+  default: ({ path, project }: any) => (
+    <div data-testid="mock-code-file-view" data-path={path} data-project={project} />
+  ),
+  CodeFileView: ({ path, project }: any) => (
+    <div data-testid="mock-code-file-view" data-path={path} data-project={project} />
+  ),
+}));
+
 // --- Test helpers ----------------------------------------------------------
 
 const PROJECT = '/proj';
@@ -216,7 +226,7 @@ describe('SplitPaneParity — each TabKind renders when pinned right', () => {
     expect(getByTestId('mock-document-view').getAttribute('data-doc-id')).toBe('bp1');
   });
 
-  it('code-file → PseudoViewer', () => {
+  it('code-file → CodeFileView', () => {
     const tab = makeTab({
       id: 'src/foo.ts',
       kind: 'code-file',
@@ -225,7 +235,7 @@ describe('SplitPaneParity — each TabKind renders when pinned right', () => {
     seedSession();
     seedRightTab(tab);
     const { getByTestId } = renderRightPane(tab);
-    const el = getByTestId('mock-pseudo-viewer');
+    const el = getByTestId('mock-code-file-view');
     expect(el.getAttribute('data-path')).toBe('src/foo.ts');
     expect(el.getAttribute('data-project')).toBe(PROJECT);
   });

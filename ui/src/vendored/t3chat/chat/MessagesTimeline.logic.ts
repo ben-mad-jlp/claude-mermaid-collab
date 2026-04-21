@@ -15,8 +15,12 @@ export interface TurnGroup {
 export function groupByTurn(items: readonly TimelineItem[]): TurnGroup[] {
   const groups: TurnGroup[] = [];
   let current: TurnGroup | null = null;
+  let noTurnCounter = 0;
   for (const it of items) {
-    const turnId = it.turnId ?? 'no-turn';
+    const rawTurnId = it.turnId;
+    // Items without a turnId each start their own group with a unique key so
+    // React doesn't complain about duplicate keys.
+    const turnId = rawTurnId ?? `no-turn-${noTurnCounter++}`;
     if (!current || current.turnId !== turnId) {
       current = { turnId, items: [] };
       groups.push(current);
