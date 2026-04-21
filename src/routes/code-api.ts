@@ -50,6 +50,15 @@ export async function handleCodeAPI(req: Request): Promise<Response> {
       return handleListProjectFiles(project, dirPath);
     }
 
+    // GET /file — read raw source file for the code browser
+    if (path === '/file' && req.method === 'GET') {
+      const filePath = url.searchParams.get('path');
+      if (!filePath) {
+        return jsonError('Missing required query parameter: path', 400);
+      }
+      return handleReadCodeFile(project, filePath);
+    }
+
     // POST /push/:id — push snippet code to linked file
     if (path.match(/^\/push\/[^/]+$/) && req.method === 'POST') {
       if (!session) {
@@ -304,6 +313,155 @@ async function handleListProjectFiles(project: string, dirPath?: string): Promis
   });
 
   return Response.json({ entries });
+}
+
+// ============================================================================
+// GET /api/code/file — read raw source contents for the code browser
+// ============================================================================
+
+const CODE_FILE_TEXT_CAP_BYTES = 2 * 1024 * 1024; // 2 MB
+const CODE_FILE_IMAGE_CAP_BYTES = 1 * 1024 * 1024; // 1 MB
+
+const LANGUAGE_BY_EXT: Record<string, string> = {
+  '.ts': 'typescript',
+  '.tsx': 'typescript',
+  '.js': 'javascript',
+  '.jsx': 'javascript',
+  '.py': 'python',
+  '.rs': 'rust',
+  '.go': 'go',
+  '.java': 'java',
+  '.md': 'markdown',
+  '.json': 'json',
+  '.yml': 'yaml',
+  '.yaml': 'yaml',
+  '.css': 'css',
+  '.html': 'html',
+  '.sh': 'shell',
+  '.sql': 'sql',
+};
+
+const IMAGE_MIME_BY_EXT: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+};
+
+function detectLanguageByExt(ext: string): string | null {
+  return LANGUAGE_BY_EXT[ext.toLowerCase()] ?? null;
+}
+
+async function handleReadCodeFile(project: string, filePath: string): Promise<Response> {
+  if (!isAbsolute(project)) {
+    return jsonError('project must be an absolute path', 400);
+  }
+  const projectRoot = resolve(project);
+  if (!(await isKnownProject(projectRoot))) {
+    return jsonError(`Unknown project: ${projectRoot}`, 400);
+  }
+
+  // Resolve filePath against the project root if relative.
+  const absTarget = isAbsolute(filePath) ? filePath : resolve(projectRoot, filePath);
+
+  let realPath: string;
+  try {
+    realPath = await validatePathUnderRoot(absTarget, projectRoot);
+  } catch (err: any) {
+    // ENOENT during realpath also lands here; surface as 404 for nicer UX.
+    if (err && err.code === 'ENOENT') {
+      return jsonError('File not found', 404);
+    }
+    return jsonError('Path escapes project root', 400);
+  }
+
+  let stats;
+  try {
+    stats = await stat(realPath);
+  } catch (err: any) {
+    if (err && err.code === 'ENOENT') {
+      return jsonError('File not found', 404);
+    }
+    return jsonError(`Failed to stat file: ${err?.message ?? err}`, 500);
+  }
+
+  if (!stats.isFile()) {
+    return jsonError('Not a regular file', 400);
+  }
+
+  const sizeBytes = stats.size;
+  const mtimeMs = stats.mtimeMs;
+  const ext = extname(realPath).toLowerCase();
+
+  // Image branch — return as data URL if under cap, otherwise binary placeholder.
+  if (ext in IMAGE_MIME_BY_EXT) {
+    const mimeType = IMAGE_MIME_BY_EXT[ext];
+    if (sizeBytes > CODE_FILE_IMAGE_CAP_BYTES) {
+      return Response.json({ kind: 'binary', sizeBytes, mimeType });
+    }
+    try {
+      const buf = await readFile(realPath);
+      const dataUrl = `data:${mimeType};base64,${buf.toString('base64')}`;
+      return Response.json({ kind: 'image', sizeBytes, mimeType, dataUrl });
+    } catch (err: any) {
+      if (err && err.code === 'ENOENT') return jsonError('File not found', 404);
+      return jsonError(`Failed to read image: ${err?.message ?? err}`, 500);
+    }
+  }
+
+  // Binary sniff — scan first 4 KB for NUL bytes.
+  let isBinary = false;
+  try {
+    const { open } = await import('fs/promises');
+    const fh = await open(realPath, 'r');
+    try {
+      const buf = Buffer.alloc(4096);
+      const { bytesRead } = await fh.read(buf, 0, 4096, 0);
+      if (bytesRead > 0 && buf.subarray(0, bytesRead).indexOf(0x00) !== -1) {
+        isBinary = true;
+      }
+    } finally {
+      await fh.close();
+    }
+  } catch (err: any) {
+    if (err && err.code === 'ENOENT') return jsonError('File not found', 404);
+    return jsonError(`Failed to probe file: ${err?.message ?? err}`, 500);
+  }
+
+  if (isBinary) {
+    return Response.json({ kind: 'binary', sizeBytes });
+  }
+
+  // Text branch
+  const language = detectLanguageByExt(ext);
+  if (sizeBytes > CODE_FILE_TEXT_CAP_BYTES) {
+    return Response.json({
+      kind: 'text',
+      content: '',
+      language,
+      sizeBytes,
+      truncated: true,
+      mtimeMs,
+    });
+  }
+
+  try {
+    const content = await readFile(realPath, 'utf-8');
+    return Response.json({
+      kind: 'text',
+      content,
+      language,
+      sizeBytes,
+      truncated: false,
+      mtimeMs,
+    });
+  } catch (err: any) {
+    if (err && err.code === 'ENOENT') return jsonError('File not found', 404);
+    return jsonError(`Failed to read file: ${err?.message ?? err}`, 500);
+  }
 }
 
 async function handlePushToFile(project: string, session: string, id: string): Promise<Response> {

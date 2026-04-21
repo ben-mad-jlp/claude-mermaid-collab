@@ -587,3 +587,90 @@ describe('Code API — GET /files (listProjectFiles)', () => {
     expect(Array.isArray(body.entries)).toBe(true);
   });
 });
+
+describe('Code API — GET /file (read raw source)', () => {
+  const FILE_PROJECT = join(homedir(), '.test-collab-code-file');
+  const FILE_SESSION = 'test-session';
+
+  function buildFileUrl(params: Record<string, string | undefined>): string {
+    const usp = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined) usp.set(k, v);
+    }
+    return `http://localhost:3737/api/code/file?${usp.toString()}`;
+  }
+
+  beforeAll(async () => {
+    await mkdir(join(FILE_PROJECT, 'src'), { recursive: true });
+    await writeFile(join(FILE_PROJECT, 'src', 'hello.ts'), 'export const x = 1;\n');
+    // Binary file: contains a NUL byte in the first 4 KB.
+    await writeFile(
+      join(FILE_PROJECT, 'bin.dat'),
+      Buffer.from([0x89, 0x50, 0x00, 0x4e, 0x47, 0x0d, 0x0a]),
+    );
+    // Large text file: over 2 MB, to exercise the truncation path.
+    await writeFile(
+      join(FILE_PROJECT, 'big.txt'),
+      'a'.repeat(2 * 1024 * 1024 + 10),
+    );
+
+    await projectRegistry.register(FILE_PROJECT);
+    await sessionRegistry.register(FILE_PROJECT, FILE_SESSION);
+  });
+
+  afterAll(async () => {
+    try { await projectRegistry.unregister(FILE_PROJECT); } catch { /* ignore */ }
+    try { await sessionRegistry.unregister(FILE_PROJECT, FILE_SESSION); } catch { /* ignore */ }
+    try { await rm(FILE_PROJECT, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  it('returns 200 with text content and detected language', async () => {
+    const req = new Request(buildFileUrl({ project: FILE_PROJECT, path: 'src/hello.ts' }));
+    const res = await handleCodeAPI(req);
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.kind).toBe('text');
+    expect(body.content).toBe('export const x = 1;\n');
+    expect(body.language).toBe('typescript');
+    expect(body.truncated).toBe(false);
+    expect(typeof body.mtimeMs).toBe('number');
+    expect(body.sizeBytes).toBeGreaterThan(0);
+  });
+
+  it('returns 200 with binary placeholder for files containing NUL bytes', async () => {
+    const req = new Request(buildFileUrl({ project: FILE_PROJECT, path: 'bin.dat' }));
+    const res = await handleCodeAPI(req);
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.kind).toBe('binary');
+    expect(body.sizeBytes).toBeGreaterThan(0);
+    expect(body.content).toBeUndefined();
+  });
+
+  it('returns 200 with truncated=true and empty content for files over 2 MB', async () => {
+    const req = new Request(buildFileUrl({ project: FILE_PROJECT, path: 'big.txt' }));
+    const res = await handleCodeAPI(req);
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.kind).toBe('text');
+    expect(body.truncated).toBe(true);
+    expect(body.content).toBe('');
+    expect(body.sizeBytes).toBeGreaterThan(2 * 1024 * 1024);
+  });
+
+  it('returns 404 for a file that does not exist', async () => {
+    const req = new Request(buildFileUrl({ project: FILE_PROJECT, path: 'does/not/exist.ts' }));
+    const res = await handleCodeAPI(req);
+    expect(res.status).toBe(404);
+    const body = await res.json() as any;
+    expect(body.error).toMatch(/not found/i);
+  });
+
+  it('returns 400 when the path escapes the project root', async () => {
+    const req = new Request(buildFileUrl({ project: FILE_PROJECT, path: '../../etc/passwd' }));
+    const res = await handleCodeAPI(req);
+    expect(res.status).toBe(400);
+    const body = await res.json() as any;
+    expect(body.error).toMatch(/escapes project root|not found/i);
+  });
+});
