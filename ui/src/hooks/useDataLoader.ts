@@ -14,6 +14,8 @@ import { useState, useCallback } from 'react';
 import { api } from '@/lib/api';
 import { embedsApi } from '@/api/embeds';
 import { useSessionStore } from '@/stores/sessionStore';
+import { getSessionItemsCache, setSessionItemsCache, isCacheStale } from '@/lib/sessionItemsCache';
+import type { SessionItemsSnapshot } from '@/lib/sessionItemsCache';
 
 export interface UseDataLoaderReturn {
   /** Whether a data loading operation is in progress */
@@ -106,13 +108,15 @@ export function useDataLoader(): UseDataLoaderReturn {
    * Load collab session state
    */
   const loadCollabState = useCallback(
-    async (project: string, session: string) => {
+    async (project: string, session: string): Promise<import('@/types').CollabState | null> => {
       try {
         const state = await api.getSessionState(project, session);
         setCollabState(state);
+        return state;
       } catch (err) {
         console.error('Failed to load collab state:', err);
         setCollabState(null);
+        return null;
       }
     },
     [setCollabState]
@@ -123,8 +127,25 @@ export function useDataLoader(): UseDataLoaderReturn {
    */
   const loadSessionItems = useCallback(
     async (project: string, session: string) => {
-      setIsLoading(true);
       setError(null);
+      let showedSpinner = false;
+
+      // Phase 1 — serve from cache immediately (no spinner) if warm
+      const cached = getSessionItemsCache(project, session);
+      if (cached && !isCacheStale(cached)) {
+        setDiagrams(cached.diagrams);
+        setDocuments(cached.documents);
+        setDesigns(cached.designs);
+        setSpreadsheets(cached.spreadsheets);
+        setSnippets(cached.snippets);
+        setEmbeds(cached.embeds);
+        setImages(cached.images);
+        setCollabState(cached.collabState);
+        // Still run background fetch to revalidate — don't show spinner
+      } else {
+        showedSpinner = true;
+        setIsLoading(true);
+      }
 
       try {
         const [diagrams, documents, designs, spreadsheets, snippets, embeds, images] = await Promise.all([
@@ -144,16 +165,30 @@ export function useDataLoader(): UseDataLoaderReturn {
         setEmbeds(embeds);
         setImages(images);
 
-        // Also load collab state
-        await loadCollabState(project, session);
+        // Also load collab state — capture return value directly to avoid cross-session store races
+        const collabState = await loadCollabState(project, session);
+
+        // Phase 2 — write fresh snapshot to cache
+        const snapshot: SessionItemsSnapshot = {
+          diagrams,
+          documents,
+          designs,
+          spreadsheets,
+          snippets,
+          embeds,
+          images,
+          collabState,
+          fetchedAt: Date.now(),
+        };
+        setSessionItemsCache(project, session, snapshot);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to load session items';
         setError(message);
       } finally {
-        setIsLoading(false);
+        if (showedSpinner) setIsLoading(false);
       }
     },
-    [setDiagrams, setDocuments, setDesigns, setSpreadsheets, setSnippets, setEmbeds, setImages, loadCollabState]
+    [setDiagrams, setDocuments, setDesigns, setSpreadsheets, setSnippets, setEmbeds, setImages, setCollabState, loadCollabState]
   );
 
   /**

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { evictSessionItemsCache } from '@/lib/sessionItemsCache';
 
 interface SubscribedSession {
   project: string;
@@ -45,6 +46,8 @@ export const useSubscriptionStore = create<SubscriptionState>((set) => ({
   unsubscribe: (key) => {
     set((state) => {
       const next = { ...state.subscriptions };
+      const entry = state.subscriptions[key];
+      if (entry) evictSessionItemsCache(entry.project, entry.session);
       delete next[key];
       const nextOrder = state.order.filter((k) => k !== key);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next));

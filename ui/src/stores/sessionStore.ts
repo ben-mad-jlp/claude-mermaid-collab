@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { Session, Diagram, Document, CollabState, Snippet, Embed, SessionTodo, Image } from '../types';
 import { api } from '../lib/api';
+import { getSessionItemsCache } from '@/lib/sessionItemsCache';
 
 /**
  * Design type definition
@@ -220,6 +221,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       return;
     }
 
+    const snapshot = session ? getSessionItemsCache(session.project, session.name) : undefined;
     const target = session;
 
     // Clear diagrams, documents, designs, spreadsheets, and related state when session changes
@@ -227,20 +229,20 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     set({
       currentSession: session,
       error: null,
-      diagrams: [],
-      documents: [],
-      designs: [],
-      spreadsheets: [],
-      snippets: [],
-      embeds: [],
-      images: [],
+      diagrams: snapshot?.diagrams ?? [],
+      documents: snapshot?.documents ?? [],
+      designs: snapshot?.designs ?? [],
+      spreadsheets: snapshot?.spreadsheets ?? [],
+      snippets: snapshot?.snippets ?? [],
+      embeds: snapshot?.embeds ?? [],
+      images: snapshot?.images ?? [],
       selectedDiagramId: null,
       selectedDocumentId: null,
       selectedDesignId: null,
       selectedSpreadsheetId: null,
       selectedSnippetId: null,
       sessionTodos: [],
-      collabState: null,
+      collabState: snapshot?.collabState ?? null,
     });
 
     // Fire-and-forget fetch of session todos for the new session

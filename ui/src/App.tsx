@@ -34,9 +34,12 @@ import { useTabsStore, sessionKey } from '@/stores/tabsStore';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useSessionPolling } from '@/hooks/useSessionPolling';
+import { useProposedEditWatcher } from '@/hooks/useProposedEditWatcher';
+import { usePrefetchWatchedSessions } from '@/hooks/usePrefetchWatchedSessions';
 import { getWebSocketClient } from '@/lib/websocket';
 import { useShallow } from 'zustand/react/shallow';
 import { api, generateSessionName, type CachedUIState } from '@/lib/api';
+import { patchSessionItemsCache, getSessionItemsCache, isCacheStale } from '@/lib/sessionItemsCache';
 import { useProjectStore } from '@/stores/projectStore';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import type { Item, Session, ToolbarAction } from '@/types';
@@ -256,6 +259,7 @@ const App: React.FC = () => {
     selectDesignWithContent,
     selectSpreadsheetWithContent,
   } = useDataLoader();
+  usePrefetchWatchedSessions();
 
   // Ref for MermaidPreview imperative methods
   const mermaidPreviewRef = useRef<MermaidPreviewRef>(null);
@@ -401,6 +405,7 @@ const App: React.FC = () => {
     currentSession?.name ?? null,
     5000
   );
+  useProposedEditWatcher();
 
   // Request notification permission on app mount (Item 6)
   useEffect(() => {
@@ -481,6 +486,15 @@ const App: React.FC = () => {
               lastModified: lastModified || Date.now(),
             } as any);
           }
+          // patch cache for non-active sessions
+          {
+            const _existing = getSessionItemsCache(project, session);
+            if (_existing && !isCacheStale(_existing)) {
+              patchSessionItemsCache(project, session, {
+                diagrams: [..._existing.diagrams.filter((x: any) => x.id !== id), { id, name, content: '', lastModified: lastModified || Date.now() }],
+              });
+            }
+          }
           break;
         }
 
@@ -498,6 +512,15 @@ const App: React.FC = () => {
               lastModified: lastModified || Date.now(),
             } as any);
           }
+          // patch cache for non-active sessions
+          {
+            const _existing = getSessionItemsCache(project, session);
+            if (_existing && !isCacheStale(_existing)) {
+              patchSessionItemsCache(project, session, {
+                documents: [..._existing.documents.filter((x: any) => x.id !== id), { id, name, content: '', lastModified: lastModified || Date.now() }],
+              });
+            }
+          }
           break;
         }
 
@@ -510,6 +533,15 @@ const App: React.FC = () => {
               session === currentSession.name) {
             removeDiagram(id);
           }
+          // patch cache for non-active sessions
+          {
+            const _existing = getSessionItemsCache(project, session);
+            if (_existing && !isCacheStale(_existing)) {
+              patchSessionItemsCache(project, session, {
+                diagrams: _existing.diagrams.filter((x: any) => x.id !== id),
+              });
+            }
+          }
           break;
         }
 
@@ -521,6 +553,15 @@ const App: React.FC = () => {
               project === currentSession.project &&
               session === currentSession.name) {
             removeDocument(id);
+          }
+          // patch cache for non-active sessions
+          {
+            const _existing = getSessionItemsCache(project, session);
+            if (_existing && !isCacheStale(_existing)) {
+              patchSessionItemsCache(project, session, {
+                documents: _existing.documents.filter((x: any) => x.id !== id),
+              });
+            }
           }
           break;
         }
@@ -538,6 +579,15 @@ const App: React.FC = () => {
               content,
               lastModified: lastModified || Date.now(),
             });
+          }
+          // patch cache for non-active sessions
+          {
+            const _existing = getSessionItemsCache(project, session);
+            if (_existing && !isCacheStale(_existing)) {
+              patchSessionItemsCache(project, session, {
+                designs: [..._existing.designs.filter((x: any) => x.id !== id), { id, name, lastModified: lastModified || Date.now() }],
+              });
+            }
           }
           break;
         }
@@ -564,6 +614,15 @@ const App: React.FC = () => {
               project === currentSession.project &&
               session === currentSession.name) {
             removeDesign(id);
+          }
+          // patch cache for non-active sessions
+          {
+            const _existing = getSessionItemsCache(project, session);
+            if (_existing && !isCacheStale(_existing)) {
+              patchSessionItemsCache(project, session, {
+                designs: _existing.designs.filter((x: any) => x.id !== id),
+              });
+            }
           }
           break;
         }
@@ -614,6 +673,15 @@ const App: React.FC = () => {
               session === currentSession.name) {
             addSnippet({ id, name, content: content ?? '', lastModified: lastModified || Date.now() });
           }
+          // patch cache for non-active sessions
+          {
+            const _existing = getSessionItemsCache(project, session);
+            if (_existing && !isCacheStale(_existing)) {
+              patchSessionItemsCache(project, session, {
+                snippets: [..._existing.snippets.filter((x: any) => x.id !== id), { id, name, content: '', lastModified: lastModified || Date.now() }],
+              });
+            }
+          }
           break;
         }
 
@@ -635,6 +703,15 @@ const App: React.FC = () => {
               project === currentSession.project &&
               session === currentSession.name) {
             removeSnippet(id);
+          }
+          // patch cache for non-active sessions
+          {
+            const _existing = getSessionItemsCache(project, session);
+            if (_existing && !isCacheStale(_existing)) {
+              patchSessionItemsCache(project, session, {
+                snippets: _existing.snippets.filter((x: any) => x.id !== id),
+              });
+            }
           }
           break;
         }
@@ -823,6 +900,15 @@ const App: React.FC = () => {
                 });
               }
             }
+          }
+          break;
+        }
+
+        case 'pair_mode_changed': {
+          const { pairMode: newPairMode, project: msgProject, session: msgSession } = message as any;
+          const cs = useSessionStore.getState().currentSession;
+          if (cs && cs.project === msgProject && cs.name === msgSession) {
+            useUIStore.getState().setPairMode(!!newPairMode);
           }
           break;
         }
