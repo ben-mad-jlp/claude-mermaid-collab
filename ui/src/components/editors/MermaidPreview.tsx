@@ -448,7 +448,7 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
         aria-label={splitEditMode ? 'Hide code editor' : 'Show code editor'}
         aria-pressed={splitEditMode}
         title={splitEditMode ? 'Hide code editor' : 'Show code editor'}
-        className={`absolute top-2 right-2 z-10 flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
+        className={`absolute top-2 right-14 z-10 flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
           splitEditMode
             ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/70'
             : 'bg-white/80 dark:bg-gray-800/80 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
