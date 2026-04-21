@@ -39,10 +39,15 @@ export const ComposerPendingApprovalPanel: React.FC<ComposerPendingApprovalPanel
       <Shield className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
       <div className="flex flex-1 flex-col gap-1.5">
         <div>
-          <span className="font-medium">{pending.toolName}</span>
-          {pending.summary ? (
-            <span className="ml-2 text-muted-foreground">{pending.summary}</span>
-          ) : null}
+          <span className="font-medium">
+            {pending.toolName && pending.toolName.length > 0
+              ? pending.toolName
+              : 'Tool'}
+          </span>
+          <span className="ml-2 text-muted-foreground">
+            needs approval
+            {pending.summary ? <> — {pending.summary}</> : null}
+          </span>
         </div>
         <ComposerPendingApprovalActions
           onAllow={() => onAllow(pending.promptId)}

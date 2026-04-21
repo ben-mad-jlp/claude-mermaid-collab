@@ -20,13 +20,76 @@ function mapToTimelineItem(it: AgentTimelineItem): TimelineItem {
   return { id: it.id, kind: 'message', turnId: it.turnId, role: it.role };
 }
 
-function findPending(items: readonly AgentTimelineItem[]): PendingApproval | null {
-  for (const it of items) {
-    if (it.type === 'permission' && it.status === 'pending') {
-      return { promptId: it.id, toolName: it.name };
+function summarizeArgs(name: string, input: unknown): string | undefined {
+  if (input == null || typeof input !== 'object') return undefined;
+  const obj = input as Record<string, unknown>;
+  const pickString = (key: string): string | undefined => {
+    const v = obj[key];
+    return typeof v === 'string' ? v : undefined;
+  };
+  // Per-tool hints for the most common / loudest tools.
+  switch (name) {
+    case 'Bash': {
+      const cmd = pickString('command');
+      if (cmd) return cmd.length > 80 ? cmd.slice(0, 80) + '…' : cmd;
+      return undefined;
+    }
+    case 'Read':
+    case 'Write':
+    case 'Edit':
+    case 'NotebookEdit': {
+      const p = pickString('file_path') ?? pickString('path');
+      return p;
+    }
+    case 'Grep':
+    case 'Glob': {
+      return pickString('pattern');
+    }
+    case 'WebFetch':
+    case 'WebSearch': {
+      return pickString('url') ?? pickString('query');
+    }
+    case 'Task': {
+      return pickString('description') ?? pickString('subagent_type');
+    }
+    case 'TodoWrite':
+      return undefined;
+  }
+  // Generic: show the first string-valued field.
+  for (const [k, v] of Object.entries(obj)) {
+    if (typeof v === 'string' && v.length > 0) {
+      const text = `${k}: ${v}`;
+      return text.length > 80 ? text.slice(0, 80) + '…' : text;
     }
   }
-  return null;
+  return undefined;
+}
+
+function findPending(items: readonly AgentTimelineItem[]): PendingApproval | null {
+  let count = 0;
+  let first: PendingApproval | null = null;
+  for (const it of items) {
+    if (it.type === 'permission' && it.status === 'pending') {
+      count++;
+      if (!first) {
+        const summary = summarizeArgs(it.name, it.input);
+        first = {
+          promptId: it.id,
+          toolName: it.name,
+          ...(summary ? { summary } : {}),
+        };
+      }
+    }
+  }
+  if (!first) return null;
+  if (count > 1) {
+    const extra = ` (+${count - 1} more pending)`;
+    return {
+      ...first,
+      summary: (first.summary ?? '') + extra,
+    };
+  }
+  return first;
 }
 
 export interface ChatViewBindingsArgs {

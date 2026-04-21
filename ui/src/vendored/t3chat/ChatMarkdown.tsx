@@ -63,7 +63,16 @@ export const ChatMarkdown: React.FC<ChatMarkdownProps> = ({ content, className }
   };
 
   return (
-    <div className={cn('prose prose-sm max-w-none dark:prose-invert', className)}>
+    <div
+      className={cn(
+        // `prose-code` injects literal backticks via ::before / ::after which
+        // show up in the a11y tree ("backtick foo backtick") and visually
+        // double up with our own `<code>` styling. Clear them.
+        'prose prose-sm max-w-none dark:prose-invert',
+        'prose-code:before:content-none prose-code:after:content-none',
+        className
+      )}
+    >
       <ReactMarkdown components={components as any} remarkPlugins={[remarkGfm]}>
         {content}
       </ReactMarkdown>

@@ -64,7 +64,7 @@ export interface AgentMessage {
 }
 
 export interface ProgressChunk {
-  channel: 'stdout' | 'stderr';
+  channel: 'stdout' | 'stderr' | 'input';
   chunk: string;
   seq: number;
 }
@@ -73,6 +73,10 @@ export interface AgentToolCallItem {
   type: 'tool_call';
   id: string;
   turnId?: string;
+  /** When this tool call is executed by a sub-agent (Task tool), this is the
+   *  parent Task tool_call's turnId. Used by TaskView to collect nested
+   *  tool_calls / messages belonging to the sub-agent run. */
+  parentTurnId?: string;
   name: string;
   input: unknown;
   status: 'running' | 'ok' | 'error' | 'canceled';
@@ -386,6 +390,7 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
       case 'tool_call_started': {
         const { timeline } = get();
         if (timeline.some((t) => t.type === 'tool_call' && t.id === event.toolUseId)) return;
+        const parentTurnId = (event as { parentTurnId?: string }).parentTurnId;
         set({
           timeline: [
             ...timeline,
@@ -393,6 +398,7 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
               type: 'tool_call',
               id: event.toolUseId,
               turnId: event.turnId,
+              ...(parentTurnId ? { parentTurnId } : {}),
               name: event.name,
               input: event.input,
               status: 'running',
@@ -432,9 +438,32 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
         if (idx < 0) return;
         const item = timeline[idx] as AgentToolCallItem;
         if (!item.historical && event.historical) return;
+        // Reassemble streamed input_json_delta chunks into `input` if the
+        // initial content_block_start gave us an empty/partial input. The
+        // projector emits these with channel === 'input'.
+        let mergedInput: unknown = item.input;
+        const isEmptyObj =
+          mergedInput != null &&
+          typeof mergedInput === 'object' &&
+          !Array.isArray(mergedInput) &&
+          Object.keys(mergedInput as Record<string, unknown>).length === 0;
+        if (mergedInput == null || isEmptyObj) {
+          const joined = item.progress
+            .filter((p) => p.channel === 'input')
+            .map((p) => p.chunk)
+            .join('');
+          if (joined.length > 0) {
+            try {
+              mergedInput = JSON.parse(joined);
+            } catch {
+              // leave input as-is on parse failure
+            }
+          }
+        }
         const next = [...timeline];
         next[idx] = {
           ...item,
+          input: mergedInput,
           status: event.status,
           output: event.output,
           error: event.error,

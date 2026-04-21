@@ -15,23 +15,32 @@ export const TaskView: React.FC<TaskViewProps> = ({ item }) => {
     subagent_type?: string;
   };
 
-  // sub_agent_turn events key nestedTimelines by parentTurnId. The Task tool
-  // call runs inside the parent turn — so we look up nested child turnIds by
-  // this tool call's own turnId.
-  const parentTurnId = item.turnId ?? '';
-  const nestedTurnIds = useAgentStore((s) => s.nestedTimelines[parentTurnId]) ?? [];
+  // Nested tool_calls carry `parentTurnId` pointing at this Task's turnId.
+  // (Historic sub_agent_turn events also populate `nestedTimelines`; we
+  // still honor those for back-compat with replayed sessions.)
+  const taskTurnId = item.turnId ?? '';
+  const nestedTurnIds = useAgentStore((s) => s.nestedTimelines[taskTurnId]) ?? [];
   const timeline = useAgentStore((s) => s.timeline);
 
   const nestedEntries: AgentTimelineItem[] = React.useMemo(() => {
-    if (nestedTurnIds.length === 0) return [];
-    const set = new Set(nestedTurnIds);
+    const nestedSet = new Set(nestedTurnIds);
     return timeline.filter((t) => {
-      if (t.type === 'tool_call') return t.turnId !== undefined && set.has(t.turnId);
-      if (t.type === 'message') return t.turnId !== undefined && set.has(t.turnId);
-      if (t.type === 'permission') return set.has(t.turnId);
+      // Skip the Task tool_call itself.
+      if (t.type === 'tool_call' && t.id === item.id) return false;
+      if (t.type === 'tool_call') {
+        if (t.parentTurnId && t.parentTurnId === taskTurnId) return true;
+        if (t.turnId !== undefined && nestedSet.has(t.turnId)) return true;
+        return false;
+      }
+      if (t.type === 'message') {
+        return t.turnId !== undefined && nestedSet.has(t.turnId);
+      }
+      if (t.type === 'permission') {
+        return nestedSet.has(t.turnId);
+      }
       return false;
     });
-  }, [nestedTurnIds, timeline]);
+  }, [nestedTurnIds, timeline, item.id, taskTurnId]);
 
   const prompt = typeof input.prompt === 'string' ? input.prompt : '';
   const promptExcerpt =

@@ -22,6 +22,7 @@ import { handleOnboardingAPI } from './routes/onboarding-api';
 import { handleAttachments } from './routes/agent-attachments';
 import { handleAgentSessionsAPI } from './routes/agent-sessions';
 import { handleWorktreeDiffAPI } from './routes/worktree-diff';
+import { handleWorktreeFilesAPI } from './routes/worktree-files';
 import { sessionRegistry, SessionRegistryCorruptError } from './services/session-registry';
 import { statusManager } from './services/status-manager';
 import { initializeWebSocketHandler } from './services/ws-handler-manager';
@@ -164,6 +165,9 @@ const server = Bun.serve<WsData>({
     }
     if (url.pathname.startsWith('/api/agent/worktree-diff')) {
       return handleWorktreeDiffAPI(req);
+    }
+    if (url.pathname.startsWith('/api/worktree/files')) {
+      return handleWorktreeFilesAPI(req);
     }
 
     // API routes

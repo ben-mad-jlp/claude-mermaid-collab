@@ -4,6 +4,7 @@ import { MessagesTimeline } from './chat/MessagesTimeline';
 import type { TimelineItem } from './chat/MessagesTimeline.logic';
 import { ChatComposer, type ChatComposerProps } from './chat/ChatComposer';
 import { UserInputCard } from './chat/UserInputCard';
+import { useStickyBottom } from './chat/useStickyBottom';
 import type { PendingUserInputItem, CompactionEntry } from '@/stores/agentStore';
 import type { UserInputValue } from '@/types/agent';
 
@@ -46,24 +47,39 @@ export const ChatView: React.FC<ChatViewProps> = ({
   modelByTurn,
   className,
 }) => {
+  // Re-pin to bottom when the timeline identity shifts (session switch or
+  // cleared timeline). Using the first item id is a lightweight signal that
+  // changes exactly when the underlying conversation changes.
+  const resetKey = items.length === 0 ? '__empty__' : items[0]!.id;
+  const { containerRef, contentRef, onScroll } = useStickyBottom<
+    HTMLDivElement,
+    HTMLDivElement
+  >({ resetKey });
+
   return (
     <div className={cn('flex h-full flex-col bg-background text-foreground', className)}>
       {header ? <div className="shrink-0 border-b">{header}</div> : null}
       {banner ? <div className="shrink-0">{banner}</div> : null}
       <div className="flex flex-1 min-h-0">
-        <div className="flex-1 min-w-0 overflow-auto">
-          <MessagesTimeline
-            items={items}
-            renderItem={renderItem}
-            renderTurnSeparator={renderTurnSeparator}
-            emptyState={emptyState}
-            checkpointsByTurn={checkpointsByTurn}
-            onRevertToCheckpoint={onRevertToCheckpoint}
-            currentTurnId={currentTurnId}
-            compactions={compactions}
-            thinkingByTurn={thinkingByTurn}
-            modelByTurn={modelByTurn}
-          />
+        <div
+          ref={containerRef}
+          onScroll={onScroll}
+          className="flex-1 min-w-0 overflow-auto"
+        >
+          <div ref={contentRef}>
+            <MessagesTimeline
+              items={items}
+              renderItem={renderItem}
+              renderTurnSeparator={renderTurnSeparator}
+              emptyState={emptyState}
+              checkpointsByTurn={checkpointsByTurn}
+              onRevertToCheckpoint={onRevertToCheckpoint}
+              currentTurnId={currentTurnId}
+              compactions={compactions}
+              thinkingByTurn={thinkingByTurn}
+              modelByTurn={modelByTurn}
+            />
+          </div>
         </div>
         {rail ? <div className="w-60 shrink-0 border-l overflow-auto">{rail}</div> : null}
       </div>
