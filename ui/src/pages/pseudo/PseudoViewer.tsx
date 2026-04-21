@@ -10,7 +10,7 @@
 
 import React, { forwardRef, useCallback, useEffect, useState, useImperativeHandle, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { fetchPseudoFile, PseudoFileWithMethods, PseudoMethod } from '@/lib/pseudo-api';
+import { fetchPseudoFile, peekPseudoFile, PseudoFileWithMethods, PseudoMethod } from '@/lib/pseudo-api';
 import PseudoBlock from './PseudoBlock';
 
 export type PseudoViewerHandle = {
@@ -31,12 +31,16 @@ export const PseudoViewer = forwardRef<PseudoViewerHandle, PseudoViewerProps>(
   ({ path, project, onFunctionsChange }, ref) => {
     const navigate = useNavigate();
     const contentRef = useRef<HTMLDivElement>(null);
-    const [fileData, setFileData] = useState<PseudoFileWithMethods | null>(null);
-    const [loading, setLoading] = useState(false);
+    // Seed synchronously from the LRU so a revisit paints instantly.
+    const initial = path && project ? peekPseudoFile(project, path) : null;
+    const [fileData, setFileData] = useState<PseudoFileWithMethods | null>(initial);
+    const [loading, setLoading] = useState(initial == null);
     const [error, setError] = useState<string | null>(null);
 
     /**
-     * Load pseudo-file content when path or project changes
+     * Load pseudo-file content when path or project changes.
+     * If we already rendered a cached value, revalidate silently in the
+     * background (do not flip loading=true).
      */
     useEffect(() => {
       if (!path || !project) {
@@ -45,11 +49,17 @@ export const PseudoViewer = forwardRef<PseudoViewerHandle, PseudoViewerProps>(
         return;
       }
 
+      const cached = peekPseudoFile(project, path);
+      const hasCached = cached != null;
+      if (hasCached) {
+        setFileData(cached);
+      }
+
       const controller = new AbortController();
 
       const loadFile = async () => {
         try {
-          setLoading(true);
+          if (!hasCached) setLoading(true);
           setError(null);
           const data = await fetchPseudoFile(project, path, { signal: controller.signal });
           if (controller.signal.aborted) return;
@@ -57,7 +67,7 @@ export const PseudoViewer = forwardRef<PseudoViewerHandle, PseudoViewerProps>(
         } catch (err) {
           if (controller.signal.aborted || (err as any)?.name === 'AbortError') return;
           setError(err instanceof Error ? err.message : 'Failed to load file');
-          setFileData(null);
+          if (!hasCached) setFileData(null);
         } finally {
           if (!controller.signal.aborted) setLoading(false);
         }
@@ -110,11 +120,28 @@ export const PseudoViewer = forwardRef<PseudoViewerHandle, PseudoViewerProps>(
       );
     }
 
-    // Loading state
+    // Loading state: skeleton with file-path header + ghost method cards.
     if (loading) {
       return (
-        <div className="h-full flex items-center justify-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+        <div className="h-full flex flex-col bg-white dark:bg-gray-900 overflow-hidden">
+          <div className="border-b border-gray-200 dark:border-gray-700 p-4 flex-shrink-0">
+            <div className="text-sm font-mono text-gray-600 dark:text-gray-400 truncate">
+              {path}
+            </div>
+          </div>
+          <div className="flex-1 overflow-auto p-4 space-y-6" data-testid="pseudo-viewer-skeleton">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="animate-pulse">
+                <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/3 mb-2" />
+                <div className="h-3 bg-gray-100 dark:bg-gray-800 rounded w-1/4 mb-3" />
+                <div className="space-y-1.5">
+                  <div className="h-3 bg-gray-100 dark:bg-gray-800 rounded w-5/6" />
+                  <div className="h-3 bg-gray-100 dark:bg-gray-800 rounded w-4/6" />
+                  <div className="h-3 bg-gray-100 dark:bg-gray-800 rounded w-3/6" />
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       );
     }
