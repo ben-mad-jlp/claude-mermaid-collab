@@ -24,6 +24,7 @@ import { handleEditorRoundtrip } from './routes/editor-roundtrip';
 import { handleAgentSessionsAPI } from './routes/agent-sessions';
 import { handleWorktreeDiffAPI } from './routes/worktree-diff';
 import { handleWorktreeFilesAPI } from './routes/worktree-files';
+import { handleArtifactAPI } from './routes/artifact-api.js';
 import { sessionRegistry, SessionRegistryCorruptError } from './services/session-registry';
 import { statusManager } from './services/status-manager';
 import { initializeWebSocketHandler } from './services/ws-handler-manager';
@@ -173,6 +174,10 @@ const server = Bun.serve<WsData>({
     }
     if (url.pathname.startsWith('/api/worktree/files')) {
       return handleWorktreeFilesAPI(req);
+    }
+
+    if (url.pathname.startsWith('/api/artifact')) {
+      return handleArtifactAPI(req);
     }
 
     // API routes

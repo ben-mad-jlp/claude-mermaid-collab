@@ -47,5 +47,17 @@ curl -s -X POST http://localhost:9002/api/session-notify \
   -d "$PAYLOAD" \
   > /dev/null 2>&1 &
 
+# On PostToolUse Write/Edit, notify the collab server about artifact file changes
+HOOK_EVENT=$(printf '%s' "$INPUT" | jq -r '.hook_event_name // empty')
+TOOL_NAME=$(printf '%s' "$INPUT" | jq -r '.tool_name // empty')
+FILE_PATH=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty')
+
+if [ "$HOOK_EVENT" = "PostToolUse" ] && { [ "$TOOL_NAME" = "Write" ] || [ "$TOOL_NAME" = "Edit" ]; }; then
+  if [ -n "$FILE_PATH" ]; then
+    bash "${CLAUDE_PLUGIN_ROOT}/scripts/notify-artifact.sh" "$FILE_PATH" \
+      >> /tmp/mermaid-collab-notify.log 2>&1 &
+  fi
+fi
+
 echo '{"continue": true}'
 exit 0
