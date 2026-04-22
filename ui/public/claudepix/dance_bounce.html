@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>dance_bounce</title>
+<style>
+  html, body { margin: 0; background: transparent; height: 100%; font-family: "JetBrains Mono", monospace; }
+  .stage { width: 100%; height: 100%; display: grid; place-items: center; padding: 8%; box-sizing: border-box; }
+  .grid { width: 100%; max-width: 520px; }
+</style>
+</head>
+<body>
+  <div class="stage"><div id="grid" class="grid"></div></div>
+  <script>
+/* Shared 20×20 pixel-creature engine.
+   Each animation file defines PRESET = { name, category, description, frames }
+   where each frame is { hold: ms, frame: 20x20 grid | null (= base) }.
+   Values: 0 empty, 1 body, 2 eye. */
+
+(function () {
+  const BODY = 1, EYE = 2;
+
+  // Base idle creature (from reference image)
+  const CREATURE = [
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0],
+    [0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0],
+    [0,0,0,0,0,1,1,2,1,1,1,1,1,2,1,1,0,0,0,0],
+    [0,0,0,1,1,1,1,2,1,1,1,1,1,2,1,1,1,1,0,0],
+    [0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+    [0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+    [0,0,0,1,0,1,1,1,1,1,1,1,1,1,1,1,0,1,0,0],
+    [0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0],
+    [0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0],
+    [0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0],
+    [0,0,0,0,0,1,0,0,1,0,0,0,1,0,0,1,0,0,0,0],
+    [0,0,0,0,0,1,0,0,1,0,0,0,1,0,0,1,0,0,0,0],
+    [0,0,0,0,0,1,0,0,1,0,0,0,1,0,0,1,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  ];
+
+  // Parse shorthand: '#' body, 'X' eye, '.' empty
+  function parseFrame(rows) {
+    return rows.map(row => {
+      const cells = row.split('').map(ch => ch === '#' ? BODY : ch === 'X' ? EYE : 0);
+      while (cells.length < 20) cells.push(0);
+      return cells.slice(0, 20);
+    });
+  }
+
+  // Shift base creature by (dr, dc)
+  function shift(base, dr, dc) {
+    const out = Array.from({length: 20}, () => new Array(20).fill(0));
+    for (let r = 0; r < 20; r++) {
+      for (let c = 0; c < 20; c++) {
+        const nr = r + dr, nc = c + dc;
+        if (nr >= 0 && nr < 20 && nc >= 0 && nc < 20) {
+          out[nr][nc] = base[r][c];
+        }
+      }
+    }
+    return out;
+  }
+
+  // Apply sparse patch to base → new grid
+  function patch(base, ops) {
+    const out = base.map(r => r.slice());
+    for (const [r, c, v] of ops) {
+      if (r >= 0 && r < 20 && c >= 0 && c < 20) out[r][c] = v;
+    }
+    return out;
+  }
+
+  // Build a renderer into a host element.
+  // Returns { play, pause, setPreset, setSpeed, setColor, destroy, el }
+  function mount(host, opts = {}) {
+    const {
+      preset,            // { name, frames }
+      color = '#DE7B5B',
+      bg = 'transparent',
+      gridLines = true,
+      cellStroke = true,
+      speed = 1,
+      autoplay = true,
+      showCoords = false,
+    } = opts;
+
+    host.innerHTML = '';
+    host.style.position = 'relative';
+    host.style.width = '100%';
+    host.style.aspectRatio = '1 / 1';
+    host.style.background = bg;
+    host.style.display = 'grid';
+    host.style.gridTemplateColumns = 'repeat(20, 1fr)';
+    host.style.gridTemplateRows = 'repeat(20, 1fr)';
+    if (gridLines) {
+      host.style.backgroundImage =
+        'linear-gradient(to right, rgba(255,255,255,0.04) 1px, transparent 1px),' +
+        'linear-gradient(to bottom, rgba(255,255,255,0.04) 1px, transparent 1px)';
+      host.style.backgroundSize = 'calc(100%/20) 100%, 100% calc(100%/20)';
+    }
+
+    const cellEls = [];
+    for (let r = 0; r < 20; r++) {
+      cellEls.push([]);
+      for (let c = 0; c < 20; c++) {
+        const d = document.createElement('div');
+        d.style.position = 'relative';
+        host.appendChild(d);
+        cellEls[r].push(d);
+      }
+    }
+
+    let _color = color;
+    let _stroke = cellStroke;
+    function paint(frame) {
+      for (let r = 0; r < 20; r++) {
+        for (let c = 0; c < 20; c++) {
+          const v = frame[r][c];
+          const el = cellEls[r][c];
+          if (v === BODY) {
+            el.style.background = _color;
+            el.style.boxShadow = 'none';
+          } else if (v === EYE) {
+            el.style.background = 'transparent';
+            el.style.boxShadow = 'none';
+          } else {
+            el.style.background = 'transparent';
+            el.style.boxShadow = 'none';
+          }
+        }
+      }
+    }
+
+    let _preset = preset;
+    let _speed = speed;
+    let _playing = autoplay;
+    let frameIdx = 0;
+    let startAt = performance.now();
+    let raf = 0;
+
+    function current() { return _preset.frames[frameIdx]; }
+    function render() {
+      const f = current();
+      paint(f.frame ? f.frame : CREATURE);
+    }
+    function tick(now) {
+      if (_playing && _preset.frames.length > 1) {
+        const elapsed = (now - startAt) * _speed;
+        if (elapsed >= current().hold) {
+          frameIdx = (frameIdx + 1) % _preset.frames.length;
+          startAt = now;
+          render();
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    }
+    render();
+    raf = requestAnimationFrame(tick);
+
+    return {
+      el: host,
+      play()  { _playing = true;  startAt = performance.now(); },
+      pause() { _playing = false; },
+      toggle() { _playing = !_playing; startAt = performance.now(); return _playing; },
+      isPlaying() { return _playing; },
+      setPreset(p) { _preset = p; frameIdx = 0; startAt = performance.now(); render(); },
+      setSpeed(s) { _speed = s; },
+      setColor(c) { _color = c; render(); },
+      setStroke(b) { _stroke = b; render(); },
+      destroy() { cancelAnimationFrame(raf); host.innerHTML = ''; },
+    };
+  }
+
+  // Wrap mount to also listen for parent speed messages, so any
+  // preview embedded in the library auto-syncs to the slider.
+  const originalMount = mount;
+  function mountWithSync(host, opts) {
+    const api = originalMount(host, opts);
+    window.__api = api;
+    window.addEventListener('message', (e) => {
+      const d = e.data || {};
+      if (d && d.type === '__set_speed' && typeof d.speed === 'number') {
+        api.setSpeed(d.speed);
+      }
+    });
+    return api;
+  }
+
+  window.PixelEngine = {
+    BODY, EYE, CREATURE, parseFrame, shift, patch,
+    mount: mountWithSync,
+  };
+})();
+
+</script>
+  <script>
+    const { BODY, EYE, CREATURE, patch, shift } = window.PixelEngine;
+
+    // CROUCH — squash down: body shifts down 1, arms widen for momentum
+    const CROUCH = patch(shift(CREATURE, 1, 0), [
+      [9,2,BODY],[10,2,BODY],   // left arm extends out
+      [9,18,BODY],[10,18,BODY], // right arm extends out
+    ]);
+
+    // LAUNCH — body up 1, arms start rising
+    const UP1 = shift(CREATURE, -1, 0);
+
+    // PEAK — body up 2, arms fully out for airborne pose
+    const UP2 = patch(shift(CREATURE, -2, 0), [
+      [7,1,BODY],[8,1,BODY],[8,2,BODY],  // left arm wide
+      [7,18,BODY],[8,18,BODY],[8,19,BODY], // right arm wide (col 19 = edge)
+    ]);
+
+    // DESCEND — body up 1 again
+    const DOWN1 = shift(CREATURE, -1, 0);
+
+    // LAND — back to base with impact squash: widen slightly + dust
+    const LAND = patch(CREATURE, [
+      [17,4,BODY],[17,5,BODY],   // left dust
+      [17,15,BODY],[17,16,BODY], // right dust
+    ]);
+
+    // IMPACT — heavier squash: shift down 1 + dust
+    const IMPACT = patch(shift(CREATURE, 1, 0), [
+      [18,3,BODY],[18,4,BODY],[18,5,BODY],   // left dust cloud
+      [18,15,BODY],[18,16,BODY],[18,17,BODY], // right dust cloud
+    ]);
+
+    // RECOVER — dust settling, body back to normal
+    const RECOVER = patch(CREATURE, [
+      [18,4,BODY],[18,16,BODY], // faint dust remains
+    ]);
+
+    const PRESET = {
+      name: "dance bounce",
+      category: "Dance",
+      description: "Energetic bounce, crouch, launch, arms wide at peak, squash on landing with dust.",
+      frames: [
+        // beat 1
+        { hold: 100,  frame: CROUCH },   // crouch / anticipation
+        { hold: 80,   frame: UP1 },      // launch
+        { hold: 140,  frame: UP2 },      // peak — arms out
+        { hold: 100,  frame: DOWN1 },    // descend
+        { hold: 60,   frame: LAND },     // land + dust burst
+        { hold: 80,   frame: IMPACT },   // squash on impact
+        { hold: 120,  frame: RECOVER },  // recover / dust settles
+        { hold: 80,   frame: null },     // neutral beat
+        // beat 2 (mirror — arms vary)
+        { hold: 100,  frame: CROUCH },
+        { hold: 80,   frame: UP1 },
+        { hold: 160,  frame: UP2 },
+        { hold: 80,   frame: DOWN1 },
+        { hold: 60,   frame: LAND },
+        { hold: 80,   frame: IMPACT },
+        { hold: 120,  frame: RECOVER },
+        { hold: 100,  frame: null },
+      ],
+    };
+
+    window.PRESET = PRESET;
+    window.PixelEngine.mount(document.getElementById('grid'), { preset: PRESET });
+  </script>
+</body>
+</html>

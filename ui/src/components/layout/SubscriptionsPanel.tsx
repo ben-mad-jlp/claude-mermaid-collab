@@ -2,6 +2,46 @@ import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { useSessionStore } from '@/stores/sessionStore';
 
+const CLAUDE_PIX_BASE = '/claudepix';
+
+const ANIMATIONS: Record<string, string[]> = {
+  active:     ['work_coding.html', 'dance_bounce_dj.html', 'dance_sway_dj.html', 'dance_djmix.html'],
+  waiting:    ['expression_wink.html', 'expression_sleep.html', 'idle_breathe.html', 'idle_blink.html', 'idle_look_around.html'],
+  permission: ['expression_surprise.html', 'dance_bounce.html'],
+  unknown:    ['idle_breathe.html', 'idle_blink.html', 'idle_look_around.html'],
+};
+
+function pickAnimation(status: string): string {
+  const pool = ANIMATIONS[status] ?? ANIMATIONS.unknown;
+  return `${CLAUDE_PIX_BASE}/${pool[Math.floor(Math.random() * pool.length)]}`;
+}
+
+const ClaudePixAvatar: React.FC<{ status: string }> = ({ status }) => {
+  const [src] = useState(() => pickAnimation(status));
+  const prevStatus = useRef(status);
+  const [currentSrc, setCurrentSrc] = useState(src);
+
+  useEffect(() => {
+    if (prevStatus.current !== status) {
+      prevStatus.current = status;
+      setCurrentSrc(pickAnimation(status));
+    }
+  }, [status]);
+
+  return (
+    <iframe
+      src={currentSrc}
+      title="Claude"
+      scrolling="no"
+      frameBorder="0"
+      sandbox="allow-scripts"
+      allowTransparency={true}
+      className="flex-shrink-0 rounded-sm overflow-hidden pointer-events-none"
+      style={{ width: 32, height: 32, imageRendering: 'pixelated', background: 'transparent' }}
+    />
+  );
+};
+
 function formatElapsed(ms: number): string {
   const seconds = Math.floor(ms / 1000);
   if (seconds < 60) return `${seconds}s`;
@@ -58,44 +98,48 @@ const SubscriptionRow: React.FC<{
           : 'hover:bg-gray-100 dark:hover:bg-gray-800 border border-gray-300 dark:border-gray-700';
 
   return (
-    <div
-      className={`group flex items-center gap-3 pl-4 pr-2 py-1.5 rounded text-sm cursor-pointer transition-colors ${statusBg} ${isDragOver ? 'border-t-2 border-t-blue-400' : ''}`}
-      draggable
-      onDragStart={(e) => onDragStart(e, subKey)}
-      onDragOver={(e) => onDragOver(e, subKey)}
-      onDragEnd={onDragEnd}
-      onClick={() => onNavigate(sub.project, sub.session)}
-    >
-      {/* Project / Session on two lines */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1">
-          <span className="text-xs text-gray-700 dark:text-gray-300 truncate">{sub.project.split('/').pop()}</span>
-          {/* Elapsed time */}
-          {elapsed && (
-            <span className="text-[10px] text-gray-700 dark:text-gray-300 tabular-nums flex-shrink-0 ml-auto">
-              {elapsed}
-            </span>
-          )}
-        </div>
-        <div className="text-xs text-gray-700 dark:text-gray-300 truncate">{sub.session}</div>
-      </div>
-      {/* Unsubscribe button */}
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onUnsubscribe(subKey);
-        }}
-        className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-opacity self-start mt-1"
-        title="Unsubscribe"
+    <div className={`flex items-center gap-1 ${isDragOver ? 'border-t-2 border-t-blue-400' : ''}`}>
+      {/* Colored status card */}
+      <div
+        className={`group flex-1 flex items-center gap-2 pl-3 pr-2 py-1 rounded text-sm cursor-pointer transition-colors min-w-0 ${statusBg}`}
+        draggable
+        onDragStart={(e) => onDragStart(e, subKey)}
+        onDragOver={(e) => onDragOver(e, subKey)}
+        onDragEnd={onDragEnd}
+        onClick={() => onNavigate(sub.project, sub.session)}
       >
-        <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
-          <path
-            fillRule="evenodd"
-            d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-            clipRule="evenodd"
-          />
-        </svg>
-      </button>
+        {/* Project / Session on two lines */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-gray-700 dark:text-gray-300 truncate">{sub.project.split('/').pop()}</span>
+            {elapsed && (
+              <span className="text-[10px] text-gray-700 dark:text-gray-300 tabular-nums flex-shrink-0 ml-auto">
+                {elapsed}
+              </span>
+            )}
+          </div>
+          <div className="text-xs text-gray-700 dark:text-gray-300 truncate">{sub.session}</div>
+        </div>
+        {/* Unsubscribe button */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onUnsubscribe(subKey);
+          }}
+          className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-opacity self-start mt-1"
+          title="Unsubscribe"
+        >
+          <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+            <path
+              fillRule="evenodd"
+              d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+              clipRule="evenodd"
+            />
+          </svg>
+        </button>
+      </div>
+      {/* Claude pixel avatar — outside the colored card, right side */}
+      <ClaudePixAvatar status={sub.status} />
     </div>
   );
 };
