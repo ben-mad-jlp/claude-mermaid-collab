@@ -338,10 +338,13 @@ export const useTabsStore = create<TabsStoreShape>()(
         set((state) => {
           const entry = getEntry(state.bySession, key);
           if (!entry.tabs.some((t) => t.id === id)) return state;
+          const tabs = entry.tabs.map((t) =>
+            t.id === id ? { ...t, isPreview: false } : t
+          );
           return {
             bySession: {
               ...state.bySession,
-              [key]: { ...entry, rightPaneTabId: id },
+              [key]: { ...entry, tabs, rightPaneTabId: id },
             },
           };
         });

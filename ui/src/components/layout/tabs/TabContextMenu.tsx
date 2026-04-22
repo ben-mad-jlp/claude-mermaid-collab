@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { TabDescriptor } from '../../../stores/tabsStore';
 
 export interface TabContextMenuProps {
@@ -30,6 +30,26 @@ export const TabContextMenu: React.FC<TabContextMenuProps> = ({
   hideOpenInRightPane,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ left: number; top: number }>({ left: x, top: y });
+
+  useLayoutEffect(() => {
+    const el = menuRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const margin = 4;
+    let left = x;
+    let top = y;
+    if (left + rect.width > window.innerWidth - margin) {
+      left = Math.max(margin, window.innerWidth - rect.width - margin);
+    }
+    if (top + rect.height > window.innerHeight - margin) {
+      top = Math.max(margin, y - rect.height);
+      if (top + rect.height > window.innerHeight - margin) {
+        top = Math.max(margin, window.innerHeight - rect.height - margin);
+      }
+    }
+    if (left !== pos.left || top !== pos.top) setPos({ left, top });
+  }, [x, y, pos.left, pos.top]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -67,7 +87,7 @@ export const TabContextMenu: React.FC<TabContextMenuProps> = ({
       role="menu"
       data-testid="tab-context-menu"
       className="fixed flex flex-col bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg z-50 py-1 min-w-max"
-      style={{ left: `${x}px`, top: `${y}px` }}
+      style={{ left: `${pos.left}px`, top: `${pos.top}px` }}
     >
       <button
         role="menuitem"
