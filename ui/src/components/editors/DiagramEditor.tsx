@@ -104,6 +104,7 @@ export const DiagramEditor: React.FC<DiagramEditorProps> = ({
   const [pendingEdgeInfo, setPendingEdgeInfo] = useState<{ source: string; target: string } | null>(null);
   const [selectedSmachState, setSelectedSmachState] = useState<SmachState | null>(null);
   const [isSmach, setIsSmach] = useState(false);
+  const [zoomLevel, setZoomLevel] = useState(100);
 
   // Auto-load diagram if not already loaded
   useEffect(() => {
@@ -636,6 +637,23 @@ export const DiagramEditor: React.FC<DiagramEditorProps> = ({
     console.log('Remove transition', index);
   }, []);
 
+  // Zoom handlers
+  const handleZoomIn = useCallback(() => {
+    setZoomLevel((prev) => Math.min(prev + 25, 400));
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setZoomLevel((prev) => Math.max(prev - 25, 25));
+  }, []);
+
+  const handleSetZoom = useCallback((level: number) => {
+    setZoomLevel(Math.min(Math.max(level, 25), 400));
+  }, []);
+
+  const handleResetZoom = useCallback(() => {
+    setZoomLevel(100);
+  }, []);
+
   // Loading state
   if (editorState.isLoading || !diagram) {
     return (
@@ -755,13 +773,45 @@ export const DiagramEditor: React.FC<DiagramEditorProps> = ({
           }
           secondaryContent={
             <div className="flex h-full">
-              <div className="flex flex-col flex-1 p-4 bg-gray-50 dark:bg-gray-800 overflow-auto">
-                <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">
-                  Preview
-                </h2>
-                <div className="flex-1">
+              <div className="flex flex-col flex-1 bg-gray-50 dark:bg-gray-800 overflow-auto">
+                {/* Preview header with zoom toolbar */}
+                <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+                  <h2 className="text-sm font-semibold text-gray-900 dark:text-white">
+                    Preview
+                  </h2>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={handleZoomOut}
+                      disabled={zoomLevel <= 25}
+                      className="w-7 h-7 flex items-center justify-center text-sm font-medium text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed rounded transition-colors"
+                      title="Zoom out"
+                    >
+                      −
+                    </button>
+                    <button
+                      onClick={handleResetZoom}
+                      className="min-w-[3rem] h-7 px-1 text-xs font-mono text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 rounded transition-colors"
+                      title="Reset to 100%"
+                    >
+                      {zoomLevel}%
+                    </button>
+                    <button
+                      onClick={handleZoomIn}
+                      disabled={zoomLevel >= 400}
+                      className="w-7 h-7 flex items-center justify-center text-sm font-medium text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed rounded transition-colors"
+                      title="Zoom in"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+                <div className="flex-1 p-4">
                   <MermaidPreview
                     content={editorContent}
+                    zoomLevel={zoomLevel}
+                    onZoomIn={handleZoomIn}
+                    onZoomOut={handleZoomOut}
+                    onSetZoom={handleSetZoom}
                     onError={(error) => {
                       setEditorState((prev) => ({
                         ...prev,

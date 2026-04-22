@@ -44,8 +44,8 @@ export const DocumentView: React.FC<DocumentViewProps> = ({ document, onContentC
 
   return (
     <CollapsibleSectionsProvider>
-    <div className="relative h-full bg-white dark:bg-gray-900">
-      <div className="absolute top-2 left-6 z-10 flex items-center gap-2">
+    <div className="flex flex-col h-full bg-white dark:bg-gray-900">
+      <div className="flex items-center gap-2 px-6 py-2 shrink-0">
         <DocumentToolbarControls />
         <button
           type="button"
@@ -67,7 +67,7 @@ export const DocumentView: React.FC<DocumentViewProps> = ({ document, onContentC
         </button>
         {documentEditable && <FormattingToolbar editorRef={milkdownRef} />}
       </div>
-      <div className="h-full overflow-auto px-4 pt-14 pb-4">
+      <div className="flex-1 overflow-auto px-4 pb-4">
         {document.content == null ? (
           <div className="flex items-center justify-center h-full text-sm text-gray-500">
             Loading…
