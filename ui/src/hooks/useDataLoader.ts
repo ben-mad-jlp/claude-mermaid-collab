@@ -74,6 +74,7 @@ export function useDataLoader(): UseDataLoaderReturn {
   const setDesigns = useSessionStore((state) => state.setDesigns);
   const setSpreadsheets = useSessionStore((state) => state.setSpreadsheets);
   const setSnippets = useSessionStore((state) => state.setSnippets);
+  const setCodeFiles = useSessionStore((state) => state.setCodeFiles);
   const setEmbeds = useSessionStore((state) => state.setEmbeds);
   const setImages = useSessionStore((state) => state.setImages);
   const selectDiagram = useSessionStore((state) => state.selectDiagram);
@@ -138,6 +139,7 @@ export function useDataLoader(): UseDataLoaderReturn {
         setDesigns(cached.designs);
         setSpreadsheets(cached.spreadsheets);
         setSnippets(cached.snippets);
+        setCodeFiles(cached.codeFiles ?? []);
         setEmbeds(cached.embeds);
         setImages(cached.images);
         setCollabState(cached.collabState);
@@ -148,7 +150,7 @@ export function useDataLoader(): UseDataLoaderReturn {
       }
 
       try {
-        const [diagrams, documents, designs, spreadsheets, snippets, embeds, images] = await Promise.all([
+        const [diagrams, documents, designs, spreadsheets, snippets, embeds, images, codeFiles] = await Promise.all([
           api.getDiagrams(project, session),
           api.getDocuments(project, session),
           api.getDesigns(project, session),
@@ -156,12 +158,14 @@ export function useDataLoader(): UseDataLoaderReturn {
           api.getSnippets(project, session),
           embedsApi.fetchEmbeds(session, project),
           api.listImages(project, session),
+          api.getCodeFiles(project, session),
         ]);
         setDiagrams(diagrams);
         setDocuments(documents);
         setDesigns(designs);
         setSpreadsheets(spreadsheets);
         setSnippets(snippets);
+        setCodeFiles(codeFiles);
         setEmbeds(embeds);
         setImages(images);
 
@@ -175,6 +179,7 @@ export function useDataLoader(): UseDataLoaderReturn {
           designs,
           spreadsheets,
           snippets,
+          codeFiles,
           embeds,
           images,
           collabState,
@@ -188,7 +193,7 @@ export function useDataLoader(): UseDataLoaderReturn {
         if (showedSpinner) setIsLoading(false);
       }
     },
-    [setDiagrams, setDocuments, setDesigns, setSpreadsheets, setSnippets, setEmbeds, setImages, setCollabState, loadCollabState]
+    [setDiagrams, setDocuments, setDesigns, setSpreadsheets, setSnippets, setCodeFiles, setEmbeds, setImages, setCollabState, loadCollabState]
   );
 
   /**

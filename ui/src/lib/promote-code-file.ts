@@ -1,4 +1,3 @@
-import { resolve } from 'path';
 import { useSessionStore } from '../stores/sessionStore';
 import { useTabsStore, sessionKey } from '../stores/tabsStore';
 
@@ -24,7 +23,7 @@ export async function promoteCodeFile(tabId: string): Promise<void> {
   const stem = tab.artifactId;
   const absPath = stem.startsWith('/')
     ? stem
-    : resolve(currentSession.project, stem);
+    : `${currentSession.project.replace(/\/$/, '')}/${stem}`;
 
   try {
     const response = await fetch(

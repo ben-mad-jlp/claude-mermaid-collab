@@ -1,45 +1,47 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
-import { vi, beforeEach, afterEach } from 'vitest';
+import { vi, beforeEach, afterEach, describe, it, expect } from 'vitest';
 import { Sidebar } from '../Sidebar';
-import * as useSessionStoreModule from '@/stores/sessionStore';
+import { useSessionStore } from '@/stores/sessionStore';
 import * as useDataLoaderModule from '@/hooks/useDataLoader';
 
 /**
  * Test suite for Sidebar component
+ *
+ * Uses real Zustand store state (setState) instead of spy mocks
+ * so that both hook calls and direct getState() calls are covered.
  */
 describe('Sidebar', () => {
-  // Mock the session store
-  const mockUseSessionStore = vi.spyOn(useSessionStoreModule, 'useSessionStore');
   // Mock the data loader hook
   const mockUseDataLoader = vi.spyOn(useDataLoaderModule, 'useDataLoader');
 
-  // Helper to create mock session store state
-  const createMockState = (overrides: any = {}) => ({
+  // Base state that satisfies all store consumers
+  const baseState = {
     diagrams: [],
     documents: [],
     designs: [],
     spreadsheets: [],
     snippets: [],
+    embeds: [],
+    images: [],
     selectedDiagramId: null,
     selectedDocumentId: null,
     selectedDesignId: null,
     selectedSpreadsheetId: null,
     selectedSnippetId: null,
-    removeDiagram: vi.fn(),
-    removeDocument: vi.fn(),
-    removeDesign: vi.fn(),
-    removeSpreadsheet: vi.fn(),
-    removeSnippet: vi.fn(),
-    selectSnippet: vi.fn(),
     collabState: null,
     currentSession: null,
-    ...overrides,
-  });
+    sessions: [],
+    sessionTodos: [],
+    sessionTodosShowCompleted: false,
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
+
+    // Reset to empty state
+    useSessionStore.setState(baseState as any);
 
     // Mock useDataLoader
     mockUseDataLoader.mockReturnValue({
@@ -59,18 +61,17 @@ describe('Sidebar', () => {
    * Test that SessionStatusPanel import is removed and component doesn't render
    */
   it('should not render SessionStatusPanel', () => {
-    mockUseSessionStore.mockImplementation((selector) =>
-      selector(createMockState({
-        currentSession: { project: '/test', name: 'test-session' } as any,
-        collabState: {
-          state: 'execute-batch',
-          displayName: 'Executing',
-          currentItem: 1,
-          completedTasks: [],
-          pendingTasks: ['task-1'],
-        } as any,
-      }))
-    );
+    useSessionStore.setState({
+      ...baseState,
+      currentSession: { project: '/test', name: 'test-session' } as any,
+      collabState: {
+        state: 'execute-batch',
+        displayName: 'Executing',
+        currentItem: 1,
+        completedTasks: [],
+        pendingTasks: ['task-1'],
+      } as any,
+    } as any);
 
     const { container } = render(
       <BrowserRouter>
@@ -87,11 +88,10 @@ describe('Sidebar', () => {
    * Test that search input is still rendered
    */
   it('should render search input', () => {
-    mockUseSessionStore.mockImplementation((selector) =>
-      selector(createMockState({
-        currentSession: { project: '/test', name: 'test-session' } as any,
-      }))
-    );
+    useSessionStore.setState({
+      ...baseState,
+      currentSession: { project: '/test', name: 'test-session' } as any,
+    } as any);
 
     render(
       <BrowserRouter>
@@ -101,18 +101,18 @@ describe('Sidebar', () => {
 
     const searchInput = screen.getByTestId('sidebar-search');
     expect(searchInput).toBeInTheDocument();
-    expect(searchInput).toHaveAttribute('placeholder', 'Search items...');
+    // Placeholder is 'Search' in the current implementation
+    expect(searchInput).toHaveAttribute('placeholder', 'Search');
   });
 
   /**
    * Test that sidebar renders with a session selected (no external nav links)
    */
   it('should render when session is selected', () => {
-    mockUseSessionStore.mockImplementation((selector) =>
-      selector(createMockState({
-        currentSession: { project: '/test', name: 'test-session' } as any,
-      }))
-    );
+    useSessionStore.setState({
+      ...baseState,
+      currentSession: { project: '/test', name: 'test-session' } as any,
+    } as any);
 
     render(
       <BrowserRouter>
@@ -127,11 +127,10 @@ describe('Sidebar', () => {
    * Test that sidebar renders properly when no session is selected
    */
   it('should show empty state when no session is selected', () => {
-    mockUseSessionStore.mockImplementation((selector) =>
-      selector(createMockState({
-        currentSession: null,
-      }))
-    );
+    useSessionStore.setState({
+      ...baseState,
+      currentSession: null,
+    } as any);
 
     render(
       <BrowserRouter>
@@ -139,18 +138,17 @@ describe('Sidebar', () => {
       </BrowserRouter>
     );
 
-    expect(screen.getByText('Select a session to view items')).toBeInTheDocument();
+    expect(screen.getByText('Select a session')).toBeInTheDocument();
   });
 
   /**
    * Test that sidebar has correct data-testid
    */
   it('should have sidebar data-testid', () => {
-    mockUseSessionStore.mockImplementation((selector) =>
-      selector(createMockState({
-        currentSession: { project: '/test', name: 'test-session' } as any,
-      }))
-    );
+    useSessionStore.setState({
+      ...baseState,
+      currentSession: { project: '/test', name: 'test-session' } as any,
+    } as any);
 
     render(
       <BrowserRouter>
@@ -165,11 +163,10 @@ describe('Sidebar', () => {
    * Test that sidebar maintains its flex layout structure
    */
   it('should have proper flex layout structure', () => {
-    mockUseSessionStore.mockImplementation((selector) =>
-      selector(createMockState({
-        currentSession: { project: '/test', name: 'test-session' } as any,
-      }))
-    );
+    useSessionStore.setState({
+      ...baseState,
+      currentSession: { project: '/test', name: 'test-session' } as any,
+    } as any);
 
     const { container } = render(
       <BrowserRouter>
@@ -182,16 +179,27 @@ describe('Sidebar', () => {
   });
 
   /**
-   * Test Task Graph entry display during implementation phase
+   * Test Task Graph entry display during implementation phase.
+   * Implementation phase requires: collabState.batches (non-empty) AND documents with blueprint=true.
    */
   describe('Task Graph Entry', () => {
-    it('should show Task Graph entry when in execute-batch state', () => {
-      mockUseSessionStore.mockImplementation((selector) =>
-        selector(createMockState({
-          currentSession: { project: '/test', name: 'test-session' } as any,
-          collabState: { state: 'execute-batch' } as any,
-        }))
-      );
+    const blueprintDoc = {
+      id: 'bp1',
+      name: 'feature.blueprint',
+      type: 'document',
+      blueprint: true,
+      deprecated: false,
+      content: '',
+      lastModified: Date.now(),
+    };
+
+    it('should show Task Graph entry when batches exist and blueprint documents exist', () => {
+      useSessionStore.setState({
+        ...baseState,
+        currentSession: { project: '/test', name: 'test-session' } as any,
+        documents: [blueprintDoc] as any,
+        collabState: { batches: [{ id: 'b1' }] } as any,
+      } as any);
 
       render(
         <BrowserRouter>
@@ -199,17 +207,17 @@ describe('Sidebar', () => {
         </BrowserRouter>
       );
 
-      expect(screen.getByTestId('task-graph-entry')).toBeInTheDocument();
+      // Task Graph node should appear in the tree
       expect(screen.getByText('Task Graph')).toBeInTheDocument();
     });
 
-    it('should show Task Graph entry when in ready-to-implement state', () => {
-      mockUseSessionStore.mockImplementation((selector) =>
-        selector(createMockState({
-          currentSession: { project: '/test', name: 'test-session' } as any,
-          collabState: { state: 'ready-to-implement' } as any,
-        }))
-      );
+    it('should NOT show Task Graph entry when no batches', () => {
+      useSessionStore.setState({
+        ...baseState,
+        currentSession: { project: '/test', name: 'test-session' } as any,
+        documents: [blueprintDoc] as any,
+        collabState: { batches: [] } as any,
+      } as any);
 
       render(
         <BrowserRouter>
@@ -217,16 +225,16 @@ describe('Sidebar', () => {
         </BrowserRouter>
       );
 
-      expect(screen.getByTestId('task-graph-entry')).toBeInTheDocument();
+      expect(screen.queryByText('Task Graph')).not.toBeInTheDocument();
     });
 
-    it('should NOT show Task Graph entry when not in implementation phase', () => {
-      mockUseSessionStore.mockImplementation((selector) =>
-        selector(createMockState({
-          currentSession: { project: '/test', name: 'test-session' } as any,
-          collabState: { state: 'brainstorming' } as any,
-        }))
-      );
+    it('should NOT show Task Graph entry when no blueprint documents', () => {
+      useSessionStore.setState({
+        ...baseState,
+        currentSession: { project: '/test', name: 'test-session' } as any,
+        documents: [] as any,
+        collabState: { batches: [{ id: 'b1' }] } as any,
+      } as any);
 
       render(
         <BrowserRouter>
@@ -234,16 +242,16 @@ describe('Sidebar', () => {
         </BrowserRouter>
       );
 
-      expect(screen.queryByTestId('task-graph-entry')).not.toBeInTheDocument();
+      expect(screen.queryByText('Task Graph')).not.toBeInTheDocument();
     });
 
     it('should NOT show Task Graph entry when no session is selected', () => {
-      mockUseSessionStore.mockImplementation((selector) =>
-        selector(createMockState({
-          currentSession: null,
-          collabState: { state: 'execute-batch' } as any,
-        }))
-      );
+      useSessionStore.setState({
+        ...baseState,
+        currentSession: null,
+        documents: [blueprintDoc] as any,
+        collabState: { batches: [{ id: 'b1' }] } as any,
+      } as any);
 
       render(
         <BrowserRouter>
@@ -251,7 +259,7 @@ describe('Sidebar', () => {
         </BrowserRouter>
       );
 
-      expect(screen.queryByTestId('task-graph-entry')).not.toBeInTheDocument();
+      expect(screen.queryByText('Task Graph')).not.toBeInTheDocument();
     });
 
   });

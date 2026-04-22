@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState, useRef } from 'react';
 import {
   DndContext,
   PointerSensor,
@@ -117,6 +117,14 @@ export function SplitEditorHost(props: SplitEditorHostProps) {
     ? (id: string, c: string) => onContentChange(id, c, 'right')
     : undefined;
 
+  const [rightPaneControls, setRightPaneControls] = useState<React.ReactNode>(null);
+  // Stable ref so PaneContent callback identity doesn't change on every render
+  const setRightPaneControlsRef = useRef(setRightPaneControls);
+  setRightPaneControlsRef.current = setRightPaneControls;
+  const handleRightPaneControls = useCallback((controls: React.ReactNode) => {
+    setRightPaneControlsRef.current(controls);
+  }, []);
+
   const leftPaneNode = (
     <PaneContent
       tab={leftTab}
@@ -134,7 +142,7 @@ export function SplitEditorHost(props: SplitEditorHostProps) {
       project={project}
       session={session}
       onContentChange={rightOnContentChange}
-      onSnippetToolbarControls={onSnippetToolbarControls}
+      onSnippetToolbarControls={handleRightPaneControls}
     />
   );
 
@@ -178,6 +186,11 @@ export function SplitEditorHost(props: SplitEditorHostProps) {
           </div>
         )}
       </div>
+      {rightPaneControls && (
+        <div className="flex items-center gap-1 px-2 py-1 shrink-0 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-x-auto">
+          {rightPaneControls}
+        </div>
+      )}
       <div className="flex-1 min-h-0 overflow-hidden">
         {rightPaneNode}
       </div>

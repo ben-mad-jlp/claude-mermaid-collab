@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { Session, Diagram, Document, CollabState, Snippet, Embed, SessionTodo, Image } from '../types';
+import { UICodeFile } from '../types/code-file';
 import { api } from '../lib/api';
 import { getSessionItemsCache } from '@/lib/sessionItemsCache';
 
@@ -70,6 +71,9 @@ export interface SessionState {
   snippets: Snippet[];
   selectedSnippetId: string | null;
 
+  // Code files in current session
+  codeFiles: UICodeFile[];
+
   // Embeds in current session
   embeds: Embed[];
 
@@ -135,6 +139,13 @@ export interface SessionState {
   selectSnippet: (id: string | null) => void;
   getSelectedSnippet: () => Snippet | undefined;
 
+  // Code file actions
+  setCodeFiles: (files: UICodeFile[]) => void;
+  addCodeFile: (file: UICodeFile) => void;
+  updateCodeFile: (id: string, updates: Partial<UICodeFile>) => void;
+  removeCodeFile: (id: string) => void;
+  getCodeFileById: (id: string) => UICodeFile | undefined;
+
   // Embed actions
   setEmbeds: (embeds: Embed[]) => void;
   addEmbed: (embed: Embed) => void;
@@ -185,6 +196,7 @@ const initialState = {
   selectedSpreadsheetId: null,
   snippets: [],
   selectedSnippetId: null,
+  codeFiles: [],
   embeds: [],
   images: [],
   sessionTodos: [],
@@ -234,6 +246,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       designs: snapshot?.designs ?? [],
       spreadsheets: snapshot?.spreadsheets ?? [],
       snippets: snapshot?.snippets ?? [],
+      codeFiles: snapshot?.codeFiles ?? [],
       embeds: snapshot?.embeds ?? [],
       images: snapshot?.images ?? [],
       selectedDiagramId: null,
@@ -475,6 +488,32 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     return snippets.find((s) => s.id === selectedSnippetId);
   },
 
+  // Code file management
+  setCodeFiles: (files: UICodeFile[]) => set({ codeFiles: files }),
+
+  addCodeFile: (file: UICodeFile) => {
+    const { codeFiles } = get();
+    if (!codeFiles.find((f) => f.id === file.id)) {
+      set({ codeFiles: [...codeFiles, file] });
+    }
+  },
+
+  updateCodeFile: (id: string, updates: Partial<UICodeFile>) => {
+    const { codeFiles } = get();
+    set({
+      codeFiles: codeFiles.map((f) => (f.id === id ? { ...f, ...updates } : f)),
+    });
+  },
+
+  removeCodeFile: (id: string) => {
+    const { codeFiles } = get();
+    set({ codeFiles: codeFiles.filter((f) => f.id !== id) });
+  },
+
+  getCodeFileById: (id: string) => {
+    return get().codeFiles.find((f) => f.id === id);
+  },
+
   // Embed management
   setEmbeds: (embeds) => set({ embeds }),
   addEmbed: (embed) => set((state) => ({
@@ -564,6 +603,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       designs: [],
       spreadsheets: [],
       snippets: [],
+      codeFiles: [],
       embeds: [],
       images: [],
       selectedDiagramId: null,

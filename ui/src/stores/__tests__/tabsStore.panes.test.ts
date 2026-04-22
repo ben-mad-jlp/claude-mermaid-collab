@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useTabsStore, sessionKey } from '../tabsStore';
+import { useTabsStore, sessionKey, useSessionTabs } from '../tabsStore';
 import { useSessionStore } from '../sessionStore';
 
 function makeTab(id: string, overrides: Partial<{ name: string; artifactId: string }> = {}) {
@@ -18,6 +18,26 @@ function getCurrentEntry() {
   return (useTabsStore.getState() as any).bySession[key];
 }
 
+/**
+ * Helper to get the synthesized panes view (same as useSessionTabs hook but callable outside React).
+ * useSessionTabs is a hook but its logic is replicable: reads bySession + rightPaneTabId.
+ */
+function getPanesView() {
+  const cs = useSessionStore.getState().currentSession!;
+  const key = sessionKey(cs.project, cs.name);
+  const entry = (useTabsStore.getState() as any).bySession[key];
+  if (!entry) return null;
+  const leftPane = { tabs: entry.tabs, activeTabId: entry.activeTabId };
+  const rightTab = entry.rightPaneTabId
+    ? entry.tabs.find((t: any) => t.id === entry.rightPaneTabId)
+    : undefined;
+  const rightPane = {
+    tabs: rightTab ? [rightTab] : [],
+    activeTabId: entry.rightPaneTabId,
+  };
+  return { ...entry, panes: { left: leftPane, right: rightPane } };
+}
+
 describe('useTabsStore panes', () => {
   beforeEach(() => {
     useTabsStore.setState({ bySession: {} } as any);
@@ -34,22 +54,21 @@ describe('useTabsStore panes', () => {
       store.openPermanent(makeTab('b'));
       (useTabsStore.getState() as any).pinTab('b');
 
-      const bBefore = getCurrentEntry().panes.left.tabs.find((t: any) => t.id === 'b');
-      expect(bBefore.isPinned).toBe(true);
-
+      // b is pinned. Move to right pane via pinTabRight (underlying mechanism)
       (useTabsStore.getState() as any).moveTabBetweenPanes('b', 'left', 'right');
 
       const entry = getCurrentEntry();
-      expect(entry.panes.left.tabs.map((t: any) => t.id)).toEqual(['a']);
-      const bAfter = entry.panes.right.tabs.find((t: any) => t.id === 'b');
-      expect(bAfter).toBeDefined();
-      expect(bAfter.isPinned).toBe(true);
-      expect(bAfter.artifactId).toBe(bBefore.artifactId);
-      expect(bAfter.kind).toBe(bBefore.kind);
-      expect(bAfter.name).toBe(bBefore.name);
+      // In the new model, rightPaneTabId = 'b', all tabs remain in flat list
+      expect(entry.rightPaneTabId).toBe('b');
+      const bTab = entry.tabs.find((t: any) => t.id === 'b');
+      expect(bTab).toBeDefined();
+      expect(bTab.isPinned).toBe(true);
+      expect(bTab.artifactId).toBe('b');
+      expect(bTab.kind).toBe('artifact');
+      expect(bTab.name).toBe('Tab b');
     });
 
-    it('hands off active tab: left loses active, right gets active, activePaneId switches', () => {
+    it('setting rightPaneTabId synthesizes correct panes view', () => {
       const store = useTabsStore.getState() as any;
       store.openPermanent(makeTab('a'));
       store.openPermanent(makeTab('b'));
@@ -57,38 +76,29 @@ describe('useTabsStore panes', () => {
 
       (useTabsStore.getState() as any).moveTabBetweenPanes('b', 'left', 'right');
 
-      const entry = getCurrentEntry();
-      expect(entry.panes.left.activeTabId).toBe('a');
-      expect(entry.panes.right.activeTabId).toBe('b');
-      expect(entry.activePaneId).toBe('right');
+      const view = getPanesView()!;
+      // Both tabs are in left pane (flat list)
+      expect(view.panes.left.tabs.map((t: any) => t.id)).toContain('a');
+      expect(view.panes.left.tabs.map((t: any) => t.id)).toContain('b');
+      // Right pane shows the pinned-right tab
+      expect(view.panes.right.tabs.map((t: any) => t.id)).toEqual(['b']);
+      expect(view.panes.right.activeTabId).toBe('b');
     });
 
-    it('inserts at given index, renumbers order, and promotes right→left when left empties', () => {
+    it('inserts at given index is ignored (no-op) in new model', () => {
       const store = useTabsStore.getState() as any;
-      // Seed left with x, y, new
       store.openPermanent(makeTab('x'));
       store.openPermanent(makeTab('y'));
       store.openPermanent(makeTab('new'));
 
-      // Move x and y to right first
-      (useTabsStore.getState() as any).moveTabBetweenPanes('x', 'left', 'right');
-      (useTabsStore.getState() as any).moveTabBetweenPanes('y', 'left', 'right');
-
-      // Now move 'new' to right at index 1 — this empties left, which triggers the
-      // UX invariant: empty left while right has tabs → promote right's tabs into left
-      // so the UI never shows only a right pane.
-      (useTabsStore.getState() as any).moveTabBetweenPanes('new', 'left', 'right', 1);
+      // Move to right pane — insertAtIndex is ignored
+      (useTabsStore.getState() as any).moveTabBetweenPanes('x', 'left', 'right', 1);
 
       const entry = getCurrentEntry();
-      const leftIds = entry.panes.left.tabs.map((t: any) => t.id);
-      expect(leftIds).toEqual(['x', 'new', 'y']);
-      const leftOrders = entry.panes.left.tabs.map((t: any) => t.order);
-      expect(leftOrders).toEqual([0, 1, 2]);
-      expect(entry.panes.right.tabs).toEqual([]);
-      expect(entry.activePaneId).toBe('left');
+      expect(entry.rightPaneTabId).toBe('x');
     });
 
-    it('renumbers order on source pane after removal', () => {
+    it('renumbers order on source pane after removal — tabs stay in flat list', () => {
       const store = useTabsStore.getState() as any;
       store.openPermanent(makeTab('a'));
       store.openPermanent(makeTab('b'));
@@ -98,9 +108,11 @@ describe('useTabsStore panes', () => {
       (useTabsStore.getState() as any).moveTabBetweenPanes('b', 'left', 'right');
 
       const entry = getCurrentEntry();
-      const remaining = entry.panes.left.tabs;
-      expect(remaining.map((t: any) => t.id)).toEqual(['a', 'c']);
-      expect(remaining.map((t: any) => t.order)).toEqual([0, 1]);
+      // In new model, all tabs remain; only rightPaneTabId changes
+      expect(entry.tabs.map((t: any) => t.id)).toContain('a');
+      expect(entry.tabs.map((t: any) => t.id)).toContain('b');
+      expect(entry.tabs.map((t: any) => t.id)).toContain('c');
+      expect(entry.rightPaneTabId).toBe('b');
     });
 
     it('no-op when fromPane === toPane', () => {
@@ -126,91 +138,77 @@ describe('useTabsStore panes', () => {
   });
 
   describe('setActivePaneId', () => {
-    it('is a no-op when target pane has no tabs', () => {
+    it('is a no-op (left is always the interactive pane)', () => {
       const store = useTabsStore.getState() as any;
       store.openPermanent(makeTab('a'));
 
+      // setActivePaneId is a no-op in the new model
       (useTabsStore.getState() as any).setActivePaneId('right');
 
       const entry = getCurrentEntry();
+      // activePaneId always stays 'left'
       expect(entry.activePaneId).toBe('left');
     });
 
-    it('switches when target pane has tabs', () => {
+    it('is a no-op even when target pane has a tab pinned to right', () => {
       const store = useTabsStore.getState() as any;
       store.openPermanent(makeTab('a'));
       store.openPermanent(makeTab('b'));
 
-      // Put 'b' into right — both panes now have tabs
+      // Pin b to right
       (useTabsStore.getState() as any).moveTabBetweenPanes('b', 'left', 'right');
 
-      // After move, activePaneId may have switched to right; explicitly set to 'left' first
       (useTabsStore.getState() as any).setActivePaneId('left');
       expect(getCurrentEntry().activePaneId).toBe('left');
 
+      // setActivePaneId('right') is a no-op
       (useTabsStore.getState() as any).setActivePaneId('right');
-      expect(getCurrentEntry().activePaneId).toBe('right');
+      expect(getCurrentEntry().activePaneId).toBe('left');
     });
   });
 
-  describe('persist v1→v2 migration', () => {
-    it('migrates legacy single-pane bySession entries into panes.left', async () => {
-      const legacyTab = {
-        id: 'a',
-        kind: 'artifact',
-        artifactType: 'diagram',
-        artifactId: 'a',
-        name: 'Tab a',
-        isPreview: false,
-        isPinned: false,
-        order: 0,
-        openedAt: 1,
-      };
+  describe('persist v3 migration', () => {
+    it('clears legacy state on version < 3 migration', async () => {
       const key = sessionKey('/p', 's1');
       const legacy = {
         state: {
           bySession: {
-            [key]: { tabs: [legacyTab], activeTabId: 'a' },
-            'empty::k': { tabs: [], activeTabId: null },
+            [key]: { tabs: [{ id: 'a' }], activeTabId: 'a' },
           },
         },
         version: 1,
       };
-      localStorage.setItem('collab.tabs.v2', JSON.stringify(legacy));
+      localStorage.setItem('collab.tabs.v3', JSON.stringify(legacy));
 
       await (useTabsStore as any).persist.rehydrate();
 
       const bySession = (useTabsStore.getState() as any).bySession;
-      const migrated = bySession[key];
-      expect(migrated.panes).toBeDefined();
-      expect(migrated.panes.left.tabs.map((t: any) => t.id)).toEqual(['a']);
-      expect(migrated.panes.left.activeTabId).toBe('a');
-      expect(migrated.panes.right.tabs).toEqual([]);
-      expect(migrated.panes.right.activeTabId).toBeNull();
-      expect(migrated.activePaneId).toBe('left');
-
-      const emptyMigrated = bySession['empty::k'];
-      expect(emptyMigrated.panes.left.tabs).toEqual([]);
-      expect(emptyMigrated.panes.right.tabs).toEqual([]);
+      // v3 migration wipes everything for version < 3
+      expect(bySession).toEqual({});
     });
   });
 
-  describe('left-empty collapse', () => {
-    it('collapses right into left when left becomes empty', () => {
+  describe('pinTabRight / unpinTabRight', () => {
+    it('pinTabRight sets rightPaneTabId, unpinTabRight clears it', () => {
       const store = useTabsStore.getState() as any;
       store.openPermanent(makeTab('a'));
       store.openPermanent(makeTab('b'));
 
-      // Move b to right
-      (useTabsStore.getState() as any).moveTabBetweenPanes('b', 'left', 'right');
-      // Move a to right — left should now be empty → collapse
-      (useTabsStore.getState() as any).moveTabBetweenPanes('a', 'left', 'right');
+      store.pinTabRight('b');
+      expect(getCurrentEntry().rightPaneTabId).toBe('b');
 
-      const entry = getCurrentEntry();
-      // After collapse: what was in right is now in left, right is empty
-      expect(entry.panes.left.tabs.map((t: any) => t.id)).toEqual(['b', 'a']);
-      expect(entry.panes.right.tabs).toEqual([]);
-      expect(entry.activePaneId).toBe('left');
+      store.unpinTabRight('b');
+      expect(getCurrentEntry().rightPaneTabId).toBeNull();
+    });
+
+    it('unpinTabRight is a no-op if id does not match current rightPaneTabId', () => {
+      const store = useTabsStore.getState() as any;
+      store.openPermanent(makeTab('a'));
+      store.openPermanent(makeTab('b'));
+
+      store.pinTabRight('b');
+      store.unpinTabRight('a'); // 'a' is not the pinned-right tab
+      expect(getCurrentEntry().rightPaneTabId).toBe('b');
     });
   });
 });

@@ -21,6 +21,7 @@ import { ImageViewer } from '@/components/ImageViewer';
 import { TaskGraphView } from '@/components/task-graph';
 import { PseudoViewer } from '@/pages/pseudo/PseudoViewer';
 import CodeFileView from '@/components/editors/CodeFileView';
+import { CodeEditor } from '@/components/editors/CodeEditor';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUIStore } from '@/stores/uiStore';
 import type { TabDescriptor } from '@/stores/tabsStore';
@@ -64,6 +65,7 @@ export const PaneContent: React.FC<PaneContentProps> = ({
     snippets,
     images,
     embeds,
+    codeFiles,
   } = useSessionStore(
     useShallow((s) => ({
       diagrams: s.diagrams,
@@ -73,6 +75,7 @@ export const PaneContent: React.FC<PaneContentProps> = ({
       snippets: s.snippets,
       images: s.images,
       embeds: s.embeds,
+      codeFiles: s.codeFiles,
     })),
   );
   const codeFirstView = useUIStore((s) => s.codeFirstView);
@@ -115,6 +118,11 @@ export const PaneContent: React.FC<PaneContentProps> = ({
           const d = snippets.find((x) => x.id === tab.artifactId);
           if (d) item = { ...d, type: 'snippet' } as Item;
           break;
+        }
+        case 'code': {
+          const f = codeFiles.find((x) => x.id === tab.artifactId);
+          if (!f) return <NotFound message="Code file not found" />;
+          return <CodeEditor codeFileId={f.id} onToolbarControls={onSnippetToolbarControls} />;
         }
         case 'image': {
           const img = images.find((x) => x.id === tab.artifactId);

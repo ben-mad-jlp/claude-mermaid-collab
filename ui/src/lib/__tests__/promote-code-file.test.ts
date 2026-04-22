@@ -13,14 +13,9 @@ vi.mock('../../stores/tabsStore', () => ({
   sessionKey: (project: string, name: string) => `${project}::${name}`,
 }));
 
-vi.mock('../link-file', () => ({
-  linkFile: vi.fn(),
-}));
-
 import { promoteCodeFile } from '../promote-code-file';
 import { useSessionStore } from '../../stores/sessionStore';
 import { useTabsStore } from '../../stores/tabsStore';
-import { linkFile } from '../link-file';
 
 const PROJECT = '/abs/project';
 const SESSION = 'sess';
@@ -41,9 +36,11 @@ function makeTabsState(tabs: any[]) {
 describe('promoteCodeFile', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Restore fetch to a fresh mock before each test
+    vi.stubGlobal('fetch', vi.fn());
   });
 
-  it('happy path: no matching snippet → linkFile called once, closeTab + openPermanent with new snippetId', async () => {
+  it('happy path: code-file tab → fetch called, closeTab + openPermanent with returned id', async () => {
     const tab = {
       id: 'tab-1',
       kind: 'code-file',
@@ -57,25 +54,33 @@ describe('promoteCodeFile', () => {
       snippets: [],
     });
     (useTabsStore.getState as any).mockReturnValue(state);
-    (linkFile as any).mockResolvedValue('new-snip-id');
+
+    // Mock fetch to return a successful response
+    (fetch as any).mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({ id: 'new-code-id', success: true }),
+    });
 
     await promoteCodeFile('tab-1');
 
-    expect(linkFile).toHaveBeenCalledTimes(1);
-    expect(linkFile).toHaveBeenCalledWith(PROJECT, SESSION, '/abs/foo.ts');
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/code/create'),
+      expect.objectContaining({ method: 'POST' })
+    );
     expect(closeTab).toHaveBeenCalledWith('tab-1');
     expect(openPermanent).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: 'new-snip-id',
+        id: 'new-code-id',
         kind: 'artifact',
         artifactType: 'snippet',
-        artifactId: 'new-snip-id',
+        artifactId: 'new-code-id',
         name: 'foo.ts',
       })
     );
   });
 
-  it('dedupe: snippet envelope with matching filePath → linkFile NOT called, existing id used', async () => {
+  it('fetch error: throws and does not call closeTab or openPermanent', async () => {
     const tab = {
       id: 'tab-2',
       kind: 'code-file',
@@ -86,22 +91,22 @@ describe('promoteCodeFile', () => {
 
     (useSessionStore.getState as any).mockReturnValue({
       currentSession: { project: PROJECT, name: SESSION },
-      snippets: [
-        { id: 'existing-snip', content: JSON.stringify({ filePath: '/abs/foo.ts', linked: true }) },
-      ],
+      snippets: [],
     });
     (useTabsStore.getState as any).mockReturnValue(state);
 
-    await promoteCodeFile('tab-2');
+    (fetch as any).mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: vi.fn().mockResolvedValue({ error: 'Internal error' }),
+    });
 
-    expect(linkFile).not.toHaveBeenCalled();
-    expect(closeTab).toHaveBeenCalledWith('tab-2');
-    expect(openPermanent).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'existing-snip', artifactId: 'existing-snip' })
-    );
+    await expect(promoteCodeFile('tab-2')).rejects.toThrow('Internal error');
+    expect(closeTab).not.toHaveBeenCalled();
+    expect(openPermanent).not.toHaveBeenCalled();
   });
 
-  it('non-code-file tab: falls through to promoteToPermanent', async () => {
+  it('non-code-file tab: falls through to promoteToPermanent, no fetch', async () => {
     const tab = {
       id: 'tab-3',
       kind: 'artifact',
@@ -120,6 +125,6 @@ describe('promoteCodeFile', () => {
     await promoteCodeFile('tab-3');
 
     expect(promoteToPermanent).toHaveBeenCalledWith('tab-3');
-    expect(linkFile).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

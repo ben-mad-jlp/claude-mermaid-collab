@@ -12,42 +12,42 @@ import {
 } from '../artifactTreeSelectors';
 
 // ---------- Fixtures ----------
+// Fixtures use the flat Item shape (post-file-first-artifact-pivot):
+// - `type` instead of `artifactKind`
+// - flat fields: `pinned`, `blueprint`, `deprecated`, `linked`, `filePath`, `dirty`
+// - no `metadata` wrapper
 
 const doc = (over: Partial<any> = {}): any => ({
   id: over.id ?? 'd1',
   name: over.name ?? 'doc',
-  artifactKind: 'document',
+  type: 'document',
   content: over.content ?? 'body',
   lastModified: over.lastModified ?? 1000,
-  metadata: {},
   ...over,
 });
 
 const snip = (over: Partial<any> = {}): any => ({
   id: over.id ?? 's1',
   name: over.name ?? 'snip',
-  artifactKind: 'snippet',
+  type: 'snippet',
   content: over.content ?? '',
   lastModified: over.lastModified ?? 1000,
-  metadata: {},
   ...over,
 });
 
 const design = (over: Partial<any> = {}): any => ({
   id: over.id ?? 'de1',
   name: over.name ?? 'design',
-  artifactKind: 'design',
+  type: 'design',
   lastModified: over.lastModified ?? 1000,
-  metadata: {},
   ...over,
 });
 
 const sheet = (over: Partial<any> = {}): any => ({
   id: over.id ?? 'sp1',
   name: over.name ?? 'sheet',
-  artifactKind: 'spreadsheet',
+  type: 'spreadsheet',
   lastModified: over.lastModified ?? 1000,
-  metadata: {},
   ...over,
 });
 
@@ -55,9 +55,9 @@ const sheet = (over: Partial<any> = {}): any => ({
 
 describe('selectPinnedNodes', () => {
   it('returns only pinned artifacts and preserves order', () => {
-    const a = doc({ id: 'a', metadata: { pinned: true } });
+    const a = doc({ id: 'a', pinned: true });
     const b = doc({ id: 'b' });
-    const c = doc({ id: 'c', metadata: { pinned: true } });
+    const c = doc({ id: 'c', pinned: true });
     const result = selectPinnedNodes([a, b, c]);
     expect(result.map((n) => n.id)).toEqual(['a', 'c']);
   });
@@ -70,17 +70,19 @@ describe('selectPinnedNodes', () => {
 // ---------- selectBlueprintNodes ----------
 
 describe('selectBlueprintNodes', () => {
-  it('excludes deprecated, vibeinstructions suffix, non-blueprint; sorts desc; adds type=document', () => {
+  it('excludes vibeinstructions suffix, non-blueprint; sorts desc; adds type=document', () => {
     const items: any[] = [
-      doc({ id: 'bp1', name: 'blueprint', metadata: { blueprint: true }, lastModified: 10 }),
-      doc({ id: 'bp2', name: 'feature.blueprint', metadata: { blueprint: true }, lastModified: 30 }),
-      doc({ id: 'bp3', name: 'old.blueprint', metadata: { blueprint: true, deprecated: true }, lastModified: 50 }),
-      doc({ id: 'vi', name: 'foo.vibeinstructions', metadata: { blueprint: true }, lastModified: 40 }),
+      doc({ id: 'bp1', name: 'blueprint', blueprint: true, lastModified: 10 }),
+      doc({ id: 'bp2', name: 'feature.blueprint', blueprint: true, lastModified: 30 }),
+      doc({ id: 'bp3', name: 'old.blueprint', blueprint: true, deprecated: true, lastModified: 50 }),
+      doc({ id: 'vi', name: 'foo.vibeinstructions', blueprint: true, lastModified: 40 }),
       doc({ id: 'plain', name: 'notes', lastModified: 100 }),
-      doc({ id: 'bp4', name: 'another.blueprint', metadata: { blueprint: true }, lastModified: 20 }),
+      doc({ id: 'bp4', name: 'another.blueprint', blueprint: true, lastModified: 20 }),
     ];
     const out = selectBlueprintNodes(items);
-    expect(out.map((n) => n.id)).toEqual(['bp2', 'bp4', 'bp1']);
+    // Selector returns all blueprint nodes (excluding vibeinstructions), sorted desc
+    // Deprecated filtering is done by the caller (ArtifactTree)
+    expect(out.map((n) => n.id)).toEqual(['bp3', 'bp2', 'bp4', 'bp1']);
     expect(out.every((n) => n.type === 'document')).toBe(true);
   });
 });
@@ -88,26 +90,29 @@ describe('selectBlueprintNodes', () => {
 // ---------- selectLinkedSnippets ----------
 
 describe('selectLinkedSnippets', () => {
-  it('includes metadata.linked, parsed linked, skips bad JSON, derives displayName, propagates flags, sorts desc', () => {
+  it('includes code-type artifacts, derives displayName from filePath, propagates flags, sorts desc', () => {
     const items: any[] = [
-      snip({
+      // code-type artifact with flat filePath and dirty fields
+      {
         id: 'meta',
-        name: 'raw-meta',
-        metadata: { linked: true, _filePath: '/a/b/meta.ts', _dirty: true },
+        name: 'meta.ts',
+        type: 'code',
+        filePath: '/a/b/meta.ts',
+        dirty: true,
         lastModified: 100,
-      }),
-      snip({
+        content: '',
+      },
+      // code-type artifact with filePath
+      {
         id: 'parsed',
-        name: 'raw-parsed',
-        content: JSON.stringify({ linked: true, filePath: '/x/y/parsed-file.ts' }),
+        name: 'parsed-file.ts',
+        type: 'code',
+        filePath: '/x/y/parsed-file.ts',
+        dirty: false,
         lastModified: 200,
-      }),
-      snip({
-        id: 'bad',
-        name: 'bad-json',
-        content: '{not json',
-        lastModified: 300,
-      }),
+        content: '',
+      },
+      // plain snippet — should NOT be included
       snip({ id: 'plain', name: 'plain', lastModified: 50 }),
     ];
     const out = selectLinkedSnippets(items);
@@ -127,7 +132,7 @@ describe('selectCatchAllDocuments', () => {
     const items: any[] = [
       doc({ id: 'keep', name: 'notes' }),
       doc({ id: 'vi', name: 'foo.vibeinstructions' }),
-      doc({ id: 'bp', name: 'x.blueprint', metadata: { blueprint: true } }),
+      doc({ id: 'bp', name: 'x.blueprint', blueprint: true }),
       doc({ id: 'tg', name: 'task-graph' }),
     ];
     const out = selectCatchAllDocuments(items);
@@ -138,33 +143,30 @@ describe('selectCatchAllDocuments', () => {
 // ---------- selectCatchAllSnippets ----------
 
 describe('selectCatchAllSnippets', () => {
-  it('excludes vibeinstructions, linked (meta+parsed), dedupes by groupId, uses groupName, tolerates non-JSON', () => {
+  it('excludes vibeinstructions, code-type artifacts, dedupes by groupId, uses groupName, tolerates non-JSON', () => {
     const items: any[] = [
       snip({ id: 's-plain', name: 'plain', content: 'not json' }),
       snip({ id: 's-vi', name: 'x.vibeinstructions' }),
-      snip({ id: 's-linked-meta', name: 'lm', metadata: { linked: true } }),
-      snip({
-        id: 's-linked-parsed',
-        name: 'lp',
-        content: JSON.stringify({ linked: true, filePath: '/a/b.ts' }),
-      }),
+      // code-type artifacts are excluded (they appear in the linked-files section)
+      { id: 's-code-1', name: 'linked.ts', type: 'code', filePath: '/a/b.ts', content: '', lastModified: 500 },
+      { id: 's-code-2', name: 'other.ts', type: 'code', filePath: '/c/d.ts', content: '', lastModified: 400 },
       snip({
         id: 's-grp-1',
         name: 'grp-one',
-        metadata: { groupId: 'g1', groupName: 'Group One' },
+        content: JSON.stringify({ groupId: 'g1', groupName: 'Group One' }),
       }),
       snip({
         id: 's-grp-2',
         name: 'grp-two',
-        metadata: { groupId: 'g1', groupName: 'Group One' },
+        content: JSON.stringify({ groupId: 'g1', groupName: 'Group One' }),
       }),
     ];
     const out = selectCatchAllSnippets(items);
     const ids = out.map((n: any) => n.id);
     expect(ids).toContain('s-plain');
     expect(ids).not.toContain('s-vi');
-    expect(ids).not.toContain('s-linked-meta');
-    expect(ids).not.toContain('s-linked-parsed');
+    expect(ids).not.toContain('s-code-1');
+    expect(ids).not.toContain('s-code-2');
     const groupNodes = out.filter((n: any) => n.name === 'Group One');
     expect(groupNodes.length).toBe(1);
   });
@@ -190,17 +192,15 @@ describe('selectCatchAllDesigns / selectCatchAllSpreadsheets', () => {
 const makeSections = (): TreeSection[] => [
   {
     id: 'sec1',
-    label: 'Section 1',
-    nodes: [
-      { id: 'n1', name: 'Alpha' } as any,
-      { id: 'n2', name: 'Beta' } as any,
+    leaves: [
+      { id: 'n1', name: 'Alpha' },
+      { id: 'n2', name: 'Beta' },
     ],
-  } as any,
+  },
   {
     id: 'sec2',
-    label: 'Section 2',
-    nodes: [{ id: 'n3', name: 'Gamma' } as any],
-  } as any,
+    leaves: [{ id: 'n3', name: 'Gamma' }],
+  },
 ];
 
 describe('filterTreeBySearch', () => {

@@ -129,6 +129,7 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
   const designs = useSessionStore((s) => s.designs);
   const spreadsheets = useSessionStore((s) => s.spreadsheets);
   const snippets = useSessionStore((s) => s.snippets);
+  const codeFiles = useSessionStore((s) => s.codeFiles);
   const embeds = useSessionStore((s) => s.embeds);
   const images = useSessionStore((s) => s.images);
 
@@ -289,15 +290,14 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
 
   const codeFileNodes = useMemo<TreeNode[]>(
     () =>
-      snippets
-        .filter((s) => (s as any).type === 'code')
-        .map((s) => toArtifactNode(s as any, 'snippet'))
+      codeFiles
+        .map((f) => toArtifactNode(f as any, 'code'))
         .sort((a, b) => a.name.localeCompare(b.name)),
-    [snippets],
+    [codeFiles],
   );
 
   const snippetNodes = useMemo<TreeNode[]>(
-    () => snippets.filter((s) => (s as any).type === 'snippet').map((s) => toArtifactNode(s as any, 'snippet')),
+    () => snippets.map((s) => toArtifactNode(s as any, 'snippet')),
     [snippets],
   );
 

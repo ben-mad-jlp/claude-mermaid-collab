@@ -390,6 +390,7 @@ export const MonacoWrapper: React.FC<MonacoWrapperProps> = ({
             maxLineCount: 5,
           },
           scrollBeyondLastLine: false,
+          padding: { top: 16, bottom: 16 },
           fontSize: 13,
           tabSize: 2,
           automaticLayout: true,

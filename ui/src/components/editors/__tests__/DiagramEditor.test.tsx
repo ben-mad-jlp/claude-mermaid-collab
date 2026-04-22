@@ -22,7 +22,7 @@ import mermaid from 'mermaid';
 vi.mock('@/hooks/useDiagram');
 vi.mock('@/hooks/useSession');
 vi.mock('mermaid');
-vi.mock('../CodeMirrorWrapper', () => ({
+vi.mock('../MonacoWrapper', () => ({
   default: ({ value, onChange, language, placeholder }: any) => (
     <textarea
       data-testid="code-mirror-wrapper"

@@ -194,6 +194,8 @@ const App: React.FC = () => {
     addSnippet,
     updateSnippet,
     removeSnippet,
+    addCodeFile,
+    updateCodeFile,
     embeds,
     addEmbed,
     removeEmbed,
@@ -232,6 +234,8 @@ const App: React.FC = () => {
       addSnippet: state.addSnippet,
       updateSnippet: state.updateSnippet,
       removeSnippet: state.removeSnippet,
+      addCodeFile: state.addCodeFile,
+      updateCodeFile: state.updateCodeFile,
       embeds: state.embeds,
       addEmbed: state.addEmbed,
       removeEmbed: state.removeEmbed,
@@ -696,6 +700,26 @@ const App: React.FC = () => {
           break;
         }
 
+        case 'code_file_updated': {
+          const { id, content, project, session } = message as any;
+          if (id && currentSession && project === currentSession.project && session === currentSession.name) {
+            const { codeFiles } = useSessionStore.getState();
+            const existing = codeFiles.find((f) => f.id === id);
+            if (existing) {
+              updateCodeFile(id, { content, lastModified: Date.now() });
+            } else {
+              // New code file — parse the record from the broadcast content
+              try {
+                const record = typeof content === 'string' ? JSON.parse(content) : content;
+                addCodeFile({ id, name: record?.name ?? id, filePath: record?.filePath ?? record?.name ?? id, content: record?.content ?? '', language: record?.language ?? '', dirty: false, lastPushedAt: null, lastModified: Date.now() });
+              } catch {
+                addCodeFile({ id, name: id, filePath: id, content: '', language: '', dirty: false, lastPushedAt: null, lastModified: Date.now() });
+              }
+            }
+          }
+          break;
+        }
+
         case 'snippet_deleted': {
           const { id, project, session } = message as any;
           if (id &&
@@ -922,7 +946,7 @@ const App: React.FC = () => {
     return () => {
       subscription.unsubscribe();
     };
-  }, [isConnected, currentSession, updateDiagram, updateDocument, updateDesign, updateSpreadsheet, addDiagram, addDocument, addDesign, addSpreadsheet, removeDiagram, removeDocument, removeDesign, removeSpreadsheet, addSnippet, updateSnippet, removeSnippet, addEmbed, removeEmbed, addImage, removeImage, setPendingDiff, setCollabState, receiveQuestion, restoreUIState]);
+  }, [isConnected, currentSession, updateDiagram, updateDocument, updateDesign, updateSpreadsheet, addDiagram, addDocument, addDesign, addSpreadsheet, removeDiagram, removeDocument, removeDesign, removeSpreadsheet, addSnippet, updateSnippet, removeSnippet, addCodeFile, updateCodeFile, addEmbed, removeEmbed, addImage, removeImage, setPendingDiff, setCollabState, receiveQuestion, restoreUIState]);
 
   // Compute selected item from diagrams/documents/designs
   const selectedItem: Item | null = useMemo(() => {
@@ -1476,7 +1500,7 @@ const App: React.FC = () => {
             onZoomIn={zoomIn}
             onZoomOut={zoomOut}
             overflowActions={overflowActions}
-            showZoom={activeItemType !== 'document' && activeItemType !== 'spreadsheet' && activeItemType !== 'snippet'}
+            showZoom={activeItemType !== 'document' && activeItemType !== 'spreadsheet' && activeItemType !== 'snippet' && activeItemType !== 'code'}
             onCenter={activeItemType === 'diagram' ? handleCenter : undefined}
             onFitToView={activeItemType === 'diagram' ? handleFitToView : undefined}
             itemType={activeItemType && activeItemType !== 'image' && activeItemType !== 'code' ? activeItemType : undefined}
@@ -1490,7 +1514,7 @@ const App: React.FC = () => {
             onDiagramHistorySelect={selectedItem?.type === 'diagram' ? handleDiagramHistorySelect : undefined}
             designId={selectedItem?.type === 'design' ? selectedItem.id : undefined}
             onDesignHistorySelect={selectedItem?.type === 'design' ? handleDesignHistorySelect : undefined}
-            inlineControls={activeItemType === 'snippet' ? snippetToolbarControls : undefined}
+            inlineControls={activeItemType === 'snippet' || activeItemType === 'code' ? snippetToolbarControls : undefined}
           /> : undefined}
         />
       </div>

@@ -19,8 +19,8 @@ import { UnifiedEditor, UnifiedEditorProps } from '../UnifiedEditor';
 import { Item } from '@/types';
 
 // Mock child components to avoid complex dependencies
-vi.mock('../CodeMirrorWrapper', () => ({
-  CodeMirrorWrapper: ({ value, language, placeholder }: any) => (
+vi.mock('../MonacoWrapper', () => ({
+  MonacoWrapper: ({ value, language, placeholder }: any) => (
     <div data-testid="codemirror-wrapper">
       <div data-testid="editor-content">{value}</div>
       <div data-testid="editor-language">{language}</div>
@@ -91,8 +91,8 @@ vi.mock('@/stores/uiStore', () => ({
   }),
 }));
 
-vi.mock('@/hooks/useEditorHistory', () => ({
-  useEditorHistory: () => ({
+vi.mock('@/hooks/useMonacoHistory', () => ({
+  useMonacoHistory: () => ({
     setEditor: vi.fn(),
     undo: vi.fn(),
     redo: vi.fn(),
@@ -196,7 +196,7 @@ describe('UnifiedEditor', () => {
     });
 
     it('should pass diagram content to editor and preview', () => {
-      const diagramContent = 'graph TD\n  A --> B\n  B --> C';
+      const diagramContent = 'graph TD A to B';
       const item = createMockItem({
         type: 'diagram',
         content: diagramContent,
@@ -266,7 +266,7 @@ describe('UnifiedEditor', () => {
     });
 
     it('should pass document content to editor and preview', () => {
-      const docContent = '# Heading\n\nThis is a document.';
+      const docContent = 'Heading - This is a document.';
       const item = createMockItem({
         type: 'document',
         content: docContent,
@@ -447,13 +447,13 @@ describe('UnifiedEditor', () => {
           item={createMockItem({
             type: 'diagram',
             id: 'diagram-1',
-            content: 'graph TD\n  A --> B',
+            content: 'graph TD A to B',
           })}
         />
       );
 
       expect(screen.getByTestId('editor-content')).toHaveTextContent(
-        'graph TD\n  A --> B'
+        'graph TD A to B'
       );
 
       rerender(
@@ -462,13 +462,13 @@ describe('UnifiedEditor', () => {
           item={createMockItem({
             type: 'diagram',
             id: 'diagram-2',
-            content: 'graph LR\n  X --> Y',
+            content: 'graph LR X to Y',
           })}
         />
       );
 
       expect(screen.getByTestId('editor-content')).toHaveTextContent(
-        'graph LR\n  X --> Y'
+        'graph LR X to Y'
       );
     });
 

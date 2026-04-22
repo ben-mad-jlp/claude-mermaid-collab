@@ -21,13 +21,13 @@ import { useDocument } from '@/hooks/useDocument';
 import { useTheme } from '@/hooks/useTheme';
 
 // Mock dependencies
-vi.mock('@uiw/react-codemirror', () => ({
-  default: ({ value, onChange, placeholder, editable, className }: any) => (
+vi.mock('../MonacoWrapper', () => ({
+  MonacoWrapper: ({ value, onChange, placeholder, readOnly, className }: any) => (
     <textarea
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      disabled={!editable}
+      disabled={readOnly}
       className={className}
       data-testid="codemirror-editor"
     />

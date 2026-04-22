@@ -1,21 +1,21 @@
 /**
  * CodeEditor Component
  *
- * Wrapper around SnippetEditor for linked code files.
- * Merges push-to-file and sync-from-disk controls into the shared EditorToolbar
- * by intercepting SnippetEditor's toolbar controls via onToolbarControls.
+ * Editor for linked code files (codeFiles store).
+ * Uses MonacoWrapper directly — no longer delegates to SnippetEditor.
+ * Merges push-to-file, sync-from-disk, language badge, and copy controls
+ * into the shared EditorToolbar via onToolbarControls.
  */
 
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import type * as Monaco from 'monaco-editor';
-import { SnippetEditor } from './SnippetEditor';
+import MonacoWrapper, { type Language } from './MonacoWrapper';
 import { DiffAgainstDiskModal } from './DiffAgainstDiskModal';
 import { CodeArtifactKebabMenu } from './CodeArtifactKebabMenu';
 import { PseudoSideBySideView } from './PseudoSideBySideView';
 import { MonacoDiffEditor } from './diffReview/MonacoDiffEditor';
 import { FunctionJumpDropdown, type FunctionJumpItem } from './FunctionJumpDropdown';
 import { ReferencesPopover } from './ReferencesPopover';
-import { useSnippet } from '@/hooks/useSnippet';
 import { useTheme } from '@/hooks/useTheme';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUIStore } from '@/stores/uiStore';
@@ -41,6 +41,16 @@ function formatRelativeTime(ts: number): string {
   return `${Math.floor(delta / 86400000)}d ago`;
 }
 
+/**
+ * Normalize a language string to the Language union type accepted by MonacoWrapper.
+ */
+function normalizeLanguage(lang: string | null | undefined): Language {
+  const valid: Language[] = ['javascript', 'typescript', 'markdown', 'yaml', 'html', 'json', 'python', 'cpp', 'csharp', 'css', 'text'];
+  if (!lang) return 'text';
+  const lower = lang.toLowerCase() as Language;
+  return valid.includes(lower) ? lower : 'text';
+}
+
 export interface CodeEditorProps {
   codeFileId: string;
   onSave?: (snippet: Snippet) => void;
@@ -59,38 +69,41 @@ function fileStemFromPath(filePath: string): string {
   return dot > 0 ? base.slice(0, dot) : base;
 }
 
-export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave, onToolbarControls }) => {
-  const { getSnippetById } = useSnippet();
+export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave: _onSave, onToolbarControls }) => {
   const currentSession = useSessionStore((state) => state.currentSession);
   const storeUpdateSnippet = useSessionStore((state) => state.updateSnippet);
   const storeRemoveSnippet = useSessionStore((state) => state.removeSnippet);
+  const getCodeFileById = useSessionStore((state) => state.getCodeFileById);
+  const updateCodeFile = useSessionStore((state) => state.updateCodeFile);
   const selectSnippet = useSessionStore((state) => state.selectSnippet);
   const snippets = useSessionStore((state) => state.snippets);
+  const codeFiles = useSessionStore((state) => state.codeFiles);
   const setPendingJumpStore = usePendingJump((state) => state.setPending);
   const consumePendingJump = usePendingJump((state) => state.consume);
   // Nav history
   const navHistory = useNavHistory();
 
-  const snippet = getSnippetById(codeFileId);
+  // Read from codeFiles store
+  const codeFile = getCodeFileById(codeFileId);
 
-  // Direct field reads from the CodeFile artifact (fields stored at top level, not in a JSON envelope)
-  const filePath = snippet?.name ?? '';
-  const dirty = false;
-  const code = snippet?.content ?? '';
-  const language = snippet?.name ?? '';
-  const lastPushedAt: number | null = null;
+  // Direct field reads from the CodeFile artifact
+  const filePath = codeFile?.filePath ?? '';
+  const dirty = codeFile?.dirty ?? false;
+  const code = codeFile?.content ?? '';
+  const language = codeFile?.language ?? '';
+  const lastPushedAt: number | null = codeFile?.lastPushedAt ?? null;
   const lastSyncedAt: number = Date.now();
+
+  // Detect proposed edit stored as JSON in content
   const proposedEdit: { newCode: string; message?: string; proposedBy: string; proposedAt: number } | null = (() => {
-    if (!snippet?.content) return null;
+    if (!code) return null;
     try {
-      const parsed = JSON.parse(snippet.content);
+      const parsed = JSON.parse(code);
       return parsed?.proposedEdit ?? null;
     } catch {
       return null;
     }
   })();
-  // envelope-like object for parts of the component that still reference it
-  const envelope = snippet ? { filePath, dirty, code, language, lastPushedAt, lastSyncedAt, proposedEdit } : null;
 
   // State
   const [isPushing, setIsPushing] = useState(false);
@@ -99,8 +112,6 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave, onTo
   const [flashMessage, setFlashMessage] = useState<string | null>(null);
   const [diffModalOpen, setDiffModalOpen] = useState(false);
   const [showPseudo, setShowPseudo] = useState(false);
-  // Controls captured from SnippetEditor (language, diff, copy, save, etc.)
-  const [snippetControls, setSnippetControls] = useState<React.ReactNode>(null);
   const [functions, setFunctions] = useState<FunctionJumpItem[]>([]);
   const [useTier2, setUseTier2] = useState(false);
   const editorViewRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -113,8 +124,6 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave, onTo
   const { theme } = useTheme();
   const monacoTheme = theme === 'dark' ? 'mc-dark' : 'mc-light';
 
-  const pairMode = useUIStore((state) => state.pairMode);
-
   // Feature B state
   const [pickerState, setPickerState] = useState<{ symbol: string; candidates: SourceLinkCandidate[]; rect: DOMRect } | null>(null);
   const [linkDialog, setLinkDialog] = useState<{ candidate: SourceLinkCandidate; symbol: string } | null>(null);
@@ -122,9 +131,13 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave, onTo
   // Editor ready flag (so pending-jump consumption effect can fire)
   const [editorReady, setEditorReady] = useState(false);
 
-  // Stable refs for callbacks (so handleGoToDefinition doesn't re-memoize on state changes)
-  const snippetsRef = useRef(snippets);
-  useEffect(() => { snippetsRef.current = snippets; }, [snippets]);
+  // Combine snippets + code files for cross-file navigation lookups
+  const allNavigableFiles = useMemo(() => [
+    ...snippets,
+    ...codeFiles.map((f) => ({ id: f.id, name: f.filePath })),
+  ], [snippets, codeFiles]);
+  const snippetsRef = useRef(allNavigableFiles);
+  useEffect(() => { snippetsRef.current = allNavigableFiles; }, [allNavigableFiles]);
 
   const currentSessionRef = useRef(currentSession);
   useEffect(() => { currentSessionRef.current = currentSession; }, [currentSession]);
@@ -139,9 +152,9 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave, onTo
   useEffect(() => { navBackRef.current = navHistory.back; }, [navHistory.back]);
 
   // Keep filePath in a ref so handleSymbolClick has a stable identity
-  const envelopeFilePathRef = useRef<string | null>(null);
+  const filePathRef = useRef<string | null>(null);
   useEffect(() => {
-    envelopeFilePathRef.current = filePath || null;
+    filePathRef.current = filePath || null;
   }, [filePath]);
 
   // Auto-clear flash messages after 3 seconds
@@ -152,20 +165,18 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave, onTo
   }, [flashMessage]);
 
   // Load functions for jump dropdown — Tier 1: pseudo-db
-  // Only fires when filePath or project changes (not on every keystroke)
   useEffect(() => {
-    if (!envelope || !currentSession) return;
+    if (!filePath || !currentSession) return;
     let cancelled = false;
 
     (async () => {
       try {
-        const tier1 = await fetchFunctionsForSource(currentSession.project, envelope.filePath);
+        const tier1 = await fetchFunctionsForSource(currentSession.project, filePath);
         if (cancelled) return;
         if (tier1.length > 0) {
           setFunctions(tier1 as FunctionJumpItem[]);
           setUseTier2(false);
         } else {
-          // No results → switch to Tier 2 for this file
           setUseTier2(true);
         }
       } catch (err) {
@@ -176,25 +187,24 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave, onTo
     })();
 
     return () => { cancelled = true; };
-  }, [envelope?.filePath, currentSession?.project]);
+  }, [filePath, currentSession?.project]);
 
   // Tier 2: Lezer/regex fallback — fires on content changes while Tier 2 mode is active
   useEffect(() => {
-    if (!useTier2 || !envelope) return;
-    const tier2 = extractFunctions(envelope.code, envelope.language || 'typescript');
+    if (!useTier2 || !code) return;
+    const tier2 = extractFunctions(code, language || 'typescript');
     setFunctions(tier2 as unknown as FunctionJumpItem[]);
-  }, [useTier2, envelope?.code, envelope?.language]);
+  }, [useTier2, code, language]);
 
   const handleSymbolClick = useCallback(async (symbol: string, rect: DOMRect) => {
-    const filePath = envelopeFilePathRef.current;
-    if (!currentSession || !filePath) return;
-    const fileStem = fileStemFromPath(filePath);
+    const fp = filePathRef.current;
+    if (!currentSession || !fp) return;
+    const fileStem = fileStemFromPath(fp);
     try {
       const refs = await fetchPseudoReferences(currentSession.project, symbol, fileStem);
       if (refs.length > 0) {
         setPopover({ symbol, refs, rect });
       }
-      // zero-result is silent — not every click is a function ref
     } catch (err) {
       console.warn('References lookup failed:', err);
     }
@@ -202,24 +212,21 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave, onTo
 
   const handleGoToDefinition = useCallback(async (symbol: string, rect: DOMRect) => {
     const session = currentSessionRef.current;
-    const filePath = envelopeFilePathRef.current;
-    if (!session || !filePath) return;
-    const fileStem = fileStemFromPath(filePath);
+    const fp = filePathRef.current;
+    if (!session || !fp) return;
+    const fileStem = fileStemFromPath(fp);
     try {
       const candidates = await fetchSourceLink(session.project, symbol, fileStem);
-      // Build linked refs from snippet name field (which stores the file path for code files)
       const linked = snippetsRef.current
         .filter((s) => s.name)
         .map((s) => ({ id: s.id, filePath: s.name }));
       const decision: ResolveDecision = resolveDefinition(candidates, linked);
       if (decision.type === 'not-found') return;
       if (decision.type === 'found-linked') {
-        // Same-file jump → don't push onto nav history
         if (decision.snippetId === codeFileIdRef.current) {
           jumpToLineRef.current?.(decision.line);
           return;
         }
-        // Cross-file jump → push current position onto nav history, then navigate
         const curEditor = editorViewRef.current;
         const curLine = curEditor ? (curEditor.getPosition()?.lineNumber ?? 1) : 1;
         navPushRef.current({ snippetId: codeFileIdRef.current, line: curLine });
@@ -252,11 +259,6 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave, onTo
     selectSnippet(newSnippetId);
     setLinkDialog(null);
   }, [linkDialog, selectSnippet, setPendingJumpStore]);
-
-  // Capture SnippetEditor's toolbar controls
-  const handleSnippetToolbarControls = useCallback((controls: React.ReactNode) => {
-    setSnippetControls(controls);
-  }, []);
 
   const handleEditorReady = useCallback((editor: Monaco.editor.IStandaloneCodeEditor | null) => {
     editorViewRef.current = editor;
@@ -300,14 +302,24 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave, onTo
   const refreshSnippet = useCallback(async () => {
     if (!currentSession) return;
     try {
-      const full = await api.getSnippet(currentSession.project, currentSession.name, codeFileId);
+      const full = await api.getCodeFile(currentSession.project, currentSession.name, codeFileId);
       if (full?.content) {
-        storeUpdateSnippet(codeFileId, { content: full.content, lastModified: full.lastModified ?? Date.now() });
+        if (getCodeFileById(codeFileId)) {
+          updateCodeFile(codeFileId, { content: full.content, lastModified: full.lastModified ?? Date.now() });
+        } else {
+          storeUpdateSnippet(codeFileId, { content: full.content, lastModified: full.lastModified ?? Date.now() });
+        }
       }
     } catch (err) {
       console.error('Failed to refresh snippet:', err);
     }
-  }, [currentSession, codeFileId, storeUpdateSnippet]);
+  }, [currentSession, codeFileId, storeUpdateSnippet, updateCodeFile, getCodeFileById]);
+
+  // Auto-load content on mount if the store entry is empty (loaded from list metadata only)
+  useEffect(() => {
+    if (!code) refreshSnippet();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [codeFileId]);
 
   const actualPush = useCallback(async () => {
     if (!currentSession || isPushing) return;
@@ -326,9 +338,9 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave, onTo
   }, [currentSession, isPushing, codeFileId, refreshSnippet]);
 
   const handlePush = useCallback(() => {
-    if (!currentSession || isPushing || !envelope?.dirty) return;
+    if (!currentSession || isPushing || !dirty) return;
     setDiffModalOpen(true);
-  }, [currentSession, isPushing, envelope?.dirty]);
+  }, [currentSession, isPushing, dirty]);
 
   const handlePreview = useCallback(() => {
     setDiffModalOpen(true);
@@ -338,20 +350,21 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave, onTo
     if (!currentSession) return;
     try {
       await api.setDeprecated(currentSession.project, currentSession.name, codeFileId, true);
-      storeUpdateSnippet(codeFileId, { deprecated: true, lastModified: Date.now() });
+      if (!getCodeFileById(codeFileId)) {
+        storeUpdateSnippet(codeFileId, { deprecated: true, lastModified: Date.now() });
+      }
       setFlashMessage('Deprecated');
       await refreshSnippet();
     } catch (err) {
       console.error('Deprecate failed:', err);
       setFlashMessage('Deprecate failed');
     }
-  }, [currentSession, codeFileId, storeUpdateSnippet, refreshSnippet]);
+  }, [currentSession, codeFileId, storeUpdateSnippet, refreshSnippet, getCodeFileById]);
 
   const handleDelete = useCallback(async () => {
     if (!currentSession) return;
     try {
       await api.deleteSnippet(currentSession.project, currentSession.name, codeFileId);
-      // Don't set flash message — component unmounts immediately after removeSnippet
       storeRemoveSnippet(codeFileId);
     } catch (err) {
       console.error('Delete failed:', err);
@@ -416,19 +429,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave, onTo
   const handleTakeDisk = useCallback(async () => {
     if (!currentSession) return;
     try {
-      const full = await api.getSnippet(currentSession.project, currentSession.name, codeFileId);
-      if (!full?.content) return;
-
-      const env = JSON.parse(full.content);
-      if (env.linked && typeof env.diskCode === 'string') {
-        env.code = env.diskCode;
-        env.originalCode = env.diskCode;
-        env.dirty = false;
-
-        const updatedContent = JSON.stringify(env, null, 2);
-        await api.updateSnippet(currentSession.project, currentSession.name, codeFileId, updatedContent);
-      }
-
+      await api.syncCodeFromDisk(currentSession.project, currentSession.name, codeFileId);
       setConflict(null);
       setFlashMessage('Took disk version');
       await refreshSnippet();
@@ -438,10 +439,20 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave, onTo
     }
   }, [currentSession, codeFileId, refreshSnippet]);
 
-  // Build the merged toolbar: push/preview/sync/pseudo/status + SnippetEditor's controls + kebab
+  const handleCopy = useCallback(() => {
+    if (!code) return;
+    navigator.clipboard.writeText(code).then(() => setFlashMessage('Copied')).catch(() => {});
+  }, [code]);
+
+  // MonacoWrapper onChange: write directly to codeFiles store
+  const handleEditorChange = useCallback((val: string) => {
+    updateCodeFile(codeFileId, { content: val, dirty: true });
+  }, [codeFileId, updateCodeFile]);
+
+  // Build the merged toolbar: push/preview/sync/pseudo/status + language badge + copy + kebab
   const mergedControls = useMemo(() => {
-    if (!envelope || !currentSession) return snippetControls;
-    if (envelope?.proposedEdit) {
+    if (!currentSession) return null;
+    if (proposedEdit) {
       return (
         <>
           <input
@@ -462,7 +473,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave, onTo
     }
     return (
       <>
-        {/* Back button — Feature B nav history */}
+        {/* Back button — nav history */}
         <button
           onClick={handleBack}
           disabled={!navHistory.canGoBack}
@@ -538,8 +549,20 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave, onTo
         )}
         {/* Separator */}
         <div className="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1" />
-        {/* SnippetEditor's own controls (language, diff, copy, save, etc.) */}
-        {snippetControls}
+        {/* Language badge */}
+        {language && (
+          <span className="px-2 py-0.5 rounded text-xs font-mono bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 select-none">
+            {language}
+          </span>
+        )}
+        {/* Copy button */}
+        <button
+          onClick={handleCopy}
+          title="Copy code to clipboard"
+          className="px-2 py-1 rounded text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+        >
+          Copy
+        </button>
         {/* Separator before kebab */}
         <div className="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1" />
         {/* Kebab menu (Copy path, Impact, Deprecate, Unlink) */}
@@ -553,22 +576,25 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave, onTo
         />
       </>
     );
-  }, [envelope, currentSession, snippetControls, handlePush, handlePreview, handleSync, isPushing, isSyncing, dirty, conflict, flashMessage, showPseudo, codeFileId, filePath, handleDeprecate, handleDelete, functions, jumpToLine, navHistory.canGoBack, handleBack, handleAccept, handleReject, diffSideBySide, setDiffSideBySide, comment]);
+  }, [currentSession, handlePush, handlePreview, handleSync, isPushing, isSyncing, dirty, conflict, flashMessage, showPseudo, codeFileId, filePath, handleDeprecate, handleDelete, functions, jumpToLine, navHistory.canGoBack, handleBack, handleAccept, handleReject, diffSideBySide, setDiffSideBySide, comment, language, handleCopy, proposedEdit]);
 
   // Push merged controls to parent EditorToolbar
-  // Short-circuit when envelope is null — SnippetEditor handles onToolbarControls directly
-  // in that branch, so we must not clobber its controls with our own.
   useEffect(() => {
-    if (!envelope) return;
     if (onToolbarControls) {
       onToolbarControls(mergedControls);
     }
-  }, [envelope, onToolbarControls, mergedControls]);
+  }, [onToolbarControls, mergedControls]);
 
-  // If not linked, render plain SnippetEditor (pass through onToolbarControls)
-  if (!envelope) {
-    return <SnippetEditor snippetId={codeFileId} onSave={onSave} onToolbarControls={onToolbarControls} />;
+  // If codeFile not yet in store, show a loading placeholder while auto-load effect runs
+  if (!codeFile) {
+    return (
+      <div className="flex h-full items-center justify-center text-gray-500 text-sm">
+        Loading…
+      </div>
+    );
   }
+
+  const monacoLanguage = normalizeLanguage(language);
 
   return (
     <div className="flex flex-col h-full">
@@ -601,7 +627,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave, onTo
         </div>
       )}
 
-      {/* Editor area — MonacoDiffEditor when reviewing a proposal, otherwise SnippetEditor */}
+      {/* Editor area — MonacoDiffEditor when reviewing a proposal, MonacoWrapper otherwise */}
       <div className="flex-1 min-h-0">
         {proposedEdit ? (
           <MonacoDiffEditor
@@ -621,25 +647,25 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave, onTo
             sourceFilePath={filePath}
             projectPath={currentSession.project}
           >
-            <SnippetEditor
-              snippetId={codeFileId}
-              onSave={onSave}
-              onToolbarControls={handleSnippetToolbarControls}
-              hideFilePath
+            <MonacoWrapper
+              value={code}
+              onChange={handleEditorChange}
+              language={monacoLanguage}
               onEditorReady={handleEditorReady}
               onSymbolClick={handleSymbolClick}
               onSymbolGoToDefinition={handleGoToDefinition}
+              height="100%"
             />
           </PseudoSideBySideView>
         ) : (
-          <SnippetEditor
-            snippetId={codeFileId}
-            onSave={onSave}
-            onToolbarControls={handleSnippetToolbarControls}
-            hideFilePath
+          <MonacoWrapper
+            value={code}
+            onChange={handleEditorChange}
+            language={monacoLanguage}
             onEditorReady={handleEditorReady}
             onSymbolClick={handleSymbolClick}
             onSymbolGoToDefinition={handleGoToDefinition}
+            height="100%"
           />
         )}
       </div>
@@ -690,7 +716,6 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave, onTo
           onPick={(candidate) => {
             const pickerSymbol = pickerState.symbol;
             setPickerState(null);
-            // Check if already linked — match by snippet name (which stores the file path)
             const already = snippetsRef.current.find((s) => s.name === candidate.sourceFilePath);
             if (already) {
               if (already.id === codeFileId) {

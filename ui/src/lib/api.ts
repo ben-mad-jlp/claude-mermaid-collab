@@ -4,6 +4,7 @@
 
 import type { Session, Diagram, Document, CollabState, Snippet, SessionTodo, Image } from '@/types';
 import type { Design, Spreadsheet } from '@/stores/sessionStore';
+import type { UICodeFile } from '@/types/code-file';
 import { getWebSocketClient } from './websocket';
 
 // Word lists for session name generation (matching backend)
@@ -73,6 +74,8 @@ export interface ApiClient {
   deleteSpreadsheet(project: string, session: string, id: string): Promise<void>;
   createSnippet(project: string, session: string, name: string, content: string): Promise<{ id: string; success: boolean }>;
   getSnippets(project: string, session: string): Promise<Snippet[]>;
+  getCodeFiles(project: string, session: string): Promise<UICodeFile[]>;
+  getCodeFile(project: string, session: string, id: string): Promise<UICodeFile | null>;
   getSnippet(project: string, session: string, id: string): Promise<Snippet | null>;
   updateSnippet(project: string, session: string, id: string, content: string): Promise<void>;
   deleteSnippet(project: string, session: string, id: string): Promise<void>;
@@ -513,6 +516,41 @@ export const api: ApiClient = {
     }
     const data = await response.json();
     return data.snippets || [];
+  },
+
+  async getCodeFiles(project: string, session: string): Promise<UICodeFile[]> {
+    const url = `/api/code/list?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const response = await fetch(url);
+    if (!response.ok) return [];
+    const data = await response.json();
+    return (data.files || []).map((f: any): UICodeFile => ({
+      id: f.id,
+      name: f.name,
+      filePath: f.filePath ?? f.name,
+      content: '',
+      language: f.language ?? '',
+      dirty: f.dirty ?? false,
+      lastPushedAt: f.lastPushedAt ?? null,
+      lastModified: f.lastModified ?? Date.now(),
+    }));
+  },
+
+  async getCodeFile(project: string, session: string, id: string): Promise<UICodeFile | null> {
+    const url = `/api/code/get/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const response = await fetch(url);
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error(response.statusText);
+    const data = await response.json();
+    return {
+      id: data.id,
+      name: data.name,
+      filePath: data.filePath ?? data.name,
+      content: data.content ?? '',
+      language: data.language ?? '',
+      dirty: data.dirty ?? false,
+      lastPushedAt: data.lastPushedAt ?? null,
+      lastModified: data.lastModified ?? Date.now(),
+    };
   },
 
   /**

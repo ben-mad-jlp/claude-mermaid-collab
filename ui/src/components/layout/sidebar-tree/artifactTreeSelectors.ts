@@ -36,7 +36,7 @@ export function selectLinkedSnippets<
   }
 >(snippets: T[]): Array<T & { type: 'snippet'; _filePath: string; _dirty: boolean }> {
   return snippets
-    .filter((snip) => (snip as any).type === 'code')
+    .filter((snip) => !!(snip as any).filePath || !!(snip as any).linked)
     .slice()
     .sort((a, b) => b.lastModified - a.lastModified)
     .map((snip) => {
@@ -118,8 +118,6 @@ export function selectCatchAllSnippets<
     .sort((a, b) => b.lastModified - a.lastModified)
     .filter((snip) => {
       if (snip.name.endsWith('vibeinstructions')) return false;
-      // Exclude code-type artifacts (they appear in the linked-files section)
-      if ((snip as any).type === 'code') return false;
       try {
         const parsed = JSON.parse(snip.content || '');
         if (parsed.groupId) {
