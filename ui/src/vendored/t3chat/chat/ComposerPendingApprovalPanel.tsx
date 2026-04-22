@@ -7,6 +7,7 @@ export interface PendingApproval {
   promptId: string;
   toolName: string;
   summary?: string;
+  input?: unknown;
 }
 
 export interface ComposerPendingApprovalPanelProps {
@@ -16,6 +17,7 @@ export interface ComposerPendingApprovalPanelProps {
   onDeny: (promptId: string) => void;
   disabled?: boolean;
   className?: string;
+  sessionId?: string;
 }
 
 export const ComposerPendingApprovalPanel: React.FC<ComposerPendingApprovalPanelProps> = ({
@@ -25,6 +27,7 @@ export const ComposerPendingApprovalPanel: React.FC<ComposerPendingApprovalPanel
   onDeny,
   disabled,
   className,
+  sessionId,
 }) => {
   if (!pending) return null;
   return (
@@ -54,6 +57,9 @@ export const ComposerPendingApprovalPanel: React.FC<ComposerPendingApprovalPanel
           onAllowAlways={onAllowAlways ? () => onAllowAlways(pending.promptId) : undefined}
           onDeny={() => onDeny(pending.promptId)}
           disabled={disabled}
+          sessionId={sessionId}
+          toolName={pending.toolName}
+          toolInput={pending.input}
         />
       </div>
     </div>

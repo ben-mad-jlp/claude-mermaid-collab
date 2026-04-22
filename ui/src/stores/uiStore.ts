@@ -240,6 +240,8 @@ export const useUIStore = create<UIState>()(
             agentChatVisible: true,
             seenMigrationBannerV5:
               typeof old.seenMigrationBannerV5 === 'boolean' ? old.seenMigrationBannerV5 : false,
+            pairMode: false,
+            proposedEditObserveMode: false,
           } as UIState;
         }
         if (version < 6) {

@@ -39,6 +39,8 @@ import {
   buildBatches,
   type TaskGraphTask,
 } from '../mcp/workflow/task-sync';
+import { mergeSettings, readSettings, writeSettings, patchSettings } from '../agent/settings-store.js';
+import { handleCodeAPI } from './code-api.js';
 
 /**
  * Expand ~ to home directory in paths
@@ -56,7 +58,7 @@ function expandPath(path: string): string {
 // Track server start time for uptime calculation
 const serverStartTime = Date.now();
 
-let pairMode = false;
+const pairModeBySession = new Map<string, boolean>();
 
 // Minimal source loader for image routes when loadImageBytes isn't exported
 async function loadImageSourceToBuffer(source: string): Promise<{ buffer: Buffer; mimeType: string }> {
@@ -646,20 +648,37 @@ export async function handleAPI(
     return Response.json(status);
   }
 
-  // POST /api/pair-mode - Toggle or set pair mode
+  // GET /api/pair-mode - Get current pair mode for a session
+  if (path === '/api/pair-mode' && req.method === 'GET') {
+    const project = url.searchParams.get('project') ?? '';
+    const session = url.searchParams.get('session') ?? '';
+    const key = `${project}::${session}`;
+    return Response.json({ pairMode: pairModeBySession.get(key) ?? false });
+  }
+
+  // POST /api/pair-mode - Toggle or set pair mode for a session
   if (path === '/api/pair-mode' && req.method === 'POST') {
     try {
       const body = await req.json();
-      const { toggle, value } = body as { toggle?: boolean; value?: boolean };
+      const { project = '', session = '', toggle, value } = body as {
+        project?: string;
+        session?: string;
+        toggle?: boolean;
+        value?: boolean;
+      };
+      const key = `${project}::${session}`;
+      const current = pairModeBySession.get(key) ?? false;
+      let next: boolean;
       if (toggle === true) {
-        pairMode = !pairMode;
+        next = !current;
       } else if (typeof value === 'boolean') {
-        pairMode = value;
+        next = value;
       } else {
         return Response.json({ error: 'Either toggle or value must be provided' }, { status: 400 });
       }
-      wsHandler.broadcast({ type: 'pair_mode_changed', pairMode });
-      return Response.json({ pairMode });
+      pairModeBySession.set(key, next);
+      wsHandler.broadcast({ type: 'pair_mode_changed', pairMode: next, project, session });
+      return Response.json({ pairMode: next });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
     }
@@ -3159,6 +3178,164 @@ export async function handleAPI(
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
     }
+  }
+
+  // GET /api/settings - Return merged Claude Code settings
+  if (path === '/api/settings' && req.method === 'GET') {
+    try {
+      const project = url.searchParams.get('project') ?? undefined;
+      const cwd = project ? expandPath(project) : undefined;
+      const result = await mergeSettings(cwd);
+      return Response.json(result, {
+        headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' },
+      });
+    } catch (error: unknown) {
+      return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    }
+  }
+
+  // PUT /api/settings - Patch a Claude Code settings layer
+  if (path === '/api/settings' && req.method === 'PUT') {
+    try {
+      const body = await req.json() as { project?: string; source?: string; patch?: Record<string, unknown> };
+      const { project: rawProject, source, patch } = body;
+      if (!source || !patch) return Response.json({ error: 'source and patch are required' }, { status: 400 });
+      const validSources = ['global', 'project', 'local'];
+      if (!validSources.includes(source)) return Response.json({ error: 'source must be global, project, or local' }, { status: 400 });
+      const cwd = rawProject ? expandPath(rawProject) : undefined;
+      const updated = await patchSettings(patch, source as 'global' | 'project' | 'local', cwd);
+      return Response.json({ success: true, settings: updated });
+    } catch (error: unknown) {
+      return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
+    }
+  }
+
+  // POST /api/settings/env - Save env vars to .claude/settings.local.json
+  if (path === '/api/settings/env' && req.method === 'POST') {
+    try {
+      const body = await req.json() as { project?: string; env?: Record<string, string> };
+      const { project: rawProject, env } = body;
+      if (!rawProject) return Response.json({ error: 'project is required' }, { status: 400 });
+      if (!env || typeof env !== 'object' || Array.isArray(env)) return Response.json({ error: 'env must be a key/value object' }, { status: 400 });
+      const cwd = expandPath(rawProject);
+      const current = (await readSettings('local', cwd)) ?? {};
+      const updated = { ...current, env };
+      await writeSettings(updated, 'local', cwd);
+      return Response.json({ success: true });
+    } catch (error: unknown) {
+      return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
+    }
+  }
+
+  // GET /api/mcp/servers - List configured MCP servers
+  if (path === '/api/mcp/servers' && req.method === 'GET') {
+    try {
+      const { readFile: fsReadFile } = await import('node:fs/promises');
+      const { join: pathJoin } = await import('node:path');
+      const { homedir: osHomedir } = await import('node:os');
+      const configPath = pathJoin(osHomedir(), '.claude', 'config.json');
+      let config: { mcpServers?: Record<string, unknown> } = {};
+      try { config = JSON.parse(await fsReadFile(configPath, 'utf-8')); } catch { /* missing */ }
+      const servers = Object.entries(config.mcpServers ?? {}).map(([name, def]) => ({
+        name, id: name, status: 'configured', ...(def as object),
+      }));
+      return Response.json({ servers }, { headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' } });
+    } catch (error: unknown) {
+      return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    }
+  }
+
+  // POST /api/mcp/servers - Add an MCP server
+  if (path === '/api/mcp/servers' && req.method === 'POST') {
+    try {
+      const body = await req.json() as { name?: string; command?: string; args?: string[]; env?: Record<string, string> };
+      const { name, command, args, env: serverEnv } = body;
+      if (!name || !command) return Response.json({ error: 'name and command are required' }, { status: 400 });
+      const { readFile: fsReadFile, writeFile: fsWriteFile, rename: fsRename, mkdir: fsMkdir } = await import('node:fs/promises');
+      const { join: pathJoin, dirname: pathDirname } = await import('node:path');
+      const { homedir: osHomedir } = await import('node:os');
+      const configPath = pathJoin(osHomedir(), '.claude', 'config.json');
+      let config: { mcpServers?: Record<string, unknown> } = {};
+      try { config = JSON.parse(await fsReadFile(configPath, 'utf-8')); } catch { config = {}; }
+      if (!config.mcpServers) config.mcpServers = {};
+      config.mcpServers[name] = { command, args: args ?? [], ...(serverEnv ? { env: serverEnv } : {}) };
+      await fsMkdir(pathDirname(configPath), { recursive: true });
+      const tmp = configPath + '.tmp';
+      await fsWriteFile(tmp, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+      await fsRename(tmp, configPath);
+      return Response.json({ success: true, name }, { status: 201 });
+    } catch (error: unknown) {
+      return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
+    }
+  }
+
+  // DELETE /api/mcp/servers - Remove an MCP server
+  if (path === '/api/mcp/servers' && req.method === 'DELETE') {
+    try {
+      const name = url.searchParams.get('name');
+      if (!name) return Response.json({ error: 'name query param is required' }, { status: 400 });
+      const { readFile: fsReadFile, writeFile: fsWriteFile, rename: fsRename } = await import('node:fs/promises');
+      const { join: pathJoin } = await import('node:path');
+      const { homedir: osHomedir } = await import('node:os');
+      const configPath = pathJoin(osHomedir(), '.claude', 'config.json');
+      let config: { mcpServers?: Record<string, unknown> } = {};
+      try { config = JSON.parse(await fsReadFile(configPath, 'utf-8')); } catch { return Response.json({ error: 'MCP config not found' }, { status: 404 }); }
+      if (!config.mcpServers || !(name in config.mcpServers)) return Response.json({ error: `Server '${name}' not found` }, { status: 404 });
+      delete config.mcpServers[name];
+      const tmp = configPath + '.tmp';
+      await fsWriteFile(tmp, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+      await fsRename(tmp, configPath);
+      return Response.json({ success: true });
+    } catch (error: unknown) {
+      return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    }
+  }
+
+  // POST /api/mcp/servers/:name/test - Probe an MCP server
+  if (path.startsWith('/api/mcp/servers/') && path.endsWith('/test') && req.method === 'POST') {
+    try {
+      const parts = path.split('/');
+      const name = decodeURIComponent(parts[4] ?? '');
+      if (!name) return Response.json({ error: 'server name required' }, { status: 400 });
+      const { readFile: fsReadFile } = await import('node:fs/promises');
+      const { join: pathJoin } = await import('node:path');
+      const { homedir: osHomedir } = await import('node:os');
+      const configPath = pathJoin(osHomedir(), '.claude', 'config.json');
+      let config: { mcpServers?: Record<string, { command: string; args?: string[] }> } = {};
+      try { config = JSON.parse(await fsReadFile(configPath, 'utf-8')); } catch { return Response.json({ error: 'MCP config not found' }, { status: 404 }); }
+      const serverDef = config.mcpServers?.[name];
+      if (!serverDef) return Response.json({ error: `Server '${name}' not found` }, { status: 404 });
+      const { spawn } = await import('node:child_process');
+      const start = Date.now();
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn(serverDef.command, serverDef.args ?? [], { stdio: ['pipe', 'pipe', 'pipe'] });
+        const timer = setTimeout(() => { child.kill(); resolve(); }, 2500);
+        child.on('error', (err) => { clearTimeout(timer); reject(err); });
+        child.on('spawn', () => { clearTimeout(timer); child.kill(); resolve(); });
+      });
+      return Response.json({ success: true, latencyMs: Date.now() - start });
+    } catch (error: unknown) {
+      return Response.json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  // GET /api/mcp/oauth/callback - OAuth redirect landing
+  if (path === '/api/mcp/oauth/callback' && req.method === 'GET') {
+    const code = url.searchParams.get('code') ?? '';
+    const state = url.searchParams.get('state') ?? '';
+    const oauthError = url.searchParams.get('error');
+    if (oauthError) {
+      return new Response(`<html><body><p>OAuth error: ${oauthError}. You may close this window.</p></body></html>`, { headers: { 'Content-Type': 'text/html' } });
+    }
+    if (!code || !state) {
+      return new Response('<html><body><p>Missing code or state.</p></body></html>', { status: 400, headers: { 'Content-Type': 'text/html' } });
+    }
+    return new Response('<html><body><p>Authentication complete. You may close this window and return to the app.</p></body></html>', { headers: { 'Content-Type': 'text/html' } });
+  }
+
+  // Delegate /api/code/* to the code-api handler
+  if (path.startsWith('/api/code')) {
+    return handleCodeAPI(req);
   }
 
   return Response.json({ error: 'Not found' }, { status: 404 });

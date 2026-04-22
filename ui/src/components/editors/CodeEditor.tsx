@@ -7,12 +7,13 @@
  */
 
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { EditorView } from '@codemirror/view';
+import type * as Monaco from 'monaco-editor';
 import { SnippetEditor } from './SnippetEditor';
 import { DiffAgainstDiskModal } from './DiffAgainstDiskModal';
 import { CodeArtifactKebabMenu } from './CodeArtifactKebabMenu';
 import { PseudoSideBySideView } from './PseudoSideBySideView';
-import { ProposedEditReview } from './ProposedEditReview';
+import { computeHunks } from './diffReview/computeHunks';
+import type { EditDecisionPayload } from './diffReview/types';
 import { FunctionJumpDropdown, type FunctionJumpItem } from './FunctionJumpDropdown';
 import { ReferencesPopover } from './ReferencesPopover';
 import { useSnippet } from '@/hooks/useSnippet';
@@ -63,6 +64,7 @@ function parseLinkedEnvelope(content: string | undefined) {
       ? {
           newCode: data.proposedEdit.newCode as string,
           message: typeof data.proposedEdit.message === 'string' ? data.proposedEdit.message : undefined,
+          proposedBy: (data.proposedEdit.proposedBy === 'user' ? 'user' : 'claude') as 'user' | 'claude',
           proposedAt: typeof data.proposedEdit.proposedAt === 'number' ? data.proposedEdit.proposedAt : Date.now(),
         }
       : null;
@@ -111,7 +113,6 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
   const snippets = useSessionStore((state) => state.snippets);
   const setPendingJumpStore = usePendingJump((state) => state.setPending);
   const consumePendingJump = usePendingJump((state) => state.consume);
-
   // Nav history
   const navHistory = useNavHistory();
 
@@ -129,7 +130,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
   const [snippetControls, setSnippetControls] = useState<React.ReactNode>(null);
   const [functions, setFunctions] = useState<FunctionJumpItem[]>([]);
   const [useTier2, setUseTier2] = useState(false);
-  const editorViewRef = useRef<EditorView | null>(null);
+  const editorViewRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const [popover, setPopover] = useState<{ symbol: string; refs: Reference[]; rect: DOMRect } | null>(null);
 
   // Feature B state
@@ -234,8 +235,8 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
           return;
         }
         // Cross-file jump → push current position onto nav history, then navigate
-        const curView = editorViewRef.current;
-        const curLine = curView ? curView.state.doc.lineAt(curView.state.selection.main.head).number : 1;
+        const curEditor = editorViewRef.current;
+        const curLine = curEditor ? (curEditor.getPosition()?.lineNumber ?? 1) : 1;
         navPushRef.current({ snippetId: snippetIdRef.current, line: curLine });
         setPendingJumpStore({ snippetId: decision.snippetId, line: decision.line });
         selectSnippet(decision.snippetId);
@@ -259,8 +260,8 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
     if (!session || !linkDialog) return;
     const { candidate } = linkDialog;
     const newSnippetId = await linkFile(session.project, session.name, candidate.sourceFilePath);
-    const curView = editorViewRef.current;
-    const curLine = curView ? curView.state.doc.lineAt(curView.state.selection.main.head).number : 1;
+    const curEditor = editorViewRef.current;
+    const curLine = curEditor ? (curEditor.getPosition()?.lineNumber ?? 1) : 1;
     navPushRef.current({ snippetId: snippetIdRef.current, line: curLine });
     setPendingJumpStore({ snippetId: newSnippetId, line: candidate.sourceLine ?? 1 });
     selectSnippet(newSnippetId);
@@ -272,22 +273,20 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
     setSnippetControls(controls);
   }, []);
 
-  const handleEditorReady = useCallback((view: EditorView | null) => {
-    editorViewRef.current = view;
-    setEditorReady(view !== null);
+  const handleEditorReady = useCallback((editor: Monaco.editor.IStandaloneCodeEditor | null) => {
+    editorViewRef.current = editor;
+    setEditorReady(editor !== null);
   }, []);
 
   const jumpToLine = useCallback((line: number) => {
-    const view = editorViewRef.current;
-    if (!view) return;
-    const totalLines = view.state.doc.lines;
+    const editor = editorViewRef.current;
+    if (!editor) return;
+    const model = editor.getModel();
+    const totalLines = model ? model.getLineCount() : 1;
     const safeLine = Math.max(1, Math.min(line, totalLines));
-    const pos = view.state.doc.line(safeLine).from;
-    view.dispatch({
-      selection: { anchor: pos },
-      effects: EditorView.scrollIntoView(pos, { y: 'start' }),
-    });
-    view.focus();
+    editor.revealLineInCenter(safeLine);
+    editor.setPosition({ lineNumber: safeLine, column: 1 });
+    editor.focus();
   }, []);
 
   const jumpToLineRef = useRef(jumpToLine);
@@ -389,7 +388,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
 
       if (result.conflict) {
         setConflict({ diskChanged: true, hasLocalEdits: true });
-      } else if (result.diskChanged && !conflict) {
+      } else if (result.diskChanged) {
         setFlashMessage('Synced');
       } else if (!result.diskChanged) {
         setFlashMessage('Up to date');
@@ -402,7 +401,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
     } finally {
       setIsSyncing(false);
     }
-  }, [currentSession, isSyncing, snippetId, conflict, refreshSnippet]);
+  }, [currentSession, isSyncing, snippetId, refreshSnippet]);
 
   const handleAcceptProposal = useCallback(async () => {
     if (!currentSession) return;
@@ -427,6 +426,97 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
       setFlashMessage('Reject failed');
     }
   }, [currentSession, snippetId, refreshSnippet]);
+
+  const handleAcceptHunk = useCallback(
+    async (hunkIndex: number, comment?: string) => {
+      if (!currentSession || !envelope?.proposedEdit) return;
+      // Use the current editor content as the base — not envelope.code — so that
+      // sequential hunk accepts use up-to-date line numbers rather than stale ones
+      // from before the previous hunk was applied.
+      const currentEditorCode = editorViewRef.current?.getModel()?.getValue() ?? envelope.code;
+      const hunks = computeHunks(currentEditorCode, envelope.proposedEdit.newCode, snippetId);
+      const hunk = hunks.find((h) => h.hunkIndex === hunkIndex);
+      if (!hunk) return;
+
+      const lines = currentEditorCode.split('\n');
+      const before = lines.slice(0, hunk.startLine - 1);
+      const after = lines.slice(hunk.startLine - 1 + hunk.removedLines.length);
+      const newCode = [...before, ...hunk.addedLines, ...after].join('\n');
+
+      try {
+        const raw = JSON.parse(snippet?.content ?? '{}');
+        raw.code = newCode;
+        raw.dirty = true;
+        delete raw.proposedEdit;
+        await api.updateSnippet(currentSession.project, currentSession.name, snippetId, JSON.stringify(raw, null, 2));
+
+        const payload: EditDecisionPayload = {
+          project: currentSession.project,
+          session: currentSession.name,
+          snippetId,
+          action: 'accepted',
+          scope: 'hunk',
+          hunkIndex,
+          filePath: envelope.filePath,
+          proposedBy: envelope.proposedEdit.proposedBy ?? 'claude',
+          decidedBy: 'user',
+          proposedAt: envelope.proposedEdit.proposedAt,
+          message: comment ?? envelope.proposedEdit.message,
+          linesAdded: hunk.addedLines.length,
+          linesRemoved: hunk.removedLines.length,
+        };
+        await fetch(
+          `/api/code/record-edit-decision?project=${encodeURIComponent(currentSession.project)}&session=${encodeURIComponent(currentSession.name)}`,
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) },
+        );
+
+        setFlashMessage('Hunk accepted');
+        await refreshSnippet();
+      } catch (err) {
+        console.error('Accept hunk failed:', err);
+        setFlashMessage('Accept hunk failed');
+      }
+    },
+    [currentSession, envelope, snippetId, snippet?.content, refreshSnippet],
+  );
+
+  const handleRejectHunk = useCallback(
+    async (hunkIndex: number, comment?: string) => {
+      if (!currentSession || !envelope?.proposedEdit) return;
+      const hunks = computeHunks(envelope.code, envelope.proposedEdit.newCode, snippetId);
+      const hunk = hunks.find((h) => h.hunkIndex === hunkIndex);
+      if (!hunk) return;
+
+      try {
+        const payload: EditDecisionPayload = {
+          project: currentSession.project,
+          session: currentSession.name,
+          snippetId,
+          action: 'rejected',
+          scope: 'hunk',
+          hunkIndex,
+          filePath: envelope.filePath,
+          proposedBy: envelope.proposedEdit.proposedBy ?? 'claude',
+          decidedBy: 'user',
+          proposedAt: envelope.proposedEdit.proposedAt,
+          message: comment ?? envelope.proposedEdit.message,
+          linesAdded: hunk.addedLines.length,
+          linesRemoved: hunk.removedLines.length,
+        };
+        await fetch(
+          `/api/code/record-edit-decision?project=${encodeURIComponent(currentSession.project)}&session=${encodeURIComponent(currentSession.name)}`,
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) },
+        );
+
+        await refreshSnippet();
+        setFlashMessage('Hunk rejected');
+      } catch (err) {
+        console.error('Reject hunk failed:', err);
+        setFlashMessage('Reject hunk failed');
+      }
+    },
+    [currentSession, envelope, snippetId, refreshSnippet],
+  );
 
   const handleKeepMine = useCallback(() => {
     setConflict(null);
@@ -509,6 +599,24 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
         >
           {isSyncing ? 'Syncing…' : 'Sync'}
         </button>
+        {envelope.proposedEdit && (
+          <>
+            <button
+              onClick={handleAcceptProposal}
+              title="Accept all proposed changes"
+              className="px-2 py-1 rounded text-xs font-medium bg-green-500 text-white hover:bg-green-600 transition-colors"
+            >
+              Accept All
+            </button>
+            <button
+              onClick={handleRejectProposal}
+              title="Reject all proposed changes"
+              className="px-2 py-1 rounded text-xs font-medium bg-red-500 text-white hover:bg-red-600 transition-colors"
+            >
+              Reject All
+            </button>
+          </>
+        )}
         {/* Pseudo side-by-side toggle */}
         <button
           onClick={() => setShowPseudo((prev) => !prev)}
@@ -553,7 +661,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
         />
       </>
     );
-  }, [envelope, currentSession, snippetControls, handlePush, handlePreview, handleSync, isPushing, isSyncing, dirty, conflict, flashMessage, showPseudo, snippetId, filePath, handleDeprecate, handleDelete, functions, jumpToLine, navHistory.canGoBack, handleBack]);
+  }, [envelope, currentSession, snippetControls, handlePush, handlePreview, handleSync, isPushing, isSyncing, dirty, conflict, flashMessage, showPseudo, snippetId, filePath, handleDeprecate, handleDelete, functions, jumpToLine, navHistory.canGoBack, handleBack, handleAcceptProposal, handleRejectProposal]);
 
   // Push merged controls to parent EditorToolbar
   // Short-circuit when envelope is null — SnippetEditor handles onToolbarControls directly
@@ -572,17 +680,6 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
 
   return (
     <div className="flex flex-col h-full">
-      {/* Proposed-edit review banner (Claude MCP propose_code_edit) */}
-      {envelope.proposedEdit && (
-        <ProposedEditReview
-          currentCode={envelope.code}
-          proposedCode={envelope.proposedEdit.newCode}
-          proposedMessage={envelope.proposedEdit.message}
-          proposedAt={envelope.proposedEdit.proposedAt}
-          onAccept={handleAcceptProposal}
-          onReject={handleRejectProposal}
-        />
-      )}
       {/* Conflict banner */}
       {conflict && (
         <div className="bg-amber-50 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-800 px-4 py-2 flex items-center justify-between text-sm">
@@ -628,6 +725,9 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
               onEditorReady={handleEditorReady}
               onSymbolClick={handleSymbolClick}
               onSymbolGoToDefinition={handleGoToDefinition}
+              proposedEdit={envelope.proposedEdit ?? undefined}
+              onHunkAccept={handleAcceptHunk}
+              onHunkReject={handleRejectHunk}
             />
           </PseudoSideBySideView>
         ) : (
@@ -639,6 +739,9 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
             onEditorReady={handleEditorReady}
             onSymbolClick={handleSymbolClick}
             onSymbolGoToDefinition={handleGoToDefinition}
+            proposedEdit={envelope.proposedEdit ?? undefined}
+            onHunkAccept={handleAcceptHunk}
+            onHunkReject={handleRejectHunk}
           />
         )}
       </div>
@@ -696,9 +799,9 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
               if (already.id === snippetId) {
                 jumpToLine(candidate.sourceLine ?? 1);
               } else {
-                const curView = editorViewRef.current;
-                const curLine = curView ? curView.state.doc.lineAt(curView.state.selection.main.head).number : 1;
-                navHistory.push({ snippetId, line: curLine });
+                const curEditor = editorViewRef.current;
+                const curLine = curEditor ? (curEditor.getPosition()?.lineNumber ?? 1) : 1;
+                navPushRef.current({ snippetId, line: curLine });
                 setPendingJumpStore({ snippetId: already.id, line: candidate.sourceLine ?? 1 });
                 selectSnippet(already.id);
               }

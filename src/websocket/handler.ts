@@ -69,7 +69,14 @@ export type WSMessage =
   | { type: 'agent_rename_session'; sessionId: string; displayName: string; commandId?: string }
   | { type: 'agent_rewind_to_message'; sessionId: string; messageId: string; commandId?: string }
   | { type: 'sessions_list_invalidated'; sessionId: string }
-  | { type: 'agent_event'; channel: string; event: AgentEvent };
+  | { type: 'agent_event'; channel: string; event: AgentEvent }
+  | { type: 'settings_updated'; source?: string; project?: string }
+  | { type: 'mcp_server_added'; name: string; project?: string }
+  | { type: 'mcp_server_removed'; name: string; project?: string }
+  | { type: 'mcp_tools_discovered'; serverName: string; tools: Array<{ name: string; description?: string }>; project?: string }
+  | { type: 'mcp_tool_details_loaded'; serverName: string; toolName: string; inputSchema: unknown; project?: string }
+  | { type: 'mcp_elicitation_requested'; elicitationId: string; serverName: string; toolName: string; schema: unknown; deadlineMs: number; sessionId?: string }
+  | { type: 'mcp_token_cost_updated'; serverName: string; toolName: string; inputTokens: number; outputTokens: number; costUsd?: number };
 
 export class WebSocketHandler {
   private connections: Set<ServerWebSocket<{ subscriptions: Set<string> }>> = new Set();

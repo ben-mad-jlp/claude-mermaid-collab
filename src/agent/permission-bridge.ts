@@ -4,6 +4,8 @@ import * as path from 'node:path';
 import type { AgentEvent, PermissionMode, PermissionDecision, InteractionMode, RuntimeMode } from './contracts';
 import { splitPermissionMode } from './contracts';
 import type { PermissionRequest, PermissionResponse, PermissionVerdict } from './permission-socket';
+import { mergeSettings } from './settings-store.js';
+import { migrate0004 } from './migrations/0004_phase3_allowlist.js';
 
 export interface PendingPermission {
   promptId: string;
@@ -37,11 +39,26 @@ export interface PermissionBridgeDeps {
 const ACCEPT_EDITS_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 const READ_ONLY_TOOLS = new Set(['Read', 'Glob', 'Grep']);
 
+function matchRule(rule: string, toolName: string): boolean {
+  if (rule === toolName) return true;
+  if (rule.startsWith('mcp__') && rule.endsWith('*')) {
+    const prefix = rule.slice(0, -1);
+    return toolName.startsWith(prefix);
+  }
+  if (rule.includes('*')) {
+    const escaped = rule.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+    return new RegExp(`^${escaped}$`).test(toolName);
+  }
+  return false;
+}
+
 export class PermissionBridge {
   // sessionId -> (promptId -> PendingPermission)
   private pending = new Map<string, Map<string, PendingPermission>>();
   // sessionId -> set of tool names allowed for this session
   private allowlist = new Map<string, Set<string>>();
+  private db?: import('bun:sqlite').Database;
+  private projectRoot?: string;
 
   constructor(private deps: PermissionBridgeDeps) {}
 
@@ -105,7 +122,8 @@ export class PermissionBridge {
     // session allowlist / user prompt below.
 
     // 4. session allowlist
-    if (this.allowlist.get(sessionId)?.has(name)) {
+    const sessionRules = this.allowlist.get(sessionId);
+    if (sessionRules && [...sessionRules].some((rule) => matchRule(rule, name))) {
       const promptId = randomUUID();
       this.broadcastResolved(sessionId, promptId, 'allow_once', 'session_allowlist');
       return Promise.resolve(this.makeResponse('allow', 'session_allowlist'));
@@ -248,6 +266,52 @@ export class PermissionBridge {
     };
     await writeFile(file, JSON.stringify(config, null, 2), 'utf8');
     return file;
+  }
+
+  setDb(db: import('bun:sqlite').Database, projectRoot?: string): void {
+    this.db = db;
+    this.projectRoot = projectRoot;
+    migrate0004(db);
+  }
+
+  async loadSessionAllowlist(sessionId: string, cwd?: string): Promise<void> {
+    const effectiveCwd = cwd ?? this.projectRoot;
+    // Load settings-derived allow rules
+    try {
+      const merged = await mergeSettings(effectiveCwd);
+      for (const { rule } of merged.allowRules) {
+        const set = this.allowlist.get(sessionId) ?? new Set<string>();
+        set.add(rule);
+        this.allowlist.set(sessionId, set);
+      }
+    } catch {
+      // settings files may not exist — ignore
+    }
+    // Rehydrate persisted session allowlist from DB
+    if (this.db) {
+      const rows = this.db
+        .query<{ rule_text: string }, [string]>(
+          'SELECT rule_text FROM agent_session_allowlist WHERE session_id = ?',
+        )
+        .all(sessionId);
+      const set = this.allowlist.get(sessionId) ?? new Set<string>();
+      for (const row of rows) set.add(row.rule_text);
+      this.allowlist.set(sessionId, set);
+    }
+  }
+
+  addAllowlistRule(sessionId: string, ruleText: string, projectRoot?: string): void {
+    const set = this.allowlist.get(sessionId) ?? new Set<string>();
+    set.add(ruleText);
+    this.allowlist.set(sessionId, set);
+    if (this.db) {
+      const root = projectRoot ?? this.projectRoot ?? '';
+      this.db
+        .query(
+          'INSERT OR IGNORE INTO agent_session_allowlist (session_id, project_root, rule_text, scope, added_at) VALUES (?, ?, ?, ?, ?)',
+        )
+        .run(sessionId, root, ruleText, 'session', Date.now());
+    }
   }
 
   private makeResponse(verdict: PermissionVerdict, reason?: string): PermissionResponse {

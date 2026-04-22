@@ -5,6 +5,11 @@ import { ToolCallCard } from '@/vendored/t3chat/chat/tool-cards/ToolCallCard';
 import { useChatViewBindings } from './useChatViewBindings';
 import { useAgentStore, type AgentTimelineItem } from '@/stores/agentStore';
 import { IdleRecapBanner } from '@/components/agent-chat/IdleRecapBanner';
+import { McpElicitationDialog } from '../mcp/McpElicitationDialog';
+import { usePendingMcpElicitation } from '../../hooks/usePendingMcpElicitation';
+import { getWebSocketClient } from '../../lib/websocket';
+import { registerAgentSend } from '@/lib/agent-send-bridge';
+import { useAgentSession } from '@/hooks/useAgentSession';
 
 export interface ChatHostProps {
   sessionId: string;
@@ -79,6 +84,15 @@ function makeRenderItem(streamingMessageId: string | null, sessionId: string) {
 
 export const ChatHost: React.FC<ChatHostProps> = ({ sessionId, header, banner, rail }) => {
   const streamingMessageId = useAgentStore((s) => s.streamingMessageId);
+
+  const session = useAgentSession(sessionId);
+  const sendRef = React.useRef(session.send);
+  React.useEffect(() => { sendRef.current = session.send; }, [session.send]);
+
+  React.useEffect(() => {
+    return registerAgentSend((text) => sendRef.current(text));
+  }, []);
+
   const renderItem = React.useMemo(
     () => makeRenderItem(streamingMessageId, sessionId),
     [streamingMessageId, sessionId]
@@ -90,7 +104,32 @@ export const ChatHost: React.FC<ChatHostProps> = ({ sessionId, header, banner, r
     </>
   );
   const props = useChatViewBindings({ sessionId, renderItem, header, banner: idleRecapBanner, rail });
-  return <ChatView {...props} />;
+
+  const { pending: pendingElicitation, dismiss: dismissElicitation } = usePendingMcpElicitation(sessionId ?? null);
+
+  const handleElicitationSubmit = React.useCallback(
+    (elicitationId: string, values: Record<string, string | number | boolean>) => {
+      getWebSocketClient().send({
+        type: 'agent_mcp_elicit_respond',
+        sessionId,
+        elicitationId,
+        values,
+      } as Parameters<ReturnType<typeof getWebSocketClient>['send']>[0]);
+      dismissElicitation();
+    },
+    [sessionId, dismissElicitation],
+  );
+
+  return (
+    <>
+      <ChatView {...props} />
+      <McpElicitationDialog
+        request={pendingElicitation}
+        onSubmit={handleElicitationSubmit}
+        onDismiss={dismissElicitation}
+      />
+    </>
+  );
 };
 
 ChatHost.displayName = 'ChatHost';

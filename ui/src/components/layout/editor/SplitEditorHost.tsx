@@ -35,6 +35,7 @@ export interface SplitEditorHostProps {
   onContentChange?: (itemId: string, content: string, pane: PaneId) => void;
   /** Optional toolbar rendered between the tab bars and the content area */
   toolbar?: React.ReactNode;
+  onSnippetToolbarControls?: (controls: React.ReactNode) => void;
 }
 
 // Exported for unit testing
@@ -82,7 +83,7 @@ function getCurrentEntry() {
 }
 
 export function SplitEditorHost(props: SplitEditorHostProps) {
-  const { editMode, project, session, onContentChange, toolbar } = props;
+  const { editMode, project, session, onContentChange, toolbar, onSnippetToolbarControls } = props;
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
   );
@@ -124,6 +125,7 @@ export function SplitEditorHost(props: SplitEditorHostProps) {
       project={project}
       session={session}
       onContentChange={leftOnContentChange}
+      onSnippetToolbarControls={onSnippetToolbarControls}
     />
   );
   const rightPaneNode = (
@@ -133,6 +135,7 @@ export function SplitEditorHost(props: SplitEditorHostProps) {
       project={project}
       session={session}
       onContentChange={rightOnContentChange}
+      onSnippetToolbarControls={onSnippetToolbarControls}
     />
   );
 

@@ -78,6 +78,7 @@ function findPending(items: readonly AgentTimelineItem[]): PendingApproval | nul
         first = {
           promptId: it.id,
           toolName: it.name,
+          input: it.input,
           ...(summary ? { summary } : {}),
         };
       }

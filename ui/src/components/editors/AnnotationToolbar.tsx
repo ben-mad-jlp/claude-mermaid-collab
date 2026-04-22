@@ -8,18 +8,18 @@
  * - Reject: Mark content as rejected with a reason
  * - Clear: Remove annotations from selection or current line
  *
- * Works with CodeMirror EditorView to insert/remove annotation markers.
+ * Works with Monaco editor to insert/remove annotation markers.
  */
 
 import React, { useCallback } from 'react';
-import { EditorView } from '@codemirror/view';
+import type * as Monaco from 'monaco-editor';
 
 /**
  * Props for the AnnotationToolbar component
  */
 export interface AnnotationToolbarProps {
-  /** CodeMirror EditorView instance */
-  editorView: EditorView | null;
+  /** Monaco editor instance */
+  editor: Monaco.editor.IStandaloneCodeEditor | null;
   /** Custom CSS class name for the container */
   className?: string;
 }
@@ -32,21 +32,25 @@ export type AnnotationType = 'comment' | 'propose' | 'approve' | 'reject';
 /**
  * Insert an annotation at the current selection or cursor position
  *
- * @param view - CodeMirror EditorView instance
+ * @param editor - Monaco editor instance
  * @param type - Type of annotation to insert
  * @param reason - Optional reason (used for reject annotations)
  */
 export function insertAnnotation(
-  view: EditorView,
+  editor: Monaco.editor.IStandaloneCodeEditor,
   type: AnnotationType,
   reason?: string
 ): void {
-  if (!view) return;
+  if (!editor) return;
 
-  const state = view.state;
-  const selection = state.selection.main;
-  const hasSelection = selection.from !== selection.to;
-  const selectedText = state.sliceDoc(selection.from, selection.to);
+  const model = editor.getModel();
+  if (!model) return;
+
+  const selection = editor.getSelection();
+  if (!selection) return;
+
+  const hasSelection = !selection.isEmpty();
+  const selectedText = hasSelection ? model.getValueInRange(selection) : '';
 
   let newText: string;
 
@@ -93,36 +97,43 @@ export function insertAnnotation(
     }
   }
 
-  view.dispatch({
-    changes: { from: selection.from, to: selection.to, insert: newText },
-  });
+  editor.executeEdits('annotation-toolbar', [
+    { range: selection, text: newText },
+  ]);
 }
 
 /**
  * Clear annotations from the current selection or current line
  *
- * @param view - CodeMirror EditorView instance
+ * @param editor - Monaco editor instance
  */
-export function clearAnnotations(view: EditorView): void {
-  if (!view) return;
+export function clearAnnotations(editor: Monaco.editor.IStandaloneCodeEditor): void {
+  if (!editor) return;
 
-  const state = view.state;
-  const selection = state.selection.main;
+  const model = editor.getModel();
+  if (!model) return;
+
+  const selection = editor.getSelection();
+  if (!selection) return;
 
   // Get text range to process (selection or current line)
-  let from: number;
-  let to: number;
+  let range: Monaco.IRange;
 
-  if (selection.from === selection.to) {
-    const line = state.doc.lineAt(selection.from);
-    from = line.from;
-    to = line.to;
+  if (selection.isEmpty()) {
+    const position = editor.getPosition();
+    if (!position) return;
+    const lineNumber = position.lineNumber;
+    range = {
+      startLineNumber: lineNumber,
+      startColumn: 1,
+      endLineNumber: lineNumber,
+      endColumn: model.getLineMaxColumn(lineNumber),
+    };
   } else {
-    from = selection.from;
-    to = selection.to;
+    range = selection;
   }
 
-  const text = state.sliceDoc(from, to);
+  const text = model.getValueInRange(range);
 
   // Remove all annotation patterns
   const patterns = [
@@ -145,9 +156,9 @@ export function clearAnnotations(view: EditorView): void {
   // Collapse multiple newlines
   cleanedText = cleanedText.replace(/\n{3,}/g, '\n\n');
 
-  view.dispatch({
-    changes: { from, to, insert: cleanedText },
-  });
+  editor.executeEdits('annotation-toolbar', [
+    { range, text: cleanedText },
+  ]);
 }
 
 /**
@@ -206,51 +217,51 @@ const Divider: React.FC = () => (
  * @example
  * ```tsx
  * function EditorWithAnnotations() {
- *   const [editorView, setEditorView] = useState<EditorView | null>(null);
+ *   const [editor, setEditor] = useState<Monaco.editor.IStandaloneCodeEditor | null>(null);
  *
  *   return (
  *     <div>
- *       <AnnotationToolbar editorView={editorView} />
- *       <CodeMirrorWrapper onEditorReady={setEditorView} ... />
+ *       <AnnotationToolbar editor={editor} />
+ *       <MonacoWrapper onEditorReady={setEditor} ... />
  *     </div>
  *   );
  * }
  * ```
  */
 export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
-  editorView,
+  editor,
   className = '',
 }) => {
   const handleComment = useCallback(() => {
-    if (editorView) {
-      insertAnnotation(editorView, 'comment');
+    if (editor) {
+      insertAnnotation(editor, 'comment');
     }
-  }, [editorView]);
+  }, [editor]);
 
   const handlePropose = useCallback(() => {
-    if (editorView) {
-      insertAnnotation(editorView, 'propose');
+    if (editor) {
+      insertAnnotation(editor, 'propose');
     }
-  }, [editorView]);
+  }, [editor]);
 
   const handleApprove = useCallback(() => {
-    if (editorView) {
-      insertAnnotation(editorView, 'approve');
+    if (editor) {
+      insertAnnotation(editor, 'approve');
     }
-  }, [editorView]);
+  }, [editor]);
 
   const handleReject = useCallback(() => {
     const reason = prompt('Enter rejection reason:');
-    if (reason && editorView) {
-      insertAnnotation(editorView, 'reject', reason);
+    if (reason && editor) {
+      insertAnnotation(editor, 'reject', reason);
     }
-  }, [editorView]);
+  }, [editor]);
 
   const handleClear = useCallback(() => {
-    if (editorView) {
-      clearAnnotations(editorView);
+    if (editor) {
+      clearAnnotations(editor);
     }
-  }, [editorView]);
+  }, [editor]);
 
   return (
     <div

@@ -62,10 +62,12 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const { theme, toggleTheme } = useTheme();
   const { currentSession } = useSession();
-  const { agentChatVisible, toggleAgentChat } = useUIStore(
+  const { agentChatVisible, toggleAgentChat, pairMode, togglePairMode } = useUIStore(
     useShallow((state) => ({
       agentChatVisible: state.agentChatVisible,
       toggleAgentChat: state.toggleAgentChat,
+      pairMode: state.pairMode,
+      togglePairMode: state.togglePairMode,
     }))
   );
 
@@ -163,6 +165,27 @@ export const Header: React.FC<HeaderProps> = ({
   const handleAgentToggle = useCallback(() => {
     toggleAgentChat();
   }, [toggleAgentChat]);
+
+  const handlePairToggle = useCallback(() => {
+    togglePairMode();
+  }, [togglePairMode]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'P') {
+        const target = e.target as HTMLElement;
+        if (
+          target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable
+        ) return;
+        e.preventDefault();
+        togglePairMode();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [togglePairMode]);
 
   const handleRefreshSessions = useCallback(() => {
     onRefreshSessions?.();
@@ -555,6 +578,31 @@ export const Header: React.FC<HeaderProps> = ({
               <line x1="16" y1="16" x2="16" y2="16" />
             </svg>
             <span className="hidden sm:inline">Agent</span>
+          </button>
+
+          {/* Pair Mode Toggle */}
+          <button
+            data-testid="pair-toggle"
+            onClick={handlePairToggle}
+            aria-label={pairMode ? 'Disable Pair Mode' : 'Enable Pair Mode'}
+            aria-pressed={pairMode}
+            title={pairMode ? 'Pair Mode: On' : 'Pair Mode: Off'}
+            className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+              pairMode
+                ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
+                : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700'
+            }`}
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="9" cy="7" r="4" />
+              <path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+              <path d="M21 21v-2a4 4 0 0 0-3-3.87" />
+            </svg>
+            <span className="hidden sm:inline">Pair</span>
+            {pairMode && (
+              <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-500" />
+            )}
           </button>
 
           {/* Theme Toggle */}

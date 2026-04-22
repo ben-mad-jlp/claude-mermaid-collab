@@ -13,14 +13,14 @@
  */
 
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { CodeMirrorWrapper } from './CodeMirrorWrapper';
+import { MonacoWrapper } from './MonacoWrapper';
 import { SplitPane } from '@/components/layout/SplitPane';
 import { useSnippet } from '@/hooks/useSnippet';
 import { useSessionStore } from '@/stores/sessionStore';
 import { api } from '@/lib/api';
 import { Snippet, SnippetAnnotation } from '@/types';
-import type { Language } from './CodeMirrorWrapper';
-import type { EditorView } from '@codemirror/view';
+import type { Language } from './MonacoWrapper';
+import type * as Monaco from 'monaco-editor';
 
 /**
  * Props for the SnippetEditor component
@@ -44,12 +44,15 @@ export interface SnippetEditorProps {
   showDiffByDefault?: boolean;
   /** Hide the filePath display in the toolbar (useful when parent already shows it) */
   hideFilePath?: boolean;
-  /** Called when the CodeMirror editor is ready with its EditorView instance */
-  onEditorReady?: (view: EditorView | null) => void;
+  /** Called when the Monaco editor is ready with its IStandaloneCodeEditor instance */
+  onEditorReady?: (editor: Monaco.editor.IStandaloneCodeEditor | null) => void;
   /** Called when a symbol (function/identifier) is clicked in the editor */
   onSymbolClick?: (symbol: string, rect: DOMRect) => void;
   /** Called when the user Cmd/Ctrl-clicks or right-clicks a symbol (go-to-definition) */
   onSymbolGoToDefinition?: (symbol: string, rect: DOMRect) => void;
+  proposedEdit?: { newCode: string; message?: string; proposedBy: 'claude' | 'user'; proposedAt: number };
+  onHunkAccept?: (hunkIndex: number, comment?: string) => void;
+  onHunkReject?: (hunkIndex: number, comment?: string) => void;
 }
 
 /**
@@ -139,6 +142,9 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
   onEditorReady,
   onSymbolClick,
   onSymbolGoToDefinition,
+  proposedEdit,
+  onHunkAccept,
+  onHunkReject,
 }) => {
   const { selectedSnippet, updateSnippet, getSnippetById } = useSnippet();
 
@@ -511,7 +517,7 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
                   Current
                 </div>
                 <div className="flex-1 min-h-0">
-                  <CodeMirrorWrapper
+                  <MonacoWrapper
                     value={content}
                     onChange={handleContentChange}
                     language={selectedLanguage}
@@ -526,7 +532,7 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
                   Original
                 </div>
                 <div className="flex-1 min-h-0">
-                  <CodeMirrorWrapper
+                  <MonacoWrapper
                     value={originalCode}
                     onChange={() => {}}
                     language={selectedLanguage}
@@ -541,7 +547,7 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
       ) : (
         /* Full Editor */
         <div className="relative flex-1 overflow-hidden p-4 bg-gray-50 dark:bg-gray-900">
-          <CodeMirrorWrapper
+          <MonacoWrapper
             value={content}
             onChange={handleContentChange}
             language={selectedLanguage}
@@ -555,6 +561,9 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
             onEditorReady={onEditorReady}
             onSymbolClick={onSymbolClick}
             onSymbolGoToDefinition={onSymbolGoToDefinition}
+            proposedEdit={proposedEdit}
+            onHunkAccept={onHunkAccept}
+            onHunkReject={onHunkReject}
           />
         </div>
       )}

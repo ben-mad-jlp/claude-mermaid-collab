@@ -1007,6 +1007,8 @@ const App: React.FC = () => {
   );
   const activeTab = tabsEntry?.tabs.find((t) => t.id === tabsEntry.activeTabId) ?? null;
   const showToolbar = activeTab?.kind === 'artifact' && activeTab.artifactType !== 'image';
+  // Use active tab's artifactType for toolbar conditions — selectedItem lags the tab system
+  const activeItemType = activeTab?.artifactType ?? selectedItem?.type ?? null;
 
   // Item 4: Use useMemo to compute effective content based on selectedItem
   // This ensures type switches get fresh content immediately without async race condition
@@ -1462,6 +1464,7 @@ const App: React.FC = () => {
           project={currentSession?.project}
           session={currentSession?.name}
           onContentChange={(_id, content) => handleContentChange(content)}
+          onSnippetToolbarControls={setSnippetToolbarControls}
           toolbar={showToolbar ? <EditorToolbar
             itemName={selectedItem?.name || ''}
             hasUnsavedChanges={hasUnsavedChanges || isSaving}
@@ -1473,10 +1476,10 @@ const App: React.FC = () => {
             onZoomIn={zoomIn}
             onZoomOut={zoomOut}
             overflowActions={overflowActions}
-            showZoom={selectedItem?.type !== 'document' && selectedItem?.type !== 'spreadsheet' && selectedItem?.type !== 'snippet'}
-            onCenter={selectedItem?.type === 'diagram' ? handleCenter : undefined}
-            onFitToView={selectedItem?.type === 'diagram' ? handleFitToView : undefined}
-            itemType={selectedItem && selectedItem.type !== 'image' ? selectedItem.type : undefined}
+            showZoom={activeItemType !== 'document' && activeItemType !== 'spreadsheet' && activeItemType !== 'snippet'}
+            onCenter={activeItemType === 'diagram' ? handleCenter : undefined}
+            onFitToView={activeItemType === 'diagram' ? handleFitToView : undefined}
+            itemType={activeItemType && activeItemType !== 'image' ? activeItemType : undefined}
             documentId={selectedItem?.type === 'document' ? selectedItem.id : undefined}
             documentContent={selectedItem?.type === 'document' ? effectiveContent : undefined}
             onHistoryVersionSelect={selectedItem?.type === 'document' ? handleHistoryVersionSelect : undefined}
@@ -1487,7 +1490,7 @@ const App: React.FC = () => {
             onDiagramHistorySelect={selectedItem?.type === 'diagram' ? handleDiagramHistorySelect : undefined}
             designId={selectedItem?.type === 'design' ? selectedItem.id : undefined}
             onDesignHistorySelect={selectedItem?.type === 'design' ? handleDesignHistorySelect : undefined}
-            inlineControls={selectedItem?.type === 'snippet' ? snippetToolbarControls : undefined}
+            inlineControls={activeItemType === 'snippet' ? snippetToolbarControls : undefined}
           /> : undefined}
         />
       </div>

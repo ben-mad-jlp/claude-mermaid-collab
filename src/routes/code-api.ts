@@ -95,6 +95,22 @@ export async function handleCodeAPI(req: Request): Promise<Response> {
       return handleRejectProposedEdit(project, session, id);
     }
 
+    // POST /record-edit-decision — flat path called by CodeEditor hunk accept/reject
+    if (path === '/record-edit-decision' && req.method === 'POST') {
+      if (!session) {
+        return jsonError('Missing required query parameter: session', 400);
+      }
+      return handleRecordEditDecision(req, project, session);
+    }
+
+    // POST /proposed-edit/:id/record-decision — record a client-side edit decision
+    if (path.match(/^\/proposed-edit\/[^/]+\/record-decision$/) && req.method === 'POST') {
+      if (!session) {
+        return jsonError('Missing required query parameter: session', 400);
+      }
+      return handleRecordEditDecision(req, project, session);
+    }
+
     // POST /proposed-edit/:id — create/replace a proposed edit
     if (path.match(/^\/proposed-edit\/[^/]+$/) && req.method === 'POST') {
       if (!session) {
@@ -142,6 +158,19 @@ interface FileEntry {
   type: 'file' | 'directory';
   size?: number;
   extension?: string;
+}
+
+interface EditDecisionPayload {
+  snippetId: string;
+  action: 'accepted' | 'rejected';
+  scope: 'whole-file' | 'hunk';
+  hunkIndex?: number;
+  filePath: string;
+  proposedBy: string;
+  proposedAt: number;
+  message?: string;
+  linesAdded: number;
+  linesRemoved: number;
 }
 
 /**
@@ -606,6 +635,14 @@ async function handleAcceptProposedEdit(project: string, session: string, id: st
     return jsonError('No proposed edit to accept', 400);
   }
 
+  const decisionInfo = {
+    filePath: envelope.filePath ?? id,
+    proposedBy: envelope.proposedEdit.proposedBy ?? 'claude',
+    proposedAt: envelope.proposedEdit.proposedAt ?? Date.now(),
+    message: envelope.proposedEdit.message,
+    newCode: envelope.proposedEdit.newCode,
+  };
+
   envelope.code = envelope.proposedEdit.newCode;
   envelope.dirty = envelope.code !== (envelope.originalCode ?? '');
   delete envelope.proposedEdit;
@@ -627,6 +664,22 @@ async function handleAcceptProposedEdit(project: string, session: string, id: st
         session,
       });
     }
+  }
+
+  try {
+    await appendEditDecision(project, session, {
+      snippetId: id,
+      action: 'accepted',
+      scope: 'whole-file',
+      filePath: decisionInfo.filePath,
+      proposedBy: decisionInfo.proposedBy,
+      proposedAt: decisionInfo.proposedAt,
+      message: decisionInfo.message,
+      linesAdded: decisionInfo.newCode ? decisionInfo.newCode.split('\n').length : 0,
+      linesRemoved: envelope.code ? envelope.code.split('\n').length : 0,
+    });
+  } catch (e) {
+    console.error('[appendEditDecision] failed silently:', e);
   }
 
   return Response.json({ success: true, dirty: envelope.dirty });
@@ -653,6 +706,15 @@ async function handleRejectProposedEdit(project: string, session: string, id: st
     return Response.json({ success: true, noop: true });
   }
 
+  const decisionInfo = {
+    filePath: envelope.filePath ?? id,
+    proposedBy: envelope.proposedEdit.proposedBy ?? 'claude',
+    proposedAt: envelope.proposedEdit.proposedAt ?? Date.now(),
+    message: envelope.proposedEdit.message,
+    newCode: envelope.proposedEdit.newCode,
+    originalCode: envelope.code,
+  };
+
   delete envelope.proposedEdit;
 
   const updatedContent = JSON.stringify(envelope, null, 2);
@@ -673,6 +735,71 @@ async function handleRejectProposedEdit(project: string, session: string, id: st
       });
     }
   }
+
+  try {
+    await appendEditDecision(project, session, {
+      snippetId: id,
+      action: 'rejected',
+      scope: 'whole-file',
+      filePath: decisionInfo.filePath,
+      proposedBy: decisionInfo.proposedBy,
+      proposedAt: decisionInfo.proposedAt,
+      message: decisionInfo.message,
+      linesAdded: decisionInfo.newCode ? decisionInfo.newCode.split('\n').length : 0,
+      linesRemoved: decisionInfo.originalCode ? decisionInfo.originalCode.split('\n').length : 0,
+    });
+  } catch (e) {
+    console.error('[appendEditDecision] failed silently:', e);
+  }
+
+  return Response.json({ success: true });
+}
+
+async function appendEditDecision(
+  project: string,
+  session: string,
+  decision: EditDecisionPayload,
+): Promise<void> {
+  try {
+    const docsDir = sessionRegistry.resolvePath(project, session, 'documents');
+    const decisionFilePath = join(docsDir, 'edit-decisions.md');
+
+    let existing = '';
+    try {
+      existing = await readFile(decisionFilePath, 'utf-8');
+    } catch (err: any) {
+      if (err?.code !== 'ENOENT') throw err;
+      // File doesn't exist yet — start fresh
+      existing = '# Edit Decisions\n\nA log of accepted and rejected proposed edits.\n';
+    }
+
+    const decisionSection = `\n## Decision ${new Date().toISOString()}\n\n- **file**: \`${decision.filePath}\`\n- **snippetId**: \`${decision.snippetId}\`\n- **action**: ${decision.action}\n- **scope**: ${decision.scope}\n${decision.hunkIndex !== undefined ? `- **hunkIndex**: ${decision.hunkIndex}\n` : ''}- **proposedBy**: ${decision.proposedBy}\n- **decidedBy**: user\n- **proposedAt**: ${new Date(decision.proposedAt).toISOString()}\n- **decidedAt**: ${new Date().toISOString()}\n${decision.message ? `- **message**: "${decision.message}"\n` : ''}- **linesAdded**: ${decision.linesAdded}\n- **linesRemoved**: ${decision.linesRemoved}\n\n---\n`;
+
+    await writeFile(decisionFilePath, existing + decisionSection, 'utf-8');
+    console.log('[appendEditDecision] Decision logged:', decision.action, decision.filePath);
+  } catch (e) {
+    console.error('[appendEditDecision] Error:', e);
+  }
+}
+
+async function handleRecordEditDecision(
+  req: Request,
+  project: string,
+  session: string,
+): Promise<Response> {
+  let body: EditDecisionPayload;
+  try {
+    body = (await req.json()) as EditDecisionPayload;
+  } catch {
+    return jsonError('Invalid JSON body', 400);
+  }
+
+  const { snippetId, action, scope, filePath } = body;
+  if (!snippetId || !action || !scope || !filePath) {
+    return jsonError('Missing required fields: snippetId, action, scope, filePath', 400);
+  }
+
+  await appendEditDecision(project, session, body);
 
   return Response.json({ success: true });
 }

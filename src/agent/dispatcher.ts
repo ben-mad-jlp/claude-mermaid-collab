@@ -1,5 +1,5 @@
 import type { ServerWebSocket } from 'bun';
-import { stat } from 'node:fs/promises';
+import { stat, readFile as fsReadFile, writeFile as fsWriteFile, rename as fsRename, mkdir as fsMkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AgentCommand, AgentEvent, UserMessageEvent, ErrorEvent, CommandAckEvent, UserInputResolvedEvent, CheckpointRevertedEvent, ModelChangedEvent, SessionRenamedEvent, AgentSetModelCommand, AgentRenameSessionCommand, EffortLevel, AttachmentReferencedEvent, AgentRewindToMessageCommand } from './contracts.ts';
 import type { AgentSessionRegistry } from './session-registry.ts';
@@ -10,6 +10,8 @@ import type { CheckpointReactor } from './checkpoint-reactor.ts';
 import type { CheckpointStore } from './checkpoint-store.ts';
 import type { EventLog } from './event-log.ts';
 import type { GitOps } from './git-ops.ts';
+import { homedir } from 'node:os';
+import { patchSettings } from './settings-store.js';
 
 class DispatchError extends Error {
   constructor(public code: string, message: string) {
@@ -250,6 +252,81 @@ export class AgentDispatcher {
           return await this.handleAgentRenameSession(ws, cmd);
         case 'agent_rewind_to_message':
           return await this.handleAgentRewindToMessage(cmd as unknown as AgentRewindToMessageCommand);
+      case 'agent_add_allowlist_rule': {
+        const pathGlob = (cmd as { pathGlob?: string }).pathGlob;
+        const ruleText = pathGlob ? `${cmd.toolName}(${pathGlob})` : cmd.toolName;
+        if ((cmd as { permanent?: boolean }).permanent) {
+          await patchSettings(
+            { permissions: { allow: [ruleText], deny: [], additionalDirectories: [] } },
+            'project',
+            this.opts.resolvedCwd,
+          );
+        }
+        (this.opts.registry as unknown as { bridge: { addAllowlistRule(s: string, r: string, root?: string): void } })
+          .bridge?.addAllowlistRule?.(cmd.sessionId, ruleText, this.opts.resolvedCwd);
+        break;
+      }
+      case 'agent_update_settings_rule': {
+        const key = (cmd as { key?: string }).key;
+        const value = (cmd as { value?: unknown }).value;
+        if (!key || typeof key !== 'string') throw new DispatchError('INVALID_KEY', 'key must be a non-empty string');
+        await patchSettings({ [key]: value }, 'project', this.opts.resolvedCwd);
+        break;
+      }
+      case 'agent_mcp_add': {
+        const mcpCmd = cmd as { name?: string; command?: string; args?: string[]; env?: Record<string, string> };
+        if (!mcpCmd.name || !mcpCmd.command) throw new DispatchError('INVALID_MCP_SERVER', 'name and command required');
+        const mcpConfigPath1 = join(homedir(), '.claude', 'config.json');
+        let mcpConfig1: { mcpServers?: Record<string, unknown> } = {};
+        try { mcpConfig1 = JSON.parse(await fsReadFile(mcpConfigPath1, 'utf-8')); } catch { mcpConfig1 = {}; }
+        if (!mcpConfig1.mcpServers) mcpConfig1.mcpServers = {};
+        mcpConfig1.mcpServers[mcpCmd.name] = { command: mcpCmd.command, args: mcpCmd.args ?? [], ...(mcpCmd.env ? { env: mcpCmd.env } : {}) };
+        await fsMkdir(join(homedir(), '.claude'), { recursive: true });
+        const mcpTmp1 = mcpConfigPath1 + '.tmp';
+        await fsWriteFile(mcpTmp1, JSON.stringify(mcpConfig1, null, 2) + '\n', 'utf-8');
+        await fsRename(mcpTmp1, mcpConfigPath1);
+        break;
+      }
+      case 'agent_mcp_remove': {
+        const rmCmd = cmd as { name?: string };
+        if (!rmCmd.name) throw new DispatchError('INVALID_MCP_SERVER', 'name required');
+        const rmConfigPath = join(homedir(), '.claude', 'config.json');
+        let rmConfig: { mcpServers?: Record<string, unknown> } = {};
+        try { rmConfig = JSON.parse(await fsReadFile(rmConfigPath, 'utf-8')); } catch {
+          throw new DispatchError('MCP_CONFIG_NOT_FOUND', 'MCP config not found');
+        }
+        if (!rmConfig.mcpServers || !(rmCmd.name in rmConfig.mcpServers)) {
+          throw new DispatchError('MCP_SERVER_NOT_FOUND', `server '${rmCmd.name}' not found`);
+        }
+        delete rmConfig.mcpServers[rmCmd.name];
+        const rmTmp = rmConfigPath + '.tmp';
+        await fsWriteFile(rmTmp, JSON.stringify(rmConfig, null, 2) + '\n', 'utf-8');
+        await fsRename(rmTmp, rmConfigPath);
+        break;
+      }
+      case 'agent_mcp_test': {
+        const testCmd = cmd as { name?: string };
+        if (!testCmd.name) throw new DispatchError('INVALID_MCP_SERVER', 'name required');
+        const testConfigPath = join(homedir(), '.claude', 'config.json');
+        let testConfig: { mcpServers?: Record<string, { command: string; args?: string[] }> } = {};
+        try { testConfig = JSON.parse(await fsReadFile(testConfigPath, 'utf-8')); } catch {
+          throw new DispatchError('MCP_CONFIG_NOT_FOUND', 'MCP config not found');
+        }
+        const serverDef = testConfig.mcpServers?.[testCmd.name];
+        if (!serverDef) throw new DispatchError('MCP_SERVER_NOT_FOUND', `server '${testCmd.name}' not found`);
+        const { spawn } = await import('node:child_process');
+        await new Promise<void>((resolve, reject) => {
+          const child = spawn(serverDef.command, serverDef.args ?? [], { stdio: ['pipe', 'pipe', 'pipe'] });
+          const timer = setTimeout(() => { child.kill(); resolve(); }, 2500);
+          child.on('error', (err) => { clearTimeout(timer); reject(err); });
+          child.on('spawn', () => { clearTimeout(timer); child.kill(); resolve(); });
+        });
+        break;
+      }
+      case 'agent_mcp_elicit_respond': {
+        // Elicitation responses are not yet wired to a live MCP bridge; no-op for now
+        break;
+      }
       }
     } catch (err) {
       if (err instanceof DispatchError) throw err;

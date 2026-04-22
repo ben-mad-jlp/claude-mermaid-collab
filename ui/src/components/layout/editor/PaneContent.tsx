@@ -32,6 +32,7 @@ export interface PaneContentProps {
   project?: string;
   session?: string;
   onContentChange?: (itemId: string, content: string) => void;
+  onSnippetToolbarControls?: (controls: React.ReactNode) => void;
 }
 
 function NotFound({ message }: { message: string }) {
@@ -53,6 +54,7 @@ export const PaneContent: React.FC<PaneContentProps> = ({
   project,
   session,
   onContentChange,
+  onSnippetToolbarControls,
 }) => {
   const {
     diagrams,
@@ -146,6 +148,7 @@ export const PaneContent: React.FC<PaneContentProps> = ({
           project={project}
           session={session}
           onContentChange={handleChange}
+          onSnippetToolbarControls={onSnippetToolbarControls}
         />
       );
     }

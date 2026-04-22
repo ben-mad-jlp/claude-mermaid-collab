@@ -818,6 +818,39 @@ async function listSessions(): Promise<string> {
   return JSON.stringify(data, null, 2);
 }
 
+// ============= MCP Elicitation =============
+
+// Pending MCP elicitation requests — keyed by elicitationId
+const _pendingElicitations = new Map<string, {
+  resolve: (values: Record<string, unknown>) => void;
+  reject: (err: Error) => void;
+}>();
+
+/** Resolve a pending MCP elicitation (called by dispatcher on agent_mcp_elicit_respond) */
+export function resolveElicitation(elicitationId: string, values: Record<string, unknown>): boolean {
+  const pending = _pendingElicitations.get(elicitationId);
+  if (!pending) return false;
+  _pendingElicitations.delete(elicitationId);
+  pending.resolve(values);
+  return true;
+}
+
+/** Create a pending MCP elicitation and return a promise that resolves when answered */
+export function createElicitationRequest(
+  elicitationId: string,
+  timeoutMs = 300_000,
+): Promise<Record<string, unknown>> {
+  return new Promise<Record<string, unknown>>((resolve, reject) => {
+    _pendingElicitations.set(elicitationId, { resolve, reject });
+    setTimeout(() => {
+      if (_pendingElicitations.has(elicitationId)) {
+        _pendingElicitations.delete(elicitationId);
+        reject(new Error(`MCP elicitation ${elicitationId} timed out after ${timeoutMs}ms`));
+      }
+    }, timeoutMs);
+  });
+}
+
 // ============= Server Setup =============
 
 export async function setupMCPServer(): Promise<Server> {

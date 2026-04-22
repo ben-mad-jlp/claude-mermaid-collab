@@ -1,6 +1,6 @@
 import React, { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { fetchCodeFile, CodeFileResponse, CodeFileNotFoundError, peekPseudoFile } from '@/lib/pseudo-api';
-import CodeMirrorWrapper, { type Language } from './CodeMirrorWrapper';
+import MonacoWrapper, { type Language } from './MonacoWrapper';
 import { reportEditorDirty } from '@/hooks/useEditorAutoPromote';
 import { mark } from '@/lib/perf-bus';
 
@@ -164,7 +164,7 @@ export const CodeFileView: React.FC<CodeFileViewProps> = ({ path, project, editM
               <PseudoViewerLazy path={path} project={project} />
             </Suspense>
           ) : (
-            <CodeMirrorWrapper
+            <MonacoWrapper
               value={data.content}
               onChange={handleChange}
               language={(data.language ?? 'text') as Language}

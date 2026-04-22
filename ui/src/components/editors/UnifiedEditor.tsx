@@ -22,16 +22,16 @@
  */
 
 import React, { useCallback, useRef, useMemo } from 'react';
-import { EditorView } from '@codemirror/view';
+import type * as Monaco from 'monaco-editor';
 import { SplitPane } from '@/components/layout/SplitPane';
-import { CodeMirrorWrapper } from '@/components/editors/CodeMirrorWrapper';
+import { MonacoWrapper } from './MonacoWrapper';
 import { MermaidPreview, MermaidPreviewRef } from '@/components/editors/MermaidPreview';
 import { MarkdownPreview } from '@/components/editors/MarkdownPreview';
 import { DiffView } from '@/components/ai-ui/display/DiffView';
 import { DiagramHistoryPreview } from '@/components/editors/DiagramHistoryPreview';
 import { Item, isDiagram, isDocument, isDesign, isSpreadsheet, isSnippet, Snippet } from '@/types';
 import { useUIStore } from '@/stores/uiStore';
-import { useEditorHistory } from '@/hooks/useEditorHistory';
+import { useMonacoHistory } from '@/hooks/useMonacoHistory';
 import { useExportDiagram } from '@/hooks/useExportDiagram';
 import { useProposalStore } from '@/stores/proposalStore';
 import { formatMermaid, canFormat } from '@/lib/mermaidFormatter';
@@ -285,7 +285,7 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
   const { editorSplitPosition, setEditorSplitPosition } = useUIStore();
 
   // Initialize hooks for editor features
-  const { setEditor, undo, redo, canUndo, canRedo } = useEditorHistory();
+  const { setEditor, undo, redo, canUndo, canRedo } = useMonacoHistory();
   const { svgContainerRef, exportAsSVG, exportAsPNG, canExport } = useExportDiagram();
 
   // Get proposal store functions — individual selectors to avoid unstable object snapshots
@@ -533,7 +533,7 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
         onSizeChange={setEditorSplitPosition}
         primaryContent={
           <div className="flex flex-col h-full min-h-0" data-testid="unified-editor-code-panel">
-            <CodeMirrorWrapper
+            <MonacoWrapper
               value={item.content}
               onChange={onContentChange}
               language={editorLanguage}

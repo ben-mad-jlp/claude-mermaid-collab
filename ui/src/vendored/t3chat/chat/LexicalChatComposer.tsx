@@ -31,6 +31,7 @@ import { triggerEditorRoundTrip } from '@/components/agent-chat/EditorRoundTrip'
 import { pushHistory, getHistory, type ComposerHistoryEntry } from '@/stores/composerDraftStore';
 import { $isComposerAttachmentNode } from '@/components/agent-chat/ComposerAttachmentNode';
 import { useNotificationStore } from '@/stores/notificationStore';
+import { SettingsPanel, type SettingsTab } from '../../../components/settings/SettingsPanel';
 
 // Locally-intercepted slash commands which, when submitted as a single-pill
 // skill mention with no surrounding content, route through `onSlashCommand`
@@ -42,7 +43,16 @@ const LOCAL_INTERCEPT_COMMANDS = new Set([
   'cost',
   'resume',
   'rename',
+  'permissions',
+  'mcp',
+  'config',
 ]);
+
+const SETTINGS_SLASH_TO_TAB: Record<string, SettingsTab> = {
+  permissions: 'permissions',
+  mcp: 'mcp',
+  config: 'env',
+};
 
 interface PickerState {
   query: string;
@@ -77,6 +87,8 @@ const LexicalChatComposer: React.FC<ChatComposerProps> = ({
   const historyIdxRef = React.useRef<number>(-1);
   const [showHistorySearch, setShowHistorySearch] = React.useState(false);
   const [showShortcuts, setShowShortcuts] = React.useState(false);
+  const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const [settingsTab, setSettingsTab] = React.useState<SettingsTab>('permissions');
   const [slashState, setSlashState] = React.useState<PickerState | null>(null);
   const [slashActiveIndex, setSlashActiveIndex] = React.useState(0);
   const [lastSerialized, setLastSerialized] =
@@ -270,6 +282,12 @@ const LexicalChatComposer: React.FC<ChatComposerProps> = ({
         if (match) {
           const token = match[1];
           const args = (match[3] ?? '').trim();
+          if (token in SETTINGS_SLASH_TO_TAB) {
+            setSettingsTab(SETTINGS_SLASH_TO_TAB[token]!);
+            setSettingsOpen(true);
+            clearEditor();
+            return;
+          }
           if (LOCAL_INTERCEPT_COMMANDS.has(token) && onSlashCommand) {
             const handled = onSlashCommand(token, args);
             if (handled) {
@@ -286,11 +304,19 @@ const LexicalChatComposer: React.FC<ChatComposerProps> = ({
         const m = mentions[0];
         const before = text.slice(0, m.range.from);
         const after = text.slice(m.range.to);
-        if (!before.trim() && !after.trim() && LOCAL_INTERCEPT_COMMANDS.has(m.value)) {
-          // No args when the whole message is the pill — pass undefined for clarity (BUG-09).
-          if (onSlashCommand) onSlashCommand(m.value, undefined);
-          clearEditor();
-          return;
+        if (!before.trim() && !after.trim()) {
+          if (m.value in SETTINGS_SLASH_TO_TAB) {
+            setSettingsTab(SETTINGS_SLASH_TO_TAB[m.value]!);
+            setSettingsOpen(true);
+            clearEditor();
+            return;
+          }
+          if (LOCAL_INTERCEPT_COMMANDS.has(m.value)) {
+            // No args when the whole message is the pill — pass undefined for clarity (BUG-09).
+            if (onSlashCommand) onSlashCommand(m.value, undefined);
+            clearEditor();
+            return;
+          }
         }
       }
 
@@ -338,6 +364,11 @@ const LexicalChatComposer: React.FC<ChatComposerProps> = ({
     <div className={cn('relative flex flex-col gap-2 border-t bg-background p-3', className)}>
       <HistorySearchPopover open={showHistorySearch} onClose={() => setShowHistorySearch(false)} sessionId={sessionId ?? ''} onSelect={handleHistorySelect} />
       <ShortcutsDialog open={showShortcuts} onClose={() => setShowShortcuts(false)} />
+      <SettingsPanel
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        openTab={settingsTab}
+      />
       {runtimeMode && interactionMode && onRuntimeChange && onInteractionChange && (
         <div className="flex items-center">
           <ModeSelector
@@ -355,6 +386,7 @@ const LexicalChatComposer: React.FC<ChatComposerProps> = ({
           onAllow={(id) => onApprovalAllow?.(id)}
           onAllowAlways={onApprovalAllowAlways ? (id) => onApprovalAllowAlways(id) : undefined}
           onDeny={(id) => onApprovalDeny?.(id)}
+          sessionId={sessionId}
         />
       )}
       <div className="relative">

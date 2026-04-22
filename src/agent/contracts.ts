@@ -28,7 +28,14 @@ export type AgentEventKind =
   | 'user_input_requested'
   | 'user_input_resolved'
   | 'checkpoint_created'
-  | 'checkpoint_reverted';
+  | 'checkpoint_reverted'
+  | 'settings_changed'
+  | 'mcp_server_added'
+  | 'mcp_server_removed'
+  | 'mcp_tools_discovered'
+  | 'mcp_tool_details_loaded'
+  | 'mcp_elicitation_requested'
+  | 'mcp_token_cost_updated';
 
 export interface ChatMessageAttachment {
   attachmentId: string;
@@ -308,6 +315,57 @@ export interface CheckpointRevertedEvent extends BaseEvent {
   safetyStashSha?: string;
 }
 
+export interface SettingsChangedEvent extends BaseEvent {
+  kind: 'settings_changed';
+  key: string;
+  value: unknown;
+  seq: number;
+}
+
+export interface McpServerAddedEvent extends BaseEvent {
+  kind: 'mcp_server_added';
+  name: string;
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+}
+
+export interface McpServerRemovedEvent extends BaseEvent {
+  kind: 'mcp_server_removed';
+  name: string;
+}
+
+export interface McpToolsDiscoveredEvent extends BaseEvent {
+  kind: 'mcp_tools_discovered';
+  serverName: string;
+  tools: Array<{ name: string; description?: string }>;
+}
+
+export interface McpToolDetailsLoadedEvent extends BaseEvent {
+  kind: 'mcp_tool_details_loaded';
+  serverName: string;
+  toolName: string;
+  inputSchema: unknown;
+}
+
+export interface McpElicitationRequestedEvent extends BaseEvent {
+  kind: 'mcp_elicitation_requested';
+  elicitationId: string;
+  serverName: string;
+  toolName: string;
+  schema: unknown;
+  deadlineMs: number;
+}
+
+export interface McpTokenCostUpdatedEvent extends BaseEvent {
+  kind: 'mcp_token_cost_updated';
+  serverName: string;
+  toolName: string;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd?: number;
+}
+
 export type AgentEvent =
   | UserMessageEvent
   | TurnStartEvent
@@ -335,7 +393,14 @@ export type AgentEvent =
   | UserInputRequestedEvent
   | UserInputResolvedEvent
   | CheckpointCreatedEvent
-  | CheckpointRevertedEvent;
+  | CheckpointRevertedEvent
+  | SettingsChangedEvent
+  | McpServerAddedEvent
+  | McpServerRemovedEvent
+  | McpToolsDiscoveredEvent
+  | McpToolDetailsLoadedEvent
+  | McpElicitationRequestedEvent
+  | McpTokenCostUpdatedEvent;
 
 export type CommandId = string; // ULID
 
@@ -363,7 +428,13 @@ export type AgentCommandBody =
   | { kind: 'agent_commit_push_pr'; sessionId: string; title: string; body?: string; draft?: boolean }
   | { kind: 'agent_set_model'; sessionId: string; model: string; effort?: EffortLevel }
   | { kind: 'agent_rename_session'; sessionId: string; displayName: string }
-  | { kind: 'agent_rewind_to_message'; sessionId: string; messageId: string };
+  | { kind: 'agent_rewind_to_message'; sessionId: string; messageId: string }
+  | { kind: 'agent_add_allowlist_rule'; sessionId: string; toolName: string; pathGlob?: string; permanent?: boolean }
+  | { kind: 'agent_update_settings_rule'; sessionId: string; key: string; value: unknown }
+  | { kind: 'agent_mcp_add'; sessionId: string; name: string; command: string; args?: string[]; env?: Record<string, string> }
+  | { kind: 'agent_mcp_remove'; sessionId: string; name: string }
+  | { kind: 'agent_mcp_test'; sessionId: string; name: string }
+  | { kind: 'agent_mcp_elicit_respond'; sessionId: string; elicitationId: string; values: Record<string, unknown> };
 
 export type AgentCommand = AgentCommandBody & { commandId?: CommandId };
 

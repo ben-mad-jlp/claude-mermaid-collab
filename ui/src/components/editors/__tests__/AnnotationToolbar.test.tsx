@@ -11,8 +11,8 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { EditorView } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
+import { EditorView } from '@codemirror/view';
 import {
   AnnotationToolbar,
   insertAnnotation,
@@ -42,13 +42,13 @@ function createMockEditorView(content: string, selectionFrom: number, selectionT
 describe('AnnotationToolbar', () => {
   describe('Rendering', () => {
     it('should render the toolbar', () => {
-      render(<AnnotationToolbar editorView={null} />);
+      render(<AnnotationToolbar editor={null} />);
 
       expect(screen.getByTestId('annotation-toolbar')).toBeDefined();
     });
 
     it('should render all annotation buttons', () => {
-      render(<AnnotationToolbar editorView={null} />);
+      render(<AnnotationToolbar editor={null} />);
 
       expect(screen.getByTestId('annotation-btn-add-comment')).toBeDefined();
       expect(screen.getByTestId('annotation-btn-mark-as-proposed')).toBeDefined();
@@ -58,14 +58,14 @@ describe('AnnotationToolbar', () => {
     });
 
     it('should render with custom className', () => {
-      render(<AnnotationToolbar editorView={null} className="custom-class" />);
+      render(<AnnotationToolbar editor={null} className="custom-class" />);
 
       const toolbar = screen.getByTestId('annotation-toolbar');
       expect(toolbar.className).toContain('custom-class');
     });
 
     it('should have correct button titles', () => {
-      render(<AnnotationToolbar editorView={null} />);
+      render(<AnnotationToolbar editor={null} />);
 
       expect(screen.getByTitle('Add comment')).toBeDefined();
       expect(screen.getByTitle('Mark as proposed')).toBeDefined();
@@ -78,7 +78,7 @@ describe('AnnotationToolbar', () => {
   describe('Button Click Handlers', () => {
     it('should handle comment button click with editorView', () => {
       const { view } = createMockEditorView('test content', 0, 4);
-      render(<AnnotationToolbar editorView={view} />);
+      render(<AnnotationToolbar editor={null} />);
 
       fireEvent.click(screen.getByTestId('annotation-btn-add-comment'));
 
@@ -87,7 +87,7 @@ describe('AnnotationToolbar', () => {
 
     it('should handle propose button click with editorView', () => {
       const { view } = createMockEditorView('test content', 0, 4);
-      render(<AnnotationToolbar editorView={view} />);
+      render(<AnnotationToolbar editor={null} />);
 
       fireEvent.click(screen.getByTestId('annotation-btn-mark-as-proposed'));
 
@@ -96,7 +96,7 @@ describe('AnnotationToolbar', () => {
 
     it('should handle approve button click with editorView', () => {
       const { view } = createMockEditorView('test content', 0, 4);
-      render(<AnnotationToolbar editorView={view} />);
+      render(<AnnotationToolbar editor={null} />);
 
       fireEvent.click(screen.getByTestId('annotation-btn-mark-as-approved'));
 
@@ -105,7 +105,7 @@ describe('AnnotationToolbar', () => {
 
     it('should handle clear button click with editorView', () => {
       const { view } = createMockEditorView('<!-- status: approved -->', 0, 0);
-      render(<AnnotationToolbar editorView={view} />);
+      render(<AnnotationToolbar editor={null} />);
 
       fireEvent.click(screen.getByTestId('annotation-btn-clear-annotations'));
 
@@ -113,7 +113,7 @@ describe('AnnotationToolbar', () => {
     });
 
     it('should not crash when clicking buttons with null editorView', () => {
-      render(<AnnotationToolbar editorView={null} />);
+      render(<AnnotationToolbar editor={null} />);
 
       expect(() => {
         fireEvent.click(screen.getByTestId('annotation-btn-add-comment'));

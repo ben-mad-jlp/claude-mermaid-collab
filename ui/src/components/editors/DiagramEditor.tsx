@@ -16,7 +16,7 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
-import CodeMirrorWrapper from './CodeMirrorWrapper';
+import CodeMirrorWrapper from './MonacoWrapper';
 import MermaidPreview from './MermaidPreview';
 import { SplitPane } from '../layout/SplitPane';
 import { useDiagram } from '@/hooks/useDiagram';

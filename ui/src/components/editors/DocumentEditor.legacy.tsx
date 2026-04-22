@@ -17,7 +17,7 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { SplitPane } from '@/components/layout/SplitPane';
-import { CodeMirrorWrapper } from './CodeMirrorWrapper';
+import { MonacoWrapper } from './MonacoWrapper';
 import { MarkdownPreview } from './MarkdownPreview';
 import { useDocument } from '@/hooks/useDocument';
 import { Document } from '@/types';
@@ -25,7 +25,7 @@ import { AnnotationToolbar } from './AnnotationToolbar';
 import { Minimap } from './Minimap';
 import { useSyncScroll } from '@/hooks/useSyncScroll';
 import { downloadCleanMarkdown } from '@/lib/annotationUtils';
-import { EditorView } from '@codemirror/view';
+import type * as Monaco from 'monaco-editor';
 import { HistoryModal } from './HistoryModal';
 
 /**
@@ -107,7 +107,7 @@ export const DocumentEditorLegacy: React.FC<DocumentEditorProps> = ({
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // New state for annotation features
-  const [editorView, setEditorView] = useState<EditorView | null>(null);
+  const [editorView, setEditorView] = useState<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const [showDiff, setShowDiff] = useState(false);
   const [previousContent, setPreviousContent] = useState<string>('');
 
@@ -210,7 +210,7 @@ export const DocumentEditorLegacy: React.FC<DocumentEditorProps> = ({
   }, [document]);
 
   // Handle editor ready callback
-  const handleEditorReady = useCallback((view: EditorView | null) => {
+  const handleEditorReady = useCallback((view: Monaco.editor.IStandaloneCodeEditor | null) => {
     setEditorView(view);
   }, []);
 
@@ -265,11 +265,8 @@ export const DocumentEditorLegacy: React.FC<DocumentEditorProps> = ({
     if (editorView) {
       try {
         // Scroll to line in editor
-        const lineInfo = editorView.state.doc.line(line);
-        editorView.dispatch({
-          selection: { anchor: lineInfo.from },
-          scrollIntoView: true,
-        });
+        editorView.revealLine(line, 1 /* Immediate */);
+        editorView.setPosition({ lineNumber: line, column: 1 });
       } catch {
         // Line number out of range, ignore
       }
@@ -416,7 +413,7 @@ export const DocumentEditorLegacy: React.FC<DocumentEditorProps> = ({
           {/* Secondary toolbar row with annotation tools and feature toggles */}
           <div className="flex items-center justify-between px-4 py-2 border-t border-gray-200 dark:border-gray-700">
             {/* Annotation toolbar */}
-            <AnnotationToolbar editorView={editorView} />
+            <AnnotationToolbar editor={null} />
 
             {/* Feature toggle buttons */}
             <div className="flex gap-2 items-center">
@@ -466,7 +463,7 @@ export const DocumentEditorLegacy: React.FC<DocumentEditorProps> = ({
                 ref={editorScrollRef}
                 className="flex-1 min-h-0 border-r border-gray-200 dark:border-gray-700 overflow-auto"
               >
-                <CodeMirrorWrapper
+                <MonacoWrapper
                   value={content}
                   onChange={handleContentChange}
                   onEditorReady={handleEditorReady}
