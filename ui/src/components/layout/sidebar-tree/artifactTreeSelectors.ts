@@ -24,7 +24,7 @@ export function selectBlueprintNodes<
     .map((d) => ({ ...d, type: 'document' as const }));
 }
 
-/** Linked snippets (metadata.linked OR parsed content.linked). Sorted by lastModified desc. */
+/** Linked snippets — type:'code' artifacts. Sorted by lastModified desc. */
 export function selectLinkedSnippets<
   T extends {
     name: string;
@@ -36,31 +36,13 @@ export function selectLinkedSnippets<
   }
 >(snippets: T[]): Array<T & { type: 'snippet'; _filePath: string; _dirty: boolean }> {
   return snippets
-    .filter((snip) => {
-      if ((snip as any).linked === true) return true;
-      try {
-        const parsed = JSON.parse(snip.content || '');
-        return parsed.linked === true;
-      } catch {
-        return false;
-      }
-    })
+    .filter((snip) => (snip as any).type === 'code')
     .slice()
     .sort((a, b) => b.lastModified - a.lastModified)
     .map((snip) => {
-      let displayName = snip.name;
-      let filePath = (snip as any).filePath || '';
-      let dirty = !!(snip as any).dirty;
-      try {
-        const parsed = JSON.parse(snip.content || '');
-        if (parsed.filePath) {
-          displayName = parsed.filePath.split('/').pop() || snip.name;
-          filePath = parsed.filePath;
-        }
-        dirty = !!parsed.dirty;
-      } catch {
-        if (filePath) displayName = filePath.split('/').pop() || snip.name;
-      }
+      const filePath = (snip as any).filePath || snip.name;
+      const displayName = filePath ? filePath.split('/').pop() || snip.name : snip.name;
+      const dirty = !!(snip as any).dirty;
       return {
         ...snip,
         name: displayName,
@@ -119,7 +101,7 @@ export function selectCatchAllSpreadsheets<
 }
 
 /**
- * Catch-all snippets — exclude vibeinstructions and linked snippets,
+ * Catch-all snippets — exclude vibeinstructions and code-type artifacts,
  * dedupe by parsed.groupId, map to displayName = parsed.groupName || snip.name.
  */
 export function selectCatchAllSnippets<
@@ -136,10 +118,10 @@ export function selectCatchAllSnippets<
     .sort((a, b) => b.lastModified - a.lastModified)
     .filter((snip) => {
       if (snip.name.endsWith('vibeinstructions')) return false;
-      if ((snip as any).linked === true) return false;
+      // Exclude code-type artifacts (they appear in the linked-files section)
+      if ((snip as any).type === 'code') return false;
       try {
         const parsed = JSON.parse(snip.content || '');
-        if (parsed.linked) return false;
         if (parsed.groupId) {
           if (seenGroups.has(parsed.groupId)) return false;
           seenGroups.add(parsed.groupId);

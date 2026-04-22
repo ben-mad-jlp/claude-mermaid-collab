@@ -30,6 +30,9 @@ export type WSMessage =
   | { type: 'snippet_updated'; id: string; content: string; lastModified: number; project: string; session: string }
   | { type: 'snippet_created'; id: string; name: string; content: string; lastModified: number; project: string; session: string }
   | { type: 'snippet_deleted'; id: string; project: string; session: string }
+  | { type: 'code_file_updated'; id: string; content: string; lastModified: number; project: string; session: string }
+  | { type: 'code_file_created'; id: string; name: string; content: string; lastModified: number; project: string; session: string }
+  | { type: 'code_file_deleted'; id: string; project: string; session: string }
   | { type: 'embed_created'; id: string; name: string; url: string; subtype?: 'storybook'; createdAt: string; storybook?: { storyId: string; port: number }; width?: string; height?: string; project: string; session: string }
   | { type: 'embed_deleted'; id: string; project: string; session: string }
   | { type: 'image_created'; id: string; name: string; url?: string; project: string; session: string; [k: string]: unknown }

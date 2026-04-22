@@ -4,8 +4,7 @@
  * CRUD operations for code snippets stored as .snippet files in session folders.
  */
 
-import { readFile, writeFile } from 'fs/promises';
-import { extname, basename } from 'path';
+import { extname } from 'path';
 
 const API_PORT = parseInt(process.env.PORT || '9002', 10);
 const API_HOST = process.env.HOST || 'localhost';
@@ -71,13 +70,8 @@ export const createSnippetSchema = {
   properties: {
     ...sessionParamsDesc,
     name: { type: 'string', description: 'Snippet name. Include a file extension to enable syntax highlighting (e.g. "UpdatePackageTypeAsync.cs", "auth.ts", "config.py"). Without an extension, language defaults to plain text.' },
-    content: { type: 'string', description: 'Snippet content (JSON or raw code). Not required if sourcePath is provided.' },
-    sourcePath: { type: 'string', description: 'Absolute path to source file. Reads the file, auto-detects language, and sets originalCode.' },
-    startAt: { type: 'string', description: 'Anchor string — extract starts at the line containing this text (inclusive). Matched via trimmed substring.' },
-    endAt: { type: 'string', description: 'Anchor string — extract ends at the line containing this text (inclusive). Matched via trimmed substring.' },
-    maxLines: { type: 'number', description: 'Max lines to extract (default 500). Error if range exceeds this.' },
-    groupId: { type: 'string', description: 'Group ID to link related snippets together. Snippets with the same groupId display as tabs in the UI.' },
-    groupName: { type: 'string', description: 'Display name for the snippet group shown in the sidebar (e.g. "Auth Feature"). All snippets in a group should use the same groupName.' },
+    content: { type: 'string', description: 'Snippet content (JSON or raw code).' },
+    tags: { type: 'array', items: { type: 'object', properties: { type: { type: 'string' }, value: { type: 'string' } }, required: ['type', 'value'] }, description: 'Optional tags to associate with the snippet.' },
   },
   required: ['project'],
 };
@@ -87,7 +81,8 @@ export const updateSnippetSchema = {
   properties: {
     ...sessionParamsDesc,
     id: { type: 'string', description: 'Snippet ID' },
-    content: { type: 'string', description: 'Updated snippet content. Can be raw code — language, groupId, groupName, and other metadata from the existing JSON envelope are preserved automatically.' },
+    content: { type: 'string', description: 'Updated snippet content. Can be raw code — language and other metadata from the existing JSON envelope are preserved automatically.' },
+    tags: { type: 'array', items: { type: 'object', properties: { type: { type: 'string' }, value: { type: 'string' } }, required: ['type', 'value'] }, description: 'Optional tags to associate with the snippet.' },
   },
   required: ['project', 'id', 'content'],
 };
@@ -146,56 +141,6 @@ const EXT_TO_LANGUAGE: Record<string, string> = {
   '.go': 'go', '.rs': 'rust', '.rb': 'ruby', '.php': 'php',
 };
 
-// ============= Anchor Helpers =============
-
-export function findAnchorLine(lines: string[], anchor: string, label: string, filePath: string): number {
-  const trimmedAnchor = anchor.trim();
-  const matches: number[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].trim().includes(trimmedAnchor)) {
-      matches.push(i);
-    }
-  }
-  if (matches.length === 0) {
-    throw new Error(`${label} anchor not found in ${filePath}: "${trimmedAnchor}"`);
-  }
-  if (matches.length > 1) {
-    const context = matches.map(idx => {
-      const before = idx > 0 ? `  ${idx}: ${lines[idx - 1]}` : '';
-      const line = `  ${idx + 1}: ${lines[idx]}`;
-      const after = idx < lines.length - 1 ? `  ${idx + 2}: ${lines[idx + 1]}` : '';
-      return [before, line, after].filter(Boolean).join('\n');
-    }).join('\n---\n');
-    throw new Error(`${label} anchor "${trimmedAnchor}" matched ${matches.length} lines in ${filePath}:\n${context}`);
-  }
-  return matches[0];
-}
-
-export function extractWithAnchors(fileContent: string, filePath: string, startAt?: string, endAt?: string, maxLines: number = 500): string {
-  if (!filePath) throw new Error('filePath is required for anchor extraction');
-  if (!fileContent) throw new Error('fileContent is empty — nothing to extract');
-  const normalized = fileContent.replace(/\r\n/g, '\n');
-  const lines = normalized.split('\n');
-
-  if (lines.length === 1 && (startAt || endAt)) {
-    throw new Error(`File appears to be minified (1 line) — anchor extraction is not supported: ${filePath}`);
-  }
-
-  const startIndex = startAt ? findAnchorLine(lines, startAt, 'startAt', filePath) : 0;
-  const endIndex = endAt ? findAnchorLine(lines, endAt, 'endAt', filePath) : lines.length - 1;
-
-  if (endIndex < startIndex) {
-    throw new Error(`endAt anchor appears before startAt anchor (line ${endIndex + 1} < ${startIndex + 1}) in ${filePath}`);
-  }
-
-  const rangeSize = endIndex - startIndex + 1;
-  if (rangeSize > maxLines) {
-    throw new Error(`Anchor range is ${rangeSize} lines, exceeding maxLines limit of ${maxLines} in ${filePath}`);
-  }
-
-  return lines.slice(startIndex, endIndex + 1).join('\n');
-}
-
 // ============= Handlers =============
 
 export async function handleCreateSnippet(
@@ -203,94 +148,30 @@ export async function handleCreateSnippet(
   session: string,
   name?: string,
   content?: string,
-  sourcePath?: string,
-  startLine?: number,
-  endLine?: number,
-  groupId?: string,
-  groupName?: string,
-  startAt?: string,
-  endAt?: string,
-  maxLines?: number,
+  tags?: Array<{ type: string; value: string }>,
 ): Promise<CreateSnippetResult> {
   let finalName = name;
   let finalContent = content;
 
-  // Deprecation warning for startLine/endLine
-  if (startLine !== undefined || endLine !== undefined) {
-    console.warn('[snippet] startLine/endLine are deprecated — use startAt/endAt anchors instead');
-  }
-
-  // If sourcePath is provided, read the file and build JSON content
-  if (sourcePath) {
-    const fileContent = await readFile(sourcePath, 'utf-8');
-    const ext = extname(sourcePath).toLowerCase();
-    const language = EXT_TO_LANGUAGE[ext] || 'text';
-
-    if (!finalName) {
-      finalName = basename(sourcePath);
-    }
-
-    let code = fileContent;
-    let lineOffset: number | undefined;
-
-    // Anchor-based extraction takes priority over line-based
-    if (startAt !== undefined || endAt !== undefined) {
-      code = extractWithAnchors(fileContent, sourcePath, startAt, endAt, maxLines);
-    } else if (startLine !== undefined || endLine !== undefined) {
-      // Legacy line-based slicing (deprecated)
-      const lines = fileContent.split('\n');
-      const start = Math.max(1, startLine ?? 1);
-      const end = Math.min(lines.length, endLine ?? lines.length);
-      code = lines.slice(start - 1, end).join('\n');
-      lineOffset = start;
-    }
-
-    const snippetData: Record<string, unknown> = {
-      language,
-      code,
-      filePath: sourcePath,
-      originalCode: code,
-      ...(groupId && { groupId }),
-      ...(groupName && { groupName }),
-    };
-
-    // Store anchor info
-    if (startAt !== undefined) snippetData.startAt = startAt;
-    if (endAt !== undefined) snippetData.endAt = endAt;
-
-    if (lineOffset !== undefined) {
-      snippetData.startLine = startLine;
-      snippetData.endLine = endLine;
-    }
-
-    finalContent = JSON.stringify(snippetData);
-  }
-
   if (!finalName || finalContent === undefined) {
-    throw new Error('Either provide name+content, or sourcePath to auto-load from file');
+    throw new Error('name and content are required');
   }
 
-  // Inject groupId/groupName into JSON content if provided and content is JSON
-  if (groupId && finalContent && !sourcePath) {
+  // If content is raw code (not JSON), wrap in envelope with language detection
+  let alreadyJson = false;
+  try { JSON.parse(finalContent); alreadyJson = true; } catch {}
+  if (!alreadyJson) {
+    const ext = finalName ? extname(finalName).toLowerCase() : '';
+    const language = EXT_TO_LANGUAGE[ext] || 'text';
+    finalContent = JSON.stringify({ code: finalContent, language, originalCode: finalContent, ...(tags && tags.length > 0 && { tags }) });
+  } else if (tags && tags.length > 0) {
+    // Merge tags into existing JSON envelope
     try {
       const parsed = JSON.parse(finalContent);
-      parsed.groupId = groupId;
-      if (groupName) parsed.groupName = groupName;
+      parsed.tags = tags;
       finalContent = JSON.stringify(parsed);
     } catch {
-      // Content isn't JSON — wrap it
-      finalContent = JSON.stringify({ code: finalContent, groupId, ...(groupName && { groupName }) });
-    }
-  }
-
-  // If content is still raw code (not JSON), wrap in envelope with language detection
-  if (finalContent && !sourcePath) {
-    let alreadyJson = false;
-    try { JSON.parse(finalContent); alreadyJson = true; } catch {}
-    if (!alreadyJson) {
-      const ext = finalName ? extname(finalName).toLowerCase() : '';
-      const language = EXT_TO_LANGUAGE[ext] || 'text';
-      finalContent = JSON.stringify({ code: finalContent, language, originalCode: finalContent });
+      // leave as-is
     }
   }
 
@@ -313,7 +194,8 @@ export async function handleUpdateSnippet(
   project: string,
   session: string,
   id: string,
-  content: string
+  content: string,
+  tags?: Array<{ type: string; value: string }>,
 ): Promise<UpdateSnippetResult> {
   // Preserve the existing JSON envelope (groupId, groupName, filePath, etc.)
   // by merging into the existing object rather than replacing it entirely.
@@ -337,12 +219,14 @@ export async function handleUpdateSnippet(
           if (typeof existing.code === 'string') {
             existing.code = content;
             existing.originalCode = content;
+            if (tags && tags.length > 0) existing.tags = tags;
             finalContent = JSON.stringify(existing);
           }
         } else if (incomingParsed && typeof incomingParsed === 'object') {
           // JSON content — merge: preserve existing fields not in incoming
           const merged = { ...existing, ...incomingParsed };
           if (typeof merged.code === 'string') merged.originalCode = merged.code;
+          if (tags && tags.length > 0) merged.tags = tags;
           finalContent = JSON.stringify(merged);
         }
       }
@@ -352,8 +236,21 @@ export async function handleUpdateSnippet(
         const name = snippetData?.name || '';
         const ext = extname(name).toLowerCase();
         const language = EXT_TO_LANGUAGE[ext] || 'text';
-        finalContent = JSON.stringify({ code: content, language, originalCode: content });
+        finalContent = JSON.stringify({ code: content, language, originalCode: content, ...(tags && tags.length > 0 && { tags }) });
       }
+    }
+  }
+
+  // If tags provided but we didn't get to merge them above (e.g. getResponse failed), inject into finalContent
+  if (tags && tags.length > 0) {
+    try {
+      const parsed = JSON.parse(finalContent);
+      if (typeof parsed === 'object' && parsed !== null && !parsed.tags) {
+        parsed.tags = tags;
+        finalContent = JSON.stringify(parsed);
+      }
+    } catch {
+      // leave as-is
     }
   }
 

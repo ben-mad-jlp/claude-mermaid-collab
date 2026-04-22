@@ -85,6 +85,7 @@ const ALL_SECTION_IDS = [
   'documents',
   'designs',
   'spreadsheets',
+  'code-files',
   'snippets',
   'archived-blueprints',
 ];
@@ -286,8 +287,17 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
     [spreadsheets],
   );
 
+  const codeFileNodes = useMemo<TreeNode[]>(
+    () =>
+      snippets
+        .filter((s) => (s as any).type === 'code')
+        .map((s) => toArtifactNode(s as any, 'snippet'))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [snippets],
+  );
+
   const snippetNodes = useMemo<TreeNode[]>(
-    () => snippets.map((s) => toArtifactNode(s as any, 'snippet')),
+    () => snippets.filter((s) => (s as any).type === 'snippet').map((s) => toArtifactNode(s as any, 'snippet')),
     [snippets],
   );
 
@@ -345,6 +355,7 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
         id: 'spreadsheets',
         leaves: spreadsheetNodes.map((n) => ({ id: n.id, name: n.name })),
       },
+      { id: 'code-files', leaves: codeFileNodes.map((n) => ({ id: n.id, name: n.name })) },
       { id: 'snippets', leaves: snippetNodes.map((n) => ({ id: n.id, name: n.name })) },
       {
         id: 'archived-blueprints',
@@ -364,6 +375,7 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
     documentNodes,
     designNodes,
     spreadsheetNodes,
+    codeFileNodes,
     snippetNodes,
     searchQuery,
   ]);
@@ -456,6 +468,7 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
       { id: 'documents', nodes: documentNodes },
       { id: 'designs', nodes: designNodes },
       { id: 'spreadsheets', nodes: spreadsheetNodes },
+      { id: 'code-files', nodes: codeFileNodes },
       { id: 'snippets', nodes: snippetNodes },
       { id: 'archived-blueprints', nodes: archivedBlueprintNodes },
     ];
@@ -486,6 +499,7 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
     documentNodes,
     designNodes,
     spreadsheetNodes,
+    codeFileNodes,
     snippetNodes,
     collapsedSections,
     forceExpandedSections,
@@ -689,6 +703,7 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
       ...documentNodes,
       ...designNodes,
       ...spreadsheetNodes,
+      ...codeFileNodes,
       ...snippetNodes,
       ...archivedBlueprintNodes,
     ]) {
@@ -706,6 +721,7 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
     documentNodes,
     designNodes,
     spreadsheetNodes,
+    codeFileNodes,
     snippetNodes,
     archivedBlueprintNodes,
   ]);
@@ -1186,6 +1202,15 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
                 name: basename,
               });
             }}
+            onPermanent={(stem) => {
+              const basename = stem.split('/').pop() || stem;
+              openPermanent({
+                id: `pseudo::${stem}`,
+                kind: 'code-file',
+                artifactId: stem,
+                name: basename,
+              });
+            }}
             project={currentSession.project}
           />
         </div>
@@ -1204,6 +1229,7 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
         {renderSection('documents', 'Documents', documentNodes)}
         {renderSection('designs', 'Designs', designNodes)}
         {renderSection('spreadsheets', 'Spreadsheets', spreadsheetNodes)}
+        {renderSection('code-files', 'Code Files', codeFileNodes)}
         {renderSection('snippets', 'Snippets', snippetNodes)}
         {renderSection('archived-blueprints', 'Archived Blueprints', archivedBlueprintNodes)}
       </div>

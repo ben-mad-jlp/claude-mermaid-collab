@@ -24,8 +24,10 @@ export type PseudoTreeBodyProps = {
   fileList: PseudoFileSummary[];
   currentPath: string;
   onNavigate: (stem: string) => void;
+  onPermanent?: (stem: string) => void;
   project: string;
   onProjectChange?: (project: string) => void;
+  codeArtifactPaths?: string[];
 };
 
 /**
@@ -47,7 +49,9 @@ export function PseudoTreeBody({
   fileList,
   currentPath,
   onNavigate,
+  onPermanent,
   project,
+  codeArtifactPaths = [],
 }: PseudoTreeBodyProps) {
   const pseudoCollapsedPaths = useSidebarTreeStore((s) => s.pseudoCollapsedPaths);
   const searchQuery = useSidebarTreeStore((s) => s.searchQuery);
@@ -90,6 +94,11 @@ export function PseudoTreeBody({
     [currentPath, toRelative]
   );
 
+  const linkedSet = useMemo<Set<string>>(
+    () => new Set(codeArtifactPaths.map((p) => toRelative(p))),
+    [codeArtifactPaths, toRelative]
+  );
+
   const handleTreeNavigate = useCallback(
     (relPath: string) => {
       onNavigate(relativeToAbsolute.get(relPath) ?? relPath);
@@ -97,15 +106,22 @@ export function PseudoTreeBody({
     [onNavigate, relativeToAbsolute]
   );
 
+  const handleTreePermanent = useCallback(
+    (relPath: string) => {
+      onPermanent?.(relativeToAbsolute.get(relPath) ?? relPath);
+    },
+    [onPermanent, relativeToAbsolute],
+  );
+
   const handleTreePrefetch = useCallback(
     (relPath: string) => {
       if (!project) return;
-      const meta = fileList.find((f) => toRelative(f.filePath) === relPath);
+      const meta = fileMeta.get(relPath);
       if (!meta || (meta.methodCount === 0 && meta.exportCount === 0)) return;
       const abs = relativeToAbsolute.get(relPath) ?? relPath;
       prefetchPseudoFile(project, abs);
     },
-    [project, relativeToAbsolute, fileList, toRelative]
+    [project, relativeToAbsolute, fileMeta]
   );
 
   const tree = useMemo(() => {
@@ -146,9 +162,11 @@ export function PseudoTreeBody({
             collapsedDirs={pseudoCollapsedPaths}
             onToggleCollapse={togglePseudoPath}
             onNavigate={handleTreeNavigate}
+            onPermanent={handleTreePermanent}
             filterExpanded={filterExpanded}
             fileMeta={fileMeta}
             onPrefetch={handleTreePrefetch}
+            linkedPaths={linkedSet}
           />
         ))
       )}

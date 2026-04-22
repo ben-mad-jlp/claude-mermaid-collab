@@ -22,6 +22,8 @@ import { Snippet, SnippetAnnotation } from '@/types';
 import type { Language } from './MonacoWrapper';
 import type * as Monaco from 'monaco-editor';
 
+interface SnippetTag { type: 'file' | 'symbol' | 'layer' | 'domain'; value: string; resolvedPath?: string; lastResolvedAt?: string; }
+
 /**
  * Props for the SnippetEditor component
  */
@@ -165,6 +167,13 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
   } | null>(null);
   const annotationTextRef = useRef<HTMLTextAreaElement>(null);
 
+  // Tag state
+  const [tags, setTags] = useState<SnippetTag[]>([]);
+  const [showTagComposer, setShowTagComposer] = useState(false);
+  const [newTagType, setNewTagType] = useState<SnippetTag['type']>('file');
+  const [newTagValue, setNewTagValue] = useState('');
+  const [fileExistsMap, setFileExistsMap] = useState<Record<string, boolean | null>>({});
+
   // Parse snippet JSON content → { language, code, filePath, highlightLines, originalCode }
   // Falls back gracefully if content is a plain string (not JSON)
   const parseSnippetData = useCallback((rawContent: string) => {
@@ -177,9 +186,10 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
         originalCode: typeof data.originalCode === 'string' ? data.originalCode : null,
         highlightLines: Array.isArray(data.highlightLines) ? data.highlightLines : [],
         annotations: Array.isArray(data.annotations) ? data.annotations as SnippetAnnotation[] : [],
+        tags: Array.isArray(data.tags) ? data.tags as SnippetTag[] : [],
       };
     } catch {
-      return { code: rawContent, language: null, filePath: null, originalCode: null, highlightLines: [], annotations: [] };
+      return { code: rawContent, language: null, filePath: null, originalCode: null, highlightLines: [], annotations: [], tags: [] };
     }
   }, []);
 
@@ -187,9 +197,9 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
   const serializeSnippetData = useCallback((newCode: string, rawContent: string): string => {
     try {
       const data = JSON.parse(rawContent);
-      return JSON.stringify({ ...data, code: newCode, annotations, language: selectedLanguage });
+      return JSON.stringify({ ...data, code: newCode, annotations, language: selectedLanguage, tags });
     } catch {
-      return JSON.stringify({ code: newCode, language: selectedLanguage, annotations });
+      return JSON.stringify({ code: newCode, language: selectedLanguage, annotations, tags });
     }
   }, [annotations, selectedLanguage]);
 
@@ -217,6 +227,7 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
       setFilePath(parsed.filePath);
       setParsedHighlightLines(parsed.highlightLines);
       setAnnotations(parsed.annotations);
+      setTags(parsed.tags ?? []);
     }
   }, [snippet, parseSnippetData]);
 
@@ -354,7 +365,52 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
     if (annotations.length > 0) await saveAnnotations([]);
   }, [annotations, saveAnnotations]);
 
+  // ─── Tag handlers ────────────────────────────────────────────────────────────
+
+  const saveTags = useCallback(async (newTags: SnippetTag[]) => {
+    if (!snippet) return;
+    setTags(newTags);
+    try {
+      const data = JSON.parse(snippet.content ?? '{}');
+      await updateSnippet(snippet.id, JSON.stringify({ ...data, tags: newTags, language: selectedLanguage }));
+    } catch {
+      // not JSON — tags can't be persisted in plain-text snippets
+    }
+  }, [snippet, updateSnippet, selectedLanguage]);
+
+  const addTag = useCallback(async () => {
+    const trimmed = newTagValue.trim();
+    if (!trimmed) return;
+    const newTag: SnippetTag = { type: newTagType, value: trimmed };
+    await saveTags([...tags, newTag]);
+    setNewTagValue('');
+    setShowTagComposer(false);
+  }, [newTagValue, newTagType, tags, saveTags]);
+
+  const removeTag = useCallback(async (index: number) => {
+    await saveTags(tags.filter((_, i) => i !== index));
+  }, [tags, saveTags]);
+
   // ────────────────────────────────────────────────────────────────────────────
+
+  // File-exists check for file tags
+  useEffect(() => {
+    if (!currentSession) return;
+    const fileTags = tags.filter(t => t.type === 'file');
+    if (fileTags.length === 0) return;
+    fileTags.forEach(tag => {
+      if (fileExistsMap[tag.value] !== undefined) return;
+      setFileExistsMap(prev => ({ ...prev, [tag.value]: null }));
+      fetch(`/api/code/exists?project=${encodeURIComponent(currentSession.project)}&path=${encodeURIComponent(tag.value)}`)
+        .then(r => r.json())
+        .then((res: { exists?: boolean }) => {
+          setFileExistsMap(prev => ({ ...prev, [tag.value]: res.exists ?? false }));
+        })
+        .catch(() => {
+          setFileExistsMap(prev => ({ ...prev, [tag.value]: false }));
+        });
+    });
+  }, [tags, currentSession]);
 
   // Keyboard shortcut for save (Ctrl+S)
   useEffect(() => {
@@ -447,15 +503,10 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
           </button>
         </>
       )}
-      {filePath && !hideFilePath && (
-        <span className="flex-1 text-right text-xs text-gray-400 dark:text-gray-500 font-mono truncate min-w-0" title={filePath}>
-          {filePath}
-        </span>
-      )}
     </>
   ), [
     selectedLanguage, handleLanguageChange, handleCopy,
-    filePath, hideFilePath, showButtons, hasChanges, handleCancel,
+    showButtons, hasChanges, handleCancel,
     handleSave, isSaving, currentSelection, annotationPopover, handleOpenAddAnnotation,
     annotations, handleClearAnnotations,
   ]);
@@ -475,6 +526,31 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
           {toolbarControls}
         </div>
       )}
+
+      {/* Tag strip */}
+      {tags.length > 0 || showTagComposer ? (
+        <div className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-1 flex items-center gap-1.5 flex-wrap">
+          {tags.map((tag, i) => (
+            <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+              <span className="opacity-60">{tag.type === 'file' ? '📄' : tag.type === 'symbol' ? '#' : tag.type === 'layer' ? '◈' : '⬡'}</span>
+              {tag.type === 'file' && <span className={`w-1.5 h-1.5 rounded-full ${fileExistsMap[tag.value] === null || fileExistsMap[tag.value] === undefined ? 'bg-gray-400' : fileExistsMap[tag.value] ? 'bg-green-500' : 'bg-amber-400'}`} />}
+              <span className="font-mono truncate max-w-[160px]">{tag.value}</span>
+              <button onClick={() => removeTag(i)} className="ml-0.5 opacity-50 hover:opacity-100 text-xs">×</button>
+            </span>
+          ))}
+          {!showTagComposer && <button onClick={() => setShowTagComposer(true)} className="px-1.5 py-0.5 rounded text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 border border-dashed border-gray-300 dark:border-gray-600">+</button>}
+          {showTagComposer && (
+            <span className="inline-flex items-center gap-1">
+              <select value={newTagType} onChange={e => setNewTagType(e.target.value as SnippetTag['type'])} className="text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 px-1 py-0.5">
+                <option value="file">file</option><option value="symbol">symbol</option><option value="layer">layer</option><option value="domain">domain</option>
+              </select>
+              <input value={newTagValue} onChange={e => setNewTagValue(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addTag(); if (e.key === 'Escape') setShowTagComposer(false); }} placeholder="value" autoFocus className="text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 px-1.5 py-0.5 w-40 font-mono" />
+              <button onClick={addTag} className="text-xs px-1.5 py-0.5 rounded bg-blue-500 text-white hover:bg-blue-600">Add</button>
+              <button onClick={() => setShowTagComposer(false)} className="text-xs text-gray-400 hover:text-gray-600">✕</button>
+            </span>
+          )}
+        </div>
+      ) : null}
 
       {/* Diff View or Editor */}
       {showDiff ? (

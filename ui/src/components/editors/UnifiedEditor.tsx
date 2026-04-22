@@ -21,7 +21,7 @@
  * reducing code duplication and simplifying the UI.
  */
 
-import React, { useCallback, useRef, useMemo } from 'react';
+import React, { useCallback, useRef } from 'react';
 import type * as Monaco from 'monaco-editor';
 import { SplitPane } from '@/components/layout/SplitPane';
 import { MonacoWrapper } from './MonacoWrapper';
@@ -29,7 +29,7 @@ import { MermaidPreview, MermaidPreviewRef } from '@/components/editors/MermaidP
 import { MarkdownPreview } from '@/components/editors/MarkdownPreview';
 import { DiffView } from '@/components/ai-ui/display/DiffView';
 import { DiagramHistoryPreview } from '@/components/editors/DiagramHistoryPreview';
-import { Item, isDiagram, isDocument, isDesign, isSpreadsheet, isSnippet, Snippet } from '@/types';
+import { Item } from '@/types';
 import { useUIStore } from '@/stores/uiStore';
 import { useMonacoHistory } from '@/hooks/useMonacoHistory';
 import { useExportDiagram } from '@/hooks/useExportDiagram';
@@ -39,8 +39,6 @@ import { DesignEditor } from '@/components/design-editor/DesignEditor';
 import { SpreadsheetEditor } from '@/components/editors/SpreadsheetEditor';
 import { SnippetEditor } from '@/components/editors/SnippetEditor';
 import { CodeEditor } from '@/components/editors/CodeEditor';
-import { useSessionStore } from '@/stores/sessionStore';
-import { api } from '@/lib/api';
 
 /**
  * Props for the UnifiedEditor component
@@ -134,131 +132,6 @@ export interface UnifiedEditorProps {
  * }
  * ```
  */
-/**
- * SnippetGroupView — renders a single snippet or a tabbed group of linked snippets
- */
-const SnippetGroupView: React.FC<{
-  item: Item;
-  onSnippetSave?: (id: string, content: string) => void;
-  onContentChange?: (content: string) => void;
-  onToolbarControls?: (controls: React.ReactNode) => void;
-}> = ({ item, onSnippetSave, onContentChange, onToolbarControls }) => {
-  const snippets = useSessionStore((state) => state.snippets);
-  const selectSnippet = useSessionStore((state) => state.selectSnippet);
-  const removeSnippet = useSessionStore((state) => state.removeSnippet);
-  const currentSession = useSessionStore((state) => state.currentSession);
-
-  const handleSnippetSave = useCallback(
-    (snippet: Snippet) => onSnippetSave?.(snippet.id, snippet.content),
-    [onSnippetSave]
-  );
-
-  // Parse the selected snippet's groupId
-  const groupId = useMemo(() => {
-    try {
-      const parsed = JSON.parse(item.content || '');
-      return typeof parsed.groupId === 'string' ? parsed.groupId : null;
-    } catch {
-      return null;
-    }
-  }, [item.content]);
-
-  // Find all snippets in the same group
-  const groupSnippets = useMemo(() => {
-    if (!groupId) return [item];
-    return snippets
-      .filter((s) => {
-        try {
-          const parsed = JSON.parse(s.content || '');
-          return parsed.groupId === groupId;
-        } catch {
-          return false;
-        }
-      })
-      .map((s) => ({ ...s, type: 'snippet' as const }));
-  }, [groupId, snippets, item]);
-
-  const handleDeleteSnippet = useCallback(
-    async (e: React.MouseEvent, snippetId: string) => {
-      e.stopPropagation();
-      if (!currentSession) return;
-      await api.deleteSnippet(currentSession.project, currentSession.name, snippetId);
-      removeSnippet(snippetId);
-      if (snippetId === item.id) {
-        const remaining = groupSnippets.filter((s) => s.id !== snippetId);
-        if (remaining.length > 0) selectSnippet(remaining[0].id);
-      }
-    },
-    [currentSession, removeSnippet, item.id, groupSnippets, selectSnippet]
-  );
-
-  if (groupSnippets.length <= 1) {
-    // Single snippet — no tabs
-    return (
-      <div className="flex-1 flex flex-col h-full" data-testid="unified-editor-snippet">
-        <SnippetEditor
-          key={item.id}
-          snippetId={item.id}
-          onSave={handleSnippetSave}
-          onChange={onContentChange}
-          onToolbarControls={onToolbarControls}
-        />
-      </div>
-    );
-  }
-
-  // Grouped snippets — tabs
-  return (
-    <div className="flex-1 flex flex-col h-full" data-testid="unified-editor-snippet-group">
-      {/* Tab bar */}
-      <div className="flex border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 overflow-x-auto">
-        {groupSnippets.map((s) => {
-          const isActive = s.id === item.id;
-          return (
-            <div
-              key={s.id}
-              className={`group/tab flex items-center border-b-2 transition-colors ${
-                isActive
-                  ? 'border-indigo-500'
-                  : 'border-transparent hover:border-gray-300'
-              }`}
-            >
-              <button
-                onClick={() => selectSnippet(s.id)}
-                className={`pl-4 pr-2 py-2 text-sm font-medium whitespace-nowrap transition-colors ${
-                  isActive
-                    ? 'text-indigo-600 dark:text-indigo-400'
-                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-                }`}
-              >
-                {s.name}
-              </button>
-              <button
-                onClick={(e) => handleDeleteSnippet(e, s.id)}
-                className="mr-2 p-0.5 rounded text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 opacity-0 group-hover/tab:opacity-100 transition-opacity"
-                title={`Delete ${s.name}`}
-              >
-                <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                </svg>
-              </button>
-            </div>
-          );
-        })}
-      </div>
-      {/* Active editor */}
-      <div className="flex-1 min-h-0">
-        <SnippetEditor
-          key={item.id}
-          snippetId={item.id}
-          onSave={handleSnippetSave}
-          onChange={onContentChange}
-          onToolbarControls={onToolbarControls}
-        />
-      </div>
-    </div>
-  );
-};
 
 export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
   item,
@@ -391,17 +264,24 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
     );
   }
 
-  // Snippet items: check if linked to a code file, otherwise render with group support
-  if (item.type === 'snippet') {
-    // Linked snippets route to CodeEditor for file-backed editing
-    try {
-      const parsed = JSON.parse(item.content || '');
-      if (parsed.linked === true) {
-        return <CodeEditor snippetId={item.id} onToolbarControls={onSnippetToolbarControls} />;
-      }
-    } catch { /* not linked, fall through to regular snippet */ }
+  // Code file items route directly to CodeEditor
+  if (item.type === 'code') {
+    return <CodeEditor codeFileId={item.id} onToolbarControls={onSnippetToolbarControls} />;
+  }
 
-    return <SnippetGroupView item={item} onSnippetSave={onSnippetSave} onContentChange={onContentChange} onToolbarControls={onSnippetToolbarControls} />;
+  // Snippet items render directly with SnippetEditor
+  if (item.type === 'snippet') {
+    return (
+      <div className="flex-1 flex flex-col h-full" data-testid="unified-editor-snippet">
+        <SnippetEditor
+          key={item.id}
+          snippetId={item.id}
+          onSave={(snippet) => onSnippetSave?.(snippet.id, snippet.content)}
+          onChange={onContentChange}
+          onToolbarControls={onSnippetToolbarControls}
+        />
+      </div>
+    );
   }
 
   // Determine editor language based on item type

@@ -58,10 +58,19 @@ export interface SpreadsheetListItem {
   deprecated?: boolean;
 }
 
+export interface SnippetTag {
+  type: 'file' | 'symbol' | 'layer' | 'domain';
+  value: string;
+  resolvedPath?: string;
+  lastResolvedAt?: string;
+}
+
 export interface Snippet {
   id: string;
   name: string;
   content: string;
+  language: string;
+  tags: SnippetTag[];
   lastModified: number;
 }
 
@@ -76,6 +85,28 @@ export interface SnippetListItem {
   name: string;
   lastModified: number;
   deprecated?: boolean;
+}
+
+export interface ProposedEdit {
+  newCode: string;
+  message?: string;
+  proposedBy: string;
+  proposedAt: number;
+}
+
+export interface CodeFile {
+  id: string;
+  filePath: string;
+  name: string;
+  content: string;
+  language: string;
+  contentHash: string;
+  dirty: boolean;
+  linkCreatedAt: number;
+  lastPushedAt: number | null;
+  lastSyncedAt: number | null;
+  proposedEdit?: ProposedEdit;
+  lastModified: number;
 }
 
 export interface Embed {

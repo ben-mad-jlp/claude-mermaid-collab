@@ -41,33 +41,21 @@ function extractSnippetFilePath(snip: Snippet): string | null {
     if (parsed && typeof parsed.filePath === 'string' && parsed.filePath) {
       return parsed.filePath;
     }
-    if (parsed && parsed.linked === true && metaPath) return metaPath;
   } catch {
     // Not JSON envelope
   }
   return metaPath || null;
 }
 
-function isLinkedSnippet(snip: Snippet): boolean {
-  if ((snip as any).linked === true) return true;
-  try {
-    const parsed = JSON.parse(snip.content || '');
-    return parsed?.linked === true;
-  } catch {
-    return false;
-  }
-}
-
 function findLinkedSnippetForFile(
   snippets: Snippet[],
   filePath: string,
 ): Snippet | null {
-  const linked = snippets.filter(isLinkedSnippet);
-  const exact = linked.find((s) => extractSnippetFilePath(s) === filePath);
+  const exact = snippets.find((s) => extractSnippetFilePath(s) === filePath);
   if (exact) return exact;
   const targetStem = getFileStem(filePath);
   if (!targetStem) return null;
-  return linked.find((s) => getFileStem(extractSnippetFilePath(s)) === targetStem) || null;
+  return snippets.find((s) => getFileStem(extractSnippetFilePath(s)) === targetStem) || null;
 }
 
 const KindIconCode: React.FC = () => (

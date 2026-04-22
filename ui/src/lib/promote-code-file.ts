@@ -1,6 +1,6 @@
+import { resolve } from 'path';
 import { useSessionStore } from '../stores/sessionStore';
 import { useTabsStore, sessionKey } from '../stores/tabsStore';
-import { linkFile } from './link-file';
 
 export async function promoteCodeFile(tabId: string): Promise<void> {
   const tabsState = useTabsStore.getState();
@@ -24,25 +24,25 @@ export async function promoteCodeFile(tabId: string): Promise<void> {
   const stem = tab.artifactId;
   const absPath = stem.startsWith('/')
     ? stem
-    : `${currentSession.project.replace(/\/$/, '')}/${stem}`;
-
-  let existingId: string | undefined;
-  for (const s of sessionState.snippets) {
-    try {
-      const parsed = JSON.parse(s.content);
-      if (parsed?.filePath === absPath) {
-        existingId = s.id;
-        break;
-      }
-    } catch {
-      continue;
-    }
-  }
+    : resolve(currentSession.project, stem);
 
   try {
-    const snippetId =
-      existingId ??
-      (await linkFile(currentSession.project, currentSession.name, absPath));
+    const response = await fetch(
+      `/api/code/create?project=${encodeURIComponent(currentSession.project)}&session=${encodeURIComponent(currentSession.name)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filePath: absPath, name: tab.name }),
+      },
+    );
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({})) as any;
+      throw new Error(err?.error ?? `Failed to create code artifact (${response.status})`);
+    }
+
+    const data = await response.json() as { id: string; success: boolean };
+    const snippetId = data.id;
 
     tabsState.closeTab(tabId);
     tabsState.openPermanent({

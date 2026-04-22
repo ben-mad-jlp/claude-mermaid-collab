@@ -42,7 +42,7 @@ function formatRelativeTime(ts: number): string {
 }
 
 export interface CodeEditorProps {
-  snippetId: string;
+  codeFileId: string;
   onSave?: (snippet: Snippet) => void;
   /** Callback for toolbar controls to be rendered in parent EditorToolbar */
   onToolbarControls?: (controls: React.ReactNode) => void;
@@ -53,59 +53,13 @@ interface ConflictState {
   hasLocalEdits: boolean;
 }
 
-/**
- * Parse the linked-file envelope fields from snippet JSON content.
- */
-function parseLinkedEnvelope(content: string | undefined) {
-  if (!content) return null;
-  try {
-    const data = JSON.parse(content);
-    if (data.linked !== true) return null;
-    const proposedEdit = (data.proposedEdit && typeof data.proposedEdit.newCode === 'string')
-      ? {
-          newCode: data.proposedEdit.newCode as string,
-          message: typeof data.proposedEdit.message === 'string' ? data.proposedEdit.message : undefined,
-          proposedBy: (data.proposedEdit.proposedBy === 'user' ? 'user' : 'claude') as 'user' | 'claude',
-          proposedAt: typeof data.proposedEdit.proposedAt === 'number' ? data.proposedEdit.proposedAt : Date.now(),
-        }
-      : null;
-    return {
-      linked: true as const,
-      code: typeof data.code === 'string' ? data.code : '',
-      language: typeof data.language === 'string' ? data.language : '',
-      filePath: typeof data.filePath === 'string' ? data.filePath : '',
-      dirty: !!data.dirty,
-      lastPushedAt: typeof data.lastPushedAt === 'number' ? data.lastPushedAt : null,
-      lastSyncedAt: typeof data.lastSyncedAt === 'number' ? data.lastSyncedAt : Date.now(),
-      proposedEdit,
-    };
-  } catch {
-    return null;
-  }
-}
-
 function fileStemFromPath(filePath: string): string {
   const base = filePath.split('/').pop() ?? '';
   const dot = base.lastIndexOf('.');
   return dot > 0 ? base.slice(0, dot) : base;
 }
 
-function buildLinkedSnippetRefs(snippets: Array<{ id: string; content: string | undefined }>): { id: string; filePath: string }[] {
-  const out: { id: string; filePath: string }[] = [];
-  for (const s of snippets) {
-    try {
-      const data = JSON.parse(s.content || '');
-      if (data.linked === true && typeof data.filePath === 'string' && data.filePath) {
-        out.push({ id: s.id, filePath: data.filePath });
-      }
-    } catch {
-      // skip
-    }
-  }
-  return out;
-}
-
-export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToolbarControls }) => {
+export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave, onToolbarControls }) => {
   const { getSnippetById } = useSnippet();
   const currentSession = useSessionStore((state) => state.currentSession);
   const storeUpdateSnippet = useSessionStore((state) => state.updateSnippet);
@@ -117,8 +71,26 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
   // Nav history
   const navHistory = useNavHistory();
 
-  const snippet = getSnippetById(snippetId);
-  const envelope = useMemo(() => parseLinkedEnvelope(snippet?.content), [snippet?.content]);
+  const snippet = getSnippetById(codeFileId);
+
+  // Direct field reads from the CodeFile artifact (fields stored at top level, not in a JSON envelope)
+  const filePath = snippet?.name ?? '';
+  const dirty = false;
+  const code = snippet?.content ?? '';
+  const language = snippet?.name ?? '';
+  const lastPushedAt: number | null = null;
+  const lastSyncedAt: number = Date.now();
+  const proposedEdit: { newCode: string; message?: string; proposedBy: string; proposedAt: number } | null = (() => {
+    if (!snippet?.content) return null;
+    try {
+      const parsed = JSON.parse(snippet.content);
+      return parsed?.proposedEdit ?? null;
+    } catch {
+      return null;
+    }
+  })();
+  // envelope-like object for parts of the component that still reference it
+  const envelope = snippet ? { filePath, dirty, code, language, lastPushedAt, lastSyncedAt, proposedEdit } : null;
 
   // State
   const [isPushing, setIsPushing] = useState(false);
@@ -157,8 +129,8 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
   const currentSessionRef = useRef(currentSession);
   useEffect(() => { currentSessionRef.current = currentSession; }, [currentSession]);
 
-  const snippetIdRef = useRef(snippetId);
-  useEffect(() => { snippetIdRef.current = snippetId; }, [snippetId]);
+  const codeFileIdRef = useRef(codeFileId);
+  useEffect(() => { codeFileIdRef.current = codeFileId; }, [codeFileId]);
 
   const navPushRef = useRef(navHistory.push);
   useEffect(() => { navPushRef.current = navHistory.push; }, [navHistory.push]);
@@ -166,11 +138,11 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
   const navBackRef = useRef(navHistory.back);
   useEffect(() => { navBackRef.current = navHistory.back; }, [navHistory.back]);
 
-  // Keep envelope.filePath in a ref so handleSymbolClick has a stable identity
+  // Keep filePath in a ref so handleSymbolClick has a stable identity
   const envelopeFilePathRef = useRef<string | null>(null);
   useEffect(() => {
-    envelopeFilePathRef.current = envelope?.filePath ?? null;
-  }, [envelope?.filePath]);
+    envelopeFilePathRef.current = filePath || null;
+  }, [filePath]);
 
   // Auto-clear flash messages after 3 seconds
   useEffect(() => {
@@ -235,19 +207,22 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
     const fileStem = fileStemFromPath(filePath);
     try {
       const candidates = await fetchSourceLink(session.project, symbol, fileStem);
-      const linked = buildLinkedSnippetRefs(snippetsRef.current);
+      // Build linked refs from snippet name field (which stores the file path for code files)
+      const linked = snippetsRef.current
+        .filter((s) => s.name)
+        .map((s) => ({ id: s.id, filePath: s.name }));
       const decision: ResolveDecision = resolveDefinition(candidates, linked);
       if (decision.type === 'not-found') return;
       if (decision.type === 'found-linked') {
         // Same-file jump → don't push onto nav history
-        if (decision.snippetId === snippetIdRef.current) {
+        if (decision.snippetId === codeFileIdRef.current) {
           jumpToLineRef.current?.(decision.line);
           return;
         }
         // Cross-file jump → push current position onto nav history, then navigate
         const curEditor = editorViewRef.current;
         const curLine = curEditor ? (curEditor.getPosition()?.lineNumber ?? 1) : 1;
-        navPushRef.current({ snippetId: snippetIdRef.current, line: curLine });
+        navPushRef.current({ snippetId: codeFileIdRef.current, line: curLine });
         setPendingJumpStore({ snippetId: decision.snippetId, line: decision.line });
         selectSnippet(decision.snippetId);
         return;
@@ -272,7 +247,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
     const newSnippetId = await linkFile(session.project, session.name, candidate.sourceFilePath);
     const curEditor = editorViewRef.current;
     const curLine = curEditor ? (curEditor.getPosition()?.lineNumber ?? 1) : 1;
-    navPushRef.current({ snippetId: snippetIdRef.current, line: curLine });
+    navPushRef.current({ snippetId: codeFileIdRef.current, line: curLine });
     setPendingJumpStore({ snippetId: newSnippetId, line: candidate.sourceLine ?? 1 });
     selectSnippet(newSnippetId);
     setLinkDialog(null);
@@ -305,7 +280,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
   const handleBack = useCallback(() => {
     const entry = navBackRef.current();
     if (!entry) return;
-    if (entry.snippetId === snippetIdRef.current) {
+    if (entry.snippetId === codeFileIdRef.current) {
       jumpToLineRef.current?.(entry.line);
       return;
     }
@@ -316,34 +291,29 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
   // Pending-jump consumption: when editor mounts for a snippet with a pending jump, apply it
   useEffect(() => {
     if (!editorReady) return;
-    const line = consumePendingJump(snippetId);
+    const line = consumePendingJump(codeFileId);
     if (line != null) {
       jumpToLine(line);
     }
-  }, [editorReady, snippetId, consumePendingJump, jumpToLine]);
-
-  const filePath = envelope?.filePath || '';
-  const dirty = envelope?.dirty || false;
-  const lastPushedAt = envelope?.lastPushedAt ?? null;
-  const lastSyncedAt = envelope?.lastSyncedAt ?? Date.now();
+  }, [editorReady, codeFileId, consumePendingJump, jumpToLine]);
 
   const refreshSnippet = useCallback(async () => {
     if (!currentSession) return;
     try {
-      const full = await api.getSnippet(currentSession.project, currentSession.name, snippetId);
+      const full = await api.getSnippet(currentSession.project, currentSession.name, codeFileId);
       if (full?.content) {
-        storeUpdateSnippet(snippetId, { content: full.content, lastModified: full.lastModified ?? Date.now() });
+        storeUpdateSnippet(codeFileId, { content: full.content, lastModified: full.lastModified ?? Date.now() });
       }
     } catch (err) {
       console.error('Failed to refresh snippet:', err);
     }
-  }, [currentSession, snippetId, storeUpdateSnippet]);
+  }, [currentSession, codeFileId, storeUpdateSnippet]);
 
   const actualPush = useCallback(async () => {
     if (!currentSession || isPushing) return;
     setIsPushing(true);
     try {
-      await api.pushCodeToFile(currentSession.project, currentSession.name, snippetId);
+      await api.pushCodeToFile(currentSession.project, currentSession.name, codeFileId);
       setFlashMessage('Pushed');
       setConflict(null);
       await refreshSnippet();
@@ -353,7 +323,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
     } finally {
       setIsPushing(false);
     }
-  }, [currentSession, isPushing, snippetId, refreshSnippet]);
+  }, [currentSession, isPushing, codeFileId, refreshSnippet]);
 
   const handlePush = useCallback(() => {
     if (!currentSession || isPushing || !envelope?.dirty) return;
@@ -367,34 +337,34 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
   const handleDeprecate = useCallback(async () => {
     if (!currentSession) return;
     try {
-      await api.setDeprecated(currentSession.project, currentSession.name, snippetId, true);
-      storeUpdateSnippet(snippetId, { deprecated: true, lastModified: Date.now() });
+      await api.setDeprecated(currentSession.project, currentSession.name, codeFileId, true);
+      storeUpdateSnippet(codeFileId, { deprecated: true, lastModified: Date.now() });
       setFlashMessage('Deprecated');
       await refreshSnippet();
     } catch (err) {
       console.error('Deprecate failed:', err);
       setFlashMessage('Deprecate failed');
     }
-  }, [currentSession, snippetId, storeUpdateSnippet, refreshSnippet]);
+  }, [currentSession, codeFileId, storeUpdateSnippet, refreshSnippet]);
 
   const handleDelete = useCallback(async () => {
     if (!currentSession) return;
     try {
-      await api.deleteSnippet(currentSession.project, currentSession.name, snippetId);
+      await api.deleteSnippet(currentSession.project, currentSession.name, codeFileId);
       // Don't set flash message — component unmounts immediately after removeSnippet
-      storeRemoveSnippet(snippetId);
+      storeRemoveSnippet(codeFileId);
     } catch (err) {
       console.error('Delete failed:', err);
       setFlashMessage('Unlink failed');
     }
-  }, [currentSession, snippetId, storeRemoveSnippet]);
+  }, [currentSession, codeFileId, storeRemoveSnippet]);
 
   const handleSync = useCallback(async () => {
     if (!currentSession || isSyncing) return;
 
     setIsSyncing(true);
     try {
-      const result = await api.syncCodeFromDisk(currentSession.project, currentSession.name, snippetId);
+      const result = await api.syncCodeFromDisk(currentSession.project, currentSession.name, codeFileId);
 
       if (result.conflict) {
         setConflict({ diskChanged: true, hasLocalEdits: true });
@@ -411,12 +381,12 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
     } finally {
       setIsSyncing(false);
     }
-  }, [currentSession, isSyncing, snippetId, refreshSnippet]);
+  }, [currentSession, isSyncing, codeFileId, refreshSnippet]);
 
   const handleAccept = useCallback(async () => {
     if (!currentSession) return;
     try {
-      await api.acceptProposedEdit(currentSession.project, currentSession.name, snippetId, comment);
+      await api.acceptProposedEdit(currentSession.project, currentSession.name, codeFileId, comment);
       setComment('');
       setFlashMessage('Accepted — review and Push when ready');
       await refreshSnippet();
@@ -424,12 +394,12 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
       console.error('Accept proposal failed:', err);
       setFlashMessage('Accept failed');
     }
-  }, [currentSession, snippetId, refreshSnippet, comment]);
+  }, [currentSession, codeFileId, refreshSnippet, comment]);
 
   const handleReject = useCallback(async () => {
     if (!currentSession) return;
     try {
-      await api.rejectProposedEdit(currentSession.project, currentSession.name, snippetId, comment);
+      await api.rejectProposedEdit(currentSession.project, currentSession.name, codeFileId, comment);
       setComment('');
       setFlashMessage('Rejected');
       await refreshSnippet();
@@ -437,7 +407,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
       console.error('Reject proposal failed:', err);
       setFlashMessage('Reject failed');
     }
-  }, [currentSession, snippetId, refreshSnippet, comment]);
+  }, [currentSession, codeFileId, refreshSnippet, comment]);
 
   const handleKeepMine = useCallback(() => {
     setConflict(null);
@@ -446,7 +416,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
   const handleTakeDisk = useCallback(async () => {
     if (!currentSession) return;
     try {
-      const full = await api.getSnippet(currentSession.project, currentSession.name, snippetId);
+      const full = await api.getSnippet(currentSession.project, currentSession.name, codeFileId);
       if (!full?.content) return;
 
       const env = JSON.parse(full.content);
@@ -456,7 +426,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
         env.dirty = false;
 
         const updatedContent = JSON.stringify(env, null, 2);
-        await api.updateSnippet(currentSession.project, currentSession.name, snippetId, updatedContent);
+        await api.updateSnippet(currentSession.project, currentSession.name, codeFileId, updatedContent);
       }
 
       setConflict(null);
@@ -466,7 +436,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
       console.error('Take disk failed:', err);
       setFlashMessage('Take disk failed');
     }
-  }, [currentSession, snippetId, refreshSnippet]);
+  }, [currentSession, codeFileId, refreshSnippet]);
 
   // Build the merged toolbar: push/preview/sync/pseudo/status + SnippetEditor's controls + kebab
   const mergedControls = useMemo(() => {
@@ -574,7 +544,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
         <div className="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1" />
         {/* Kebab menu (Copy path, Impact, Deprecate, Unlink) */}
         <CodeArtifactKebabMenu
-          snippetId={snippetId}
+          snippetId={codeFileId}
           filePath={filePath}
           projectPath={currentSession.project}
           sessionName={currentSession.name}
@@ -583,7 +553,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
         />
       </>
     );
-  }, [envelope, currentSession, snippetControls, handlePush, handlePreview, handleSync, isPushing, isSyncing, dirty, conflict, flashMessage, showPseudo, snippetId, filePath, handleDeprecate, handleDelete, functions, jumpToLine, navHistory.canGoBack, handleBack, handleAccept, handleReject, diffSideBySide, setDiffSideBySide, comment]);
+  }, [envelope, currentSession, snippetControls, handlePush, handlePreview, handleSync, isPushing, isSyncing, dirty, conflict, flashMessage, showPseudo, codeFileId, filePath, handleDeprecate, handleDelete, functions, jumpToLine, navHistory.canGoBack, handleBack, handleAccept, handleReject, diffSideBySide, setDiffSideBySide, comment]);
 
   // Push merged controls to parent EditorToolbar
   // Short-circuit when envelope is null — SnippetEditor handles onToolbarControls directly
@@ -597,7 +567,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
 
   // If not linked, render plain SnippetEditor (pass through onToolbarControls)
   if (!envelope) {
-    return <SnippetEditor snippetId={snippetId} onSave={onSave} onToolbarControls={onToolbarControls} />;
+    return <SnippetEditor snippetId={codeFileId} onSave={onSave} onToolbarControls={onToolbarControls} />;
   }
 
   return (
@@ -633,26 +603,26 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
 
       {/* Editor area — MonacoDiffEditor when reviewing a proposal, otherwise SnippetEditor */}
       <div className="flex-1 min-h-0">
-        {envelope.proposedEdit ? (
+        {proposedEdit ? (
           <MonacoDiffEditor
-            snippetId={snippetId}
-            original={envelope.code}
-            proposed={envelope.proposedEdit.newCode}
-            language={envelope.language}
+            snippetId={codeFileId}
+            original={code}
+            proposed={proposedEdit.newCode}
+            language={language}
             theme={monacoTheme}
             sideBySide={diffSideBySide}
             onAcceptAll={handleAccept}
             onRejectAll={handleReject}
             onSideBySideChange={setDiffSideBySide}
           />
-        ) : showPseudo && envelope.linked && currentSession ? (
+        ) : showPseudo && currentSession ? (
           <PseudoSideBySideView
-            snippetId={snippetId}
+            snippetId={codeFileId}
             sourceFilePath={filePath}
             projectPath={currentSession.project}
           >
             <SnippetEditor
-              snippetId={snippetId}
+              snippetId={codeFileId}
               onSave={onSave}
               onToolbarControls={handleSnippetToolbarControls}
               hideFilePath
@@ -663,7 +633,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
           </PseudoSideBySideView>
         ) : (
           <SnippetEditor
-            snippetId={snippetId}
+            snippetId={codeFileId}
             onSave={onSave}
             onToolbarControls={handleSnippetToolbarControls}
             hideFilePath
@@ -690,7 +660,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
           onClose={() => setDiffModalOpen(false)}
           onConfirm={dirty ? actualPush : undefined}
           confirmLabel="Push to File"
-          snippetId={snippetId}
+          snippetId={codeFileId}
           filePath={filePath}
           projectPath={currentSession.project}
           sessionName={currentSession.name}
@@ -720,16 +690,15 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
           onPick={(candidate) => {
             const pickerSymbol = pickerState.symbol;
             setPickerState(null);
-            // Check if already linked
-            const linked = buildLinkedSnippetRefs(snippetsRef.current);
-            const already = linked.find((l) => l.filePath === candidate.sourceFilePath);
+            // Check if already linked — match by snippet name (which stores the file path)
+            const already = snippetsRef.current.find((s) => s.name === candidate.sourceFilePath);
             if (already) {
-              if (already.id === snippetId) {
+              if (already.id === codeFileId) {
                 jumpToLine(candidate.sourceLine ?? 1);
               } else {
                 const curEditor = editorViewRef.current;
                 const curLine = curEditor ? (curEditor.getPosition()?.lineNumber ?? 1) : 1;
-                navPushRef.current({ snippetId, line: curLine });
+                navPushRef.current({ snippetId: codeFileId, line: curLine });
                 setPendingJumpStore({ snippetId: already.id, line: candidate.sourceLine ?? 1 });
                 selectSnippet(already.id);
               }

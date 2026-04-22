@@ -131,7 +131,7 @@ function getSnippetMetadata(item: Item): SnippetMetadata {
 /**
  * Get icon for item type
  */
-function getItemIcon(type: 'diagram' | 'document' | 'design' | 'spreadsheet' | 'snippet' | 'embed' | 'image'): React.ReactNode {
+function getItemIcon(type: 'diagram' | 'document' | 'design' | 'spreadsheet' | 'snippet' | 'embed' | 'image' | 'code'): React.ReactNode {
   if (type === 'diagram') {
     return (
       <svg

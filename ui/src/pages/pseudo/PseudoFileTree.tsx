@@ -56,9 +56,11 @@ type TreeNodeRendererProps = {
   collapsedDirs: Set<string>;
   onToggleCollapse: (path: string) => void;
   onNavigate: (path: string) => void;
+  onPermanent?: (path: string) => void;
   filterExpanded: Set<string>;
   fileMeta: Map<string, PseudoFileSummary>;
   onPrefetch?: (path: string) => void;
+  linkedPaths?: Set<string>;
 };
 
 /**
@@ -76,9 +78,11 @@ function TreeNodeRendererImpl({
   collapsedDirs,
   onToggleCollapse,
   onNavigate,
+  onPermanent,
   filterExpanded,
   fileMeta,
   onPrefetch,
+  linkedPaths,
 }: TreeNodeRendererProps) {
   const isCollapsed = collapsedDirs.has(node.path);
   const isActive = !node.isDir && node.path === currentPath;
@@ -114,11 +118,18 @@ function TreeNodeRendererImpl({
         <div
           className="flex-1 text-xs flex items-center gap-1"
           onClick={() => { if (!node.isDir) { mark('code-click'); onNavigate(node.path); } }}
+          onDoubleClick={() => { if (!node.isDir) onPermanent?.(node.path); }}
           onMouseEnter={() => {
             if (!node.isDir) onPrefetch?.(node.path);
           }}
         >
           <span className="truncate">{node.name}</span>
+          {!node.isDir && linkedPaths?.has(node.path) && (
+            <span
+              className="w-1.5 h-1.5 rounded-full bg-teal-500 inline-block ml-1 flex-shrink-0"
+              title="Code artifact linked"
+            />
+          )}
           {node.isDir && isCollapsed && fileCount > 0 && (
             <span className="text-gray-500 ml-1">({fileCount})</span>
           )}
@@ -150,9 +161,11 @@ function TreeNodeRendererImpl({
               collapsedDirs={collapsedDirs}
               onToggleCollapse={onToggleCollapse}
               onNavigate={onNavigate}
+              onPermanent={onPermanent}
               filterExpanded={filterExpanded}
               fileMeta={fileMeta}
               onPrefetch={onPrefetch}
+              linkedPaths={linkedPaths}
             />
           ))}
         </div>

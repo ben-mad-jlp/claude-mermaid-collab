@@ -1069,7 +1069,7 @@ const App: React.FC = () => {
       // Send update via WebSocket if connected
       const client = getWebSocketClient();
       if (client.isConnected()) {
-        const typeMap = { diagram: 'update_diagram', document: 'update_document', design: 'update_design', spreadsheet: 'update_spreadsheet', snippet: 'snippet_updated', embed: 'update_embed', image: 'update_image' } as const;
+        const typeMap = { diagram: 'update_diagram', document: 'update_document', design: 'update_design', spreadsheet: 'update_spreadsheet', snippet: 'snippet_updated', embed: 'update_embed', image: 'update_image', code: 'code_file_updated' } as const;
         const messageType = typeMap[selectedItem.type];
         if (messageType) {
           client.send({
@@ -1479,7 +1479,7 @@ const App: React.FC = () => {
             showZoom={activeItemType !== 'document' && activeItemType !== 'spreadsheet' && activeItemType !== 'snippet'}
             onCenter={activeItemType === 'diagram' ? handleCenter : undefined}
             onFitToView={activeItemType === 'diagram' ? handleFitToView : undefined}
-            itemType={activeItemType && activeItemType !== 'image' ? activeItemType : undefined}
+            itemType={activeItemType && activeItemType !== 'image' && activeItemType !== 'code' ? activeItemType : undefined}
             documentId={selectedItem?.type === 'document' ? selectedItem.id : undefined}
             documentContent={selectedItem?.type === 'document' ? effectiveContent : undefined}
             onHistoryVersionSelect={selectedItem?.type === 'document' ? handleHistoryVersionSelect : undefined}

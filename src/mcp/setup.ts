@@ -187,20 +187,24 @@ import {
   handleExportSnippet,
 } from './tools/snippet.js';
 import {
-  linkCodeFileSchema,
+  createCodeSchema,
   pushCodeToFileSchema,
   syncCodeFromDiskSchema,
   reviewCodeEditsSchema,
   listCodeFilesSchema,
   proposeCodeEditSchema,
   waitForEditDecisionSchema,
-  handleLinkCodeFile,
+  updateCodeSchema,
+  getCodeSchema,
+  handleCreateCode,
   handlePushCodeToFile,
   handleSyncCodeFromDisk,
   handleReviewCodeEdits,
   handleListCodeFiles,
   handleProposeCodeEdit,
   handleWaitForEditDecision,
+  handleUpdateCode,
+  handleGetCode,
 } from './tools/code.js';
 import { createEmbedSchema, listEmbedsSchema, deleteEmbedSchema, handleCreateEmbed, handleListEmbeds, handleDeleteEmbed, createStorybookEmbedSchema, listStorybookStoriesSchema, handleCreateStorybookEmbed, handleListStorybookStories } from './tools/embed.js';
 import { createImageSchema, listImagesSchema, getImageSchema, deleteImageSchema, handleCreateImage, handleListImages, handleGetImage, handleDeleteImage } from './tools/image.js';
@@ -2392,9 +2396,19 @@ IMPORTANT - Common pitfalls to avoid:
         },
       },
       {
-        name: 'link_code_file',
+        name: 'create_code',
         description: 'Link a source file from disk as a tracked code artifact. Reads the file and creates a snippet envelope with change tracking.',
-        inputSchema: linkCodeFileSchema,
+        inputSchema: createCodeSchema,
+      },
+      {
+        name: 'update_code',
+        description: 'Update the content of a tracked code file artifact.',
+        inputSchema: updateCodeSchema,
+      },
+      {
+        name: 'get_code',
+        description: 'Retrieve a tracked code file artifact by ID.',
+        inputSchema: getCodeSchema,
       },
       {
         name: 'push_code_to_file',
@@ -3903,7 +3917,7 @@ IMPORTANT - Common pitfalls to avoid:
             };
             if (!project || !session) throw new Error('Missing required: project, session');
             if (!sourcePath && (!name || content === undefined)) throw new Error('Either provide name+content, or sourcePath');
-            const result = await handleCreateSnippet(project, session, name, content, sourcePath, startLine, endLine, groupId, groupName, startAt, endAt, maxLines);
+            const result = await handleCreateSnippet(project, session, name, content);
             return JSON.stringify(result, null, 2);
           }
 
@@ -4329,10 +4343,24 @@ IMPORTANT - Common pitfalls to avoid:
             return JSON.stringify(res, null, 2);
           }
 
-          case 'link_code_file': {
+          case 'create_code': {
             const { project, session, filePath, name } = args as { project: string; session: string; filePath: string; name?: string };
             if (!project || !session || !filePath) throw new Error('Missing required: project, session, filePath');
-            const result = await handleLinkCodeFile(project, session, filePath, name);
+            const result = await handleCreateCode(project, session, filePath, name);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'update_code': {
+            const { project, session, id, content } = args as { project: string; session: string; id: string; content: string };
+            if (!project || !session || !id || !content) throw new Error('Missing required: project, session, id, content');
+            const result = await handleUpdateCode({ project, session, id, content });
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'get_code': {
+            const { project, session, id } = args as { project: string; session: string; id: string };
+            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
+            const result = await handleGetCode({ project, session, id });
             return JSON.stringify(result, null, 2);
           }
 

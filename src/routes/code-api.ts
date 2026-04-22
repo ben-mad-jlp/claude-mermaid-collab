@@ -6,12 +6,17 @@
  */
 
 import { readdir, readFile, writeFile, stat } from 'fs/promises';
-import { join, extname, resolve, relative, isAbsolute } from 'path';
+import { basename, join, extname, resolve, relative, isAbsolute } from 'path';
+import { createHash } from 'crypto';
+import { validatePathUnderRoot, isBinaryFile } from '../utils/path-security.js';
 import { createPatch } from 'diff';
+
+function sha256(s: string): string {
+  return createHash('sha256').update(s).digest('hex');
+}
 import { sessionRegistry } from '../services/session-registry.js';
 import { projectRegistry } from '../services/project-registry.js';
-import { SnippetManager } from '../services/snippet-manager.js';
-import { validatePathUnderRoot } from '../utils/path-security.js';
+import { CodeFileManager } from '../services/code-file-manager.js';
 import { getWebSocketHandler } from '../services/ws-handler-manager.js';
 import { getPseudoDb } from '../services/pseudo-db.js';
 import { walkProject } from '../services/source-scanner.js';
@@ -140,6 +145,43 @@ export async function handleCodeAPI(req: Request): Promise<Response> {
       }
       const body = await req.json().catch(() => ({})) as { query?: unknown; limit?: unknown };
       return handleCodeSearch(project, session, body);
+    }
+
+    // POST /create — create a linked snippet for a file path (pin/promote flow)
+    if (path === '/create' && req.method === 'POST') {
+      if (!session) {
+        return jsonError('Missing required query parameter: session', 400);
+      }
+      const body = await req.json().catch(() => ({})) as { filePath?: unknown; name?: unknown };
+      return handleCreateCodeArtifact(project, session, body);
+    }
+
+    // GET /exists — check whether a path exists under the project root
+    if (path === '/exists' && req.method === 'GET') {
+      const filePath = url.searchParams.get('path');
+      if (!filePath) return jsonError('Missing required query parameter: path', 400);
+      return handlePathExists(project, filePath);
+    }
+
+    // GET /list — list code files for a session
+    if (path === '/list' && req.method === 'GET') {
+      if (!session) return jsonError('Missing required query parameter: session', 400);
+      return handleListCodeFiles(project, session);
+    }
+
+    // PATCH /update/:id — update code file content
+    if (path.match(/^\/update\/[^/]+$/) && req.method === 'PATCH') {
+      if (!session) return jsonError('Missing required query parameter: session', 400);
+      const id = decodeURIComponent(path.split('/').pop()!);
+      const body = await req.json().catch(() => ({})) as { content?: unknown };
+      return handleUpdateCodeContent(project, session, id, body);
+    }
+
+    // GET /get/:id — get code file record
+    if (path.match(/^\/get\/[^/]+$/) && req.method === 'GET') {
+      if (!session) return jsonError('Missing required query parameter: session', 400);
+      const id = decodeURIComponent(path.split('/').pop()!);
+      return handleGetCodeRecord(project, session, id);
     }
 
     return jsonError('Not found', 404);
@@ -497,60 +539,39 @@ async function handleReadCodeFile(project: string, filePath: string): Promise<Re
 }
 
 async function handlePushToFile(project: string, session: string, id: string): Promise<Response> {
-  const snippetsDir = sessionRegistry.resolvePath(project, session, 'snippets');
-  const snippetManager = new SnippetManager(snippetsDir);
-  await snippetManager.initialize();
+  const codeFilesDir = sessionRegistry.resolvePath(project, session, 'code-files');
+  const manager = new CodeFileManager(codeFilesDir);
+  await manager.initialize();
 
-  const snippet = await snippetManager.getSnippet(id);
-  if (!snippet) {
-    return jsonError(`Snippet "${id}" not found`, 404);
+  const record = await manager.get(id);
+  if (!record) {
+    return jsonError(`Code file "${id}" not found`, 404);
   }
 
-  const envelope = JSON.parse(snippet.content);
+  await validatePathUnderRoot(record.filePath, project);
 
-  if (!envelope.linked) {
-    return jsonError('Snippet is not linked to a file', 400);
-  }
+  await writeFile(record.filePath, record.content, 'utf-8');
+  const bytesWritten = Buffer.byteLength(record.content, 'utf-8');
+  const filePath = record.filePath;
 
-  if (!envelope.filePath) {
-    return jsonError('Snippet has no filePath', 400);
-  }
+  await manager.markPushed(id);
 
-  // Validate the file path is under the project root
-  await validatePathUnderRoot(envelope.filePath, project);
-
-  // Write the code to disk
-  const code = envelope.code ?? '';
-  await writeFile(envelope.filePath, code, 'utf-8');
-  const bytesWritten = Buffer.byteLength(code, 'utf-8');
-
-  // Update envelope: mark as clean, record push time
-  envelope.originalCode = code;
-  envelope.diskCode = code;
-  envelope.dirty = false;
-  envelope.lastPushedAt = Date.now();
-
-  // Save updated snippet
-  const updatedContent = JSON.stringify(envelope, null, 2);
-  await snippetManager.saveSnippet(id, updatedContent);
-
-  // Broadcast snippet_updated
   const wsHandler = getWebSocketHandler();
   if (wsHandler) {
-    const updatedSnippet = await snippetManager.getSnippet(id);
-    if (updatedSnippet) {
+    const updated = await manager.get(id);
+    if (updated) {
       wsHandler.broadcast({
-        type: 'snippet_updated',
+        type: 'code_file_updated',
         id,
-        content: updatedSnippet.content,
-        lastModified: updatedSnippet.lastModified,
+        content: JSON.stringify(updated),
+        lastModified: updated.lastModified,
         project,
         session,
       });
     }
   }
 
-  return Response.json({ success: true, filePath: envelope.filePath, bytesWritten });
+  return Response.json({ success: true, filePath, bytesWritten });
 }
 
 async function handleCreateProposedEdit(
@@ -563,52 +584,41 @@ async function handleCreateProposedEdit(
     return jsonError('body.newCode must be a string', 400);
   }
 
-  const snippetsDir = sessionRegistry.resolvePath(project, session, 'snippets');
-  const snippetManager = new SnippetManager(snippetsDir);
-  await snippetManager.initialize();
+  const codeFilesDir = sessionRegistry.resolvePath(project, session, 'code-files');
+  const manager = new CodeFileManager(codeFilesDir);
+  await manager.initialize();
 
-  const snippet = await snippetManager.getSnippet(id);
-  if (!snippet) {
-    return jsonError(`Snippet "${id}" not found`, 404);
+  const record = await manager.get(id);
+  if (!record) {
+    return jsonError(`Code file "${id}" not found`, 404);
   }
 
-  const envelope = JSON.parse(snippet.content);
-
-  if (!envelope.linked) {
-    return jsonError('Snippet is not linked to a file', 400);
-  }
-
-  // Noop short-circuit: proposed content matches current code exactly.
-  if (body.newCode === (envelope.code ?? '')) {
+  // Noop short-circuit: proposed content matches current content exactly.
+  if (body.newCode === record.content) {
     return Response.json({
       success: true,
       id,
-      hasProposedEdit: !!envelope.proposedEdit,
+      hasProposedEdit: !!record.proposedEdit,
       noop: true,
     });
   }
 
-  // Replace any existing proposal silently.
-  envelope.proposedEdit = {
+  await manager.setProposedEdit(id, {
     newCode: body.newCode,
     message: typeof body.message === 'string' ? body.message : undefined,
     proposedAt: Date.now(),
     proposedBy: 'claude',
-  };
+  });
 
-  const updatedContent = JSON.stringify(envelope, null, 2);
-  await snippetManager.saveSnippet(id, updatedContent);
-
-  // Broadcast snippet_updated
   const wsHandler = getWebSocketHandler();
   if (wsHandler) {
-    const updatedSnippet = await snippetManager.getSnippet(id);
-    if (updatedSnippet) {
+    const updated = await manager.get(id);
+    if (updated) {
       wsHandler.broadcast({
-        type: 'snippet_updated',
+        type: 'code_file_updated',
         id,
-        content: updatedSnippet.content,
-        lastModified: updatedSnippet.lastModified,
+        content: JSON.stringify(updated),
+        lastModified: updated.lastModified,
         project,
         session,
       });
@@ -619,51 +629,41 @@ async function handleCreateProposedEdit(
 }
 
 async function handleAcceptProposedEdit(project: string, session: string, id: string, comment?: string): Promise<Response> {
-  const snippetsDir = sessionRegistry.resolvePath(project, session, 'snippets');
-  const snippetManager = new SnippetManager(snippetsDir);
-  await snippetManager.initialize();
+  const codeFilesDir = sessionRegistry.resolvePath(project, session, 'code-files');
+  const manager = new CodeFileManager(codeFilesDir);
+  await manager.initialize();
 
-  const snippet = await snippetManager.getSnippet(id);
-  if (!snippet) {
-    return jsonError(`Snippet "${id}" not found`, 404);
+  const record = await manager.get(id);
+  if (!record) {
+    return jsonError(`Code file "${id}" not found`, 404);
   }
 
-  const envelope = JSON.parse(snippet.content);
-
-  if (!envelope.linked) {
-    return jsonError('Snippet is not linked to a file', 400);
-  }
-
-  if (!envelope.proposedEdit) {
+  if (!record.proposedEdit) {
     return jsonError('No proposed edit to accept', 400);
   }
 
   const decisionInfo = {
-    filePath: envelope.filePath ?? id,
-    proposedBy: envelope.proposedEdit.proposedBy ?? 'claude',
-    proposedAt: envelope.proposedEdit.proposedAt ?? Date.now(),
-    message: envelope.proposedEdit.message,
-    newCode: envelope.proposedEdit.newCode,
+    filePath: record.filePath ?? id,
+    proposedBy: record.proposedEdit.proposedBy ?? 'claude',
+    proposedAt: record.proposedEdit.proposedAt ?? Date.now(),
+    message: record.proposedEdit.message,
+    newCode: record.proposedEdit.newCode,
   };
 
-  const oldCode = envelope.code;
-  envelope.code = envelope.proposedEdit.newCode;
-  envelope.dirty = envelope.code !== (envelope.originalCode ?? '');
-  delete envelope.proposedEdit;
+  const oldCode = record.content;
 
-  const updatedContent = JSON.stringify(envelope, null, 2);
-  await snippetManager.saveSnippet(id, updatedContent);
+  await manager.updateContent(id, record.proposedEdit.newCode);
+  await manager.clearProposedEdit(id);
 
-  // Broadcast snippet_updated
   const wsHandler = getWebSocketHandler();
   if (wsHandler) {
-    const updatedSnippet = await snippetManager.getSnippet(id);
-    if (updatedSnippet) {
+    const updated = await manager.get(id);
+    if (updated) {
       wsHandler.broadcast({
-        type: 'snippet_updated',
+        type: 'code_file_updated',
         id,
-        content: updatedSnippet.content,
-        lastModified: updatedSnippet.lastModified,
+        content: JSON.stringify(updated),
+        lastModified: updated.lastModified,
         project,
         session,
       });
@@ -671,6 +671,11 @@ async function handleAcceptProposedEdit(project: string, session: string, id: st
   }
 
   editDecisionBridge.resolve(project, session, id, { decision: 'accepted', comment });
+
+  const oldLines = oldCode ? oldCode.split('\n').length : 0;
+  const newLines = decisionInfo.newCode ? decisionInfo.newCode.split('\n').length : 0;
+  const linesAdded = Math.max(0, newLines - oldLines);
+  const linesRemoved = Math.max(0, oldLines - newLines);
 
   try {
     await appendEditDecision(project, session, {
@@ -681,61 +686,51 @@ async function handleAcceptProposedEdit(project: string, session: string, id: st
       proposedBy: decisionInfo.proposedBy,
       proposedAt: decisionInfo.proposedAt,
       message: comment ?? decisionInfo.message,
-      linesAdded: decisionInfo.newCode ? decisionInfo.newCode.split('\n').length : 0,
-      linesRemoved: oldCode ? oldCode.split('\n').length : 0,
+      linesAdded,
+      linesRemoved,
     });
   } catch (e) {
     console.error('[appendEditDecision] failed silently:', e);
   }
 
-  return Response.json({ success: true, dirty: envelope.dirty });
+  return Response.json({ success: true, dirty: true });
 }
 
 async function handleRejectProposedEdit(project: string, session: string, id: string, comment?: string): Promise<Response> {
-  const snippetsDir = sessionRegistry.resolvePath(project, session, 'snippets');
-  const snippetManager = new SnippetManager(snippetsDir);
-  await snippetManager.initialize();
+  const codeFilesDir = sessionRegistry.resolvePath(project, session, 'code-files');
+  const manager = new CodeFileManager(codeFilesDir);
+  await manager.initialize();
 
-  const snippet = await snippetManager.getSnippet(id);
-  if (!snippet) {
-    return jsonError(`Snippet "${id}" not found`, 404);
-  }
-
-  const envelope = JSON.parse(snippet.content);
-
-  if (!envelope.linked) {
-    return jsonError('Snippet is not linked to a file', 400);
+  const record = await manager.get(id);
+  if (!record) {
+    return jsonError(`Code file "${id}" not found`, 404);
   }
 
   // Idempotent: no proposal pending → 200 with noop.
-  if (!envelope.proposedEdit) {
+  if (!record.proposedEdit) {
     return Response.json({ success: true, noop: true });
   }
 
   const decisionInfo = {
-    filePath: envelope.filePath ?? id,
-    proposedBy: envelope.proposedEdit.proposedBy ?? 'claude',
-    proposedAt: envelope.proposedEdit.proposedAt ?? Date.now(),
-    message: envelope.proposedEdit.message,
-    newCode: envelope.proposedEdit.newCode,
-    originalCode: envelope.code,
+    filePath: record.filePath ?? id,
+    proposedBy: record.proposedEdit.proposedBy ?? 'claude',
+    proposedAt: record.proposedEdit.proposedAt ?? Date.now(),
+    message: record.proposedEdit.message,
+    newCode: record.proposedEdit.newCode,
+    originalCode: record.content,
   };
 
-  delete envelope.proposedEdit;
+  await manager.clearProposedEdit(id);
 
-  const updatedContent = JSON.stringify(envelope, null, 2);
-  await snippetManager.saveSnippet(id, updatedContent);
-
-  // Broadcast snippet_updated
   const wsHandler = getWebSocketHandler();
   if (wsHandler) {
-    const updatedSnippet = await snippetManager.getSnippet(id);
-    if (updatedSnippet) {
+    const updated = await manager.get(id);
+    if (updated) {
       wsHandler.broadcast({
-        type: 'snippet_updated',
+        type: 'code_file_updated',
         id,
-        content: updatedSnippet.content,
-        lastModified: updatedSnippet.lastModified,
+        content: JSON.stringify(updated),
+        lastModified: updated.lastModified,
         project,
         session,
       });
@@ -743,6 +738,11 @@ async function handleRejectProposedEdit(project: string, session: string, id: st
   }
 
   editDecisionBridge.resolve(project, session, id, { decision: 'rejected', comment });
+
+  const rejOldLines = decisionInfo.originalCode ? decisionInfo.originalCode.split('\n').length : 0;
+  const rejNewLines = decisionInfo.newCode ? decisionInfo.newCode.split('\n').length : 0;
+  const rejLinesAdded = Math.max(0, rejNewLines - rejOldLines);
+  const rejLinesRemoved = Math.max(0, rejOldLines - rejNewLines);
 
   try {
     await appendEditDecision(project, session, {
@@ -753,8 +753,8 @@ async function handleRejectProposedEdit(project: string, session: string, id: st
       proposedBy: decisionInfo.proposedBy,
       proposedAt: decisionInfo.proposedAt,
       message: comment ?? decisionInfo.message,
-      linesAdded: decisionInfo.newCode ? decisionInfo.newCode.split('\n').length : 0,
-      linesRemoved: decisionInfo.originalCode ? decisionInfo.originalCode.split('\n').length : 0,
+      linesAdded: rejLinesAdded,
+      linesRemoved: rejLinesRemoved,
     });
   } catch (e) {
     console.error('[appendEditDecision] failed silently:', e);
@@ -807,140 +807,171 @@ async function handleRecordEditDecision(
     return jsonError('Missing required fields: snippetId, action, scope, filePath', 400);
   }
 
-  await appendEditDecision(project, session, body);
+  try {
+    await appendEditDecision(project, session, body);
+  } catch (err) {
+    console.error('Failed to append edit decision:', err);
+  }
 
   return Response.json({ success: true });
 }
 
 async function handleSyncFromDisk(project: string, session: string, id: string): Promise<Response> {
-  const snippetsDir = sessionRegistry.resolvePath(project, session, 'snippets');
-  const snippetManager = new SnippetManager(snippetsDir);
-  await snippetManager.initialize();
+  const codeFilesDir = sessionRegistry.resolvePath(project, session, 'code-files');
+  const manager = new CodeFileManager(codeFilesDir);
+  await manager.initialize();
 
-  const snippet = await snippetManager.getSnippet(id);
-  if (!snippet) {
-    return jsonError(`Snippet "${id}" not found`, 404);
+  const record = await manager.get(id);
+  if (!record) {
+    return jsonError(`Code file "${id}" not found`, 404);
   }
 
-  const envelope = JSON.parse(snippet.content);
-
-  if (!envelope.linked) {
-    return jsonError('Snippet is not linked to a file', 400);
-  }
-
-  if (!envelope.filePath) {
-    return jsonError('Snippet has no filePath', 400);
-  }
-
-  // Validate the file path is under the project root
-  await validatePathUnderRoot(envelope.filePath, project);
-
-  // Read file from disk (handle deleted files)
-  let diskContent: string | null = null;
-  let fileDeleted = false;
+  // Read file from disk
+  let diskContent: string;
   try {
-    diskContent = await readFile(envelope.filePath, 'utf-8');
+    diskContent = await readFile(record.filePath, 'utf-8');
   } catch (err: any) {
     if (err.code === 'ENOENT') {
-      fileDeleted = true;
-    } else {
-      throw err;
+      return Response.json({
+        success: true,
+        diskChanged: true,
+        hasLocalEdits: false,
+        conflict: false,
+        fileDeleted: true,
+      });
     }
+    throw err;
   }
 
-  if (fileDeleted) {
-    return Response.json({
-      success: true,
-      diskChanged: true,
-      hasLocalEdits: false,
-      conflict: false,
-      fileDeleted: true,
-    });
-  }
-
-  // Compare disk content vs last known disk content
-  const diskChanged = diskContent !== (envelope.diskCode ?? '');
-  // Compare local code vs original code
-  const hasLocalEdits = (envelope.code ?? '') !== (envelope.originalCode ?? '');
+  const diskChanged = sha256(diskContent) !== record.contentHash;
+  const hasLocalEdits = record.dirty;
   const conflict = diskChanged && hasLocalEdits;
 
-  // Update diskCode and sync timestamp
-  envelope.diskCode = diskContent;
-  envelope.lastSyncedAt = Date.now();
-
-  // Auto-sync if disk changed and no local edits
   if (diskChanged && !hasLocalEdits) {
-    envelope.code = diskContent;
-    envelope.originalCode = diskContent;
+    await manager.markSynced(id, diskContent);
   }
 
-  // Save updated snippet
-  const updatedContent = JSON.stringify(envelope, null, 2);
-  await snippetManager.saveSnippet(id, updatedContent);
-
-  // Broadcast snippet_updated
   const wsHandler = getWebSocketHandler();
   if (wsHandler) {
-    const updatedSnippet = await snippetManager.getSnippet(id);
-    if (updatedSnippet) {
+    const updated = await manager.get(id);
+    if (updated) {
       wsHandler.broadcast({
-        type: 'snippet_updated',
+        type: 'code_file_updated',
         id,
-        content: updatedSnippet.content,
-        lastModified: updatedSnippet.lastModified,
+        content: JSON.stringify(updated),
+        lastModified: updated.lastModified,
         project,
         session,
       });
     }
   }
 
-  return Response.json({
-    success: true,
-    diskChanged,
-    hasLocalEdits,
-    conflict,
-  });
+  return Response.json({ success: true, diskChanged, hasLocalEdits, conflict });
 }
 
 async function handleGetDiff(project: string, session: string, id: string): Promise<Response> {
-  const snippetsDir = sessionRegistry.resolvePath(project, session, 'snippets');
-  const snippetManager = new SnippetManager(snippetsDir);
-  await snippetManager.initialize();
+  const codeFilesDir = sessionRegistry.resolvePath(project, session, 'code-files');
+  const manager = new CodeFileManager(codeFilesDir);
+  await manager.initialize();
 
-  const snippet = await snippetManager.getSnippet(id);
-  if (!snippet) {
-    return jsonError(`Snippet "${id}" not found`, 404);
+  const record = await manager.get(id);
+  if (!record) {
+    return jsonError(`Code file "${id}" not found`, 404);
   }
 
-  const envelope = JSON.parse(snippet.content);
-
-  if (!envelope.linked) {
-    return jsonError('Snippet is not linked to a file', 400);
+  let diskContent: string;
+  try {
+    diskContent = await readFile(record.filePath, 'utf-8');
+  } catch (err: any) {
+    if (err.code === 'ENOENT') {
+      diskContent = '';
+    } else {
+      throw err;
+    }
   }
 
-  const code = envelope.code ?? '';
-  const originalCode = envelope.originalCode ?? '';
-  const diskCode = envelope.diskCode ?? '';
-  const fileName = envelope.filePath ?? id;
+  const fileName = record.filePath ?? id;
 
-  // Compute unified diffs
-  const localVsOriginal = createPatch(
-    fileName,
-    originalCode,
-    code,
-    'original',
-    'local'
-  );
-
-  const localVsDisk = createPatch(
-    fileName,
-    diskCode,
-    code,
-    'disk',
-    'local'
-  );
+  const localVsDisk = createPatch(fileName, diskContent, record.content, 'disk', 'local');
+  const localVsOriginal = localVsDisk;
 
   return Response.json({ localVsOriginal, localVsDisk });
+}
+
+async function handleCreateCodeArtifact(
+  project: string,
+  session: string,
+  body: { filePath?: unknown; name?: unknown },
+): Promise<Response> {
+  if (typeof body.filePath !== 'string' || !body.filePath.trim()) {
+    return jsonError('body.filePath must be a non-empty string', 400);
+  }
+
+  const filePath = body.filePath.trim();
+
+  if (!isAbsolute(project)) {
+    return jsonError('project must be an absolute path', 400);
+  }
+  const projectRoot = resolve(project);
+
+  if (!(await isKnownProject(projectRoot))) {
+    return jsonError(`Unknown project: ${projectRoot}`, 400);
+  }
+
+  let resolvedPath: string;
+  try {
+    resolvedPath = await validatePathUnderRoot(filePath, projectRoot);
+  } catch (err: any) {
+    if (err?.code === 'ENOENT') return jsonError('File not found', 404);
+    return jsonError('filePath escapes project root', 400);
+  }
+
+  let fileStat;
+  try {
+    fileStat = await stat(resolvedPath);
+  } catch (err: any) {
+    if (err?.code === 'ENOENT') return jsonError('File not found', 404);
+    return jsonError(`Failed to stat file: ${err?.message ?? err}`, 500);
+  }
+
+  if (!fileStat.isFile()) {
+    return jsonError('Not a regular file', 400);
+  }
+
+  if (fileStat.size >= 1_000_000) {
+    return jsonError(`File too large (${fileStat.size} bytes). Maximum is 1MB.`, 400);
+  }
+
+  const binary = await isBinaryFile(resolvedPath).catch(() => false);
+  if (binary) {
+    return jsonError('Cannot link binary files', 400);
+  }
+
+  const snippetName =
+    typeof body.name === 'string' && body.name.trim()
+      ? body.name.trim()
+      : basename(resolvedPath);
+
+  const manager = new CodeFileManager(sessionRegistry.resolvePath(project, session, 'code-files'));
+  await manager.initialize();
+  const { id } = await manager.createCodeFile(resolvedPath, snippetName);
+
+  const record = await manager.get(id);
+
+  // Broadcast snippet_updated so tabs watching code files pick it up immediately
+  const wsHandler = getWebSocketHandler();
+  if (wsHandler && record) {
+    wsHandler.broadcast({
+      type: 'code_file_updated',
+      id,
+      content: JSON.stringify(record),
+      lastModified: record.lastModified,
+      project,
+      session,
+    });
+  }
+
+  return Response.json({ id, success: true });
 }
 
 async function handleCodeSearch(
@@ -982,26 +1013,20 @@ async function handleCodeSearch(
     // Pseudo FTS errors (e.g. punctuation-only queries) → skip pseudo branch
   }
 
-  // 2. Code fan-out — grep over linked snippet content
+  // 2. Code fan-out — grep over code file content
   try {
-    const snippetsDir = sessionRegistry.resolvePath(project, session, 'snippets');
-    const snippetManager = new SnippetManager(snippetsDir);
-    await snippetManager.initialize();
-    const snippets = await snippetManager.listSnippets();
+    const codeFilesDir = sessionRegistry.resolvePath(project, session, 'code-files');
+    const manager = new CodeFileManager(codeFilesDir);
+    await manager.initialize();
+    const codeFiles = await manager.list();
 
     const loweredQuery = truncatedQuery.toLowerCase();
 
-    for (const snippet of snippets) {
+    for (const codeFile of codeFiles) {
       if (results.length >= limit + 1) break; // already over cap; bail early
-      let envelope: any;
-      try {
-        envelope = JSON.parse(snippet.content);
-      } catch {
-        continue;
-      }
-      if (envelope.linked !== true || typeof envelope.code !== 'string') continue;
+      if (typeof codeFile.content !== 'string') continue;
 
-      const code = envelope.code;
+      const code = codeFile.content;
       const loweredCode = code.toLowerCase();
 
       let searchFrom = 0;
@@ -1024,10 +1049,10 @@ async function handleCodeSearch(
 
           results.push({
             kind: 'code',
-            filePath: typeof envelope.filePath === 'string' ? envelope.filePath : '',
+            filePath: codeFile.filePath,
             line,
             snippet: excerpt,
-            snippetId: snippet.id,
+            snippetId: codeFile.id,
           });
         }
 
@@ -1035,7 +1060,7 @@ async function handleCodeSearch(
       }
     }
   } catch (err) {
-    console.error('[Code Search] snippet grep error:', err);
+    console.error('[Code Search] code file grep error:', err);
   }
 
   const truncated = totalHits > results.length;
@@ -1068,6 +1093,80 @@ function escapePseudoSnippet(snippet: string): string {
     .replace(/'/g, '&#39;')
     .replace(new RegExp(OPEN_SENTINEL, 'g'), '<mark>')
     .replace(new RegExp(CLOSE_SENTINEL, 'g'), '</mark>');
+}
+
+async function handleUpdateCodeContent(
+  project: string,
+  session: string,
+  id: string,
+  body: { content?: unknown },
+): Promise<Response> {
+  if (typeof body.content !== 'string') {
+    return jsonError('body.content must be a string', 400);
+  }
+  const codeFilesDir = sessionRegistry.resolvePath(project, session, 'code-files');
+  const manager = new CodeFileManager(codeFilesDir);
+  await manager.initialize();
+  const record = await manager.get(id);
+  if (!record) return jsonError(`Code file "${id}" not found`, 404);
+  await manager.updateContent(id, body.content);
+  const wsHandler = getWebSocketHandler();
+  if (wsHandler) {
+    const updated = await manager.get(id);
+    if (updated) {
+      wsHandler.broadcast({
+        type: 'code_file_updated',
+        id,
+        content: JSON.stringify(updated),
+        lastModified: updated.lastModified,
+        project,
+        session,
+      });
+    }
+  }
+  const afterUpdate = await manager.get(id);
+  return Response.json({ success: true, dirty: true, contentHash: afterUpdate?.contentHash });
+}
+
+async function handleGetCodeRecord(
+  project: string,
+  session: string,
+  id: string,
+): Promise<Response> {
+  const codeFilesDir = sessionRegistry.resolvePath(project, session, 'code-files');
+  const manager = new CodeFileManager(codeFilesDir);
+  await manager.initialize();
+  const record = await manager.get(id);
+  if (!record) return jsonError(`Code file "${id}" not found`, 404);
+  return Response.json({
+    id: record.id,
+    filePath: record.filePath,
+    name: record.name,
+    language: record.language,
+    content: record.content,
+    contentHash: record.contentHash,
+    dirty: record.dirty,
+    lastPushedAt: record.lastPushedAt,
+    lastSyncedAt: record.lastSyncedAt,
+    hasProposedEdit: !!record.proposedEdit,
+  });
+}
+
+async function handlePathExists(project: string, filePath: string): Promise<Response> {
+  try {
+    const absPath = isAbsolute(filePath) ? filePath : resolve(project, filePath);
+    await validatePathUnderRoot(absPath, project);
+    await stat(absPath);
+    return Response.json({ exists: true });
+  } catch { return Response.json({ exists: false }); }
+}
+
+async function handleListCodeFiles(project: string, session: string): Promise<Response> {
+  const codeFilesDir = sessionRegistry.resolvePath(project, session, 'code-files');
+  const manager = new CodeFileManager(codeFilesDir);
+  await manager.initialize();
+  const files = await manager.list();
+  return Response.json({ files: files.map(f => ({ id: f.id, name: f.name, filePath: f.filePath, language: f.language, dirty: f.dirty, lastPushedAt: f.lastPushedAt })) });
 }
 
 // ============================================================================
