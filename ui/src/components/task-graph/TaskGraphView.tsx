@@ -89,6 +89,7 @@ export const TaskGraphView: React.FC<TaskGraphViewProps> = ({ project, session }
         onZoomIn={zoomIn}
         onZoomOut={zoomOut}
         onSetZoom={setZoomLevel}
+        hideEditToggle
         className="h-full w-full"
       />
     </div>

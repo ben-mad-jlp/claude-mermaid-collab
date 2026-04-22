@@ -37,6 +37,8 @@ export interface MermaidPreviewProps {
   onSetZoom?: (level: number) => void;
   /** Optional callback to receive SVG container ref when mounted */
   onContainerRef?: (ref: HTMLDivElement | null) => void;
+  /** Hide the "Edit" split-pane toggle button (e.g. task-graph view) */
+  hideEditToggle?: boolean;
   /** Whether to enable edit mode for visual diagram editing */
   editMode?: boolean;
   /** Callback when a node is clicked in edit mode */
@@ -89,6 +91,7 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
   onZoomOut,
   onSetZoom,
   onContainerRef,
+  hideEditToggle = false,
   editMode = false,
   onNodeClick,
   onEdgeClick,
@@ -441,7 +444,7 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
       data-testid="mermaid-preview"
     >
       {/* Edit-mode toggle (split code+preview pane) */}
-      <button
+      {!hideEditToggle && <button
         type="button"
         data-testid="mermaid-preview-edit-toggle"
         onClick={toggleSplitEditMode}
@@ -458,7 +461,7 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
           <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
         </svg>
         <span>Edit</span>
-      </button>
+      </button>}
 
       {/* Loading indicator */}
       {state.isLoading && (
