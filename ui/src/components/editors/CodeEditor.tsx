@@ -116,16 +116,11 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave: _onS
   const lastPushedAt: number | null = codeFile?.lastPushedAt ?? null;
   const lastSyncedAt: number = Date.now();
 
-  // Detect proposed edit stored as JSON in content
-  const proposedEdit: { newCode: string; message?: string; proposedBy: string; proposedAt: number } | null = (() => {
-    if (!code) return null;
-    try {
-      const parsed = JSON.parse(code);
-      return parsed?.proposedEdit ?? null;
-    } catch {
-      return null;
-    }
-  })();
+  // Read proposed edit from the store field (set by code_file_updated WS handler)
+  const proposedEdit = codeFile?.proposedEdit ?? null;
+
+  // When there's a proposed edit, original is the current file content
+  const originalContent = code;
 
   // State
   const [isPushing, setIsPushing] = useState(false);
@@ -327,7 +322,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave: _onS
       const full = await api.getCodeFile(currentSession.project, currentSession.name, codeFileId);
       if (full?.content) {
         if (getCodeFileById(codeFileId)) {
-          updateCodeFile(codeFileId, { content: full.content, lastModified: full.lastModified ?? Date.now() });
+          updateCodeFile(codeFileId, { content: full.content, dirty: full.dirty, language: full.language, lastPushedAt: full.lastPushedAt, proposedEdit: full.proposedEdit ?? null, lastModified: full.lastModified ?? Date.now() });
         } else {
           storeUpdateSnippet(codeFileId, { content: full.content, lastModified: full.lastModified ?? Date.now() });
         }
@@ -616,7 +611,10 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave: _onS
     );
   }
 
-  const monacoLanguage = normalizeLanguage(language || inferLanguageFromPath(filePath));
+  const monacoLanguage = (() => {
+    const fromRecord = normalizeLanguage(language);
+    return fromRecord !== 'text' ? fromRecord : inferLanguageFromPath(filePath);
+  })();
 
   return (
     <div className="flex flex-col h-full">
@@ -654,7 +652,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave: _onS
         {proposedEdit ? (
           <MonacoDiffEditor
             snippetId={codeFileId}
-            original={code}
+            original={originalContent}
             proposed={proposedEdit.newCode}
             language={language}
             theme={monacoTheme}

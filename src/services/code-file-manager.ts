@@ -16,10 +16,13 @@ function detectLanguage(filePath: string): string {
     '.js': 'javascript',
     '.jsx': 'javascript',
     '.py': 'python',
+    '.cs': 'csharp',
     '.css': 'css',
     '.html': 'html',
     '.json': 'json',
     '.md': 'markdown',
+    '.yaml': 'yaml',
+    '.yml': 'yaml',
   };
   return map[ext] ?? 'plaintext';
 }

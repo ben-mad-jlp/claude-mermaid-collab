@@ -532,6 +532,7 @@ export const api: ApiClient = {
       dirty: f.dirty ?? false,
       lastPushedAt: f.lastPushedAt ?? null,
       lastModified: f.lastModified ?? Date.now(),
+      proposedEdit: f.proposedEdit ?? null,
     }));
   },
 
@@ -550,6 +551,7 @@ export const api: ApiClient = {
       dirty: data.dirty ?? false,
       lastPushedAt: data.lastPushedAt ?? null,
       lastModified: data.lastModified ?? Date.now(),
+      proposedEdit: data.proposedEdit ?? null,
     };
   },
 

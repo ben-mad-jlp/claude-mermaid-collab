@@ -1,3 +1,10 @@
+export interface ProposedEdit {
+  newCode: string;
+  message?: string;
+  proposedBy: string;
+  proposedAt: number;
+}
+
 export interface UICodeFile {
   id: string;
   name: string;
@@ -7,4 +14,5 @@ export interface UICodeFile {
   dirty: boolean;
   lastPushedAt: number | null;
   lastModified: number;
+  proposedEdit?: ProposedEdit | null;
 }

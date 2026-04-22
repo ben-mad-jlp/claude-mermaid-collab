@@ -705,14 +705,23 @@ const App: React.FC = () => {
           if (id && currentSession && project === currentSession.project && session === currentSession.name) {
             const { codeFiles } = useSessionStore.getState();
             const existing = codeFiles.find((f) => f.id === id);
-            if (existing) {
-              updateCodeFile(id, { content, lastModified: Date.now() });
-            } else {
-              // New code file — parse the record from the broadcast content
-              try {
-                const record = typeof content === 'string' ? JSON.parse(content) : content;
+            try {
+              const record = typeof content === 'string' ? JSON.parse(content) : content;
+              if (existing) {
+                // Parse the broadcast JSON to extract individual fields rather than storing raw JSON
+                updateCodeFile(id, {
+                  content: record?.content ?? '',
+                  dirty: record?.dirty ?? existing.dirty,
+                  language: record?.language ?? existing.language,
+                  lastPushedAt: record?.lastPushedAt ?? existing.lastPushedAt,
+                  proposedEdit: record?.proposedEdit ?? null,
+                  lastModified: Date.now(),
+                });
+              } else {
                 addCodeFile({ id, name: record?.name ?? id, filePath: record?.filePath ?? record?.name ?? id, content: record?.content ?? '', language: record?.language ?? '', dirty: false, lastPushedAt: null, lastModified: Date.now() });
-              } catch {
+              }
+            } catch {
+              if (!existing) {
                 addCodeFile({ id, name: id, filePath: id, content: '', language: '', dirty: false, lastPushedAt: null, lastModified: Date.now() });
               }
             }
