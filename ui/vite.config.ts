@@ -9,7 +9,7 @@ const API_PORT = process.env.VITE_API_PORT || '9002';
 console.log(`[vite] proxying /api, /ws, /terminal → http://localhost:${API_PORT}`);
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), monacoEditorPlugin({ languageWorkers: ['editorWorkerService', 'typescript', 'json', 'css', 'html', 'markdown', 'yaml'] })],
+  plugins: [react(), tailwindcss(), monacoEditorPlugin({ languageWorkers: ['editorWorkerService', 'typescript', 'json', 'css', 'html'] })],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
