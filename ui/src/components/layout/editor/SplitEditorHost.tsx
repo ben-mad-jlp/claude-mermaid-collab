@@ -11,7 +11,6 @@ import { arrayMove } from '@dnd-kit/sortable';
 import { SplitPane } from '../SplitPane';
 import EditorAreaDropZones from './EditorAreaDropZones';
 import PaneContent from './PaneContent';
-import RightPaneCloseButton from './RightPaneCloseButton';
 import PinnedTabBar from '../tabs/PinnedTabBar';
 import TabBar from '../tabs/TabBar';
 import {
@@ -139,28 +138,49 @@ export function SplitEditorHost(props: SplitEditorHostProps) {
     />
   );
 
-  const leftIsActive = showRightPane && activePaneId === 'left';
   const rightIsActive = showRightPane && activePaneId === 'right';
 
-  const leftNode = showRightPane ? (
-    <div
-      onMouseDown={() => setActivePaneId('left')}
-      data-active-pane={leftIsActive || undefined}
-      className={`h-full w-full ${leftIsActive ? 'ring-2 ring-inset ring-accent-500 dark:ring-accent-400' : ''}`}
-    >
-      {leftPaneNode}
-    </div>
-  ) : (
-    leftPaneNode
-  );
   const rightNode = showRightPane ? (
     <div
       onMouseDown={() => setActivePaneId('right')}
       data-active-pane={rightIsActive || undefined}
-      className={`group relative h-full w-full ${rightIsActive ? 'ring-2 ring-inset ring-accent-500 dark:ring-accent-400' : ''}`}
+      className={`flex flex-col h-full w-full ${rightIsActive ? 'ring-2 ring-inset ring-accent-500 dark:ring-accent-400' : ''}`}
     >
-      <RightPaneCloseButton onClose={() => useTabsStore.getState().closeRightPane()} />
-      {rightPaneNode}
+      {/* Right pane tab bar */}
+      <div
+        className="flex items-stretch shrink-0 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
+        role="tablist"
+        data-testid="right-pane-tab-bar"
+      >
+        {rightTab && (
+          <div className="group flex items-center gap-2 px-3 py-1.5 text-sm select-none border-r border-gray-200 dark:border-gray-700 min-w-[120px] max-w-[200px] bg-accent-100 dark:bg-accent-900 border-b-2 border-accent-700">
+            <span className="truncate flex-1">{rightTab.name}</span>
+            <button
+              aria-label="Close right pane"
+              data-testid="right-pane-close-button"
+              className="opacity-0 group-hover:opacity-100 ml-1 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 flex-shrink-0"
+              onClick={(e) => {
+                e.stopPropagation();
+                useTabsStore.getState().closeRightPane();
+              }}
+            >
+              <svg
+                className="w-3 h-3"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                aria-hidden="true"
+              >
+                <path d="M18 6L6 18M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        )}
+      </div>
+      <div className="flex-1 min-h-0 overflow-hidden">
+        {rightPaneNode}
+      </div>
     </div>
   ) : (
     rightPaneNode
@@ -170,6 +190,20 @@ export function SplitEditorHost(props: SplitEditorHostProps) {
   const handleSizeChange = useCallback((size: number) => {
     setPrimarySize(size);
   }, []);
+
+  const leftColumn = (
+    <div className="flex flex-col h-full min-h-0">
+      <PinnedTabBar />
+      <TabBar />
+      {toolbar}
+      <div className="relative flex-1 min-h-0">
+        <div className="w-full h-full min-w-0 overflow-hidden">
+          {leftPaneNode}
+        </div>
+        <EditorAreaDropZones />
+      </div>
+    </div>
+  );
 
   return (
     <div
@@ -181,25 +215,17 @@ export function SplitEditorHost(props: SplitEditorHostProps) {
         collisionDetection={closestCenter}
         onDragEnd={handleDragEnd}
       >
-        <PinnedTabBar />
-        <TabBar />
-        {toolbar}
-        <div className="relative flex-1 min-h-0">
-          {showRightPane ? (
-            <SplitPane
-              primaryContent={leftNode}
-              secondaryContent={rightNode}
-              defaultPrimarySize={primarySize}
-              onSizeChange={handleSizeChange}
-              storageId="editor-split"
-            />
-          ) : (
-            <div className="w-full h-full min-w-0 overflow-hidden">
-              {leftNode}
-            </div>
-          )}
-          <EditorAreaDropZones />
-        </div>
+        {showRightPane ? (
+          <SplitPane
+            primaryContent={leftColumn}
+            secondaryContent={rightNode}
+            defaultPrimarySize={primarySize}
+            onSizeChange={handleSizeChange}
+            storageId="editor-split"
+          />
+        ) : (
+          leftColumn
+        )}
       </DndContext>
     </div>
   );
