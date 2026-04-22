@@ -151,8 +151,8 @@ export const TabBar: React.FC<TabBarProps> = ({ onContextMenu }) => {
   );
 
   const regularOrdered = React.useMemo(
-    () => tabs.filter((t) => !t.isPinned).sort((a, b) => a.order - b.order),
-    [tabs],
+    () => tabs.filter((t) => !t.isPinned && t.id !== rightPaneTabId).sort((a, b) => a.order - b.order),
+    [tabs, rightPaneTabId],
   );
 
   const handleCloseOthers = React.useCallback(
@@ -180,10 +180,10 @@ export const TabBar: React.FC<TabBarProps> = ({ onContextMenu }) => {
   }, [regularOrdered, closeTab]);
 
   const permanentTabs = tabs
-    .filter((t) => !t.isPinned && !t.isPreview)
+    .filter((t) => !t.isPinned && !t.isPreview && t.id !== rightPaneTabId)
     .sort((a, b) => a.order - b.order);
   const previewTabs = tabs
-    .filter((t) => !t.isPinned && t.isPreview)
+    .filter((t) => !t.isPinned && t.isPreview && t.id !== rightPaneTabId)
     .sort((a, b) => a.order - b.order);
   const regularTabs = [...permanentTabs, ...previewTabs];
 
