@@ -51,6 +51,28 @@ function normalizeLanguage(lang: string | null | undefined): Language {
   return valid.includes(lower) ? lower : 'text';
 }
 
+const EXT_TO_LANGUAGE: Record<string, Language> = {
+  ts: 'typescript', tsx: 'typescript',
+  js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',
+  cs: 'csharp',
+  py: 'python',
+  md: 'markdown', markdown: 'markdown',
+  yaml: 'yaml', yml: 'yaml',
+  html: 'html', htm: 'html',
+  json: 'json',
+  cpp: 'cpp', cc: 'cpp', cxx: 'cpp', h: 'cpp', hpp: 'cpp',
+  css: 'css', scss: 'css', less: 'css',
+};
+
+function inferLanguageFromPath(filePath: string): Language {
+  if (!filePath) return 'text';
+  const base = filePath.split('/').pop() ?? '';
+  // Support both dot-extension (foo.cs) and dash-extension (foo-cs)
+  const dotExt = base.includes('.') ? base.split('.').pop()!.toLowerCase() : null;
+  const dashExt = base.includes('-') ? base.split('-').pop()!.toLowerCase() : null;
+  return EXT_TO_LANGUAGE[dotExt ?? ''] ?? EXT_TO_LANGUAGE[dashExt ?? ''] ?? 'text';
+}
+
 export interface CodeEditorProps {
   codeFileId: string;
   onSave?: (snippet: Snippet) => void;
@@ -174,7 +196,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave: _onS
         const tier1 = await fetchFunctionsForSource(currentSession.project, filePath);
         if (cancelled) return;
         if (tier1.length > 0) {
-          setFunctions(tier1 as FunctionJumpItem[]);
+          setFunctions((tier1 as FunctionJumpItem[]).slice().sort((a, b) => a.name.localeCompare(b.name)));
           setUseTier2(false);
         } else {
           setUseTier2(true);
@@ -193,7 +215,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave: _onS
   useEffect(() => {
     if (!useTier2 || !code) return;
     const tier2 = extractFunctions(code, language || 'typescript');
-    setFunctions(tier2 as unknown as FunctionJumpItem[]);
+    setFunctions((tier2 as unknown as FunctionJumpItem[]).slice().sort((a, b) => a.name.localeCompare(b.name)));
   }, [useTier2, code, language]);
 
   const handleSymbolClick = useCallback(async (symbol: string, rect: DOMRect) => {
@@ -594,7 +616,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ codeFileId, onSave: _onS
     );
   }
 
-  const monacoLanguage = normalizeLanguage(language);
+  const monacoLanguage = normalizeLanguage(language || inferLanguageFromPath(filePath));
 
   return (
     <div className="flex flex-col h-full">

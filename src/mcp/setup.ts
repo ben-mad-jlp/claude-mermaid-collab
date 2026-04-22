@@ -2397,7 +2397,7 @@ IMPORTANT - Common pitfalls to avoid:
       },
       {
         name: 'create_code',
-        description: 'Link a source file from disk as a tracked code artifact. Reads the file and creates a snippet envelope with change tracking.',
+        description: 'Link a source file from disk as a tracked code file artifact. Reads the file content and creates a code file record with change tracking (dirty flag, push/sync).',
         inputSchema: createCodeSchema,
       },
       {
@@ -2432,7 +2432,7 @@ IMPORTANT - Common pitfalls to avoid:
       },
       {
         name: 'propose_code_edit',
-        description: 'Propose an edit to a linked code artifact. The proposal appears in the UI as a diff with Accept/Reject buttons. Acceptance updates the in-editor code (user must still Push to write to disk). Only one proposal can be pending per snippet; a new proposal replaces any existing one.',
+        description: 'Propose an edit to a linked code file artifact. The proposal appears in the UI as a Monaco diff editor with Accept/Reject buttons. Acceptance updates the in-editor code (user must still Push to write to disk). Only one proposal can be pending per code file; a new proposal replaces any existing one. Use list_code_files to find the artifact ID.',
         inputSchema: proposeCodeEditSchema,
       },
       {

@@ -1,8 +1,8 @@
 /**
  * MCP Code Tools
  *
- * Tools for linking, pushing, syncing, and reviewing code files
- * stored as linked snippet envelopes.
+ * Tools for linking, pushing, syncing, and reviewing code file artifacts.
+ * Code files are first-class artifacts distinct from snippets.
  */
 
 import { editDecisionBridge } from '../../agent/edit-decision-bridge.js';
@@ -47,7 +47,7 @@ export const pushCodeToFileSchema = {
   type: 'object',
   properties: {
     ...sessionParamsDesc,
-    id: { type: 'string', description: 'Snippet ID of the linked code file' },
+    id: { type: 'string', description: 'Code file artifact ID' },
   },
   required: ['project', 'session', 'id'],
 };
@@ -56,7 +56,7 @@ export const syncCodeFromDiskSchema = {
   type: 'object',
   properties: {
     ...sessionParamsDesc,
-    id: { type: 'string', description: 'Snippet ID of the linked code file' },
+    id: { type: 'string', description: 'Code file artifact ID' },
   },
   required: ['project', 'session', 'id'],
 };
@@ -65,7 +65,7 @@ export const reviewCodeEditsSchema = {
   type: 'object',
   properties: {
     ...sessionParamsDesc,
-    id: { type: 'string', description: 'Snippet ID of the linked code file' },
+    id: { type: 'string', description: 'Code file artifact ID' },
     format: { type: 'string', enum: ['diff', 'full'], description: 'Output format: diff (unified diff) or full (all fields). Default: diff' },
   },
   required: ['project', 'session', 'id'],
@@ -83,7 +83,7 @@ export const proposeCodeEditSchema = {
   type: 'object',
   properties: {
     ...sessionParamsDesc,
-    id: { type: 'string', description: 'Snippet ID of the linked code artifact' },
+    id: { type: 'string', description: 'Code file artifact ID' },
     newCode: { type: 'string', description: 'Proposed full-file content. Replaces the entire file, not a patch.' },
     message: { type: 'string', description: 'Short human-readable explanation of the proposed change.' },
   },
@@ -94,7 +94,7 @@ export const waitForEditDecisionSchema = {
   type: 'object',
   properties: {
     ...sessionParamsDesc,
-    id: { type: 'string', description: 'Snippet ID of the linked code artifact whose edit decision to wait for.' },
+    id: { type: 'string', description: 'Code file artifact ID whose edit decision to wait for.' },
     timeoutMs: { type: 'number', description: 'How long to wait in milliseconds before timing out (default 300000).' },
   },
   required: ['project', 'session', 'id'],
