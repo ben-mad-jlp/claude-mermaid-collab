@@ -89,8 +89,8 @@ export interface ApiClient {
   listAllProjectFiles(project: string): Promise<{ entries: Array<{ name: string; path: string; relativePath: string; type: 'file' | 'directory'; extension?: string }> }>;
   pushCodeToFile(project: string, session: string, id: string): Promise<any>;
   syncCodeFromDisk(project: string, session: string, id: string): Promise<any>;
-  acceptProposedEdit(project: string, session: string, id: string): Promise<{ success: boolean; dirty: boolean }>;
-  rejectProposedEdit(project: string, session: string, id: string): Promise<{ success: boolean; noop?: boolean }>;
+  acceptProposedEdit(project: string, session: string, id: string, comment?: string): Promise<{ success: boolean; dirty: boolean }>;
+  rejectProposedEdit(project: string, session: string, id: string, comment?: string): Promise<{ success: boolean; noop?: boolean }>;
   getCodeDiff(project: string, session: string, id: string): Promise<any>;
   clearTaskGraph(project: string, session: string): Promise<any>;
   createImage(project: string, session: string, file: File): Promise<{ id: string; name: string; mimeType: string; size: number; uploadedAt: string; success: boolean }>;
@@ -728,8 +728,8 @@ export const api: ApiClient = {
     return response.json();
   },
 
-  async acceptProposedEdit(project: string, session: string, id: string) {
-    const response = await fetch(`/api/code/proposed-edit/${encodeURIComponent(id)}/accept?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`, {
+  async acceptProposedEdit(project: string, session: string, id: string, comment?: string) {
+    const response = await fetch(`/api/code/proposed-edit/${encodeURIComponent(id)}/accept?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}${comment ? '&comment=' + encodeURIComponent(comment) : ''}`, {
       method: 'POST',
     });
     if (!response.ok) {
@@ -739,8 +739,8 @@ export const api: ApiClient = {
     return response.json();
   },
 
-  async rejectProposedEdit(project: string, session: string, id: string) {
-    const response = await fetch(`/api/code/proposed-edit/${encodeURIComponent(id)}/reject?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`, {
+  async rejectProposedEdit(project: string, session: string, id: string, comment?: string) {
+    const response = await fetch(`/api/code/proposed-edit/${encodeURIComponent(id)}/reject?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}${comment ? '&comment=' + encodeURIComponent(comment) : ''}`, {
       method: 'POST',
     });
     if (!response.ok) {

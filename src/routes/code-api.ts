@@ -15,6 +15,7 @@ import { validatePathUnderRoot } from '../utils/path-security.js';
 import { getWebSocketHandler } from '../services/ws-handler-manager.js';
 import { getPseudoDb } from '../services/pseudo-db.js';
 import { walkProject } from '../services/source-scanner.js';
+import { editDecisionBridge } from '../agent/edit-decision-bridge.js';
 
 // Directories and files to exclude from file listings
 const EXCLUDED_NAMES = new Set([
@@ -83,7 +84,8 @@ export async function handleCodeAPI(req: Request): Promise<Response> {
         return jsonError('Missing required query parameter: session', 400);
       }
       const id = decodeURIComponent(path.split('/')[2]);
-      return handleAcceptProposedEdit(project, session, id);
+      const comment = url.searchParams.get('comment') ?? undefined;
+      return handleAcceptProposedEdit(project, session, id, comment);
     }
 
     // POST /proposed-edit/:id/reject — reject a pending proposed edit
@@ -92,7 +94,8 @@ export async function handleCodeAPI(req: Request): Promise<Response> {
         return jsonError('Missing required query parameter: session', 400);
       }
       const id = decodeURIComponent(path.split('/')[2]);
-      return handleRejectProposedEdit(project, session, id);
+      const comment = url.searchParams.get('comment') ?? undefined;
+      return handleRejectProposedEdit(project, session, id, comment);
     }
 
     // POST /record-edit-decision — flat path called by CodeEditor hunk accept/reject
@@ -615,7 +618,7 @@ async function handleCreateProposedEdit(
   return Response.json({ success: true, id, hasProposedEdit: true });
 }
 
-async function handleAcceptProposedEdit(project: string, session: string, id: string): Promise<Response> {
+async function handleAcceptProposedEdit(project: string, session: string, id: string, comment?: string): Promise<Response> {
   const snippetsDir = sessionRegistry.resolvePath(project, session, 'snippets');
   const snippetManager = new SnippetManager(snippetsDir);
   await snippetManager.initialize();
@@ -643,6 +646,7 @@ async function handleAcceptProposedEdit(project: string, session: string, id: st
     newCode: envelope.proposedEdit.newCode,
   };
 
+  const oldCode = envelope.code;
   envelope.code = envelope.proposedEdit.newCode;
   envelope.dirty = envelope.code !== (envelope.originalCode ?? '');
   delete envelope.proposedEdit;
@@ -666,6 +670,8 @@ async function handleAcceptProposedEdit(project: string, session: string, id: st
     }
   }
 
+  editDecisionBridge.resolve(project, session, id, { decision: 'accepted', comment });
+
   try {
     await appendEditDecision(project, session, {
       snippetId: id,
@@ -674,9 +680,9 @@ async function handleAcceptProposedEdit(project: string, session: string, id: st
       filePath: decisionInfo.filePath,
       proposedBy: decisionInfo.proposedBy,
       proposedAt: decisionInfo.proposedAt,
-      message: decisionInfo.message,
+      message: comment ?? decisionInfo.message,
       linesAdded: decisionInfo.newCode ? decisionInfo.newCode.split('\n').length : 0,
-      linesRemoved: envelope.code ? envelope.code.split('\n').length : 0,
+      linesRemoved: oldCode ? oldCode.split('\n').length : 0,
     });
   } catch (e) {
     console.error('[appendEditDecision] failed silently:', e);
@@ -685,7 +691,7 @@ async function handleAcceptProposedEdit(project: string, session: string, id: st
   return Response.json({ success: true, dirty: envelope.dirty });
 }
 
-async function handleRejectProposedEdit(project: string, session: string, id: string): Promise<Response> {
+async function handleRejectProposedEdit(project: string, session: string, id: string, comment?: string): Promise<Response> {
   const snippetsDir = sessionRegistry.resolvePath(project, session, 'snippets');
   const snippetManager = new SnippetManager(snippetsDir);
   await snippetManager.initialize();
@@ -736,6 +742,8 @@ async function handleRejectProposedEdit(project: string, session: string, id: st
     }
   }
 
+  editDecisionBridge.resolve(project, session, id, { decision: 'rejected', comment });
+
   try {
     await appendEditDecision(project, session, {
       snippetId: id,
@@ -744,7 +752,7 @@ async function handleRejectProposedEdit(project: string, session: string, id: st
       filePath: decisionInfo.filePath,
       proposedBy: decisionInfo.proposedBy,
       proposedAt: decisionInfo.proposedAt,
-      message: decisionInfo.message,
+      message: comment ?? decisionInfo.message,
       linesAdded: decisionInfo.newCode ? decisionInfo.newCode.split('\n').length : 0,
       linesRemoved: decisionInfo.originalCode ? decisionInfo.originalCode.split('\n').length : 0,
     });
