@@ -38,10 +38,8 @@ export interface SnippetEditorProps {
   className?: string;
   /** Lines to highlight (1-indexed array of line numbers) */
   highlightLines?: number[];
-  /** Whether to show diff view by default */
   /** Callback to provide inline toolbar controls to the parent (rendered in EditorToolbar header) */
   onToolbarControls?: (controls: React.ReactNode) => void;
-  showDiffByDefault?: boolean;
   /** Hide the filePath display in the toolbar (useful when parent already shows it) */
   hideFilePath?: boolean;
   /** Called when the Monaco editor is ready with its IStandaloneCodeEditor instance */
@@ -50,9 +48,6 @@ export interface SnippetEditorProps {
   onSymbolClick?: (symbol: string, rect: DOMRect) => void;
   /** Called when the user Cmd/Ctrl-clicks or right-clicks a symbol (go-to-definition) */
   onSymbolGoToDefinition?: (symbol: string, rect: DOMRect) => void;
-  proposedEdit?: { newCode: string; message?: string; proposedBy: 'claude' | 'user'; proposedAt: number };
-  onHunkAccept?: (hunkIndex: number, comment?: string) => void;
-  onHunkReject?: (hunkIndex: number, comment?: string) => void;
 }
 
 /**
@@ -136,15 +131,11 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
   showButtons = true,
   className = '',
   highlightLines = [],
-  showDiffByDefault = false,
   onToolbarControls,
   hideFilePath = false,
   onEditorReady,
   onSymbolClick,
   onSymbolGoToDefinition,
-  proposedEdit,
-  onHunkAccept,
-  onHunkReject,
 }) => {
   const { selectedSnippet, updateSnippet, getSnippetById } = useSnippet();
 
@@ -159,7 +150,7 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [detectedLanguage, setDetectedLanguage] = useState<Language>('text');
   const [selectedLanguage, setSelectedLanguage] = useState<Language>('text');
-  const [showDiff, setShowDiff] = useState(showDiffByDefault);
+  const [showDiff] = useState(false);
   const [originalCode, setOriginalCode] = useState<string>('');
   const [filePath, setFilePath] = useState<string | null>(null);
   const [parsedHighlightLines, setParsedHighlightLines] = useState<number[]>([]);
@@ -248,11 +239,6 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
     []
   );
 
-  // Handle diff toggle
-  const handleDiffToggle = useCallback(() => {
-    setShowDiff(!showDiff);
-  }, [showDiff]);
-
   // Handle copy to clipboard
   const handleCopy = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
     const button = e.currentTarget;
@@ -290,7 +276,6 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
   // Handle cancel
   const handleCancel = useCallback(() => {
     setContent(originalCode);
-    setShowDiff(false);
   }, [originalCode]);
 
   // ─── Annotation handlers ────────────────────────────────────────────────────
@@ -439,17 +424,6 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
         <option value="yaml">YAML</option>
       </select>
       <button
-        onClick={handleDiffToggle}
-        className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
-          showDiff
-            ? 'bg-blue-500 text-white'
-            : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-        }`}
-        title="Toggle diff view"
-      >
-        Diff
-      </button>
-      <button
         onClick={handleCopy}
         className="px-2 py-0.5 rounded text-xs font-medium bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
         title="Copy code to clipboard"
@@ -480,7 +454,7 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
       )}
     </>
   ), [
-    selectedLanguage, handleLanguageChange, showDiff, handleDiffToggle, handleCopy,
+    selectedLanguage, handleLanguageChange, handleCopy,
     filePath, hideFilePath, showButtons, hasChanges, handleCancel,
     handleSave, isSaving, currentSelection, annotationPopover, handleOpenAddAnnotation,
     annotations, handleClearAnnotations,
@@ -561,9 +535,6 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
             onEditorReady={onEditorReady}
             onSymbolClick={onSymbolClick}
             onSymbolGoToDefinition={onSymbolGoToDefinition}
-            proposedEdit={proposedEdit}
-            onHunkAccept={onHunkAccept}
-            onHunkReject={onHunkReject}
           />
         </div>
       )}

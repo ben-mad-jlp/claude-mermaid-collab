@@ -9,34 +9,56 @@
  * - Selection vs cursor position handling
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { EditorState } from '@codemirror/state';
-import { EditorView } from '@codemirror/view';
 import {
   AnnotationToolbar,
   insertAnnotation,
   clearAnnotations,
 } from '../AnnotationToolbar';
+import type * as Monaco from 'monaco-editor';
 
-// Create a mock EditorView for testing
-function createMockEditorView(content: string, selectionFrom: number, selectionTo: number) {
-  const state = EditorState.create({
-    doc: content,
-    selection: { anchor: selectionFrom, head: selectionTo },
-  });
+// Create a mock Monaco IStandaloneCodeEditor for testing
+function createMockEditor(
+  content: string,
+  selectionStart: { lineNumber: number; column: number },
+  selectionEnd: { lineNumber: number; column: number }
+) {
+  const lines = content.split('\n');
+  const isEmpty =
+    selectionStart.lineNumber === selectionEnd.lineNumber &&
+    selectionStart.column === selectionEnd.column;
 
-  // Track dispatched changes
-  const dispatchedChanges: any[] = [];
+  const selection = {
+    startLineNumber: selectionStart.lineNumber,
+    startColumn: selectionStart.column,
+    endLineNumber: selectionEnd.lineNumber,
+    endColumn: selectionEnd.column,
+    isEmpty: () => isEmpty,
+  };
 
-  const mockView = {
-    state,
-    dispatch: vi.fn((transaction: any) => {
-      dispatchedChanges.push(transaction);
+  const executeEdits = vi.fn();
+
+  const model = {
+    getValueInRange: vi.fn((_range: Monaco.IRange) => {
+      // Return the text between start/end columns on the first line for simplicity
+      const line = lines[selectionStart.lineNumber - 1] ?? '';
+      return line.slice(selectionStart.column - 1, selectionEnd.column - 1);
     }),
-  } as unknown as EditorView;
+    getLineMaxColumn: vi.fn((lineNumber: number) => {
+      const line = lines[lineNumber - 1] ?? '';
+      return line.length + 1;
+    }),
+  };
 
-  return { view: mockView, dispatchedChanges };
+  const editor = {
+    getModel: vi.fn(() => model),
+    getSelection: vi.fn(() => selection),
+    getPosition: vi.fn(() => selectionStart),
+    executeEdits: executeEdits,
+  } as unknown as Monaco.editor.IStandaloneCodeEditor;
+
+  return { editor, executeEdits, model };
 }
 
 describe('AnnotationToolbar', () => {
@@ -47,14 +69,15 @@ describe('AnnotationToolbar', () => {
       expect(screen.getByTestId('annotation-toolbar')).toBeDefined();
     });
 
-    it('should render all annotation buttons', () => {
+    it('should render comment and clear annotation buttons only', () => {
       render(<AnnotationToolbar editor={null} />);
 
       expect(screen.getByTestId('annotation-btn-add-comment')).toBeDefined();
-      expect(screen.getByTestId('annotation-btn-mark-as-proposed')).toBeDefined();
-      expect(screen.getByTestId('annotation-btn-mark-as-approved')).toBeDefined();
-      expect(screen.getByTestId('annotation-btn-mark-as-rejected')).toBeDefined();
       expect(screen.getByTestId('annotation-btn-clear-annotations')).toBeDefined();
+      // Propose/Approve/Reject buttons should NOT exist
+      expect(screen.queryByTestId('annotation-btn-mark-as-proposed')).toBeNull();
+      expect(screen.queryByTestId('annotation-btn-mark-as-approved')).toBeNull();
+      expect(screen.queryByTestId('annotation-btn-mark-as-rejected')).toBeNull();
     });
 
     it('should render with custom className', () => {
@@ -68,59 +91,34 @@ describe('AnnotationToolbar', () => {
       render(<AnnotationToolbar editor={null} />);
 
       expect(screen.getByTitle('Add comment')).toBeDefined();
-      expect(screen.getByTitle('Mark as proposed')).toBeDefined();
-      expect(screen.getByTitle('Mark as approved')).toBeDefined();
-      expect(screen.getByTitle('Mark as rejected')).toBeDefined();
       expect(screen.getByTitle('Clear annotations')).toBeDefined();
     });
   });
 
   describe('Button Click Handlers', () => {
-    it('should handle comment button click with editorView', () => {
-      const { view } = createMockEditorView('test content', 0, 4);
-      render(<AnnotationToolbar editor={null} />);
-
-      fireEvent.click(screen.getByTestId('annotation-btn-add-comment'));
-
-      expect(view.dispatch).toHaveBeenCalled();
-    });
-
-    it('should handle propose button click with editorView', () => {
-      const { view } = createMockEditorView('test content', 0, 4);
-      render(<AnnotationToolbar editor={null} />);
-
-      fireEvent.click(screen.getByTestId('annotation-btn-mark-as-proposed'));
-
-      expect(view.dispatch).toHaveBeenCalled();
-    });
-
-    it('should handle approve button click with editorView', () => {
-      const { view } = createMockEditorView('test content', 0, 4);
-      render(<AnnotationToolbar editor={null} />);
-
-      fireEvent.click(screen.getByTestId('annotation-btn-mark-as-approved'));
-
-      expect(view.dispatch).toHaveBeenCalled();
-    });
-
-    it('should handle clear button click with editorView', () => {
-      const { view } = createMockEditorView('<!-- status: approved -->', 0, 0);
-      render(<AnnotationToolbar editor={null} />);
-
-      fireEvent.click(screen.getByTestId('annotation-btn-clear-annotations'));
-
-      expect(view.dispatch).toHaveBeenCalled();
-    });
-
-    it('should not crash when clicking buttons with null editorView', () => {
+    it('should handle comment button click without crashing', () => {
       render(<AnnotationToolbar editor={null} />);
 
       expect(() => {
         fireEvent.click(screen.getByTestId('annotation-btn-add-comment'));
-        fireEvent.click(screen.getByTestId('annotation-btn-mark-as-proposed'));
-        fireEvent.click(screen.getByTestId('annotation-btn-mark-as-approved'));
+      }).not.toThrow();
+    });
+
+    it('should handle clear button click without crashing', () => {
+      render(<AnnotationToolbar editor={null} />);
+
+      expect(() => {
         fireEvent.click(screen.getByTestId('annotation-btn-clear-annotations'));
       }).not.toThrow();
+    });
+
+    it('should call executeEdits when comment button clicked with editor', () => {
+      const { editor, executeEdits } = createMockEditor('test content', { lineNumber: 1, column: 1 }, { lineNumber: 1, column: 1 });
+      render(<AnnotationToolbar editor={editor} />);
+
+      fireEvent.click(screen.getByTestId('annotation-btn-add-comment'));
+
+      expect(executeEdits).toHaveBeenCalled();
     });
   });
 });
@@ -128,205 +126,123 @@ describe('AnnotationToolbar', () => {
 describe('insertAnnotation', () => {
   describe('With selection', () => {
     it('should wrap selection with comment markers', () => {
-      const { view } = createMockEditorView('Hello World', 0, 5);
+      const { editor, executeEdits } = createMockEditor(
+        'Hello World',
+        { lineNumber: 1, column: 1 },
+        { lineNumber: 1, column: 6 }
+      );
 
-      insertAnnotation(view, 'comment');
+      insertAnnotation(editor, 'comment');
 
-      expect(view.dispatch).toHaveBeenCalledWith({
-        changes: {
-          from: 0,
-          to: 5,
-          insert: '<!-- comment-start: [comment] -->\nHello\n<!-- comment-end -->',
-        },
-      });
+      expect(executeEdits).toHaveBeenCalledWith('annotation-toolbar', expect.arrayContaining([
+        expect.objectContaining({
+          text: expect.stringContaining('<!-- comment-start: [comment] -->'),
+        }),
+      ]));
     });
 
-    it('should wrap selection with propose markers', () => {
-      const { view } = createMockEditorView('Hello World', 0, 5);
+    it('should include comment-end marker in wrapped selection', () => {
+      const { editor, executeEdits } = createMockEditor(
+        'Hello World',
+        { lineNumber: 1, column: 1 },
+        { lineNumber: 1, column: 6 }
+      );
 
-      insertAnnotation(view, 'propose');
+      insertAnnotation(editor, 'comment');
 
-      expect(view.dispatch).toHaveBeenCalledWith({
-        changes: {
-          from: 0,
-          to: 5,
-          insert: '<!-- propose-start -->\nHello\n<!-- propose-end -->',
-        },
-      });
-    });
-
-    it('should wrap selection with approve markers', () => {
-      const { view } = createMockEditorView('Hello World', 0, 5);
-
-      insertAnnotation(view, 'approve');
-
-      expect(view.dispatch).toHaveBeenCalledWith({
-        changes: {
-          from: 0,
-          to: 5,
-          insert: '<!-- approve-start -->\nHello\n<!-- approve-end -->',
-        },
-      });
-    });
-
-    it('should wrap selection with reject markers including reason', () => {
-      const { view } = createMockEditorView('Hello World', 0, 5);
-
-      insertAnnotation(view, 'reject', 'Not valid');
-
-      expect(view.dispatch).toHaveBeenCalledWith({
-        changes: {
-          from: 0,
-          to: 5,
-          insert: '<!-- reject-start: Not valid -->\nHello\n<!-- reject-end -->',
-        },
-      });
+      const call = executeEdits.mock.calls[0];
+      expect(call[1][0].text).toContain('<!-- comment-end -->');
     });
   });
 
   describe('Without selection (cursor only)', () => {
     it('should insert comment block at cursor', () => {
-      const { view } = createMockEditorView('Hello World', 5, 5);
+      const { editor, executeEdits } = createMockEditor(
+        'Hello World',
+        { lineNumber: 1, column: 6 },
+        { lineNumber: 1, column: 6 }
+      );
 
-      insertAnnotation(view, 'comment');
+      insertAnnotation(editor, 'comment');
 
-      expect(view.dispatch).toHaveBeenCalledWith({
-        changes: {
-          from: 5,
-          to: 5,
-          insert: '<!-- comment: [your comment] -->',
-        },
-      });
-    });
-
-    it('should insert propose status at cursor', () => {
-      const { view } = createMockEditorView('Hello World', 5, 5);
-
-      insertAnnotation(view, 'propose');
-
-      expect(view.dispatch).toHaveBeenCalledWith({
-        changes: {
-          from: 5,
-          to: 5,
-          insert: '<!-- status: proposed -->',
-        },
-      });
-    });
-
-    it('should insert approve status at cursor', () => {
-      const { view } = createMockEditorView('Hello World', 5, 5);
-
-      insertAnnotation(view, 'approve');
-
-      expect(view.dispatch).toHaveBeenCalledWith({
-        changes: {
-          from: 5,
-          to: 5,
-          insert: '<!-- status: approved -->',
-        },
-      });
-    });
-
-    it('should insert reject status with reason at cursor', () => {
-      const { view } = createMockEditorView('Hello World', 5, 5);
-
-      insertAnnotation(view, 'reject', 'Wrong approach');
-
-      expect(view.dispatch).toHaveBeenCalledWith({
-        changes: {
-          from: 5,
-          to: 5,
-          insert: '<!-- status: rejected: Wrong approach -->',
-        },
-      });
+      expect(executeEdits).toHaveBeenCalledWith('annotation-toolbar', expect.arrayContaining([
+        expect.objectContaining({
+          text: '<!-- comment: [your comment] -->',
+        }),
+      ]));
     });
   });
 
   describe('Edge cases', () => {
-    it('should handle null view gracefully', () => {
+    it('should handle null editor gracefully', () => {
       expect(() => {
         insertAnnotation(null as any, 'comment');
       }).not.toThrow();
     });
 
-    it('should handle reject without reason', () => {
-      const { view } = createMockEditorView('Hello World', 5, 5);
+    it('should handle editor with no model gracefully', () => {
+      const editor = {
+        getModel: vi.fn(() => null),
+        getSelection: vi.fn(() => null),
+        executeEdits: vi.fn(),
+      } as unknown as Monaco.editor.IStandaloneCodeEditor;
 
-      insertAnnotation(view, 'reject');
-
-      expect(view.dispatch).toHaveBeenCalledWith({
-        changes: {
-          from: 5,
-          to: 5,
-          insert: '<!-- status: rejected:  -->',
-        },
-      });
+      expect(() => {
+        insertAnnotation(editor, 'comment');
+      }).not.toThrow();
     });
   });
 });
 
 describe('clearAnnotations', () => {
   describe('With selection', () => {
-    it('should remove comment markers from selection', () => {
+    it('should call executeEdits to remove comment markers', () => {
       const content = '<!-- comment: test --> Hello';
-      const { view } = createMockEditorView(content, 0, content.length);
+      const { editor, executeEdits } = createMockEditor(
+        content,
+        { lineNumber: 1, column: 1 },
+        { lineNumber: 1, column: content.length + 1 }
+      );
 
-      clearAnnotations(view);
+      clearAnnotations(editor);
 
-      const call = (view.dispatch as any).mock.calls[0][0];
-      expect(call.changes.insert).not.toContain('<!-- comment:');
+      expect(executeEdits).toHaveBeenCalled();
     });
 
-    it('should remove status markers from selection', () => {
-      const content = '<!-- status: proposed --> content';
-      const { view } = createMockEditorView(content, 0, content.length);
+    it('should produce text without annotation markers', () => {
+      const content = '<!-- comment: test --> Hello';
+      const { editor, executeEdits, model } = createMockEditor(
+        content,
+        { lineNumber: 1, column: 1 },
+        { lineNumber: 1, column: content.length + 1 }
+      );
+      // Return the full content from getValueInRange
+      model.getValueInRange = vi.fn(() => content);
 
-      clearAnnotations(view);
+      clearAnnotations(editor);
 
-      const call = (view.dispatch as any).mock.calls[0][0];
-      expect(call.changes.insert).not.toContain('<!-- status:');
-    });
-
-    it('should remove block markers from selection', () => {
-      const content = '<!-- propose-start -->\ncode\n<!-- propose-end -->';
-      const { view } = createMockEditorView(content, 0, content.length);
-
-      clearAnnotations(view);
-
-      const call = (view.dispatch as any).mock.calls[0][0];
-      expect(call.changes.insert).not.toContain('<!-- propose-start -->');
-      expect(call.changes.insert).not.toContain('<!-- propose-end -->');
-    });
-
-    it('should collapse multiple newlines after clearing', () => {
-      const content = '<!-- comment: test -->\n\n\n\nHello';
-      const { view } = createMockEditorView(content, 0, content.length);
-
-      clearAnnotations(view);
-
-      const call = (view.dispatch as any).mock.calls[0][0];
-      // Should collapse 4 newlines to 2
-      expect(call.changes.insert).not.toContain('\n\n\n');
+      const call = executeEdits.mock.calls[0];
+      expect(call[1][0].text).not.toContain('<!-- comment:');
     });
   });
 
   describe('Without selection (current line)', () => {
     it('should clear annotations from current line', () => {
-      const content = '<!-- status: approved --> code';
-      const { view } = createMockEditorView(content, 5, 5);
+      const content = 'plain text on line';
+      const { editor, executeEdits } = createMockEditor(
+        content,
+        { lineNumber: 1, column: 5 },
+        { lineNumber: 1, column: 5 }
+      );
 
-      clearAnnotations(view);
+      clearAnnotations(editor);
 
-      expect(view.dispatch).toHaveBeenCalled();
-      const call = (view.dispatch as any).mock.calls[0][0];
-      // Should process the line containing the cursor
-      expect(call.changes.from).toBe(0);
-      expect(call.changes.to).toBe(content.length);
+      expect(executeEdits).toHaveBeenCalled();
     });
   });
 
   describe('Edge cases', () => {
-    it('should handle null view gracefully', () => {
+    it('should handle null editor gracefully', () => {
       expect(() => {
         clearAnnotations(null as any);
       }).not.toThrow();
@@ -334,12 +250,17 @@ describe('clearAnnotations', () => {
 
     it('should handle content without annotations', () => {
       const content = 'Just plain text';
-      const { view } = createMockEditorView(content, 0, content.length);
+      const { editor, executeEdits, model } = createMockEditor(
+        content,
+        { lineNumber: 1, column: 1 },
+        { lineNumber: 1, column: content.length + 1 }
+      );
+      model.getValueInRange = vi.fn(() => content);
 
-      clearAnnotations(view);
+      clearAnnotations(editor);
 
-      const call = (view.dispatch as any).mock.calls[0][0];
-      expect(call.changes.insert).toBe('Just plain text');
+      const call = executeEdits.mock.calls[0];
+      expect(call[1][0].text).toBe('Just plain text');
     });
   });
 });

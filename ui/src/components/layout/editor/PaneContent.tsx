@@ -76,6 +76,7 @@ export const PaneContent: React.FC<PaneContentProps> = ({
     })),
   );
   const codeFirstView = useUIStore((s) => s.codeFirstView);
+  const pairMode = useUIStore((s) => s.pairMode);
 
   if (!tab) return <EmptyPane />;
 
@@ -83,7 +84,7 @@ export const PaneContent: React.FC<PaneContentProps> = ({
     if (tab.artifactId) onContentChange?.(tab.artifactId, content);
   };
 
-  switch (tab.kind) {
+  const paneContent = (() => { switch (tab.kind) {
     case 'artifact': {
       const aType = tab.artifactType;
       if (!aType) return <NotFound message="Artifact type missing" />;
@@ -201,7 +202,13 @@ export const PaneContent: React.FC<PaneContentProps> = ({
 
     default:
       return <NotFound message="Unknown tab kind" />;
-  }
+  } })();
+
+  return (
+    <div className={`h-full w-full${pairMode ? ' ring-2 ring-inset ring-amber-400/50' : ''}`}>
+      {paneContent}
+    </div>
+  );
 };
 
 export default PaneContent;

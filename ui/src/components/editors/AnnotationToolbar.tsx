@@ -2,10 +2,7 @@
  * AnnotationToolbar Component
  *
  * Provides toolbar buttons for adding annotations to document content:
- * - Comment: Add a comment annotation
- * - Propose: Mark content as proposed
- * - Approve: Mark content as approved
- * - Reject: Mark content as rejected with a reason
+ * - Comment: Add a comment annotation (Monaco gutter annotation)
  * - Clear: Remove annotations from selection or current line
  *
  * Works with Monaco editor to insert/remove annotation markers.
@@ -27,7 +24,7 @@ export interface AnnotationToolbarProps {
 /**
  * Annotation type for insertAnnotation function
  */
-export type AnnotationType = 'comment' | 'propose' | 'approve' | 'reject';
+export type AnnotationType = 'comment';
 
 /**
  * Insert an annotation at the current selection or cursor position
@@ -38,8 +35,7 @@ export type AnnotationType = 'comment' | 'propose' | 'approve' | 'reject';
  */
 export function insertAnnotation(
   editor: Monaco.editor.IStandaloneCodeEditor,
-  type: AnnotationType,
-  reason?: string
+  type: AnnotationType
 ): void {
   if (!editor) return;
 
@@ -56,45 +52,12 @@ export function insertAnnotation(
 
   if (hasSelection) {
     // Wrap selection with start/end markers
-    let prefix: string;
-    let suffix: string;
-
-    switch (type) {
-      case 'comment':
-        prefix = '<!-- comment-start: [comment] -->';
-        suffix = '<!-- comment-end -->';
-        break;
-      case 'propose':
-        prefix = '<!-- propose-start -->';
-        suffix = '<!-- propose-end -->';
-        break;
-      case 'approve':
-        prefix = '<!-- approve-start -->';
-        suffix = '<!-- approve-end -->';
-        break;
-      case 'reject':
-        prefix = `<!-- reject-start: ${reason || ''} -->`;
-        suffix = '<!-- reject-end -->';
-        break;
-    }
-
+    const prefix = '<!-- comment-start: [comment] -->';
+    const suffix = '<!-- comment-end -->';
     newText = prefix + '\n' + selectedText + '\n' + suffix;
   } else {
     // Insert block marker at cursor
-    switch (type) {
-      case 'comment':
-        newText = '<!-- comment: [your comment] -->';
-        break;
-      case 'propose':
-        newText = '<!-- status: proposed -->';
-        break;
-      case 'approve':
-        newText = '<!-- status: approved -->';
-        break;
-      case 'reject':
-        newText = `<!-- status: rejected: ${reason || ''} -->`;
-        break;
-    }
+    newText = '<!-- comment: [your comment] -->';
   }
 
   editor.executeEdits('annotation-toolbar', [
@@ -212,7 +175,7 @@ const Divider: React.FC = () => (
 /**
  * AnnotationToolbar Component
  *
- * Provides a toolbar for adding and clearing annotations in a CodeMirror editor.
+ * Provides a toolbar for adding and clearing annotations in a Monaco editor.
  *
  * @example
  * ```tsx
@@ -238,25 +201,6 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
     }
   }, [editor]);
 
-  const handlePropose = useCallback(() => {
-    if (editor) {
-      insertAnnotation(editor, 'propose');
-    }
-  }, [editor]);
-
-  const handleApprove = useCallback(() => {
-    if (editor) {
-      insertAnnotation(editor, 'approve');
-    }
-  }, [editor]);
-
-  const handleReject = useCallback(() => {
-    const reason = prompt('Enter rejection reason:');
-    if (reason && editor) {
-      insertAnnotation(editor, 'reject', reason);
-    }
-  }, [editor]);
-
   const handleClear = useCallback(() => {
     if (editor) {
       clearAnnotations(editor);
@@ -269,24 +213,6 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
       data-testid="annotation-toolbar"
     >
       <ToolbarButton onClick={handleComment} icon="💬" title="Add comment" />
-      <ToolbarButton
-        onClick={handlePropose}
-        icon="📝"
-        title="Mark as proposed"
-        color="yellow"
-      />
-      <ToolbarButton
-        onClick={handleApprove}
-        icon="✓"
-        title="Mark as approved"
-        color="green"
-      />
-      <ToolbarButton
-        onClick={handleReject}
-        icon="✗"
-        title="Mark as rejected"
-        color="red"
-      />
       <Divider />
       <ToolbarButton onClick={handleClear} icon="🧹" title="Clear annotations" />
     </div>

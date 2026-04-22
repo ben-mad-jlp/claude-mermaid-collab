@@ -49,6 +49,10 @@ export interface UIState {
   proposedEditObserveMode: boolean;
   setProposedEditObserveMode: (on: boolean) => void;
 
+  // Diff view preference: side-by-side (true) or unified (false)
+  diffSideBySide: boolean;
+  setDiffSideBySide: (on: boolean) => void;
+
   // Split pane positions (stored as percentages)
   sidebarSplitPosition: number;
   setSidebarSplitPosition: (position: number) => void;
@@ -159,6 +163,9 @@ export const useUIStore = create<UIState>()(
       proposedEditObserveMode: false,
       setProposedEditObserveMode: (on: boolean) => set({ proposedEditObserveMode: on }),
 
+      diffSideBySide: true,
+      setDiffSideBySide: (on: boolean) => set({ diffSideBySide: on }),
+
       // Split pane positions
       sidebarSplitPosition: DEFAULT_SIDEBAR_POSITION,
       setSidebarSplitPosition: (position: number) => {
@@ -212,6 +219,7 @@ export const useUIStore = create<UIState>()(
           seenMigrationBannerV5: false,
           pairMode: false,
           proposedEditObserveMode: false,
+          diffSideBySide: true,
           sidebarSplitPosition: DEFAULT_SIDEBAR_POSITION,
           sessionPanelSplitPosition: DEFAULT_SESSION_PANEL_POSITION,
           editorSplitPosition: DEFAULT_EDITOR_SPLIT_POSITION,
@@ -220,7 +228,7 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'ui-preferences', // localStorage key
-      version: 6,
+      version: 7,
       migrate: (persistedState: unknown, version: number) => {
         // v5: terminal/shell removed entirely. Drop legacy panel flags and
         // default agentChatVisible to true so chat is visible by default.
@@ -242,11 +250,16 @@ export const useUIStore = create<UIState>()(
               typeof old.seenMigrationBannerV5 === 'boolean' ? old.seenMigrationBannerV5 : false,
             pairMode: false,
             proposedEditObserveMode: false,
+            diffSideBySide: true,
           } as UIState;
         }
         if (version < 6) {
           const old = persistedState as Record<string, unknown>;
-          return { ...old, pairMode: false, proposedEditObserveMode: false } as UIState;
+          return { ...old, pairMode: false, proposedEditObserveMode: false, diffSideBySide: true } as UIState;
+        }
+        if (version < 7) {
+          const old = persistedState as Record<string, unknown>;
+          return { ...old, diffSideBySide: typeof old.diffSideBySide === 'boolean' ? old.diffSideBySide : true } as UIState;
         }
         return persistedState as UIState;
       },

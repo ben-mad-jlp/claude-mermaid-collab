@@ -3,12 +3,9 @@ import Editor, { type OnMount, loader } from '@monaco-editor/react';
 import type * as Monaco from 'monaco-editor';
 import type { SnippetAnnotation } from '@/types/snippet';
 import { useTheme } from '@/hooks/useTheme';
-import { applyDiffDecorations, clearDiffDecorations, injectDiffStyles, type AppliedDiff } from './diffReview/MonacoDiffReview';
 import { applyAnnotations, clearAnnotations, type AnnotationCallbacks } from './MonacoAnnotations';
 import { registerSymbolNav } from './MonacoSymbolNav';
 import { useMonacoHistory } from '@/hooks/useMonacoHistory';
-import { computeHunks } from './diffReview/computeHunks';
-import type { ProposalState } from './diffReview/types';
 
 export type Language = 'javascript' | 'typescript' | 'markdown' | 'yaml' | 'html' | 'json' | 'python' | 'cpp' | 'csharp' | 'css' | 'text';
 
@@ -31,9 +28,6 @@ export interface MonacoWrapperProps {
   onSelectionChange?: (selection: { startLine: number; endLine: number } | null) => void;
   onSymbolClick?: (symbol: string, rect: DOMRect) => void;
   onSymbolGoToDefinition?: (symbol: string, rect: DOMRect) => void;
-  proposedEdit?: { newCode: string; message?: string; proposedBy: 'claude' | 'user'; proposedAt: number } | null;
-  onHunkAccept?: (hunkIndex: number, comment?: string) => void;
-  onHunkReject?: (hunkIndex: number, comment?: string) => void;
 }
 
 function getMonacoLanguage(language: Language): string {
@@ -231,13 +225,9 @@ export const MonacoWrapper: React.FC<MonacoWrapperProps> = ({
   onSelectionChange,
   onSymbolClick,
   onSymbolGoToDefinition,
-  proposedEdit,
-  onHunkAccept,
-  onHunkReject,
 }) => {
   const { theme } = useTheme();
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
-  const appliedDiffRef = useRef<AppliedDiff | null>(null);
   const appliedAnnotationsRef = useRef<ReturnType<typeof applyAnnotations> | null>(null);
   const highlightDecorationIdsRef = useRef<string[]>([]);
   const symbolNavDisposablesRef = useRef<Monaco.IDisposable[]>([]);
@@ -306,35 +296,8 @@ export const MonacoWrapper: React.FC<MonacoWrapperProps> = ({
     }
 
     onEditorReady?.(editor);
-    injectDiffStyles();
     setEditorReady(true);
   }, [onEditorReady, onSelectionChange, onSymbolClick, onSymbolGoToDefinition, setHistoryEditor]);
-
-  // Diff review effect
-  useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor || !editorReady) return;
-
-    if (appliedDiffRef.current) {
-      clearDiffDecorations(editor, appliedDiffRef.current);
-      appliedDiffRef.current = null;
-    }
-
-    if (proposedEdit) {
-      const hunks = computeHunks(value, proposedEdit.newCode, 'proposal');
-      const proposal: ProposalState = {
-        hunks,
-        proposedCode: proposedEdit.newCode,
-        message: proposedEdit.message,
-        proposedBy: proposedEdit.proposedBy,
-        proposedAt: proposedEdit.proposedAt,
-      };
-      appliedDiffRef.current = applyDiffDecorations(editor, monacoRef.current!, proposal, {
-        onAcceptHunk: onHunkAccept ?? (() => {}),
-        onRejectHunk: onHunkReject ?? (() => {}),
-      });
-    }
-  }, [proposedEdit, value, onHunkAccept, onHunkReject, editorReady]);
 
   // Annotations effect
   useEffect(() => {
@@ -378,7 +341,6 @@ export const MonacoWrapper: React.FC<MonacoWrapperProps> = ({
       for (const d of symbolNavDisposablesRef.current) d.dispose();
       const editor = editorRef.current;
       if (editor) {
-        if (appliedDiffRef.current) clearDiffDecorations(editor, appliedDiffRef.current);
         if (appliedAnnotationsRef.current) clearAnnotations(editor, appliedAnnotationsRef.current);
       }
       onEditorReadyRef.current?.(null);

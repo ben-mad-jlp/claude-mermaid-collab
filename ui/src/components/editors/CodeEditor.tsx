@@ -12,12 +12,14 @@ import { SnippetEditor } from './SnippetEditor';
 import { DiffAgainstDiskModal } from './DiffAgainstDiskModal';
 import { CodeArtifactKebabMenu } from './CodeArtifactKebabMenu';
 import { PseudoSideBySideView } from './PseudoSideBySideView';
-import { computeHunks } from './diffReview/computeHunks';
 import type { EditDecisionPayload } from './diffReview/types';
+import { MonacoDiffEditor, type MonacoDiffEditorHandle } from './diffReview/MonacoDiffEditor';
 import { FunctionJumpDropdown, type FunctionJumpItem } from './FunctionJumpDropdown';
 import { ReferencesPopover } from './ReferencesPopover';
 import { useSnippet } from '@/hooks/useSnippet';
+import { useTheme } from '@/hooks/useTheme';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useUIStore } from '@/stores/uiStore';
 import { api } from '@/lib/api';
 import { fetchFunctionsForSource, fetchPseudoReferences, fetchSourceLink, type Reference, type SourceLinkCandidate } from '@/lib/pseudo-api';
 import { extractFunctions } from '@/lib/extract-functions';
@@ -131,7 +133,23 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
   const [functions, setFunctions] = useState<FunctionJumpItem[]>([]);
   const [useTier2, setUseTier2] = useState(false);
   const editorViewRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
+  const diffEditorRef = useRef<MonacoDiffEditorHandle | null>(null);
+  const diffSideBySide = useUIStore((state) => state.diffSideBySide);
+  const setDiffSideBySide = useUIStore((state) => state.setDiffSideBySide);
+  const [hunkInfo, setHunkInfo] = useState<{ current: number; total: number }>({ current: 0, total: 0 });
+  const handleHunkChange = useCallback((current: number, total: number) => {
+    setHunkInfo({ current, total });
+  }, []);
   const [popover, setPopover] = useState<{ symbol: string; refs: Reference[]; rect: DOMRect } | null>(null);
+
+  // Theme for Monaco diff editor
+  const { theme } = useTheme();
+  const monacoTheme = theme === 'dark' ? 'mc-dark' : 'mc-light';
+
+  // UI store selectors for diff review mode
+  const proposedEditObserveMode = useUIStore((state) => state.proposedEditObserveMode);
+  const setProposedEditObserveMode = useUIStore((state) => state.setProposedEditObserveMode);
+  const pairMode = useUIStore((state) => state.pairMode);
 
   // Feature B state
   const [pickerState, setPickerState] = useState<{ symbol: string; candidates: SourceLinkCandidate[]; rect: DOMRect } | null>(null);
@@ -430,22 +448,14 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
   const handleAcceptHunk = useCallback(
     async (hunkIndex: number, comment?: string) => {
       if (!currentSession || !envelope?.proposedEdit) return;
-      // Use the current editor content as the base — not envelope.code — so that
-      // sequential hunk accepts use up-to-date line numbers rather than stale ones
-      // from before the previous hunk was applied.
-      const currentEditorCode = editorViewRef.current?.getModel()?.getValue() ?? envelope.code;
-      const hunks = computeHunks(currentEditorCode, envelope.proposedEdit.newCode, snippetId);
-      const hunk = hunks.find((h) => h.hunkIndex === hunkIndex);
-      if (!hunk) return;
-
-      const lines = currentEditorCode.split('\n');
-      const before = lines.slice(0, hunk.startLine - 1);
-      const after = lines.slice(hunk.startLine - 1 + hunk.removedLines.length);
-      const newCode = [...before, ...hunk.addedLines, ...after].join('\n');
-
+      // MonacoDiffEditor handles the model mutation; we just record the decision.
+      // Then accept the full proposal (the modified model's content is the result after hunk edits).
+      const finalCode = diffEditorRef.current?.getCurrentModifiedContent() ?? envelope.proposedEdit.newCode;
       try {
-        const raw = JSON.parse(snippet?.content ?? '{}');
-        raw.code = newCode;
+        // Fetch fresh snippet to avoid stale-closure content
+        const fresh = await api.getSnippet(currentSession.project, currentSession.name, snippetId);
+        const raw = JSON.parse(fresh?.content ?? '{}');
+        raw.code = finalCode;
         raw.dirty = true;
         delete raw.proposedEdit;
         await api.updateSnippet(currentSession.project, currentSession.name, snippetId, JSON.stringify(raw, null, 2));
@@ -462,8 +472,8 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
           decidedBy: 'user',
           proposedAt: envelope.proposedEdit.proposedAt,
           message: comment ?? envelope.proposedEdit.message,
-          linesAdded: hunk.addedLines.length,
-          linesRemoved: hunk.removedLines.length,
+          linesAdded: 0,
+          linesRemoved: 0,
         };
         await fetch(
           `/api/code/record-edit-decision?project=${encodeURIComponent(currentSession.project)}&session=${encodeURIComponent(currentSession.name)}`,
@@ -477,16 +487,12 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
         setFlashMessage('Accept hunk failed');
       }
     },
-    [currentSession, envelope, snippetId, snippet?.content, refreshSnippet],
+    [currentSession, envelope, snippetId, refreshSnippet],
   );
 
   const handleRejectHunk = useCallback(
     async (hunkIndex: number, comment?: string) => {
       if (!currentSession || !envelope?.proposedEdit) return;
-      const hunks = computeHunks(envelope.code, envelope.proposedEdit.newCode, snippetId);
-      const hunk = hunks.find((h) => h.hunkIndex === hunkIndex);
-      if (!hunk) return;
-
       try {
         const payload: EditDecisionPayload = {
           project: currentSession.project,
@@ -500,16 +506,15 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
           decidedBy: 'user',
           proposedAt: envelope.proposedEdit.proposedAt,
           message: comment ?? envelope.proposedEdit.message,
-          linesAdded: hunk.addedLines.length,
-          linesRemoved: hunk.removedLines.length,
+          linesAdded: 0,
+          linesRemoved: 0,
         };
         await fetch(
           `/api/code/record-edit-decision?project=${encodeURIComponent(currentSession.project)}&session=${encodeURIComponent(currentSession.name)}`,
           { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) },
         );
-
-        await refreshSnippet();
         setFlashMessage('Hunk rejected');
+        await refreshSnippet();
       } catch (err) {
         console.error('Reject hunk failed:', err);
         setFlashMessage('Reject hunk failed');
@@ -550,6 +555,41 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
   // Build the merged toolbar: push/preview/sync/pseudo/status + SnippetEditor's controls + kebab
   const mergedControls = useMemo(() => {
     if (!envelope || !currentSession) return snippetControls;
+    if (envelope?.proposedEdit) {
+      return (
+        <>
+          <button
+            onClick={() => diffEditorRef.current?.prevHunk()}
+            disabled={hunkInfo.current === 0 || hunkInfo.total === 0}
+            className="px-2 py-1 rounded text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >←</button>
+          <span className="text-xs text-gray-500 dark:text-gray-400 tabular-nums">
+            {hunkInfo.total === 0 ? 'No changes' : `${hunkInfo.current + 1} of ${hunkInfo.total}`}
+          </span>
+          <button
+            onClick={() => diffEditorRef.current?.nextHunk()}
+            disabled={hunkInfo.current >= hunkInfo.total - 1 || hunkInfo.total === 0}
+            className="px-2 py-1 rounded text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >→</button>
+          <div className="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1" />
+          <button onClick={() => setDiffSideBySide(!diffSideBySide)} className="px-2 py-1 rounded text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+            {diffSideBySide ? 'Inline' : 'Side'}
+          </button>
+          <button
+            onClick={() => setProposedEditObserveMode(!proposedEditObserveMode)}
+            className={`px-2 py-1 rounded text-xs font-medium transition-colors ${proposedEditObserveMode ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
+          >
+            {proposedEditObserveMode ? 'Observing' : 'Observe'}
+          </button>
+          <div className="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1" />
+          {!proposedEditObserveMode && <>
+            <button onClick={handleAcceptProposal} className="px-2 py-1 rounded text-xs font-medium bg-green-500 text-white hover:bg-green-600 transition-colors">✓ Accept All</button>
+            <button onClick={handleRejectProposal} className="px-2 py-1 rounded text-xs font-medium bg-red-500 text-white hover:bg-red-600 transition-colors">✗ Reject All</button>
+          </>}
+          {flashMessage && <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">{flashMessage}</span>}
+        </>
+      );
+    }
     return (
       <>
         {/* Back button — Feature B nav history */}
@@ -661,7 +701,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
         />
       </>
     );
-  }, [envelope, currentSession, snippetControls, handlePush, handlePreview, handleSync, isPushing, isSyncing, dirty, conflict, flashMessage, showPseudo, snippetId, filePath, handleDeprecate, handleDelete, functions, jumpToLine, navHistory.canGoBack, handleBack, handleAcceptProposal, handleRejectProposal]);
+  }, [envelope, currentSession, snippetControls, handlePush, handlePreview, handleSync, isPushing, isSyncing, dirty, conflict, flashMessage, showPseudo, snippetId, filePath, handleDeprecate, handleDelete, functions, jumpToLine, navHistory.canGoBack, handleBack, handleAcceptProposal, handleRejectProposal, diffSideBySide, diffEditorRef, proposedEditObserveMode, setProposedEditObserveMode, setDiffSideBySide, hunkInfo, handleHunkChange]);
 
   // Push merged controls to parent EditorToolbar
   // Short-circuit when envelope is null — SnippetEditor handles onToolbarControls directly
@@ -709,9 +749,27 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
         </div>
       )}
 
-      {/* SnippetEditor fills remaining space — captures its toolbar via callback */}
+      {/* Editor area — MonacoDiffEditor when reviewing a proposal, otherwise SnippetEditor */}
       <div className="flex-1 min-h-0">
-        {showPseudo && envelope.linked && currentSession ? (
+        {envelope.proposedEdit ? (
+          <MonacoDiffEditor
+            ref={diffEditorRef}
+            snippetId={snippetId}
+            original={envelope.code}
+            proposed={envelope.proposedEdit.newCode}
+            language={envelope.language}
+            theme={monacoTheme}
+            observeMode={proposedEditObserveMode}
+            sideBySide={diffSideBySide}
+            onAcceptAll={handleAcceptProposal}
+            onRejectAll={handleRejectProposal}
+            onAcceptHunk={handleAcceptHunk}
+            onRejectHunk={handleRejectHunk}
+            onSideBySideChange={setDiffSideBySide}
+            onObserveModeChange={setProposedEditObserveMode}
+            onHunkChange={handleHunkChange}
+          />
+        ) : showPseudo && envelope.linked && currentSession ? (
           <PseudoSideBySideView
             snippetId={snippetId}
             sourceFilePath={filePath}
@@ -725,9 +783,6 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
               onEditorReady={handleEditorReady}
               onSymbolClick={handleSymbolClick}
               onSymbolGoToDefinition={handleGoToDefinition}
-              proposedEdit={envelope.proposedEdit ?? undefined}
-              onHunkAccept={handleAcceptHunk}
-              onHunkReject={handleRejectHunk}
             />
           </PseudoSideBySideView>
         ) : (
@@ -739,9 +794,6 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ snippetId, onSave, onToo
             onEditorReady={handleEditorReady}
             onSymbolClick={handleSymbolClick}
             onSymbolGoToDefinition={handleGoToDefinition}
-            proposedEdit={envelope.proposedEdit ?? undefined}
-            onHunkAccept={handleAcceptHunk}
-            onHunkReject={handleRejectHunk}
           />
         )}
       </div>
