@@ -193,7 +193,7 @@ export abstract class ArtifactManager<T extends ArtifactRecord> {
 
     // Register in index
     this.index.set(id, {
-      name: id,
+      name: name,
       path,
       lastModified: stats.mtimeMs,
     });

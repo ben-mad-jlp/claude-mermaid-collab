@@ -111,7 +111,7 @@ After reading all files, before returning:
    - trivial: comments, formatting, config values
 2. For each behavioral file, post a before/after diagram to the collab tree:
    Tool: mcp__mermaid__create_diagram
-   Args: { "project": "{project}", "session": "{session}", "name": "Implementation/Wave {wave-number}/{task-id}/{filename}", "content": "<mermaid diagram with before and after subgraphs>" }
+   Args: { "project": "{project}", "session": "{session}", "name": "Implementing/Wave {wave-number}/{task-id}/{filename}", "content": "<mermaid diagram with before and after subgraphs>" }
 3. Include in your return payload which files got diagrams.
 
 Return in this EXACT format (include the TASK_ID on every line):
@@ -122,7 +122,7 @@ TASKS:
 - FILE: {absolute path} | CHANGES: {exactly what to edit — be specific: function name, what to add/remove/modify, the logic} | CLASS: behavioral|structural|trivial
 - FILE: {absolute path} | CHANGES: { ... } | CLASS: behavioral|structural|trivial
 DIAGRAMS:
-- {filename}: Implementation/Wave {N}/{task-id}/{filename} (or "none" if structural/trivial)
+- {filename}: Implementing/Wave {N}/{task-id}/{filename} (or "none" if structural/trivial)
   "
 )
 ```
@@ -296,7 +296,7 @@ Tool: mcp__plugin_mermaid-collab_mermaid__create_document
 Args: {
   "project": "<cwd>",
   "session": "<session>",
-  "name": "Implementation/Wave [N]/summary",
+  "name": "Implementing/Wave [N]/summary",
   "content": "# Wave [N] Implementation\n\n## Tasks\n{task summaries from implement agents}\n\n## Verification\n{verify agent results}"
 }
 ```

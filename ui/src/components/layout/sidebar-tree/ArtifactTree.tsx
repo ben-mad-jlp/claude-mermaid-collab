@@ -1315,7 +1315,7 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
       <div className="overflow-y-auto flex-1 pl-2" role="tree">
         {renderSection('pins', 'Pinned', pinnedNodes)}
         {renderSection('recent', 'Recently Updated', recentlyUpdatedNodes)}
-        {renderSection('blueprints', 'Implementing', [...blueprintNodes, ...taskNodes])}
+        {renderSection('blueprints', 'Implementing', [...blueprintNodes, ...taskNodes], { foldered: true })}
         <TodosTreeSection
           collapsed={collapsedSections.has('todos')}
           onToggle={() => toggleSection('todos')}

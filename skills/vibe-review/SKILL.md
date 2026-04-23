@@ -48,7 +48,7 @@ git diff --stat $BASE_SHA..$HEAD_SHA
 ```
 Tool: mcp__plugin_mermaid-collab_mermaid__list_documents
 ```
-Find all `Implementation/Wave *` documents and read them.
+Find all `Implementing/Wave *` documents and read them.
 
 **Announce:**
 ```
@@ -102,11 +102,11 @@ Tool: mcp__plugin_mermaid-collab_mermaid__create_document
 Args: {
   "project": "{project}",
   "session": "{session}",
-  "name": "Implementation/Review/bugs",
+  "name": "Implementing/Review/bugs",
   "content": "# Bug Review\n\n[findings]"
 }
 
-Return: "Bug review complete. [N bugs found / No bugs found]. Saved to Implementation/Review/bugs."
+Return: "Bug review complete. [N bugs found / No bugs found]. Saved to Implementing/Review/bugs."
 ```
 
 ---
@@ -151,11 +151,11 @@ Tool: mcp__plugin_mermaid-collab_mermaid__create_document
 Args: {
   "project": "{project}",
   "session": "{session}",
-  "name": "Implementation/Review/completeness",
+  "name": "Implementing/Review/completeness",
   "content": "# Completeness Review\n\n[findings]"
 }
 
-Return: "Completeness review done. [N gaps found / Everything complete]. Saved to Implementation/Review/completeness."
+Return: "Completeness review done. [N gaps found / Everything complete]. Saved to Implementing/Review/completeness."
 ```
 
 ---
@@ -174,8 +174,8 @@ After both agents return, summarize:
 [Summary from completeness agent — gaps found, or "all complete"]
 
 ### Documents
-- Implementation/Review/bugs — open in collab UI for full findings
-- Implementation/Review/completeness — open in collab UI for full findings
+- Implementing/Review/bugs — open in collab UI for full findings
+- Implementing/Review/completeness — open in collab UI for full findings
 ```
 
 ## Step 4 — Gate on critical issues
@@ -195,26 +195,20 @@ After both agents return, summarize:
 Both checks passed. Implementation looks solid.
 ```
 
-## Step 5 — Deprecate blueprint when done
+## Step 5 — Archive blueprint when done
 
-If the user confirms they are satisfied with the implementation:
+If the user confirms they are satisfied with the implementation, run the archive sweep:
 
-**1. Deprecate the blueprint document:**
-```
-Tool: mcp__plugin_mermaid-collab_mermaid__deprecate_artifact
-Args: {
-  "project": "<cwd>",
-  "session": "<session>",
-  "id": "<blueprint-doc-id>",
-  "deprecated": true
-}
-```
+1. Call `list_documents` to get all session documents
+2. Collect:
+   - **Set A:** documents where name starts with `Implementing/` AND NOT `Implementing/Ad-hoc/`
+   - **Set B:** the `task-graph` root document (name === `task-graph`, not deprecated)
+3. Determine slug: find the doc in Set A with `blueprint: true`, take segment after `Implementing/`. If none, use `unknown-${Date.now()}`.
+4. For each doc in Set A: call `create_document` with name = `Archive/${slug}/` + (doc.name minus `Implementing/`) and same content
+5. For the `task-graph` doc (Set B if present): call `create_document` with name = `Archive/${slug}/task-graph` and same content
+6. Deprecate all originals: call `deprecate_artifact` with `deprecated: true` for each doc in Set A + Set B
 
-**2. Deprecate all Implementation/Wave * and Implementation/Review/* documents** (but NOT Implementation/Ad-hoc/* — those persist):
-
-Call `list_documents` to get all session documents. For each document whose name starts with `Implementation/Wave` or `Implementation/Review`, call `deprecate_artifact` with `deprecated: true`.
-
-Tell the user: "Blueprint archived. The work is complete."
+Tell the user: `"Blueprint archived. The work is complete."`
 
 **Auto-checkpoint:** Update the vibe instructions "Currently Doing" section:
 1. Find and read the `vibeinstructions` document

@@ -34,8 +34,8 @@ One diagram per file. Before and after in the same artifact — use subgraphs or
 Post to collab using a `/`-separated name — the UI renders each `/`-delimited segment as a nested folder in the Diagrams tree.
 
 Name format by context:
-- **vibe-go wave**: `Implementation/Wave {N}/{task-id}/{filename}` (e.g. `Implementation/Wave-1/add-getinfo/PickingStationController.cs`)
-- **ad-hoc**: `Implementation/Ad-hoc/{slug}/{filename}` (e.g. `Implementation/Ad-hoc/auth-refactor/TokenService.cs`)
+- **vibe-go wave**: `Implementing/Wave {N}/{task-id}/{filename}` (e.g. `Implementing/Wave-1/add-getinfo/PickingStationController.cs`)
+- **ad-hoc**: `Implementing/Ad-hoc/{slug}/{filename}` (e.g. `Implementing/Ad-hoc/auth-refactor/TokenService.cs`)
 
 Call `create_diagram` with the full slash-separated name as above. Never use hyphens as folder separators — only `/` creates folder nesting in the UI.
 

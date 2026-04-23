@@ -90,7 +90,7 @@ export class DocumentManager {
     const stats = await stat(path);
 
     this.index.set(id, {
-      name: id,
+      name: name,
       path,
       lastModified: stats.mtimeMs,
     });

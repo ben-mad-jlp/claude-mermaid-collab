@@ -17,19 +17,21 @@ allowed-tools:
 Generate a blueprint document and task graph from selected session artifacts.
 The blueprint is saved as a locked read-only document in the session's Blueprint section.
 
-## Step 0 — Deprecate existing blueprints
+## Step 0 — Archive existing implementing work
 
-Before creating a new blueprint, deprecate any active ones so the Tasks and Blueprints sections reset cleanly.
+Before creating a new blueprint, archive anything currently in `Implementing/` so the section is clean.
 
 1. Call `mcp__plugin_mermaid-collab_mermaid__list_documents` to get all documents
-2. Filter for documents where `blueprint: true` and `deprecated: false`
-3. For each active blueprint, call:
-   ```
-   Tool: mcp__plugin_mermaid-collab_mermaid__deprecate_artifact
-   Args: { "project": "<cwd>", "session": "<session>", "id": "<blueprint-id>", "deprecated": true }
-   ```
-4. If any were deprecated, tell the user: `"Archived [N] previous blueprint(s)."`
-5. If none found, continue silently.
+2. Collect two sets:
+   - **Set A:** documents where `name` starts with `Implementing/` AND NOT `Implementing/Ad-hoc/`
+   - **Set B:** the `task-graph` root document (name === `task-graph`, not deprecated)
+3. If both sets are empty: continue silently (nothing to archive)
+4. If either set is non-empty: run archive steps:
+   a. Determine slug: find the doc in Set A with `blueprint: true`, take the segment after `Implementing/`. If none found, use `unknown-${Date.now()}`.
+   b. For each doc in Set A: call `create_document` with name = `Archive/${slug}/` + (doc.name minus `Implementing/`) and same content
+   c. For the `task-graph` doc (Set B): call `create_document` with name = `Archive/${slug}/task-graph` and same content
+   d. Deprecate all originals: call `deprecate_artifact` with `deprecated: true` for each doc in Set A + Set B
+5. Tell user: `"Archived previous implementing work: ${slug}"`
 
 ## Step 1 — List available artifacts
 
@@ -113,14 +115,14 @@ tasks:
 
 ## Step 5 — Create the blueprint document
 
-Derive a short, descriptive name from the blueprint's goal (e.g. `bp-session-display-badge`, `bp-auth-middleware-rewrite`). Always prefix with `bp-` so blueprints are easy to identify. Do NOT use the generic name "blueprint".
+Derive a short, descriptive name (e.g. `artifact-folder-tree`, `auth-middleware-rewrite`). Do NOT use the generic name `blueprint`.
 
 ```
 Tool: mcp__plugin_mermaid-collab_mermaid__create_document
 Args: {
   "project": "<cwd>",
   "session": "<session>",
-  "name": "bp-<descriptive-slug>",
+  "name": "Implementing/<descriptive-slug>",
   "content": "<full blueprint content>"
 }
 ```
@@ -229,7 +231,7 @@ Update the vibe instructions "Currently Doing" section so state survives a /clea
 2. Read it with `get_document`
 3. Replace everything after `## Currently Doing` with:
    ```
-   - Blueprint created: [blueprint name] — [N] tasks across [M] waves
+   - Blueprint created: Implementing/[slug] — [N] tasks across [M] waves
    - Task graph synced and ready
    - Next step: run /vibe-go to execute
    ```
