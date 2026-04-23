@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { useSessionStore } from '@/stores/sessionStore';
 
@@ -20,6 +21,7 @@ const ClaudePixAvatar: React.FC<{ status: string }> = ({ status }) => {
   const [src] = useState(() => pickAnimation(status));
   const prevStatus = useRef(status);
   const [currentSrc, setCurrentSrc] = useState(src);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     if (prevStatus.current !== status) {
@@ -29,16 +31,51 @@ const ClaudePixAvatar: React.FC<{ status: string }> = ({ status }) => {
   }, [status]);
 
   return (
-    <iframe
-      src={currentSrc}
-      title="Claude"
-      scrolling="no"
-      frameBorder="0"
-      sandbox="allow-scripts"
-      allowTransparency={true}
-      className="flex-shrink-0 rounded-sm overflow-hidden pointer-events-none"
-      style={{ width: 32, height: 32, imageRendering: 'pixelated', background: 'transparent' }}
-    />
+    <>
+      <div
+        className="flex-shrink-0 cursor-pointer"
+        onClick={(e) => { e.stopPropagation(); setExpanded(true); }}
+        title="Click to expand"
+      >
+        <iframe
+          src={currentSrc}
+          title="Claude"
+          scrolling="no"
+          frameBorder="0"
+          sandbox="allow-scripts"
+          allowTransparency={true}
+          className="rounded-sm overflow-hidden pointer-events-none"
+          style={{ width: 32, height: 32, imageRendering: 'pixelated', background: 'transparent', display: 'block' }}
+        />
+      </div>
+
+      {expanded && createPortal(
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          onClick={() => setExpanded(false)}
+        >
+          <div className="relative" onClick={(e) => e.stopPropagation()}>
+            <iframe
+              src={currentSrc}
+              title="Claude (expanded)"
+              scrolling="no"
+              frameBorder="0"
+              sandbox="allow-scripts"
+              allowTransparency={true}
+              style={{ width: '80vmin', height: '80vmin', imageRendering: 'pixelated', background: 'transparent', display: 'block' }}
+            />
+            <button
+              onClick={() => setExpanded(false)}
+              className="absolute -top-4 -right-4 w-8 h-8 flex items-center justify-center rounded-full bg-white/90 dark:bg-gray-800/90 text-gray-700 dark:text-gray-200 shadow-lg hover:bg-white dark:hover:bg-gray-700 transition-colors text-sm font-bold"
+              title="Close"
+            >
+              ✕
+            </button>
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
   );
 };
 

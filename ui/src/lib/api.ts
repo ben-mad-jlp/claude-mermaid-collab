@@ -7,6 +7,25 @@ import type { Design, Spreadsheet } from '@/stores/sessionStore';
 import type { UICodeFile } from '@/types/code-file';
 import { getWebSocketClient } from './websocket';
 
+const EXT_LANG: Record<string, string> = {
+  ts: 'typescript', tsx: 'typescript',
+  js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',
+  cs: 'csharp',
+  py: 'python',
+  md: 'markdown', markdown: 'markdown',
+  yaml: 'yaml', yml: 'yaml',
+  html: 'html', htm: 'html',
+  json: 'json',
+  cpp: 'cpp', cc: 'cpp', cxx: 'cpp', h: 'cpp', hpp: 'cpp',
+  css: 'css', scss: 'css', less: 'css',
+};
+
+function normalizeCodeLanguage(language: string, filePath: string): string {
+  if (language && language !== 'plaintext') return language;
+  const ext = (filePath.split('.').pop() ?? '').toLowerCase();
+  return EXT_LANG[ext] ?? language ?? '';
+}
+
 // Word lists for session name generation (matching backend)
 const ADJECTIVES = [
   'bright', 'calm', 'swift', 'bold', 'warm', 'cool', 'soft', 'clear',
@@ -523,17 +542,20 @@ export const api: ApiClient = {
     const response = await fetch(url);
     if (!response.ok) return [];
     const data = await response.json();
-    return (data.files || []).map((f: any): UICodeFile => ({
-      id: f.id,
-      name: f.name,
-      filePath: f.filePath ?? f.name,
-      content: '',
-      language: f.language ?? '',
-      dirty: f.dirty ?? false,
-      lastPushedAt: f.lastPushedAt ?? null,
-      lastModified: f.lastModified ?? Date.now(),
-      proposedEdit: f.proposedEdit ?? null,
-    }));
+    return (data.files || []).map((f: any): UICodeFile => {
+      const filePath = f.filePath ?? f.name;
+      return {
+        id: f.id,
+        name: f.name,
+        filePath,
+        content: '',
+        language: normalizeCodeLanguage(f.language ?? '', filePath),
+        dirty: f.dirty ?? false,
+        lastPushedAt: f.lastPushedAt ?? null,
+        lastModified: f.lastModified ?? Date.now(),
+        proposedEdit: f.proposedEdit ?? null,
+      };
+    });
   },
 
   async getCodeFile(project: string, session: string, id: string): Promise<UICodeFile | null> {
@@ -542,12 +564,13 @@ export const api: ApiClient = {
     if (response.status === 404) return null;
     if (!response.ok) throw new Error(response.statusText);
     const data = await response.json();
+    const filePath = data.filePath ?? data.name;
     return {
       id: data.id,
       name: data.name,
-      filePath: data.filePath ?? data.name,
+      filePath,
       content: data.content ?? '',
-      language: data.language ?? '',
+      language: normalizeCodeLanguage(data.language ?? '', filePath),
       dirty: data.dirty ?? false,
       lastPushedAt: data.lastPushedAt ?? null,
       lastModified: data.lastModified ?? Date.now(),

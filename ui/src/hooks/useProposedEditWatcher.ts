@@ -68,9 +68,7 @@ export function useProposedEditWatcher(): void {
       if (entry?.activeTabId === cf.id) continue;
       useTabsStore.getState().openPermanent({
         id: cf.id,
-        kind: 'artifact',
-        artifactType: 'code',
-        artifactId: cf.id,
+        kind: 'code-file',
         name: cf.name,
       });
     }
@@ -105,9 +103,7 @@ export function useProposedEditWatcher(): void {
           const cf = codeFiles.find((f) => f.id === id);
           useTabsStore.getState().openPermanent({
             id,
-            kind: 'artifact',
-            artifactType: 'code',
-            artifactId: id,
+            kind: 'code-file',
             name: cf?.name ?? record?.name ?? id,
           });
         } catch { /* ignore parse errors */ }
