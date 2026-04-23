@@ -177,6 +177,7 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
   const clearSelection = useSidebarTreeStore((s) => s.clearSelection);
 
   const [pseudoFileList, setPseudoFileList] = useState<PseudoFileSummary[]>([]);
+  const sessionSearchCache = React.useRef<Map<string, string>>(new Map());
   const selectedPseudoPathForTree =
     activeTabDescriptor?.kind === 'code-file' ? activeTabDescriptor.artifactId : '';
 
@@ -553,9 +554,21 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
   }, []);
 
   const sessionKeyForClear = currentSession ? `${currentSession.project}::${currentSession.name}` : null;
+  const prevSessionKeyRef = React.useRef<string | null>(null);
+  const searchQueryRef = React.useRef(searchQuery);
+  searchQueryRef.current = searchQuery;
   React.useEffect(() => {
+    const prevKey = prevSessionKeyRef.current;
+    const nextKey = sessionKeyForClear;
+    if (prevKey === nextKey) return;
+    // Save search for the session we're leaving
+    if (prevKey !== null) {
+      sessionSearchCache.current.set(prevKey, searchQueryRef.current);
+    }
+    // Restore search for the session we're entering (or clear if never visited)
+    setSearchQuery(nextKey !== null ? (sessionSearchCache.current.get(nextKey) ?? '') : '');
     clearSelection();
-    setSearchQuery('');
+    prevSessionKeyRef.current = nextKey;
   }, [sessionKeyForClear, clearSelection, setSearchQuery]);
 
   const noSession = !currentSession;
