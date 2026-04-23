@@ -17,7 +17,7 @@ import { userInputBridge } from './agent/user-input-bridge';
 import { initializeAgentRegistry } from './agent/agent-registry-manager';
 import { handleAPI } from './routes/api';
 import { handlePseudoAPI } from './routes/pseudo-api';
-import { handleCodeAPI } from './routes/code-api.js';
+import { handleFileContentAPI } from './routes/file-content.js';
 import { handleOnboardingAPI } from './routes/onboarding-api';
 import { handleAttachments } from './routes/agent-attachments';
 import { handleEditorRoundtrip } from './routes/editor-roundtrip';
@@ -148,9 +148,9 @@ const server = Bun.serve<WsData>({
       return handlePseudoAPI(req);
     }
 
-    // Code API routes
-    if (url.pathname.startsWith('/api/code')) {
-      return handleCodeAPI(req);
+    // File content API routes
+    if (url.pathname.startsWith('/api/files/content')) {
+      return handleFileContentAPI(req);
     }
 
     // Onboarding API routes

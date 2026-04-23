@@ -5,6 +5,14 @@ import { prism } from '@milkdown/plugin-prism';
 import 'prismjs/themes/prism.css';
 import 'prismjs/themes/prism-tomorrow.css';
 
+// Suppress the "Unsupported language detected" warning that fires on every
+// keystroke when a code fence has no language specified — cosmetic noise only.
+const _warn = console.warn.bind(console);
+console.warn = (...args: unknown[]) => {
+  if (typeof args[0] === 'string' && args[0].includes('Unsupported language detected')) return;
+  _warn(...args);
+};
+
 /**
  * Milkdown Prism plugin wrapper. Uses @milkdown/plugin-prism + the bundled
  * refractor common languages (via the plugin's default ctx). Per guiding

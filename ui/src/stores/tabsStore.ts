@@ -23,6 +23,7 @@ export interface TabDescriptor {
   kind: TabKind;
   artifactType?: TabArtifactType;
   artifactId: string;
+  filePath?: string;
   name: string;
   isPreview: boolean;
   isPinned: boolean;

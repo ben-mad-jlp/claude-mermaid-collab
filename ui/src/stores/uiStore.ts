@@ -70,6 +70,10 @@ export interface UIState {
   zoomIn: () => void;
   zoomOut: () => void;
 
+  // Document conflict state (incoming remote change vs local)
+  documentConflict: { docId: string; incomingContent: string } | null;
+  setDocumentConflict: (conflict: { docId: string; incomingContent: string } | null) => void;
+
   // Reset to defaults
   reset: () => void;
 }
@@ -165,6 +169,10 @@ export const useUIStore = create<UIState>()(
 
       diffSideBySide: true,
       setDiffSideBySide: (on: boolean) => set({ diffSideBySide: on }),
+
+      documentConflict: null,
+      setDocumentConflict: (conflict: { docId: string; incomingContent: string } | null) =>
+        set({ documentConflict: conflict }),
 
       // Split pane positions
       sidebarSplitPosition: DEFAULT_SIDEBAR_POSITION,

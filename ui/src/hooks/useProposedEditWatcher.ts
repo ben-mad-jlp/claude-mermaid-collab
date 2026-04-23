@@ -59,19 +59,6 @@ export function useProposedEditWatcher(): void {
       if (snippet.content) openSnippetTab(snippet.id, snippet.content);
     }
 
-    // Backfill: open tabs for any code files with a pending proposedEdit
-    const codeFiles = useSessionStore.getState().codeFiles;
-    for (const cf of codeFiles) {
-      if (!cf.proposedEdit) continue;
-      const key = sessionKey(currentSession.project, currentSession.name);
-      const entry = useTabsStore.getState().bySession[key];
-      if (entry?.activeTabId === cf.id) continue;
-      useTabsStore.getState().openPermanent({
-        id: cf.id,
-        kind: 'code-file',
-        name: cf.name,
-      });
-    }
   }, [currentSessionName]);
 
   // Live WS listener: open tab when a new proposal arrives
@@ -89,25 +76,6 @@ export function useProposedEditWatcher(): void {
         return;
       }
 
-      if (msg?.type === 'code_file_updated') {
-        const { id, content, project, session } = msg as { id?: string; content?: string; project?: string; session?: string };
-        if (!id || !content) return;
-        if (project !== currentSession.project || session !== currentSession.name) return;
-        try {
-          const record = JSON.parse(content);
-          if (!record?.proposedEdit) return;
-          const key = sessionKey(currentSession.project, currentSession.name);
-          const entry = useTabsStore.getState().bySession[key];
-          if (entry?.activeTabId === id) return;
-          const codeFiles = useSessionStore.getState().codeFiles;
-          const cf = codeFiles.find((f) => f.id === id);
-          useTabsStore.getState().openPermanent({
-            id,
-            kind: 'code-file',
-            name: cf?.name ?? record?.name ?? id,
-          });
-        } catch { /* ignore parse errors */ }
-      }
     });
 
     return () => sub.unsubscribe();

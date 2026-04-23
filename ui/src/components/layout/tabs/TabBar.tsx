@@ -15,7 +15,6 @@ import {
 } from '../../../stores/tabsStore';
 import { useSessionStore } from '../../../stores/sessionStore';
 import { useDataLoader } from '../../../hooks/useDataLoader';
-import { promoteCodeFile } from '../../../lib/promote-code-file';
 
 export interface TabBarProps {
   /**
@@ -206,10 +205,7 @@ export const TabBar: React.FC<TabBarProps> = ({ onContextMenu }) => {
             onClose={() => handleClose(tab.id)}
             onContextMenu={(e) => handleContextMenu(e, tab)}
             onTogglePin={() => pinTab(tab.id)}
-            onPromote={() => {
-              if (tab.kind === 'code-file') void promoteCodeFile(tab.id);
-              else promoteToPermanent(tab.id);
-            }}
+            onPromote={() => promoteToPermanent(tab.id)}
           />
         ))}
         {previewTabs.length > 0 && <div className="flex-1" aria-hidden="true" />}
@@ -222,10 +218,7 @@ export const TabBar: React.FC<TabBarProps> = ({ onContextMenu }) => {
             onClose={() => handleClose(tab.id)}
             onContextMenu={(e) => handleContextMenu(e, tab)}
             onTogglePin={() => pinTab(tab.id)}
-            onPromote={() => {
-              if (tab.kind === 'code-file') void promoteCodeFile(tab.id);
-              else promoteToPermanent(tab.id);
-            }}
+            onPromote={() => promoteToPermanent(tab.id)}
           />
         ))}
       </SortableContext>

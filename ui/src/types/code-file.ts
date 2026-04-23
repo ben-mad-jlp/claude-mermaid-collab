@@ -16,3 +16,9 @@ export interface UICodeFile {
   lastModified: number;
   proposedEdit?: ProposedEdit | null;
 }
+
+export interface DirectFileState {
+  filePath: string;
+  content: string;
+  language: string;
+}

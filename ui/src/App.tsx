@@ -162,6 +162,8 @@ const App: React.FC = () => {
     }))
   );
 
+  const setDocumentConflict = useUIStore((s) => s.setDocumentConflict);
+
   const showSecondaryPanel = agentChatVisible;
 
   // Session state
@@ -194,8 +196,6 @@ const App: React.FC = () => {
     addSnippet,
     updateSnippet,
     removeSnippet,
-    addCodeFile,
-    updateCodeFile,
     embeds,
     addEmbed,
     removeEmbed,
@@ -234,8 +234,6 @@ const App: React.FC = () => {
       addSnippet: state.addSnippet,
       updateSnippet: state.updateSnippet,
       removeSnippet: state.removeSnippet,
-      addCodeFile: state.addCodeFile,
-      updateCodeFile: state.updateCodeFile,
       embeds: state.embeds,
       addEmbed: state.addEmbed,
       removeEmbed: state.removeEmbed,
@@ -460,18 +458,24 @@ const App: React.FC = () => {
         }
 
         case 'document_updated': {
-          // Item 2 + Item 5: Incremental update + diff state
           const { id, content, patchInfo } = message as any;
           if (id && content !== undefined) {
-            if (patchInfo) {
-              setPendingDiff({
-                documentId: id,
-                oldContent: patchInfo.oldString || '',
-                newContent: patchInfo.newString || '',
-                timestamp: Date.now(),
-              });
+            const currentItem = selectedItemRef.current;
+            const hasLocalChanges = localContentRef.current !== (currentItem?.content ?? '');
+            const isCurrentDoc = currentItem?.id === id && currentItem?.type === 'document';
+            if (isCurrentDoc && hasLocalChanges) {
+              setDocumentConflict({ docId: id, incomingContent: content });
+            } else {
+              if (patchInfo) {
+                setPendingDiff({
+                  documentId: id,
+                  oldContent: patchInfo.oldString || '',
+                  newContent: patchInfo.newString || '',
+                  timestamp: Date.now(),
+                });
+              }
+              updateDocument(id, { content, lastModified: Date.now() });
             }
-            updateDocument(id, { content, lastModified: Date.now() });
           }
           break;
         }
@@ -696,35 +700,6 @@ const App: React.FC = () => {
               project === currentSession.project &&
               session === currentSession.name) {
             updateSnippet(id, { content, lastModified: Date.now() });
-          }
-          break;
-        }
-
-        case 'code_file_updated': {
-          const { id, content, project, session } = message as any;
-          if (id && currentSession && project === currentSession.project && session === currentSession.name) {
-            const { codeFiles } = useSessionStore.getState();
-            const existing = codeFiles.find((f) => f.id === id);
-            try {
-              const record = typeof content === 'string' ? JSON.parse(content) : content;
-              if (existing) {
-                // Parse the broadcast JSON to extract individual fields rather than storing raw JSON
-                updateCodeFile(id, {
-                  content: record?.content ?? '',
-                  dirty: record?.dirty ?? existing.dirty,
-                  language: record?.language ?? existing.language,
-                  lastPushedAt: record?.lastPushedAt ?? existing.lastPushedAt,
-                  proposedEdit: record?.proposedEdit ?? null,
-                  lastModified: Date.now(),
-                });
-              } else {
-                addCodeFile({ id, name: record?.name ?? id, filePath: record?.filePath ?? record?.name ?? id, content: record?.content ?? '', language: record?.language ?? '', dirty: false, lastPushedAt: null, lastModified: Date.now() });
-              }
-            } catch {
-              if (!existing) {
-                addCodeFile({ id, name: id, filePath: id, content: '', language: '', dirty: false, lastPushedAt: null, lastModified: Date.now() });
-              }
-            }
           }
           break;
         }
@@ -955,7 +930,7 @@ const App: React.FC = () => {
     return () => {
       subscription.unsubscribe();
     };
-  }, [isConnected, currentSession, updateDiagram, updateDocument, updateDesign, updateSpreadsheet, addDiagram, addDocument, addDesign, addSpreadsheet, removeDiagram, removeDocument, removeDesign, removeSpreadsheet, addSnippet, updateSnippet, removeSnippet, addCodeFile, updateCodeFile, addEmbed, removeEmbed, addImage, removeImage, setPendingDiff, setCollabState, receiveQuestion, restoreUIState]);
+  }, [isConnected, currentSession, updateDiagram, updateDocument, updateDesign, updateSpreadsheet, addDiagram, addDocument, addDesign, addSpreadsheet, removeDiagram, removeDocument, removeDesign, removeSpreadsheet, addSnippet, updateSnippet, removeSnippet, addEmbed, removeEmbed, addImage, removeImage, setPendingDiff, setCollabState, receiveQuestion, restoreUIState]);
 
   // Compute selected item from diagrams/documents/designs
   const selectedItem: Item | null = useMemo(() => {
@@ -1031,6 +1006,12 @@ const App: React.FC = () => {
   // Track local content for auto-save
   const [localContent, setLocalContent] = React.useState<string>('');
 
+  // Refs for stale-closure safety in WS handler
+  const localContentRef = useRef(localContent);
+  useEffect(() => { localContentRef.current = localContent; }, [localContent]);
+  const selectedItemRef = useRef(selectedItem);
+  useEffect(() => { selectedItemRef.current = selectedItem; }, [selectedItem]);
+
   // Snippet inline toolbar controls (pushed up from SnippetEditor)
   const [snippetToolbarControls, setSnippetToolbarControls] = React.useState<React.ReactNode>(null);
 
@@ -1097,13 +1078,17 @@ const App: React.FC = () => {
         updateSpreadsheet(selectedItem.id, { content });
       } else {
         updateDocument(selectedItem.id, { content });
+        // Persist document to backend (non-blocking)
+        api.updateDocument(project, session, selectedItem.id, content).catch((err) => {
+          console.warn('Failed to persist document update:', err);
+        });
       }
 
       // Send update via WebSocket if connected
       const client = getWebSocketClient();
       if (client.isConnected()) {
-        const typeMap = { diagram: 'update_diagram', document: 'update_document', design: 'update_design', spreadsheet: 'update_spreadsheet', snippet: 'snippet_updated', embed: 'update_embed', image: 'update_image', code: 'code_file_updated' } as const;
-        const messageType = typeMap[selectedItem.type];
+        const typeMap = { diagram: 'update_diagram', document: 'update_document', design: 'update_design', spreadsheet: 'update_spreadsheet', snippet: 'snippet_updated', embed: 'update_embed', image: 'update_image' } as const;
+        const messageType = typeMap[selectedItem.type as keyof typeof typeMap];
         if (messageType) {
           client.send({
             type: messageType,

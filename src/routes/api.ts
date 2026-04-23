@@ -40,7 +40,6 @@ import {
   type TaskGraphTask,
 } from '../mcp/workflow/task-sync';
 import { mergeSettings, readSettings, writeSettings, patchSettings } from '../agent/settings-store.js';
-import { handleCodeAPI } from './code-api.js';
 
 /**
  * Expand ~ to home directory in paths
@@ -3331,11 +3330,6 @@ export async function handleAPI(
       return new Response('<html><body><p>Missing code or state.</p></body></html>', { status: 400, headers: { 'Content-Type': 'text/html' } });
     }
     return new Response('<html><body><p>Authentication complete. You may close this window and return to the app.</p></body></html>', { headers: { 'Content-Type': 'text/html' } });
-  }
-
-  // Delegate /api/code/* to the code-api handler
-  if (path.startsWith('/api/code')) {
-    return handleCodeAPI(req);
   }
 
   return Response.json({ error: 'Not found' }, { status: 404 });

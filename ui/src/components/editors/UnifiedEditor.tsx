@@ -266,7 +266,13 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
 
   // Code file items route directly to CodeEditor
   if (item.type === 'code') {
-    return <CodeEditor codeFileId={item.id} onToolbarControls={onSnippetToolbarControls} />;
+    return (
+      <CodeEditor
+        filePath={(item as any).filePath ?? item.id}
+        project={project ?? ''}
+        onToolbarControls={onSnippetToolbarControls}
+      />
+    );
   }
 
   // Snippet items render directly with SnippetEditor

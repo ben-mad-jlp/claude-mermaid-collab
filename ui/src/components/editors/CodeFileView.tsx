@@ -3,7 +3,6 @@ import { fetchCodeFile, CodeFileResponse, CodeFileNotFoundError, peekPseudoFile 
 import MonacoWrapper, { type Language } from './MonacoWrapper';
 import { reportEditorDirty } from '@/hooks/useEditorAutoPromote';
 import { mark } from '@/lib/perf-bus';
-import { promoteCodeFile } from '@/lib/promote-code-file';
 
 const PseudoViewerLazy = lazy(() =>
   import('@/pages/pseudo/PseudoViewer').then((m) => ({ default: m.PseudoViewer }))
@@ -96,15 +95,7 @@ export const CodeFileView: React.FC<CodeFileViewProps> = ({ path, project, editM
         <span className="font-mono text-xs text-gray-600 dark:text-gray-300 truncate flex-1" title={path}>
           {path}
         </span>
-        <button
-          type="button"
-          onClick={() => promoteCodeFile(tabId)}
-          title="Pin as artifact"
-          className="px-2 py-0.5 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
-        >
-          Pin
-        </button>
-        <div className="inline-flex rounded border border-gray-300 dark:border-gray-600 overflow-hidden">
+<div className="inline-flex rounded border border-gray-300 dark:border-gray-600 overflow-hidden">
           <button
             type="button"
             onClick={() => setCodeFileViewMode('code')}

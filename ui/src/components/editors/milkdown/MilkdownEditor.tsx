@@ -2,6 +2,7 @@ import { Editor, rootCtx, defaultValueCtx, editorViewOptionsCtx, editorViewCtx, 
 import type { CmdKey } from '@milkdown/core';
 import type { MilkdownPlugin } from '@milkdown/ctx';
 import type { EditorView } from '@milkdown/prose/view';
+import { keymap } from '@milkdown/prose/keymap';
 import { commonmark } from '@milkdown/preset-commonmark';
 import { gfm } from '@milkdown/preset-gfm';
 import { history } from '@milkdown/plugin-history';
@@ -172,6 +173,21 @@ const MilkdownInner = forwardRef<MilkdownEditorHandle, MilkdownInnerProps>(funct
     return plugin;
   }, [annotationsRef]);
 
+  const tabKeymapPlugin = useMemo<MilkdownPlugin>(() => {
+    const plugin: MilkdownPlugin = (ctx) => () => {
+      ctx.update(prosePluginsCtx, (prev) => [
+        ...prev,
+        keymap({
+          Tab: (state, dispatch) => {
+            if (dispatch) dispatch(state.tr.insertText('  '));
+            return true;
+          },
+        }),
+      ]);
+    };
+    return plugin;
+  }, []);
+
   const plugins = useMemo(
     () =>
       [
@@ -202,6 +218,7 @@ const MilkdownInner = forwardRef<MilkdownEditorHandle, MilkdownInnerProps>(funct
           delay: autosaveDelayInitial,
         }),
         annotationsMilkdownPlugin,
+        tabKeymapPlugin,
         ...headingCollapsePlugin,
         diagramEmbedView,
         detailsView,
@@ -209,7 +226,7 @@ const MilkdownInner = forwardRef<MilkdownEditorHandle, MilkdownInnerProps>(funct
         imageView,
       ].flat(),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [docId, diagramEmbedView, detailsView, headingView, imageView, annotationsMilkdownPlugin],
+    [docId, diagramEmbedView, detailsView, headingView, imageView, annotationsMilkdownPlugin, tabKeymapPlugin],
   );
 
   useEditor(

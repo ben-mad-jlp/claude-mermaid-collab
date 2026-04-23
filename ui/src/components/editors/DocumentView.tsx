@@ -4,6 +4,7 @@ import { MilkdownEditor, type MilkdownEditorHandle } from './milkdown/MilkdownEd
 import { CollapsibleSectionsProvider, useCollapsibleSectionsSafe } from './CollapsibleSection';
 import { FormattingToolbar } from './FormattingToolbar';
 import { useUIStore } from '@/stores/uiStore';
+import { useSessionStore } from '@/stores/sessionStore';
 import type { Document } from '@/types';
 
 export interface DocumentViewProps {
@@ -12,15 +13,31 @@ export interface DocumentViewProps {
 }
 
 export const DocumentView: React.FC<DocumentViewProps> = ({ document, onContentChange }) => {
-  const { documentEditable, toggleDocumentEditable } = useUIStore(
+  const { documentEditable, toggleDocumentEditable, documentConflict, setDocumentConflict } = useUIStore(
     useShallow((state) => ({
       documentEditable: state.documentEditable,
       toggleDocumentEditable: state.toggleDocumentEditable,
+      documentConflict: state.documentConflict,
+      setDocumentConflict: state.setDocumentConflict,
     })),
   );
 
+  const updateDocument = useSessionStore((s) => s.updateDocument);
+
+  const hasConflict = documentConflict?.docId === document?.id;
+
   const milkdownRef = useRef<MilkdownEditorHandle | null>(null);
   const flushRef = useRef<(() => void) | null>(null);
+
+  // Push external content changes into the editor when in read mode.
+  // In edit mode, the conflict banner handles this instead.
+  const prevContentRef = useRef(document.content);
+  useEffect(() => {
+    if (prevContentRef.current !== document.content && !documentEditable) {
+      milkdownRef.current?.setMarkdown(document.content ?? '');
+    }
+    prevContentRef.current = document.content;
+  }, [document.content, documentEditable]);
 
   const handleChange = useCallback(
     (md: string) => {
@@ -67,6 +84,40 @@ export const DocumentView: React.FC<DocumentViewProps> = ({ document, onContentC
         </button>
         {documentEditable && <FormattingToolbar editorRef={milkdownRef} />}
       </div>
+      {hasConflict && (
+        <div style={{
+          position: 'sticky', top: 0, zIndex: 10,
+          background: '#fffbe6', border: '1px solid #faad14',
+          padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          <span style={{ flex: 1, fontSize: 13 }}>This document was updated externally.</span>
+          <button
+            type="button"
+            onClick={() => {
+              const incomingContent = documentConflict!.incomingContent;
+              updateDocument(document.id, { content: incomingContent });
+              milkdownRef.current?.setMarkdown(incomingContent);
+              setDocumentConflict(null);
+            }}
+            style={{
+              padding: '2px 10px', fontSize: 13, cursor: 'pointer',
+              background: '#faad14', border: 'none', borderRadius: 4, fontWeight: 500,
+            }}
+          >
+            Reload
+          </button>
+          <button
+            type="button"
+            onClick={() => setDocumentConflict(null)}
+            style={{
+              padding: '2px 10px', fontSize: 13, cursor: 'pointer',
+              background: 'transparent', border: '1px solid #d9d9d9', borderRadius: 4,
+            }}
+          >
+            Keep mine
+          </button>
+        </div>
+      )}
       <div className="flex-1 overflow-auto px-4 pb-4">
         {document.content == null ? (
           <div className="flex items-center justify-center h-full text-sm text-gray-500">

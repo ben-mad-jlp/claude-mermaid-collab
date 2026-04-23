@@ -12,8 +12,8 @@ export interface CodeArtifactKebabMenuProps {
   filePath: string;
   projectPath: string;
   sessionName: string;
-  onDeprecate: () => Promise<void>;
-  onDelete: () => Promise<void>;
+  onDeprecate: () => void | Promise<void>;
+  onDelete: () => void | Promise<void>;
 }
 
 export const CodeArtifactKebabMenu: React.FC<CodeArtifactKebabMenuProps> = ({

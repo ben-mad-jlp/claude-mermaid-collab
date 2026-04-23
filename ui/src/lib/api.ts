@@ -118,6 +118,8 @@ export interface ApiClient {
   createImage(project: string, session: string, file: File): Promise<{ id: string; name: string; mimeType: string; size: number; uploadedAt: string; success: boolean }>;
   listImages(project: string, session: string): Promise<Image[]>;
   deleteImage(project: string, session: string, id: string): Promise<void>;
+  getFileContent(filePath: string): Promise<{ content: string; language: string }>;
+  saveFileContent(filePath: string, content: string): Promise<void>;
 }
 
 export interface CachedUIState {
@@ -299,9 +301,9 @@ export const api: ApiClient = {
    * Update a document's content
    */
   async updateDocument(project: string, session: string, id: string, content: string): Promise<void> {
-    const url = `/api/documents/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+    const url = `/api/document/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
     const response = await fetch(url, {
-      method: 'PUT',
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
@@ -868,5 +870,18 @@ export const api: ApiClient = {
     if (!response.ok) {
       throw new Error(response.statusText);
     }
+  },
+
+  async getFileContent(filePath: string): Promise<{ content: string; language: string }> {
+    const res = await fetch(`/api/files/content?path=${encodeURIComponent(filePath)}`);
+    return res.json();
+  },
+
+  async saveFileContent(filePath: string, content: string): Promise<void> {
+    await fetch('/api/files/content', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: filePath, content }),
+    });
   },
 };

@@ -1,14 +1,11 @@
 import type { Diagram, Document, Snippet, Embed, Image, CollabState } from '../types';
 import type { Design, Spreadsheet } from '../stores/sessionStore';
-import type { UICodeFile } from '../types/code-file';
-
 export interface SessionItemsSnapshot {
   diagrams:     Diagram[];
   documents:    Document[];
   designs:      Design[];
   spreadsheets: Spreadsheet[];
   snippets:     Snippet[];
-  codeFiles:    UICodeFile[];
   embeds:       Embed[];
   images:       Image[];
   collabState:  CollabState | null;

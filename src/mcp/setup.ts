@@ -186,24 +186,6 @@ import {
   handleDeleteSnippet,
   handleExportSnippet,
 } from './tools/snippet.js';
-import {
-  createCodeSchema,
-  pushCodeToFileSchema,
-  syncCodeFromDiskSchema,
-  reviewCodeEditsSchema,
-  listCodeFilesSchema,
-  proposeCodeEditSchema,
-  updateCodeSchema,
-  getCodeSchema,
-  handleCreateCode,
-  handlePushCodeToFile,
-  handleSyncCodeFromDisk,
-  handleReviewCodeEdits,
-  handleListCodeFiles,
-  handleProposeCodeEdit,
-  handleUpdateCode,
-  handleGetCode,
-} from './tools/code.js';
 import { createEmbedSchema, listEmbedsSchema, deleteEmbedSchema, handleCreateEmbed, handleListEmbeds, handleDeleteEmbed, createStorybookEmbedSchema, listStorybookStoriesSchema, handleCreateStorybookEmbed, handleListStorybookStories } from './tools/embed.js';
 import { createImageSchema, listImagesSchema, getImageSchema, deleteImageSchema, handleCreateImage, handleListImages, handleGetImage, handleDeleteImage } from './tools/image.js';
 
@@ -2393,46 +2375,6 @@ IMPORTANT - Common pitfalls to avoid:
           required: ['project', 'filePath'],
         },
       },
-      {
-        name: 'create_code',
-        description: 'Link a source file from disk as a tracked code file artifact. Reads the file content and creates a code file record with change tracking (dirty flag, push/sync).',
-        inputSchema: createCodeSchema,
-      },
-      {
-        name: 'update_code',
-        description: 'Update the content of a tracked code file artifact.',
-        inputSchema: updateCodeSchema,
-      },
-      {
-        name: 'get_code',
-        description: 'Retrieve a tracked code file artifact by ID.',
-        inputSchema: getCodeSchema,
-      },
-      {
-        name: 'push_code_to_file',
-        description: 'Push the current code content of a linked code artifact back to its file on disk.',
-        inputSchema: pushCodeToFileSchema,
-      },
-      {
-        name: 'sync_code_from_disk',
-        description: 'Sync a linked code artifact with the latest content from its file on disk.',
-        inputSchema: syncCodeFromDiskSchema,
-      },
-      {
-        name: 'review_code_edits',
-        description: 'Review changes made to a linked code artifact, showing a diff or full content.',
-        inputSchema: reviewCodeEditsSchema,
-      },
-      {
-        name: 'list_code_files',
-        description: 'List all linked code file artifacts in a session.',
-        inputSchema: listCodeFilesSchema,
-      },
-      {
-        name: 'propose_code_edit',
-        description: 'Propose an edit to a linked code file artifact. The proposal appears in the UI as a Monaco diff editor with Accept/Reject buttons. Acceptance updates the in-editor code (user must still Push to write to disk). Only one proposal can be pending per code file; a new proposal replaces any existing one. Use list_code_files to find the artifact ID.',
-        inputSchema: proposeCodeEditSchema,
-      },
     ],
   }));
 
@@ -4329,66 +4271,6 @@ IMPORTANT - Common pitfalls to avoid:
             if (!project || !filePath) throw new Error('Missing required: project, filePath');
             const res = await pseudo_get_file_state_v6(project, filePath);
             return JSON.stringify(res, null, 2);
-          }
-
-          case 'create_code': {
-            const { project, session, filePath, name } = args as { project: string; session: string; filePath: string; name?: string };
-            if (!project || !session || !filePath) throw new Error('Missing required: project, session, filePath');
-            const result = await handleCreateCode(project, session, filePath, name);
-            return JSON.stringify(result, null, 2);
-          }
-
-          case 'update_code': {
-            const { project, session, id, content } = args as { project: string; session: string; id: string; content: string };
-            if (!project || !session || !id || !content) throw new Error('Missing required: project, session, id, content');
-            const result = await handleUpdateCode({ project, session, id, content });
-            return JSON.stringify(result, null, 2);
-          }
-
-          case 'get_code': {
-            const { project, session, id } = args as { project: string; session: string; id: string };
-            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
-            const result = await handleGetCode({ project, session, id });
-            return JSON.stringify(result, null, 2);
-          }
-
-          case 'push_code_to_file': {
-            const { project, session, id } = args as { project: string; session: string; id: string };
-            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
-            const result = await handlePushCodeToFile(project, session, id);
-            return JSON.stringify(result, null, 2);
-          }
-
-          case 'sync_code_from_disk': {
-            const { project, session, id } = args as { project: string; session: string; id: string };
-            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
-            const result = await handleSyncCodeFromDisk(project, session, id);
-            return JSON.stringify(result, null, 2);
-          }
-
-          case 'review_code_edits': {
-            const { project, session, id, format } = args as { project: string; session: string; id: string; format?: 'diff' | 'full' };
-            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
-            const result = await handleReviewCodeEdits(project, session, id, format);
-            return JSON.stringify(result, null, 2);
-          }
-
-          case 'list_code_files': {
-            const { project, session } = args as { project: string; session: string };
-            if (!project || !session) throw new Error('Missing required: project, session');
-            const result = await handleListCodeFiles(project, session);
-            return JSON.stringify(result, null, 2);
-          }
-
-          case 'propose_code_edit': {
-            const { project, session, id, newCode, message } = args as {
-              project: string; session: string; id: string; newCode: string; message?: string;
-            };
-            if (!project || !session || !id || typeof newCode !== 'string') {
-              throw new Error('Missing required: project, session, id, newCode');
-            }
-            const result = await handleProposeCodeEdit(project, session, id, newCode, message);
-            return JSON.stringify(result, null, 2);
           }
 
           default:
