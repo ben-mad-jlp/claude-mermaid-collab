@@ -555,7 +555,8 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
   const sessionKeyForClear = currentSession ? `${currentSession.project}::${currentSession.name}` : null;
   React.useEffect(() => {
     clearSelection();
-  }, [sessionKeyForClear, clearSelection]);
+    setSearchQuery('');
+  }, [sessionKeyForClear, clearSelection, setSearchQuery]);
 
   const noSession = !currentSession;
 
