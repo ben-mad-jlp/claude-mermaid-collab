@@ -88,7 +88,6 @@ const ALL_SECTION_IDS = [
   'documents',
   'designs',
   'spreadsheets',
-  'code-files',
   'snippets',
   'archived-blueprints',
 ];
@@ -132,7 +131,6 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
   const designs = useSessionStore((s) => s.designs);
   const spreadsheets = useSessionStore((s) => s.spreadsheets);
   const snippets = useSessionStore((s) => s.snippets);
-  const codeFiles = useSessionStore((s) => s.codeFiles);
   const embeds = useSessionStore((s) => s.embeds);
   const images = useSessionStore((s) => s.images);
 
@@ -222,7 +220,8 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
       artifactType: ArtifactType,
     ) => {
       if (typeof item.lastModified !== 'number') return;
-      entries.push({ node: toArtifactNode(item, artifactType), lastModified: item.lastModified });
+      const leafName = item.name.includes('/') ? item.name.split('/').pop()! : item.name;
+      entries.push({ node: toArtifactNode({ ...item, name: leafName }, artifactType), lastModified: item.lastModified });
     };
     for (const d of diagrams) push(d as any, 'diagram');
     for (const d of documents) {
@@ -243,13 +242,16 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
 
   const allBlueprintNodes = useMemo<TreeNode[]>(
     () =>
-      selectBlueprintNodes(documents as any).map((d) => ({
-        id: d.id,
-        kind: 'blueprint',
-        name: d.name,
-        deprecated: d.deprecated,
-        lastModified: (d as any).lastModified,
-      })),
+      selectBlueprintNodes(documents as any).map((d) => {
+        const name = d.name.startsWith('Implementing/') ? d.name.slice('Implementing/'.length) : d.name;
+        return {
+          id: d.id,
+          kind: 'blueprint',
+          name,
+          deprecated: d.deprecated,
+          lastModified: (d as any).lastModified,
+        };
+      }),
     [documents],
   );
   const blueprintNodes = useMemo<TreeNode[]>(
@@ -272,17 +274,29 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
   );
 
   const diagramNodes = useMemo<TreeNode[]>(
-    () => diagrams.map((d) => toArtifactNode(d, 'diagram')),
+    () => diagrams.filter((d) => !d.name.startsWith('Implementing/')).map((d) => toArtifactNode(d, 'diagram')),
     [diagrams],
   );
 
   const documentNodes = useMemo<TreeNode[]>(
     () =>
-      selectCatchAllDocuments(documents as any).map((d) =>
-        toArtifactNode(d as any, 'document'),
-      ),
+      selectCatchAllDocuments(documents as any)
+        .filter((d: any) => !d.name.startsWith('Implementing/'))
+        .map((d) => toArtifactNode(d as any, 'document')),
     [documents],
   );
+
+  const implementingArtifactNodes = useMemo<TreeNode[]>(() => {
+    const strip = (name: string) => name.startsWith('Implementing/') ? name.slice('Implementing/'.length) : name;
+    const nodes: TreeNode[] = [];
+    for (const d of diagrams) {
+      if (d.name.startsWith('Implementing/')) nodes.push(toArtifactNode({ ...d, name: strip(d.name) }, 'diagram'));
+    }
+    for (const d of selectCatchAllDocuments(documents as any)) {
+      if ((d as any).name.startsWith('Implementing/')) nodes.push(toArtifactNode({ ...(d as any), name: strip((d as any).name) }, 'document'));
+    }
+    return nodes;
+  }, [diagrams, documents]);
 
   const designNodes = useMemo<TreeNode[]>(
     () => designs.map((d) => toArtifactNode(d, 'design')),
@@ -292,14 +306,6 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
   const spreadsheetNodes = useMemo<TreeNode[]>(
     () => spreadsheets.map((s) => toArtifactNode(s, 'spreadsheet')),
     [spreadsheets],
-  );
-
-  const codeFileNodes = useMemo<TreeNode[]>(
-    () =>
-      codeFiles
-        .map((f) => toArtifactNode(f as any, 'code'))
-        .sort((a, b) => a.name.localeCompare(b.name)),
-    [codeFiles],
   );
 
   const snippetNodes = useMemo<TreeNode[]>(
@@ -350,7 +356,7 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
       },
       {
         id: 'blueprints',
-        leaves: [...blueprintNodes, ...taskNodes].map((n) => ({ id: n.id, name: n.name })),
+        leaves: [...blueprintNodes, ...taskNodes, ...implementingArtifactNodes].map((n) => ({ id: n.id, name: n.name })),
       },
       { id: 'embeds', leaves: embedNodes.map((n) => ({ id: n.id, name: n.name })) },
       { id: 'images', leaves: imageNodes.map((n) => ({ id: n.id, name: n.name })) },
@@ -361,7 +367,6 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
         id: 'spreadsheets',
         leaves: spreadsheetNodes.map((n) => ({ id: n.id, name: n.name })),
       },
-      { id: 'code-files', leaves: codeFileNodes.map((n) => ({ id: n.id, name: n.name })) },
       { id: 'snippets', leaves: snippetNodes.map((n) => ({ id: n.id, name: n.name })) },
       {
         id: 'archived-blueprints',
@@ -375,13 +380,13 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
     blueprintNodes,
     archivedBlueprintNodes,
     taskNodes,
+    implementingArtifactNodes,
     embedNodes,
     imageNodes,
     diagramNodes,
     documentNodes,
     designNodes,
     spreadsheetNodes,
-    codeFileNodes,
     snippetNodes,
     searchQuery,
   ]);
@@ -469,14 +474,13 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
     const sectionDefs: Array<{ id: string; nodes: TreeNode[] }> = [
       { id: 'pins', nodes: pinnedNodes },
       { id: 'recent', nodes: recentlyUpdatedNodes },
-      { id: 'blueprints', nodes: [...blueprintNodes, ...taskNodes] },
+      { id: 'blueprints', nodes: [...blueprintNodes, ...taskNodes, ...implementingArtifactNodes] },
       { id: 'embeds', nodes: embedNodes },
       { id: 'images', nodes: imageNodes },
       { id: 'diagrams', nodes: diagramNodes },
       { id: 'documents', nodes: documentNodes },
       { id: 'designs', nodes: designNodes },
       { id: 'spreadsheets', nodes: spreadsheetNodes },
-      { id: 'code-files', nodes: codeFileNodes },
       { id: 'snippets', nodes: snippetNodes },
       { id: 'archived-blueprints', nodes: archivedBlueprintNodes },
     ];
@@ -501,13 +505,13 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
     blueprintNodes,
     archivedBlueprintNodes,
     taskNodes,
+    implementingArtifactNodes,
     embedNodes,
     imageNodes,
     diagramNodes,
     documentNodes,
     designNodes,
     spreadsheetNodes,
-    codeFileNodes,
     snippetNodes,
     collapsedSections,
     forceExpandedSections,
@@ -607,6 +611,20 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  const loadDiagramContent = async (id: string) => {
+    if (!currentSession) return;
+    try {
+      const diagram = await api.getDiagram(
+        currentSession.project,
+        currentSession.name,
+        id,
+      );
+      if (diagram) updateDiagram(id, { content: diagram.content });
+    } catch (err) {
+      console.error('[ArtifactTree] getDiagram failed', err);
+    }
+  };
+
   const loadDocumentContent = async (id: string) => {
     if (!currentSession) return;
     try {
@@ -626,6 +644,7 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
       switch (node.artifactType) {
         case 'diagram':
           selectDiagram(node.id);
+          loadDiagramContent(node.id);
           break;
         case 'document':
           selectDocument(node.id);
@@ -718,13 +737,13 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
       ...recentlyUpdatedNodes,
       ...blueprintNodes,
       ...taskNodes,
+      ...implementingArtifactNodes,
       ...embedNodes,
       ...imageNodes,
       ...diagramNodes,
       ...documentNodes,
       ...designNodes,
       ...spreadsheetNodes,
-      ...codeFileNodes,
       ...snippetNodes,
       ...archivedBlueprintNodes,
     ]) {
@@ -736,13 +755,13 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
     recentlyUpdatedNodes,
     blueprintNodes,
     taskNodes,
+    implementingArtifactNodes,
     embedNodes,
     imageNodes,
     diagramNodes,
     documentNodes,
     designNodes,
     spreadsheetNodes,
-    codeFileNodes,
     snippetNodes,
     archivedBlueprintNodes,
   ]);
@@ -1005,7 +1024,7 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
         const isCollapsed = collapsedFolderPaths.has(collapseKey);
         const leafCount = countVisibleLeaves(item.children, searchActive);
         elements.push(
-          <div key={collapseKey} style={{ paddingLeft: `${level * 16}px` }}>
+          <div key={collapseKey} style={{ paddingLeft: `${(level + 1) * 16}px` }}>
             <FolderTreeRow
               name={item.name}
               count={leafCount}
@@ -1331,7 +1350,7 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
       <div className="overflow-y-auto flex-1 pl-2" role="tree">
         {renderSection('pins', 'Pinned', pinnedNodes)}
         {renderSection('recent', 'Recently Updated', recentlyUpdatedNodes)}
-        {renderSection('blueprints', 'Implementing', [...blueprintNodes, ...taskNodes], { foldered: true })}
+        {renderSection('blueprints', 'Implementing', [...blueprintNodes, ...taskNodes, ...implementingArtifactNodes], { foldered: true })}
         <TodosTreeSection
           collapsed={collapsedSections.has('todos')}
           onToggle={() => toggleSection('todos')}
@@ -1342,7 +1361,6 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
         {renderSection('documents', 'Documents', documentNodes, { foldered: true })}
         {renderSection('designs', 'Designs', designNodes)}
         {renderSection('spreadsheets', 'Spreadsheets', spreadsheetNodes)}
-        {renderSection('code-files', 'Code Files', codeFileNodes)}
         {renderSection('snippets', 'Snippets', snippetNodes)}
         {renderSection('archived-blueprints', 'Archived Blueprints', archivedBlueprintNodes)}
       </div>

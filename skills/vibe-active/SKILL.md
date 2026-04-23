@@ -243,6 +243,23 @@ Tool preferences — always prefer native tools over shell commands:
 
 Summarize the result to the user in 2-3 sentences. If a document was created, mention its name so they can open it in the collab UI.
 
+## Session Artifact Storage
+
+All session artifacts are stored on disk under `.collab/sessions/<session-name>/` in the project root, one folder per type:
+
+```
+.collab/sessions/<session-name>/
+  documents/
+  diagrams/
+  designs/
+  snippets/
+  spreadsheets/
+  embeds/
+  images/
+```
+
+When a user references a screenshot or other file by name, look in the appropriate folder here before searching elsewhere. Images uploaded via the collab UI are in `images/`; documents, snippets, etc. are in their respective folders.
+
 ## Completion
 
 This skill completes when:
