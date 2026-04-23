@@ -32,6 +32,8 @@ export interface SidebarTreeState {
   toggleInSelection: (id: string, anchorId?: string | null) => void;
   extendSelectionTo: (id: string, visibleOrder: string[]) => void;
   clearSelection: () => void;
+  collapsedFolderPaths: Set<string>;
+  toggleFolderPath: (key: string) => void;
 }
 
 const COLLAPSED_KEY = 'collab.sidebar.tree.collapsed.v1';
@@ -39,6 +41,7 @@ const SHOW_DEPRECATED_KEY = 'collab.sidebar.tree.showDeprecated.v1';
 const PSEUDO_COLLAPSED_KEY = 'collab.sidebar.pseudo.collapsed.v1';
 const ACTIVE_TAB_KEY = 'collab.sidebar.activeTab.v1';
 const PSEUDO_PROJECT_KEY = 'collab.sidebar.pseudoProject.v1';
+const FOLDER_COLLAPSED_KEY = 'collab.sidebar.folderPaths.collapsed.v1';
 
 const dualKeyStorage: StateStorage = {
   getItem: (_name: string): string | null => {
@@ -51,13 +54,15 @@ const dualKeyStorage: StateStorage = {
       const pseudoCollapsedRaw = window.localStorage.getItem(PSEUDO_COLLAPSED_KEY);
       const activeTabRaw = window.localStorage.getItem(ACTIVE_TAB_KEY);
       const pseudoProjectRaw = window.localStorage.getItem(PSEUDO_PROJECT_KEY);
+      const folderCollapsedRaw = window.localStorage.getItem(FOLDER_COLLAPSED_KEY);
 
       if (
         collapsedRaw === null &&
         showDeprecatedRaw === null &&
         pseudoCollapsedRaw === null &&
         activeTabRaw === null &&
-        pseudoProjectRaw === null
+        pseudoProjectRaw === null &&
+        folderCollapsedRaw === null
       ) {
         return null;
       }
@@ -117,6 +122,18 @@ const dualKeyStorage: StateStorage = {
         }
       }
 
+      let folderCollapsedArr: string[] = [];
+      if (folderCollapsedRaw !== null) {
+        try {
+          const parsed = JSON.parse(folderCollapsedRaw);
+          if (Array.isArray(parsed)) {
+            folderCollapsedArr = parsed.filter((x): x is string => typeof x === 'string');
+          }
+        } catch {
+          folderCollapsedArr = [];
+        }
+      }
+
       return JSON.stringify({
         state: {
           collapsedSections: collapsedArr,
@@ -124,6 +141,7 @@ const dualKeyStorage: StateStorage = {
           pseudoCollapsedPaths: pseudoCollapsedArr,
           activeTab,
           pseudoProject,
+          collapsedFolderPaths: folderCollapsedArr,
         },
         version: 1,
       });
@@ -143,6 +161,7 @@ const dualKeyStorage: StateStorage = {
           pseudoCollapsedPaths?: unknown;
           activeTab?: unknown;
           pseudoProject?: unknown;
+          collapsedFolderPaths?: unknown;
         };
       };
       const state = envelope.state ?? {};
@@ -176,11 +195,20 @@ const dualKeyStorage: StateStorage = {
       const pseudoProject: string | null =
         typeof state.pseudoProject === 'string' ? state.pseudoProject : null;
 
+      const folderCollapsed = state.collapsedFolderPaths;
+      let folderCollapsedArr: string[] = [];
+      if (Array.isArray(folderCollapsed)) {
+        folderCollapsedArr = folderCollapsed.filter((x): x is string => typeof x === 'string');
+      } else if (folderCollapsed instanceof Set) {
+        folderCollapsedArr = Array.from(folderCollapsed as Set<string>);
+      }
+
       window.localStorage.setItem(COLLAPSED_KEY, JSON.stringify(collapsedArr));
       window.localStorage.setItem(SHOW_DEPRECATED_KEY, JSON.stringify(showDeprecated));
       window.localStorage.setItem(PSEUDO_COLLAPSED_KEY, JSON.stringify(pseudoCollapsedArr));
       window.localStorage.setItem(ACTIVE_TAB_KEY, JSON.stringify(activeTab));
       window.localStorage.setItem(PSEUDO_PROJECT_KEY, JSON.stringify(pseudoProject));
+      window.localStorage.setItem(FOLDER_COLLAPSED_KEY, JSON.stringify(folderCollapsedArr));
     } catch {
       // ignore
     }
@@ -195,6 +223,7 @@ const dualKeyStorage: StateStorage = {
       window.localStorage.removeItem(PSEUDO_COLLAPSED_KEY);
       window.localStorage.removeItem(ACTIVE_TAB_KEY);
       window.localStorage.removeItem(PSEUDO_PROJECT_KEY);
+      window.localStorage.removeItem(FOLDER_COLLAPSED_KEY);
     } catch {
       // ignore
     }
@@ -289,6 +318,14 @@ export const useSidebarTreeStore = create<SidebarTreeState>()(
       },
       clearSelection: () =>
         set({ multiSelection: { ids: new Set<string>(), anchorId: null } }),
+
+      collapsedFolderPaths: new Set<string>(),
+      toggleFolderPath: (key: string) => {
+        const next = new Set(get().collapsedFolderPaths);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        set({ collapsedFolderPaths: next });
+      },
     }),
     {
       name: 'collab.sidebar.tree',
@@ -319,6 +356,7 @@ export const useSidebarTreeStore = create<SidebarTreeState>()(
           pseudoCollapsedPaths: Array.from(state.pseudoCollapsedPaths) as unknown as Set<string>,
           activeTab: state.activeTab,
           pseudoProject: state.pseudoProject,
+          collapsedFolderPaths: Array.from(state.collapsedFolderPaths) as unknown as Set<string>,
         }) as SidebarTreeState,
       merge: (persistedState, currentState) => {
         const persisted = (persistedState ?? {}) as {
@@ -327,6 +365,7 @@ export const useSidebarTreeStore = create<SidebarTreeState>()(
           pseudoCollapsedPaths?: unknown;
           activeTab?: unknown;
           pseudoProject?: unknown;
+          collapsedFolderPaths?: unknown;
         };
         let collapsedSet = new Set<string>();
         if (Array.isArray(persisted.collapsedSections)) {
@@ -360,6 +399,15 @@ export const useSidebarTreeStore = create<SidebarTreeState>()(
         const pseudoProject: string | null =
           typeof persisted.pseudoProject === 'string' ? persisted.pseudoProject : null;
 
+        let folderCollapsedSet = new Set<string>();
+        if (Array.isArray(persisted.collapsedFolderPaths)) {
+          folderCollapsedSet = new Set(
+            persisted.collapsedFolderPaths.filter((x): x is string => typeof x === 'string')
+          );
+        } else if (persisted.collapsedFolderPaths instanceof Set) {
+          folderCollapsedSet = new Set(persisted.collapsedFolderPaths as Set<string>);
+        }
+
         return {
           ...currentState,
           collapsedSections: collapsedSet,
@@ -367,6 +415,7 @@ export const useSidebarTreeStore = create<SidebarTreeState>()(
           pseudoCollapsedPaths: pseudoCollapsedSet,
           activeTab,
           pseudoProject,
+          collapsedFolderPaths: folderCollapsedSet,
         };
       },
     }

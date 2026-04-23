@@ -57,7 +57,7 @@ The collab UI is available at http://localhost:3737
 
 Use /vibe-checkpoint before /clear to save your place.
 Use /vibe-agents on|off to toggle agent mode.
-Use /vibe-agents pair on|off to toggle pair mode.
+Use /pair-mode on|off to toggle pair mode.
 When you're done, use /collab-cleanup to archive or delete the session.
 ```
 

@@ -20,6 +20,9 @@ import ArtifactTreeNode from './ArtifactTreeNode';
 import SidebarNodeContextMenu from './SidebarNodeContextMenu';
 import TodosTreeSection from './TodosTreeSection';
 import { SectionBranchRow } from './TreeBranchRow';
+import { FolderTreeRow } from './FolderTreeRow';
+import { buildFolderTree, hasVisibleLeaf } from './folderTree';
+import type { FolderTree, FolderNode, LeafNode } from './folderTree';
 import { orderVisibleNodes, type VisibleTreeNode } from './orderVisibleNodes';
 import {
   getActionsForNode,
@@ -163,6 +166,8 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
   const setActiveTab = useSidebarTreeStore((s) => s.setActiveTab);
   const collapseAllItems = useSidebarTreeStore((s) => s.collapseAllItems);
   const expandAllItems = useSidebarTreeStore((s) => s.expandAllItems);
+  const collapsedFolderPaths = useSidebarTreeStore((s) => s.collapsedFolderPaths);
+  const toggleFolderPath = useSidebarTreeStore((s) => s.toggleFolderPath);
   const collapseAllPseudo = useSidebarTreeStore((s) => s.collapseAllPseudo);
   const expandAllPseudo = useSidebarTreeStore((s) => s.expandAllPseudo);
   const multiSelection = useSidebarTreeStore((s) => s.multiSelection);
@@ -957,10 +962,94 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
     'todos',
   ]);
 
+  const countVisibleLeaves = (items: FolderTree, searchActive: boolean): number => {
+    let count = 0;
+    for (const item of items) {
+      if (item.type === 'leaf') {
+        if (item.node.deprecated && !showDeprecated) continue;
+        if (!searchActive || visibleNodes.has(item.node.id)) count++;
+      } else {
+        count += countVisibleLeaves(item.children, searchActive);
+      }
+    }
+    return count;
+  };
+
+  const renderFolderTree = (
+    sectionId: string,
+    items: FolderTree,
+    level: number,
+    searchActive: boolean,
+  ): React.ReactNode[] => {
+    const elements: React.ReactNode[] = [];
+    for (const item of items) {
+      if (item.type === 'folder') {
+        if (searchActive && !hasVisibleLeaf(item, visibleNodes)) continue;
+        const collapseKey = `${sectionId}:${item.path}`;
+        const isCollapsed = collapsedFolderPaths.has(collapseKey);
+        const leafCount = countVisibleLeaves(item.children, searchActive);
+        elements.push(
+          <div key={collapseKey} style={{ paddingLeft: `${level * 16}px` }}>
+            <FolderTreeRow
+              name={item.name}
+              count={leafCount}
+              collapsed={isCollapsed}
+              level={0}
+              onToggle={() => toggleFolderPath(collapseKey)}
+            />
+          </div>,
+        );
+        if (!isCollapsed) {
+          elements.push(...renderFolderTree(sectionId, item.children, level + 1, searchActive));
+        }
+      } else {
+        if (searchActive && !visibleNodes.has(item.node.id)) continue;
+        if (!showDeprecated && item.node.deprecated) continue;
+        const node = item.node;
+        elements.push(
+          <div key={node.id} style={{ paddingLeft: `${(level + 1) * 16}px` }}>
+            <ArtifactTreeNode
+              node={node}
+              displayName={item.displayName}
+              selected={isSelected(node)}
+              isInMultiSelection={multiSelection.ids.has(node.id)}
+              onClick={(e) => handleNodeClick(node, e)}
+              onDoubleClick={() => {
+                openNode(node);
+                const d = toTabDescriptor(node);
+                if (d) openPermanent(d);
+              }}
+              onContextMenu={(e) => handleNodeContextMenu(node, e)}
+              onTogglePin={
+                node.kind === 'artifact' || node.kind === 'blueprint'
+                  ? async () => {
+                      if (!currentSession) return;
+                      try {
+                        await api.setPinned(
+                          currentSession.project,
+                          currentSession.name,
+                          node.id,
+                          !node.pinned,
+                        );
+                      } catch (err) {
+                        console.error('[ArtifactTree] setPinned failed', err);
+                      }
+                    }
+                  : undefined
+              }
+            />
+          </div>,
+        );
+      }
+    }
+    return elements;
+  };
+
   const renderSection = (
     id: string,
     title: string,
     nodes: TreeNode[],
+    options?: { foldered?: boolean },
   ): React.ReactElement | null => {
     const multiselectEnabled = !MULTISELECT_EXCLUDED_SECTIONS.has(id);
     const showSelectedHighlight = id !== 'recent';
@@ -971,61 +1060,69 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
     const isCollapsed = collapsedSections.has(id);
     const isForceExpanded = forceExpandedSections.has(id);
     const showChildren = !isCollapsed || isForceExpanded;
+    const searchActive = searchQuery.trim() !== '';
+    const folderTree = options?.foldered ? buildFolderTree(filtered) : null;
+    const sectionCount = options?.foldered
+      ? countVisibleLeaves(folderTree!, searchActive)
+      : filtered.length;
+
     return (
       <React.Fragment key={id}>
         <SectionBranchRow
           id={id}
           title={title}
-          count={filtered.length}
+          count={sectionCount}
           collapsed={isCollapsed && !isForceExpanded}
           onToggle={() => toggleSection(id)}
           level={0}
         />
-        {showChildren &&
-          filtered.map((node) => (
-            <div key={node.id} style={{ paddingLeft: '16px' }}>
-              <ArtifactTreeNode
-                node={node}
-                selected={showSelectedHighlight && isSelected(node)}
-                isInMultiSelection={multiselectEnabled && multiSelection.ids.has(node.id)}
-                onClick={(e) => {
-                  if (!multiselectEnabled) {
-                    setSelection([node.id], node.id);
+        {showChildren && options?.foldered
+          ? renderFolderTree(id, folderTree!, 0, searchActive)
+          : showChildren &&
+            filtered.map((node) => (
+              <div key={node.id} style={{ paddingLeft: '16px' }}>
+                <ArtifactTreeNode
+                  node={node}
+                  selected={showSelectedHighlight && isSelected(node)}
+                  isInMultiSelection={multiselectEnabled && multiSelection.ids.has(node.id)}
+                  onClick={(e) => {
+                    if (!multiselectEnabled) {
+                      setSelection([node.id], node.id);
+                      openNode(node);
+                      const d = toTabDescriptor(node);
+                      if (d) {
+                        openPreview(d);
+                      }
+                      return;
+                    }
+                    handleNodeClick(node, e);
+                  }}
+                  onDoubleClick={() => {
                     openNode(node);
                     const d = toTabDescriptor(node);
-                    if (d) {
-                      openPreview(d);
-                    }
-                    return;
-                  }
-                  handleNodeClick(node, e);
-                }}
-                onDoubleClick={() => {
-                  openNode(node);
-                  const d = toTabDescriptor(node);
-                  if (d) openPermanent(d);
-                }}
-                onContextMenu={(e) => handleNodeContextMenu(node, e)}
-                onTogglePin={
-                  node.kind === 'artifact' || node.kind === 'blueprint'
-                    ? async () => {
-                        if (!currentSession) return;
-                        try {
-                          await api.setPinned(
-                            currentSession.project,
-                            currentSession.name,
-                            node.id,
-                            !node.pinned,
-                          );
-                        } catch (err) {
-                          console.error('[ArtifactTree] setPinned failed', err);
+                    if (d) openPermanent(d);
+                  }}
+                  onContextMenu={(e) => handleNodeContextMenu(node, e)}
+                  onTogglePin={
+                    node.kind === 'artifact' || node.kind === 'blueprint'
+                      ? async () => {
+                          if (!currentSession) return;
+                          try {
+                            await api.setPinned(
+                              currentSession.project,
+                              currentSession.name,
+                              node.id,
+                              !node.pinned,
+                            );
+                          } catch (err) {
+                            console.error('[ArtifactTree] setPinned failed', err);
+                          }
                         }
-                      }
-                    : undefined
-                }
-              />
-            </div>
-          ))}
+                      : undefined
+                  }
+                />
+              </div>
+            ))}
       </React.Fragment>
     );
   };
@@ -1225,8 +1322,8 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
         />
         {renderSection('embeds', 'Embeds', embedNodes)}
         {renderSection('images', 'Images', imageNodes)}
-        {renderSection('diagrams', 'Diagrams', diagramNodes)}
-        {renderSection('documents', 'Documents', documentNodes)}
+        {renderSection('diagrams', 'Diagrams', diagramNodes, { foldered: true })}
+        {renderSection('documents', 'Documents', documentNodes, { foldered: true })}
         {renderSection('designs', 'Designs', designNodes)}
         {renderSection('spreadsheets', 'Spreadsheets', spreadsheetNodes)}
         {renderSection('code-files', 'Code Files', codeFileNodes)}

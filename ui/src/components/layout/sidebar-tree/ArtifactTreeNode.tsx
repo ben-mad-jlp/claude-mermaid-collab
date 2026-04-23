@@ -3,6 +3,7 @@ import type { TreeNode } from './getActionsForNode';
 
 interface ArtifactTreeNodeProps {
   node: TreeNode;
+  displayName?: string;
   selected?: boolean;
   isInMultiSelection?: boolean;
   onClick?: (e: React.MouseEvent) => void;
@@ -38,6 +39,7 @@ function formatAgo(ts: number): string {
 
 function ArtifactTreeNodeImpl({
   node,
+  displayName,
   selected,
   isInMultiSelection,
   onClick,
@@ -68,7 +70,7 @@ function ArtifactTreeNodeImpl({
       className={className}
     >
       {iconFor(node)}
-      <span className="truncate flex-1">{node.name}</span>
+      <span className="truncate flex-1">{displayName ?? node.name}</span>
       {typeof node.lastModified === 'number' && (
         <span
           className="ml-auto text-[10px] tabular-nums text-gray-400 dark:text-gray-500 flex-shrink-0"
@@ -86,7 +88,7 @@ function ArtifactTreeNodeImpl({
             onTogglePin?.(e);
           }}
           title={node.pinned ? 'Unpin' : 'Pin to top'}
-          aria-label={node.pinned ? `Unpin ${node.name}` : `Pin ${node.name}`}
+          aria-label={node.pinned ? `Unpin ${displayName ?? node.name}` : `Pin ${displayName ?? node.name}`}
           className={`p-0.5 rounded transition-all ${
             node.pinned
               ? 'opacity-100 text-accent-500 dark:text-accent-400 hover:text-accent-600'
