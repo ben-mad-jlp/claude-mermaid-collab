@@ -1062,8 +1062,8 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
     const showChildren = !isCollapsed || isForceExpanded;
     const searchActive = searchQuery.trim() !== '';
     const folderTree = options?.foldered ? buildFolderTree(filtered) : null;
-    const sectionCount = options?.foldered
-      ? countVisibleLeaves(folderTree!, searchActive)
+    const sectionCount = options?.foldered && folderTree !== null
+      ? countVisibleLeaves(folderTree, searchActive)
       : filtered.length;
 
     return (
@@ -1076,8 +1076,8 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
           onToggle={() => toggleSection(id)}
           level={0}
         />
-        {showChildren && options?.foldered
-          ? renderFolderTree(id, folderTree!, 0, searchActive)
+        {showChildren && options?.foldered && folderTree !== null
+          ? renderFolderTree(id, folderTree, 0, searchActive)
           : showChildren &&
             filtered.map((node) => (
               <div key={node.id} style={{ paddingLeft: '16px' }}>

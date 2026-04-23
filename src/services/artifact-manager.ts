@@ -75,8 +75,20 @@ export abstract class ArtifactManager<T extends ArtifactRecord> {
 
       try {
         const stats = await stat(path);
+
+        // Try to restore original name from sidecar metadata file
+        let name = id;
+        try {
+          const metaPath = join(this.basePath, `.${id}.meta.json`);
+          const metaContent = await readFile(metaPath, 'utf-8');
+          const meta = JSON.parse(metaContent) as { name?: string };
+          if (meta.name) name = meta.name;
+        } catch {
+          // No sidecar or unreadable — use id as fallback (backward compatibility)
+        }
+
         this.index.set(id, {
-          name: id,
+          name,
           path,
           lastModified: stats.mtimeMs,
         });
@@ -191,6 +203,14 @@ export abstract class ArtifactManager<T extends ArtifactRecord> {
     await writeFile(path, content, 'utf-8');
     const stats = await stat(path);
 
+    // Write sidecar metadata so initialize() can restore the original name
+    try {
+      const metaPath = join(this.basePath, `.${id}.meta.json`);
+      await writeFile(metaPath, JSON.stringify({ name }), 'utf-8');
+    } catch (error) {
+      console.warn(`Failed to write metadata sidecar for artifact ${id}:`, error);
+    }
+
     // Register in index
     this.index.set(id, {
       name: name,
@@ -267,9 +287,12 @@ export abstract class ArtifactManager<T extends ArtifactRecord> {
   async getVersionAtTimestamp(id: string, timestamp: number): Promise<string | null> {
     const history = await this.getHistory(id);
 
-    // Find the version at or before the timestamp
+    // Sort ascending by timestamp to ensure correct traversal regardless of
+    // storage order, then find the latest entry at or before the given timestamp.
+    const sorted = history.slice().sort((a, b) => a.timestamp - b.timestamp);
+
     let targetVersion: ArtifactVersionEntry | null = null;
-    for (const entry of history) {
+    for (const entry of sorted) {
       if (entry.timestamp <= timestamp) {
         targetVersion = entry;
       } else {
@@ -322,10 +345,22 @@ export abstract class ArtifactManager<T extends ArtifactRecord> {
    * Asynchronously loads and caches the metadata.
    */
   updateIndex(id: string, path: string): void {
-    stat(path)
-      .then(stats => {
+    // Preserve the existing name if we already have this entry indexed;
+    // otherwise try to read the sidecar metadata, falling back to id.
+    const existingName = this.index.get(id)?.name;
+    const resolveName = existingName
+      ? Promise.resolve(existingName)
+      : readFile(join(this.basePath, `.${id}.meta.json`), 'utf-8')
+          .then((raw) => {
+            const meta = JSON.parse(raw) as { name?: string };
+            return meta.name ?? id;
+          })
+          .catch(() => id);
+
+    Promise.all([stat(path), resolveName])
+      .then(([stats, name]) => {
         this.index.set(id, {
-          name: id,
+          name,
           path,
           lastModified: stats.mtimeMs,
         });
