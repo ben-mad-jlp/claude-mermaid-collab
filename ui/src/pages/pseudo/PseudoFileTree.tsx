@@ -87,7 +87,7 @@ function TreeNodeRendererImpl({
   const isCollapsed = collapsedDirs.has(node.path);
   const isActive = !node.isDir && node.path === currentPath;
   const hasChildren = node.children.length > 0;
-  const shouldShowChildren = !isCollapsed || filterExpanded.has(node.path);
+  const shouldShowChildren = !isCollapsed;
   const fileCount = node.children.length;
 
   return (

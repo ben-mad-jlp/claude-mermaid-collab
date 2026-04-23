@@ -249,6 +249,10 @@ export const useSidebarTreeStore = create<SidebarTreeState>()(
           next.delete(id);
         } else {
           next.add(id);
+          // explicit collapse overrides search-driven force-expand
+          const force = new Set(get().forceExpandedSections);
+          force.delete(id);
+          set({ forceExpandedSections: force });
         }
         set({ collapsedSections: next });
       },

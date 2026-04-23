@@ -105,13 +105,13 @@ export function filterTree(
 
   const filtered = nodes
     .map((node) => {
-      const nameMatches = node.name.toLowerCase().includes(query.toLowerCase());
+      const nameMatches = !node.isDir && node.name.toLowerCase().includes(query.toLowerCase());
       const { nodes: filteredChildren, expandedPaths: childExpanded } = node.children.length > 0
-        ? filterTree(node.children, query, nameMatches || ancestorMatched)
+        ? filterTree(node.children, query, ancestorMatched)
         : { nodes: [], expandedPaths: new Set<string>() };
 
       // Include node if:
-      // 1. Name matches the query
+      // 1. File name matches the query (dirs never match by name — they show as structure only)
       // 2. An ancestor matched
       // 3. Children were matched (directory containing matches)
       const shouldInclude = nameMatches || ancestorMatched || filteredChildren.length > 0;

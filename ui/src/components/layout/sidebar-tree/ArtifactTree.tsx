@@ -385,11 +385,13 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
     searchQuery,
   ]);
 
-  // Sync forceExpandedSections based on search matches
+  // Sync forceExpandedSections based on search matches, but never override explicit user collapse
   useEffect(() => {
     if (searchQuery.trim() === '') return;
-    setForceExpandedSections(Array.from(sectionsWithMatches));
-  }, [searchQuery, sectionsWithMatches, setForceExpandedSections]);
+    setForceExpandedSections(
+      Array.from(sectionsWithMatches).filter((id) => !collapsedSections.has(id)),
+    );
+  }, [searchQuery, sectionsWithMatches, setForceExpandedSections, collapsedSections]);
 
   // Load code file list when the code tab becomes active or session changes.
   // Fetches every source file in the project plus any pseudo-indexed metadata,
