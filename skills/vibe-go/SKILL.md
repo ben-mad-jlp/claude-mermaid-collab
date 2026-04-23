@@ -14,7 +14,7 @@ allowed-tools:
 # Vibe Go
 
 Review the task graph and launch agents to execute tasks in waves.
-Uses a chained agent pattern: analyze → implement → verify → fix loop.
+Uses a chained agent pattern: research → implement → verify → fix loop.
 Each agent gets a tiny focused prompt with fresh context — no tool drift.
 
 ## Step 1 — Load the task graph
@@ -66,21 +66,21 @@ Args: { "project": "<cwd>", "session": "<session>", "id": "<blueprint-doc-id>" }
 
 For each wave (batch), in order. **Auto-proceed between waves — never ask for confirmation.**
 
-### 4.1 Announce and spawn ANALYZE agents (one per task, in parallel)
+### 4.1 Announce and spawn RESEARCH agents (one per task, in parallel)
 
 ```
 Launching Wave [N] — [task-count] task(s): [task-ids]
 ```
 
-Each analyze agent handles ONE task — reads only that task's files. This keeps context small.
+Each research agent handles ONE task — reads only that task's files. This keeps context small.
 
-**Spawn all analyze agents for the wave in parallel:**
+**Spawn all research agents for the wave in parallel:**
 
 ```
 Agent(
-  description: "Analyze {task-id}",
+  description: "Research {task-id}",
   prompt: "
-You are an ANALYZE agent. Read files and return a plan. Do NOT make any code edits.
+You are a RESEARCH agent. Read files and return a plan. Do NOT make any code edits.
 
 Project: {project}
 Session: {session}
@@ -104,20 +104,52 @@ Use the Read tool (NEVER cat, head, tail, or ls) and Grep tool (NEVER shell grep
 
 If the task touches multiple files, return ONE implement step per file.
 
+After reading all files, before returning:
+1. Classify each file change as: behavioral / structural / trivial
+   - behavioral: changes observable runtime behavior (logic, control flow, data flow, side effects)
+   - structural: refactor/rename with no behavior change
+   - trivial: comments, formatting, config values
+2. For each behavioral file, post a before/after diagram to the collab tree:
+   Tool: mcp__mermaid__create_diagram
+   Args: { "project": "{project}", "session": "{session}", "name": "Implementation/Wave {wave-number}/{task-id}/{filename}", "content": "<mermaid diagram with before and after subgraphs>" }
+3. Include in your return payload which files got diagrams.
+
 Return in this EXACT format (include the TASK_ID on every line):
 
 STATUS: parallel
 TASK_ID: {task-id}
 TASKS:
-- FILE: {absolute path} | CHANGES: {exactly what to edit — be specific: function name, what to add/remove/modify, the logic}
-- FILE: {absolute path} | CHANGES: { ... }
+- FILE: {absolute path} | CHANGES: {exactly what to edit — be specific: function name, what to add/remove/modify, the logic} | CLASS: behavioral|structural|trivial
+- FILE: {absolute path} | CHANGES: { ... } | CLASS: behavioral|structural|trivial
+DIAGRAMS:
+- {filename}: Implementation/Wave {N}/{task-id}/{filename} (or "none" if structural/trivial)
   "
 )
 ```
 
+### 4.2 Wave approval gate (pair mode only)
+
+Check the `vibeinstructions` document for a `## Pair Mode` section. If absent or `Disabled`, skip this step and proceed directly to 4.3.
+
+If Pair Mode is **Enabled**, present the wave approval gate after all research agents complete:
+
+```
+Wave [N] research complete. Diagrams posted to collab for:
+{list each behavioral file with its diagram name}
+
+Review the diagrams in collab and respond:
+- "approve" to proceed with implementation
+- "reject" to stop and fix the design doc
+```
+
+**Wait for human response before spawning any implement agents.**
+
+- **approve** → proceed to 4.3
+- **reject** → stop: "Implementation halted. Fix the design doc and re-run /vibe-blueprint, then /vibe-go."
+
 ### 4.3 Dispatch IMPLEMENT agents
 
-Collect all analyze results. Each analyze agent returned a `TASK_ID` and a list of file edits.
+Collect all research results. Each research agent returned a `TASK_ID` and a list of file edits.
 
 **Group by TASK_ID** — you need this mapping later to know when a task is fully implemented (all its files edited successfully).
 
@@ -264,7 +296,7 @@ Tool: mcp__plugin_mermaid-collab_mermaid__create_document
 Args: {
   "project": "<cwd>",
   "session": "<session>",
-  "name": "impl-wave-[N]",
+  "name": "Implementation/Wave [N]/summary",
   "content": "# Wave [N] Implementation\n\n## Tasks\n{task summaries from implement agents}\n\n## Verification\n{verify agent results}"
 }
 ```
@@ -297,7 +329,7 @@ Run /vibe-review to check for bugs and verify completeness.
 
 ## Agent Design Principles
 
-1. **One agent, one job** — analyze reads, implement edits ONE file, verify checks, fix fixes
+1. **One agent, one job** — research reads, implement edits ONE file, verify checks, fix fixes
 2. **Small context** — each agent gets only the info it needs, nothing extra
 3. **Tool rules in every prompt** — NEVER cat, head, tail, sed, grep, ls, find, awk via Bash
 4. **Multi-file tasks get split** — if a task touches 3 files, that's 3 implement agents

@@ -20,7 +20,7 @@ import { CodeFileManager } from '../services/code-file-manager.js';
 import { getWebSocketHandler } from '../services/ws-handler-manager.js';
 import { getPseudoDb } from '../services/pseudo-db.js';
 import { walkProject } from '../services/source-scanner.js';
-import { editDecisionBridge } from '../agent/edit-decision-bridge.js';
+
 
 // Directories and files to exclude from file listings
 const EXCLUDED_NAMES = new Set([
@@ -670,8 +670,6 @@ async function handleAcceptProposedEdit(project: string, session: string, id: st
     }
   }
 
-  editDecisionBridge.resolve(project, session, id, { decision: 'accepted', comment });
-
   const oldLines = oldCode ? oldCode.split('\n').length : 0;
   const newLines = decisionInfo.newCode ? decisionInfo.newCode.split('\n').length : 0;
   const linesAdded = Math.max(0, newLines - oldLines);
@@ -736,8 +734,6 @@ async function handleRejectProposedEdit(project: string, session: string, id: st
       });
     }
   }
-
-  editDecisionBridge.resolve(project, session, id, { decision: 'rejected', comment });
 
   const rejOldLines = decisionInfo.originalCode ? decisionInfo.originalCode.split('\n').length : 0;
   const rejNewLines = decisionInfo.newCode ? decisionInfo.newCode.split('\n').length : 0;
@@ -1149,6 +1145,7 @@ async function handleGetCodeRecord(
     lastPushedAt: record.lastPushedAt,
     lastSyncedAt: record.lastSyncedAt,
     hasProposedEdit: !!record.proposedEdit,
+    proposedEdit: record.proposedEdit ?? null,
   });
 }
 

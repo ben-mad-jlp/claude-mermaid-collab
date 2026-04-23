@@ -5,8 +5,6 @@
  * Code files are first-class artifacts distinct from snippets.
  */
 
-import { editDecisionBridge } from '../../agent/edit-decision-bridge.js';
-
 // ============= Constants =============
 
 const API_PORT = parseInt(process.env.PORT ?? '9002', 10);
@@ -88,16 +86,6 @@ export const proposeCodeEditSchema = {
     message: { type: 'string', description: 'Short human-readable explanation of the proposed change.' },
   },
   required: ['project', 'session', 'id', 'newCode'],
-};
-
-export const waitForEditDecisionSchema = {
-  type: 'object',
-  properties: {
-    ...sessionParamsDesc,
-    id: { type: 'string', description: 'Code file artifact ID whose edit decision to wait for.' },
-    timeoutMs: { type: 'number', description: 'How long to wait in milliseconds before timing out (default 300000).' },
-  },
-  required: ['project', 'session', 'id'],
 };
 
 export const updateCodeSchema = {
@@ -239,25 +227,6 @@ export async function handleProposeCodeEdit(
   }
 
   return await response.json() as any;
-}
-
-export async function handleWaitForEditDecision(
-  project: string,
-  session: string,
-  id: string,
-  timeoutMs?: number,
-): Promise<{ content: [{ type: 'text'; text: string }]; isError?: boolean }> {
-  try {
-    const decision = await editDecisionBridge.wait(project, session, id, timeoutMs ?? 300_000);
-    return { content: [{ type: 'text', text: JSON.stringify(decision) }] };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg === 'edit_decision_timeout') {
-      return { content: [{ type: 'text', text: JSON.stringify({ decision: 'timeout' }) }], isError: true };
-    }
-    if (msg === 'replaced') return { content: [{ type: 'text', text: JSON.stringify({ decision: 'replaced' }) }], isError: true };
-    return { content: [{ type: 'text', text: JSON.stringify({ decision: 'cancelled' }) }], isError: true };
-  }
 }
 
 export async function handleListCodeFiles(

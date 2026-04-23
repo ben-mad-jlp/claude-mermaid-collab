@@ -193,7 +193,6 @@ import {
   reviewCodeEditsSchema,
   listCodeFilesSchema,
   proposeCodeEditSchema,
-  waitForEditDecisionSchema,
   updateCodeSchema,
   getCodeSchema,
   handleCreateCode,
@@ -202,7 +201,6 @@ import {
   handleReviewCodeEdits,
   handleListCodeFiles,
   handleProposeCodeEdit,
-  handleWaitForEditDecision,
   handleUpdateCode,
   handleGetCode,
 } from './tools/code.js';
@@ -2435,11 +2433,6 @@ IMPORTANT - Common pitfalls to avoid:
         description: 'Propose an edit to a linked code file artifact. The proposal appears in the UI as a Monaco diff editor with Accept/Reject buttons. Acceptance updates the in-editor code (user must still Push to write to disk). Only one proposal can be pending per code file; a new proposal replaces any existing one. Use list_code_files to find the artifact ID.',
         inputSchema: proposeCodeEditSchema,
       },
-      {
-        name: 'wait_for_edit_decision',
-        description: 'Wait for the user to Accept or Reject a proposed code edit in the browser UI. Blocks until the user decides. Returns {"decision":"accepted","comment":"..."} or {"decision":"rejected","comment":"..."}. Returns isError:true with {"decision":"timeout"} after timeoutMs (default 300000ms).',
-        inputSchema: { type: 'object', properties: { ...waitForEditDecisionSchema.properties }, required: ['project', 'session', 'id'] },
-      },
     ],
   }));
 
@@ -2468,11 +2461,6 @@ IMPORTANT - Common pitfalls to avoid:
           ruiArgs,
         );
         return res as any;
-      }
-
-      if (name === 'wait_for_edit_decision') {
-        const { project, session, id, timeoutMs } = args as { project: string; session: string; id: string; timeoutMs?: number };
-        return handleWaitForEditDecision(project, session, id, timeoutMs);
       }
 
       const result = await (async () => {

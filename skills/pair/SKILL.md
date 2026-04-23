@@ -1,80 +1,70 @@
 ---
 name: pair
-description: Propose a code edit via the MonacoDiffEditor and wait for the user to accept or reject it in the browser
-user-invocable: true
-allowed-tools: mcp__mermaid__list_code_files, mcp__mermaid__propose_code_edit, mcp__mermaid__wait_for_edit_decision
+description: Behavior diff review workflow — loads into context when pair mode is on. For any behavioral code change, build before/after diagrams and wait for human approval before writing code.
+user-invocable: false
+allowed-tools: mcp__plugin_mermaid-collab_mermaid__create_diagram, mcp__plugin_mermaid-collab_mermaid__list_diagrams
 ---
 
-# Pair Mode — v2 Workflow
+# Pair Mode — Behavior Diff Review
 
-Claude proposes code edits through the UI's MonacoDiffEditor and blocks until the user makes a decision.
+When pair mode is on, every behavioral code change requires a before/after diagram approved by the human BEFORE writing any code.
 
-## Key Concepts
+## Step 1 — Classify the change
 
-- **Code file artifacts** are tracked files linked from disk. They are distinct from snippets.
-- Use `list_code_files` to discover what's linked in the current session.
-- `propose_code_edit` takes a code file artifact `id` and the full proposed file content.
-- `wait_for_edit_decision` blocks until the user accepts or rejects in the browser.
+Classify every proposed file change:
 
-## Workflow
+| Class | Definition | Action |
+|-------|-----------|--------|
+| behavioral | Changes logic, control flow, async, error handling, API shape, state transitions, side effects | Build diagram → wait for approval |
+| structural | Refactor without behavior change: extracting helpers, renaming, type tightening | Proceed with native approvals |
+| trivial | Typo, comment, one-liner, dependency bump | Proceed immediately |
 
-### Step 1 — Find the artifact ID
+**Uncertain → treat as behavioral.**
 
-If you don't already know the artifact ID, list linked code files:
+## Step 2 — For behavioral changes: read the code
 
-```
-mcp__mermaid__list_code_files({ project, session })
-```
+Read every file the change will touch. The before diagram MUST be grounded in code you have actually read. State which files and functions you read alongside the diagram.
 
-Returns a list of `{ id, name, filePath, language, dirty }` entries. Find the one matching the file you want to edit.
+If you cannot confidently diagram the current behavior after reading: stop and tell the human — "this change is too risky to propose without deeper investigation."
 
-### Step 2 — Propose the edit
+## Step 3 — Build and post the diagram
 
-Call `propose_code_edit` with the artifact ID and the **full new file content**:
+One diagram per file. Before and after in the same artifact — use subgraphs or sections.
 
-```
-mcp__mermaid__propose_code_edit({
-  project: <project>,
-  session: <session>,
-  id: <code file artifact id>,
-  newCode: <full new file content as string>,
-  message: <short description of what changed and why>
-})
-```
+Post to collab under the appropriate session tree node:
+- vibe-go wave context → post under Implementation → Wave N → Task name
+- ad-hoc → post under Implementation → Ad-hoc
 
-The UI switches the editor to MonacoDiffEditor mode showing the diff automatically.
+Call `create_diagram` with a descriptive name: `{task-or-slug}/{filename}`.
 
-### Step 3 — Wait for the user's decision
+## Step 4 — Stop and wait
 
-Immediately call `wait_for_edit_decision` with the same artifact ID. This **blocks** until the user clicks Accept or Reject:
+Tell the human: "Diagram posted for [file] — review in collab and respond approve / revise / reject."
 
-```
-mcp__mermaid__wait_for_edit_decision({
-  project: <project>,
-  session: <session>,
-  id: <same code file artifact id>
-})
-```
+**Do not write any code until approved.**
 
-### Step 4 — Handle the decision
+## Step 5 — Handle response
 
-The tool returns:
+| Response | Action |
+|----------|--------|
+| approve | Proceed with code edits using native approvals. No further diagram ceremony for this change. |
+| revise [feedback] | Update the same diagram and wait again |
+| reject | Stop. Discuss before re-proposing. |
 
-```json
-{ "decision": "accepted" | "rejected", "comment": "<optional user comment>" }
-```
+## Mermaid conventions
 
-| Outcome | How Claude should respond |
-|---------|--------------------------|
-| `accepted` | Confirm the edit was applied. Remind the user to Push if they want the changes written to disk. Continue with the next task. |
-| `rejected` (with comment) | Read the comment carefully. Adjust the approach based on the feedback, then re-propose a revised edit or ask a clarifying question. |
-| `rejected` (no comment) | Acknowledge the rejection, ask what they'd like changed, wait for guidance before re-proposing. |
-| `timeout` | Surface to the user: "I didn't get a response on the proposed edit — would you like me to try again or take a different approach?" |
+| Change type | Diagram |
+|-------------|---------|
+| Request/response, call-path | sequence diagram |
+| Lifecycle, state machine | state diagram |
+| Branching logic, control flow | flowchart |
+| Concurrency, idempotency, subtle race | one-paragraph description labeled "Not diagrammable" |
 
-## Notes
+## Escape hatches
 
-- Always propose the **full file content** (`newCode`), not a partial diff. The MonacoDiffEditor computes the visual diff from the original automatically.
-- Code files are **not snippets**. Don't use snippet tools (`create_snippet`, `update_snippet`, etc.) to edit linked code files.
-- Acceptance only updates the in-editor content. The user must click **Push** to write the change to disk.
-- If multiple files need to change, propose them one at a time and wait for a decision on each before moving to the next.
-- If the file isn't linked yet, use `create_code` first to link it, then propose.
+- "skip behavior review for this one" → treat next change as trivial
+- "behavior review everything" → treat all changes as behavioral until told otherwise
+- "we're exploring" → ask if looser mode is wanted before applying
+
+STATUS: done | failed
+CONTEXT: { file, what was changed, any issues }

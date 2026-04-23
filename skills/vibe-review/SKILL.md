@@ -48,7 +48,7 @@ git diff --stat $BASE_SHA..$HEAD_SHA
 ```
 Tool: mcp__plugin_mermaid-collab_mermaid__list_documents
 ```
-Find all `impl-*` documents and read them.
+Find all `Implementation/Wave *` documents and read them.
 
 **Announce:**
 ```
@@ -102,11 +102,11 @@ Tool: mcp__plugin_mermaid-collab_mermaid__create_document
 Args: {
   "project": "{project}",
   "session": "{session}",
-  "name": "review-bugs",
+  "name": "Implementation/Review/bugs",
   "content": "# Bug Review\n\n[findings]"
 }
 
-Return: "Bug review complete. [N bugs found / No bugs found]. Saved to review-bugs."
+Return: "Bug review complete. [N bugs found / No bugs found]. Saved to Implementation/Review/bugs."
 ```
 
 ---
@@ -151,11 +151,11 @@ Tool: mcp__plugin_mermaid-collab_mermaid__create_document
 Args: {
   "project": "{project}",
   "session": "{session}",
-  "name": "review-completeness",
+  "name": "Implementation/Review/completeness",
   "content": "# Completeness Review\n\n[findings]"
 }
 
-Return: "Completeness review done. [N gaps found / Everything complete]. Saved to review-completeness."
+Return: "Completeness review done. [N gaps found / Everything complete]. Saved to Implementation/Review/completeness."
 ```
 
 ---
@@ -174,8 +174,8 @@ After both agents return, summarize:
 [Summary from completeness agent — gaps found, or "all complete"]
 
 ### Documents
-- review-bugs — open in collab UI for full findings
-- review-completeness — open in collab UI for full findings
+- Implementation/Review/bugs — open in collab UI for full findings
+- Implementation/Review/completeness — open in collab UI for full findings
 ```
 
 ## Step 4 — Gate on critical issues
@@ -199,8 +199,7 @@ Both checks passed. Implementation looks solid.
 
 If the user confirms they are satisfied with the implementation:
 
-Mark the blueprint document as deprecated so it moves out of the active Blueprint section:
-
+**1. Deprecate the blueprint document:**
 ```
 Tool: mcp__plugin_mermaid-collab_mermaid__deprecate_artifact
 Args: {
@@ -210,6 +209,10 @@ Args: {
   "deprecated": true
 }
 ```
+
+**2. Deprecate all Implementation/Wave * and Implementation/Review/* documents** (but NOT Implementation/Ad-hoc/* — those persist):
+
+Call `list_documents` to get all session documents. For each document whose name starts with `Implementation/Wave` or `Implementation/Review`, call `deprecate_artifact` with `deprecated: true`.
 
 Tell the user: "Blueprint archived. The work is complete."
 
