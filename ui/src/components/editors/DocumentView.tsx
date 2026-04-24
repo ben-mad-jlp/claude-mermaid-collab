@@ -34,7 +34,8 @@ export const DocumentView: React.FC<DocumentViewProps> = ({ document, onContentC
   const prevContentRef = useRef(document.content);
   useEffect(() => {
     if (prevContentRef.current !== document.content && !documentEditable) {
-      milkdownRef.current?.setMarkdown(document.content ?? '');
+      const md = document.content ?? '';
+      queueMicrotask(() => milkdownRef.current?.setMarkdown(md));
     }
     prevContentRef.current = document.content;
   }, [document.content, documentEditable]);

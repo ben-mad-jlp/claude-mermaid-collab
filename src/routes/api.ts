@@ -1,4 +1,5 @@
 import { DiagramManager } from '../services/diagram-manager';
+import { watchSession } from '../services/session-artifact-watcher';
 import { DocumentManager } from '../services/document-manager';
 import { SpreadsheetManager } from '../services/spreadsheet-manager';
 import { SnippetManager } from '../services/snippet-manager';
@@ -2333,6 +2334,8 @@ export async function handleAPI(
       project: params.project,
       session: params.session,
     });
+
+    void watchSession(params.project, params.session);
 
     return Response.json({ success: true, claudeSessionId });
   }

@@ -12,10 +12,10 @@
 
 import React, { useCallback, useState, useRef, useEffect, useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import { Link, useLocation } from 'react-router-dom';
 import { useTheme } from '@/hooks/useTheme';
 import { useSession } from '@/hooks/useSession';
 import { useUIStore } from '@/stores/uiStore';
-import { useSessionStore } from '@/stores/sessionStore';
 import { NavMenu } from './NavMenu';
 import { Session } from '@/types';
 
@@ -62,14 +62,13 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const { theme, toggleTheme } = useTheme();
   const { currentSession } = useSession();
-  const { agentChatVisible, toggleAgentChat, pairMode, togglePairMode } = useUIStore(
+  const { agentChatVisible, toggleAgentChat } = useUIStore(
     useShallow((state) => ({
       agentChatVisible: state.agentChatVisible,
       toggleAgentChat: state.toggleAgentChat,
-      pairMode: state.pairMode,
-      togglePairMode: state.togglePairMode,
     }))
   );
+  const location = useLocation();
 
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
   const [isSessionDropdownOpen, setIsSessionDropdownOpen] = useState(false);
@@ -165,27 +164,6 @@ export const Header: React.FC<HeaderProps> = ({
   const handleAgentToggle = useCallback(() => {
     toggleAgentChat();
   }, [toggleAgentChat]);
-
-  const handlePairToggle = useCallback(() => {
-    togglePairMode();
-  }, [togglePairMode]);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'P') {
-        const target = e.target as HTMLElement;
-        if (
-          target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.isContentEditable
-        ) return;
-        e.preventDefault();
-        togglePairMode();
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [togglePairMode]);
 
   const handleRefreshSessions = useCallback(() => {
     onRefreshSessions?.();
@@ -580,30 +558,23 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="hidden sm:inline">Agent</span>
           </button>
 
-          {/* Pair Mode Toggle */}
-          <button
-            data-testid="pair-toggle"
-            onClick={handlePairToggle}
-            aria-label={pairMode ? 'Disable Pair Mode' : 'Enable Pair Mode'}
-            aria-pressed={pairMode}
-            title={pairMode ? 'Pair Mode: On' : 'Pair Mode: Off'}
-            className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
-              pairMode
-                ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
+          {/* Onboarding Link */}
+          <Link
+            data-testid="onboarding-link"
+            to="/onboarding"
+            title="Onboarding"
+            aria-label="Onboarding"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+              location.pathname.startsWith('/onboarding')
+                ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
                 : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700'
             }`}
           >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="9" cy="7" r="4" />
-              <path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" />
-              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-              <path d="M21 21v-2a4 4 0 0 0-3-3.87" />
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
-            <span className="hidden sm:inline">Pair</span>
-            {pairMode && (
-              <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-500" />
-            )}
-          </button>
+            <span className="hidden sm:inline">Onboarding</span>
+          </Link>
 
           {/* Theme Toggle */}
           <button

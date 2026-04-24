@@ -620,6 +620,7 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
         id,
       );
       if (diagram) updateDiagram(id, { content: diagram.content });
+      else removeDiagram(id);
     } catch (err) {
       console.error('[ArtifactTree] getDiagram failed', err);
     }
@@ -634,6 +635,7 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
         id,
       );
       if (doc) updateDocument(id, { content: doc.content });
+      else removeDocument(id);
     } catch (err) {
       console.error('[ArtifactTree] getDocument failed', err);
     }
