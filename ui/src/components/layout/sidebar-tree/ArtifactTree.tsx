@@ -124,6 +124,15 @@ function toArtifactNode(
   };
 }
 
+function collectLeafNodes(folder: FolderNode): TreeNode[] {
+  const nodes: TreeNode[] = [];
+  for (const child of folder.children) {
+    if (child.type === 'leaf') nodes.push(child.node);
+    else nodes.push(...collectLeafNodes(child));
+  }
+  return nodes;
+}
+
 export function ArtifactTree({ className }: ArtifactTreeProps) {
   const currentSession = useSessionStore((s) => s.currentSession);
   const diagrams = useSessionStore((s) => s.diagrams);
@@ -243,7 +252,7 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
   const allBlueprintNodes = useMemo<TreeNode[]>(
     () =>
       selectBlueprintNodes(documents as any).map((d) => {
-        const name = d.name.startsWith('Implementing/') ? d.name.slice('Implementing/'.length) : d.name;
+        const baseName = d.name.startsWith('Implementing/') ? d.name.slice('Implementing/'.length) : d.name; const name = `Go/${baseName}`;
         return {
           id: d.id,
           kind: 'blueprint',
@@ -287,7 +296,12 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
   );
 
   const implementingArtifactNodes = useMemo<TreeNode[]>(() => {
-    const strip = (name: string) => name.startsWith('Implementing/') ? name.slice('Implementing/'.length) : name;
+    const strip = (name: string) => {
+      if (!name.startsWith('Implementing/')) return name;
+      const rest = name.slice('Implementing/'.length);
+      if (rest.startsWith('Ad-hoc/')) return rest;
+      return `Go/${rest}`;
+    };
     const nodes: TreeNode[] = [];
     for (const d of diagrams) {
       if (d.name.startsWith('Implementing/')) nodes.push(toArtifactNode({ ...d, name: strip(d.name) }, 'diagram'));
@@ -334,13 +348,13 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
   const taskNodes = useMemo<TreeNode[]>(() => {
     if (!isImplementationPhase) return [];
     const nodes: TreeNode[] = [
-      { id: '__task_graph__', kind: 'task-graph', name: 'Task Graph' },
+      { id: '__task_graph__', kind: 'task-graph', name: 'Go/Task Graph' },
     ];
     if (taskGraphDoc) {
       nodes.push({
         id: taskGraphDoc.id,
         kind: 'task-details',
-        name: 'Task Details',
+        name: 'Go/Task Details',
       });
     }
     return nodes;
@@ -1033,6 +1047,15 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
               collapsed={isCollapsed}
               level={0}
               onToggle={() => toggleFolderPath(collapseKey)}
+              onDeprecateAll={
+                (sectionId === 'blueprints' && item.path === 'Go') ||
+                (sectionId === 'blueprints' && item.path.startsWith('Ad-hoc/') && item.path.split('/').length === 2)
+                  ? () => {
+                      const leaves = collectLeafNodes(item).filter((n) => !n.deprecated);
+                      if (leaves.length > 0) void runBatch('deprecate', leaves);
+                    }
+                  : undefined
+              }
             />
           </div>,
         );

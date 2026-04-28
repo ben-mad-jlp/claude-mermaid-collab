@@ -126,7 +126,7 @@ After reading all files:
 
 2. For each behavioral file, post a before/after diagram to the collab tree:
    Tool: mcp__mermaid__create_diagram
-   Args: { \"project\": \"{project}\", \"session\": \"{session}\", \"name\": \"Implementing/Wave {wave-number}/{task-id}/{filename}\", \"content\": \"<mermaid flowchart diagram with before and after subgraphs. Style the before subgraph with fill:#ffdddd,stroke:#ffaaaa (pale red) and the after subgraph with fill:#ddffdd,stroke:#aaffaa (pale green). Example structure: flowchart TD\\n  subgraph before[\\\"Before\\\"]\\n    ...nodes...\\n  end\\n  subgraph after[\\\"After\\\"]\\n    ...nodes...\\n  end\\n  style before fill:#ffdddd,stroke:#ffaaaa\\n  style after fill:#ddffdd,stroke:#aaffaa>\" }
+   Args: { \"project\": \"{project}\", \"session\": \"{session}\", \"name\": \"Implementing/Go/Wave {wave-number}/{task-id}/{filename}\", \"content\": \"<mermaid flowchart diagram with before and after subgraphs. Style the before subgraph with fill:#ffdddd,stroke:#ffaaaa (pale red) and the after subgraph with fill:#ddffdd,stroke:#aaffaa (pale green). Example structure: flowchart TD\\n  subgraph before[\\\"Before\\\"]\\n    ...nodes...\\n  end\\n  subgraph after[\\\"After\\\"]\\n    ...nodes...\\n  end\\n  style before fill:#ffdddd,stroke:#ffaaaa\\n  style after fill:#ddffdd,stroke:#aaffaa>\" }
 
 Return in this EXACT format (include the TASK_ID on every line):
 
@@ -136,7 +136,7 @@ TASKS:
 - FILE: {absolute path} | CHANGES: {exactly what to edit — be specific: function name, what to add/remove/modify, the logic} | CLASS: behavioral|structural|trivial
 - FILE: {absolute path} | CHANGES: { ... } | CLASS: behavioral|structural|trivial
 DIAGRAMS:
-- {filename}: Implementing/Wave {N}/{task-id}/{filename} (or \"none\" if structural/trivial)
+- {filename}: Implementing/Go/Wave {N}/{task-id}/{filename} (or \"none\" if structural/trivial)
   "
 )
 ```
@@ -343,7 +343,7 @@ Tool: mcp__plugin_mermaid-collab_mermaid__create_document
 Args: {
   "project": "<cwd>",
   "session": "<session>",
-  "name": "Implementing/Wave [N]/summary",
+  "name": "Implementing/Go/Wave [N]/summary",
   "content": "# Wave [N] Implementation\n\n## Tasks\n{task summaries from implement agents}\n\n## Verification\n{verify agent results per file}\n\n## Wave TSC\n{clean | errors}"
 }
 ```
