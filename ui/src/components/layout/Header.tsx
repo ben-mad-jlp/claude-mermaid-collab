@@ -535,47 +535,6 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </div>
 
-          {/* Agent Chat Toggle */}
-          <button
-            data-testid="agent-toggle"
-            onClick={handleAgentToggle}
-            aria-label={agentChatVisible ? 'Hide Agent Chat' : 'Show Agent Chat'}
-            aria-pressed={agentChatVisible}
-            title={agentChatVisible ? 'Hide Agent Chat' : 'Show Agent Chat'}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
-              agentChatVisible
-                ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
-                : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700'
-            }`}
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="11" width="18" height="10" rx="2" />
-              <circle cx="12" cy="5" r="2" />
-              <path d="M12 7v4" />
-              <line x1="8" y1="16" x2="8" y2="16" />
-              <line x1="16" y1="16" x2="16" y2="16" />
-            </svg>
-            <span className="hidden sm:inline">Agent</span>
-          </button>
-
-          {/* Onboarding Link */}
-          <Link
-            data-testid="onboarding-link"
-            to="/onboarding"
-            title="Onboarding"
-            aria-label="Onboarding"
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
-              location.pathname.startsWith('/onboarding')
-                ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
-                : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700'
-            }`}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-            <span className="hidden sm:inline">Onboarding</span>
-          </Link>
-
           {/* Theme Toggle */}
           <button
             data-testid="theme-toggle"
