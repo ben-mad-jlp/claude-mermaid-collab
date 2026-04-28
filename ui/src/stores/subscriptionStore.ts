@@ -5,6 +5,7 @@ interface SubscribedSession {
   project: string;
   session: string;
   claudeSessionId?: string;
+  claudePid?: number;
   status: 'active' | 'waiting' | 'permission' | 'unknown';
   lastUpdate: number;
 }
@@ -15,7 +16,7 @@ interface SubscriptionState {
   subscribe: (project: string, session: string) => void;
   unsubscribe: (key: string) => void;
   reorder: (order: string[]) => void;
-  updateStatus: (claudeSessionId: string, status: string, project: string, session: string) => void;
+  updateStatus: (claudeSessionId: string, status: string, project: string, session: string, claudePid?: number) => void;
 }
 
 const STORAGE_KEY = 'session-subscriptions';
@@ -63,7 +64,7 @@ export const useSubscriptionStore = create<SubscriptionState>((set) => ({
     });
   },
 
-  updateStatus: (claudeSessionId, status, project, session) => {
+  updateStatus: (claudeSessionId, status, project, session, claudePid?) => {
     const key = `${project}:${session}`;
     set((state) => {
       const existing = state.subscriptions[key];
@@ -73,7 +74,8 @@ export const useSubscriptionStore = create<SubscriptionState>((set) => ({
       const isActiveGroup = (s: string) => s === 'active' || s === 'permission';
       const statusGroupChanged = isActiveGroup(existing.status) !== isActiveGroup(newStatus);
       const lastUpdate = statusGroupChanged ? Date.now() : existing.lastUpdate;
-      const next = { ...state.subscriptions, [key]: { ...existing, claudeSessionId, status: newStatus, lastUpdate } };
+      const pidUpdate = claudePid !== undefined ? { claudePid } : {};
+      const next = { ...state.subscriptions, [key]: { ...existing, claudeSessionId, status: newStatus, lastUpdate, ...pidUpdate } };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
       return { subscriptions: next };
     });

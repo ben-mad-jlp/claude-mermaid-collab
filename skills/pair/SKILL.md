@@ -76,6 +76,15 @@ Tell the human: "Diagram posted for [file] — review in collab and respond appr
 
 ## Step 6 — Dispatch IMPLEMENT agents (parallel)
 
+**Before dispatching implement agents, fire open-diff requests for each file:**
+
+For each file that will be implemented, send a fire-and-forget POST to the IDE bridge:
+```
+POST /api/ide/open-diff
+{ "filePath": "<absolute file path>" }
+```
+This opens each file in a live git diff view in VSCode so the user can watch changes happen in real time. Do this in the main context (not as agents) — these are simple fetch calls. Failures are non-fatal; proceed regardless.
+
 Spawn one IMPLEMENT agent per file, all in parallel.
 
 ```

@@ -890,8 +890,8 @@ const App: React.FC = () => {
         }
 
         case 'claude_session_registered': {
-          const { claudeSessionId, project, session } = message as any;
-          useSubscriptionStore.getState().updateStatus(claudeSessionId, 'active', project, session);
+          const { claudeSessionId, project, session, claudePid } = message as any;
+          useSubscriptionStore.getState().updateStatus(claudeSessionId, 'active', project, session, claudePid);
           break;
         }
         case 'claude_session_status': {
