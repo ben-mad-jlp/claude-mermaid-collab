@@ -22,9 +22,9 @@ Each agent gets a tiny focused prompt with fresh context — no tool drift.
 | Agent | Model | Reason |
 |-------|-------|--------|
 | Research | sonnet | needs reasoning to plan edits |
-| Implement | haiku | mechanical — just apply instructions |
+| Implement | sonnet | interprets CHANGES description reliably |
 | Verify | sonnet | semantic review requires reasoning |
-| Fix | haiku | mechanical — apply corrections |
+| Fix | sonnet | needs judgment to apply corrections correctly |
 
 ## Step 1 — Load the task graph
 
@@ -128,22 +128,13 @@ After reading all files:
    Tool: mcp__mermaid__create_diagram
    Args: { \"project\": \"{project}\", \"session\": \"{session}\", \"name\": \"Implementing/Wave {wave-number}/{task-id}/{filename}\", \"content\": \"<mermaid flowchart diagram with before and after subgraphs. Style the before subgraph with fill:#ffdddd,stroke:#ffaaaa (pale red) and the after subgraph with fill:#ddffdd,stroke:#aaffaa (pale green). Example structure: flowchart TD\\n  subgraph before[\\\"Before\\\"]\\n    ...nodes...\\n  end\\n  subgraph after[\\\"After\\\"]\\n    ...nodes...\\n  end\\n  style before fill:#ffdddd,stroke:#ffaaaa\\n  style after fill:#ddffdd,stroke:#aaffaa>\" }
 
-3. For EVERY file (all classes), save an instructions document to the collab tree:
-   Tool: mcp__mermaid__create_document
-   Args: {
-     \"project\": \"{project}\",
-     \"session\": \"{session}\",
-     \"name\": \"Implementing/Wave {wave-number}/{task-id}/{filename}-instructions\",
-     \"content\": \"# Instructions: {filename}\\n\\n## File\\n{absolute path}\\n\\n## Change Class\\n{behavioral|structural|trivial}\\n\\n## What to Change\\n{function or block name}\\n\\n## Specific Edit\\n{exact code to add/remove/modify — be as precise as possible}\\n\\n## Expected Outcome\\n{what the file should do differently after this edit}\"
-   }
-
 Return in this EXACT format (include the TASK_ID on every line):
 
 STATUS: parallel
 TASK_ID: {task-id}
 TASKS:
-- FILE: {absolute path} | CHANGES: {exactly what to edit — be specific: function name, what to add/remove/modify, the logic} | CLASS: behavioral|structural|trivial | INSTRUCTIONS_DOC: Implementing/Wave {N}/{task-id}/{filename}-instructions
-- FILE: {absolute path} | CHANGES: { ... } | CLASS: behavioral|structural|trivial | INSTRUCTIONS_DOC: Implementing/Wave {N}/{task-id}/{filename}-instructions
+- FILE: {absolute path} | CHANGES: {exactly what to edit — be specific: function name, what to add/remove/modify, the logic} | CLASS: behavioral|structural|trivial
+- FILE: {absolute path} | CHANGES: { ... } | CLASS: behavioral|structural|trivial
 DIAGRAMS:
 - {filename}: Implementing/Wave {N}/{task-id}/{filename} (or \"none\" if structural/trivial)
   "
@@ -184,14 +175,13 @@ Each implement agent touches exactly ONE file with ONE focused change.
 
 ```
 Agent(
-  model: "haiku",
+  model: "sonnet",
   description: "Edit {filename}",
   prompt: "
 You are an IMPLEMENT agent. Make ONE specific edit to ONE file. Nothing else.
 
 File: {absolute file path}
 Changes: {specific changes from research agent}
-Instructions doc: {INSTRUCTIONS_DOC path from research result}
 
 RULES (these are strict — violations cause rejection):
 - Use the Read tool to read files — NEVER use cat, head, tail, sed, or awk
@@ -208,7 +198,6 @@ Steps:
 STATUS: done | failed
 FILE: {absolute path}
 TASK_ID: {task-id}
-INSTRUCTIONS_DOC: {instructions doc path}
 CONTEXT: { what was changed, any issues }
   "
 )
@@ -226,9 +215,9 @@ Agent(
 You are a VERIFY agent. Check that ONE file was implemented correctly. Do NOT make code edits.
 
 Project: {project}
-Session: {session}
 File: {absolute file path}
-Instructions doc: {INSTRUCTIONS_DOC from implement result — e.g. Implementing/Wave N/task-id/filename-instructions}
+Expected change: {CHANGES from research result for this file}
+Diagram: {diagram name from DIAGRAMS, or \"none\"}
 
 RULES:
 - Use the Read tool to read files — NEVER cat, head, tail, sed, or awk
@@ -236,15 +225,12 @@ RULES:
 - Only use Bash for build/test commands
 
 Steps:
-1. Read the instructions document:
-   Tool: mcp__mermaid__get_document
-   Args: { \"project\": \"{project}\", \"session\": \"{session}\", \"id\": \"{instructions-doc-id}\" }
-2. Read the current file state with the Read tool
-3. Semantic review: does the file match what the instructions specified? Check:
+1. Read the current file state with the Read tool
+2. Semantic review: does the file match the expected change? Check:
    - Was the correct function/block changed?
-   - Does the logic match the \"Specific Edit\" and \"Expected Outcome\" sections?
+   - Does the logic match what was described?
    - Are there any obvious mistakes (wrong variable, missing return, logic inverted)?
-4. Run TypeScript check: cd {project} && npx tsc --noEmit 2>&1 | head -30
+3. Run TypeScript check: cd {project} && npx tsc --noEmit 2>&1 | head -30
 
 If ALL checks pass:
 
@@ -279,7 +265,7 @@ Track `previousErrors` per file (initially empty). On each verify failure for a 
 
 ```
 Agent(
-  model: "haiku",
+  model: "sonnet",
   description: "Fix {filename} (attempt [M])",
   prompt: "
 You are a FIX agent. Apply the corrections below to ONE file. Do NOT run tests or verify.
@@ -396,5 +382,5 @@ Run /vibe-review to check for bugs and verify completeness.
 4. **Multi-file tasks get split** — if a task touches 3 files, that's 3 implement agents
 5. **Auto-proceed** — never pause between waves for confirmation
 6. **Fix loops self-terminate** — same errors twice = stuck = escalate
-7. **Instructions as artifacts** — research saves per-file instructions docs; verify reads them directly
-8. **Right model for the job** — haiku for mechanical edits/fixes, sonnet for planning/review
+7. **Diagrams as the spec** — before/after diagram is the source of truth for behavioral changes; verify checks against CHANGES description and diagram, no separate instructions doc
+8. **Right model for the job** — sonnet throughout; no haiku

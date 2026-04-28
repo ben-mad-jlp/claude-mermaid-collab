@@ -13,9 +13,9 @@ When pair mode is on, every behavioral code change requires a before/after diagr
 
 | Agent | Model | Reason |
 |-------|-------|--------|
-| Implement | haiku | mechanical — just apply instructions |
+| Implement | sonnet | interprets change description reliably |
 | Verify | sonnet | semantic review requires reasoning |
-| Fix | haiku | mechanical — apply corrections |
+| Fix | sonnet | needs judgment to apply corrections correctly |
 
 ## Step 1 — Classify the change
 
@@ -74,34 +74,19 @@ Tell the human: "Diagram posted for [file] — review in collab and respond appr
 | revise [feedback] | Update the same diagram and wait again |
 | reject | Stop. Discuss before re-proposing. |
 
-## Step 6 — Save instructions docs (one per file)
-
-Before dispatching any agents, save a structured instructions document for each file:
-
-```
-Tool: mcp__plugin_mermaid-collab_mermaid__create_document
-Args: {
-  "project": "<cwd>",
-  "session": "<session>",
-  "name": "Implementing/Ad-hoc/{slug}/{filename}-instructions",
-  "content": "# Instructions: {filename}\n\n## File\n{absolute path}\n\n## Change Class\n{behavioral|structural|trivial}\n\n## What to Change\n{function or block name}\n\n## Specific Edit\n{exact code to add/remove/modify — be as precise as possible}\n\n## Expected Outcome\n{what the file should do differently after this edit}"
-}
-```
-
-## Step 7 — Dispatch IMPLEMENT agents (parallel)
+## Step 6 — Dispatch IMPLEMENT agents (parallel)
 
 Spawn one IMPLEMENT agent per file, all in parallel.
 
 ```
 Agent(
-  model: "haiku",
+  model: "sonnet",
   description: "Edit {filename}",
   prompt: "
 You are an IMPLEMENT agent. Make ONE specific edit to ONE file. Nothing else.
 
 File: {absolute file path}
-Changes: {specific changes}
-Instructions doc: {instructions doc path from Step 6}
+Changes: {specific changes from your planning}
 
 RULES (these are strict — violations cause rejection):
 - Use the Read tool to read files — NEVER use cat, head, tail, sed, or awk
@@ -117,13 +102,12 @@ Steps:
 
 STATUS: done | failed
 FILE: {absolute path}
-INSTRUCTIONS_DOC: {instructions doc path}
 CONTEXT: { what was changed, any issues }
   "
 )
 ```
 
-## Step 8 — Chain VERIFY agents
+## Step 7 — Chain VERIFY agents
 
 As each implement agent returns, immediately spawn its paired VERIFY agent — do not wait for all implement agents to finish first.
 
@@ -135,9 +119,9 @@ Agent(
 You are a VERIFY agent. Check that ONE file was implemented correctly. Do NOT make code edits.
 
 Project: {project}
-Session: {session}
 File: {absolute file path}
-Instructions doc: {INSTRUCTIONS_DOC from implement result}
+Expected change: {description of what should have changed, from your planning in Step 2}
+Diagram: {diagram name, or \"none\" if structural/trivial}
 
 RULES:
 - Use the Read tool to read files — NEVER cat, head, tail, sed, or awk
@@ -145,15 +129,12 @@ RULES:
 - Only use Bash for build/test commands
 
 Steps:
-1. Read the instructions document:
-   Tool: mcp__mermaid__get_document
-   Args: { \"project\": \"{project}\", \"session\": \"{session}\", \"id\": \"{instructions-doc-id}\" }
-2. Read the current file state with the Read tool
-3. Semantic review: does the file match what the instructions specified? Check:
+1. Read the current file state with the Read tool
+2. Semantic review: does the file match the expected change? Check:
    - Was the correct function/block changed?
-   - Does the logic match the \"Specific Edit\" and \"Expected Outcome\" sections?
+   - Does the logic match what was described?
    - Are there any obvious mistakes (wrong variable, missing return, logic inverted)?
-4. Run TypeScript check: cd {project} && npx tsc --noEmit 2>&1 | head -30
+3. Run TypeScript check: cd {project} && npx tsc --noEmit 2>&1 | head -30
 
 If ALL checks pass:
 
@@ -171,7 +152,7 @@ TSC_ERRORS: {relevant tsc lines, or \"none\"}
 )
 ```
 
-## Step 9 — Per-file fix loop
+## Step 8 — Per-file fix loop
 
 For each file where verify returned `STATUS: failed`, enter a fix loop independently. Other files are not blocked.
 
@@ -183,7 +164,7 @@ Track `previousErrors` per file (initially empty). On each verify failure:
 
 ```
 Agent(
-  model: "haiku",
+  model: "sonnet",
   description: "Fix {filename} (attempt [M])",
   prompt: "
 You are a FIX agent. Apply the corrections below to ONE file. Do NOT run tests or verify.
@@ -218,7 +199,7 @@ File {filename} fix loop stuck — same errors after [M] attempts.
 Fix manually and re-run, or skip.
 ```
 
-## Step 10 — Final TypeScript check
+## Step 9 — Final TypeScript check
 
 After all per-file loops settle, run a single tsc in the main context:
 
