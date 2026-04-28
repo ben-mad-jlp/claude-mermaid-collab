@@ -17,6 +17,15 @@ Review the task graph and launch agents to execute tasks in waves.
 Uses a chained agent pattern: research → implement → verify → fix loop.
 Each agent gets a tiny focused prompt with fresh context — no tool drift.
 
+## Agent Models
+
+| Agent | Model | Reason |
+|-------|-------|--------|
+| Research | sonnet | needs reasoning to plan edits |
+| Implement | haiku | mechanical — just apply instructions |
+| Verify | sonnet | semantic review requires reasoning |
+| Fix | haiku | mechanical — apply corrections |
+
 ## Step 1 — Load the task graph
 
 ```
@@ -78,6 +87,7 @@ Each research agent handles ONE task — reads only that task's files. This keep
 
 ```
 Agent(
+  model: "sonnet",
   description: "Research {task-id}",
   prompt: "
 You are a RESEARCH agent. Read files and return a plan. Do NOT make any code edits.
@@ -85,6 +95,7 @@ You are a RESEARCH agent. Read files and return a plan. Do NOT make any code edi
 Project: {project}
 Session: {session}
 Task: {task-id}
+Wave: {wave-number}
 Files: {files array from blueprint}
 Description: {description from blueprint}
 
@@ -93,7 +104,7 @@ Blueprint section for this task:
 
 FIRST: Mark this task as in_progress:
 Tool: mcp__mermaid__update_task_status
-Args: { "project": "{project}", "session": "{session}", "taskId": "{task-id}", "status": "in_progress", "minimal": true }
+Args: { \"project\": \"{project}\", \"session\": \"{session}\", \"taskId\": \"{task-id}\", \"status\": \"in_progress\", \"minimal\": true }
 
 THEN: Read the source files listed above. For each file, determine:
 - What functions/blocks need to change
@@ -104,25 +115,37 @@ Use the Read tool (NEVER cat, head, tail, or ls) and Grep tool (NEVER shell grep
 
 If the task touches multiple files, return ONE implement step per file.
 
-After reading all files, before returning:
+For large files (>500 lines with multiple logical change groups), split into multiple TASKS entries for the same file, each covering a single narrow change. Label them: FILE: {path} | CHANGES: {one specific change only} | CLASS: ...
+
+After reading all files:
+
 1. Classify each file change as: behavioral / structural / trivial
    - behavioral: changes observable runtime behavior (logic, control flow, data flow, side effects)
    - structural: refactor/rename with no behavior change
    - trivial: comments, formatting, config values
+
 2. For each behavioral file, post a before/after diagram to the collab tree:
    Tool: mcp__mermaid__create_diagram
-   Args: { "project": "{project}", "session": "{session}", "name": "Implementing/Wave {wave-number}/{task-id}/{filename}", "content": "<mermaid diagram with before and after subgraphs>" }
-3. Include in your return payload which files got diagrams.
+   Args: { \"project\": \"{project}\", \"session\": \"{session}\", \"name\": \"Implementing/Wave {wave-number}/{task-id}/{filename}\", \"content\": \"<mermaid flowchart diagram with before and after subgraphs. Style the before subgraph with fill:#ffdddd,stroke:#ffaaaa (pale red) and the after subgraph with fill:#ddffdd,stroke:#aaffaa (pale green). Example structure: flowchart TD\\n  subgraph before[\\\"Before\\\"]\\n    ...nodes...\\n  end\\n  subgraph after[\\\"After\\\"]\\n    ...nodes...\\n  end\\n  style before fill:#ffdddd,stroke:#ffaaaa\\n  style after fill:#ddffdd,stroke:#aaffaa>\" }
+
+3. For EVERY file (all classes), save an instructions document to the collab tree:
+   Tool: mcp__mermaid__create_document
+   Args: {
+     \"project\": \"{project}\",
+     \"session\": \"{session}\",
+     \"name\": \"Implementing/Wave {wave-number}/{task-id}/{filename}-instructions\",
+     \"content\": \"# Instructions: {filename}\\n\\n## File\\n{absolute path}\\n\\n## Change Class\\n{behavioral|structural|trivial}\\n\\n## What to Change\\n{function or block name}\\n\\n## Specific Edit\\n{exact code to add/remove/modify — be as precise as possible}\\n\\n## Expected Outcome\\n{what the file should do differently after this edit}\"
+   }
 
 Return in this EXACT format (include the TASK_ID on every line):
 
 STATUS: parallel
 TASK_ID: {task-id}
 TASKS:
-- FILE: {absolute path} | CHANGES: {exactly what to edit — be specific: function name, what to add/remove/modify, the logic} | CLASS: behavioral|structural|trivial
-- FILE: {absolute path} | CHANGES: { ... } | CLASS: behavioral|structural|trivial
+- FILE: {absolute path} | CHANGES: {exactly what to edit — be specific: function name, what to add/remove/modify, the logic} | CLASS: behavioral|structural|trivial | INSTRUCTIONS_DOC: Implementing/Wave {N}/{task-id}/{filename}-instructions
+- FILE: {absolute path} | CHANGES: { ... } | CLASS: behavioral|structural|trivial | INSTRUCTIONS_DOC: Implementing/Wave {N}/{task-id}/{filename}-instructions
 DIAGRAMS:
-- {filename}: Implementing/Wave {N}/{task-id}/{filename} (or "none" if structural/trivial)
+- {filename}: Implementing/Wave {N}/{task-id}/{filename} (or \"none\" if structural/trivial)
   "
 )
 ```
@@ -153,18 +176,22 @@ Collect all research results. Each research agent returned a `TASK_ID` and a lis
 
 **Group by TASK_ID** — you need this mapping later to know when a task is fully implemented (all its files edited successfully).
 
-**Spawn one IMPLEMENT agent per file edit, in parallel (across all tasks in the wave):**
+**Spawn one IMPLEMENT agent per TASKS entry.**
 
-Each implement agent touches exactly ONE file with ONE focused change. This is critical — if an agent has too much to do, it drifts to shell commands.
+For files with multiple TASKS entries (large file splits), spawn those agents SEQUENTIALLY — not in parallel — since they edit the same file. Agents for different files may still run in parallel.
+
+Each implement agent touches exactly ONE file with ONE focused change.
 
 ```
 Agent(
+  model: "haiku",
   description: "Edit {filename}",
   prompt: "
 You are an IMPLEMENT agent. Make ONE specific edit to ONE file. Nothing else.
 
 File: {absolute file path}
-Changes: {specific changes from analyze agent}
+Changes: {specific changes from research agent}
+Instructions doc: {INSTRUCTIONS_DOC path from research result}
 
 RULES (these are strict — violations cause rejection):
 - Use the Read tool to read files — NEVER use cat, head, tail, sed, or awk
@@ -179,116 +206,150 @@ Steps:
 3. Return what you changed
 
 STATUS: done | failed
-CONTEXT: { file, what was changed, any issues }
+FILE: {absolute path}
+TASK_ID: {task-id}
+INSTRUCTIONS_DOC: {instructions doc path}
+CONTEXT: { what was changed, any issues }
   "
 )
 ```
 
-### 4.4 Collect IMPLEMENT results
+### 4.4 Chain VERIFY agents
 
-After all parallel implement agents return, check results grouped by TASK_ID:
-
-- If any returned `STATUS: failed`: stop the wave, report which task/file failed, do not proceed
-- If all returned `STATUS: done`: proceed to verify
-- Track which files belong to which TASK_ID — you need this for marking tasks completed after verify
-
-### 4.5 Spawn VERIFY agent
-
-One agent that checks all changes from the wave:
+As each implement agent returns, immediately spawn its paired VERIFY agent — do not wait for all implement agents to finish first.
 
 ```
 Agent(
-  description: "Verify wave [N]",
+  model: "sonnet",
+  description: "Verify {filename}",
   prompt: "
-You are a VERIFY agent. Check that changes are correct. Do NOT make code edits.
+You are a VERIFY agent. Check that ONE file was implemented correctly. Do NOT make code edits.
 
 Project: {project}
 Session: {session}
-Task IDs in this wave: {list of task-ids}
-Files changed: {list from implement results}
+File: {absolute file path}
+Instructions doc: {INSTRUCTIONS_DOC from implement result — e.g. Implementing/Wave N/task-id/filename-instructions}
 
 RULES:
+- Use the Read tool to read files — NEVER cat, head, tail, sed, or awk
 - Use the Grep tool to search — NEVER shell grep or rg
 - Only use Bash for build/test commands
 
 Steps:
-1. Run TypeScript check: cd {project} && npx tsc --noEmit 2>&1 | head -30
-2. Run relevant tests if any were specified
-3. Use Grep for any obvious issues (dangling imports, undefined references) in changed files
-4. If ALL checks pass, mark each task as completed:
-   Tool: mcp__mermaid__update_task_status
-   Args: { "project": "{project}", "session": "{session}", "taskId": "{task-id}", "status": "completed", "minimal": true }
+1. Read the instructions document:
+   Tool: mcp__mermaid__get_document
+   Args: { \"project\": \"{project}\", \"session\": \"{session}\", \"id\": \"{instructions-doc-id}\" }
+2. Read the current file state with the Read tool
+3. Semantic review: does the file match what the instructions specified? Check:
+   - Was the correct function/block changed?
+   - Does the logic match the \"Specific Edit\" and \"Expected Outcome\" sections?
+   - Are there any obvious mistakes (wrong variable, missing return, logic inverted)?
+4. Run TypeScript check: cd {project} && npx tsc --noEmit 2>&1 | head -30
 
-Return:
+If ALL checks pass:
 
-STATUS: done | failed
-CONTEXT: { build result, test result, tasks marked completed (list IDs), any issues found — include exact error messages }
+STATUS: done
+FILE: {absolute path}
+TASK_ID: {task-id}
+
+If ANY check fails:
+
+STATUS: failed
+FILE: {absolute path}
+TASK_ID: {task-id}
+CORRECTIONS:
+- {specific correction 1 — re-state exactly what still needs to change, not just the error}
+- {specific correction 2}
+TSC_ERRORS: {relevant tsc lines, or \"none\"}
   "
 )
 ```
 
-### 4.6 Handle VERIFY result
+### 4.5 Per-file fix loop
 
-- If `STATUS: done`: mark all tasks in wave as completed, save impl summary, proceed to next wave
-- If `STATUS: failed`: enter the fix loop (4.6a)
+For each file where verify returned `STATUS: failed`, enter a fix loop for that file independently. Other files are not blocked.
 
-### 4.6a Fix loop
+Track `previousErrors` per file (initially empty). On each verify failure for a file:
 
-Track `previousErrors` (initially empty). On each verify failure:
-
-1. Compare current errors to `previousErrors`
-2. If errors are **identical** to previous iteration → stuck, escalate to user
+1. Compare current errors to `previousErrors` for that file
+2. If errors are **identical** to previous iteration → stuck, escalate to user for that file only
 3. If errors are **new or different** → making progress, spawn FIX agent
 
 **FIX agent:**
 
 ```
 Agent(
-  description: "Fix wave [N] errors (attempt [M])",
+  model: "haiku",
+  description: "Fix {filename} (attempt [M])",
   prompt: "
-You are a FIX agent. Fix the errors described below. Do NOT run tests or verify.
+You are a FIX agent. Apply the corrections below to ONE file. Do NOT run tests or verify.
 
-Errors:
-{exact error messages from verify agent}
+File: {absolute file path}
+Corrections:
+{CORRECTIONS list from verify agent — these are re-stated instructions, not raw error messages}
 
-Files involved: {file list}
+TSC errors (if any):
+{TSC_ERRORS from verify agent}
 
 RULES:
 - Use the Read tool to read files — NEVER cat, head, tail, sed, or awk
 - Use the Edit tool to modify files — NEVER sed -i or shell redirects
 - Use the Grep tool to search — NEVER shell grep or rg
-- Fix ONLY the reported errors — do not refactor or change anything else
+- Fix ONLY what the corrections specify — do not refactor or change anything else
 
 Return:
 
 STATUS: done | failed
-CONTEXT: { what was fixed, which files were edited }
+FILE: {absolute path}
+TASK_ID: {task-id}
+CONTEXT: { what was fixed }
   "
 )
 ```
 
 After the FIX agent returns:
-- If `STATUS: failed`: escalate to user
-- If `STATUS: done`: spawn VERIFY agent again (same prompt as 4.5)
-  - Set `previousErrors` to the current errors before re-verifying
-  - Go back to 4.6 with the new verify result
+- If `STATUS: failed`: escalate to user for that file
+- If `STATUS: done`: spawn VERIFY agent again for that file (same prompt as 4.4)
+  - Set `previousErrors` to the current corrections before re-verifying
+  - Loop until done or stuck
 
-This loop continues as long as errors keep changing. The moment the same errors appear twice, stop:
-
+Stuck message per file:
 ```
-Wave [N] fix loop stuck — same errors after [M] attempts.
+File {filename} fix loop stuck — same errors after [M] attempts.
 
-Errors:
-{error details}
+Corrections:
+{correction details}
 
-Options:
-1. Fix manually and re-run /vibe-go
-2. Skip this wave
+Fix this file manually and re-run /vibe-go, or skip and continue.
 ```
+
+### 4.6 Wave-level TypeScript check
+
+After ALL per-file verify+fix loops settle (all files either done or escalated), run a single wave-level tsc in the main context to catch cross-file type errors:
+
+```bash
+cd {project} && npx tsc --noEmit 2>&1 | head -50
+```
+
+- If **clean**: proceed to 4.7
+- If **errors**: report to user and stop — do not attempt auto-fix at wave level:
+  ```
+  Wave [N] tsc failed after per-file verification.
+
+  Errors:
+  {tsc output}
+
+  Fix these manually and re-run /vibe-go.
+  ```
 
 ### 4.7 Wave complete
 
-Tasks were already marked completed by the VERIFY agent. Now save the summary.
+Mark all successfully verified tasks as completed:
+```
+Tool: mcp__mermaid__update_task_status
+Args: { "project": "{project}", "session": "{session}", "taskId": "{task-id}", "status": "completed", "minimal": true }
+```
+(One call per task-id — do all in sequence.)
 
 **Save wave implementation summary:**
 ```
@@ -297,7 +358,7 @@ Args: {
   "project": "<cwd>",
   "session": "<session>",
   "name": "Implementing/Wave [N]/summary",
-  "content": "# Wave [N] Implementation\n\n## Tasks\n{task summaries from implement agents}\n\n## Verification\n{verify agent results}"
+  "content": "# Wave [N] Implementation\n\n## Tasks\n{task summaries from implement agents}\n\n## Verification\n{verify agent results per file}\n\n## Wave TSC\n{clean | errors}"
 }
 ```
 
@@ -329,9 +390,11 @@ Run /vibe-review to check for bugs and verify completeness.
 
 ## Agent Design Principles
 
-1. **One agent, one job** — research reads, implement edits ONE file, verify checks, fix fixes
+1. **One agent, one job** — research reads, implement edits ONE file, verify checks ONE file, fix fixes ONE file
 2. **Small context** — each agent gets only the info it needs, nothing extra
 3. **Tool rules in every prompt** — NEVER cat, head, tail, sed, grep, ls, find, awk via Bash
 4. **Multi-file tasks get split** — if a task touches 3 files, that's 3 implement agents
 5. **Auto-proceed** — never pause between waves for confirmation
 6. **Fix loops self-terminate** — same errors twice = stuck = escalate
+7. **Instructions as artifacts** — research saves per-file instructions docs; verify reads them directly
+8. **Right model for the job** — haiku for mechanical edits/fixes, sonnet for planning/review
