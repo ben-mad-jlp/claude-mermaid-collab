@@ -79,7 +79,11 @@ export type WSMessage =
   | { type: 'mcp_tools_discovered'; serverName: string; tools: Array<{ name: string; description?: string }>; project?: string }
   | { type: 'mcp_tool_details_loaded'; serverName: string; toolName: string; inputSchema: unknown; project?: string }
   | { type: 'mcp_elicitation_requested'; elicitationId: string; serverName: string; toolName: string; schema: unknown; deadlineMs: number; sessionId?: string }
-  | { type: 'mcp_token_cost_updated'; serverName: string; toolName: string; inputTokens: number; outputTokens: number; costUsd?: number };
+  | { type: 'mcp_token_cost_updated'; serverName: string; toolName: string; inputTokens: number; outputTokens: number; costUsd?: number }
+  | { type: 'ide_focus_terminal'; claudePid: number; claudeSessionId: string; project: string; session: string }
+  | { type: 'ide_open_diff'; filePath: string }
+  | { type: 'ide_connected'; vscodeVersion: string; extensionVersion: string }
+  | { type: 'ide_disconnected'; reason?: string };
 
 export class WebSocketHandler {
   private connections: Set<ServerWebSocket<{ subscriptions: Set<string> }>> = new Set();

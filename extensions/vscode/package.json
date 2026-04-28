@@ -1,0 +1,41 @@
+{
+  "name": "mermaid-collab-vscode",
+  "displayName": "mermaid-collab",
+  "description": "Connects the mermaid-collab UI to VSCode terminals and editor",
+  "version": "1.0.0",
+  "publisher": "mermaid-collab",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "extensionKind": ["workspace"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "mermaidCollab.showStatus", "title": "mermaid-collab: Show Status" },
+      { "command": "mermaidCollab.reconnect", "title": "mermaid-collab: Reconnect" }
+    ],
+    "configuration": {
+      "title": "mermaid-collab",
+      "properties": {
+        "mermaidCollab.serverUrl": {
+          "type": "string",
+          "default": "ws://127.0.0.1:9002/ws",
+          "description": "WebSocket URL of the mermaid-collab server"
+        }
+      }
+    }
+  },
+  "extensionDependencies": ["vscode.git"],
+  "dependencies": { "ws": "^8.17.0" },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/ws": "^8.5.10",
+    "typescript": "^5.3.0",
+    "@vscode/vsce": "^2.24.0",
+    "esbuild": "^0.20.0"
+  },
+  "scripts": {
+    "compile": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --platform=node --target=node18",
+    "package": "npm run compile && vsce package"
+  }
+}

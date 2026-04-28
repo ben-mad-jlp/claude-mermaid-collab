@@ -1,5 +1,6 @@
 import { readFile, writeFile } from 'fs/promises';
 import { extname } from 'path';
+import { validatePathUnderRoot } from '../utils/path-security';
 
 const LANGUAGE_BY_EXT: Record<string, string> = {
   ts: 'typescript',
@@ -49,6 +50,11 @@ export async function handleFileContentAPI(req: Request): Promise<Response> {
       if (!filePath) {
         return jsonError('path required', 400);
       }
+      try {
+        await validatePathUnderRoot(filePath, process.cwd());
+      } catch {
+        return jsonError('Path is outside the project root', 400);
+      }
       let content: string;
       try {
         content = await readFile(filePath, 'utf8');
@@ -63,7 +69,7 @@ export async function handleFileContentAPI(req: Request): Promise<Response> {
     if (req.method === 'PUT') {
       let body: { path?: unknown; content?: unknown };
       try {
-        body = await req.json();
+        body = await req.json() as { path?: unknown; content?: unknown };
       } catch {
         return jsonError('Invalid JSON body', 400);
       }
@@ -77,6 +83,11 @@ export async function handleFileContentAPI(req: Request): Promise<Response> {
       }
       if (typeof content !== 'string') {
         return jsonError('content must be a string', 400);
+      }
+      try {
+        await validatePathUnderRoot(filePath, process.cwd());
+      } catch {
+        return jsonError('Path is outside the project root', 400);
       }
       try {
         await writeFile(filePath, content, 'utf8');

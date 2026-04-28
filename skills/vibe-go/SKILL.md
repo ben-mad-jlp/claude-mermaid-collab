@@ -163,6 +163,15 @@ Review the diagrams in collab and respond:
 
 ### 4.3 Dispatch IMPLEMENT agents
 
+**Before dispatching implement agents, fire open-diff requests for each file in the wave:**
+
+For each file path in the TASKS list across all research results, send a fire-and-forget POST to the IDE bridge:
+```
+POST /api/ide/open-diff
+{ "filePath": "<absolute file path>" }
+```
+This opens each file in a live git diff view in VSCode so the user can watch changes happen in real time. Do this in the main context (not as agents) — these are simple fetch calls. Failures are non-fatal; proceed regardless.
+
 Collect all research results. Each research agent returned a `TASK_ID` and a list of file edits.
 
 **Group by TASK_ID** — you need this mapping later to know when a task is fully implemented (all its files edited successfully).

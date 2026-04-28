@@ -27,19 +27,28 @@ function sessionKey(project: string, session: string): string {
   return `${project}::${session}`;
 }
 
+const SENTINEL = Symbol('sentinel');
+
 export async function watchSession(project: string, session: string): Promise<void> {
   const key = sessionKey(project, session);
   const existing = watched.get(key);
   if (existing) {
-    existing.refCount++;
+    if (existing !== (SENTINEL as unknown as WatchedSession)) {
+      existing.refCount++;
+    }
     return;
   }
+
+  // Write sentinel immediately (before any await) so concurrent calls for the
+  // same key detect it and return early, preventing a double-watcher leak.
+  watched.set(key, SENTINEL as unknown as WatchedSession);
 
   let chokidar: typeof import('chokidar');
   try {
     chokidar = await import('chokidar');
   } catch {
     console.warn('[session-artifact-watcher] chokidar not available — skipping');
+    watched.delete(key);
     return;
   }
 

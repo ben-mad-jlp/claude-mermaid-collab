@@ -143,7 +143,16 @@ const SubscriptionRow: React.FC<{
         onDragStart={(e) => onDragStart(e, subKey)}
         onDragOver={(e) => onDragOver(e, subKey)}
         onDragEnd={onDragEnd}
-        onClick={() => onNavigate(sub.project, sub.session)}
+        onClick={() => {
+          onNavigate(sub.project, sub.session);
+          if (sub.claudeSessionId) {
+            fetch('/api/ide/focus-terminal', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ claudeSessionId: sub.claudeSessionId }),
+            }).catch(() => {});
+          }
+        }}
       >
         {/* Project / Session on two lines */}
         <div className="flex-1 min-w-0">

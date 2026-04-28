@@ -2328,9 +2328,21 @@ export async function handleAPI(
       return Response.json({ error: 'claudeSessionId required' }, { status: 400 });
     }
 
+    let claudePid: number | undefined;
+    try {
+      const fsPromises = await import('fs/promises');
+      const bindingRaw = await fsPromises.readFile(`/tmp/.mermaid-collab-binding-${claudeSessionId}.json`, 'utf-8');
+      const binding = JSON.parse(bindingRaw) as { claudePid?: string | number };
+      const rawPid = Number(binding.claudePid);
+      claudePid = Number.isInteger(rawPid) && rawPid > 0 ? rawPid : undefined;
+    } catch {
+      // non-fatal — proceed without claudePid
+    }
+
     wsHandler.broadcast({
       type: 'claude_session_registered',
       claudeSessionId,
+      claudePid,
       project: params.project,
       session: params.session,
     });
