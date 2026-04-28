@@ -5,6 +5,7 @@ import { useTabsStore, useSessionTabs } from '@/stores/tabsStore';
 import { SubscriptionsPanel } from '@/components/layout/SubscriptionsPanel';
 import { ArtifactTree } from '@/components/layout/sidebar-tree/ArtifactTree';
 import { WorktreeBadge } from '@/components/layout/WorktreeBadge';
+import { useDataLoader } from '@/hooks/useDataLoader';
 
 export interface SidebarProps {
   className?: string;
@@ -24,6 +25,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   );
 
   const openPreview = useTabsStore((s) => s.openPreview);
+  const { selectDocumentWithContent } = useDataLoader();
   const { activeTabId } = useSessionTabs();
 
   const isDisabled = !currentSession;
@@ -47,15 +49,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <WorktreeBadge sessionId={currentSession.name} />
           </div>
           <button
-            onClick={() =>
+            onClick={() => {
               openPreview({
                 id: vibeInstructionsDoc.id,
                 kind: 'artifact',
                 artifactType: 'document',
                 artifactId: vibeInstructionsDoc.id,
                 name: vibeInstructionsDoc.name,
-              })
-            }
+              });
+              selectDocumentWithContent(currentSession.project, currentSession.name, vibeInstructionsDoc.id);
+            }}
             className={`
               w-full text-left px-3 py-2 rounded-lg
               flex items-center gap-2
