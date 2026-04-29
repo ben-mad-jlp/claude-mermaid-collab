@@ -36,16 +36,27 @@ if [ -z "$PROJECT" ] || [ -z "$SESSION" ]; then
   exit 0
 fi
 
-PAYLOAD=$(jq -nc \
-  --arg sid "$SESSION_ID" \
-  --arg project "$PROJECT" \
-  --arg session "$SESSION" \
-  '{claudeSessionId: $sid, project: $project, session: $session, status: "waiting"}')
+NOTIFY_STATUS="permission"
+STATUS_FILE="/tmp/.mermaid-collab-notify-${SESSION_ID}.status"
+LOCK_FILE="/tmp/.mermaid-collab-notify-${SESSION_ID}.lock"
 
-curl -s -X POST http://localhost:9002/api/session-notify \
-  -H "Content-Type: application/json" \
-  -d "$PAYLOAD" \
-  > /dev/null 2>&1 &
+echo "$NOTIFY_STATUS" > "$STATUS_FILE"
+
+(
+  flock -n 9 || exit 0
+  sleep 0.2
+  FINAL_STATUS=$(cat "$STATUS_FILE" 2>/dev/null || echo "$NOTIFY_STATUS")
+  PAYLOAD=$(jq -nc \
+    --arg sid "$SESSION_ID" \
+    --arg project "$PROJECT" \
+    --arg session "$SESSION" \
+    --arg status "$FINAL_STATUS" \
+    '{claudeSessionId: $sid, project: $project, session: $session, status: $status}')
+  curl -s --max-time 3 -X POST http://localhost:9002/api/session-notify \
+    -H "Content-Type: application/json" \
+    -d "$PAYLOAD" \
+    > /dev/null 2>&1
+) 9>"$LOCK_FILE" &
 
 echo '{"continue": true}'
 exit 0
