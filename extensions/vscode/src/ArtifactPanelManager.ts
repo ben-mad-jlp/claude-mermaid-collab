@@ -15,13 +15,16 @@ export class ArtifactPanelManager {
     private project: string
   ) {}
 
-  open(id: string, type: ArtifactType): void {
+  open(id: string, type: ArtifactType | string): void {
     if (this.panels.has(id)) {
       this.panels.get(id)!.reveal();
       return;
     }
 
-    switch (type) {
+    // React sidebar sends singular types ('diagram', 'document', etc.) — normalize to plural
+    const normalizedType = type.endsWith('s') ? type : `${type}s`;
+
+    switch (normalizedType) {
       case 'diagrams': {
         this.panels.set(id, undefined as any);
         void this.api.getDiagram(id, this.project, this.session).then(diagram => {

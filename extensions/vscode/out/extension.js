@@ -4028,7 +4028,8 @@ var ArtifactPanelManager = class {
       this.panels.get(id).reveal();
       return;
     }
-    switch (type) {
+    const normalizedType = type.endsWith("s") ? type : `${type}s`;
+    switch (normalizedType) {
       case "diagrams": {
         this.panels.set(id, void 0);
         void this.api.getDiagram(id, this.project, this.session).then((diagram) => {
