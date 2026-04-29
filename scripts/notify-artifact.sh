@@ -40,16 +40,16 @@ esac
 PROJECT_ENC="$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe='/'))" "$PROJECT" 2>/dev/null || echo "$PROJECT")"
 
 # Check if artifact already registered
-HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+HTTP_STATUS=$(curl -s --connect-timeout 2 --max-time 5 -o /dev/null -w "%{http_code}" \
   "${BASE_URL}/api/artifact/exists?project=${PROJECT_ENC}&session=${SESSION}&type=${TYPE}&id=${ID}")
 
 if [ "$HTTP_STATUS" = "404" ]; then
   # New artifact — register
-  RESULT=$(curl -s -w "\n%{http_code}" -X POST \
+  RESULT=$(curl -s --connect-timeout 2 --max-time 5 -w "\n%{http_code}" -X POST \
     "${BASE_URL}/api/artifact/register?project=${PROJECT_ENC}&session=${SESSION}&type=${TYPE}&id=${ID}")
 elif [ "$HTTP_STATUS" = "200" ]; then
   # Existing — notify
-  RESULT=$(curl -s -w "\n%{http_code}" -X POST \
+  RESULT=$(curl -s --connect-timeout 2 --max-time 5 -w "\n%{http_code}" -X POST \
     "${BASE_URL}/api/artifact/notify?project=${PROJECT_ENC}&session=${SESSION}&type=${TYPE}&id=${ID}")
 else
   echo "notify-artifact: exists check failed (HTTP $HTTP_STATUS)" >&2
