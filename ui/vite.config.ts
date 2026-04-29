@@ -24,7 +24,7 @@ export default defineConfig({
     port: process.env.VITE_UI_PORT ? parseInt(process.env.VITE_UI_PORT, 10) : 5173,
     strictPort: true,
     open: false,
-    allowedHosts: process.env.VITE_ALLOWED_HOSTS?.split(',').map(h => h.trim()).filter(Boolean) ?? ['localhost', '127.0.0.1'],
+    allowedHosts: process.env.VITE_ALLOWED_HOSTS?.split(',').map(h => h.trim()).filter(Boolean) ?? 'all',
     proxy: {
       '/api': {
         target: `http://localhost:${API_PORT}`,
