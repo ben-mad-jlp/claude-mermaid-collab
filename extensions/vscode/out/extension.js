@@ -2277,7 +2277,7 @@ var require_websocket = __commonJS({
     var http = require("http");
     var net = require("net");
     var tls = require("tls");
-    var { randomBytes, createHash } = require("crypto");
+    var { randomBytes: randomBytes2, createHash } = require("crypto");
     var { Duplex, Readable } = require("stream");
     var { URL } = require("url");
     var PerMessageDeflate2 = require_permessage_deflate();
@@ -2824,7 +2824,7 @@ var require_websocket = __commonJS({
         }
       }
       const defaultPort = isSecure ? 443 : 80;
-      const key = randomBytes(16).toString("base64");
+      const key = randomBytes2(16).toString("base64");
       const request = isSecure ? https.request : http.request;
       const protocolSet = /* @__PURE__ */ new Set();
       let perMessageDeflate;
@@ -3746,7 +3746,7 @@ __export(extension_exports, {
   deactivate: () => deactivate
 });
 module.exports = __toCommonJS(extension_exports);
-var vscode = __toESM(require("vscode"));
+var vscode6 = __toESM(require("vscode"));
 
 // node_modules/ws/wrapper.mjs
 var import_stream = __toESM(require_stream(), 1);
@@ -3759,38 +3759,491 @@ var import_websocket = __toESM(require_websocket(), 1);
 var import_websocket_server = __toESM(require_websocket_server(), 1);
 var wrapper_default = import_websocket.default;
 
+// src/api.ts
+var CollabApi = class {
+  constructor(apiUrl) {
+    this.apiUrl = apiUrl.replace(/\/$/, "");
+  }
+  async request(path, options) {
+    const url = `${this.apiUrl}${path}`;
+    const response = await fetch(url, options);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} ${response.statusText} for ${url}`);
+    }
+    return response.json();
+  }
+  async listArtifacts(project, session, type) {
+    const params = new URLSearchParams({ project, session });
+    return this.request(`/api/${type}?${params}`);
+  }
+  async getDocument(id) {
+    return this.request(`/api/documents/${encodeURIComponent(id)}`);
+  }
+  async getDiagram(id) {
+    return this.request(`/api/diagrams/${encodeURIComponent(id)}`);
+  }
+  async getSnippet(id) {
+    return this.request(`/api/snippets/${encodeURIComponent(id)}`);
+  }
+  async updateDocument(id, content) {
+    await this.request(`/api/documents/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content })
+    });
+  }
+  async updateSnippet(id, content) {
+    await this.request(`/api/snippets/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content })
+    });
+  }
+  async createDocument(project, session, name) {
+    return this.request("/api/documents", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ project, session, name, content: "" })
+    });
+  }
+  async createDiagram(project, session, name) {
+    return this.request("/api/diagrams", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ project, session, name, content: "" })
+    });
+  }
+  async createSnippet(project, session, name) {
+    return this.request("/api/snippets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ project, session, name, content: "" })
+    });
+  }
+  async deprecateArtifact(id, type, deprecated) {
+    await this.request(`/api/${type}/${encodeURIComponent(id)}/deprecate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ deprecated })
+    });
+  }
+};
+
+// src/ArtifactPanelManager.ts
+var vscode5 = __toESM(require("vscode"));
+
+// src/DiagramPanel.ts
+var vscode = __toESM(require("vscode"));
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function create(context, id, diagram) {
+  const panel = vscode.window.createWebviewPanel(
+    "mermaidCollabDiagram",
+    diagram.name,
+    vscode.ViewColumn.One,
+    {
+      retainContextWhenHidden: true,
+      enableScripts: true
+    }
+  );
+  const mermaidUri = panel.webview.asWebviewUri(
+    vscode.Uri.joinPath(context.extensionUri, "media", "mermaid.esm.min.mjs")
+  );
+  panel.webview.html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(diagram.name)}</title>
+</head>
+<body>
+  <div class="mermaid" id="diagram">${escapeHtml(diagram.content)}</div>
+  <script type="module">
+    import mermaid from '${mermaidUri}';
+    mermaid.initialize({ startOnLoad: false, theme: 'neutral' });
+    mermaid.run({ querySelector: '#diagram' });
+    window.addEventListener('message', async e => {
+      if (e.data.type === 'update') {
+        document.getElementById('diagram').textContent = e.data.content;
+        await mermaid.run({ querySelector: '#diagram' });
+      }
+    });
+  </script>
+</body>
+</html>`;
+  return panel;
+}
+
+// src/DocumentPanel.ts
+var vscode2 = __toESM(require("vscode"));
+function escapeHtml2(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function create2(context, id, doc, api2) {
+  const panel = vscode2.window.createWebviewPanel(
+    "mermaidCollabDocument",
+    doc.name,
+    vscode2.ViewColumn.One,
+    {
+      retainContextWhenHidden: true,
+      enableScripts: true
+    }
+  );
+  const markedUri = panel.webview.asWebviewUri(
+    vscode2.Uri.joinPath(context.extensionUri, "media", "marked.min.js")
+  );
+  panel.webview.html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml2(doc.name)}</title>
+  <script src="${markedUri}"></script>
+  <style>
+    body { margin: 0; padding: 0; display: flex; height: 100vh; overflow: hidden; }
+  </style>
+</head>
+<body>
+  <div id="conflict-banner" style="display:none;position:fixed;top:0;left:0;right:0;background:#f0ad4e;padding:8px;z-index:100;">Document updated remotely \u2014 <button onclick="reload()">Reload</button> <button onclick="keepMine()">Keep mine</button></div>
+  <textarea id="editor" style="width:50%;height:100vh;box-sizing:border-box;resize:none;font-family:monospace;padding:8px;border:none;outline:none;"></textarea>
+  <div id="preview" style="width:50%;height:100vh;overflow:auto;padding:8px;box-sizing:border-box;"></div>
+  <script>
+    const vscode = acquireVsCodeApi();
+    let dirty = false;
+    let debounceTimer;
+
+    function render(content) {
+      document.getElementById('preview').innerHTML = marked.parse(content);
+    }
+
+    document.getElementById('editor').oninput = () => {
+      dirty = true;
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        vscode.postMessage({type: 'save', content: document.getElementById('editor').value});
+      }, 800);
+    };
+
+    function reload() {
+      document.getElementById('conflict-banner').style.display = 'none';
+      vscode.postMessage({type: 'reload'});
+    }
+
+    function keepMine() {
+      document.getElementById('conflict-banner').style.display = 'none';
+      dirty = false;
+    }
+
+    window.addEventListener('message', e => {
+      const m = e.data;
+      if (m.type === 'init') {
+        document.getElementById('editor').value = m.content;
+        render(m.content);
+        dirty = false;
+        document.getElementById('conflict-banner').style.display = 'none';
+      } else if (m.type === 'update') {
+        if (dirty) {
+          document.getElementById('conflict-banner').style.display = 'block';
+        } else {
+          render(m.content);
+        }
+      } else if (m.type === 'conflict') {
+        document.getElementById('conflict-banner').style.display = 'block';
+      }
+    });
+
+    window.onload = () => {
+      vscode.postMessage({type: 'ready'});
+    };
+  </script>
+</body>
+</html>`;
+  panel.webview.onDidReceiveMessage((msg) => {
+    if (msg.type === "ready") {
+      panel.webview.postMessage({ type: "init", content: doc.content });
+    } else if (msg.type === "save") {
+      api2.updateDocument(id, msg.content).catch(
+        (err) => vscode2.window.showErrorMessage("Save failed: " + String(err))
+      );
+    } else if (msg.type === "reload") {
+      api2.getDocument(id).then((fresh) => panel.webview.postMessage({ type: "init", content: fresh.content })).catch(() => {
+      });
+    }
+  });
+  return panel;
+}
+
+// src/DesignPanel.ts
+var vscode3 = __toESM(require("vscode"));
+function escapeHtml3(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function create3(context, id, name) {
+  const panel = vscode3.window.createWebviewPanel(
+    "mermaidCollabDesign",
+    name,
+    vscode3.ViewColumn.One,
+    {
+      enableScripts: true
+    }
+  );
+  panel.webview.html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src http://localhost:9102; script-src 'unsafe-inline';">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml3(name)}</title>
+  <style>
+    body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
+  </style>
+</head>
+<body>
+  <iframe src="http://localhost:9102/design-view?id=${encodeURIComponent(id)}" style="width:100%;height:100vh;border:none;"></iframe>
+</body>
+</html>`;
+  return panel;
+}
+
+// src/SnippetProvider.ts
+var vscode4 = __toESM(require("vscode"));
+async function openSnippet(session, id, snippet) {
+  const uri = vscode4.Uri.parse(`collab-snippet:/${encodeURIComponent(session)}/${id}/${encodeURIComponent(snippet.name)}`);
+  const doc = await vscode4.workspace.openTextDocument(uri);
+  await vscode4.window.showTextDocument(doc, { preview: true });
+}
+
+// src/ArtifactPanelManager.ts
+var ArtifactPanelManager = class {
+  constructor(context, api2, session) {
+    this.context = context;
+    this.api = api2;
+    this.session = session;
+    this.panels = /* @__PURE__ */ new Map();
+  }
+  open(id, type) {
+    if (this.panels.has(id)) {
+      this.panels.get(id).reveal();
+      return;
+    }
+    switch (type) {
+      case "diagrams": {
+        this.panels.set(id, void 0);
+        void this.api.getDiagram(id).then((diagram) => {
+          if (!diagram) {
+            this.panels.delete(id);
+            return;
+          }
+          const panel = create(this.context, id, diagram);
+          panel.onDidDispose(() => {
+            this.panels.delete(id);
+          });
+          this.panels.set(id, panel);
+        });
+        return;
+      }
+      case "documents": {
+        this.panels.set(id, void 0);
+        void this.api.getDocument(id).then((doc) => {
+          if (!doc) {
+            this.panels.delete(id);
+            return;
+          }
+          const panel = create2(this.context, id, doc, this.api);
+          panel.onDidDispose(() => {
+            this.panels.delete(id);
+          });
+          this.panels.set(id, panel);
+        });
+        return;
+      }
+      case "designs": {
+        const panel = create3(this.context, id, id);
+        panel.onDidDispose(() => {
+          this.panels.delete(id);
+        });
+        this.panels.set(id, panel);
+        return;
+      }
+      case "snippets": {
+        this.panels.set(id, void 0);
+        void this.api.getSnippet(id).then((snippet) => {
+          this.panels.delete(id);
+          if (!snippet)
+            return;
+          void openSnippet(this.session, id, snippet);
+        });
+        return;
+      }
+      default: {
+        const titleMap = {
+          images: `Image: ${id}`
+        };
+        const title = titleMap[type] ?? `${type}: ${id}`;
+        const panel = vscode5.window.createWebviewPanel(
+          "mermaidCollab.artifact",
+          title,
+          vscode5.ViewColumn.One,
+          { enableScripts: false }
+        );
+        panel.webview.html = `<!DOCTYPE html>
+<html lang="en">
+<body>
+  <p>Loading ${type}...</p>
+</body>
+</html>`;
+        panel.onDidDispose(() => {
+          this.panels.delete(id);
+        });
+        this.panels.set(id, panel);
+        break;
+      }
+    }
+  }
+  pushUpdate(id, content) {
+    if (this.panels.has(id)) {
+      this.panels.get(id).webview.postMessage({ type: "update", content });
+      const autoReveal = vscode5.workspace.getConfiguration("mermaidCollab").get("autoRevealOnUpdate", true);
+      if (autoReveal) {
+        this.panels.get(id).reveal();
+      }
+    }
+  }
+};
+
+// src/SidebarViewProvider.ts
+var crypto = __toESM(require("crypto"));
+var SidebarViewProvider = class {
+  constructor(context, getPanelManager, getSession, getProject) {
+    this.context = context;
+    this.getPanelManager = getPanelManager;
+    this.getSession = getSession;
+    this.getProject = getProject;
+  }
+  resolveWebviewView(webviewView) {
+    webviewView.webview.options = { enableScripts: true };
+    const nonce = crypto.randomBytes(16).toString("base64");
+    const session = encodeURIComponent(this.getSession());
+    const project = encodeURIComponent(this.getProject());
+    const src = `http://localhost:9102/sidebar?project=${project}&session=${session}`;
+    webviewView.webview.html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'none'; frame-src http://localhost:9102; script-src 'nonce-${nonce}'; style-src 'unsafe-inline';" />
+  <style>
+    html, body, iframe {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      border: none;
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+  <iframe id="sidebar-frame" src="${src}"></iframe>
+  <script nonce="${nonce}">
+    (function () {
+      const vscodeApi = acquireVsCodeApi();
+      window.addEventListener('message', function (event) {
+        const msg = event.data;
+        if (msg && msg.type === 'openArtifact') {
+          vscodeApi.postMessage({ type: 'openArtifact', id: msg.id, artifactType: msg.artifactType });
+        }
+      });
+    })();
+  </script>
+</body>
+</html>`;
+    webviewView.webview.onDidReceiveMessage((msg) => {
+      if (msg && msg.type === "openArtifact") {
+        this.getPanelManager()?.open(msg.id, msg.artifactType);
+      }
+    });
+  }
+};
+
 // src/extension.ts
 var ws = null;
 var statusBarItem;
 var reconnectTimer = null;
 var reconnectDelay = 1e3;
 var MAX_DELAY = 3e4;
+var api;
+var panelManager;
+var _ctx;
+var _activeSession = "";
 function activate(context) {
-  statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  _ctx = context;
+  statusBarItem = vscode6.window.createStatusBarItem(vscode6.StatusBarAlignment.Right, 100);
   statusBarItem.command = "mermaidCollab.showStatus";
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
   context.subscriptions.push(
-    vscode.commands.registerCommand("mermaidCollab.showStatus", () => {
+    vscode6.commands.registerCommand("mermaidCollab.showStatus", () => {
       const state = ws?.readyState === wrapper_default.OPEN ? "Connected" : "Disconnected";
-      vscode.window.showInformationMessage(`mermaid-collab: ${state}`);
+      vscode6.window.showInformationMessage(`mermaid-collab: ${state}`);
     }),
-    vscode.commands.registerCommand("mermaidCollab.reconnect", () => {
+    vscode6.commands.registerCommand("mermaidCollab.reconnect", () => {
       scheduleReconnect(0);
     })
   );
+  const apiUrl = vscode6.workspace.getConfiguration("mermaidCollab").get("apiUrl") ?? "http://127.0.0.1:9002";
+  const project = vscode6.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "";
+  const activeSession = context.workspaceState.get("mermaidCollab.activeSession") ?? "";
+  _activeSession = activeSession;
+  api = new CollabApi(apiUrl);
+  panelManager = new ArtifactPanelManager(context, api, activeSession);
+  context.subscriptions.push(
+    vscode6.window.registerWebviewViewProvider(
+      "mermaidCollabPanel",
+      new SidebarViewProvider(
+        context,
+        () => panelManager,
+        () => _activeSession,
+        () => project
+      )
+    )
+  );
+  context.subscriptions.push(
+    vscode6.commands.registerCommand("mermaidCollab.openArtifact", (id, type) => {
+      panelManager?.open(id, type);
+    })
+  );
+  updateStatusBar(false, activeSession);
   connect(context);
+  return {
+    extendMarkdownIt(md) {
+      const defaultFence = md.renderer.rules.fence ?? md.renderer.rules.code_block;
+      md.renderer.rules.fence = (tokens, idx, opts, env, self) => {
+        const token = tokens[idx];
+        if (token.info.trim() === "mermaid") {
+          return `<div class="mermaid">${token.content}</div>`;
+        }
+        return defaultFence ? defaultFence(tokens, idx, opts, env, self) : self.renderToken(tokens, idx, opts);
+      };
+      return md;
+    }
+  };
 }
 function connect(context) {
-  const url = vscode.workspace.getConfiguration("mermaidCollab").get("serverUrl") ?? "ws://127.0.0.1:9002/ws";
+  if (ws && (ws.readyState === wrapper_default.OPEN || ws.readyState === wrapper_default.CONNECTING)) {
+    ws.removeAllListeners();
+    ws.close();
+  }
+  const url = vscode6.workspace.getConfiguration("mermaidCollab").get("serverUrl") ?? "ws://127.0.0.1:9002/ws";
   ws = new wrapper_default(url);
   ws.on("open", () => {
     reconnectDelay = 1e3;
-    updateStatusBar(true);
+    updateStatusBar(true, _activeSession);
     ws.send(JSON.stringify({ type: "subscribe", channel: "ide" }));
     ws.send(JSON.stringify({
       type: "ide_connected",
-      vscodeVersion: vscode.version,
+      vscodeVersion: vscode6.version,
       extensionVersion: context.extension.packageJSON.version
     }));
   });
@@ -3802,7 +4255,7 @@ function connect(context) {
     }
   });
   ws.on("close", () => {
-    updateStatusBar(false);
+    updateStatusBar(false, _activeSession);
     scheduleReconnect(reconnectDelay);
     reconnectDelay = Math.min(reconnectDelay * 2, MAX_DELAY);
   });
@@ -3820,7 +4273,7 @@ async function handleMessage(msg) {
   }
 }
 async function focusTerminal(targetPid, sessionHint) {
-  const terminals = vscode.window.terminals;
+  const terminals = vscode6.window.terminals;
   const resolved = await Promise.all(
     terminals.map(async (t) => ({ terminal: t, pid: await t.processId }))
   );
@@ -3844,26 +4297,28 @@ async function focusTerminal(targetPid, sessionHint) {
     nameMatch.show(false);
     return;
   }
-  void vscode.window.showWarningMessage(`mermaid-collab: Terminal for session "${sessionHint}" not found.`);
+  void vscode6.window.showWarningMessage(`mermaid-collab: Terminal for session "${sessionHint}" not found.`);
 }
 async function openDiff(filePath) {
-  const workingUri = vscode.Uri.file(filePath);
+  const workingUri = vscode6.Uri.file(filePath);
   try {
-    await vscode.commands.executeCommand("git.openChange", workingUri);
+    await vscode6.commands.executeCommand("git.openChange", workingUri);
   } catch {
-    const doc = await vscode.workspace.openTextDocument(workingUri);
-    await vscode.window.showTextDocument(doc, { preserveFocus: true, preview: false });
+    const doc = await vscode6.workspace.openTextDocument(workingUri);
+    await vscode6.window.showTextDocument(doc, { preserveFocus: true, preview: false });
   }
 }
 function scheduleReconnect(delay) {
   if (reconnectTimer)
     clearTimeout(reconnectTimer);
   reconnectTimer = setTimeout(() => {
-    connect({ extension: { packageJSON: { version: "1.0.0" } } });
+    if (_ctx) {
+      connect(_ctx);
+    }
   }, delay);
 }
-function updateStatusBar(connected) {
-  statusBarItem.text = connected ? "$(plug) collab" : "$(debug-disconnect) collab";
+function updateStatusBar(connected, sessionName) {
+  statusBarItem.text = connected ? `$(plug) collab${sessionName ? ` \xB7 ${sessionName}` : ""}` : "$(debug-disconnect) collab";
   statusBarItem.tooltip = connected ? "mermaid-collab: Connected" : "mermaid-collab: Disconnected \u2014 click to reconnect";
   statusBarItem.command = connected ? "mermaidCollab.showStatus" : "mermaidCollab.reconnect";
 }
