@@ -2,9 +2,23 @@ import React from 'react';
 
 export interface SidebarHeaderProps {
   connected: boolean;
+  isConnecting: boolean;
 }
 
-export const SidebarHeader: React.FC<SidebarHeaderProps> = ({ connected }) => {
+export const SidebarHeader: React.FC<SidebarHeaderProps> = ({ connected, isConnecting }) => {
+  const pillClass = isConnecting
+    ? 'bg-yellow-100 text-yellow-700'
+    : connected
+    ? 'bg-green-100 text-green-700'
+    : 'bg-red-100 text-red-700';
+
+  const dotClass = isConnecting
+    ? 'bg-yellow-500 animate-pulse'
+    : connected
+    ? 'bg-green-500'
+    : 'bg-red-500';
+
+  const label = isConnecting ? 'Connecting' : connected ? 'Connected' : 'Disconnected';
 
   return (
     <div className="flex items-center gap-2 px-3 py-2 border-b">
@@ -26,10 +40,10 @@ export const SidebarHeader: React.FC<SidebarHeaderProps> = ({ connected }) => {
         />
       </svg>
       <span className="font-semibold text-sm">Collab</span>
-      <span
-        className={`w-2 h-2 rounded-full ${connected ? 'bg-green-400' : 'bg-red-400'}`}
-      />
-      <span className="text-xs">{connected ? 'live' : 'offline'}</span>
+      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${pillClass}`}>
+        <span className={`w-2 h-2 rounded-full ${dotClass}`} />
+        {label}
+      </span>
     </div>
   );
 };

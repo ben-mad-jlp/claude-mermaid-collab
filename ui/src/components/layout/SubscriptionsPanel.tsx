@@ -192,9 +192,10 @@ const SubscriptionRow: React.FC<{
 
 export interface SubscriptionsPanelProps {
   currentProject?: string;
+  onNavigate?: (project: string, session: string) => void;
 }
 
-export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentProject }) => {
+export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentProject, onNavigate }) => {
   const { subscriptions, order, unsubscribe, subscribe, reorder } = useSubscriptionStore();
   const { sessions, setCurrentSession } = useSessionStore();
 
@@ -262,9 +263,10 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
       );
       if (target) {
         setCurrentSession(target);
+        onNavigate?.(project, sessionName);
       }
     },
-    [sessions, setCurrentSession],
+    [sessions, setCurrentSession, onNavigate],
   );
 
   const handleSubscribe = useCallback(

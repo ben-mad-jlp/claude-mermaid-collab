@@ -1233,6 +1233,7 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
         </div>
       )}
       <div className="p-2 border-b border-gray-200 dark:border-gray-700 space-y-2">
+        {!vsCodeMode && (
         <div role="tablist" aria-label="Sidebar tabs" className="flex items-center gap-1 border-b border-gray-200 dark:border-gray-700 -mx-2 px-2 pb-1">
           <button
             type="button"
@@ -1263,9 +1264,10 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
             Code
           </button>
         </div>
+        )}
         <div className="flex items-center justify-between">
           <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-            {activeTab === 'items' ? 'Items' : 'Code'}
+            {vsCodeMode || activeTab === 'items' ? 'Items' : 'Code'}
           </span>
           <input
             ref={fileInputRef}
@@ -1357,7 +1359,7 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
         )}
       </div>
 
-      {activeTab === 'code' ? (
+      {!vsCodeMode && activeTab === 'code' ? (
         <div className="overflow-y-auto flex-1" role="tree">
           <PseudoTreeBody
             fileList={pseudoFileList}
