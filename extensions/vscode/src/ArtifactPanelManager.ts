@@ -11,7 +11,8 @@ export class ArtifactPanelManager {
   constructor(
     private context: vscode.ExtensionContext,
     private api: CollabApi,
-    private session: string
+    private session: string,
+    private project: string
   ) {}
 
   open(id: string, type: ArtifactType): void {
@@ -23,7 +24,7 @@ export class ArtifactPanelManager {
     switch (type) {
       case 'diagrams': {
         this.panels.set(id, undefined as any);
-        void this.api.getDiagram(id).then(diagram => {
+        void this.api.getDiagram(id, this.project, this.session).then(diagram => {
           if (!diagram) { this.panels.delete(id); return; }
           const panel = DiagramPanel.create(this.context, id, diagram);
           panel.onDidDispose(() => { this.panels.delete(id); });
@@ -33,9 +34,13 @@ export class ArtifactPanelManager {
       }
       case 'documents': {
         this.panels.set(id, undefined as any);
-        void this.api.getDocument(id).then(doc => {
+        void this.api.getDocument(id, this.project, this.session).then(doc => {
           if (!doc) { this.panels.delete(id); return; }
-          const panel = DocumentPanel.create(this.context, id, doc, this.api);
+          const boundApi = {
+            getDocument: (docId: string) => this.api.getDocument(docId, this.project, this.session),
+            updateDocument: (docId: string, content: string) => this.api.updateDocument(docId, content, this.project, this.session),
+          };
+          const panel = DocumentPanel.create(this.context, id, doc, boundApi);
           panel.onDidDispose(() => { this.panels.delete(id); });
           this.panels.set(id, panel);
         });
@@ -49,7 +54,7 @@ export class ArtifactPanelManager {
       }
       case 'snippets': {
         this.panels.set(id, undefined as any);
-        void this.api.getSnippet(id).then(snippet => {
+        void this.api.getSnippet(id, this.project, this.session).then(snippet => {
           this.panels.delete(id);
           if (!snippet) return;
           void openSnippet(this.session, id, snippet);

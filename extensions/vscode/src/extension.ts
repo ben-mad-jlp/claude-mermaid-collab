@@ -39,7 +39,7 @@ export function activate(context: vscode.ExtensionContext) {
   _activeSession = activeSession;
 
   api = new CollabApi(apiUrl);
-  panelManager = new ArtifactPanelManager(context, api, activeSession);
+  panelManager = new ArtifactPanelManager(context, api, activeSession, project);
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(

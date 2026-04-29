@@ -3776,24 +3776,24 @@ var CollabApi = class {
     const params = new URLSearchParams({ project, session });
     return this.request(`/api/${type}?${params}`);
   }
-  async getDocument(id) {
-    return this.request(`/api/documents/${encodeURIComponent(id)}`);
+  async getDocument(id, project, session) {
+    return this.request(`/api/document/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`);
   }
-  async getDiagram(id) {
-    return this.request(`/api/diagrams/${encodeURIComponent(id)}`);
+  async getDiagram(id, project, session) {
+    return this.request(`/api/diagram/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`);
   }
-  async getSnippet(id) {
-    return this.request(`/api/snippets/${encodeURIComponent(id)}`);
+  async getSnippet(id, project, session) {
+    return this.request(`/api/snippet/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`);
   }
-  async updateDocument(id, content) {
-    await this.request(`/api/documents/${encodeURIComponent(id)}`, {
-      method: "PUT",
+  async updateDocument(id, content, project, session) {
+    await this.request(`/api/document/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`, {
+      method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content })
     });
   }
-  async updateSnippet(id, content) {
-    await this.request(`/api/snippets/${encodeURIComponent(id)}`, {
+  async updateSnippet(id, content, project, session) {
+    await this.request(`/api/snippet/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content })
@@ -4016,10 +4016,11 @@ async function openSnippet(session, id, snippet) {
 
 // src/ArtifactPanelManager.ts
 var ArtifactPanelManager = class {
-  constructor(context, api2, session) {
+  constructor(context, api2, session, project) {
     this.context = context;
     this.api = api2;
     this.session = session;
+    this.project = project;
     this.panels = /* @__PURE__ */ new Map();
   }
   open(id, type) {
@@ -4030,7 +4031,7 @@ var ArtifactPanelManager = class {
     switch (type) {
       case "diagrams": {
         this.panels.set(id, void 0);
-        void this.api.getDiagram(id).then((diagram) => {
+        void this.api.getDiagram(id, this.project, this.session).then((diagram) => {
           if (!diagram) {
             this.panels.delete(id);
             return;
@@ -4045,12 +4046,16 @@ var ArtifactPanelManager = class {
       }
       case "documents": {
         this.panels.set(id, void 0);
-        void this.api.getDocument(id).then((doc) => {
+        void this.api.getDocument(id, this.project, this.session).then((doc) => {
           if (!doc) {
             this.panels.delete(id);
             return;
           }
-          const panel = create2(this.context, id, doc, this.api);
+          const boundApi = {
+            getDocument: (docId) => this.api.getDocument(docId, this.project, this.session),
+            updateDocument: (docId, content) => this.api.updateDocument(docId, content, this.project, this.session)
+          };
+          const panel = create2(this.context, id, doc, boundApi);
           panel.onDidDispose(() => {
             this.panels.delete(id);
           });
@@ -4068,7 +4073,7 @@ var ArtifactPanelManager = class {
       }
       case "snippets": {
         this.panels.set(id, void 0);
-        void this.api.getSnippet(id).then((snippet) => {
+        void this.api.getSnippet(id, this.project, this.session).then((snippet) => {
           this.panels.delete(id);
           if (!snippet)
             return;
@@ -4197,7 +4202,7 @@ function activate(context) {
   const activeSession = context.workspaceState.get("mermaidCollab.activeSession") ?? "";
   _activeSession = activeSession;
   api = new CollabApi(apiUrl);
-  panelManager = new ArtifactPanelManager(context, api, activeSession);
+  panelManager = new ArtifactPanelManager(context, api, activeSession, project);
   context.subscriptions.push(
     vscode6.window.registerWebviewViewProvider(
       "mermaidCollabPanel",

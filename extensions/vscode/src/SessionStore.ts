@@ -46,7 +46,7 @@ export class SessionStore {
     // Documents — fetch full content per item
     if (docsResult.status === 'fulfilled') {
       const fetched = await Promise.allSettled(
-        docsResult.value.map((meta) => this.api.getDocument(meta.id))
+        docsResult.value.map((meta) => this.api.getDocument(meta.id, this.project, this.session))
       );
       for (const r of fetched) {
         if (r.status === 'fulfilled') {
@@ -58,7 +58,7 @@ export class SessionStore {
     // Diagrams — fetch full content per item
     if (diagramsResult.status === 'fulfilled') {
       const fetched = await Promise.allSettled(
-        diagramsResult.value.map((meta) => this.api.getDiagram(meta.id))
+        diagramsResult.value.map((meta) => this.api.getDiagram(meta.id, this.project, this.session))
       );
       for (const r of fetched) {
         if (r.status === 'fulfilled') {
@@ -70,7 +70,7 @@ export class SessionStore {
     // Snippets — fetch full content per item
     if (snippetsResult.status === 'fulfilled') {
       const fetched = await Promise.allSettled(
-        snippetsResult.value.map((meta) => this.api.getSnippet(meta.id))
+        snippetsResult.value.map((meta) => this.api.getSnippet(meta.id, this.project, this.session))
       );
       for (const r of fetched) {
         if (r.status === 'fulfilled') {
@@ -134,19 +134,19 @@ export class SessionStore {
     if (action === 'created' || action === 'updated') {
       switch (noun) {
         case 'document':
-          this.api.getDocument(id).then((doc) => {
+          this.api.getDocument(id, this.project, this.session).then((doc) => {
             this.documents.set(id, doc);
             this._onDidChange.fire(id);
           }).catch(() => { /* ignore per-item errors */ });
           break;
         case 'diagram':
-          this.api.getDiagram(id).then((diagram) => {
+          this.api.getDiagram(id, this.project, this.session).then((diagram) => {
             this.diagrams.set(id, diagram);
             this._onDidChange.fire(id);
           }).catch(() => { /* ignore per-item errors */ });
           break;
         case 'snippet':
-          this.api.getSnippet(id).then((snippet) => {
+          this.api.getSnippet(id, this.project, this.session).then((snippet) => {
             this.snippets.set(id, snippet);
             this._onDidChange.fire(id);
           }).catch(() => { /* ignore per-item errors */ });

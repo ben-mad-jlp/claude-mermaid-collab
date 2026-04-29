@@ -1,5 +1,10 @@
 import * as vscode from 'vscode';
-import { CollabDocument, CollabApi } from './api';
+import { CollabDocument } from './api';
+
+interface BoundDocumentApi {
+  getDocument(id: string): Promise<CollabDocument>;
+  updateDocument(id: string, content: string): Promise<void>;
+}
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -9,7 +14,7 @@ export function create(
   context: vscode.ExtensionContext,
   id: string,
   doc: CollabDocument,
-  api: CollabApi
+  api: BoundDocumentApi
 ): vscode.WebviewPanel {
   const panel = vscode.window.createWebviewPanel(
     'mermaidCollabDocument',

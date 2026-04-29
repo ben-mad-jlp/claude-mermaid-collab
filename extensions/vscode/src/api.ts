@@ -47,28 +47,28 @@ export class CollabApi {
     return this.request<ArtifactMeta[]>(`/api/${type}?${params}`);
   }
 
-  async getDocument(id: string): Promise<CollabDocument> {
-    return this.request<CollabDocument>(`/api/documents/${encodeURIComponent(id)}`);
+  async getDocument(id: string, project: string, session: string): Promise<CollabDocument> {
+    return this.request<CollabDocument>(`/api/document/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`);
   }
 
-  async getDiagram(id: string): Promise<CollabDiagram> {
-    return this.request<CollabDiagram>(`/api/diagrams/${encodeURIComponent(id)}`);
+  async getDiagram(id: string, project: string, session: string): Promise<CollabDiagram> {
+    return this.request<CollabDiagram>(`/api/diagram/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`);
   }
 
-  async getSnippet(id: string): Promise<CollabSnippet> {
-    return this.request<CollabSnippet>(`/api/snippets/${encodeURIComponent(id)}`);
+  async getSnippet(id: string, project: string, session: string): Promise<CollabSnippet> {
+    return this.request<CollabSnippet>(`/api/snippet/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`);
   }
 
-  async updateDocument(id: string, content: string): Promise<void> {
-    await this.request<void>(`/api/documents/${encodeURIComponent(id)}`, {
-      method: 'PUT',
+  async updateDocument(id: string, content: string, project: string, session: string): Promise<void> {
+    await this.request<void>(`/api/document/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`, {
+      method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content }),
     });
   }
 
-  async updateSnippet(id: string, content: string): Promise<void> {
-    await this.request<void>(`/api/snippets/${encodeURIComponent(id)}`, {
+  async updateSnippet(id: string, content: string, project: string, session: string): Promise<void> {
+    await this.request<void>(`/api/snippet/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content }),
