@@ -111,6 +111,7 @@ interface SubscribedSession {
   claudeSessionId?: string;
   status: 'active' | 'waiting' | 'permission' | 'unknown';
   lastUpdate: number;
+  contextPercent?: number;
 }
 
 const SubscriptionRow: React.FC<{
@@ -164,7 +165,20 @@ const SubscriptionRow: React.FC<{
               </span>
             )}
           </div>
-          <div className="text-xs text-gray-700 dark:text-gray-300 truncate">{sub.session}</div>
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-gray-700 dark:text-gray-300 truncate">{sub.session}</span>
+            {sub.contextPercent !== undefined && sub.contextPercent >= 70 && (
+              <span
+                className={`flex-shrink-0 text-[10px] font-medium px-1 py-0.5 rounded-full ${
+                  sub.contextPercent >= 80
+                    ? 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300'
+                    : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300'
+                }`}
+              >
+                {sub.contextPercent}%
+              </span>
+            )}
+          </div>
         </div>
         {/* Unsubscribe button */}
         <button

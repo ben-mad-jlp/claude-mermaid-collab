@@ -2406,6 +2406,42 @@ export async function handleAPI(
     return Response.json({ success: true });
   }
 
+  // POST /api/session/context-update
+  if (path === '/api/session/context-update' && req.method === 'POST') {
+    const { claudePid, contextPercent } = await req.json() as { claudePid?: number; contextPercent?: number };
+
+    if (claudePid == null || contextPercent == null) {
+      return Response.json({ error: 'claudePid and contextPercent required' }, { status: 400 });
+    }
+
+    const fsPromises = await import('fs/promises');
+
+    let claudeSessionId: string;
+    try {
+      claudeSessionId = (await fsPromises.readFile(`/tmp/.claude-session-id-${claudePid}`, 'utf-8')).trim();
+    } catch {
+      return Response.json({ error: 'No session found for claudePid' }, { status: 404 });
+    }
+
+    let project: string;
+    let session: string;
+    try {
+      const bindingRaw = await fsPromises.readFile(`/tmp/.mermaid-collab-binding-${claudeSessionId}.json`, 'utf-8');
+      const binding = JSON.parse(bindingRaw) as { project?: string; session?: string };
+      if (!binding.project || !binding.session) {
+        return Response.json({ error: 'Binding missing project or session' }, { status: 404 });
+      }
+      project = binding.project;
+      session = binding.session;
+    } catch {
+      return Response.json({ error: 'Binding not found' }, { status: 404 });
+    }
+
+    wsHandler.broadcast({ type: 'claude_context_update', project, session, contextPercent });
+
+    return Response.json({ success: true });
+  }
+
 
   // ============================================
   // Lessons Routes

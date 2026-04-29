@@ -63,6 +63,11 @@ import type { MermaidPreviewRef } from '@/components/editors/MermaidPreview';
 // Import notification components
 import { ToastContainer } from '@/components/notifications';
 import { requestNotificationPermission, showUserInputNotification } from '@/services/notification-service';
+import { useNotificationStore } from '@/stores/notificationStore';
+
+// Track which project:session pairs have already fired a context threshold notification
+// so we only fire once per threshold crossing (reset when context drops below 70)
+const notifiedContextThreshold = new Set<string>();
 
 // Import dialogs
 import { SessionCleanupDialog, type CleanupAction, CreateSessionDialog } from '@/components/dialogs';
@@ -907,6 +912,35 @@ const App: React.FC = () => {
                   requireInteraction: true,
                 });
               }
+            }
+          }
+          break;
+        }
+
+        case 'claude_context_update': {
+          const { project, session, contextPercent } = message as any;
+          useSubscriptionStore.getState().updateContextPercent(project, session, contextPercent);
+          const key = `${project}:${session}`;
+          if (useSubscriptionStore.getState().subscriptions[key]) {
+            if (contextPercent >= 70) {
+              if (!notifiedContextThreshold.has(key)) {
+                notifiedContextThreshold.add(key);
+                if (Notification.permission === 'granted') {
+                  new Notification(`Context at ${contextPercent}% — ${session}`, {
+                    body: `Context window is ${contextPercent}% full`,
+                    tag: `context-threshold-${key}`,
+                  });
+                }
+                useNotificationStore.getState().addToast({
+                  type: 'warning',
+                  title: `Context ${contextPercent}%`,
+                  message: `${session} context window is ${contextPercent}% full`,
+                  duration: 8000,
+                });
+              }
+            } else {
+              // Context dropped below threshold — reset so it can fire again if it grows back
+              notifiedContextThreshold.delete(key);
             }
           }
           break;

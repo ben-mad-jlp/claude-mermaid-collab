@@ -8,6 +8,7 @@ interface SubscribedSession {
   claudePid?: number;
   status: 'active' | 'waiting' | 'permission' | 'unknown';
   lastUpdate: number;
+  contextPercent?: number;
 }
 
 interface SubscriptionState {
@@ -17,6 +18,7 @@ interface SubscriptionState {
   unsubscribe: (key: string) => void;
   reorder: (order: string[]) => void;
   updateStatus: (claudeSessionId: string, status: string, project: string, session: string, claudePid?: number) => void;
+  updateContextPercent: (project: string, session: string, pct: number) => void;
 }
 
 const STORAGE_KEY = 'session-subscriptions';
@@ -61,6 +63,17 @@ export const useSubscriptionStore = create<SubscriptionState>((set) => ({
     set(() => {
       localStorage.setItem(ORDER_KEY, JSON.stringify(newOrder));
       return { order: newOrder };
+    });
+  },
+
+  updateContextPercent: (project, session, pct) => {
+    const key = `${project}:${session}`;
+    set((state) => {
+      const existing = state.subscriptions[key];
+      if (!existing) return state;
+      const next = { ...state.subscriptions, [key]: { ...existing, contextPercent: pct } };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      return { subscriptions: next };
     });
   },
 
