@@ -60,8 +60,8 @@ async function ensureThemesRegistered(monacoInstance: typeof Monaco): Promise<vo
   // We load two themes: one for dark mode and one for light mode.
   try {
     const [githubDarkData, githubLightData] = await Promise.all([
-      import('monaco-themes/themes/GitHub Dark.json'),
-      import('monaco-themes/themes/GitHub.json'),
+      import('./themes/github-dark.json'),
+      import('./themes/github-light.json'),
     ]);
 
     monacoInstance.editor.defineTheme('mc-dark', githubDarkData as Monaco.editor.IStandaloneThemeData);
