@@ -6,13 +6,33 @@
   "publisher": "mermaid-collab",
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Other"],
-  "activationEvents": ["onStartupFinished"],
-  "extensionKind": ["workspace"],
+  "activationEvents": ["onStartupFinished", "onView:mermaidCollabPanel"],
+  "extensionKind": ["ui", "workspace"],
   "main": "./out/extension.js",
   "contributes": {
+    "markdown.markdownItPlugins": true,
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "mermaidCollab",
+          "title": "Collab",
+          "icon": "media/collab.svg"
+        }
+      ]
+    },
+    "views": {
+      "mermaidCollab": [
+        {
+          "id": "mermaidCollabPanel",
+          "name": "Collab",
+          "type": "webview"
+        }
+      ]
+    },
     "commands": [
       { "command": "mermaidCollab.showStatus", "title": "mermaid-collab: Show Status" },
-      { "command": "mermaidCollab.reconnect", "title": "mermaid-collab: Reconnect" }
+      { "command": "mermaidCollab.reconnect", "title": "mermaid-collab: Reconnect" },
+      { "command": "mermaidCollab.openArtifact", "title": "Collab: Open Artifact" }
     ],
     "configuration": {
       "title": "mermaid-collab",
@@ -21,6 +41,16 @@
           "type": "string",
           "default": "ws://127.0.0.1:9002/ws",
           "description": "WebSocket URL of the mermaid-collab server"
+        },
+        "mermaidCollab.apiUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:9002",
+          "description": "HTTP API URL of the mermaid-collab server"
+        },
+        "mermaidCollab.autoRevealOnUpdate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Focus open artifact tab when updated remotely"
         }
       }
     }

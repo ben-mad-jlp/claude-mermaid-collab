@@ -31,3 +31,11 @@ export type { BottomTabBarProps, MobileTab } from './BottomTabBar';
 
 export { MobileLayout } from './MobileLayout';
 export type { MobileLayoutProps, MobileLayoutHandlers } from './MobileLayout';
+
+export { SessionInfo } from './SessionInfo';
+export type { SessionInfoProps } from './SessionInfo';
+
+export { SidebarHeader } from './SidebarHeader';
+export type { SidebarHeaderProps } from './SidebarHeader';
+
+export { VibeInstructions } from './VibeInstructions';

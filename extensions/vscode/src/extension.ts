@@ -1,5 +1,8 @@
 import * as vscode from 'vscode';
 import WebSocket from 'ws';
+import { CollabApi, ArtifactType } from './api';
+import { ArtifactPanelManager } from './ArtifactPanelManager';
+import { SidebarViewProvider } from './SidebarViewProvider';
 
 let ws: WebSocket | null = null;
 let statusBarItem: vscode.StatusBarItem;
@@ -7,7 +10,14 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectDelay = 1000;
 const MAX_DELAY = 30_000;
 
+let api: CollabApi | undefined;
+let panelManager: ArtifactPanelManager | undefined;
+let _ctx: vscode.ExtensionContext | undefined;
+let _activeSession = '';
+
 export function activate(context: vscode.ExtensionContext) {
+  _ctx = context;
+
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarItem.command = 'mermaidCollab.showStatus';
   statusBarItem.show();
@@ -23,16 +33,62 @@ export function activate(context: vscode.ExtensionContext) {
     }),
   );
 
+  const apiUrl = vscode.workspace.getConfiguration('mermaidCollab').get<string>('apiUrl') ?? 'http://127.0.0.1:9002';
+  const project = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+  const activeSession = context.workspaceState.get<string>('mermaidCollab.activeSession') ?? '';
+  _activeSession = activeSession;
+
+  api = new CollabApi(apiUrl);
+  panelManager = new ArtifactPanelManager(context, api, activeSession);
+
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(
+      'mermaidCollabPanel',
+      new SidebarViewProvider(
+        context,
+        () => panelManager,
+        () => _activeSession,
+        () => project
+      )
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('mermaidCollab.openArtifact', (id: string, type: string) => {
+      panelManager?.open(id, type as ArtifactType);
+    }),
+  );
+
+  updateStatusBar(false, activeSession);
+
   connect(context);
+
+  return {
+    extendMarkdownIt(md: any) {
+      const defaultFence = (md.renderer.rules.fence as Function | undefined) ?? (md.renderer.rules.code_block as Function | undefined);
+      md.renderer.rules.fence = (tokens: any[], idx: number, opts: any, env: any, self: any) => {
+        const token = tokens[idx];
+        if (token.info.trim() === 'mermaid') {
+          return `<div class="mermaid">${token.content}</div>`;
+        }
+        return defaultFence ? defaultFence(tokens, idx, opts, env, self) : self.renderToken(tokens, idx, opts);
+      };
+      return md;
+    }
+  };
 }
 
 function connect(context: vscode.ExtensionContext) {
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+    ws.removeAllListeners();
+    ws.close();
+  }
   const url = vscode.workspace.getConfiguration('mermaidCollab').get<string>('serverUrl') ?? 'ws://127.0.0.1:9002/ws';
   ws = new WebSocket(url);
 
   ws.on('open', () => {
     reconnectDelay = 1000;
-    updateStatusBar(true);
+    updateStatusBar(true, _activeSession);
     ws!.send(JSON.stringify({ type: 'subscribe', channel: 'ide' }));
     ws!.send(JSON.stringify({
       type: 'ide_connected',
@@ -49,7 +105,7 @@ function connect(context: vscode.ExtensionContext) {
   });
 
   ws.on('close', () => {
-    updateStatusBar(false);
+    updateStatusBar(false, _activeSession);
     scheduleReconnect(reconnectDelay);
     reconnectDelay = Math.min(reconnectDelay * 2, MAX_DELAY);
   });
@@ -111,13 +167,12 @@ async function openDiff(filePath: string) {
 function scheduleReconnect(delay: number) {
   if (reconnectTimer) clearTimeout(reconnectTimer);
   reconnectTimer = setTimeout(() => {
-    // context is not available here; pass a stub — connect only uses context for packageJSON in the open handler
-    connect({ extension: { packageJSON: { version: '1.0.0' } } } as unknown as vscode.ExtensionContext);
+    if (_ctx) { connect(_ctx); }
   }, delay);
 }
 
-function updateStatusBar(connected: boolean) {
-  statusBarItem.text = connected ? '$(plug) collab' : '$(debug-disconnect) collab';
+function updateStatusBar(connected: boolean, sessionName?: string) {
+  statusBarItem.text = connected ? `$(plug) collab${sessionName ? ` · ${sessionName}` : ''}` : '$(debug-disconnect) collab';
   statusBarItem.tooltip = connected ? 'mermaid-collab: Connected' : 'mermaid-collab: Disconnected — click to reconnect';
   statusBarItem.command = connected ? 'mermaidCollab.showStatus' : 'mermaidCollab.reconnect';
 }

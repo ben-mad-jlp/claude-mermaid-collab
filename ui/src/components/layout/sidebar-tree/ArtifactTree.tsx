@@ -75,6 +75,7 @@ function toTabDescriptor(node: TreeNode) {
 
 interface ArtifactTreeProps {
   className?: string;
+  vsCodeMode?: boolean;
 }
 
 const ALL_SECTION_IDS = [
@@ -133,7 +134,7 @@ function collectLeafNodes(folder: FolderNode): TreeNode[] {
   return nodes;
 }
 
-export function ArtifactTree({ className }: ArtifactTreeProps) {
+export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
   const currentSession = useSessionStore((s) => s.currentSession);
   const diagrams = useSessionStore((s) => s.diagrams);
   const documents = useSessionStore((s) => s.documents);
@@ -702,13 +703,24 @@ export function ArtifactTree({ className }: ArtifactTreeProps) {
         return;
       }
       setSelection([node.id], node.id);
+      if (vsCodeMode) {
+        const tabDescriptor = toTabDescriptor(node);
+        if (tabDescriptor) {
+          const artifactType = node.artifactType ?? 'documents';
+          window.parent.postMessage(
+            { type: 'openArtifact', id: node.id, artifactType },
+            '*'
+          );
+        }
+        return;
+      }
       openNode(node);
       const d = toTabDescriptor(node);
       if (d) {
         openPreview(d);
       }
     },
-    [toggleInSelection, extendSelectionTo, setSelection, visibleOrder, openPreview, openNode],
+    [toggleInSelection, extendSelectionTo, setSelection, visibleOrder, openPreview, openNode, vsCodeMode],
   );
 
   const isSelected = (node: TreeNode): boolean => {

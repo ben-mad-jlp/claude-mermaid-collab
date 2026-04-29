@@ -25,6 +25,7 @@ import { OnboardingDashboard } from './pages/onboarding/OnboardingDashboard';
 import { TopicGraph } from './pages/onboarding/TopicGraph';
 import { TeamDashboard } from './pages/onboarding/TeamDashboard';
 import PseudoPage from './pages/pseudo/PseudoPage';
+import { SidebarView } from './views/SidebarView';
 import './index.css';
 import './styles/diagram.css';
 
@@ -55,6 +56,9 @@ ReactDOM.createRoot(root).render(
 
         {/* Pseudo Viewer Routes */}
         <Route path="/pseudo/*" element={<PseudoPage />} />
+
+        {/* Sidebar View */}
+        <Route path="/sidebar" element={<SidebarView />} />
 
         {/* Main Collab App - catch all other routes */}
         <Route path="/*" element={<App />} />
