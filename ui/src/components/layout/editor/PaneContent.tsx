@@ -169,7 +169,9 @@ export const PaneContent: React.FC<PaneContentProps> = ({
     }
 
     case 'task-details': {
-      return <NotFound message="Task details view not implemented" />;
+      const doc = documents.find((d) => d.id === tab.artifactId) ?? null;
+      if (!doc) return <NotFound message="Task details document not found" />;
+      return <DocumentView document={doc as unknown as Document} onContentChange={handleChange} />;
     }
 
     case 'blueprint': {

@@ -19,17 +19,25 @@ import {
 import ArtifactTreeNode from './ArtifactTreeNode';
 import SidebarNodeContextMenu from './SidebarNodeContextMenu';
 import TodosTreeSection from './TodosTreeSection';
-import { SectionBranchRow } from './TreeBranchRow';
-import { FolderTreeRow } from './FolderTreeRow';
-import { buildFolderTree, hasVisibleLeaf } from './folderTree';
-import type { FolderTree, FolderNode, LeafNode } from './folderTree';
 import { orderVisibleNodes, type VisibleTreeNode } from './orderVisibleNodes';
+import { ImplementingSection } from './sections/ImplementingSection';
+import { DocumentsSection } from './sections/DocumentsSection';
+import { DiagramsSection } from './sections/DiagramsSection';
+import { DesignsSection } from './sections/DesignsSection';
+import { SnippetsSection } from './sections/SnippetsSection';
+import { SpreadsheetSection } from './sections/SpreadsheetSection';
+import { ImagesSection } from './sections/ImagesSection';
+import { EmbedsSection } from './sections/EmbedsSection';
+import { PinsSection } from './sections/PinsSection';
+import { RecentSection } from './sections/RecentSection';
+import { ArchivedSection } from './sections/ArchivedSection';
 import {
   getActionsForNode,
   type ArtifactType,
   type TreeNode,
 } from './getActionsForNode';
 import { runBatchAction, type BatchDeps } from './runBatchAction';
+import { ALL_SECTION_IDS } from './section-registry';
 import { importArtifact } from '../../../lib/importArtifact';
 import { downloadArtifact } from '../../../lib/downloadArtifact';
 import { emailArtifact } from '../../../lib/emailArtifact';
@@ -78,21 +86,6 @@ interface ArtifactTreeProps {
   vsCodeMode?: boolean;
 }
 
-const ALL_SECTION_IDS = [
-  'pins',
-  'recent',
-  'blueprints',
-  'todos',
-  'embeds',
-  'images',
-  'diagrams',
-  'documents',
-  'designs',
-  'spreadsheets',
-  'snippets',
-  'archived-blueprints',
-];
-
 interface ContextMenuState {
   node?: TreeNode;
   nodes?: TreeNode[];
@@ -123,15 +116,6 @@ function toArtifactNode(
     pinned: item.pinned,
     lastModified: item.lastModified,
   };
-}
-
-function collectLeafNodes(folder: FolderNode): TreeNode[] {
-  const nodes: TreeNode[] = [];
-  for (const child of folder.children) {
-    if (child.type === 'leaf') nodes.push(child.node);
-    else nodes.push(...collectLeafNodes(child));
-  }
-  return nodes;
 }
 
 export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
@@ -296,19 +280,13 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
     [documents],
   );
 
-  const implementingArtifactNodes = useMemo<TreeNode[]>(() => {
-    const strip = (name: string) => {
-      if (!name.startsWith('Implementing/')) return name;
-      const rest = name.slice('Implementing/'.length);
-      if (rest.startsWith('Ad-hoc/')) return rest;
-      return `Go/${rest}`;
-    };
+  const implementingRawNodes = useMemo<TreeNode[]>(() => {
     const nodes: TreeNode[] = [];
     for (const d of diagrams) {
-      if (d.name.startsWith('Implementing/')) nodes.push(toArtifactNode({ ...d, name: strip(d.name) }, 'diagram'));
+      if (d.name.startsWith('Implementing/')) nodes.push(toArtifactNode(d, 'diagram'));
     }
     for (const d of selectCatchAllDocuments(documents as any)) {
-      if ((d as any).name.startsWith('Implementing/')) nodes.push(toArtifactNode({ ...(d as any), name: strip((d as any).name) }, 'document'));
+      if ((d as any).name.startsWith('Implementing/')) nodes.push(toArtifactNode(d as any, 'document'));
     }
     return nodes;
   }, [diagrams, documents]);
@@ -370,8 +348,8 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
         leaves: recentlyUpdatedNodes.map((n) => ({ id: n.id, name: n.name })),
       },
       {
-        id: 'blueprints',
-        leaves: [...blueprintNodes, ...taskNodes, ...implementingArtifactNodes].map((n) => ({ id: n.id, name: n.name })),
+        id: 'implementing',
+        leaves: [...blueprintNodes, ...taskNodes, ...implementingRawNodes].map((n) => ({ id: n.id, name: n.name })),
       },
       { id: 'embeds', leaves: embedNodes.map((n) => ({ id: n.id, name: n.name })) },
       { id: 'images', leaves: imageNodes.map((n) => ({ id: n.id, name: n.name })) },
@@ -384,7 +362,7 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
       },
       { id: 'snippets', leaves: snippetNodes.map((n) => ({ id: n.id, name: n.name })) },
       {
-        id: 'archived-blueprints',
+        id: 'archived',
         leaves: archivedBlueprintNodes.map((n) => ({ id: n.id, name: n.name })),
       },
     ];
@@ -395,7 +373,7 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
     blueprintNodes,
     archivedBlueprintNodes,
     taskNodes,
-    implementingArtifactNodes,
+    implementingRawNodes,
     embedNodes,
     imageNodes,
     diagramNodes,
@@ -471,17 +449,15 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
     };
   }, [activeTab, currentSession]);
 
-  const filterNodes = (nodes: TreeNode[]): TreeNode[] => {
-    return nodes.filter((n) => {
-      if (!showDeprecated && n.deprecated) return false;
-      if (searchQuery.trim() !== '' && !visibleNodes.has(n.id)) return false;
-      return true;
-    });
-  };
-
   const visibleOrder = useMemo<string[]>(() => {
+    const filterForOrder = (nodes: TreeNode[]): TreeNode[] =>
+      nodes.filter((n) => {
+        if (!showDeprecated && n.deprecated) return false;
+        if (searchQuery.trim() !== '' && !visibleNodes.has(n.id)) return false;
+        return true;
+      });
     const sortChildren = (nodes: TreeNode[]): VisibleTreeNode[] =>
-      filterNodes(nodes)
+      filterForOrder(nodes)
         .slice()
         .sort((a, b) => (b.lastModified ?? 0) - (a.lastModified ?? 0))
         .map((n) => ({ id: n.id }));
@@ -489,7 +465,7 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
     const sectionDefs: Array<{ id: string; nodes: TreeNode[] }> = [
       { id: 'pins', nodes: pinnedNodes },
       { id: 'recent', nodes: recentlyUpdatedNodes },
-      { id: 'blueprints', nodes: [...blueprintNodes, ...taskNodes, ...implementingArtifactNodes] },
+      { id: 'implementing', nodes: [...blueprintNodes, ...taskNodes, ...implementingRawNodes] },
       { id: 'embeds', nodes: embedNodes },
       { id: 'images', nodes: imageNodes },
       { id: 'diagrams', nodes: diagramNodes },
@@ -497,7 +473,7 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
       { id: 'designs', nodes: designNodes },
       { id: 'spreadsheets', nodes: spreadsheetNodes },
       { id: 'snippets', nodes: snippetNodes },
-      { id: 'archived-blueprints', nodes: archivedBlueprintNodes },
+      { id: 'archived', nodes: archivedBlueprintNodes },
     ];
 
     const roots: VisibleTreeNode[] = sectionDefs.map((s) => ({
@@ -520,7 +496,7 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
     blueprintNodes,
     archivedBlueprintNodes,
     taskNodes,
-    implementingArtifactNodes,
+    implementingRawNodes,
     embedNodes,
     imageNodes,
     diagramNodes,
@@ -765,7 +741,7 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
       ...recentlyUpdatedNodes,
       ...blueprintNodes,
       ...taskNodes,
-      ...implementingArtifactNodes,
+      ...implementingRawNodes,
       ...embedNodes,
       ...imageNodes,
       ...diagramNodes,
@@ -783,7 +759,7 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
     recentlyUpdatedNodes,
     blueprintNodes,
     taskNodes,
-    implementingArtifactNodes,
+    implementingRawNodes,
     embedNodes,
     imageNodes,
     diagramNodes,
@@ -1018,187 +994,6 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
     keyboardHandlersRef.current = { allVisibleTreeNodes, handleMenuAction };
   });
 
-  const MULTISELECT_EXCLUDED_SECTIONS = new Set([
-    'pins',
-    'recent',
-    'blueprints',
-    'todos',
-  ]);
-
-  const countVisibleLeaves = (items: FolderTree, searchActive: boolean): number => {
-    let count = 0;
-    for (const item of items) {
-      if (item.type === 'leaf') {
-        if (item.node.deprecated && !showDeprecated) continue;
-        if (!searchActive || visibleNodes.has(item.node.id)) count++;
-      } else {
-        count += countVisibleLeaves(item.children, searchActive);
-      }
-    }
-    return count;
-  };
-
-  const renderFolderTree = (
-    sectionId: string,
-    items: FolderTree,
-    level: number,
-    searchActive: boolean,
-  ): React.ReactNode[] => {
-    const elements: React.ReactNode[] = [];
-    for (const item of items) {
-      if (item.type === 'folder') {
-        if (searchActive && !hasVisibleLeaf(item, visibleNodes)) continue;
-        const collapseKey = `${sectionId}:${item.path}`;
-        const isCollapsed = collapsedFolderPaths.has(collapseKey);
-        const leafCount = countVisibleLeaves(item.children, searchActive);
-        elements.push(
-          <div key={collapseKey} style={{ paddingLeft: `${(level + 1) * 16}px` }}>
-            <FolderTreeRow
-              name={item.name}
-              count={leafCount}
-              collapsed={isCollapsed}
-              level={0}
-              onToggle={() => toggleFolderPath(collapseKey)}
-              onDeprecateAll={
-                (sectionId === 'blueprints' && item.path === 'Go') ||
-                (sectionId === 'blueprints' && item.path.startsWith('Ad-hoc/') && item.path.split('/').length === 2)
-                  ? () => {
-                      const leaves = collectLeafNodes(item).filter((n) => !n.deprecated);
-                      if (leaves.length > 0) void runBatch('deprecate', leaves);
-                    }
-                  : undefined
-              }
-            />
-          </div>,
-        );
-        if (!isCollapsed) {
-          elements.push(...renderFolderTree(sectionId, item.children, level + 1, searchActive));
-        }
-      } else {
-        if (searchActive && !visibleNodes.has(item.node.id)) continue;
-        if (!showDeprecated && item.node.deprecated) continue;
-        const node = item.node;
-        elements.push(
-          <div key={node.id} style={{ paddingLeft: `${(level + 1) * 16}px` }}>
-            <ArtifactTreeNode
-              node={node}
-              displayName={item.displayName}
-              selected={isSelected(node)}
-              isInMultiSelection={multiSelection.ids.has(node.id)}
-              onClick={(e) => handleNodeClick(node, e)}
-              onDoubleClick={() => {
-                openNode(node);
-                const d = toTabDescriptor(node);
-                if (d) openPermanent(d);
-              }}
-              onContextMenu={(e) => handleNodeContextMenu(node, e)}
-              onTogglePin={
-                node.kind === 'artifact' || node.kind === 'blueprint'
-                  ? async () => {
-                      if (!currentSession) return;
-                      try {
-                        await api.setPinned(
-                          currentSession.project,
-                          currentSession.name,
-                          node.id,
-                          !node.pinned,
-                        );
-                      } catch (err) {
-                        console.error('[ArtifactTree] setPinned failed', err);
-                      }
-                    }
-                  : undefined
-              }
-            />
-          </div>,
-        );
-      }
-    }
-    return elements;
-  };
-
-  const renderSection = (
-    id: string,
-    title: string,
-    nodes: TreeNode[],
-    options?: { foldered?: boolean },
-  ): React.ReactElement | null => {
-    const multiselectEnabled = !MULTISELECT_EXCLUDED_SECTIONS.has(id);
-    const showSelectedHighlight = id !== 'recent';
-    const filtered = filterNodes(nodes)
-      .slice()
-      .sort((a, b) => (b.lastModified ?? 0) - (a.lastModified ?? 0));
-    if (filtered.length === 0) return null;
-    const isCollapsed = collapsedSections.has(id);
-    const isForceExpanded = forceExpandedSections.has(id);
-    const showChildren = !isCollapsed || isForceExpanded;
-    const searchActive = searchQuery.trim() !== '';
-    const folderTree = options?.foldered ? buildFolderTree(filtered) : null;
-    const sectionCount = options?.foldered && folderTree !== null
-      ? countVisibleLeaves(folderTree, searchActive)
-      : filtered.length;
-
-    return (
-      <React.Fragment key={id}>
-        <SectionBranchRow
-          id={id}
-          title={title}
-          count={sectionCount}
-          collapsed={isCollapsed && !isForceExpanded}
-          onToggle={() => toggleSection(id)}
-          level={0}
-        />
-        {showChildren && options?.foldered && folderTree !== null
-          ? renderFolderTree(id, folderTree, 0, searchActive)
-          : showChildren &&
-            filtered.map((node) => (
-              <div key={node.id} style={{ paddingLeft: '16px' }}>
-                <ArtifactTreeNode
-                  node={node}
-                  selected={showSelectedHighlight && isSelected(node)}
-                  isInMultiSelection={multiselectEnabled && multiSelection.ids.has(node.id)}
-                  onClick={(e) => {
-                    if (!multiselectEnabled) {
-                      setSelection([node.id], node.id);
-                      openNode(node);
-                      const d = toTabDescriptor(node);
-                      if (d) {
-                        openPreview(d);
-                      }
-                      return;
-                    }
-                    handleNodeClick(node, e);
-                  }}
-                  onDoubleClick={() => {
-                    openNode(node);
-                    const d = toTabDescriptor(node);
-                    if (d) openPermanent(d);
-                  }}
-                  onContextMenu={(e) => handleNodeContextMenu(node, e)}
-                  onTogglePin={
-                    node.kind === 'artifact' || node.kind === 'blueprint'
-                      ? async () => {
-                          if (!currentSession) return;
-                          try {
-                            await api.setPinned(
-                              currentSession.project,
-                              currentSession.name,
-                              node.id,
-                              !node.pinned,
-                            );
-                          } catch (err) {
-                            console.error('[ArtifactTree] setPinned failed', err);
-                          }
-                        }
-                      : undefined
-                  }
-                />
-              </div>
-            ))}
-      </React.Fragment>
-    );
-  };
-
   if (noSession) {
     return (
       <div
@@ -1387,21 +1182,211 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
         </div>
       ) : (
       <div className="overflow-y-auto flex-1 pl-2" role="tree">
-        {renderSection('pins', 'Pinned', pinnedNodes)}
-        {renderSection('recent', 'Recently Updated', recentlyUpdatedNodes)}
-        {renderSection('blueprints', 'Implementing', [...blueprintNodes, ...taskNodes, ...implementingArtifactNodes], { foldered: true })}
+        <PinsSection
+          nodes={pinnedNodes}
+          collapsed={collapsedSections.has('pins')}
+          forceExpanded={forceExpandedSections.has('pins')}
+          onToggle={() => toggleSection('pins')}
+          showDeprecated={showDeprecated}
+          searchQuery={searchQuery}
+          visibleNodes={visibleNodes}
+          multiSelection={multiSelection}
+          isSelected={isSelected}
+          handleNodeClick={handleNodeClick}
+          openNode={openNode}
+          openPermanent={openPermanent}
+          openPreview={openPreview}
+          handleNodeContextMenu={handleNodeContextMenu}
+          setSelection={setSelection}
+          toTabDescriptor={toTabDescriptor}
+        />
+        <RecentSection
+          nodes={recentlyUpdatedNodes}
+          collapsed={collapsedSections.has('recent')}
+          forceExpanded={forceExpandedSections.has('recent')}
+          onToggle={() => toggleSection('recent')}
+          showDeprecated={showDeprecated}
+          searchQuery={searchQuery}
+          visibleNodes={visibleNodes}
+          multiSelection={multiSelection}
+          isSelected={isSelected}
+          handleNodeClick={handleNodeClick}
+          openNode={openNode}
+          openPermanent={openPermanent}
+          openPreview={openPreview}
+          handleNodeContextMenu={handleNodeContextMenu}
+          setSelection={setSelection}
+          toTabDescriptor={toTabDescriptor}
+        />
+        <ImplementingSection
+          nodes={[...blueprintNodes, ...taskNodes, ...implementingRawNodes]}
+          collapsed={collapsedSections.has('implementing')}
+          forceExpanded={forceExpandedSections.has('implementing')}
+          onToggle={() => toggleSection('implementing')}
+          showDeprecated={showDeprecated}
+          searchQuery={searchQuery}
+          visibleNodes={visibleNodes}
+          collapsedFolderPaths={collapsedFolderPaths}
+          toggleFolderPath={toggleFolderPath}
+          multiSelection={multiSelection}
+          isSelected={isSelected}
+          handleNodeClick={handleNodeClick}
+          openNode={openNode}
+          openPermanent={openPermanent}
+          handleNodeContextMenu={handleNodeContextMenu}
+          runBatch={runBatch}
+          toTabDescriptor={toTabDescriptor}
+        />
         <TodosTreeSection
           collapsed={collapsedSections.has('todos')}
           onToggle={() => toggleSection('todos')}
         />
-        {renderSection('embeds', 'Embeds', embedNodes)}
-        {renderSection('images', 'Images', imageNodes)}
-        {renderSection('diagrams', 'Diagrams', diagramNodes, { foldered: true })}
-        {renderSection('documents', 'Documents', documentNodes, { foldered: true })}
-        {renderSection('designs', 'Designs', designNodes)}
-        {renderSection('spreadsheets', 'Spreadsheets', spreadsheetNodes)}
-        {renderSection('snippets', 'Snippets', snippetNodes)}
-        {renderSection('archived-blueprints', 'Archived Blueprints', archivedBlueprintNodes)}
+        <EmbedsSection
+          nodes={embedNodes}
+          collapsed={collapsedSections.has('embeds')}
+          forceExpanded={forceExpandedSections.has('embeds')}
+          onToggle={() => toggleSection('embeds')}
+          showDeprecated={showDeprecated}
+          searchQuery={searchQuery}
+          visibleNodes={visibleNodes}
+          multiSelection={multiSelection}
+          isSelected={isSelected}
+          handleNodeClick={handleNodeClick}
+          openNode={openNode}
+          openPermanent={openPermanent}
+          openPreview={openPreview}
+          handleNodeContextMenu={handleNodeContextMenu}
+          setSelection={setSelection}
+          toTabDescriptor={toTabDescriptor}
+        />
+        <ImagesSection
+          nodes={imageNodes}
+          collapsed={collapsedSections.has('images')}
+          forceExpanded={forceExpandedSections.has('images')}
+          onToggle={() => toggleSection('images')}
+          showDeprecated={showDeprecated}
+          searchQuery={searchQuery}
+          visibleNodes={visibleNodes}
+          multiSelection={multiSelection}
+          isSelected={isSelected}
+          handleNodeClick={handleNodeClick}
+          openNode={openNode}
+          openPermanent={openPermanent}
+          openPreview={openPreview}
+          handleNodeContextMenu={handleNodeContextMenu}
+          setSelection={setSelection}
+          toTabDescriptor={toTabDescriptor}
+        />
+        <DiagramsSection
+          nodes={diagramNodes}
+          collapsed={collapsedSections.has('diagrams')}
+          forceExpanded={forceExpandedSections.has('diagrams')}
+          onToggle={() => toggleSection('diagrams')}
+          showDeprecated={showDeprecated}
+          searchQuery={searchQuery}
+          visibleNodes={visibleNodes}
+          collapsedFolderPaths={collapsedFolderPaths}
+          toggleFolderPath={toggleFolderPath}
+          multiSelection={multiSelection}
+          isSelected={isSelected}
+          handleNodeClick={handleNodeClick}
+          openNode={openNode}
+          openPermanent={openPermanent}
+          handleNodeContextMenu={handleNodeContextMenu}
+          toTabDescriptor={toTabDescriptor}
+        />
+        <DocumentsSection
+          nodes={documentNodes}
+          collapsed={collapsedSections.has('documents')}
+          forceExpanded={forceExpandedSections.has('documents')}
+          onToggle={() => toggleSection('documents')}
+          showDeprecated={showDeprecated}
+          searchQuery={searchQuery}
+          visibleNodes={visibleNodes}
+          collapsedFolderPaths={collapsedFolderPaths}
+          toggleFolderPath={toggleFolderPath}
+          multiSelection={multiSelection}
+          isSelected={isSelected}
+          handleNodeClick={handleNodeClick}
+          openNode={openNode}
+          openPermanent={openPermanent}
+          handleNodeContextMenu={handleNodeContextMenu}
+          toTabDescriptor={toTabDescriptor}
+        />
+        <DesignsSection
+          nodes={designNodes}
+          collapsed={collapsedSections.has('designs')}
+          forceExpanded={forceExpandedSections.has('designs')}
+          onToggle={() => toggleSection('designs')}
+          showDeprecated={showDeprecated}
+          searchQuery={searchQuery}
+          visibleNodes={visibleNodes}
+          collapsedFolderPaths={collapsedFolderPaths}
+          toggleFolderPath={toggleFolderPath}
+          multiSelection={multiSelection}
+          isSelected={isSelected}
+          handleNodeClick={handleNodeClick}
+          openNode={openNode}
+          openPermanent={openPermanent}
+          handleNodeContextMenu={handleNodeContextMenu}
+          toTabDescriptor={toTabDescriptor}
+        />
+        <SpreadsheetSection
+          nodes={spreadsheetNodes}
+          collapsed={collapsedSections.has('spreadsheets')}
+          forceExpanded={forceExpandedSections.has('spreadsheets')}
+          onToggle={() => toggleSection('spreadsheets')}
+          showDeprecated={showDeprecated}
+          searchQuery={searchQuery}
+          visibleNodes={visibleNodes}
+          multiSelection={multiSelection}
+          isSelected={isSelected}
+          handleNodeClick={handleNodeClick}
+          openNode={openNode}
+          openPermanent={openPermanent}
+          openPreview={openPreview}
+          handleNodeContextMenu={handleNodeContextMenu}
+          setSelection={setSelection}
+          toTabDescriptor={toTabDescriptor}
+        />
+        <SnippetsSection
+          nodes={snippetNodes}
+          collapsed={collapsedSections.has('snippets')}
+          forceExpanded={forceExpandedSections.has('snippets')}
+          onToggle={() => toggleSection('snippets')}
+          showDeprecated={showDeprecated}
+          searchQuery={searchQuery}
+          visibleNodes={visibleNodes}
+          collapsedFolderPaths={collapsedFolderPaths}
+          onToggleFolderPath={toggleFolderPath}
+          isSelected={isSelected}
+          multiSelectionIds={multiSelection.ids}
+          onNodeClick={handleNodeClick}
+          onNodeDoubleClick={(node) => {
+            openNode(node);
+            const d = toTabDescriptor(node);
+            if (d) openPermanent(d);
+          }}
+          onNodeContextMenu={handleNodeContextMenu}
+        />
+        <ArchivedSection
+          nodes={archivedBlueprintNodes}
+          collapsed={collapsedSections.has('archived')}
+          forceExpanded={forceExpandedSections.has('archived')}
+          onToggle={() => toggleSection('archived')}
+          showDeprecated={showDeprecated}
+          searchQuery={searchQuery}
+          visibleNodes={visibleNodes}
+          multiSelection={multiSelection}
+          isSelected={isSelected}
+          handleNodeClick={handleNodeClick}
+          openNode={openNode}
+          openPermanent={openPermanent}
+          openPreview={openPreview}
+          handleNodeContextMenu={handleNodeContextMenu}
+          setSelection={setSelection}
+          toTabDescriptor={toTabDescriptor}
+        />
       </div>
       )}
 
