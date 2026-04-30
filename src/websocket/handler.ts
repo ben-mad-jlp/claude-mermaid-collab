@@ -1,5 +1,6 @@
 import type { ServerWebSocket } from 'bun';
 import type { AgentCommand, AgentEvent, EffortLevel } from '../agent/contracts.ts';
+import { ideState } from '../services/ide-state.ts';
 
 type AgentDispatcherLike = { handle(ws: ServerWebSocket<{ subscriptions: Set<string> }>, cmd: AgentCommand): Promise<void> };
 
@@ -83,7 +84,8 @@ export type WSMessage =
   | { type: 'mcp_token_cost_updated'; serverName: string; toolName: string; inputTokens: number; outputTokens: number; costUsd?: number }
   | { type: 'ide_focus_terminal'; claudePid: number; claudeSessionId: string; project: string; session: string }
   | { type: 'ide_open_diff'; filePath: string }
-  | { type: 'ide_connected'; vscodeVersion: string; extensionVersion: string }
+  | { type: 'ide_connected'; vscodeVersion: string; extensionVersion: string; workspaceFolders?: string[] }
+  | { type: 'ide_reattach'; claudePid: number; claudeSessionId: string; project: string; session: string; boundAt: string }
   | { type: 'ide_disconnected'; reason?: string };
 
 export class WebSocketHandler {
@@ -101,6 +103,7 @@ export class WebSocketHandler {
 
   handleDisconnection(ws: ServerWebSocket<{ subscriptions: Set<string> }>): void {
     this.connections.delete(ws);
+    ideState.ideDisconnected(ws);
   }
 
   handleMessage(ws: ServerWebSocket<{ subscriptions: Set<string> }>, message: string): void {
@@ -144,6 +147,9 @@ export class WebSocketHandler {
         } else {
           console.error('Agent command received but no dispatcher registered:', data.type);
         }
+      } else if (data.type === 'ide_connected') {
+        const d = data as { type: 'ide_connected'; workspaceFolders?: string[] };
+        void ideState.ideConnected(ws, d.workspaceFolders ?? []);
       }
     } catch (error) {
       console.error('Failed to parse WebSocket message:', error);

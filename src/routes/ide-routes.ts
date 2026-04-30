@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import type { WebSocketHandler } from '../websocket/handler.ts';
+import { ideState } from '../services/ide-state.ts';
 
 function jsonError(message: string, status: number): Response {
   return Response.json({ error: message }, { status });
@@ -8,6 +9,10 @@ function jsonError(message: string, status: number): Response {
 const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 export async function handleIdeRoutes(req: Request, url: URL, wsHandler: WebSocketHandler): Promise<Response | null> {
+  if (url.pathname === '/api/ide/status' && req.method === 'GET') {
+    return Response.json(ideState.getStatus());
+  }
+
   if (url.pathname === '/api/ide/focus-terminal' && req.method === 'POST') {
     try {
       const { claudeSessionId } = await req.json() as { claudeSessionId?: string };
@@ -63,6 +68,7 @@ export async function handleIdeRoutes(req: Request, url: URL, wsHandler: WebSock
           filePath,
         });
 
+        ideState.diffOpened(filePath);
         return Response.json({ success: true });
       } catch (err) {
         return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);

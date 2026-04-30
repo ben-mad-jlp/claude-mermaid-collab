@@ -3760,12 +3760,18 @@ var import_websocket_server = __toESM(require_websocket_server(), 1);
 var wrapper_default = import_websocket.default;
 
 // src/extension.ts
+var import_child_process = require("child_process");
+var import_util = require("util");
+var execAsync = (0, import_util.promisify)(import_child_process.exec);
 var ws = null;
 var statusBarItem;
 var reconnectTimer = null;
 var reconnectDelay = 1e3;
 var MAX_DELAY = 3e4;
 var _ctx;
+var hasReattachedThisSession = false;
+var reattachQueue = [];
+var reattachProcessing = false;
 function activate(context) {
   _ctx = context;
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -3798,7 +3804,9 @@ function connect(context) {
     ws.send(JSON.stringify({
       type: "ide_connected",
       vscodeVersion: vscode.version,
-      extensionVersion: context.extension.packageJSON.version
+      extensionVersion: context.extension.packageJSON.version,
+      // Only send workspaceFolders when running locally — triggers reattach scan on server
+      ...!vscode.env.remoteName && { workspaceFolders: vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath) ?? [] }
     }));
   });
   ws.on("message", (raw) => {
@@ -3809,6 +3817,7 @@ function connect(context) {
     }
   });
   ws.on("close", () => {
+    hasReattachedThisSession = false;
     updateStatusBar(false);
     scheduleReconnect(reconnectDelay);
     reconnectDelay = Math.min(reconnectDelay * 2, MAX_DELAY);
@@ -3823,6 +3832,9 @@ async function handleMessage(msg) {
       break;
     case "ide_open_diff":
       await openDiff(msg.filePath);
+      break;
+    case "ide_reattach":
+      void handleIdeReattach(msg);
       break;
   }
 }
@@ -3869,6 +3881,79 @@ async function openDiff(filePath) {
   const doc = await vscode.workspace.openTextDocument(workingUri);
   await vscode.window.showTextDocument(doc, { preserveFocus: true, preview: false });
 }
+async function handleIdeReattach(msg) {
+  if (vscode.env.remoteName) {
+    return;
+  }
+  const isFirst = !hasReattachedThisSession;
+  hasReattachedThisSession = true;
+  reattachQueue.push(msg);
+  if (!reattachProcessing) {
+    await drainReattachQueue(isFirst);
+  }
+}
+async function drainReattachQueue(isFirst) {
+  reattachProcessing = true;
+  let showNext = isFirst;
+  while (reattachQueue.length > 0) {
+    const msg = reattachQueue.shift();
+    await processOneReattach(msg, showNext);
+    showNext = false;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  reattachProcessing = false;
+}
+async function processOneReattach(msg, showTerminal) {
+  const sessionHint = msg.session;
+  const existing = vscode.window.terminals.find((t) => t.name === sessionHint);
+  if (existing) {
+    if (showTerminal) {
+      existing.show(false);
+    }
+    return;
+  }
+  try {
+    const { stdout: panesOutput } = await execAsync('tmux list-panes -a -F "#{session_name} #{window_index} #{pane_index} #{pane_pid}"');
+    if (!panesOutput.trim()) {
+      return;
+    }
+    const panes = panesOutput.trim().split("\n").map((line) => {
+      const parts = line.trim().split(" ");
+      return { sessionName: parts[0], windowIdx: parts[1], paneIdx: parts[2], panePid: parseInt(parts[3], 10) };
+    });
+    let pid = msg.claudePid;
+    let matchedPane;
+    for (let i = 0; i < 10; i++) {
+      const found = panes.find((p) => p.panePid === pid);
+      if (found) {
+        matchedPane = found;
+        break;
+      }
+      try {
+        const { stdout: ppidOut } = await execAsync(`ps -o ppid= -p ${pid}`);
+        const ppid = parseInt(ppidOut.trim(), 10);
+        if (isNaN(ppid) || ppid <= 1) {
+          break;
+        }
+        pid = ppid;
+      } catch {
+        break;
+      }
+    }
+    if (!matchedPane) {
+      return;
+    }
+    const t = vscode.window.createTerminal({
+      name: sessionHint,
+      shellPath: "/bin/sh",
+      shellArgs: ["-c", `tmux attach-session -t ${matchedPane.sessionName} \\; select-window -t ${matchedPane.windowIdx} \\; select-pane -t ${matchedPane.paneIdx}`]
+    });
+    if (showTerminal) {
+      t.show(false);
+    }
+  } catch {
+  }
+}
 function scheduleReconnect(delay) {
   if (reconnectTimer)
     clearTimeout(reconnectTimer);
@@ -3884,6 +3969,7 @@ function updateStatusBar(connected, sessionName) {
   statusBarItem.command = connected ? "mermaidCollab.showStatus" : "mermaidCollab.reconnect";
 }
 function deactivate() {
+  hasReattachedThisSession = false;
   ws?.close();
 }
 // Annotate the CommonJS export names for ESM import in node:

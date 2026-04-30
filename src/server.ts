@@ -36,6 +36,7 @@ import {
   handleTerminalClose,
   handleTerminalError,
 } from './routes/websocket';
+import { BindingSweeper } from './services/binding-sweeper.ts';
 
 // Scratch session - a default workspace for casual use
 const SCRATCH_PROJECT = join(homedir(), '.mermaid-collab');
@@ -71,6 +72,8 @@ const wsHandler = new WebSocketHandler();
 
 // Initialize WebSocket handler manager for global access
 initializeWebSocketHandler(wsHandler);
+const sweeper = new BindingSweeper();
+sweeper.start();
 
 // Initialize status manager with WebSocket handler
 statusManager.setWebSocketHandler(wsHandler);
@@ -290,12 +293,14 @@ import { ptyManager } from './terminal/index';
 // Handle graceful shutdown - kill all PTY sessions
 process.on('SIGINT', () => {
   console.log('\n🛑 SIGINT received, shutting down gracefully...');
+  sweeper.stop();
   ptyManager.killAll();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
   console.log('\n🛑 SIGTERM received, shutting down gracefully...');
+  sweeper.stop();
   ptyManager.killAll();
   process.exit(0);
 });
