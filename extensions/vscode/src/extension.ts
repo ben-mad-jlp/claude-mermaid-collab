@@ -1,8 +1,6 @@
+// IDE bridge — terminal focus + diff opening
 import * as vscode from 'vscode';
 import WebSocket from 'ws';
-import { CollabApi, ArtifactType } from './api';
-import { ArtifactPanelManager } from './ArtifactPanelManager';
-import { SidebarViewProvider } from './SidebarViewProvider';
 
 let ws: WebSocket | null = null;
 let statusBarItem: vscode.StatusBarItem;
@@ -10,10 +8,7 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectDelay = 1000;
 const MAX_DELAY = 30_000;
 
-let api: CollabApi | undefined;
-let panelManager: ArtifactPanelManager | undefined;
 let _ctx: vscode.ExtensionContext | undefined;
-let _activeSession = '';
 
 export function activate(context: vscode.ExtensionContext) {
   _ctx = context;
@@ -33,49 +28,9 @@ export function activate(context: vscode.ExtensionContext) {
     }),
   );
 
-  const apiUrl = vscode.workspace.getConfiguration('mermaidCollab').get<string>('apiUrl') ?? 'http://127.0.0.1:9002';
-  const project = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
-  const activeSession = context.workspaceState.get<string>('mermaidCollab.activeSession') ?? '';
-  _activeSession = activeSession;
-
-  api = new CollabApi(apiUrl);
-  panelManager = new ArtifactPanelManager(context, api, activeSession, project);
-
-  context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(
-      'mermaidCollabPanel',
-      new SidebarViewProvider(
-        context,
-        () => panelManager,
-        () => _activeSession,
-        () => project
-      )
-    )
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand('mermaidCollab.openArtifact', (id: string, type: string) => {
-      panelManager?.open(id, type as ArtifactType);
-    }),
-  );
-
-  updateStatusBar(false, activeSession);
+  updateStatusBar(false);
 
   connect(context);
-
-  return {
-    extendMarkdownIt(md: any) {
-      const defaultFence = (md.renderer.rules.fence as Function | undefined) ?? (md.renderer.rules.code_block as Function | undefined);
-      md.renderer.rules.fence = (tokens: any[], idx: number, opts: any, env: any, self: any) => {
-        const token = tokens[idx];
-        if (token.info.trim() === 'mermaid') {
-          return `<div class="mermaid">${token.content}</div>`;
-        }
-        return defaultFence ? defaultFence(tokens, idx, opts, env, self) : self.renderToken(tokens, idx, opts);
-      };
-      return md;
-    }
-  };
 }
 
 function connect(context: vscode.ExtensionContext) {
@@ -88,7 +43,7 @@ function connect(context: vscode.ExtensionContext) {
 
   ws.on('open', () => {
     reconnectDelay = 1000;
-    updateStatusBar(true, _activeSession);
+    updateStatusBar(true);
     ws!.send(JSON.stringify({ type: 'subscribe', channel: 'ide' }));
     ws!.send(JSON.stringify({
       type: 'ide_connected',
@@ -105,7 +60,7 @@ function connect(context: vscode.ExtensionContext) {
   });
 
   ws.on('close', () => {
-    updateStatusBar(false, _activeSession);
+    updateStatusBar(false);
     scheduleReconnect(reconnectDelay);
     reconnectDelay = Math.min(reconnectDelay * 2, MAX_DELAY);
   });
@@ -157,11 +112,17 @@ async function focusTerminal(targetPid: number, sessionHint: string) {
 async function openDiff(filePath: string) {
   const workingUri = vscode.Uri.file(filePath);
   try {
-    await vscode.commands.executeCommand('git.openChange', workingUri);
-  } catch {
-    const doc = await vscode.workspace.openTextDocument(workingUri);
-    await vscode.window.showTextDocument(doc, { preserveFocus: true, preview: false });
-  }
+    const gitExtension = vscode.extensions.getExtension('vscode.git');
+    if (gitExtension?.isActive) {
+      const git = gitExtension.exports.getAPI(1) as { toGitUri(uri: vscode.Uri, ref: string): vscode.Uri };
+      const headUri = git.toGitUri(workingUri, 'HEAD');
+      const title = `${filePath.split('/').pop()} (Working Tree)`;
+      await vscode.commands.executeCommand('vscode.diff', headUri, workingUri, title);
+      return;
+    }
+  } catch { /* fall through to text fallback */ }
+  const doc = await vscode.workspace.openTextDocument(workingUri);
+  await vscode.window.showTextDocument(doc, { preserveFocus: true, preview: false });
 }
 
 function scheduleReconnect(delay: number) {

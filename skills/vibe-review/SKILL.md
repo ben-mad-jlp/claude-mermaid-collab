@@ -274,7 +274,7 @@ For each file path in the TASKS list across all research results, send a fire-an
 POST /api/ide/open-diff
 { "filePath": "<absolute file path>" }
 ```
-Failures are non-fatal; proceed regardless.
+This opens each file in a live git diff view in VSCode so the user can watch changes happen in real time. Do this in the main context (not as agents) — these are simple fetch calls. Failures are non-fatal; proceed regardless.
 
 Collect all research results. Each research agent returned an `ISSUE_ID` and a list of file edits.
 

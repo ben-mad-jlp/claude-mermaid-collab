@@ -11,34 +11,13 @@
     "Other"
   ],
   "activationEvents": [
-    "onStartupFinished",
-    "onView:mermaidCollabPanel"
+    "onStartupFinished"
   ],
   "extensionKind": [
-    "ui",
     "workspace"
   ],
   "main": "./out/extension.js",
   "contributes": {
-    "markdown.markdownItPlugins": true,
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "mermaidCollab",
-          "title": "Collab",
-          "icon": "media/collab.svg"
-        }
-      ]
-    },
-    "views": {
-      "mermaidCollab": [
-        {
-          "id": "mermaidCollabPanel",
-          "name": "Collab",
-          "type": "webview"
-        }
-      ]
-    },
     "commands": [
       {
         "command": "mermaidCollab.showStatus",
@@ -47,10 +26,6 @@
       {
         "command": "mermaidCollab.reconnect",
         "title": "mermaid-collab: Reconnect"
-      },
-      {
-        "command": "mermaidCollab.openArtifact",
-        "title": "Collab: Open Artifact"
       }
     ],
     "configuration": {
@@ -60,25 +35,11 @@
           "type": "string",
           "default": "ws://127.0.0.1:9002/ws",
           "description": "WebSocket URL of the mermaid-collab server"
-        },
-        "mermaidCollab.apiUrl": {
-          "type": "string",
-          "default": "http://127.0.0.1:9002",
-          "description": "HTTP API URL of the mermaid-collab server"
-        },
-        "mermaidCollab.autoRevealOnUpdate": {
-          "type": "boolean",
-          "default": true,
-          "description": "Focus open artifact tab when updated remotely"
         }
       }
     }
   },
-  "extensionDependencies": [
-    "vscode.git"
-  ],
   "dependencies": {
-    "marked": "^18.0.2",
     "ws": "^8.17.0"
   },
   "devDependencies": {
