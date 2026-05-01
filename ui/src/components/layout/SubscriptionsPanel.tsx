@@ -161,7 +161,7 @@ const SubscriptionRow: React.FC<{
     <div className={`flex items-center gap-1 ${isDragOver ? 'border-t-2 border-t-blue-400' : ''}`}>
       {/* Colored status card */}
       <div
-        className={`group flex-1 flex items-center gap-2 pl-3 pr-2 py-1 rounded text-sm cursor-pointer transition-colors min-w-0 ${statusBg}`}
+        className={`group flex-1 flex items-stretch gap-2 pl-3 pr-2 py-1 rounded text-sm cursor-pointer transition-colors min-w-0 ${statusBg}`}
         draggable
         onDragStart={(e) => onDragStart(e, subKey)}
         onDragOver={(e) => onDragOver(e, subKey)}
@@ -202,11 +202,11 @@ const SubscriptionRow: React.FC<{
             )}
           </div>
         </div>
-        {/* Tmux session indicator + terminal button */}
-        <div className="relative self-start mt-1 flex-shrink-0">
+        {/* Tmux indicator (top) + terminal button (bottom) */}
+        <div className="flex flex-col justify-between items-center flex-shrink-0 py-0.5">
           <span
-            className={`absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full z-10 ${tmuxActive ? 'bg-green-500' : 'bg-gray-400 dark:bg-gray-600'}`}
-            title={tmuxActive ? `tmux session "${sub.session}" is active` : `no tmux session "${sub.session}"`}
+            className={`w-1.5 h-1.5 rounded-full ${tmuxActive ? 'bg-green-500' : 'bg-gray-400 dark:bg-gray-600'}`}
+            title={tmuxActive ? `tmux session "${sub.session}" active` : `no tmux session "${sub.session}"`}
           />
           <button
             onClick={(e) => {
@@ -218,7 +218,7 @@ const SubscriptionRow: React.FC<{
               }).catch(() => {});
             }}
             className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-green-600 dark:hover:text-green-400 transition-opacity"
-            title={tmuxActive ? `Attach to tmux session "${sub.session}"` : `Create tmux session "${sub.session}"`}
+            title={tmuxActive ? `Replace tmux session "${sub.session}"` : `Create tmux session "${sub.session}"`}
           >
             <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm3.293 1.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L7.586 10 5.293 7.707a1 1 0 010-1.414zM11 12a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
