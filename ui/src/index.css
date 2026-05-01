@@ -33,12 +33,35 @@
   --animate-slideOutRight: slideOutRight 200ms ease-in;
 }
 
-/* Gruvbox Light Soft sepia theme — remaps gray scale to warm palette */
-html.theme-sepia {
-  --color-white:    #f2e5bc; /* light0_soft */
-  --color-gray-50:  #ebdbb2; /* bg1 */
-  --color-gray-100: #d5c4a1; /* bg2 */
-  --color-gray-200: #bdae93; /* bg3 */
+/* Solarized Light sepia theme
+   NOTE: Tailwind v4 bakes color values at build time (@theme inline),
+   so CSS variable overrides don't work. We override the utility classes directly. */
+
+/* Backgrounds */
+.theme-sepia .bg-white   { background-color: #FDF6E3 !important; }
+.theme-sepia .bg-gray-50 { background-color: #EEE8D5 !important; }
+.theme-sepia .bg-gray-100 { background-color: #DDD6C1 !important; }
+.theme-sepia .bg-gray-200 { background-color: #D3CBB7 !important; }
+.theme-sepia .hover\:bg-gray-100:hover { background-color: #DDD6C1 !important; }
+.theme-sepia .hover\:bg-gray-200:hover { background-color: #D3CBB7 !important; }
+
+/* Borders */
+.theme-sepia .border-gray-200 { border-color: #D3CBB7 !important; }
+.theme-sepia .border-gray-300 { border-color: #C8BCA8 !important; }
+.theme-sepia .border-gray-700 { border-color: #888888 !important; }
+
+/* Text */
+.theme-sepia .text-gray-300 { color: #888888 !important; }
+.theme-sepia .text-gray-400 { color: #666666 !important; }
+.theme-sepia .text-gray-500 { color: #555555 !important; }
+.theme-sepia .text-gray-600 { color: #444444 !important; }
+.theme-sepia .text-gray-700 { color: #333333 !important; }
+.theme-sepia .text-gray-800 { color: #222222 !important; }
+.theme-sepia .text-gray-900 { color: #111111 !important; }
+
+html.theme-sepia,
+html.theme-sepia body {
+  background-color: #FDF6E3;
   color-scheme: light;
 }
 
@@ -58,6 +81,21 @@ html.theme-sepia {
 @keyframes slideOutRight {
   0% { transform: translateX(0); opacity: 1; }
   100% { transform: translateX(100%); opacity: 0; }
+}
+
+/* VS Code Dark+ theme — remap the gray scale in dark mode */
+.dark {
+  --color-gray-950: #141414;
+  --color-gray-900: #1e1e1e;
+  --color-gray-800: #252526;
+  --color-gray-700: #3c3c3c;
+  --color-gray-600: #474747;
+  --color-gray-500: #6b6b6b;
+  --color-gray-400: #858585;
+  --color-gray-300: #bbbbbb;
+  --color-gray-200: #c8c8c8;
+  --color-gray-100: #d4d4d4;
+  --color-gray-50:  #2d2d2d;
 }
 
 /* Custom component styles */
@@ -117,6 +155,55 @@ body {
 
 #root {
   height: 100%;
+}
+
+/* Global scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #424242;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #555555;
+}
+
+.theme-sepia ::-webkit-scrollbar-thumb {
+  background: #C8BCA8;
+}
+
+.theme-sepia ::-webkit-scrollbar-thumb:hover {
+  background: #A89880;
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+.dark * {
+  scrollbar-color: #424242 transparent;
+}
+
+.theme-sepia * {
+  scrollbar-color: #C8BCA8 transparent;
 }
 
 /* XTerm.js scrollbar styling */
