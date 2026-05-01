@@ -123,8 +123,7 @@ const SubscriptionRow: React.FC<{
   onDragOver: (e: React.DragEvent, key: string) => void;
   onDragEnd: () => void;
   isDragOver: boolean;
-  ideConnected: boolean;
-}> = ({ subKey, sub, onNavigate, onUnsubscribe, onDragStart, onDragOver, onDragEnd, isDragOver, ideConnected }) => {
+}> = ({ subKey, sub, onNavigate, onUnsubscribe, onDragStart, onDragOver, onDragEnd, isDragOver }) => {
   const elapsed = useElapsed(sub.lastUpdate, sub.status);
 
   const statusBg =
@@ -134,7 +133,7 @@ const SubscriptionRow: React.FC<{
         ? 'card-pulse-amber border border-amber-400'
         : sub.status === 'waiting'
           ? 'bg-green-300 hover:bg-green-400 border border-green-500'
-          : 'hover:bg-gray-100 dark:hover:bg-gray-800 border border-gray-300 dark:border-gray-700';
+          : 'bg-gray-200 hover:bg-gray-300 border border-gray-300';
 
   return (
     <div className={`flex items-center gap-1 ${isDragOver ? 'border-t-2 border-t-blue-400' : ''}`}>
@@ -159,15 +158,15 @@ const SubscriptionRow: React.FC<{
         {/* Project / Session on two lines */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1">
-            <span className="text-xs text-gray-800 truncate">{sub.project.split('/').pop()}</span>
+            <span className="text-xs text-black truncate">{sub.project.split('/').pop()}</span>
             {elapsed && (
-              <span className="text-[10px] text-gray-800 tabular-nums flex-shrink-0 ml-auto">
+              <span className="text-[10px] text-black tabular-nums flex-shrink-0 ml-auto">
                 {elapsed}
               </span>
             )}
           </div>
           <div className="flex items-center gap-1">
-            <span className="text-xs text-gray-800 truncate">{sub.session}</span>
+            <span className="text-xs text-black truncate">{sub.session}</span>
             {sub.contextPercent !== undefined && sub.contextPercent >= 70 && (
               <span
                 className={`flex-shrink-0 text-[10px] font-medium px-1 py-0.5 rounded-full ${
@@ -181,25 +180,23 @@ const SubscriptionRow: React.FC<{
             )}
           </div>
         </div>
-        {/* Open terminal button (only when VS Code connected) */}
-        {ideConnected && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              fetch('/api/ide/create-terminal', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ session: sub.session }),
-              }).catch(() => {});
-            }}
-            className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-green-600 dark:hover:text-green-400 transition-opacity self-start mt-1"
-            title="Open terminal"
-          >
-            <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm3.293 1.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L7.586 10 5.293 7.707a1 1 0 010-1.414zM11 12a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
-            </svg>
-          </button>
-        )}
+        {/* Open terminal button */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            fetch('/api/ide/create-terminal', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ session: sub.session }),
+            }).catch(() => {});
+          }}
+          className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-green-600 dark:hover:text-green-400 transition-opacity self-start mt-1"
+          title="Open terminal"
+        >
+          <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm3.293 1.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L7.586 10 5.293 7.707a1 1 0 010-1.414zM11 12a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
+          </svg>
+        </button>
         {/* Unsubscribe button */}
         <button
           onClick={(e) => {
@@ -224,30 +221,6 @@ const SubscriptionRow: React.FC<{
   );
 };
 
-function useIdeStatus() {
-  const [connected, setConnected] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const poll = () => {
-      fetch('/api/ide/status')
-        .then((r) => r.json())
-        .then((data: { connected: boolean }) => {
-          if (!cancelled) setConnected(data.connected);
-        })
-        .catch(() => {
-          if (!cancelled) setConnected(false);
-        });
-    };
-
-    poll();
-    const id = setInterval(poll, 10_000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, []);
-
-  return { connected };
-}
 
 export interface SubscriptionsPanelProps {
   currentProject?: string;
@@ -257,8 +230,6 @@ export interface SubscriptionsPanelProps {
 export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentProject, onNavigate }) => {
   const { subscriptions, order, unsubscribe, subscribe, reorder } = useSubscriptionStore();
   const { sessions, setCurrentSession } = useSessionStore();
-  const { connected } = useIdeStatus();
-
   const [collapsed, setCollapsed] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
@@ -425,7 +396,6 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
               onDragOver={handleDragOver}
               onDragEnd={handleDragEnd}
               isDragOver={dragOverKey === key}
-              ideConnected={connected === true}
             />
           ))}
         </div>
