@@ -217,7 +217,7 @@ const SubscriptionRow: React.FC<{
                 body: JSON.stringify({ session: sub.session }),
               }).catch(() => {});
             }}
-            className="opacity-0 group-hover:opacity-100 p-0.5 text-black hover:text-green-600 transition-opacity"
+            className="p-0.5 text-black hover:text-green-600 transition-colors"
             title={tmuxActive ? `Replace tmux session "${sub.session}"` : `Create tmux session "${sub.session}"`}
           >
             <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
