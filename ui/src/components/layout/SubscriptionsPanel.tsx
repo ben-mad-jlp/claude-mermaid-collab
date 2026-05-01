@@ -129,11 +129,11 @@ const SubscriptionRow: React.FC<{
 
   const statusBg =
     sub.status === 'permission'
-      ? 'bg-red-100 hover:bg-red-200 dark:bg-red-900/40 dark:hover:bg-red-900/60 border border-red-400 dark:border-red-700'
+      ? 'bg-red-200 hover:bg-red-300 border border-red-400'
       : sub.status === 'active'
-        ? 'card-pulse-amber border border-amber-400 dark:border-amber-700'
+        ? 'card-pulse-amber border border-amber-400'
         : sub.status === 'waiting'
-          ? 'bg-green-100 hover:bg-green-200 dark:bg-green-900/40 dark:hover:bg-green-900/60 border border-green-400 dark:border-green-700'
+          ? 'bg-green-300 hover:bg-green-400 border border-green-500'
           : 'hover:bg-gray-100 dark:hover:bg-gray-800 border border-gray-300 dark:border-gray-700';
 
   return (
@@ -159,21 +159,21 @@ const SubscriptionRow: React.FC<{
         {/* Project / Session on two lines */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1">
-            <span className="text-xs text-gray-700 dark:text-gray-300 truncate">{sub.project.split('/').pop()}</span>
+            <span className="text-xs text-gray-800 truncate">{sub.project.split('/').pop()}</span>
             {elapsed && (
-              <span className="text-[10px] text-gray-700 dark:text-gray-300 tabular-nums flex-shrink-0 ml-auto">
+              <span className="text-[10px] text-gray-800 tabular-nums flex-shrink-0 ml-auto">
                 {elapsed}
               </span>
             )}
           </div>
           <div className="flex items-center gap-1">
-            <span className="text-xs text-gray-700 dark:text-gray-300 truncate">{sub.session}</span>
+            <span className="text-xs text-gray-800 truncate">{sub.session}</span>
             {sub.contextPercent !== undefined && sub.contextPercent >= 70 && (
               <span
                 className={`flex-shrink-0 text-[10px] font-medium px-1 py-0.5 rounded-full ${
                   sub.contextPercent >= 80
-                    ? 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300'
-                    : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300'
+                    ? 'bg-red-100 text-red-800'
+                    : 'bg-yellow-100 text-yellow-800'
                 }`}
               >
                 {sub.contextPercent}%

@@ -106,6 +106,22 @@ async function cleanStaleVscodeServer(): Promise<void> {
     }
   } catch { /* ignore */ }
 
+  // Ensure old-format Remote SSH (bin/<hash>/) symlinks exist — without these VS Code re-downloads the server
+  try {
+    const binBase = join(homedir(), '.vscode-server', 'bin');
+    await mkdir(binBase, { recursive: true });
+    const entries = await readdir(oldBase).catch(() => [] as string[]);
+    for (const entry of entries) {
+      if (!entry.startsWith('Stable-')) continue;
+      const hash = entry.replace(/^Stable-/, '');
+      const link = join(binBase, hash);
+      if (!existsSync(link)) {
+        await symlink(join(oldBase, entry, 'server'), link).catch(() => {});
+        console.log(`Created VS Code server bin symlink for ${hash}`);
+      }
+    }
+  } catch { /* ignore */ }
+
   // Clean stale pid.txt files in both locations
   for (const base of [oldBase, newBase]) {
     const glob = new Bun.Glob(join(base, 'Stable-*/pid.txt'));

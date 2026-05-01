@@ -1162,14 +1162,29 @@ const App: React.FC = () => {
   // Apply theme to document
   useEffect(() => {
     const html = document.documentElement;
+    const sepiaVars: [string, string][] = [
+      ['--color-white',    '#f2e5bc'],
+      ['--color-gray-50',  '#ebdbb2'],
+      ['--color-gray-100', '#d5c4a1'],
+      ['--color-gray-200', '#bdae93'],
+    ];
+    const clearSepiaVars = () => {
+      sepiaVars.forEach(([k]) => html.style.removeProperty(k));
+      html.style.removeProperty('color-scheme');
+    };
+
     if (theme === 'dark') {
       html.classList.add('dark');
-      html.classList.remove('sepia');
+      html.classList.remove('theme-sepia');
+      clearSepiaVars();
     } else if (theme === 'sepia') {
-      html.classList.add('sepia');
+      html.classList.add('theme-sepia');
       html.classList.remove('dark');
+      sepiaVars.forEach(([k, v]) => html.style.setProperty(k, v));
+      html.style.setProperty('color-scheme', 'light');
     } else {
-      html.classList.remove('dark', 'sepia');
+      html.classList.remove('dark', 'theme-sepia');
+      clearSepiaVars();
     }
   }, [theme]);
 

@@ -98,6 +98,24 @@ sweeper.start();
     }
   } catch { /* ignore */ }
 
+  // Ensure old-format Remote SSH (bin/<hash>/) symlinks exist for each cli/servers/Stable-<hash>/server/
+  // VS Code Remote SSH bootstrap checks ~/.vscode-server/bin/<hash>/ — without this it downloads fresh.
+  try {
+    const binBase = pathJoin(homedir(), '.vscode-server', 'bin');
+    await fsp.mkdir(binBase, { recursive: true });
+    const entries = await fsp.readdir(oldBase).catch(() => [] as string[]);
+    for (const entry of entries) {
+      if (!entry.startsWith('Stable-')) continue;
+      const hash = entry.replace(/^Stable-/, '');
+      const link = pathJoin(binBase, hash);
+      const target = pathJoin(oldBase, entry, 'server');
+      if (!fsExists(link)) {
+        await fsp.symlink(target, link).catch(() => {});
+        console.log(`[vscode-cleaner] Created bin symlink for ${hash}`);
+      }
+    }
+  } catch { /* ignore */ }
+
   // Clean stale pid.txt in both locations
   for (const base of [oldBase, newBase]) {
     try {

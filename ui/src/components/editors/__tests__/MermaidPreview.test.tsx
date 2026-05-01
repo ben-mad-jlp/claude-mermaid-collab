@@ -141,7 +141,7 @@ describe('MermaidPreview', () => {
     it('should pass theme to initializeMermaid', () => {
       render(<MermaidPreview content="graph TD; A-->B" />);
 
-      expect(initializeMermaid).toHaveBeenCalledWith('light');
+      expect(initializeMermaid).toHaveBeenCalledWith('light', expect.anything());
     });
   });
 

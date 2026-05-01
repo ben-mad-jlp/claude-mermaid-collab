@@ -32,9 +32,9 @@ export async function initializeMermaid(theme: 'light' | 'dark', diagramContent?
   };
 
   // Only set global theme if diagram doesn't have its own init directive
-  // This lets diagram-level %%{init}%% directives take full control
+  // Always use 'default' so node colors are identical across light/dark/sepia
   if (!hasCustom) {
-    config.theme = theme === 'dark' ? 'dark' : 'default';
+    config.theme = 'default';
   }
 
   mermaid.initialize(config);

@@ -2,7 +2,7 @@
 @import "./vendored/t3chat/tokens.css";
 
 @custom-variant dark (&:where(.dark, .dark *));
-@custom-variant sepia (&:where(.sepia, .sepia *));
+@custom-variant sepia (&:where(.theme-sepia, .theme-sepia *));
 @plugin "@tailwindcss/forms";
 @plugin "@tailwindcss/typography";
 
@@ -34,18 +34,11 @@
 }
 
 /* Gruvbox Light Soft sepia theme — remaps gray scale to warm palette */
-html.sepia {
-  --color-white: #f2e5bc;   /* light0_soft — main bg */
-  --color-gray-50: #ebdbb2;  /* bg1 — sidebar/card bg */
-  --color-gray-100: #d5c4a1; /* bg2 — hover states */
-  --color-gray-200: #bdae93; /* bg3 — borders, dividers */
-  --color-gray-300: #a89984; /* bg4 — subtle borders */
-  --color-gray-400: #928374; /* grey — disabled/placeholder */
-  --color-gray-500: #7c6f64; /* fg4 — muted text (3.3:1, decorative only) */
-  --color-gray-600: #665c54; /* fg3 — secondary text (4.6:1 ✓) */
-  --color-gray-700: #504945; /* fg2 — body text (6.7:1 ✓) */
-  --color-gray-800: #3c3836; /* fg1 — primary text (8.5:1 ✓) */
-  --color-gray-900: #282828; /* fg0 — headings (11:1 ✓) */
+html.theme-sepia {
+  --color-white:    #f2e5bc; /* light0_soft */
+  --color-gray-50:  #ebdbb2; /* bg1 */
+  --color-gray-100: #d5c4a1; /* bg2 */
+  --color-gray-200: #bdae93; /* bg3 */
   color-scheme: light;
 }
 
@@ -91,10 +84,8 @@ html.sepia {
   @apply dark:bg-gray-900 dark:text-gray-100;
 }
 
-/* Mermaid diagram styling */
-.mermaid {
-  @apply dark:invert;
-}
+/* Mermaid diagram styling — no theme inversion so node colors stay standard */
+.mermaid {}
 
 /* Diff highlighting for document patches */
 .diff-added {
@@ -179,18 +170,11 @@ body {
 
 /* Card-level pulse: amber background fade for active sessions */
 @keyframes card-pulse-amber {
-  0%, 100% { background-color: rgb(254 243 199); }
-  50% { background-color: rgb(253 230 138); }
-}
-@keyframes card-pulse-amber-dark {
-  0%, 100% { background-color: rgb(120 53 15 / 0.4); }
-  50% { background-color: rgb(146 64 14 / 0.6); }
+  0%, 100% { background-color: rgb(253 230 138); }
+  50% { background-color: rgb(252 211 77); }
 }
 .card-pulse-amber {
   animation: card-pulse-amber 4s infinite ease-in-out;
-}
-.dark .card-pulse-amber {
-  animation: card-pulse-amber-dark 4s infinite ease-in-out;
 }
 
 /* Permission / waiting — static, scaled up */

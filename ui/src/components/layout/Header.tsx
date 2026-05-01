@@ -232,10 +232,10 @@ export const Header: React.FC<HeaderProps> = ({
               rounded-full
               ${
                 isConnected
-                  ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300'
+                  ? 'bg-green-300 text-green-900'
                   : isConnecting
-                  ? 'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300'
-                  : 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300'
+                  ? 'bg-yellow-200 text-yellow-800'
+                  : 'bg-red-200 text-red-800'
               }
             `}
           >
@@ -265,11 +265,11 @@ export const Header: React.FC<HeaderProps> = ({
               text-xs font-medium
               rounded-full
               ${isVscodeConnected
-                ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300'
+                ? 'bg-green-300 text-green-900'
                 : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}
             `}
           >
-            <span className={`w-2 h-2 rounded-full ${isVscodeConnected ? 'bg-green-500' : 'bg-gray-400 dark:bg-gray-600'}`} />
+            <span className={`w-2 h-2 rounded-full ${isVscodeConnected ? 'bg-green-500' : 'bg-gray-400'}`} />
             <span>VSCode {isVscodeConnected ? 'Connected' : 'Disconnected'}</span>
           </div>
 
@@ -560,9 +560,9 @@ export const Header: React.FC<HeaderProps> = ({
             data-testid="theme-toggle"
             onClick={handleThemeToggle}
             aria-label={
-              theme === 'light' ? 'Switch to dark mode' :
-              theme === 'dark' ? 'Switch to sepia mode' :
-              'Switch to light mode'
+              theme === 'light' ? 'Light mode (click for dark)' :
+              theme === 'dark' ? 'Dark mode (click for sepia)' :
+              'Sepia mode (click for light)'
             }
             className="
               p-2
@@ -574,14 +574,17 @@ export const Header: React.FC<HeaderProps> = ({
             "
           >
             {theme === 'light' ? (
-              <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
-              </svg>
-            ) : theme === 'dark' ? (
+              // Sun — current theme is light
               <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                 <path fillRule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clipRule="evenodd" />
               </svg>
+            ) : theme === 'dark' ? (
+              // Moon — current theme is dark
+              <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
+              </svg>
             ) : (
+              // Book — current theme is sepia
               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
                 <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
