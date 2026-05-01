@@ -98,5 +98,17 @@ export async function handleIdeRoutes(req: Request, url: URL, wsHandler: WebSock
     return Promise.race([handlerPromise, timeoutPromise]);
   }
 
+  if (url.pathname === '/api/ide/tmux-sessions' && req.method === 'GET') {
+    try {
+      const proc = Bun.spawn(['tmux', 'ls', '-F', '#{session_name}'], { stdout: 'pipe', stderr: 'ignore' });
+      const stdout = await new Response(proc.stdout).text();
+      await proc.exited;
+      const sessions = stdout.trim().split('\n').filter(Boolean);
+      return Response.json({ sessions });
+    } catch {
+      return Response.json({ sessions: [] });
+    }
+  }
+
   return null;
 }
