@@ -122,11 +122,19 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
   const isPanningRef = useRef(false);
   const panStartRef = useRef({ x: 0, y: 0, offsetX: 0, offsetY: 0 });
 
+  // Internal zoom state — used when no external callbacks are wired up
+  const [internalZoom, setInternalZoom] = useState(zoomLevel);
+  const controlled = onZoomIn !== undefined || onZoomOut !== undefined || onSetZoom !== undefined;
+  const effectiveZoom = controlled ? zoomLevel : internalZoom;
+  const effectiveOnZoomIn = onZoomIn ?? (() => setInternalZoom((z) => Math.min(z + 25, 400)));
+  const effectiveOnZoomOut = onZoomOut ?? (() => setInternalZoom((z) => Math.max(z - 25, 25)));
+  const effectiveOnSetZoom = onSetZoom ?? setInternalZoom;
+
   // Center the diagram (reset pan and zoom to 100%)
   const center = useCallback(() => {
     setPanOffset({ x: 0, y: 0 });
-    onSetZoom?.(100);
-  }, [onSetZoom]);
+    effectiveOnSetZoom(100);
+  }, [effectiveOnSetZoom]);
 
   // Fit the diagram to fill the container
   const fitToView = useCallback(() => {
@@ -139,7 +147,7 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
     const svgRect = svg.getBoundingClientRect();
 
     // Get actual SVG dimensions (at current zoom)
-    const currentZoom = zoomLevel / 100;
+    const currentZoom = effectiveZoom / 100;
     const svgWidth = svgRect.width / currentZoom;
     const svgHeight = svgRect.height / currentZoom;
 
@@ -159,8 +167,8 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
 
     // Reset pan and set new zoom
     setPanOffset({ x: 0, y: 0 });
-    onSetZoom?.(newZoom);
-  }, [zoomLevel, onSetZoom]);
+    effectiveOnSetZoom(newZoom);
+  }, [effectiveZoom, effectiveOnSetZoom]);
 
   // Expose methods via ref
   useImperativeHandle(previewRef, () => ({
@@ -186,12 +194,12 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
   }, [panOffset]);
 
   // Refs for zoom callbacks to avoid effect re-runs
-  const onZoomInRef = useRef(onZoomIn);
-  const onZoomOutRef = useRef(onZoomOut);
+  const onZoomInRef = useRef(effectiveOnZoomIn);
+  const onZoomOutRef = useRef(effectiveOnZoomOut);
   useEffect(() => {
-    onZoomInRef.current = onZoomIn;
-    onZoomOutRef.current = onZoomOut;
-  }, [onZoomIn, onZoomOut]);
+    onZoomInRef.current = effectiveOnZoomIn;
+    onZoomOutRef.current = effectiveOnZoomOut;
+  }, [effectiveOnZoomIn, effectiveOnZoomOut]);
 
   // Handle scroll wheel zoom - attached to outer container so it works even during loading
   useEffect(() => {
@@ -500,7 +508,7 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
         <div
           ref={containerRef}
           style={{
-            transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoomLevel / 100})`,
+            transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${effectiveZoom / 100})`,
             transformOrigin: 'top left',
             minWidth: 'fit-content',
             minHeight: 'fit-content',

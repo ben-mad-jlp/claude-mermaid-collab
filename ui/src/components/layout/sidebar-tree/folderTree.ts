@@ -15,10 +15,24 @@ export interface LeafNode {
 
 export type FolderTree = Array<FolderNode | LeafNode>;
 
+function folderTimestamp(folder: FolderNode): number {
+  let max = 0;
+  for (const child of folder.children) {
+    const ts = child.type === 'leaf'
+      ? ((child.node as any).lastModified ?? 0)
+      : folderTimestamp(child);
+    if (ts > max) max = ts;
+  }
+  return max;
+}
+
 function sortFolderTree(items: FolderTree): FolderTree {
+  for (const item of items) {
+    if (item.type === 'folder') item.children = sortFolderTree(item.children);
+  }
   const folders = items
     .filter((i): i is FolderNode => i.type === 'folder')
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort((a, b) => folderTimestamp(b) - folderTimestamp(a) || a.name.localeCompare(b.name));
   const leaves = items
     .filter((i): i is LeafNode => i.type === 'leaf')
     .sort((a, b) => {
@@ -26,9 +40,6 @@ function sortFolderTree(items: FolderTree): FolderTree {
       const bTs = (b.node as any).lastModified ?? 0;
       return bTs - aTs || a.displayName.localeCompare(b.displayName);
     });
-  for (const folder of folders) {
-    folder.children = sortFolderTree(folder.children);
-  }
   return [...folders, ...leaves];
 }
 

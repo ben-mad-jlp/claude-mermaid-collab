@@ -286,8 +286,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   updateDiagram: (id: string, updates: Partial<Diagram>) => {
     const { diagrams } = get();
+    const stamped = 'lastModified' in updates ? updates : { ...updates, lastModified: Date.now() };
     set({
-      diagrams: diagrams.map((d) => (d.id === id ? { ...d, ...updates } : d)),
+      diagrams: diagrams.map((d) => (d.id === id ? { ...d, ...stamped } : d)),
     });
   },
 
@@ -331,8 +332,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   updateDocument: (id: string, updates: Partial<Document>) => {
     const { documents } = get();
+    const stamped = 'lastModified' in updates ? updates : { ...updates, lastModified: Date.now() };
     set({
-      documents: documents.map((d) => (d.id === id ? { ...d, ...updates } : d)),
+      documents: documents.map((d) => (d.id === id ? { ...d, ...stamped } : d)),
     });
   },
 
@@ -373,8 +375,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   updateDesign: (id: string, updates: Partial<Design>) => {
     const { designs } = get();
+    const stamped = 'lastModified' in updates ? updates : { ...updates, lastModified: Date.now() };
     set({
-      designs: designs.map((w) => (w.id === id ? { ...w, ...updates } : w)),
+      designs: designs.map((w) => (w.id === id ? { ...w, ...stamped } : w)),
     });
   },
 
@@ -413,8 +416,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   updateSpreadsheet: (id: string, updates: Partial<Spreadsheet>) => {
     const { spreadsheets } = get();
+    const stamped = 'lastModified' in updates ? updates : { ...updates, lastModified: Date.now() };
     set({
-      spreadsheets: spreadsheets.map((s) => (s.id === id ? { ...s, ...updates } : s)),
+      spreadsheets: spreadsheets.map((s) => (s.id === id ? { ...s, ...stamped } : s)),
     });
   },
 
@@ -453,8 +457,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   updateSnippet: (id: string, updates: Partial<Snippet>) => {
     const { snippets } = get();
+    const stamped = 'lastModified' in updates ? updates : { ...updates, lastModified: Date.now() };
     set({
-      snippets: snippets.map((s) => (s.id === id ? { ...s, ...updates } : s)),
+      snippets: snippets.map((s) => (s.id === id ? { ...s, ...stamped } : s)),
     });
   },
 

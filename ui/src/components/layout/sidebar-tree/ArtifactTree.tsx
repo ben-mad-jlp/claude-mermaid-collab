@@ -611,7 +611,8 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
         id,
       );
       if (diagram) updateDiagram(id, { content: diagram.content });
-      else removeDiagram(id);
+      // Don't removeDiagram on 404 — the tree entry stays visible and the
+      // tab can still render from the store's existing metadata.
     } catch (err) {
       console.error('[ArtifactTree] getDiagram failed', err);
     }
@@ -626,7 +627,7 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
         id,
       );
       if (doc) updateDocument(id, { content: doc.content });
-      else removeDocument(id);
+      // Don't removeDocument on 404 — same rationale as loadDiagramContent.
     } catch (err) {
       console.error('[ArtifactTree] getDocument failed', err);
     }
