@@ -78,6 +78,10 @@ export const PaneContent: React.FC<PaneContentProps> = ({
   );
   const codeFirstView = useUIStore((s) => s.codeFirstView);
   const pairMode = useUIStore((s) => s.pairMode);
+  const zoomLevel = useUIStore((s) => s.zoomLevel);
+  const zoomIn = useUIStore((s) => s.zoomIn);
+  const zoomOut = useUIStore((s) => s.zoomOut);
+  const setZoomLevel = useUIStore((s) => s.setZoomLevel);
 
   if (!tab) return <EmptyPane />;
 
@@ -151,6 +155,10 @@ export const PaneContent: React.FC<PaneContentProps> = ({
           session={session}
           onContentChange={handleChange}
           onSnippetToolbarControls={onSnippetToolbarControls}
+          zoomLevel={zoomLevel}
+          onZoomIn={zoomIn}
+          onZoomOut={zoomOut}
+          onSetZoom={setZoomLevel}
         />
       );
     }

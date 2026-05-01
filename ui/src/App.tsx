@@ -49,10 +49,8 @@ import Header from '@/components/layout/Header';
 import Sidebar from '@/components/layout/Sidebar';
 import { GlobalSearch } from '@/components/layout/GlobalSearch';
 import EditorToolbar from '@/components/layout/EditorToolbar';
-import { SplitPane } from '@/components/layout/SplitPane';
 import { MobileLayout } from '@/components/layout/MobileLayout';
 import QuestionPanel from '@/components/question-panel/QuestionPanel';
-import { ChatPanel } from '@/components/chat-drawer';
 import PinnedTabBar from '@/components/layout/tabs/PinnedTabBar';
 import TabBar from '@/components/layout/tabs/TabBar';
 
@@ -155,7 +153,6 @@ const App: React.FC = () => {
     zoomIn,
     zoomOut,
     setZoomLevel,
-    agentChatVisible,
   } = useUIStore(
     useShallow((state) => ({
       editMode: state.editMode,
@@ -163,13 +160,10 @@ const App: React.FC = () => {
       zoomIn: state.zoomIn,
       zoomOut: state.zoomOut,
       setZoomLevel: state.setZoomLevel,
-      agentChatVisible: state.agentChatVisible,
     }))
   );
 
   const setDocumentConflict = useUIStore((s) => s.setDocumentConflict);
-
-  const showSecondaryPanel = agentChatVisible;
 
   // Session state
   const {
@@ -1542,9 +1536,7 @@ const App: React.FC = () => {
 
     return (
       <div className="flex flex-col h-full min-h-0">
-        {/* Editor: all content flows through SplitEditorHost → PaneContent.
-            NOTE: zoom/history/preview props are temporarily not threaded through
-            the split host — deferred follow-up. */}
+        {/* Editor: all content flows through SplitEditorHost → PaneContent. */}
         <SplitEditorHost
           editMode={editMode}
           project={currentSession?.project}
@@ -1661,43 +1653,17 @@ const App: React.FC = () => {
           {/* Fixed-width Sidebar */}
           <Sidebar className="h-full" />
 
-          {/* Main Content - with or without ChatPanel split */}
-          {showSecondaryPanel ? (
-            <SplitPane
-              direction="horizontal"
-              defaultPrimarySize={75}
-              minPrimarySize={20}
-              minSecondarySize={15}
-              storageId="main-chat-split"
-              primaryContent={
-                <main
-                  className={`
-                    h-full
-                    min-h-0
-                    overflow-hidden
-                    bg-white dark:bg-gray-800
-                  `}
-                >
-                  {renderMainContent()}
-                </main>
-              }
-              secondaryContent={
-                <ChatPanel className="h-full" />
-              }
-            />
-          ) : (
-            <main
-              className={`
-                flex-1
-                h-full
-                min-h-0
-                overflow-hidden
-                bg-white dark:bg-gray-800
-              `}
-            >
-              {renderMainContent()}
-            </main>
-          )}
+          <main
+            className={`
+              flex-1
+              h-full
+              min-h-0
+              overflow-hidden
+              bg-white dark:bg-gray-800
+            `}
+          >
+            {renderMainContent()}
+          </main>
         </div>
 
         {/* Question Panel Overlay */}
