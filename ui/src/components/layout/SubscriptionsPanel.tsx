@@ -129,7 +129,7 @@ const SubscriptionRow: React.FC<{
 
   const statusBg =
     sub.status === 'permission'
-      ? 'bg-red-200 hover:bg-red-300 border border-red-400'
+      ? 'bg-red-300 hover:bg-red-400 border border-red-500'
       : sub.status === 'active'
         ? 'card-pulse-amber border border-amber-400'
         : sub.status === 'waiting'

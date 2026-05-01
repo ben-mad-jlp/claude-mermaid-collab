@@ -232,10 +232,10 @@ export const Header: React.FC<HeaderProps> = ({
               rounded-full
               ${
                 isConnected
-                  ? 'bg-green-300 text-green-900'
+                  ? 'bg-green-300 text-black'
                   : isConnecting
-                  ? 'bg-yellow-200 text-yellow-800'
-                  : 'bg-red-200 text-red-800'
+                  ? 'bg-yellow-300 text-black'
+                  : 'bg-red-300 text-black'
               }
             `}
           >
@@ -265,7 +265,7 @@ export const Header: React.FC<HeaderProps> = ({
               text-xs font-medium
               rounded-full
               ${isVscodeConnected
-                ? 'bg-green-300 text-green-900'
+                ? 'bg-green-300 text-black'
                 : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}
             `}
           >
