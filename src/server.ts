@@ -76,6 +76,30 @@ initializeWebSocketHandler(wsHandler);
 const sweeper = new BindingSweeper();
 sweeper.start();
 
+// Periodically clean stale VS Code Server pid files so SSH reconnects don't hang.
+// VS Code leaves a stale pid.txt when the server process dies ungracefully.
+(async function cleanVscodeServerPids() {
+  const { promises: fsp } = await import('node:fs');
+  const { join: pathJoin } = await import('node:path');
+  const serversDir = pathJoin(homedir(), '.vscode-server', 'cli', 'servers');
+  try {
+    const entries = await fsp.readdir(serversDir);
+    for (const entry of entries) {
+      const pidFile = pathJoin(serversDir, entry, 'pid.txt');
+      try {
+        const pid = parseInt(await fsp.readFile(pidFile, 'utf-8'), 10);
+        if (!isNaN(pid)) {
+          try { process.kill(pid, 0); } catch {
+            await fsp.unlink(pidFile);
+            console.log(`[vscode-cleaner] Removed stale pid.txt for dead PID ${pid}`);
+          }
+        }
+      } catch { /* pid.txt missing or unreadable — skip */ }
+    }
+  } catch { /* serversDir missing — VS Code not installed, skip */ }
+  setTimeout(cleanVscodeServerPids, 5 * 60 * 1000);
+})();
+
 // Initialize status manager with WebSocket handler
 statusManager.setWebSocketHandler(wsHandler);
 
