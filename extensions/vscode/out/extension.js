@@ -3767,7 +3767,9 @@ var ws = null;
 var statusBarItem;
 var reconnectTimer = null;
 var reconnectDelay = 1e3;
+var reconnectAttempts = 0;
 var MAX_DELAY = 3e4;
+var MAX_ATTEMPTS = 20;
 var _ctx;
 var hasReattachedThisSession = false;
 var reattachQueue = [];
@@ -3789,17 +3791,7 @@ function activate(context) {
     })
   );
   updateStatusBar(false);
-  context.subscriptions.push(
-    vscode.window.onDidCloseTerminal((t) => {
-      const groupedName = groupedSessionNames.get(t.name);
-      if (groupedName) {
-        groupedSessionNames.delete(t.name);
-        execAsync(`tmux kill-session -t '${groupedName}'`).catch(() => {
-        });
-      }
-    })
-  );
-  connect(context);
+  setTimeout(() => connect(context), 5e3);
 }
 function connect(context) {
   if (ws && (ws.readyState === wrapper_default.OPEN || ws.readyState === wrapper_default.CONNECTING)) {
@@ -3812,6 +3804,7 @@ function connect(context) {
   ws = new wrapper_default(url);
   ws.on("open", () => {
     reconnectDelay = 1e3;
+    reconnectAttempts = 0;
     updateStatusBar(true);
     ws.send(JSON.stringify({ type: "subscribe", channel: "ide" }));
     ws.send(JSON.stringify({
@@ -3831,8 +3824,11 @@ function connect(context) {
   ws.on("close", () => {
     hasReattachedThisSession = false;
     updateStatusBar(false);
-    scheduleReconnect(reconnectDelay);
-    reconnectDelay = Math.min(reconnectDelay * 2, MAX_DELAY);
+    reconnectAttempts++;
+    if (reconnectAttempts <= MAX_ATTEMPTS) {
+      scheduleReconnect(reconnectDelay);
+      reconnectDelay = Math.min(reconnectDelay * 2, MAX_DELAY);
+    }
   });
   ws.on("error", () => {
   });

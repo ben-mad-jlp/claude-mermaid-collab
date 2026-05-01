@@ -10,7 +10,9 @@ let ws: WebSocket | null = null;
 let statusBarItem: vscode.StatusBarItem;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectDelay = 1000;
+let reconnectAttempts = 0;
 const MAX_DELAY = 30_000;
+const MAX_ATTEMPTS = 20;
 
 let _ctx: vscode.ExtensionContext | undefined;
 
@@ -38,18 +40,11 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   updateStatusBar(false);
-
-  context.subscriptions.push(
-    vscode.window.onDidCloseTerminal((t) => {
-      const groupedName = groupedSessionNames.get(t.name);
-      if (groupedName) {
-        groupedSessionNames.delete(t.name);
-        execAsync(`tmux kill-session -t '${groupedName}'`).catch(() => {});
-      }
-    }),
-  );
-
-  connect(context);
+  // Defer WebSocket connection until after extension host fully initializes.
+  // Connecting immediately during startup causes the extension host to crash
+  // (ECONNREFUSED → reconnect loop), triggering VS Code's "3 crashes" guard
+  // which hangs the remote at "Initializing VS Code Server".
+  setTimeout(() => connect(context), 5000);
 }
 
 function connect(context: vscode.ExtensionContext) {
@@ -63,6 +58,7 @@ function connect(context: vscode.ExtensionContext) {
 
   ws.on('open', () => {
     reconnectDelay = 1000;
+    reconnectAttempts = 0;
     updateStatusBar(true);
     ws!.send(JSON.stringify({ type: 'subscribe', channel: 'ide' }));
     ws!.send(JSON.stringify({
@@ -83,8 +79,11 @@ function connect(context: vscode.ExtensionContext) {
   ws.on('close', () => {
     hasReattachedThisSession = false;
     updateStatusBar(false);
-    scheduleReconnect(reconnectDelay);
-    reconnectDelay = Math.min(reconnectDelay * 2, MAX_DELAY);
+    reconnectAttempts++;
+    if (reconnectAttempts <= MAX_ATTEMPTS) {
+      scheduleReconnect(reconnectDelay);
+      reconnectDelay = Math.min(reconnectDelay * 2, MAX_DELAY);
+    }
   });
 
   ws.on('error', () => { /* close fires after error */ });
@@ -441,7 +440,6 @@ function handleBrowserEvents(requestId: string, sessionId: string, eventType: st
   if (eventType === 'console') {
     sendCollabMsg({ type: 'browser_response', requestId, result: [...session.consoleBuf] });
   } else if (eventType === 'network') {
-    // Merge completed (networkBuf) + in-flight (networkMap), deduplicated
     const seen = new Set<string>();
     const all = [...session.networkBuf, ...session.networkMap.values()].filter(e => {
       if (seen.has(e.requestId)) return false;
