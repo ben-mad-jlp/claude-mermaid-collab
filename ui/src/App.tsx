@@ -1543,6 +1543,7 @@ const App: React.FC = () => {
           session={currentSession?.name}
           onContentChange={(_id, content) => handleContentChange(content)}
           onSnippetToolbarControls={setSnippetToolbarControls}
+          previewRef={mermaidPreviewRef}
           toolbar={showToolbar ? <EditorToolbar
             itemName={selectedItem?.name || ''}
             hasUnsavedChanges={hasUnsavedChanges || isSaving}

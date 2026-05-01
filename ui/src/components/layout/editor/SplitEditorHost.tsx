@@ -12,6 +12,7 @@ import { SplitPane } from '../SplitPane';
 import EditorAreaDropZones from './EditorAreaDropZones';
 import PaneContent from './PaneContent';
 import PinnedTabBar from '../tabs/PinnedTabBar';
+import type { MermaidPreviewRef } from '@/components/editors/MermaidPreview';
 import TabBar from '../tabs/TabBar';
 import {
   sessionKey,
@@ -35,6 +36,7 @@ export interface SplitEditorHostProps {
   /** Optional toolbar rendered between the tab bars and the content area */
   toolbar?: React.ReactNode;
   onSnippetToolbarControls?: (controls: React.ReactNode) => void;
+  previewRef?: React.RefObject<MermaidPreviewRef | null>;
 }
 
 // Exported for unit testing
@@ -82,7 +84,7 @@ function getCurrentEntry() {
 }
 
 export function SplitEditorHost(props: SplitEditorHostProps) {
-  const { editMode, project, session, onContentChange, toolbar, onSnippetToolbarControls } = props;
+  const { editMode, project, session, onContentChange, toolbar, onSnippetToolbarControls, previewRef } = props;
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
   );
@@ -133,6 +135,7 @@ export function SplitEditorHost(props: SplitEditorHostProps) {
       session={session}
       onContentChange={leftOnContentChange}
       onSnippetToolbarControls={onSnippetToolbarControls}
+      previewRef={previewRef}
     />
   );
   const rightPaneNode = (

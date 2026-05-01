@@ -63,7 +63,7 @@ export interface UnifiedEditorProps {
   /** Callback for setting zoom to specific level */
   onSetZoom?: (level: number) => void;
   /** Ref to access MermaidPreview methods (center, fitToView) */
-  previewRef?: React.RefObject<MermaidPreviewRef>;
+  previewRef?: React.RefObject<MermaidPreviewRef | null>;
   /** History diff for inline document comparison (documents only) */
   historyDiff?: {
     timestamp: string;

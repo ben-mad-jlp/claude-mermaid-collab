@@ -50,7 +50,7 @@ export interface MermaidPreviewProps {
   /** Callback when edge is clicked with click position */
   onEdgeClickWithPosition?: (source: string, target: string, event: MouseEvent) => void;
   /** Ref to expose imperative methods */
-  previewRef?: React.RefObject<MermaidPreviewRef>;
+  previewRef?: React.RefObject<MermaidPreviewRef | null>;
 }
 
 /** Imperative methods exposed by MermaidPreview */

@@ -26,6 +26,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useUIStore } from '@/stores/uiStore';
 import type { TabDescriptor } from '@/stores/tabsStore';
 import type { Document, Item } from '@/types';
+import type { MermaidPreviewRef } from '@/components/editors/MermaidPreview';
 
 export interface PaneContentProps {
   tab: TabDescriptor | null;
@@ -34,6 +35,7 @@ export interface PaneContentProps {
   session?: string;
   onContentChange?: (itemId: string, content: string) => void;
   onSnippetToolbarControls?: (controls: React.ReactNode) => void;
+  previewRef?: React.RefObject<MermaidPreviewRef | null>;
 }
 
 function NotFound({ message }: { message: string }) {
@@ -56,6 +58,7 @@ export const PaneContent: React.FC<PaneContentProps> = ({
   session,
   onContentChange,
   onSnippetToolbarControls,
+  previewRef,
 }) => {
   const {
     diagrams,
@@ -159,6 +162,7 @@ export const PaneContent: React.FC<PaneContentProps> = ({
           onZoomIn={zoomIn}
           onZoomOut={zoomOut}
           onSetZoom={setZoomLevel}
+          previewRef={previewRef}
         />
       );
     }
