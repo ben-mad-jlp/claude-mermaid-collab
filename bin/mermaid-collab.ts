@@ -88,8 +88,22 @@ async function waitForServer(maxWaitMs: number = 5000): Promise<boolean> {
   return false;
 }
 
+async function cleanStaleVscodeServer(): Promise<void> {
+  const glob = new Bun.Glob(join(homedir(), '.vscode-server/cli/servers/Stable-*/pid.txt'));
+  for await (const pidFile of glob.scan('/')) {
+    try {
+      const pid = parseInt(await readFile(pidFile, 'utf-8'), 10);
+      if (!isNaN(pid) && !isProcessRunning(pid)) {
+        await unlink(pidFile);
+        console.log(`Cleaned stale VS Code Server pid (${pid})`);
+      }
+    } catch { /* ignore per-file errors */ }
+  }
+}
+
 async function start(): Promise<void> {
   await ensureDataDir();
+  await cleanStaleVscodeServer();
 
   // Check if already running
   const existingPid = await readPid();
