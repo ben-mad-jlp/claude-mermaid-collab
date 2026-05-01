@@ -123,7 +123,8 @@ const SubscriptionRow: React.FC<{
   onDragOver: (e: React.DragEvent, key: string) => void;
   onDragEnd: () => void;
   isDragOver: boolean;
-}> = ({ subKey, sub, onNavigate, onUnsubscribe, onDragStart, onDragOver, onDragEnd, isDragOver }) => {
+  ideConnected: boolean;
+}> = ({ subKey, sub, onNavigate, onUnsubscribe, onDragStart, onDragOver, onDragEnd, isDragOver, ideConnected }) => {
   const elapsed = useElapsed(sub.lastUpdate, sub.status);
 
   const statusBg =
@@ -180,6 +181,25 @@ const SubscriptionRow: React.FC<{
             )}
           </div>
         </div>
+        {/* Open terminal button (only when VS Code connected) */}
+        {ideConnected && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              fetch('/api/ide/create-terminal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session: sub.session }),
+              }).catch(() => {});
+            }}
+            className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-green-600 dark:hover:text-green-400 transition-opacity self-start mt-1"
+            title="Open terminal"
+          >
+            <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm3.293 1.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L7.586 10 5.293 7.707a1 1 0 010-1.414zM11 12a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
+            </svg>
+          </button>
+        )}
         {/* Unsubscribe button */}
         <button
           onClick={(e) => {
@@ -204,6 +224,31 @@ const SubscriptionRow: React.FC<{
   );
 };
 
+function useIdeStatus() {
+  const [connected, setConnected] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const poll = () => {
+      fetch('/api/ide/status')
+        .then((r) => r.json())
+        .then((data: { connected: boolean }) => {
+          if (!cancelled) setConnected(data.connected);
+        })
+        .catch(() => {
+          if (!cancelled) setConnected(false);
+        });
+    };
+
+    poll();
+    const id = setInterval(poll, 10_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  return { connected };
+}
+
 export interface SubscriptionsPanelProps {
   currentProject?: string;
   onNavigate?: (project: string, session: string) => void;
@@ -212,6 +257,7 @@ export interface SubscriptionsPanelProps {
 export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentProject, onNavigate }) => {
   const { subscriptions, order, unsubscribe, subscribe, reorder } = useSubscriptionStore();
   const { sessions, setCurrentSession } = useSessionStore();
+  const { connected } = useIdeStatus();
 
   const [collapsed, setCollapsed] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -379,6 +425,7 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
               onDragOver={handleDragOver}
               onDragEnd={handleDragEnd}
               isDragOver={dragOverKey === key}
+              ideConnected={connected === true}
             />
           ))}
         </div>
