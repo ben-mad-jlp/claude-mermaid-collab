@@ -52,6 +52,27 @@ export async function handleIdeRoutes(req: Request, url: URL, wsHandler: WebSock
     }
   }
 
+  if (url.pathname === '/api/ide/create-terminal' && req.method === 'POST') {
+    try {
+      const { session } = await req.json() as { session?: string };
+      if (!session || typeof session !== 'string') {
+        return jsonError('session is required', 400);
+      }
+      const proc = Bun.spawn(
+        ['tmux', 'new-session', '-d', '-s', session],
+        { stdout: 'ignore', stderr: 'ignore' }
+      );
+      await proc.exited; // ok if it fails (session already exists)
+      wsHandler.broadcastToChannel('ide', {
+        type: 'ide_open_terminal',
+        session,
+      });
+      return Response.json({ success: true });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
   if (url.pathname === '/api/ide/open-diff' && req.method === 'POST') {
     const timeoutPromise = new Promise<Response>(resolve =>
       setTimeout(() => resolve(Response.json({ error: 'IDE request timed out' }, { status: 504 })), 3000)

@@ -406,6 +406,11 @@ const App: React.FC = () => {
   // WebSocket for real-time updates
   const { isConnected, isConnecting } = useWebSocket();
 
+  const [isVscodeConnected, setIsVscodeConnected] = React.useState(false);
+  useEffect(() => {
+    fetch('/api/ide/status').then(r => r.json()).then((s: { connected: boolean }) => setIsVscodeConnected(s.connected)).catch(() => {});
+  }, []);
+
   // Session polling for fallback status sync (dual-channel with WebSocket)
   useSessionPolling(
     currentSession?.project ?? null,
@@ -442,6 +447,9 @@ const App: React.FC = () => {
     const client = getWebSocketClient();
 
     // Subscribe to updates when connected
+    if (isConnected) {
+      client.subscribe('ide');
+    }
     if (isConnected && currentSession) {
       client.subscribe('updates');
       // Restore any cached UI state on reconnection
@@ -946,6 +954,12 @@ const App: React.FC = () => {
           break;
         }
 
+        case 'ide_status': {
+          const { connected } = message as any;
+          setIsVscodeConnected(!!connected);
+          break;
+        }
+
         case 'pair_mode_changed': {
           const { pairMode: newPairMode, project: msgProject, session: msgSession } = message as any;
           const cs = useSessionStore.getState().currentSession;
@@ -1147,10 +1161,15 @@ const App: React.FC = () => {
 
   // Apply theme to document
   useEffect(() => {
+    const html = document.documentElement;
     if (theme === 'dark') {
-      document.documentElement.classList.add('dark');
+      html.classList.add('dark');
+      html.classList.remove('sepia');
+    } else if (theme === 'sepia') {
+      html.classList.add('sepia');
+      html.classList.remove('dark');
     } else {
-      document.documentElement.classList.remove('dark');
+      html.classList.remove('dark', 'sepia');
     }
   }, [theme]);
 
@@ -1619,6 +1638,7 @@ const App: React.FC = () => {
           onDeleteSession={handleDeleteSession}
           isConnected={isConnected}
           isConnecting={isConnecting}
+          isVscodeConnected={isVscodeConnected}
         />
 
         {/* Main Content Area with Sidebar, Content, and ChatPanel */}

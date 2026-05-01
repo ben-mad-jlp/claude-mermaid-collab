@@ -17,7 +17,7 @@ describe('useUIStore', () => {
   describe('Theme Management', () => {
     it('should initialize with light theme by default', () => {
       const state = useUIStore.getState();
-      expect(['light', 'dark']).toContain(state.theme);
+      expect(['light', 'dark', 'sepia']).toContain(state.theme);
     });
 
     it('should set theme to dark', () => {
@@ -32,14 +32,26 @@ describe('useUIStore', () => {
       expect(useUIStore.getState().theme).toBe('light');
     });
 
+    it('should set theme to sepia', () => {
+      const { setTheme } = useUIStore.getState();
+      setTheme('sepia');
+      expect(useUIStore.getState().theme).toBe('sepia');
+    });
+
     it('should toggle theme from light to dark', () => {
       useUIStore.getState().setTheme('light');
       useUIStore.getState().toggleTheme();
       expect(useUIStore.getState().theme).toBe('dark');
     });
 
-    it('should toggle theme from dark to light', () => {
+    it('should toggle theme from dark to sepia', () => {
       useUIStore.getState().setTheme('dark');
+      useUIStore.getState().toggleTheme();
+      expect(useUIStore.getState().theme).toBe('sepia');
+    });
+
+    it('should toggle theme from sepia to light', () => {
+      useUIStore.getState().setTheme('sepia');
       useUIStore.getState().toggleTheme();
       expect(useUIStore.getState().theme).toBe('light');
     });
@@ -291,7 +303,7 @@ describe('useUIStore', () => {
       expect(useUIStore.getState().sessionPanelVisible).toBe(false);
 
       useUIStore.getState().toggleTheme();
-      expect(useUIStore.getState().theme).toBe('light');
+      expect(useUIStore.getState().theme).toBe('sepia');
     });
 
     it('should maintain state independence across different properties', () => {

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-export type Theme = 'light' | 'dark';
+export type Theme = 'light' | 'dark' | 'sepia';
 
 export interface UIState {
   // Theme state
@@ -107,7 +107,8 @@ export const useUIStore = create<UIState>()(
       setTheme: (theme: Theme) => set({ theme }),
       toggleTheme: () => {
         const current = get().theme;
-        set({ theme: current === 'light' ? 'dark' : 'light' });
+        const next: Theme = current === 'light' ? 'dark' : current === 'dark' ? 'sepia' : 'light';
+        set({ theme: next });
       },
 
       // Panel visibility states

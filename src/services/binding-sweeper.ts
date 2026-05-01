@@ -8,15 +8,18 @@
  */
 
 import { promises as fsp } from 'node:fs';
-import { Glob } from 'bun';
+import * as path from 'node:path';
 
 export class BindingSweeper {
   private _interval: ReturnType<typeof setInterval> | null = null;
 
   async sweepOnce(): Promise<void> {
-    const glob = new Glob('/tmp/.mermaid-collab-binding-*.json');
+    const allFiles = await fsp.readdir('/tmp').catch(() => [] as string[]);
+    const bindingFiles = allFiles
+      .filter(f => f.startsWith('.mermaid-collab-binding-') && f.endsWith('.json'))
+      .map(f => path.join('/tmp', f));
 
-    for await (const filePath of glob.scan('/')) {
+    for (const filePath of bindingFiles) {
       try {
         const raw = await fsp.readFile(filePath, 'utf8');
         const data = JSON.parse(raw) as { claudePid?: unknown };

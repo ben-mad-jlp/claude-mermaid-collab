@@ -29,7 +29,7 @@ describe('useTheme', () => {
       const { result } = renderHook(() => useTheme());
 
       // Should have a valid theme
-      expect(['light', 'dark']).toContain(result.current.theme);
+      expect(['light', 'dark', 'sepia']).toContain(result.current.theme);
     });
 
     it('should match UI store theme', () => {
@@ -61,6 +61,14 @@ describe('useTheme', () => {
       expect(result.current.theme).toBe('dark');
     });
 
+    it('should set theme to sepia', () => {
+      const { result } = renderHook(() => useTheme());
+      act(() => {
+        result.current.setTheme('sepia');
+      });
+      expect(result.current.theme).toBe('sepia');
+    });
+
     it('should persist theme change to store', () => {
       const { result } = renderHook(() => useTheme());
 
@@ -89,7 +97,7 @@ describe('useTheme', () => {
       expect(result.current.theme).toBe('dark');
     });
 
-    it('should toggle from dark to light', () => {
+    it('should toggle from dark to sepia', () => {
       const { result } = renderHook(() => useTheme());
 
       act(() => {
@@ -102,30 +110,18 @@ describe('useTheme', () => {
         result.current.toggleTheme();
       });
 
-      expect(result.current.theme).toBe('light');
+      expect(result.current.theme).toBe('sepia');
     });
 
-    it('should toggle multiple times', () => {
+    it('should cycle through all three themes', () => {
       const { result } = renderHook(() => useTheme());
-
-      act(() => {
-        result.current.setTheme('light');
-      });
-
-      const initial = result.current.theme;
-
-      act(() => {
-        result.current.toggleTheme();
-      });
-
-      const after1 = result.current.theme;
-      expect(after1).not.toBe(initial);
-
-      act(() => {
-        result.current.toggleTheme();
-      });
-
-      expect(result.current.theme).toBe(initial);
+      act(() => { result.current.setTheme('light'); });
+      act(() => { result.current.toggleTheme(); });
+      expect(result.current.theme).toBe('dark');
+      act(() => { result.current.toggleTheme(); });
+      expect(result.current.theme).toBe('sepia');
+      act(() => { result.current.toggleTheme(); });
+      expect(result.current.theme).toBe('light');
     });
   });
 
