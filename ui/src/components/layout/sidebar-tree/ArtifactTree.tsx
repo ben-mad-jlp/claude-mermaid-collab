@@ -8,8 +8,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSessionStore } from '../../../stores/sessionStore';
 import { useSidebarTreeStore } from '../../../stores/sidebarTreeStore';
-import { PseudoTreeBody, getAllDirPaths } from './PseudoTreeBody';
-import { fetchPseudoFiles, type PseudoFileSummary } from '../../../lib/pseudo-api';
 import {
   filterTreeBySearch,
   selectBlueprintNodes,
@@ -154,24 +152,17 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
   const setForceExpandedSections = useSidebarTreeStore(
     (s) => s.setForceExpandedSections,
   );
-  const activeTab = useSidebarTreeStore((s) => s.activeTab);
-  const setActiveTab = useSidebarTreeStore((s) => s.setActiveTab);
   const collapseAllItems = useSidebarTreeStore((s) => s.collapseAllItems);
   const expandAllItems = useSidebarTreeStore((s) => s.expandAllItems);
   const collapsedFolderPaths = useSidebarTreeStore((s) => s.collapsedFolderPaths);
   const toggleFolderPath = useSidebarTreeStore((s) => s.toggleFolderPath);
-  const collapseAllPseudo = useSidebarTreeStore((s) => s.collapseAllPseudo);
-  const expandAllPseudo = useSidebarTreeStore((s) => s.expandAllPseudo);
   const multiSelection = useSidebarTreeStore((s) => s.multiSelection);
   const setSelection = useSidebarTreeStore((s) => s.setSelection);
   const toggleInSelection = useSidebarTreeStore((s) => s.toggleInSelection);
   const extendSelectionTo = useSidebarTreeStore((s) => s.extendSelectionTo);
   const clearSelection = useSidebarTreeStore((s) => s.clearSelection);
 
-  const [pseudoFileList, setPseudoFileList] = useState<PseudoFileSummary[]>([]);
   const sessionSearchCache = React.useRef<Map<string, string>>(new Map());
-  const selectedPseudoPathForTree =
-    activeTabDescriptor?.kind === 'code-file' ? activeTabDescriptor.artifactId : '';
 
   const openPermanent = useTabsStore((s) => s.openPermanent);
   const openPreview = useTabsStore((s) => s.openPreview);
@@ -391,63 +382,6 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
       Array.from(sectionsWithMatches).filter((id) => !collapsedSections.has(id)),
     );
   }, [searchQuery, sectionsWithMatches, setForceExpandedSections, collapsedSections]);
-
-  // Load code file list when the code tab becomes active or session changes.
-  // Fetches every source file in the project plus any pseudo-indexed metadata,
-  // then merges them: pseudo-indexed files keep their method/export counts;
-  // un-indexed files appear in the tree with zero counts (no badge shown).
-  useEffect(() => {
-    if (activeTab !== 'code' || !currentSession) return;
-    let cancelled = false;
-    const project = currentSession.project;
-    Promise.all([
-      api.listAllProjectFiles(project).then((r) => r.entries),
-      fetchPseudoFiles(project).catch((err) => {
-        console.warn('[ArtifactTree] fetchPseudoFiles failed (non-fatal)', err);
-        return [] as PseudoFileSummary[];
-      }),
-    ])
-      .then(([allFiles, pseudoFiles]) => {
-        if (cancelled) return;
-        const projectPrefix = project.endsWith('/') ? project : project + '/';
-        // Key pseudo meta by BOTH absolute path and relative-path so we can
-        // find matches regardless of which form the pseudo-db stored.
-        const metaByAny = new Map<string, PseudoFileSummary>();
-        for (const p of pseudoFiles) {
-          metaByAny.set(p.filePath, p);
-          if (p.filePath.startsWith(projectPrefix)) {
-            metaByAny.set(p.filePath.slice(projectPrefix.length), p);
-          }
-        }
-        const merged: PseudoFileSummary[] = allFiles.map((f) => {
-          // Always canonicalise filePath as `${project}/${relativePath}` so
-          // PseudoTreeBody's toRelative() strips it into a clean relative
-          // path for buildTree — otherwise the tree falls back to a flat
-          // list because startsWith() misses due to trailing-slash or
-          // symlink differences.
-          const canonical = `${projectPrefix}${f.relativePath}`;
-          const meta = metaByAny.get(f.path) ?? metaByAny.get(f.relativePath);
-          if (meta) return { ...meta, filePath: canonical };
-          return {
-            filePath: canonical,
-            title: f.name,
-            methodCount: 0,
-            exportCount: 0,
-            lastUpdated: '',
-          };
-        });
-        setPseudoFileList(merged);
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          console.error('[ArtifactTree] listAllProjectFiles failed', err);
-          setPseudoFileList([]);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeTab, currentSession]);
 
   const visibleOrder = useMemo<string[]>(() => {
     const filterForOrder = (nodes: TreeNode[]): TreeNode[] =>
@@ -1029,41 +963,9 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
         </div>
       )}
       <div className="p-2 border-b border-gray-200 dark:border-gray-700 space-y-2">
-        {!vsCodeMode && (
-        <div role="tablist" aria-label="Sidebar tabs" className="flex items-center gap-1 border-b border-gray-200 dark:border-gray-700 -mx-2 px-2 pb-1">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'items'}
-            data-testid="sidebar-tab-items"
-            onClick={() => setActiveTab('items')}
-            className={`px-2 py-1 text-xs rounded ${
-              activeTab === 'items'
-                ? 'bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-semibold'
-                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-            }`}
-          >
-            Items
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'code'}
-            data-testid="sidebar-tab-code"
-            onClick={() => setActiveTab('code')}
-            className={`px-2 py-1 text-xs rounded ${
-              activeTab === 'code'
-                ? 'bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-semibold'
-                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-            }`}
-          >
-            Code
-          </button>
-        </div>
-        )}
         <div className="flex items-center justify-between">
           <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-            {vsCodeMode || activeTab === 'items' ? 'Items' : 'Code'}
+            Items
           </span>
           <input
             ref={fileInputRef}
@@ -1076,11 +978,7 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
             <button
               type="button"
               onClick={() => {
-                if (activeTab === 'items') {
-                  collapseAllItems(ALL_SECTION_IDS);
-                } else {
-                  collapseAllPseudo(getAllDirPaths(pseudoFileList));
-                }
+                collapseAllItems(ALL_SECTION_IDS);
               }}
               title="Collapse all"
               aria-label="Collapse all sections"
@@ -1093,8 +991,7 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
             <button
               type="button"
               onClick={() => {
-                if (activeTab === 'items') expandAllItems();
-                else expandAllPseudo();
+                expandAllItems();
               }}
               title="Expand all"
               aria-label="Expand all sections"
@@ -1104,20 +1001,18 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
                 <polyline points="6 9 12 15 18 9" />
               </svg>
             </button>
-            {activeTab === 'items' && (
-              <button
-                type="button"
-                onClick={handleUploadClick}
-                title="Upload"
-                aria-label="Upload files"
-                className="p-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
-              >
-                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={handleUploadClick}
+              title="Upload"
+              aria-label="Upload files"
+              className="p-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+            </button>
           </div>
         </div>
         <div className="relative">
@@ -1143,45 +1038,16 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
             </button>
           )}
         </div>
-        {activeTab === 'items' && (
-          <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
-            <input
-              type="checkbox"
-              checked={showDeprecated}
-              onChange={(e) => setShowDeprecated(e.target.checked)}
-            />
-            Show deprecated
-          </label>
-        )}
+        <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
+          <input
+            type="checkbox"
+            checked={showDeprecated}
+            onChange={(e) => setShowDeprecated(e.target.checked)}
+          />
+          Show deprecated
+        </label>
       </div>
 
-      {!vsCodeMode && activeTab === 'code' ? (
-        <div className="overflow-y-auto flex-1" role="tree">
-          <PseudoTreeBody
-            fileList={pseudoFileList}
-            currentPath={selectedPseudoPathForTree}
-            onNavigate={(stem) => {
-              const basename = stem.split('/').pop() || stem;
-              openPreview({
-                id: `pseudo::${stem}`,
-                kind: 'code-file',
-                artifactId: stem,
-                name: basename,
-              });
-            }}
-            onPermanent={(stem) => {
-              const basename = stem.split('/').pop() || stem;
-              openPermanent({
-                id: `pseudo::${stem}`,
-                kind: 'code-file',
-                artifactId: stem,
-                name: basename,
-              });
-            }}
-            project={currentSession.project}
-          />
-        </div>
-      ) : (
       <div className="overflow-y-auto flex-1 pl-2" role="tree">
         <PinsSection
           nodes={pinnedNodes}
@@ -1389,7 +1255,6 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
           toTabDescriptor={toTabDescriptor}
         />
       </div>
-      )}
 
       {contextMenu && (
         contextMenu.nodes ? (

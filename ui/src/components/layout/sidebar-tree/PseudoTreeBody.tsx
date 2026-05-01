@@ -9,7 +9,7 @@
  * ui/src/pages/pseudo/PseudoFileTree.tsx.
  */
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   buildTree,
   deepSortTree,
@@ -53,9 +53,19 @@ export function PseudoTreeBody({
   project,
   codeArtifactPaths = [],
 }: PseudoTreeBodyProps) {
-  const pseudoCollapsedPaths = useSidebarTreeStore((s) => s.pseudoCollapsedPaths);
+  const [pseudoCollapsedPaths, setPseudoCollapsedPaths] = useState<Set<string>>(new Set());
   const searchQuery = useSidebarTreeStore((s) => s.searchQuery);
-  const togglePseudoPath = useSidebarTreeStore((s) => s.togglePseudoPath);
+  const togglePseudoPath = useCallback((path: string) => {
+    setPseudoCollapsedPaths((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
+  }, []);
 
   const projectPrefix = useMemo(
     () => (project ? (project.endsWith('/') ? project : project + '/') : ''),
