@@ -80,23 +80,43 @@ sweeper.start();
 // VS Code leaves a stale pid.txt when the server process dies ungracefully.
 (async function cleanVscodeServerPids() {
   const { promises: fsp } = await import('node:fs');
+  const { existsSync: fsExists } = await import('node:fs');
   const { join: pathJoin } = await import('node:path');
-  const serversDir = pathJoin(homedir(), '.vscode-server', 'cli', 'servers');
+  const oldBase = pathJoin(homedir(), '.vscode-server', 'cli', 'servers');
+  const newBase = pathJoin(homedir(), '.vscode', 'cli', 'servers');
+
+  // Ensure agent-host (newer VS Code) can find servers installed under ~/.vscode-server
   try {
-    const entries = await fsp.readdir(serversDir);
+    await fsp.mkdir(newBase, { recursive: true });
+    const entries = await fsp.readdir(oldBase).catch(() => [] as string[]);
     for (const entry of entries) {
-      const pidFile = pathJoin(serversDir, entry, 'pid.txt');
-      try {
-        const pid = parseInt(await fsp.readFile(pidFile, 'utf-8'), 10);
-        if (!isNaN(pid)) {
-          try { process.kill(pid, 0); } catch {
-            await fsp.unlink(pidFile);
-            console.log(`[vscode-cleaner] Removed stale pid.txt for dead PID ${pid}`);
-          }
-        }
-      } catch { /* pid.txt missing or unreadable — skip */ }
+      if (!entry.startsWith('Stable-')) continue;
+      const link = pathJoin(newBase, entry);
+      if (!fsExists(link)) {
+        await fsp.symlink(pathJoin(oldBase, entry), link).catch(() => {});
+      }
     }
-  } catch { /* serversDir missing — VS Code not installed, skip */ }
+  } catch { /* ignore */ }
+
+  // Clean stale pid.txt in both locations
+  for (const base of [oldBase, newBase]) {
+    try {
+      const entries = await fsp.readdir(base).catch(() => [] as string[]);
+      for (const entry of entries) {
+        const pidFile = pathJoin(base, entry, 'pid.txt');
+        try {
+          const pid = parseInt(await fsp.readFile(pidFile, 'utf-8'), 10);
+          if (!isNaN(pid)) {
+            try { process.kill(pid, 0); } catch {
+              await fsp.unlink(pidFile);
+              console.log(`[vscode-cleaner] Removed stale pid.txt for dead PID ${pid}`);
+            }
+          }
+        } catch { /* pid.txt missing or unreadable — skip */ }
+      }
+    } catch { /* base dir missing — skip */ }
+  }
+
   setTimeout(cleanVscodeServerPids, 5 * 60 * 1000);
 })();
 

@@ -9,7 +9,7 @@
  */
 
 import { spawn } from 'child_process';
-import { readFile, writeFile, unlink, mkdir } from 'fs/promises';
+import { readFile, writeFile, unlink, mkdir, readdir, symlink } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
@@ -89,15 +89,35 @@ async function waitForServer(maxWaitMs: number = 5000): Promise<boolean> {
 }
 
 async function cleanStaleVscodeServer(): Promise<void> {
-  const glob = new Bun.Glob(join(homedir(), '.vscode-server/cli/servers/Stable-*/pid.txt'));
-  for await (const pidFile of glob.scan('/')) {
-    try {
-      const pid = parseInt(await readFile(pidFile, 'utf-8'), 10);
-      if (!isNaN(pid) && !isProcessRunning(pid)) {
-        await unlink(pidFile);
-        console.log(`Cleaned stale VS Code Server pid (${pid})`);
+  // agent-host (newer VS Code) looks in ~/.vscode/cli/servers/
+  // older installs live in ~/.vscode-server/cli/servers/
+  // ensure both exist and the newer path has a symlink to the old install
+  const newBase = join(homedir(), '.vscode', 'cli', 'servers');
+  const oldBase = join(homedir(), '.vscode-server', 'cli', 'servers');
+  try {
+    await mkdir(newBase, { recursive: true });
+    const entries = await readdir(oldBase).catch(() => [] as string[]);
+    for (const entry of entries) {
+      if (!entry.startsWith('Stable-')) continue;
+      const target = join(newBase, entry);
+      if (!existsSync(target)) {
+        await symlink(join(oldBase, entry), target).catch(() => {});
       }
-    } catch { /* ignore per-file errors */ }
+    }
+  } catch { /* ignore */ }
+
+  // Clean stale pid.txt files in both locations
+  for (const base of [oldBase, newBase]) {
+    const glob = new Bun.Glob(join(base, 'Stable-*/pid.txt'));
+    for await (const pidFile of glob.scan('/')) {
+      try {
+        const pid = parseInt(await readFile(pidFile, 'utf-8'), 10);
+        if (!isNaN(pid) && !isProcessRunning(pid)) {
+          await unlink(pidFile);
+          console.log(`Cleaned stale VS Code Server pid (${pid})`);
+        }
+      } catch { /* ignore per-file errors */ }
+    }
   }
 }
 
