@@ -103,6 +103,23 @@
 .milkdown-host .ProseMirror .token.important,
 .milkdown-host .ProseMirror .token.variable { color: #a16207; font-weight: 600; } /* yellow-700 */
 
+/* Dark mode: override github-markdown-css variables so body text is light.
+   The imported github-markdown.css only activates dark vars via prefers-color-scheme;
+   we re-apply them here for Tailwind's .dark class. */
+.dark .milkdown-host.markdown-body {
+  color-scheme: dark;
+  --fgColor-default: #f0f6fc;
+  --fgColor-muted: #9198a1;
+  --fgColor-accent: #4493f8;
+  --fgColor-danger: #f85149;
+  --bgColor-default: transparent;
+  --bgColor-muted: #151b23;
+  --bgColor-neutral-muted: rgba(101, 108, 118, 0.4);
+  --borderColor-default: #3d444d;
+  --borderColor-muted: #3d444db3;
+  --borderColor-neutral-muted: #3d444db3;
+}
+
 /* Dark mode overrides — brighter variants for readability. */
 .dark .milkdown-host .ProseMirror .token.comment,
 .dark .milkdown-host .ProseMirror .token.prolog,
