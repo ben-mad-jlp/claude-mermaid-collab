@@ -17,6 +17,7 @@ let _ctx: vscode.ExtensionContext | undefined;
 let hasReattachedThisSession = false;
 const reattachQueue: Array<{ claudePid: number; claudeSessionId: string; project: string; session: string; boundAt: string }> = [];
 let reattachProcessing = false;
+const groupedSessionNames = new Map<string, string>(); // terminal name → tmux grouped session name
 
 export function activate(context: vscode.ExtensionContext) {
   _ctx = context;
@@ -38,12 +39,23 @@ export function activate(context: vscode.ExtensionContext) {
 
   updateStatusBar(false);
 
+  context.subscriptions.push(
+    vscode.window.onDidCloseTerminal((t) => {
+      const groupedName = groupedSessionNames.get(t.name);
+      if (groupedName) {
+        groupedSessionNames.delete(t.name);
+        execAsync(`tmux kill-session -t '${groupedName}'`).catch(() => {});
+      }
+    }),
+  );
+
   connect(context);
 }
 
 function connect(context: vscode.ExtensionContext) {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
     ws.removeAllListeners();
+    ws.on('error', () => {});
     ws.close();
   }
   const url = vscode.workspace.getConfiguration('mermaidCollab').get<string>('serverUrl') ?? 'ws://127.0.0.1:9002/ws';
@@ -57,8 +69,7 @@ function connect(context: vscode.ExtensionContext) {
       type: 'ide_connected',
       vscodeVersion: vscode.version,
       extensionVersion: context.extension.packageJSON.version as string,
-      // Only send workspaceFolders when running locally — triggers reattach scan on server
-      ...(!vscode.env.remoteName && { workspaceFolders: vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath) ?? [] }),
+      workspaceFolders: vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath) ?? [],
     }));
   });
 
@@ -89,6 +100,21 @@ async function handleMessage(msg: { type: string; [k: string]: unknown }) {
       break;
     case 'ide_reattach':
       void handleIdeReattach(msg as unknown as { claudePid: number; claudeSessionId: string; project: string; session: string; boundAt: string });
+      break;
+    case 'ide_open_terminal':
+      void processOneReattach({ session: msg.session as string }, true);
+      break;
+    case 'browser_open':
+      void handleBrowserOpen(msg.requestId as string, msg.url as string);
+      break;
+    case 'browser_command':
+      void handleBrowserCommand(msg.requestId as string, msg.sessionId as string, msg.method as string, msg.params);
+      break;
+    case 'browser_events':
+      handleBrowserEvents(msg.requestId as string, msg.sessionId as string, msg.eventType as string);
+      break;
+    case 'browser_close':
+      handleBrowserClose(msg.sessionId as string);
       break;
   }
 }
@@ -140,7 +166,6 @@ async function openDiff(filePath: string) {
 }
 
 async function handleIdeReattach(msg: { claudePid: number; claudeSessionId: string; project: string; session: string; boundAt: string }) {
-  if (vscode.env.remoteName) { return; } // tmux attach makes no sense from a remote context
   const isFirst = !hasReattachedThisSession;
   hasReattachedThisSession = true;
   reattachQueue.push(msg);
@@ -161,7 +186,7 @@ async function drainReattachQueue(isFirst: boolean) {
   reattachProcessing = false;
 }
 
-async function processOneReattach(msg: { claudePid: number; session: string }, showTerminal: boolean) {
+async function processOneReattach(msg: { session: string }, showTerminal: boolean) {
   const sessionHint = msg.session;
   const existing = vscode.window.terminals.find(t => t.name === sessionHint);
   if (existing) {
@@ -169,32 +194,17 @@ async function processOneReattach(msg: { claudePid: number; session: string }, s
     return;
   }
   try {
-    const { stdout: panesOutput } = await execAsync('tmux list-panes -a -F "#{session_name} #{window_index} #{pane_index} #{pane_pid}"');
-    if (!panesOutput.trim()) { return; }
-    const panes = panesOutput.trim().split('\n').map(line => {
-      const parts = line.trim().split(' ');
-      return { sessionName: parts[0], windowIdx: parts[1], paneIdx: parts[2], panePid: parseInt(parts[3], 10) };
-    });
-    let pid = msg.claudePid;
-    let matchedPane: typeof panes[0] | undefined;
-    for (let i = 0; i < 10; i++) {
-      const found = panes.find(p => p.panePid === pid);
-      if (found) { matchedPane = found; break; }
-      try {
-        const { stdout: ppidOut } = await execAsync(`ps -o ppid= -p ${pid}`);
-        const ppid = parseInt(ppidOut.trim(), 10);
-        if (isNaN(ppid) || ppid <= 1) { break; }
-        pid = ppid;
-      } catch { break; }
-    }
-    if (!matchedPane) { return; }
+    await execAsync(`tmux has-session -t '${sessionHint}' 2>/dev/null`);
+    const groupedName = `vscode-collab-${sessionHint}`;
+    const cmd = `(tmux has-session -t '${groupedName}' 2>/dev/null || tmux new-session -d -s '${groupedName}' -t '${sessionHint}') && tmux attach-session -t '${groupedName}'`;
+    groupedSessionNames.set(sessionHint, groupedName);
     const t = vscode.window.createTerminal({
       name: sessionHint,
       shellPath: '/bin/sh',
-      shellArgs: ['-c', `tmux attach-session -t ${matchedPane.sessionName} \\; select-window -t ${matchedPane.windowIdx} \\; select-pane -t ${matchedPane.paneIdx}`],
+      shellArgs: ['-c', cmd],
     });
     if (showTerminal) { t.show(false); }
-  } catch { /* tmux not available or failed — skip */ }
+  } catch { /* tmux session not found or unavailable — skip */ }
 }
 
 function scheduleReconnect(delay: number) {
@@ -213,4 +223,241 @@ function updateStatusBar(connected: boolean, sessionName?: string) {
 export function deactivate() {
   hasReattachedThisSession = false;
   ws?.close();
+  for (const session of browserSessions.values()) {
+    session.cdpSocket.close();
+    void vscode.debug.stopDebugging(session.debugSession);
+  }
+  browserSessions.clear();
+}
+
+// ── Browser CDP session management ─────────────────────────────────────────
+
+interface CdpPending {
+  resolve: (v: unknown) => void;
+  reject: (e: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+interface NetworkEntry {
+  requestId: string;
+  url: string;
+  method: string;
+  status?: number;
+  mimeType?: string;
+  timestamp: number;
+}
+
+interface ConsoleEntry {
+  level: string;
+  text: string;
+  timestamp: number;
+}
+
+interface BrowserSession {
+  debugSession: vscode.DebugSession;
+  cdpSocket: InstanceType<typeof WebSocket>;
+  pending: Map<number, CdpPending>;
+  nextId: number;
+  consoleBuf: ConsoleEntry[];
+  networkBuf: NetworkEntry[];
+  networkMap: Map<string, NetworkEntry>;
+}
+
+const browserSessions = new Map<string, BrowserSession>();
+
+function sendCollabMsg(msg: Record<string, unknown>): void {
+  ws?.send(JSON.stringify(msg));
+}
+
+async function openBrowserSession(requestId: string, targetUrl: string): Promise<void> {
+  const sessionName = `mc-browser-${Date.now()}`;
+  const config: vscode.DebugConfiguration = {
+    type: 'pwa-chrome',
+    name: sessionName,
+    request: 'launch',
+    url: targetUrl,
+    presentation: { hidden: true },
+  };
+
+  let disposable: vscode.Disposable;
+  const sessionStarted = new Promise<vscode.DebugSession>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      disposable.dispose();
+      reject(new Error('Debug session start timeout'));
+    }, 20_000);
+    disposable = vscode.debug.onDidStartDebugSession(s => {
+      if (s.name === sessionName) {
+        clearTimeout(timer);
+        disposable.dispose();
+        resolve(s);
+      }
+    });
+  });
+
+  const ok = await vscode.debug.startDebugging(undefined, config);
+  if (!ok) throw new Error('vscode.debug.startDebugging returned false');
+
+  const debugSession = await sessionStarted;
+
+  // Brief pause for browser to initialise before requesting proxy
+  await new Promise(r => setTimeout(r, 1_000));
+
+  const proxyResult = await vscode.commands.executeCommand(
+    'extension.js-debug.requestCDPProxy',
+    debugSession.id,
+  ) as { host: string; port: number; path?: string } | string | undefined;
+
+  if (!proxyResult) throw new Error('requestCDPProxy returned null — is js-debug active?');
+
+  const cdpUrl = typeof proxyResult === 'string'
+    ? proxyResult
+    : `ws://${proxyResult.host}:${proxyResult.port}${proxyResult.path ?? ''}`;
+
+  const cdpSocket = new WebSocket(cdpUrl);
+
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('CDP WebSocket connect timeout')), 10_000);
+    cdpSocket.on('open', () => { clearTimeout(timer); resolve(); });
+    cdpSocket.on('error', (e) => { clearTimeout(timer); reject(e); });
+  });
+
+  const session: BrowserSession = {
+    debugSession,
+    cdpSocket,
+    pending: new Map(),
+    nextId: 1,
+    consoleBuf: [],
+    networkBuf: [],
+    networkMap: new Map(),
+  };
+  browserSessions.set(debugSession.id, session);
+
+  cdpSocket.on('message', (raw) => {
+    try {
+      const msg = JSON.parse(raw.toString()) as {
+        id?: number;
+        result?: unknown;
+        error?: { message: string };
+        method?: string;
+        params?: unknown;
+      };
+      if (msg.id !== undefined) {
+        const p = session.pending.get(msg.id);
+        if (p) {
+          session.pending.delete(msg.id);
+          clearTimeout(p.timer);
+          if (msg.error) p.reject(new Error(msg.error.message));
+          else p.resolve(msg.result ?? null);
+        }
+      } else if (msg.method) {
+        handleCdpEvent(session, msg.method, msg.params);
+      }
+    } catch { /* ignore malformed */ }
+  });
+
+  cdpSocket.on('close', () => { browserSessions.delete(debugSession.id); });
+
+  await sendCdp(session, 'Runtime.enable', {});
+  await sendCdp(session, 'Page.enable', {});
+  await sendCdp(session, 'Network.enable', {});
+  await sendCdp(session, 'Log.enable', {});
+
+  sendCollabMsg({ type: 'browser_ready', requestId, sessionId: debugSession.id });
+}
+
+function handleCdpEvent(session: BrowserSession, method: string, params: unknown): void {
+  if (method === 'Runtime.consoleAPICalled') {
+    const p = params as { type: string; args: Array<{ type: string; value?: unknown; description?: string }>; timestamp: number };
+    const text = p.args.map(a => a.value !== undefined ? String(a.value) : (a.description ?? '')).join(' ');
+    session.consoleBuf.push({ level: p.type, text, timestamp: Math.round(p.timestamp * 1000) });
+    if (session.consoleBuf.length > 500) session.consoleBuf.shift();
+  } else if (method === 'Log.entryAdded') {
+    const p = params as { entry: { level: string; text: string; timestamp: number } };
+    session.consoleBuf.push({ level: p.entry.level, text: p.entry.text, timestamp: Math.round(p.entry.timestamp * 1000) });
+    if (session.consoleBuf.length > 500) session.consoleBuf.shift();
+  } else if (method === 'Network.requestWillBeSent') {
+    const p = params as { requestId: string; request: { url: string; method: string }; timestamp: number };
+    session.networkMap.set(p.requestId, {
+      requestId: p.requestId,
+      url: p.request.url,
+      method: p.request.method,
+      timestamp: Math.round(p.timestamp * 1000),
+    });
+  } else if (method === 'Network.responseReceived') {
+    const p = params as { requestId: string; response: { status: number; mimeType: string } };
+    const entry = session.networkMap.get(p.requestId);
+    if (entry) { entry.status = p.response.status; entry.mimeType = p.response.mimeType; }
+  } else if (method === 'Network.loadingFinished') {
+    const p = params as { requestId: string };
+    const entry = session.networkMap.get(p.requestId);
+    if (entry) {
+      session.networkBuf.push({ ...entry });
+      session.networkMap.delete(p.requestId);
+      if (session.networkBuf.length > 200) session.networkBuf.shift();
+    }
+  }
+}
+
+function sendCdp(session: BrowserSession, method: string, params: unknown): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const id = session.nextId++;
+    const timer = setTimeout(() => {
+      session.pending.delete(id);
+      reject(new Error(`CDP ${method} timed out`));
+    }, 10_000);
+    session.pending.set(id, { resolve, reject, timer });
+    session.cdpSocket.send(JSON.stringify({ id, method, params }));
+  });
+}
+
+async function handleBrowserOpen(requestId: string, targetUrl: string): Promise<void> {
+  try {
+    await openBrowserSession(requestId, targetUrl);
+  } catch (err) {
+    sendCollabMsg({ type: 'browser_error', requestId, error: String(err) });
+  }
+}
+
+async function handleBrowserCommand(requestId: string, sessionId: string, method: string, params: unknown): Promise<void> {
+  const session = browserSessions.get(sessionId);
+  if (!session) {
+    sendCollabMsg({ type: 'browser_response', requestId, error: `Session not found: ${sessionId}` });
+    return;
+  }
+  try {
+    const result = await sendCdp(session, method, params ?? {});
+    sendCollabMsg({ type: 'browser_response', requestId, result });
+  } catch (err) {
+    sendCollabMsg({ type: 'browser_response', requestId, error: String(err) });
+  }
+}
+
+function handleBrowserEvents(requestId: string, sessionId: string, eventType: string): void {
+  const session = browserSessions.get(sessionId);
+  if (!session) {
+    sendCollabMsg({ type: 'browser_response', requestId, error: `Session not found: ${sessionId}` });
+    return;
+  }
+  if (eventType === 'console') {
+    sendCollabMsg({ type: 'browser_response', requestId, result: [...session.consoleBuf] });
+  } else if (eventType === 'network') {
+    // Merge completed (networkBuf) + in-flight (networkMap), deduplicated
+    const seen = new Set<string>();
+    const all = [...session.networkBuf, ...session.networkMap.values()].filter(e => {
+      if (seen.has(e.requestId)) return false;
+      seen.add(e.requestId);
+      return true;
+    });
+    sendCollabMsg({ type: 'browser_response', requestId, result: all });
+  } else {
+    sendCollabMsg({ type: 'browser_response', requestId, error: `Unknown event type: ${eventType}` });
+  }
+}
+
+function handleBrowserClose(sessionId: string): void {
+  const session = browserSessions.get(sessionId);
+  if (!session) return;
+  session.cdpSocket.close();
+  void vscode.debug.stopDebugging(session.debugSession);
+  browserSessions.delete(sessionId);
 }

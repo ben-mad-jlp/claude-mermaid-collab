@@ -3772,6 +3772,7 @@ var _ctx;
 var hasReattachedThisSession = false;
 var reattachQueue = [];
 var reattachProcessing = false;
+var groupedSessionNames = /* @__PURE__ */ new Map();
 function activate(context) {
   _ctx = context;
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -3788,11 +3789,23 @@ function activate(context) {
     })
   );
   updateStatusBar(false);
+  context.subscriptions.push(
+    vscode.window.onDidCloseTerminal((t) => {
+      const groupedName = groupedSessionNames.get(t.name);
+      if (groupedName) {
+        groupedSessionNames.delete(t.name);
+        execAsync(`tmux kill-session -t '${groupedName}'`).catch(() => {
+        });
+      }
+    })
+  );
   connect(context);
 }
 function connect(context) {
   if (ws && (ws.readyState === wrapper_default.OPEN || ws.readyState === wrapper_default.CONNECTING)) {
     ws.removeAllListeners();
+    ws.on("error", () => {
+    });
     ws.close();
   }
   const url = vscode.workspace.getConfiguration("mermaidCollab").get("serverUrl") ?? "ws://127.0.0.1:9002/ws";
@@ -3805,8 +3818,7 @@ function connect(context) {
       type: "ide_connected",
       vscodeVersion: vscode.version,
       extensionVersion: context.extension.packageJSON.version,
-      // Only send workspaceFolders when running locally — triggers reattach scan on server
-      ...!vscode.env.remoteName && { workspaceFolders: vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath) ?? [] }
+      workspaceFolders: vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath) ?? []
     }));
   });
   ws.on("message", (raw) => {
@@ -3835,6 +3847,21 @@ async function handleMessage(msg) {
       break;
     case "ide_reattach":
       void handleIdeReattach(msg);
+      break;
+    case "ide_open_terminal":
+      void processOneReattach({ session: msg.session }, true);
+      break;
+    case "browser_open":
+      void handleBrowserOpen(msg.requestId, msg.url);
+      break;
+    case "browser_command":
+      void handleBrowserCommand(msg.requestId, msg.sessionId, msg.method, msg.params);
+      break;
+    case "browser_events":
+      handleBrowserEvents(msg.requestId, msg.sessionId, msg.eventType);
+      break;
+    case "browser_close":
+      handleBrowserClose(msg.sessionId);
       break;
   }
 }
@@ -3882,9 +3909,6 @@ async function openDiff(filePath) {
   await vscode.window.showTextDocument(doc, { preserveFocus: true, preview: false });
 }
 async function handleIdeReattach(msg) {
-  if (vscode.env.remoteName) {
-    return;
-  }
   const isFirst = !hasReattachedThisSession;
   hasReattachedThisSession = true;
   reattachQueue.push(msg);
@@ -3913,40 +3937,14 @@ async function processOneReattach(msg, showTerminal) {
     return;
   }
   try {
-    const { stdout: panesOutput } = await execAsync('tmux list-panes -a -F "#{session_name} #{window_index} #{pane_index} #{pane_pid}"');
-    if (!panesOutput.trim()) {
-      return;
-    }
-    const panes = panesOutput.trim().split("\n").map((line) => {
-      const parts = line.trim().split(" ");
-      return { sessionName: parts[0], windowIdx: parts[1], paneIdx: parts[2], panePid: parseInt(parts[3], 10) };
-    });
-    let pid = msg.claudePid;
-    let matchedPane;
-    for (let i = 0; i < 10; i++) {
-      const found = panes.find((p) => p.panePid === pid);
-      if (found) {
-        matchedPane = found;
-        break;
-      }
-      try {
-        const { stdout: ppidOut } = await execAsync(`ps -o ppid= -p ${pid}`);
-        const ppid = parseInt(ppidOut.trim(), 10);
-        if (isNaN(ppid) || ppid <= 1) {
-          break;
-        }
-        pid = ppid;
-      } catch {
-        break;
-      }
-    }
-    if (!matchedPane) {
-      return;
-    }
+    await execAsync(`tmux has-session -t '${sessionHint}' 2>/dev/null`);
+    const groupedName = `vscode-collab-${sessionHint}`;
+    const cmd = `(tmux has-session -t '${groupedName}' 2>/dev/null || tmux new-session -d -s '${groupedName}' -t '${sessionHint}') && tmux attach-session -t '${groupedName}'`;
+    groupedSessionNames.set(sessionHint, groupedName);
     const t = vscode.window.createTerminal({
       name: sessionHint,
       shellPath: "/bin/sh",
-      shellArgs: ["-c", `tmux attach-session -t ${matchedPane.sessionName} \\; select-window -t ${matchedPane.windowIdx} \\; select-pane -t ${matchedPane.paneIdx}`]
+      shellArgs: ["-c", cmd]
     });
     if (showTerminal) {
       t.show(false);
@@ -3971,6 +3969,198 @@ function updateStatusBar(connected, sessionName) {
 function deactivate() {
   hasReattachedThisSession = false;
   ws?.close();
+  for (const session of browserSessions.values()) {
+    session.cdpSocket.close();
+    void vscode.debug.stopDebugging(session.debugSession);
+  }
+  browserSessions.clear();
+}
+var browserSessions = /* @__PURE__ */ new Map();
+function sendCollabMsg(msg) {
+  ws?.send(JSON.stringify(msg));
+}
+async function openBrowserSession(requestId, targetUrl) {
+  const sessionName = `mc-browser-${Date.now()}`;
+  const config = {
+    type: "pwa-chrome",
+    name: sessionName,
+    request: "launch",
+    url: targetUrl,
+    presentation: { hidden: true }
+  };
+  let disposable;
+  const sessionStarted = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      disposable.dispose();
+      reject(new Error("Debug session start timeout"));
+    }, 2e4);
+    disposable = vscode.debug.onDidStartDebugSession((s) => {
+      if (s.name === sessionName) {
+        clearTimeout(timer);
+        disposable.dispose();
+        resolve(s);
+      }
+    });
+  });
+  const ok = await vscode.debug.startDebugging(void 0, config);
+  if (!ok)
+    throw new Error("vscode.debug.startDebugging returned false");
+  const debugSession = await sessionStarted;
+  await new Promise((r) => setTimeout(r, 1e3));
+  const proxyResult = await vscode.commands.executeCommand(
+    "extension.js-debug.requestCDPProxy",
+    debugSession.id
+  );
+  if (!proxyResult)
+    throw new Error("requestCDPProxy returned null \u2014 is js-debug active?");
+  const cdpUrl = typeof proxyResult === "string" ? proxyResult : `ws://${proxyResult.host}:${proxyResult.port}${proxyResult.path ?? ""}`;
+  const cdpSocket = new wrapper_default(cdpUrl);
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("CDP WebSocket connect timeout")), 1e4);
+    cdpSocket.on("open", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    cdpSocket.on("error", (e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+  });
+  const session = {
+    debugSession,
+    cdpSocket,
+    pending: /* @__PURE__ */ new Map(),
+    nextId: 1,
+    consoleBuf: [],
+    networkBuf: [],
+    networkMap: /* @__PURE__ */ new Map()
+  };
+  browserSessions.set(debugSession.id, session);
+  cdpSocket.on("message", (raw) => {
+    try {
+      const msg = JSON.parse(raw.toString());
+      if (msg.id !== void 0) {
+        const p = session.pending.get(msg.id);
+        if (p) {
+          session.pending.delete(msg.id);
+          clearTimeout(p.timer);
+          if (msg.error)
+            p.reject(new Error(msg.error.message));
+          else
+            p.resolve(msg.result ?? null);
+        }
+      } else if (msg.method) {
+        handleCdpEvent(session, msg.method, msg.params);
+      }
+    } catch {
+    }
+  });
+  cdpSocket.on("close", () => {
+    browserSessions.delete(debugSession.id);
+  });
+  await sendCdp(session, "Runtime.enable", {});
+  await sendCdp(session, "Page.enable", {});
+  await sendCdp(session, "Network.enable", {});
+  await sendCdp(session, "Log.enable", {});
+  sendCollabMsg({ type: "browser_ready", requestId, sessionId: debugSession.id });
+}
+function handleCdpEvent(session, method, params) {
+  if (method === "Runtime.consoleAPICalled") {
+    const p = params;
+    const text = p.args.map((a) => a.value !== void 0 ? String(a.value) : a.description ?? "").join(" ");
+    session.consoleBuf.push({ level: p.type, text, timestamp: Math.round(p.timestamp * 1e3) });
+    if (session.consoleBuf.length > 500)
+      session.consoleBuf.shift();
+  } else if (method === "Log.entryAdded") {
+    const p = params;
+    session.consoleBuf.push({ level: p.entry.level, text: p.entry.text, timestamp: Math.round(p.entry.timestamp * 1e3) });
+    if (session.consoleBuf.length > 500)
+      session.consoleBuf.shift();
+  } else if (method === "Network.requestWillBeSent") {
+    const p = params;
+    session.networkMap.set(p.requestId, {
+      requestId: p.requestId,
+      url: p.request.url,
+      method: p.request.method,
+      timestamp: Math.round(p.timestamp * 1e3)
+    });
+  } else if (method === "Network.responseReceived") {
+    const p = params;
+    const entry = session.networkMap.get(p.requestId);
+    if (entry) {
+      entry.status = p.response.status;
+      entry.mimeType = p.response.mimeType;
+    }
+  } else if (method === "Network.loadingFinished") {
+    const p = params;
+    const entry = session.networkMap.get(p.requestId);
+    if (entry) {
+      session.networkBuf.push({ ...entry });
+      session.networkMap.delete(p.requestId);
+      if (session.networkBuf.length > 200)
+        session.networkBuf.shift();
+    }
+  }
+}
+function sendCdp(session, method, params) {
+  return new Promise((resolve, reject) => {
+    const id = session.nextId++;
+    const timer = setTimeout(() => {
+      session.pending.delete(id);
+      reject(new Error(`CDP ${method} timed out`));
+    }, 1e4);
+    session.pending.set(id, { resolve, reject, timer });
+    session.cdpSocket.send(JSON.stringify({ id, method, params }));
+  });
+}
+async function handleBrowserOpen(requestId, targetUrl) {
+  try {
+    await openBrowserSession(requestId, targetUrl);
+  } catch (err) {
+    sendCollabMsg({ type: "browser_error", requestId, error: String(err) });
+  }
+}
+async function handleBrowserCommand(requestId, sessionId, method, params) {
+  const session = browserSessions.get(sessionId);
+  if (!session) {
+    sendCollabMsg({ type: "browser_response", requestId, error: `Session not found: ${sessionId}` });
+    return;
+  }
+  try {
+    const result = await sendCdp(session, method, params ?? {});
+    sendCollabMsg({ type: "browser_response", requestId, result });
+  } catch (err) {
+    sendCollabMsg({ type: "browser_response", requestId, error: String(err) });
+  }
+}
+function handleBrowserEvents(requestId, sessionId, eventType) {
+  const session = browserSessions.get(sessionId);
+  if (!session) {
+    sendCollabMsg({ type: "browser_response", requestId, error: `Session not found: ${sessionId}` });
+    return;
+  }
+  if (eventType === "console") {
+    sendCollabMsg({ type: "browser_response", requestId, result: [...session.consoleBuf] });
+  } else if (eventType === "network") {
+    const seen = /* @__PURE__ */ new Set();
+    const all = [...session.networkBuf, ...session.networkMap.values()].filter((e) => {
+      if (seen.has(e.requestId))
+        return false;
+      seen.add(e.requestId);
+      return true;
+    });
+    sendCollabMsg({ type: "browser_response", requestId, result: all });
+  } else {
+    sendCollabMsg({ type: "browser_response", requestId, error: `Unknown event type: ${eventType}` });
+  }
+}
+function handleBrowserClose(sessionId) {
+  const session = browserSessions.get(sessionId);
+  if (!session)
+    return;
+  session.cdpSocket.close();
+  void vscode.debug.stopDebugging(session.debugSession);
+  browserSessions.delete(sessionId);
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {

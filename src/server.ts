@@ -26,6 +26,7 @@ import { handleWorktreeDiffAPI } from './routes/worktree-diff';
 import { handleWorktreeFilesAPI } from './routes/worktree-files';
 import { handleArtifactAPI } from './routes/artifact-api.js';
 import { handleIdeRoutes } from './routes/ide-routes.js';
+import { handleBrowserRoutes } from './routes/browser-routes.js';
 import { sessionRegistry, SessionRegistryCorruptError } from './services/session-registry';
 import { statusManager } from './services/status-manager';
 import { initializeWebSocketHandler } from './services/ws-handler-manager';
@@ -186,6 +187,11 @@ const server = Bun.serve<WsData>({
 
     if (url.pathname.startsWith('/api/ide')) {
       const res = await handleIdeRoutes(req, url, wsHandler);
+      if (res) return res;
+    }
+
+    if (url.pathname.startsWith('/api/browser')) {
+      const res = await handleBrowserRoutes(req, url, wsHandler);
       if (res) return res;
     }
 
