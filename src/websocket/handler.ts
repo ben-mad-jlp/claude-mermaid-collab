@@ -104,6 +104,7 @@ export class WebSocketHandler {
   handleDisconnection(ws: ServerWebSocket<{ subscriptions: Set<string> }>): void {
     this.connections.delete(ws);
     ideState.ideDisconnected(ws);
+    this.broadcastToChannel('ide', { type: 'ide_status', connected: false } as unknown as WSMessage);
   }
 
   handleMessage(ws: ServerWebSocket<{ subscriptions: Set<string> }>, message: string): void {
@@ -117,6 +118,10 @@ export class WebSocketHandler {
         } else if (data.channel) {
           // General channel subscription (new)
           ws.data.subscriptions.add(`channel:${data.channel}`);
+          // Send current state immediately so client doesn't wait for the next change
+          if (data.channel === 'ide') {
+            ws.send(JSON.stringify({ type: 'ide_status', connected: ideState.getStatus().connected }));
+          }
         }
       } else if (data.type === 'unsubscribe') {
         if (data.id) {
@@ -149,7 +154,9 @@ export class WebSocketHandler {
         }
       } else if (data.type === 'ide_connected') {
         const d = data as { type: 'ide_connected'; workspaceFolders?: string[] };
-        void ideState.ideConnected(ws, d.workspaceFolders ?? []);
+        ideState.ideConnected(ws, d.workspaceFolders ?? []).then(() => {
+          this.broadcastToChannel('ide', { type: 'ide_status', connected: true } as unknown as WSMessage);
+        });
       }
     } catch (error) {
       console.error('Failed to parse WebSocket message:', error);
