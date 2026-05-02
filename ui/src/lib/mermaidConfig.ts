@@ -29,6 +29,11 @@ export async function initializeMermaid(theme: 'light' | 'dark', diagramContent?
   const config: any = {
     startOnLoad: false,
     securityLevel: 'loose',
+    flowchart: {
+      useMaxWidth: false,
+      wrap: true,
+      nodeSpacing: 30,
+    },
   };
 
   // Only set global theme if diagram doesn't have its own init directive
