@@ -37,6 +37,23 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('mermaidCollab.reconnect', () => {
       scheduleReconnect(0);
     }),
+    vscode.commands.registerCommand('mermaidCollab.update', async () => {
+      const serverUrl = vscode.workspace.getConfiguration('mermaidCollab').get<string>('serverUrl') ?? 'ws://127.0.0.1:9002/ws';
+      const httpBase = serverUrl.replace(/^ws(s?):\/\//, 'http$1://').replace(/\/ws$/, '');
+      try {
+        const res = await fetch(`${httpBase}/api/extension/js`);
+        if (!res.ok) throw new Error(`Server returned ${res.status}`);
+        const js = await res.text();
+        const { writeFileSync } = require('fs') as typeof import('fs');
+        writeFileSync(__filename, js, 'utf-8');
+        const choice = await vscode.window.showInformationMessage('mermaid-collab extension updated. Reload to apply?', 'Reload Now');
+        if (choice === 'Reload Now') {
+          await vscode.commands.executeCommand('workbench.action.reloadWindow');
+        }
+      } catch (err) {
+        vscode.window.showErrorMessage(`mermaid-collab update failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }),
   );
 
   updateStatusBar(false);
@@ -66,6 +83,9 @@ function connect(context: vscode.ExtensionContext) {
       vscodeVersion: vscode.version,
       extensionVersion: context.extension.packageJSON.version as string,
       workspaceFolders: vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath) ?? [],
+      platform: process.platform,
+      arch: process.arch,
+      pid: process.pid,
     }));
   });
 
@@ -224,9 +244,12 @@ export function deactivate() {
   ws?.close();
   for (const session of browserSessions.values()) {
     session.cdpSocket.close();
-    void vscode.debug.stopDebugging(session.debugSession);
   }
   browserSessions.clear();
+  for (const cs of chromeSessions.values()) {
+    cs.process.kill();
+  }
+  chromeSessions.clear();
 }
 
 // ── Browser CDP session management ─────────────────────────────────────────
@@ -253,92 +276,154 @@ interface ConsoleEntry {
 }
 
 interface BrowserSession {
-  debugSession: vscode.DebugSession;
-  cdpSocket: InstanceType<typeof WebSocket>;
+  cdpSocket: InstanceType<typeof WebSocket> | null;
   pending: Map<number, CdpPending>;
   nextId: number;
   consoleBuf: ConsoleEntry[];
   networkBuf: NetworkEntry[];
   networkMap: Map<string, NetworkEntry>;
+  ready: Promise<void>;
+  cdpPort: number;
 }
 
 const browserSessions = new Map<string, BrowserSession>();
 
 function sendCollabMsg(msg: Record<string, unknown>): void {
-  ws?.send(JSON.stringify(msg));
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(msg));
+  } else {
+    console.log('[mermaid-collab] sendCollabMsg dropped (ws not open):', msg.type);
+  }
 }
 
-async function openBrowserSession(requestId: string, targetUrl: string): Promise<void> {
-  const sessionName = `mc-browser-${Date.now()}`;
-  const config: vscode.DebugConfiguration = {
-    type: 'pwa-chrome',
-    name: sessionName,
-    request: 'launch',
-    url: targetUrl,
-    presentation: { hidden: true },
-  };
+const CHROME_BINARIES_LINUX = [
+  '/opt/google/chrome/chrome',
+  '/usr/bin/google-chrome',
+  '/usr/bin/google-chrome-stable',
+  '/usr/bin/chromium-browser',
+  '/usr/bin/chromium',
+];
+const CHROME_BINARIES_MAC = [
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  '/Applications/Chromium.app/Contents/MacOS/Chromium',
+];
+const CHROME_BINARIES_WIN = [
+  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+  'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+  `${process.env.LOCALAPPDATA ?? 'C:\\Users\\Default\\AppData\\Local'}\\Google\\Chrome\\Application\\chrome.exe`,
+  `${process.env.PROGRAMFILES ?? 'C:\\Program Files'}\\Google\\Chrome\\Application\\chrome.exe`,
+  'C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe',
+  `${process.env.LOCALAPPDATA ?? ''}\\BraveSoftware\\Brave-Browser\\Application\\brave.exe`,
+  'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+  'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+];
 
-  let disposable: vscode.Disposable;
-  const sessionStarted = new Promise<vscode.DebugSession>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      disposable.dispose();
-      reject(new Error('Debug session start timeout'));
-    }, 20_000);
-    disposable = vscode.debug.onDidStartDebugSession(s => {
-      if (s.name === sessionName) {
-        clearTimeout(timer);
-        disposable.dispose();
-        resolve(s);
+let nextCdpPort = 9230;
+
+async function findChrome(): Promise<string> {
+  const { existsSync } = require('fs') as typeof import('fs');
+  const bins = process.platform === 'darwin' ? CHROME_BINARIES_MAC
+    : process.platform === 'win32' ? CHROME_BINARIES_WIN
+    : CHROME_BINARIES_LINUX;
+  for (const bin of bins) {
+    if (bin && existsSync(bin)) return bin;
+  }
+  if (process.platform === 'darwin') {
+    try {
+      const { execSync } = require('child_process') as typeof import('child_process');
+      const found = execSync('mdfind "kMDItemCFBundleIdentifier == \'com.google.Chrome\'" 2>/dev/null | head -1').toString().trim();
+      if (found) {
+        const bin = `${found}/Contents/MacOS/Google Chrome`;
+        if (existsSync(bin)) return bin;
       }
-    });
+      const brave = execSync('mdfind "kMDItemCFBundleIdentifier == \'com.brave.Browser\'" 2>/dev/null | head -1').toString().trim();
+      if (brave) {
+        const bin = `${brave}/Contents/MacOS/Brave Browser`;
+        if (existsSync(bin)) return bin;
+      }
+    } catch { /* ignore */ }
+  }
+  throw new Error('No Chrome/Chromium binary found — install Chrome or set mermaidCollab.chromePath');
+}
+
+interface ChromeSession {
+  process: import('child_process').ChildProcess;
+}
+
+const chromeSessions = new Map<string, ChromeSession>();
+
+function httpGetJson(host: string, port: number, path: string, timeoutMs: number): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const http = require('http') as typeof import('http');
+    const req = http.request(
+      { hostname: host, port, path, method: 'GET', headers: { Host: `${host}:${port}`, Connection: 'close' } },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+        res.on('end', () => { try { resolve(JSON.parse(data)); } catch (e) { reject(e); } });
+      }
+    );
+    req.setTimeout(timeoutMs, () => { req.destroy(new Error('timeout')); });
+    req.on('error', reject);
+    req.end();
   });
+}
 
-  const ok = await vscode.debug.startDebugging(undefined, config);
-  if (!ok) throw new Error('vscode.debug.startDebugging returned false');
+async function findCdpUrlViaPowerShell(port: number): Promise<string | null> {
+  try {
+    const { stdout } = await execAsync(
+      `powershell.exe -NoProfile -Command "(Invoke-WebRequest -Uri 'http://127.0.0.1:${port}/json' -UseBasicParsing).Content"`
+    );
+    const targets = JSON.parse(stdout.trim()) as Array<{ webSocketDebuggerUrl?: string; type?: string }>;
+    const page = targets.find(t => t.type === 'page' && t.webSocketDebuggerUrl);
+    return page?.webSocketDebuggerUrl ?? null;
+  } catch {
+    return null;
+  }
+}
 
-  const debugSession = await sessionStarted;
+async function findCdpUrl(cdpPort: number, timeoutMs: number): Promise<string | null> {
+  const deadline = Date.now() + timeoutMs;
+  const usePowerShell = process.platform === 'win32';
+  while (Date.now() < deadline) {
+    if (usePowerShell) {
+      const url = await findCdpUrlViaPowerShell(cdpPort);
+      if (url) return url;
+    } else {
+      for (const host of ['127.0.0.1', 'localhost']) {
+        try {
+          const targets = await httpGetJson(host, cdpPort, '/json', 2000) as Array<{ webSocketDebuggerUrl?: string; type?: string }>;
+          const page = targets.find(t => t.type === 'page' && t.webSocketDebuggerUrl);
+          if (page?.webSocketDebuggerUrl) return page.webSocketDebuggerUrl;
+        } catch { /* not ready yet */ }
+      }
+    }
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  return null;
+}
 
-  // Brief pause for browser to initialise before requesting proxy
-  await new Promise(r => setTimeout(r, 1_000));
-
-  const proxyResult = await vscode.commands.executeCommand(
-    'extension.js-debug.requestCDPProxy',
-    debugSession.id,
-  ) as { host: string; port: number; path?: string } | string | undefined;
-
-  if (!proxyResult) throw new Error('requestCDPProxy returned null — is js-debug active?');
-
-  const cdpUrl = typeof proxyResult === 'string'
-    ? proxyResult
-    : `ws://${proxyResult.host}:${proxyResult.port}${proxyResult.path ?? ''}`;
-
-  const cdpSocket = new WebSocket(cdpUrl);
-
-  await new Promise<void>((resolve, reject) => {
+function connectCdpSocket(cdpUrl: string): Promise<InstanceType<typeof WebSocket>> {
+  return new Promise((resolve, reject) => {
+    const sock = new WebSocket(cdpUrl);
     const timer = setTimeout(() => reject(new Error('CDP WebSocket connect timeout')), 10_000);
-    cdpSocket.on('open', () => { clearTimeout(timer); resolve(); });
-    cdpSocket.on('error', (e) => { clearTimeout(timer); reject(e); });
+    sock.on('open', () => { clearTimeout(timer); resolve(sock); });
+    sock.on('error', (e) => { clearTimeout(timer); reject(e); });
   });
+}
 
-  const session: BrowserSession = {
-    debugSession,
-    cdpSocket,
-    pending: new Map(),
-    nextId: 1,
-    consoleBuf: [],
-    networkBuf: [],
-    networkMap: new Map(),
-  };
-  browserSessions.set(debugSession.id, session);
+async function enableCdpDomains(session: BrowserSession): Promise<void> {
+  await sendCdp(session, 'Runtime.enable', {});
+  await sendCdp(session, 'Page.enable', {});
+  await sendCdp(session, 'Network.enable', {});
+  await sendCdp(session, 'Log.enable', {});
+}
 
-  cdpSocket.on('message', (raw) => {
+function wireCdpSocket(sock: InstanceType<typeof WebSocket>, session: BrowserSession, sessionId: string): void {
+  sock.on('message', (raw) => {
     try {
       const msg = JSON.parse(raw.toString()) as {
-        id?: number;
-        result?: unknown;
-        error?: { message: string };
-        method?: string;
-        params?: unknown;
+        id?: number; result?: unknown; error?: { message: string }; method?: string; params?: unknown;
       };
       if (msg.id !== undefined) {
         const p = session.pending.get(msg.id);
@@ -354,14 +439,164 @@ async function openBrowserSession(requestId: string, targetUrl: string): Promise
     } catch { /* ignore malformed */ }
   });
 
-  cdpSocket.on('close', () => { browserSessions.delete(debugSession.id); });
+  sock.on('close', () => {
+    session.cdpSocket = null;
+    if (!browserSessions.has(sessionId)) return; // intentionally closed via browser_close
 
-  await sendCdp(session, 'Runtime.enable', {});
-  await sendCdp(session, 'Page.enable', {});
-  await sendCdp(session, 'Network.enable', {});
-  await sendCdp(session, 'Log.enable', {});
+    // Replace ready promise so subsequent commands queue up during reconnect
+    let resolveReady!: () => void, rejectReady!: (e: Error) => void;
+    session.ready = new Promise<void>((res, rej) => { resolveReady = res; rejectReady = rej; });
+    void reconnectCdpSession(session, sessionId, resolveReady, rejectReady);
+  });
+}
 
-  sendCollabMsg({ type: 'browser_ready', requestId, sessionId: debugSession.id });
+async function reconnectCdpSession(
+  session: BrowserSession,
+  sessionId: string,
+  resolveReady: () => void,
+  rejectReady: (e: Error) => void,
+): Promise<void> {
+  try {
+    const cdpUrl = await findCdpUrl(session.cdpPort, 10_000);
+    if (!cdpUrl || !browserSessions.has(sessionId)) {
+      rejectReady(new Error('CDP reconnect: no page target found'));
+      browserSessions.delete(sessionId);
+      return;
+    }
+    const sock = await connectCdpSocket(cdpUrl);
+    session.cdpSocket = sock;
+    wireCdpSocket(sock, session, sessionId);
+    await enableCdpDomains(session);
+    resolveReady();
+  } catch (err) {
+    rejectReady(err instanceof Error ? err : new Error(String(err)));
+    browserSessions.delete(sessionId);
+  }
+}
+
+async function openBrowserSession(requestId: string, targetUrl: string): Promise<void> {
+  const cdpPort = nextCdpPort++;
+  const sessionId = `mc-browser-${Date.now()}-${cdpPort}`;
+
+  let resolveReady!: () => void;
+  let rejectReady!: (e: Error) => void;
+  const readyPromise = new Promise<void>((res, rej) => { resolveReady = res; rejectReady = rej; });
+
+  const session: BrowserSession = {
+    cdpSocket: null,
+    pending: new Map(),
+    nextId: 1,
+    consoleBuf: [],
+    networkBuf: [],
+    networkMap: new Map(),
+    ready: readyPromise,
+    cdpPort,
+  };
+  browserSessions.set(sessionId, session);
+
+  // Respond immediately so the MCP tool doesn't time out waiting for Chrome startup
+  sendCollabMsg({ type: 'browser_ready', requestId, sessionId });
+
+  // Finish Chrome setup in the background
+  void (async () => {
+    const popup = (text: string) => void vscode.window.showInformationMessage(`[collab ${process.platform}] ${text}`);
+    const popupErr = (text: string) => void vscode.window.showErrorMessage(`[collab ${process.platform}] ${text}`);
+    try {
+      const configuredPath = vscode.workspace.getConfiguration('mermaidCollab').get<string>('chromePath') ?? '';
+      let chromeBin: string;
+      try {
+        chromeBin = configuredPath.trim() || await findChrome();
+      } catch (findErr) {
+        const msg = `findChrome failed: ${findErr instanceof Error ? findErr.message : String(findErr)}`;
+        popupErr(msg);
+        sendCollabMsg({ type: 'browser_debug', sessionId, message: msg });
+        browserSessions.delete(sessionId);
+        rejectReady(new Error(msg));
+        return;
+      }
+      popup(`step1: found chrome at ${chromeBin}`);
+      sendCollabMsg({ type: 'browser_debug', sessionId, message: `step1: chrome=${chromeBin} port=${cdpPort}` });
+
+      const tmpDir = process.platform === 'win32'
+        ? `${process.env.TEMP ?? 'C:\\Temp'}\\mc-browser-${cdpPort}`
+        : `/tmp/mc-browser-${cdpPort}`;
+      const chromeArgs = [
+        `--remote-debugging-port=${cdpPort}`,
+        '--remote-allow-origins=*',
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--disable-background-networking',
+        '--disable-sync',
+        '--safebrowsing-disable-auto-update',
+        `--user-data-dir=${tmpDir}`,
+        targetUrl,
+      ];
+      const chromeProc = require('child_process').spawn(chromeBin, chromeArgs, { detached: false, stdio: 'ignore' });
+      chromeSessions.set(sessionId, { process: chromeProc });
+      popup(`step2: chrome spawned pid=${chromeProc.pid}`);
+      sendCollabMsg({ type: 'browser_debug', sessionId, message: `step2: chrome spawned pid=${chromeProc.pid}` });
+
+      // Listen for immediate crash
+      let chromeCrashed = false;
+      chromeProc.on('exit', (code: number | null) => {
+        chromeCrashed = true;
+        sendCollabMsg({ type: 'browser_debug', sessionId, message: `chrome exited code=${code}` });
+      });
+
+      popup(`step3: polling CDP at 127.0.0.1:${cdpPort}...`);
+      const cdpUrl = await findCdpUrl(cdpPort, 60_000);
+      if (!cdpUrl) {
+        chromeProc.kill();
+        chromeSessions.delete(sessionId);
+        browserSessions.delete(sessionId);
+        const msg = `step3 FAILED: CDP not available after 20s on port ${cdpPort} (crashed=${chromeCrashed})`;
+        popupErr(msg);
+        sendCollabMsg({ type: 'browser_debug', sessionId, message: msg });
+        rejectReady(new Error(msg));
+        return;
+      }
+      popup(`step3 OK: CDP at ${cdpUrl}`);
+      sendCollabMsg({ type: 'browser_debug', sessionId, message: `step3 OK: ${cdpUrl}` });
+
+      let cdpSocket: InstanceType<typeof WebSocket>;
+      try {
+        cdpSocket = await connectCdpSocket(cdpUrl);
+      } catch (sockErr) {
+        const msg = `step5 FAILED: CDP socket connect: ${sockErr instanceof Error ? sockErr.message : String(sockErr)}`;
+        popupErr(msg);
+        sendCollabMsg({ type: 'browser_debug', sessionId, message: msg });
+        browserSessions.delete(sessionId);
+        rejectReady(new Error(msg));
+        return;
+      }
+      session.cdpSocket = cdpSocket;
+      wireCdpSocket(cdpSocket, session, sessionId);
+      popup(`step5 OK: CDP socket connected`);
+      sendCollabMsg({ type: 'browser_debug', sessionId, message: 'step5 OK: socket connected' });
+
+      try {
+        await enableCdpDomains(session);
+        await sendCdp(session, 'Page.bringToFront', {});
+      } catch (domainErr) {
+        const msg = `step6 FAILED: enable domains: ${domainErr instanceof Error ? domainErr.message : String(domainErr)}`;
+        popupErr(msg);
+        sendCollabMsg({ type: 'browser_debug', sessionId, message: msg });
+        browserSessions.delete(sessionId);
+        rejectReady(new Error(msg));
+        return;
+      }
+
+      popup(`step6 OK: session ready!`);
+      sendCollabMsg({ type: 'browser_debug', sessionId, message: 'step6 OK: session ready' });
+      resolveReady();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      popupErr(`unexpected error: ${msg}`);
+      sendCollabMsg({ type: 'browser_debug', sessionId, message: `unexpected: ${msg}` });
+      browserSessions.delete(sessionId);
+      rejectReady(err instanceof Error ? err : new Error(msg));
+    }
+  })();
 }
 
 function handleCdpEvent(session: BrowserSession, method: string, params: unknown): void {
@@ -399,6 +634,7 @@ function handleCdpEvent(session: BrowserSession, method: string, params: unknown
 
 function sendCdp(session: BrowserSession, method: string, params: unknown): Promise<unknown> {
   return new Promise((resolve, reject) => {
+    if (!session.cdpSocket) { reject(new Error('CDP socket not ready')); return; }
     const id = session.nextId++;
     const timer = setTimeout(() => {
       session.pending.delete(id);
@@ -409,12 +645,10 @@ function sendCdp(session: BrowserSession, method: string, params: unknown): Prom
   });
 }
 
-async function handleBrowserOpen(requestId: string, targetUrl: string): Promise<void> {
-  try {
-    await openBrowserSession(requestId, targetUrl);
-  } catch (err) {
-    sendCollabMsg({ type: 'browser_error', requestId, error: String(err) });
-  }
+function handleBrowserOpen(requestId: string, targetUrl: string): void {
+  console.log('[mermaid-collab] browser_open — platform:', process.platform, 'pid:', process.pid, 'url:', targetUrl);
+  void vscode.window.showInformationMessage(`[collab] browser_open received on ${process.platform} (pid ${process.pid})`);
+  void openBrowserSession(requestId, targetUrl);
 }
 
 async function handleBrowserCommand(requestId: string, sessionId: string, method: string, params: unknown): Promise<void> {
@@ -424,6 +658,7 @@ async function handleBrowserCommand(requestId: string, sessionId: string, method
     return;
   }
   try {
+    await session.ready;
     const result = await sendCdp(session, method, params ?? {});
     sendCollabMsg({ type: 'browser_response', requestId, result });
   } catch (err) {
@@ -456,6 +691,7 @@ function handleBrowserClose(sessionId: string): void {
   const session = browserSessions.get(sessionId);
   if (!session) return;
   session.cdpSocket.close();
-  void vscode.debug.stopDebugging(session.debugSession);
   browserSessions.delete(sessionId);
+  const cs = chromeSessions.get(sessionId);
+  if (cs) { cs.process.kill(); chromeSessions.delete(sessionId); }
 }

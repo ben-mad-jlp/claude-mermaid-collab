@@ -22,6 +22,7 @@ import { getAgentRegistry } from '../agent/agent-registry-manager.js';
 import { updateUI, updateUISchema } from './tools/update-ui.js';
 import { renderUISchema } from './tools/render-ui.js';
 import { terminalToolSchemas } from './tools/terminal-sessions.js';
+import { browserToolSchemas } from './tools/browser.js';
 import {
   getSessionState,
   updateSessionState,
@@ -1589,6 +1590,14 @@ IMPORTANT - Common pitfalls to avoid:
       terminalToolSchemas.terminal_kill_session,
       terminalToolSchemas.terminal_rename_session,
       terminalToolSchemas.terminal_reorder_sessions,
+      // Browser tools (CDP via VS Code debug session)
+      browserToolSchemas.browser_open,
+      browserToolSchemas.browser_navigate,
+      browserToolSchemas.browser_evaluate,
+      browserToolSchemas.browser_screenshot,
+      browserToolSchemas.browser_console,
+      browserToolSchemas.browser_network,
+      browserToolSchemas.browser_close,
       // Task management tools
       {
         name: 'update_task_status',
@@ -4271,6 +4280,55 @@ IMPORTANT - Common pitfalls to avoid:
             if (!project || !filePath) throw new Error('Missing required: project, filePath');
             const res = await pseudo_get_file_state_v6(project, filePath);
             return JSON.stringify(res, null, 2);
+          }
+
+          case 'browser_open': {
+            const { url } = args as { url: string };
+            if (!url) throw new Error('Missing required: url');
+            const { browserOpen } = await import('./tools/browser.js');
+            return await browserOpen(url);
+          }
+
+          case 'browser_navigate': {
+            const { sessionId, url } = args as { sessionId: string; url: string };
+            if (!sessionId || !url) throw new Error('Missing required: sessionId, url');
+            const { browserNavigate } = await import('./tools/browser.js');
+            return await browserNavigate(sessionId, url);
+          }
+
+          case 'browser_evaluate': {
+            const { sessionId, expression } = args as { sessionId: string; expression: string };
+            if (!sessionId || !expression) throw new Error('Missing required: sessionId, expression');
+            const { browserEvaluate } = await import('./tools/browser.js');
+            return await browserEvaluate(sessionId, expression);
+          }
+
+          case 'browser_screenshot': {
+            const { sessionId, project, session } = args as { sessionId: string; project: string; session: string };
+            if (!sessionId || !project || !session) throw new Error('Missing required: sessionId, project, session');
+            const { browserScreenshot } = await import('./tools/browser.js');
+            return await browserScreenshot(sessionId, project, session);
+          }
+
+          case 'browser_console': {
+            const { sessionId } = args as { sessionId: string };
+            if (!sessionId) throw new Error('Missing required: sessionId');
+            const { browserConsole } = await import('./tools/browser.js');
+            return await browserConsole(sessionId);
+          }
+
+          case 'browser_network': {
+            const { sessionId } = args as { sessionId: string };
+            if (!sessionId) throw new Error('Missing required: sessionId');
+            const { browserNetwork } = await import('./tools/browser.js');
+            return await browserNetwork(sessionId);
+          }
+
+          case 'browser_close': {
+            const { sessionId } = args as { sessionId: string };
+            if (!sessionId) throw new Error('Missing required: sessionId');
+            const { browserClose } = await import('./tools/browser.js');
+            return await browserClose(sessionId);
           }
 
           default:

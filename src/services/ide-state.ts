@@ -14,6 +14,7 @@ export class IdeState {
   private openDiffs: Set<string> = new Set();
   private workspaceFolders: string[] = [];
   private browserPending = new Map<string, BrowserPending>();
+  private cdpTunnels = new Map<string, number>(); // sessionId → tunneled port on Linux
 
   async ideConnected(ws: ServerWebSocket<{ subscriptions: Set<string> }>, workspaceFolders: string[]): Promise<void> {
     if (this.connectedWs && this.connectedWs !== ws) {
@@ -160,6 +161,12 @@ export class IdeState {
     };
   }
 
+  sendToIde(msg: Record<string, unknown>): boolean {
+    if (!this.connectedWs) return false;
+    this.connectedWs.send(JSON.stringify(msg));
+    return true;
+  }
+
   waitForBrowserResponse<T = unknown>(requestId: string, timeoutMs = 30_000): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -172,6 +179,14 @@ export class IdeState {
         timer,
       });
     });
+  }
+
+  setCdpTunnel(sessionId: string, port: number): void {
+    this.cdpTunnels.set(sessionId, port);
+  }
+
+  getCdpTunnel(sessionId: string): number | null {
+    return this.cdpTunnels.get(sessionId) ?? null;
   }
 
   resolveBrowserRequest(requestId: string, result?: unknown, error?: string): void {

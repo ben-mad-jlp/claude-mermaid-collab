@@ -2,7 +2,7 @@
   "name": "mermaid-collab-vscode",
   "displayName": "mermaid-collab",
   "description": "Connects the mermaid-collab UI to VSCode terminals and editor",
-  "version": "1.0.0",
+  "version": "1.0.8",
   "publisher": "mermaid-collab",
   "engines": {
     "vscode": "^1.85.0"
@@ -14,7 +14,7 @@
     "onStartupFinished"
   ],
   "extensionKind": [
-    "workspace"
+    "ui"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -26,6 +26,10 @@
       {
         "command": "mermaidCollab.reconnect",
         "title": "mermaid-collab: Reconnect"
+      },
+      {
+        "command": "mermaidCollab.update",
+        "title": "mermaid-collab: Update Extension"
       }
     ],
     "configuration": {
@@ -35,6 +39,11 @@
           "type": "string",
           "default": "ws://127.0.0.1:9002/ws",
           "description": "WebSocket URL of the mermaid-collab server"
+        },
+        "mermaidCollab.chromePath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to Chrome/Chromium binary (leave blank for auto-detect)"
         }
       }
     }

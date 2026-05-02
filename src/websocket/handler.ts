@@ -153,7 +153,8 @@ export class WebSocketHandler {
           console.error('Agent command received but no dispatcher registered:', data.type);
         }
       } else if (data.type === 'ide_connected') {
-        const d = data as { type: 'ide_connected'; workspaceFolders?: string[] };
+        const d = data as { type: 'ide_connected'; workspaceFolders?: string[]; platform?: string; arch?: string; pid?: number };
+        console.log('[ide] connected — platform:', d.platform, 'arch:', d.arch, 'pid:', d.pid, 'folders:', d.workspaceFolders);
         ideState.ideConnected(ws, d.workspaceFolders ?? []).then(() => {
           this.broadcastToChannel('ide', { type: 'ide_status', connected: true } as unknown as WSMessage);
         });
@@ -163,6 +164,13 @@ export class WebSocketHandler {
       } else if (data.type === 'browser_response') {
         const d = data as { requestId: string; result?: unknown; error?: string };
         ideState.resolveBrowserRequest(d.requestId, d.result, d.error);
+      } else if (data.type === 'browser_debug') {
+        const d = data as { sessionId: string; message: string };
+        console.log(`[browser-debug] ${d.sessionId}: ${d.message}`);
+      } else if (data.type === 'browser_cdp_tunnel') {
+        const d = data as { sessionId: string; port: number };
+        console.log(`[browser-cdp-tunnel] ${d.sessionId}: tunnel port ${d.port}`);
+        ideState.setCdpTunnel(d.sessionId, d.port);
       } else if (data.type === 'browser_error') {
         const d = data as { requestId: string; error: string };
         ideState.resolveBrowserRequest(d.requestId, undefined, d.error);

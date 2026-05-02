@@ -253,8 +253,18 @@ const server = Bun.serve<WsData>({
     }
 
     if (url.pathname.startsWith('/api/browser')) {
-      const res = await handleBrowserRoutes(req, url, wsHandler);
+      const res = await handleBrowserRoutes(req, url);
       if (res) return res;
+    }
+
+    // Serve compiled extension JS for in-place updates
+    if (url.pathname === '/api/extension/js' && req.method === 'GET') {
+      const extJsPath = '/srv/codebase/claude-mermaid-collab/extensions/vscode/out/extension.js';
+      const extJs = Bun.file(extJsPath);
+      if (await extJs.exists()) {
+        return new Response(extJs, { headers: { 'Content-Type': 'application/javascript' } });
+      }
+      return Response.json({ error: 'Extension JS not found' }, { status: 404 });
     }
 
     // API routes
