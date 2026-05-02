@@ -65,7 +65,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               text-xs font-medium
               transition-colors
               ${activeTabId === vibeInstructionsDoc.id
-                ? 'bg-accent-100 dark:bg-accent-900 text-accent-700 dark:text-accent-300'
+                ? 'bg-accent-100 dark:bg-accent-900 sepia:bg-[#DFCA88] text-accent-700 dark:text-accent-300 sepia:text-[#586E75]'
                 : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
               }
             `}

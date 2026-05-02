@@ -52,7 +52,7 @@ function ArtifactTreeNodeImpl({
   const className =
     'w-full text-left px-2 py-1 rounded text-xs flex items-center gap-2 cursor-pointer group ' +
     (highlighted
-      ? 'bg-accent-100 dark:bg-accent-900 text-accent-700 dark:text-accent-300 hover:bg-accent-200 dark:hover:bg-accent-800'
+      ? 'bg-accent-100 dark:bg-accent-900 sepia:bg-[#DFCA88] text-accent-700 dark:text-accent-300 sepia:text-[#586E75] hover:bg-accent-200 dark:hover:bg-accent-800 sepia:hover:bg-[#D4B96A]'
       : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800') +
     (node.deprecated ? ' opacity-60 line-through' : '');
 

@@ -11,11 +11,9 @@
  */
 
 import React, { useCallback, useState, useRef, useEffect, useMemo } from 'react';
-import { useShallow } from 'zustand/react/shallow';
 import { Link, useLocation } from 'react-router-dom';
 import { useTheme } from '@/hooks/useTheme';
 import { useSession } from '@/hooks/useSession';
-import { useUIStore } from '@/stores/uiStore';
 import { NavMenu } from './NavMenu';
 import { Session } from '@/types';
 
@@ -65,12 +63,6 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const { theme, toggleTheme } = useTheme();
   const { currentSession } = useSession();
-  const { agentChatVisible, toggleAgentChat } = useUIStore(
-    useShallow((state) => ({
-      agentChatVisible: state.agentChatVisible,
-      toggleAgentChat: state.toggleAgentChat,
-    }))
-  );
   const location = useLocation();
 
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
@@ -163,10 +155,6 @@ export const Header: React.FC<HeaderProps> = ({
   const handleThemeToggle = useCallback(() => {
     toggleTheme();
   }, [toggleTheme]);
-
-  const handleAgentToggle = useCallback(() => {
-    toggleAgentChat();
-  }, [toggleAgentChat]);
 
   const handleRefreshSessions = useCallback(() => {
     onRefreshSessions?.();

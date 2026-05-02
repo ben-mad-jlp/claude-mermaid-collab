@@ -201,7 +201,7 @@ export const Tab: React.FC<TabProps> = ({
   const baseClasses =
     'flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer select-none border-r border-gray-200 dark:border-gray-700 min-w-[120px] max-w-[200px]';
   const stateClasses = isActive
-    ? 'bg-accent-100 dark:bg-accent-900 border-b-2 border-accent-700'
+    ? 'bg-accent-100 dark:bg-accent-900 sepia:bg-[#DFCA88] border-b-2 border-accent-700 sepia:border-[#B58900]'
     : 'hover:bg-gray-100 dark:hover:bg-gray-800 border-b-2 border-transparent';
 
   return (
