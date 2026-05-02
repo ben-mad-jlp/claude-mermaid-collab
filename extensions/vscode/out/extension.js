@@ -3765,6 +3765,10 @@ var import_util = require("util");
 var execAsync = (0, import_util.promisify)(import_child_process.exec);
 var ws = null;
 var statusBarItem;
+var chromeDebugBar;
+var chromeDebugProcess = null;
+var sshTunnelProcess = null;
+var chromeDebugRunning = false;
 var reconnectTimer = null;
 var reconnectDelay = 1e3;
 var reconnectAttempts = 0;
@@ -3781,7 +3785,18 @@ function activate(context) {
   statusBarItem.command = "mermaidCollab.showStatus";
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
+  chromeDebugBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
+  chromeDebugBar.command = "mermaidCollab.toggleChromeDebug";
+  chromeDebugBar.show();
+  context.subscriptions.push(chromeDebugBar);
+  updateChromeDebugBar();
   context.subscriptions.push(
+    vscode.commands.registerCommand("mermaidCollab.toggleChromeDebug", () => {
+      if (chromeDebugRunning)
+        stopChromeDebug();
+      else
+        void startChromeDebug();
+    }),
     vscode.commands.registerCommand("mermaidCollab.showStatus", () => {
       const state = ws?.readyState === wrapper_default.OPEN ? "Connected" : "Disconnected";
       vscode.window.showInformationMessage(`mermaid-collab: ${state}`);
@@ -3987,13 +4002,14 @@ function deactivate() {
   hasReattachedThisSession = false;
   ws?.close();
   for (const session of browserSessions.values()) {
-    session.cdpSocket.close();
+    session.cdpSocket?.close();
   }
   browserSessions.clear();
   for (const cs of chromeSessions.values()) {
     cs.process.kill();
   }
   chromeSessions.clear();
+  stopChromeDebug();
 }
 var browserSessions = /* @__PURE__ */ new Map();
 function sendCollabMsg(msg) {
@@ -4393,13 +4409,84 @@ function handleBrowserClose(sessionId) {
   const session = browserSessions.get(sessionId);
   if (!session)
     return;
-  session.cdpSocket.close();
+  session.cdpSocket?.close();
   browserSessions.delete(sessionId);
   const cs = chromeSessions.get(sessionId);
   if (cs) {
     cs.process.kill();
     chromeSessions.delete(sessionId);
   }
+}
+function updateChromeDebugBar() {
+  if (chromeDebugRunning) {
+    chromeDebugBar.text = "$(broadcast) CDP";
+    chromeDebugBar.tooltip = "Chrome debug tunnel running \u2014 click to stop";
+    chromeDebugBar.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
+  } else {
+    chromeDebugBar.text = "$(debug-disconnect) CDP";
+    chromeDebugBar.tooltip = "Chrome debug tunnel stopped \u2014 click to start";
+    chromeDebugBar.backgroundColor = void 0;
+  }
+}
+async function startChromeDebug() {
+  const cfg = vscode.workspace.getConfiguration("mermaidCollab");
+  const port = cfg.get("chromeDebugPort") ?? 9333;
+  const userDataDir = cfg.get("chromeDebugUserDataDir") ?? "C:\\ChromeDebug";
+  const sshTarget = cfg.get("sshTunnelTarget") ?? "";
+  const configuredPath = cfg.get("chromePath") ?? "";
+  let chromeBin;
+  try {
+    chromeBin = configuredPath.trim() || await findChrome();
+  } catch (err) {
+    vscode.window.showErrorMessage(`mermaid-collab: Chrome not found \u2014 ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+  const { spawn } = require("child_process");
+  chromeDebugProcess = spawn(chromeBin, [
+    `--remote-debugging-port=${port}`,
+    "--remote-allow-origins=*",
+    "--no-first-run",
+    "--no-default-browser-check",
+    `--user-data-dir=${userDataDir}`
+  ], { detached: false, stdio: "ignore" });
+  chromeDebugProcess.on("exit", () => {
+    chromeDebugProcess = null;
+    if (chromeDebugRunning) {
+      chromeDebugRunning = false;
+      updateChromeDebugBar();
+    }
+  });
+  if (sshTarget) {
+    sshTunnelProcess = spawn("ssh", [
+      "-R",
+      `${port}:127.0.0.1:${port}`,
+      "-N",
+      "-o",
+      "StrictHostKeyChecking=no",
+      "-o",
+      "ExitOnForwardFailure=yes",
+      sshTarget
+    ], { detached: false, stdio: "ignore" });
+    sshTunnelProcess.on("exit", () => {
+      sshTunnelProcess = null;
+      if (chromeDebugRunning) {
+        chromeDebugRunning = false;
+        updateChromeDebugBar();
+        vscode.window.showWarningMessage("mermaid-collab: SSH tunnel disconnected");
+      }
+    });
+  }
+  chromeDebugRunning = true;
+  updateChromeDebugBar();
+  vscode.window.showInformationMessage(`mermaid-collab: Chrome debug${sshTarget ? " + SSH tunnel" : ""} started on port ${port}`);
+}
+function stopChromeDebug() {
+  chromeDebugProcess?.kill();
+  chromeDebugProcess = null;
+  sshTunnelProcess?.kill();
+  sshTunnelProcess = null;
+  chromeDebugRunning = false;
+  updateChromeDebugBar();
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {

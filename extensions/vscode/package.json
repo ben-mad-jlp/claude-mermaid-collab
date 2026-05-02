@@ -2,7 +2,7 @@
   "name": "mermaid-collab-vscode",
   "displayName": "mermaid-collab",
   "description": "Connects the mermaid-collab UI to VSCode terminals and editor",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "publisher": "mermaid-collab",
   "engines": {
     "vscode": "^1.85.0"
@@ -30,6 +30,10 @@
       {
         "command": "mermaidCollab.update",
         "title": "mermaid-collab: Update Extension"
+      },
+      {
+        "command": "mermaidCollab.toggleChromeDebug",
+        "title": "mermaid-collab: Toggle Chrome Debug Tunnel"
       }
     ],
     "configuration": {
@@ -44,6 +48,21 @@
           "type": "string",
           "default": "",
           "description": "Path to Chrome/Chromium binary (leave blank for auto-detect)"
+        },
+        "mermaidCollab.chromeDebugPort": {
+          "type": "number",
+          "default": 9333,
+          "description": "CDP remote debugging port for the Chrome debug tunnel"
+        },
+        "mermaidCollab.chromeDebugUserDataDir": {
+          "type": "string",
+          "default": "C:\\ChromeDebug",
+          "description": "Chrome user data directory for the debug tunnel instance"
+        },
+        "mermaidCollab.sshTunnelTarget": {
+          "type": "string",
+          "default": "",
+          "description": "SSH target (user@host) for the reverse tunnel. Leave blank to skip SSH (Chrome debug only)."
         }
       }
     }

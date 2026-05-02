@@ -8,6 +8,10 @@ const execAsync = promisify(exec);
 
 let ws: WebSocket | null = null;
 let statusBarItem: vscode.StatusBarItem;
+let chromeDebugBar: vscode.StatusBarItem;
+let chromeDebugProcess: import('child_process').ChildProcess | null = null;
+let sshTunnelProcess: import('child_process').ChildProcess | null = null;
+let chromeDebugRunning = false;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectDelay = 1000;
 let reconnectAttempts = 0;
@@ -29,7 +33,17 @@ export function activate(context: vscode.ExtensionContext) {
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
 
+  chromeDebugBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
+  chromeDebugBar.command = 'mermaidCollab.toggleChromeDebug';
+  chromeDebugBar.show();
+  context.subscriptions.push(chromeDebugBar);
+  updateChromeDebugBar();
+
   context.subscriptions.push(
+    vscode.commands.registerCommand('mermaidCollab.toggleChromeDebug', () => {
+      if (chromeDebugRunning) stopChromeDebug();
+      else void startChromeDebug();
+    }),
     vscode.commands.registerCommand('mermaidCollab.showStatus', () => {
       const state = ws?.readyState === WebSocket.OPEN ? 'Connected' : 'Disconnected';
       vscode.window.showInformationMessage(`mermaid-collab: ${state}`);
@@ -243,13 +257,14 @@ export function deactivate() {
   hasReattachedThisSession = false;
   ws?.close();
   for (const session of browserSessions.values()) {
-    session.cdpSocket.close();
+    session.cdpSocket?.close();
   }
   browserSessions.clear();
   for (const cs of chromeSessions.values()) {
     cs.process.kill();
   }
   chromeSessions.clear();
+  stopChromeDebug();
 }
 
 // ── Browser CDP session management ─────────────────────────────────────────
@@ -690,8 +705,85 @@ function handleBrowserEvents(requestId: string, sessionId: string, eventType: st
 function handleBrowserClose(sessionId: string): void {
   const session = browserSessions.get(sessionId);
   if (!session) return;
-  session.cdpSocket.close();
+  session.cdpSocket?.close();
   browserSessions.delete(sessionId);
   const cs = chromeSessions.get(sessionId);
   if (cs) { cs.process.kill(); chromeSessions.delete(sessionId); }
+}
+
+// ── Chrome debug tunnel (status bar toggle) ─────────────────────────────────
+
+function updateChromeDebugBar(): void {
+  if (chromeDebugRunning) {
+    chromeDebugBar.text = '$(broadcast) CDP';
+    chromeDebugBar.tooltip = 'Chrome debug tunnel running — click to stop';
+    chromeDebugBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+  } else {
+    chromeDebugBar.text = '$(debug-disconnect) CDP';
+    chromeDebugBar.tooltip = 'Chrome debug tunnel stopped — click to start';
+    chromeDebugBar.backgroundColor = undefined;
+  }
+}
+
+async function startChromeDebug(): Promise<void> {
+  const cfg = vscode.workspace.getConfiguration('mermaidCollab');
+  const port = cfg.get<number>('chromeDebugPort') ?? 9333;
+  const userDataDir = cfg.get<string>('chromeDebugUserDataDir') ?? 'C:\\ChromeDebug';
+  const sshTarget = cfg.get<string>('sshTunnelTarget') ?? '';
+
+  const configuredPath = cfg.get<string>('chromePath') ?? '';
+  let chromeBin: string;
+  try {
+    chromeBin = configuredPath.trim() || await findChrome();
+  } catch (err) {
+    vscode.window.showErrorMessage(`mermaid-collab: Chrome not found — ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+
+  const { spawn } = require('child_process') as typeof import('child_process');
+
+  chromeDebugProcess = spawn(chromeBin, [
+    `--remote-debugging-port=${port}`,
+    '--remote-allow-origins=*',
+    '--no-first-run',
+    '--no-default-browser-check',
+    `--user-data-dir=${userDataDir}`,
+  ], { detached: false, stdio: 'ignore' });
+
+  chromeDebugProcess.on('exit', () => {
+    chromeDebugProcess = null;
+    if (chromeDebugRunning) { chromeDebugRunning = false; updateChromeDebugBar(); }
+  });
+
+  if (sshTarget) {
+    sshTunnelProcess = spawn('ssh', [
+      '-R', `${port}:127.0.0.1:${port}`,
+      '-N',
+      '-o', 'StrictHostKeyChecking=no',
+      '-o', 'ExitOnForwardFailure=yes',
+      sshTarget,
+    ], { detached: false, stdio: 'ignore' });
+
+    sshTunnelProcess.on('exit', () => {
+      sshTunnelProcess = null;
+      if (chromeDebugRunning) {
+        chromeDebugRunning = false;
+        updateChromeDebugBar();
+        vscode.window.showWarningMessage('mermaid-collab: SSH tunnel disconnected');
+      }
+    });
+  }
+
+  chromeDebugRunning = true;
+  updateChromeDebugBar();
+  vscode.window.showInformationMessage(`mermaid-collab: Chrome debug${sshTarget ? ' + SSH tunnel' : ''} started on port ${port}`);
+}
+
+function stopChromeDebug(): void {
+  chromeDebugProcess?.kill();
+  chromeDebugProcess = null;
+  sshTunnelProcess?.kill();
+  sshTunnelProcess = null;
+  chromeDebugRunning = false;
+  updateChromeDebugBar();
 }
