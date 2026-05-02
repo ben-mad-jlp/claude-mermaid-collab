@@ -168,13 +168,11 @@ const SubscriptionRow: React.FC<{
         onDragEnd={onDragEnd}
         onClick={() => {
           onNavigate(sub.project, sub.session);
-          if (sub.claudeSessionId) {
-            fetch('/api/ide/focus-terminal', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ claudeSessionId: sub.claudeSessionId }),
-            }).catch(() => {});
-          }
+          fetch('/api/ide/create-terminal', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session: sub.session }),
+          }).catch(() => {});
         }}
       >
         {/* Project / Session on two lines */}
@@ -361,6 +359,26 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
             />
           </svg>
         </button>
+        {/* Open all watched sessions in IDE */}
+        {projectSubscriptions.length > 0 && (
+          <button
+            onClick={() => {
+              for (const [, sub] of projectSubscriptions) {
+                fetch('/api/ide/create-terminal', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ session: sub.session }),
+                }).catch(() => {});
+              }
+            }}
+            className="px-2 py-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+            title="Open all watched sessions in IDE"
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 6a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2zm0 6a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2z" />
+            </svg>
+          </button>
+        )}
         {/* Subscribe button */}
         <button
           onClick={() => setShowDropdown(true)}

@@ -3961,27 +3961,23 @@ async function drainReattachQueue(isFirst) {
 }
 async function processOneReattach(msg, showTerminal) {
   const sessionHint = msg.session;
-  const existing = vscode.window.terminals.find((t) => t.name === sessionHint);
+  const existing = vscode.window.terminals.find((t2) => t2.name === sessionHint);
   if (existing) {
     if (showTerminal) {
       existing.show(false);
     }
     return;
   }
-  try {
-    await execAsync(`tmux has-session -t '${sessionHint}' 2>/dev/null`);
-    const groupedName = `vscode-collab-${sessionHint}`;
-    const cmd = `(tmux has-session -t '${groupedName}' 2>/dev/null || tmux new-session -d -s '${groupedName}' -t '${sessionHint}') && tmux attach-session -t '${groupedName}'`;
-    groupedSessionNames.set(sessionHint, groupedName);
-    const t = vscode.window.createTerminal({
-      name: sessionHint,
-      shellPath: "/bin/sh",
-      shellArgs: ["-c", cmd]
-    });
-    if (showTerminal) {
-      t.show(false);
-    }
-  } catch {
+  const groupedName = `vscode-collab-${sessionHint}`;
+  const cmd = `(tmux has-session -t '${groupedName}' 2>/dev/null || tmux new-session -d -s '${groupedName}' -t '${sessionHint}') && tmux attach-session -t '${groupedName}'`;
+  groupedSessionNames.set(sessionHint, groupedName);
+  const t = vscode.window.createTerminal({
+    name: sessionHint,
+    shellPath: "/bin/sh",
+    shellArgs: ["-c", cmd]
+  });
+  if (showTerminal) {
+    t.show(false);
   }
 }
 function scheduleReconnect(delay) {

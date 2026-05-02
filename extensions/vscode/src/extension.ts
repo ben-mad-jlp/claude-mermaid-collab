@@ -226,18 +226,17 @@ async function processOneReattach(msg: { session: string }, showTerminal: boolea
     if (showTerminal) { existing.show(false); }
     return;
   }
-  try {
-    await execAsync(`tmux has-session -t '${sessionHint}' 2>/dev/null`);
-    const groupedName = `vscode-collab-${sessionHint}`;
-    const cmd = `(tmux has-session -t '${groupedName}' 2>/dev/null || tmux new-session -d -s '${groupedName}' -t '${sessionHint}') && tmux attach-session -t '${groupedName}'`;
-    groupedSessionNames.set(sessionHint, groupedName);
-    const t = vscode.window.createTerminal({
-      name: sessionHint,
-      shellPath: '/bin/sh',
-      shellArgs: ['-c', cmd],
-    });
-    if (showTerminal) { t.show(false); }
-  } catch { /* tmux session not found or unavailable — skip */ }
+  // Run the tmux check inside the terminal shell (on the remote/Linux side) so
+  // the has-session call works even when the extension host is on Windows.
+  const groupedName = `vscode-collab-${sessionHint}`;
+  const cmd = `(tmux has-session -t '${groupedName}' 2>/dev/null || tmux new-session -d -s '${groupedName}' -t '${sessionHint}') && tmux attach-session -t '${groupedName}'`;
+  groupedSessionNames.set(sessionHint, groupedName);
+  const t = vscode.window.createTerminal({
+    name: sessionHint,
+    shellPath: '/bin/sh',
+    shellArgs: ['-c', cmd],
+  });
+  if (showTerminal) { t.show(false); }
 }
 
 function scheduleReconnect(delay: number) {
