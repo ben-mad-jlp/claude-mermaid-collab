@@ -1597,7 +1597,6 @@ IMPORTANT - Common pitfalls to avoid:
       browserToolSchemas.browser_screenshot,
       browserToolSchemas.browser_console,
       browserToolSchemas.browser_network,
-      browserToolSchemas.browser_close,
       browserToolSchemas.browser_click,
       browserToolSchemas.browser_fill,
       browserToolSchemas.browser_select,
@@ -1611,8 +1610,6 @@ IMPORTANT - Common pitfalls to avoid:
       browserToolSchemas.browser_fill_form,
       browserToolSchemas.browser_emulate,
       browserToolSchemas.browser_resize_page,
-      browserToolSchemas.browser_list_pages,
-      browserToolSchemas.browser_select_page,
       browserToolSchemas.browser_take_snapshot,
       browserToolSchemas.browser_take_memory_snapshot,
       browserToolSchemas.browser_upload_file,
@@ -4342,12 +4339,6 @@ IMPORTANT - Common pitfalls to avoid:
             return await browserNetwork(sessionId);
           }
 
-          case 'browser_close': {
-            const { sessionId } = args as { sessionId?: string };
-            const { browserClose } = await import('./tools/browser.js');
-            return await browserClose(sessionId);
-          }
-
           case 'browser_click': {
             const { selector, session } = args as { selector: string; session?: string };
             const { browserClick } = await import('./tools/browser.js');
@@ -4424,17 +4415,6 @@ IMPORTANT - Common pitfalls to avoid:
             const { width, height, session } = args as { width: number; height: number; session?: string };
             const { browserResizePage } = await import('./tools/browser.js');
             return await browserResizePage(width, height, session);
-          }
-
-          case 'browser_list_pages': {
-            const { browserListPages } = await import('./tools/browser.js');
-            return await browserListPages();
-          }
-
-          case 'browser_select_page': {
-            const { targetId, session } = args as { targetId: string; session?: string };
-            const { browserSelectPage } = await import('./tools/browser.js');
-            return await browserSelectPage(targetId, session);
           }
 
           case 'browser_take_snapshot': {

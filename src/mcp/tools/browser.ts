@@ -1,23 +1,17 @@
 import { writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { createRequire } from 'node:module';
-import { withCDPSession, resolveSessionId, CDP_PORT, registerTab } from '../../services/cdp-session.js';
+import { withCDPSession, resolveSessionId, CDP_PORT, createOrReplaceTab } from '../../services/cdp-session.js';
 
-const require = createRequire(import.meta.url);
-const CDP = require('chrome-remote-interface') as any;
 
 export async function browserOpen(url: string, session?: string): Promise<string> {
   const sessionId = session ?? await resolveSessionId();
+  await createOrReplaceTab(sessionId, CDP_PORT);
   return withCDPSession(sessionId, CDP_PORT, async (client) => {
     await client.Page.enable();
     await client.Page.navigate({ url });
-    await new Promise(r => setTimeout(r, 500)); // brief wait for load
+    await new Promise(r => setTimeout(r, 500));
     const titleResult = await client.Runtime.evaluate({ expression: 'document.title', returnByValue: true });
     const title = titleResult.result?.value ?? '';
-    try {
-      const info = await client.Target.getTargetInfo();
-      registerTab(sessionId, info.targetInfo.targetId);
-    } catch {} // not all CDP versions support this
     return JSON.stringify({ sessionId, url, title }, null, 2);
   });
 }
@@ -83,12 +77,6 @@ export async function browserNetwork(sessionId: string | undefined): Promise<str
   });
 }
 
-export async function browserClose(sessionId: string | undefined): Promise<string> {
-  return withCDPSession(sessionId ?? await resolveSessionId(), CDP_PORT, async (client) => {
-    await client.Browser.close();
-    return JSON.stringify({ closed: true }, null, 2);
-  });
-}
 
 export async function browserClick(selector: string, session?: string): Promise<string> {
   const sessionId = session ?? await resolveSessionId();
@@ -294,17 +282,6 @@ export async function browserResizePage(width: number, height: number, session?:
   });
 }
 
-export async function browserListPages(): Promise<string> {
-  const tabs = await CDP.List({ host: '127.0.0.1', port: CDP_PORT });
-  return JSON.stringify({ pages: tabs.filter((t: any) => t.type === 'page').map((t: any) => ({ id: t.id, title: t.title, url: t.url })) }, null, 2);
-}
-
-export async function browserSelectPage(targetId: string, session?: string): Promise<string> {
-  await CDP.Activate({ id: targetId, host: '127.0.0.1', port: CDP_PORT });
-  const sessionId = session ?? await resolveSessionId();
-  registerTab(sessionId, targetId);
-  return JSON.stringify({ success: true, targetId, session: sessionId }, null, 2);
-}
 
 export async function browserTakeSnapshot(session?: string): Promise<string> {
   const sessionId = session ?? await resolveSessionId();
@@ -455,17 +432,6 @@ export const browserToolSchemas = {
   browser_network: {
     name: 'browser_network',
     description: 'Get network request entries captured during this CDP connection window.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        sessionId: { type: 'string', description: 'Browser session ID (optional, auto-resolved if omitted)' },
-      },
-      required: [],
-    },
-  },
-  browser_close: {
-    name: 'browser_close',
-    description: 'Close the browser via CDP.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -637,27 +603,6 @@ export const browserToolSchemas = {
         session: { type: 'string', description: 'CDP session ID (optional, auto-resolved if omitted)' },
       },
       required: ['width', 'height'],
-    },
-  },
-  browser_list_pages: {
-    name: 'browser_list_pages',
-    description: 'List all open page tabs in the connected Chrome instance.',
-    inputSchema: {
-      type: 'object',
-      properties: {},
-      required: [],
-    },
-  },
-  browser_select_page: {
-    name: 'browser_select_page',
-    description: 'Activate (focus) a specific Chrome tab by its target ID (from browser_list_pages). Also registers the tab so all subsequent browser tool calls in this session target it.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        targetId: { type: 'string', description: 'Target ID of the tab to activate' },
-        session: { type: 'string', description: 'Session name to bind this tab to (defaults to current Claude session)' },
-      },
-      required: ['targetId'],
     },
   },
   browser_take_snapshot: {

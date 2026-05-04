@@ -49,7 +49,7 @@ export async function withCDPSession<T>(
     if (targetId) {
       client = await CDP({ host: '127.0.0.1', port, target: targetId });
     } else {
-      client = await CDP({ host: '127.0.0.1', port });
+      throw new Error(`No browser tab open for session "${sessionName}" — call browser_open first`);
     }
   } catch (err: any) {
     if (err?.code === 'ECONNREFUSED') {
