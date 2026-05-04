@@ -3274,6 +3274,13 @@ IMPORTANT - Common pitfalls to avoid:
               try { fs.unlinkSync(bindingTmp); } catch {}
               return JSON.stringify({ success: false, error: `Failed to write binding file ${bindingFile}: ${err?.message || String(err)}` });
             }
+            // Register in-memory so resolveSessionId works regardless of CLAUDE_PID mismatch
+            try {
+              const { registerPidSession } = await import('../services/cdp-session.js');
+              registerPidSession(Number(pidStr), session);
+              const envPid = Number(process.env.CLAUDE_PID);
+              if (envPid && envPid !== Number(pidStr)) registerPidSession(envPid, session);
+            } catch {}
             try {
               const response = await fetch(buildUrl('/api/claude-session/register', project, session), {
                 method: 'POST',
@@ -4306,7 +4313,8 @@ IMPORTANT - Common pitfalls to avoid:
             const result = await browserOpen(url, session);
             try {
               const parsed = JSON.parse(result);
-              getWebSocketHandler()?.broadcastBrowserTabUpdate(parsed.sessionId, true);
+              const collabSession = session ?? parsed.sessionId;
+              getWebSocketHandler()?.broadcastBrowserTabUpdate(collabSession, true);
             } catch {}
             return result;
           }

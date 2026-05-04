@@ -9,6 +9,13 @@ export const CDP_PORT = 9333;
 // Maps sessionName → targetId
 const tabRegistry = new Map<string, string>();
 
+// Maps Claude PID → collab session name (in-process, survives file-lookup failures)
+const pidToSession = new Map<number, string>();
+
+export function registerPidSession(pid: number, session: string): void {
+  pidToSession.set(pid, session);
+}
+
 export async function resolveSessionId(claudePid?: number): Promise<string> {
   try {
     let pid = claudePid;
@@ -22,6 +29,10 @@ export async function resolveSessionId(claudePid?: number): Promise<string> {
     if (!pid || !Number.isInteger(pid) || pid === 0) {
       return `auto-${process.pid}`;
     }
+
+    // Check in-memory map first (populated by register_claude_session)
+    const inMemory = pidToSession.get(pid);
+    if (inMemory) return inMemory;
 
     const sessionIdRaw = await fsp.readFile(`/tmp/.claude-session-id-${pid}`, 'utf8');
     const claudeSessionId = sessionIdRaw.trim();
