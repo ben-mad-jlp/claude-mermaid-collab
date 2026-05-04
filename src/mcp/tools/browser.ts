@@ -1,11 +1,11 @@
 import { writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { withCDPSession, resolveSessionId, CDP_PORT, createOrReplaceTab } from '../../services/cdp-session.js';
+import { withCDPSession, resolveSessionId, CDP_PORT, ensureTab } from '../../services/cdp-session.js';
 
 
 export async function browserOpen(url: string, session?: string): Promise<string> {
   const sessionId = session ?? await resolveSessionId();
-  await createOrReplaceTab(sessionId, CDP_PORT);
+  await ensureTab(sessionId, CDP_PORT);
   return withCDPSession(sessionId, CDP_PORT, async (client) => {
     await client.Page.enable();
     await client.Page.navigate({ url });

@@ -121,6 +121,12 @@ export async function createOrReplaceTab(sessionName: string, port: number): Pro
   }
 }
 
+export async function ensureTab(sessionName: string, port: number): Promise<void> {
+  if (!tabRegistry.has(sessionName)) {
+    await createOrReplaceTab(sessionName, port);
+  }
+}
+
 export function listActiveSessions(): string[] {
   return Array.from(tabRegistry.keys());
 }
