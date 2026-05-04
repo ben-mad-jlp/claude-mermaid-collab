@@ -47,7 +47,7 @@ const ClaudePixAvatar: React.FC<{ status: string }> = ({ status }) => {
           sandbox="allow-scripts"
           allowtransparency="true"
           className="rounded-sm overflow-hidden pointer-events-none"
-          style={{ width: 32, height: 32, imageRendering: 'pixelated', background: 'transparent', display: 'block' }}
+          style={{ width: 44, height: 44, imageRendering: 'pixelated', background: 'transparent', display: 'block' }}
         />
       </div>
 
@@ -86,9 +86,7 @@ function formatElapsed(ms: number): string {
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+  return '>1h';
 }
 
 function useElapsed(lastUpdate: number, status: string): string | null {
@@ -97,7 +95,7 @@ function useElapsed(lastUpdate: number, status: string): string | null {
   useEffect(() => {
     if (status === 'unknown') return;
     const elapsed = Date.now() - lastUpdate;
-    // Under 1 minute: update every second. Over 1 minute: update every 60s.
+    if (elapsed >= 3_600_000) return; // already >1h, no need to keep ticking
     const interval = elapsed < 60_000 ? 1_000 : 60_000;
     const id = setInterval(() => setNow(Date.now()), interval);
     return () => clearInterval(id);
@@ -241,11 +239,6 @@ const SubscriptionRow: React.FC<{
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1">
             <span className="text-xs text-black truncate">{sub.project.split('/').pop()}</span>
-            {elapsed && (
-              <span className="text-[10px] text-black tabular-nums flex-shrink-0 ml-auto">
-                {elapsed}
-              </span>
-            )}
           </div>
           <div className="flex items-center gap-1">
             <span className="text-xs text-black truncate">{sub.session}</span>
@@ -260,49 +253,47 @@ const SubscriptionRow: React.FC<{
                 {sub.contextPercent}%
               </span>
             )}
+            {elapsed && (
+              <span className="text-[10px] text-black tabular-nums flex-shrink-0 ml-auto">
+                {elapsed}
+              </span>
+            )}
           </div>
         </div>
-        {/* 2-col grid: buttons | dots — rows share height so each button aligns with its dot */}
-        <div className="grid grid-cols-2 items-center flex-shrink-0 py-0.5 gap-x-0.5 gap-y-0.5">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              fetch('/api/ide/create-terminal', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ session: sub.session }),
-              }).catch(() => {});
-            }}
-            className="p-0.5 text-black hover:text-green-600 transition-colors justify-self-center"
-            title={tmuxActive ? `Replace tmux session "${sub.session}"` : `Create tmux session "${sub.session}"`}
-          >
-            <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm3.293 1.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L7.586 10 5.293 7.707a1 1 0 010-1.414zM11 12a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
-            </svg>
-          </button>
-          <span
-            className={`w-1.5 h-1.5 rounded-full justify-self-center ${tmuxActive ? 'bg-green-500' : 'bg-gray-400 dark:bg-gray-600'}`}
-            title={tmuxActive ? `tmux session "${sub.session}" active` : `no tmux session "${sub.session}"`}
-          />
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              fetch('/api/browser/create-tab', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ session: sub.session }),
-              }).catch(() => {});
-            }}
-            className="p-0.5 text-black hover:text-blue-600 transition-colors justify-self-center"
-            title="Open Chrome tab"
-          >
-            <Globe className="w-3 h-3" />
-          </button>
-          <span
-            className={`w-1.5 h-1.5 rounded-full justify-self-center ${browserActive ? 'bg-blue-500' : 'bg-gray-400 dark:bg-gray-600'}`}
-            title={browserActive ? `Chrome tab: ${sub.session}` : 'No browser tab'}
-          />
-        </div>
+        {/* text content only now — buttons moved outside */}
+      </div>
+      {/* Action buttons — outside the card, own bordered section, square columns */}
+      <div className="flex items-center flex-shrink-0 gap-1 px-1">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            fetch('/api/ide/create-terminal', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ session: sub.session }),
+            }).catch(() => {});
+          }}
+          className={`flex items-center justify-center w-7 h-7 rounded-full transition-colors hover:opacity-80 ${tmuxActive ? 'bg-green-300 text-green-900' : 'bg-red-300 text-red-900'}`}
+          title={tmuxActive ? `Replace tmux session "${sub.session}"` : `Create tmux session "${sub.session}"`}
+        >
+          <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm3.293 1.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L7.586 10 5.293 7.707a1 1 0 010-1.414zM11 12a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
+          </svg>
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            fetch('/api/browser/create-tab', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ session: sub.session }),
+            }).catch(() => {});
+          }}
+          className={`flex items-center justify-center w-7 h-7 rounded-full transition-colors hover:opacity-80 ${browserActive ? 'bg-green-300 text-green-900' : 'bg-red-300 text-red-900'}`}
+          title={browserActive ? `Chrome tab: ${sub.session}` : 'Open Chrome tab'}
+        >
+          <Globe className="w-5 h-5" />
+        </button>
       </div>
       {/* Claude pixel avatar — outside the colored card, right side */}
       <ClaudePixAvatar status={sub.status} />
@@ -464,7 +455,7 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
               <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
                 <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">Watch a session</span>
                 <button onClick={() => setShowDropdown(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
-                  <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                  <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
                   </svg>
                 </button>

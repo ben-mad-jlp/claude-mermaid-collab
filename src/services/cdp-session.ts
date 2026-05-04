@@ -91,6 +91,23 @@ export function registerTab(sessionName: string, tabId: string): void {
   tabRegistry.set(sessionName, tabId);
 }
 
+export async function createOrReplaceTab(sessionName: string, port: number): Promise<string> {
+  try {
+    const existingId = tabRegistry.get(sessionName);
+    if (existingId) {
+      try { await CDP.Close({ id: existingId, host: '127.0.0.1', port }); } catch {}
+    }
+    const tab = await CDP.New({ host: '127.0.0.1', port });
+    tabRegistry.set(sessionName, tab.id);
+    return tab.id;
+  } catch (err: any) {
+    if (err?.code === 'ECONNREFUSED') {
+      throw new Error(`Chrome not reachable on port ${port} — toggle CDP button in VSCodium`);
+    }
+    throw err;
+  }
+}
+
 export function listActiveSessions(): string[] {
   return Array.from(tabRegistry.keys());
 }

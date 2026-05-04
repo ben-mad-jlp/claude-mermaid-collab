@@ -36,7 +36,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       data-testid="sidebar"
       className={`
         flex flex-col
-        w-72 relative
+        w-80 relative
         bg-gray-50 dark:bg-gray-900
         border-r border-gray-200 dark:border-gray-700
         ${className}
