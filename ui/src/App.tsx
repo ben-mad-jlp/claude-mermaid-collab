@@ -939,7 +939,28 @@ const App: React.FC = () => {
           useSubscriptionStore.getState().updateContextPercent(project, session, contextPercent);
           const key = `${project}:${session}`;
           if (useSubscriptionStore.getState().subscriptions[key]) {
-            if (contextPercent >= 70) {
+            // Tier 1: 70%+ — warn once per crossing
+            // Tier 2: 90%+ — escalate with critical toast each time (separate tracking key)
+            const criticalKey = `${key}:critical`;
+            if (contextPercent >= 90) {
+              if (!notifiedContextThreshold.has(criticalKey)) {
+                notifiedContextThreshold.add(criticalKey);
+                if (Notification.permission === 'granted') {
+                  new Notification(`⚠ Context critical ${contextPercent}% — ${session}`, {
+                    body: 'Consider starting a new session soon',
+                    tag: `context-critical-${key}`,
+                    requireInteraction: true,
+                  });
+                }
+                useNotificationStore.getState().addToast({
+                  type: 'error',
+                  title: `Context critical — ${contextPercent}%`,
+                  message: `${session} is nearly full. Consider /compact or a new session.`,
+                  duration: 0,
+                });
+              }
+            } else if (contextPercent >= 70) {
+              notifiedContextThreshold.delete(criticalKey);
               if (!notifiedContextThreshold.has(key)) {
                 notifiedContextThreshold.add(key);
                 if (Notification.permission === 'granted') {
@@ -958,6 +979,7 @@ const App: React.FC = () => {
             } else {
               // Context dropped below threshold — reset so it can fire again if it grows back
               notifiedContextThreshold.delete(key);
+              notifiedContextThreshold.delete(criticalKey);
             }
           }
           break;

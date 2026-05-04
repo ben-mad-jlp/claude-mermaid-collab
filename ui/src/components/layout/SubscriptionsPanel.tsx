@@ -193,11 +193,15 @@ const SubscriptionRow: React.FC<{
           ? 'bg-green-300 hover:bg-green-400 border border-green-500'
           : 'bg-gray-200 hover:bg-gray-300 border border-gray-300';
 
+  const ctx = sub.contextPercent;
+  const ctxHigh = ctx !== undefined && ctx >= 90;
+  const ctxWarn = ctx !== undefined && ctx >= 70 && ctx < 90;
+
   return (
     <div className={`flex items-center gap-1 ${isDragOver ? 'border-t-2 border-t-blue-400' : ''}`}>
       {/* Colored status card */}
       <div
-        className={`relative group flex-1 flex items-stretch gap-2 pl-3 pr-2 py-1 rounded text-sm cursor-pointer transition-colors min-w-0 ${statusBg}`}
+        className={`relative group flex-1 flex items-stretch gap-2 pl-3 pr-2 py-1 rounded text-sm cursor-pointer transition-colors min-w-0 overflow-hidden ${statusBg} ${ctxHigh ? 'ring-2 ring-red-500 ring-inset' : ''}`}
         draggable
         onDragStart={(e) => onDragStart(e, subKey)}
         onDragOver={(e) => onDragOver(e, subKey)}
@@ -236,21 +240,15 @@ const SubscriptionRow: React.FC<{
           </svg>
         </button>
         {/* Project / Session on two lines */}
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 pb-1">
           <div className="flex items-center gap-1">
             <span className="text-xs text-black truncate">{sub.project.split('/').pop()}</span>
           </div>
           <div className="flex items-center gap-1">
             <span className="text-xs text-black truncate">{sub.session}</span>
-            {sub.contextPercent !== undefined && sub.contextPercent >= 70 && (
-              <span
-                className={`flex-shrink-0 text-[10px] font-medium px-1 py-0.5 rounded-full ${
-                  sub.contextPercent >= 80
-                    ? 'bg-red-100 text-red-800'
-                    : 'bg-yellow-100 text-yellow-800'
-                }`}
-              >
-                {sub.contextPercent}%
+            {(ctxHigh || ctxWarn) && (
+              <span className={`flex-shrink-0 text-[10px] font-bold tabular-nums px-1 py-0.5 rounded leading-none ${ctxHigh ? 'bg-red-500 text-white' : 'bg-yellow-400 text-yellow-900'}`}>
+                {ctx}%
               </span>
             )}
             {elapsed && (
@@ -260,7 +258,17 @@ const SubscriptionRow: React.FC<{
             )}
           </div>
         </div>
-        {/* text content only now — buttons moved outside */}
+        {/* Context bar — pinned to bottom of card */}
+        {ctx !== undefined && (
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/10">
+            <div
+              className={`h-full transition-all ${
+                ctxHigh ? 'bg-red-500 animate-pulse' : ctxWarn ? 'bg-yellow-500' : 'bg-green-400/60'
+              }`}
+              style={{ width: `${Math.min(ctx, 100)}%` }}
+            />
+          </div>
+        )}
       </div>
       {/* Action buttons — outside the card, own bordered section, square columns */}
       <div className="flex items-center flex-shrink-0 gap-1 px-1">
