@@ -1599,6 +1599,7 @@ IMPORTANT - Common pitfalls to avoid:
       browserToolSchemas.browser_network,
       browserToolSchemas.browser_click,
       browserToolSchemas.browser_fill,
+      browserToolSchemas.browser_fill_react,
       browserToolSchemas.browser_select,
       browserToolSchemas.browser_press_key,
       browserToolSchemas.browser_hover,
@@ -4369,6 +4370,13 @@ IMPORTANT - Common pitfalls to avoid:
             if (!session) throw new Error('browser_fill requires session');
             const { browserFill } = await import('./tools/browser.js');
             return await browserFill(selector, value, session);
+          }
+
+          case 'browser_fill_react': {
+            const { selector, value, session } = args as { selector: string; value: string; session: string };
+            if (!session) throw new Error('browser_fill_react requires session');
+            const { browserFillReact } = await import('./tools/browser.js');
+            return await browserFillReact(selector, value, session);
           }
 
           case 'browser_select': {

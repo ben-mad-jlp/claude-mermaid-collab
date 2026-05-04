@@ -111,6 +111,22 @@ export async function browserFill(selector: string, value: string, session: stri
   });
 }
 
+export async function browserFillReact(selector: string, value: string, session: string): Promise<string> {
+  return withCDPSession(session, CDP_PORT, async (client) => {
+    await client.Runtime.enable();
+    const evalResult = await client.Runtime.evaluate({ expression: `document.querySelector(${JSON.stringify(selector)})`, returnByValue: false });
+    const objectId = evalResult.result?.objectId;
+    if (!objectId) throw new Error(`Element not found: ${selector}`);
+    await client.Runtime.callFunctionOn({
+      objectId,
+      functionDeclaration: 'function(v) { const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set; setter.call(this, v); this.dispatchEvent(new Event("input", {bubbles:true})); this.dispatchEvent(new Event("change", {bubbles:true})); }',
+      arguments: [{ value }],
+      returnByValue: true,
+    });
+    return JSON.stringify({ success: true, selector, value }, null, 2);
+  });
+}
+
 export async function browserSelect(selector: string, value: string, session: string): Promise<string> {
   // Same as fill — sets .value and dispatches change
   return withCDPSession(session, CDP_PORT, async (client) => {
@@ -438,6 +454,19 @@ export const browserToolSchemas = {
   browser_fill: {
     name: 'browser_fill',
     description: 'Fill an input element identified by a CSS selector with a value.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string', description: 'CSS selector of the input element' },
+        value: { type: 'string', description: 'Value to set on the input element' },
+        session: { type: 'string', description: 'Collab session name (required)' },
+      },
+      required: ['selector', 'value', 'session'],
+    },
+  },
+  browser_fill_react: {
+    name: 'browser_fill_react',
+    description: 'Fill a React-controlled input element by bypassing React\'s synthetic event system via nativeInputValueSetter. Use this instead of browser_fill when browser_fill causes the value to reset.',
     inputSchema: {
       type: 'object',
       properties: {
