@@ -42,6 +42,7 @@ import { api, generateSessionName, type CachedUIState } from '@/lib/api';
 import { patchSessionItemsCache, getSessionItemsCache, isCacheStale } from '@/lib/sessionItemsCache';
 import { useProjectStore } from '@/stores/projectStore';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
+import { useDesignEditorStore } from '@/stores/designEditorStore';
 import type { Item, Session, ToolbarAction } from '@/types';
 
 // Import layout components
@@ -164,6 +165,20 @@ const App: React.FC = () => {
   );
 
   const setDocumentConflict = useUIStore((s) => s.setDocumentConflict);
+
+  // Design canvas zoom (from design editor store, separate from diagram zoom)
+  const designZoom = useDesignEditorStore((s) => s.zoom);
+  const designZoomIn = useCallback(() => {
+    const s = useDesignEditorStore.getState();
+    s.applyZoom(100, window.innerWidth / 2, window.innerHeight / 2);
+  }, []);
+  const designZoomOut = useCallback(() => {
+    const s = useDesignEditorStore.getState();
+    s.applyZoom(-100, window.innerWidth / 2, window.innerHeight / 2);
+  }, []);
+  const handleDesignFitToView = useCallback(() => {
+    useDesignEditorStore.getState().zoomToFit(window.innerWidth, window.innerHeight);
+  }, []);
 
   // Session state
   const {
@@ -1551,13 +1566,13 @@ const App: React.FC = () => {
             onRedo={() => {}}
             canUndo={false}
             canRedo={false}
-            zoom={zoomLevel}
-            onZoomIn={zoomIn}
-            onZoomOut={zoomOut}
+            zoom={activeItemType === 'design' ? Math.round(designZoom * 100) : zoomLevel}
+            onZoomIn={activeItemType === 'design' ? designZoomIn : zoomIn}
+            onZoomOut={activeItemType === 'design' ? designZoomOut : zoomOut}
             overflowActions={overflowActions}
             showZoom={activeItemType !== 'document' && activeItemType !== 'spreadsheet' && activeItemType !== 'snippet' && activeItemType !== 'code'}
             onCenter={activeItemType === 'diagram' ? handleCenter : undefined}
-            onFitToView={activeItemType === 'diagram' ? handleFitToView : undefined}
+            onFitToView={activeItemType === 'diagram' ? handleFitToView : activeItemType === 'design' ? handleDesignFitToView : undefined}
             itemType={activeItemType && activeItemType !== 'image' && activeItemType !== 'code' ? activeItemType : undefined}
             documentId={selectedItem?.type === 'document' ? selectedItem.id : undefined}
             documentContent={selectedItem?.type === 'document' ? effectiveContent : undefined}

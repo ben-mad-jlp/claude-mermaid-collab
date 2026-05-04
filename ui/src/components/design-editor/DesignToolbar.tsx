@@ -5,7 +5,7 @@
  * zoom controls, and undo/redo buttons.
  */
 
-import React, { useCallback } from 'react'
+import React, { useCallback, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useDesignEditorStore, type Tool } from '@/stores/designEditorStore'
 import { getEditorRefs } from '@/stores/designEditorRefs'
@@ -29,10 +29,9 @@ const TOOLS: ToolButton[] = [
 ]
 
 export const DesignToolbar: React.FC = () => {
-  const { activeTool, zoom, sceneVersion, setTool } = useDesignEditorStore(
+  const { activeTool, sceneVersion, setTool } = useDesignEditorStore(
     useShallow((s) => ({
       activeTool: s.activeTool,
-      zoom: s.zoom,
       sceneVersion: s.sceneVersion,
       setTool: s.setTool,
     }))
@@ -40,20 +39,6 @@ export const DesignToolbar: React.FC = () => {
 
   const handleUndo = () => useDesignEditorStore.getState().undoAction()
   const handleRedo = () => useDesignEditorStore.getState().redoAction()
-
-  const handleZoomIn = () => {
-    const s = useDesignEditorStore.getState()
-    const cx = window.innerWidth / 2
-    const cy = window.innerHeight / 2
-    s.applyZoom(100, cx, cy)
-  }
-
-  const handleZoomOut = () => {
-    const s = useDesignEditorStore.getState()
-    const cx = window.innerWidth / 2
-    const cy = window.innerHeight / 2
-    s.applyZoom(-100, cx, cy)
-  }
 
   // Re-evaluate on sceneVersion changes so buttons update after edits/undo/redo
   void sceneVersion
@@ -159,36 +144,27 @@ export const DesignToolbar: React.FC = () => {
 
       <div className="flex-1" />
 
-      {/* Zoom controls */}
-      <div className="flex items-center gap-1">
-        <button
-          onClick={handleZoomOut}
-          title="Zoom Out"
-          className="px-1.5 py-1 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
-        >
-          -
-        </button>
-        <span className="text-xs text-gray-500 dark:text-gray-400 w-12 text-center tabular-nums">
-          {Math.round(zoom * 100)}%
-        </span>
-        <button
-          onClick={handleZoomIn}
-          title="Zoom In"
-          className="px-1.5 py-1 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
-        >
-          +
-        </button>
-        <button
-          onClick={() => {
-            const s = useDesignEditorStore.getState()
-            s.zoomToFit(window.innerWidth, window.innerHeight)
-          }}
-          title="Zoom to Fit (Shift+1)"
-          className="px-1.5 py-1 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
-        >
-          Fit
-        </button>
-      </div>
+      <NavHelpButton />
+    </div>
+  )
+}
+
+function NavHelpButton() {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <button className="px-1.5 py-1 text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 rounded">
+        ?
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-50 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-lg p-3 w-56 text-xs text-gray-600 dark:text-gray-300 space-y-1.5">
+          <div className="font-medium text-gray-700 dark:text-gray-200 mb-2">Navigation</div>
+          <div className="flex justify-between"><span>Pan</span><span className="text-gray-400">Middle-drag or Alt+drag</span></div>
+          <div className="flex justify-between"><span>Pan</span><span className="text-gray-400">Shift+scroll</span></div>
+          <div className="flex justify-between"><span>Zoom</span><span className="text-gray-400">Scroll wheel</span></div>
+          <div className="flex justify-between"><span>Zoom to fit</span><span className="text-gray-400">Shift+1</span></div>
+        </div>
+      )}
     </div>
   )
 }
