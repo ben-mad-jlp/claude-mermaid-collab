@@ -273,7 +273,7 @@ const SubscriptionRow: React.FC<{
               body: JSON.stringify({ session: sub.session }),
             }).catch(() => {});
           }}
-          className={`flex items-center justify-center w-7 h-7 rounded-full transition-colors hover:opacity-80 ${tmuxActive ? 'bg-green-300 text-green-900' : 'bg-red-300 text-red-900'}`}
+          className={`flex items-center justify-center w-7 h-7 rounded-full transition-all hover:opacity-80 active:scale-90 active:brightness-75 ${tmuxActive ? 'bg-green-300 text-green-900' : 'bg-red-300 text-red-900'}`}
           title={tmuxActive ? `Replace tmux session "${sub.session}"` : `Create tmux session "${sub.session}"`}
         >
           <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
@@ -289,7 +289,7 @@ const SubscriptionRow: React.FC<{
               body: JSON.stringify({ session: sub.session }),
             }).catch(() => {});
           }}
-          className={`flex items-center justify-center w-7 h-7 rounded-full transition-colors hover:opacity-80 ${browserActive ? 'bg-green-300 text-green-900' : 'bg-red-300 text-red-900'}`}
+          className={`flex items-center justify-center w-7 h-7 rounded-full transition-all hover:opacity-80 active:scale-90 active:brightness-75 ${browserActive ? 'bg-green-300 text-green-900' : 'bg-red-300 text-red-900'}`}
           title={browserActive ? `Chrome tab: ${sub.session}` : 'Open Chrome tab'}
         >
           <Globe className="w-5 h-5" />

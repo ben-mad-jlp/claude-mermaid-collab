@@ -3255,32 +3255,35 @@ IMPORTANT - Common pitfalls to avoid:
             if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(claudeSessionId)) {
               return JSON.stringify({ success: false, error: `Invalid session id format in ${pidFile} (expected UUID)` });
             }
-            const bindingFile = `/tmp/.mermaid-collab-binding-${claudeSessionId}.json`;
-            const bindingTmp = `${bindingFile}.tmp.${process.pid}`;
-            try {
-              fs.writeFileSync(
-                bindingTmp,
-                JSON.stringify({
-                  claudeSessionId,
-                  project,
-                  session,
-                  claudePid: pidStr,
-                  boundAt: new Date().toISOString(),
-                }, null, 2),
-                'utf-8'
-              );
-              fs.renameSync(bindingTmp, bindingFile);
-            } catch (err: any) {
-              try { fs.unlinkSync(bindingTmp); } catch {}
-              return JSON.stringify({ success: false, error: `Failed to write binding file ${bindingFile}: ${err?.message || String(err)}` });
-            }
-            // Register in-memory so resolveSessionId works regardless of CLAUDE_PID mismatch
+            // Register in-memory first so resolveSessionId works even if file write fails
             try {
               const { registerPidSession } = await import('../services/cdp-session.js');
               registerPidSession(Number(pidStr), session);
               const envPid = Number(process.env.CLAUDE_PID);
               if (envPid && envPid !== Number(pidStr)) registerPidSession(envPid, session);
             } catch {}
+            const bindingFile = `/tmp/.mermaid-collab-binding-${claudeSessionId}.json`;
+            const bindingContent = JSON.stringify({
+              claudeSessionId,
+              project,
+              session,
+              claudePid: pidStr,
+              boundAt: new Date().toISOString(),
+            }, null, 2);
+            try {
+              // Try atomic tmp→rename; if rename fails (sticky-bit cross-user), fall back to direct write
+              const bindingTmp = `${bindingFile}.tmp.${process.pid}`;
+              fs.writeFileSync(bindingTmp, bindingContent, 'utf-8');
+              try {
+                fs.renameSync(bindingTmp, bindingFile);
+              } catch {
+                try { fs.unlinkSync(bindingTmp); } catch {}
+                fs.writeFileSync(bindingFile, bindingContent, 'utf-8');
+              }
+            } catch (err: any) {
+              // File write failed but in-memory registration already succeeded
+              console.warn(`[register_claude_session] binding file write failed (${err?.message || String(err)}), using in-memory registration only`);
+            }
             try {
               const response = await fetch(buildUrl('/api/claude-session/register', project, session), {
                 method: 'POST',
