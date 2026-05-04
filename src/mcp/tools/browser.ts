@@ -1,6 +1,6 @@
 import { writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { withCDPSession, CDP_PORT, ensureTab, registerTab } from '../../services/cdp-session.js';
+import { withCDPSession, activateTab, CDP_PORT, ensureTab, registerTab } from '../../services/cdp-session.js';
 
 
 export async function browserOpen(url: string, session: string): Promise<string> {
@@ -39,6 +39,7 @@ export async function browserEvaluate(session: string, expression: string): Prom
 }
 
 export async function browserScreenshot(session: string, project: string): Promise<string> {
+  await activateTab(session, CDP_PORT);
   return withCDPSession(session, CDP_PORT, async (client) => {
     await client.Page.enable();
     const result = await client.Page.captureScreenshot({ format: 'png' });
@@ -305,6 +306,7 @@ export async function browserUploadFile(selector: string, filePath: string, sess
 }
 
 export async function browserLighthouseAudit(url: string | undefined, session: string): Promise<string> {
+  await activateTab(session, CDP_PORT);
   return withCDPSession(session, CDP_PORT, async (client) => {
     await client.Page.enable();
     await client.Runtime.enable();
@@ -329,6 +331,7 @@ export async function browserLighthouseAudit(url: string | undefined, session: s
 }
 
 export async function browserPerformanceAnalyzeInsight(session: string): Promise<string> {
+  await activateTab(session, CDP_PORT);
   return withCDPSession(session, CDP_PORT, async (client) => {
     await client.Performance.enable();
     await client.Runtime.enable();
