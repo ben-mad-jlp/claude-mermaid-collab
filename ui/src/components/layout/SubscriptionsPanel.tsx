@@ -224,7 +224,7 @@ const SubscriptionRow: React.FC<{
             e.stopPropagation();
             onUnsubscribe(subKey);
           }}
-          className="absolute top-1 left-1 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+          className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity w-6 h-6 flex items-center justify-center rounded-full bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 shadow-md border border-gray-300 dark:border-gray-500"
           title="Unsubscribe"
         >
           <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
