@@ -4457,18 +4457,25 @@ async function startChromeDebug() {
       "-R",
       `${port}:127.0.0.1:${port}`,
       "-N",
+      "-F",
+      "/dev/null",
       "-o",
       "StrictHostKeyChecking=no",
       "-o",
       "ExitOnForwardFailure=yes",
       sshTarget
-    ], { detached: false, stdio: "ignore" });
-    sshTunnelProcess.on("exit", () => {
+    ], { detached: false, stdio: ["ignore", "ignore", "pipe"] });
+    let sshStderr = "";
+    sshTunnelProcess.stderr?.on("data", (d) => {
+      sshStderr += d.toString();
+    });
+    sshTunnelProcess.on("exit", (code) => {
       sshTunnelProcess = null;
       if (chromeDebugRunning) {
         chromeDebugRunning = false;
         updateChromeDebugBar();
-        vscode.window.showWarningMessage("mermaid-collab: SSH tunnel disconnected");
+        const detail = sshStderr.trim() ? ` \u2014 ${sshStderr.trim().split("\n")[0]}` : ` (exit ${code})`;
+        vscode.window.showWarningMessage(`mermaid-collab: SSH tunnel disconnected${detail}`);
       }
     });
   }
