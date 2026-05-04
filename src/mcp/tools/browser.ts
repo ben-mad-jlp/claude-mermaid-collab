@@ -1,6 +1,6 @@
 import { writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { withCDPSession, resolveSessionId, CDP_PORT, ensureTab } from '../../services/cdp-session.js';
+import { withCDPSession, resolveSessionId, CDP_PORT, ensureTab, registerTab } from '../../services/cdp-session.js';
 
 
 export async function browserOpen(url: string, session?: string): Promise<string> {

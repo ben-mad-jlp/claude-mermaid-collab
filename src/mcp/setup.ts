@@ -4303,7 +4303,12 @@ IMPORTANT - Common pitfalls to avoid:
             const { url, session } = args as { url: string; session?: string };
             if (!url) throw new Error('Missing required: url');
             const { browserOpen } = await import('./tools/browser.js');
-            return await browserOpen(url, session);
+            const result = await browserOpen(url, session);
+            try {
+              const parsed = JSON.parse(result);
+              getWebSocketHandler()?.broadcastBrowserTabUpdate(parsed.sessionId, true);
+            } catch {}
+            return result;
           }
 
           case 'browser_navigate': {
