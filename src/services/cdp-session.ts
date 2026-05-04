@@ -57,6 +57,11 @@ export async function withCDPSession<T>(
         `Chrome not reachable on port ${port} — toggle CDP button in VSCodium`
       );
     }
+    const msg = err?.message ?? String(err);
+    if (msg.includes('webSocketDebuggerUrl') || msg.includes('find(') || msg.includes('Cannot read')) {
+      tabRegistry.delete(sessionName);
+      throw new Error(`Browser tab for session "${sessionName}" is gone — call browser_open to open a new one`);
+    }
     throw err;
   }
 
