@@ -3255,12 +3255,10 @@ IMPORTANT - Common pitfalls to avoid:
             if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(claudeSessionId)) {
               return JSON.stringify({ success: false, error: `Invalid session id format in ${pidFile} (expected UUID)` });
             }
-            // Register in-memory first so resolveSessionId works even if file write fails
+            // Register in-memory so resolveSessionId works even if file write fails
             try {
               const { registerPidSession } = await import('../services/cdp-session.js');
               registerPidSession(Number(pidStr), session);
-              const envPid = Number(process.env.CLAUDE_PID);
-              if (envPid && envPid !== Number(pidStr)) registerPidSession(envPid, session);
             } catch {}
             const bindingFile = `/tmp/.mermaid-collab-binding-${claudeSessionId}.json`;
             const bindingContent = JSON.stringify({
@@ -4310,155 +4308,177 @@ IMPORTANT - Common pitfalls to avoid:
           }
 
           case 'browser_open': {
-            const { url, session } = args as { url: string; session?: string };
+            const { url, session } = args as { url: string; session: string };
+            if (!session) throw new Error('browser_open requires session');
             if (!url) throw new Error('Missing required: url');
             const { browserOpen } = await import('./tools/browser.js');
             const result = await browserOpen(url, session);
             try {
-              const parsed = JSON.parse(result);
-              const collabSession = session ?? parsed.sessionId;
-              getWebSocketHandler()?.broadcastBrowserTabUpdate(collabSession, true);
+              getWebSocketHandler()?.broadcastBrowserTabUpdate(session, true);
             } catch {}
             return result;
           }
 
           case 'browser_navigate': {
-            const { sessionId, url } = args as { sessionId?: string; url: string };
+            const { session, url } = args as { session: string; url: string };
+            if (!session) throw new Error('browser_navigate requires session');
             if (!url) throw new Error('Missing required: url');
             const { browserNavigate } = await import('./tools/browser.js');
-            return await browserNavigate(sessionId, url);
+            return await browserNavigate(session, url);
           }
 
           case 'browser_evaluate': {
-            const { sessionId, expression } = args as { sessionId?: string; expression: string };
+            const { session, expression } = args as { session: string; expression: string };
+            if (!session) throw new Error('browser_evaluate requires session');
             if (!expression) throw new Error('Missing required: expression');
             const { browserEvaluate } = await import('./tools/browser.js');
-            return await browserEvaluate(sessionId, expression);
+            return await browserEvaluate(session, expression);
           }
 
           case 'browser_screenshot': {
-            const { sessionId, project, session } = args as { sessionId?: string; project: string; session: string };
+            const { session, project } = args as { session: string; project: string };
+            if (!session) throw new Error('browser_screenshot requires session');
             if (!project || !session) throw new Error('Missing required: project, session');
             const { browserScreenshot } = await import('./tools/browser.js');
-            return await browserScreenshot(sessionId, project, session);
+            return await browserScreenshot(session, project);
           }
 
           case 'browser_console': {
-            const { sessionId } = args as { sessionId?: string };
+            const { session } = args as { session: string };
+            if (!session) throw new Error('browser_console requires session');
             const { browserConsole } = await import('./tools/browser.js');
-            return await browserConsole(sessionId);
+            return await browserConsole(session);
           }
 
           case 'browser_network': {
-            const { sessionId } = args as { sessionId?: string };
+            const { session } = args as { session: string };
+            if (!session) throw new Error('browser_network requires session');
             const { browserNetwork } = await import('./tools/browser.js');
-            return await browserNetwork(sessionId);
+            return await browserNetwork(session);
           }
 
           case 'browser_click': {
-            const { selector, session } = args as { selector: string; session?: string };
+            const { selector, session } = args as { selector: string; session: string };
+            if (!session) throw new Error('browser_click requires session');
             const { browserClick } = await import('./tools/browser.js');
             return await browserClick(selector, session);
           }
 
           case 'browser_fill': {
-            const { selector, value, session } = args as { selector: string; value: string; session?: string };
+            const { selector, value, session } = args as { selector: string; value: string; session: string };
+            if (!session) throw new Error('browser_fill requires session');
             const { browserFill } = await import('./tools/browser.js');
             return await browserFill(selector, value, session);
           }
 
           case 'browser_select': {
-            const { selector, value, session } = args as { selector: string; value: string; session?: string };
+            const { selector, value, session } = args as { selector: string; value: string; session: string };
+            if (!session) throw new Error('browser_select requires session');
             const { browserSelect } = await import('./tools/browser.js');
             return await browserSelect(selector, value, session);
           }
 
           case 'browser_press_key': {
-            const { key, session } = args as { key: string; session?: string };
+            const { key, session } = args as { key: string; session: string };
+            if (!session) throw new Error('browser_press_key requires session');
             const { browserPressKey } = await import('./tools/browser.js');
             return await browserPressKey(key, session);
           }
 
           case 'browser_hover': {
-            const { selector, session } = args as { selector: string; session?: string };
+            const { selector, session } = args as { selector: string; session: string };
+            if (!session) throw new Error('browser_hover requires session');
             const { browserHover } = await import('./tools/browser.js');
             return await browserHover(selector, session);
           }
 
           case 'browser_handle_dialog': {
-            const { accept, promptText, session } = args as { accept: boolean; promptText?: string; session?: string };
+            const { accept, promptText, session } = args as { accept: boolean; promptText?: string; session: string };
+            if (!session) throw new Error('browser_handle_dialog requires session');
             const { browserHandleDialog } = await import('./tools/browser.js');
-            return await browserHandleDialog(accept, promptText, session);
+            return await browserHandleDialog(accept, session, promptText);
           }
 
           case 'browser_wait_for': {
-            const { selector, navigation, timeout, session } = args as { selector?: string; navigation?: boolean; timeout?: number; session?: string };
+            const { selector, navigation, timeout, session } = args as { selector?: string; navigation?: boolean; timeout?: number; session: string };
+            if (!session) throw new Error('browser_wait_for requires session');
             const { browserWaitFor } = await import('./tools/browser.js');
             return await browserWaitFor(selector, navigation, timeout, session);
           }
 
           case 'browser_get_url': {
-            const { session } = args as { session?: string };
+            const { session } = args as { session: string };
+            if (!session) throw new Error('browser_get_url requires session');
             const { browserGetUrl } = await import('./tools/browser.js');
             return await browserGetUrl(session);
           }
 
           case 'browser_drag': {
-            const { sourceSelector, targetSelector, session } = args as { sourceSelector: string; targetSelector: string; session?: string };
+            const { sourceSelector, targetSelector, session } = args as { sourceSelector: string; targetSelector: string; session: string };
+            if (!session) throw new Error('browser_drag requires session');
             const { browserDrag } = await import('./tools/browser.js');
             return await browserDrag(sourceSelector, targetSelector, session);
           }
 
           case 'browser_type_text': {
-            const { text, session } = args as { text: string; session?: string };
+            const { text, session } = args as { text: string; session: string };
+            if (!session) throw new Error('browser_type_text requires session');
             const { browserTypeText } = await import('./tools/browser.js');
             return await browserTypeText(text, session);
           }
 
           case 'browser_fill_form': {
-            const { fields, session } = args as { fields: Record<string, string>; session?: string };
+            const { fields, session } = args as { fields: Record<string, string>; session: string };
+            if (!session) throw new Error('browser_fill_form requires session');
             const { browserFillForm } = await import('./tools/browser.js');
             return await browserFillForm(fields, session);
           }
 
           case 'browser_emulate': {
-            const { device, width, height, mobile, session } = args as { device?: string; width?: number; height?: number; mobile?: boolean; session?: string };
+            const { device, width, height, mobile, session } = args as { device?: string; width?: number; height?: number; mobile?: boolean; session: string };
+            if (!session) throw new Error('browser_emulate requires session');
             const { browserEmulate } = await import('./tools/browser.js');
             return await browserEmulate(device, width, height, mobile, session);
           }
 
           case 'browser_resize_page': {
-            const { width, height, session } = args as { width: number; height: number; session?: string };
+            const { width, height, session } = args as { width: number; height: number; session: string };
+            if (!session) throw new Error('browser_resize_page requires session');
             const { browserResizePage } = await import('./tools/browser.js');
             return await browserResizePage(width, height, session);
           }
 
           case 'browser_take_snapshot': {
-            const { session } = args as { session?: string };
+            const { session } = args as { session: string };
+            if (!session) throw new Error('browser_take_snapshot requires session');
             const { browserTakeSnapshot } = await import('./tools/browser.js');
             return await browserTakeSnapshot(session);
           }
 
           case 'browser_take_memory_snapshot': {
-            const { session } = args as { session?: string };
+            const { session } = args as { session: string };
+            if (!session) throw new Error('browser_take_memory_snapshot requires session');
             const { browserTakeMemorySnapshot } = await import('./tools/browser.js');
             return await browserTakeMemorySnapshot(session);
           }
 
           case 'browser_upload_file': {
-            const { selector, filePath, session } = args as { selector: string; filePath: string; session?: string };
+            const { selector, filePath, session } = args as { selector: string; filePath: string; session: string };
+            if (!session) throw new Error('browser_upload_file requires session');
             const { browserUploadFile } = await import('./tools/browser.js');
             return await browserUploadFile(selector, filePath, session);
           }
 
           case 'browser_lighthouse_audit': {
-            const { url, session } = args as { url?: string; session?: string };
+            const { url, session } = args as { url?: string; session: string };
+            if (!session) throw new Error('browser_lighthouse_audit requires session');
             const { browserLighthouseAudit } = await import('./tools/browser.js');
             return await browserLighthouseAudit(url, session);
           }
 
           case 'browser_performance_analyze_insight': {
-            const { session } = args as { session?: string };
+            const { session } = args as { session: string };
+            if (!session) throw new Error('browser_performance_analyze_insight requires session');
             const { browserPerformanceAnalyzeInsight } = await import('./tools/browser.js');
             return await browserPerformanceAnalyzeInsight(session);
           }

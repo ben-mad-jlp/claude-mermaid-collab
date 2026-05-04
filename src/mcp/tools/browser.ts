@@ -1,10 +1,10 @@
 import { writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { withCDPSession, resolveSessionId, CDP_PORT, ensureTab, registerTab } from '../../services/cdp-session.js';
+import { withCDPSession, CDP_PORT, ensureTab, registerTab } from '../../services/cdp-session.js';
 
 
-export async function browserOpen(url: string, session?: string): Promise<string> {
-  const sessionId = session ?? await resolveSessionId();
+export async function browserOpen(url: string, session: string): Promise<string> {
+  const sessionId = session;
   await ensureTab(sessionId, CDP_PORT);
   return withCDPSession(sessionId, CDP_PORT, async (client) => {
     await client.Page.enable();
@@ -16,31 +16,30 @@ export async function browserOpen(url: string, session?: string): Promise<string
   });
 }
 
-export async function browserNavigate(sessionId: string | undefined, url: string): Promise<string> {
-  const resolvedSession = sessionId ?? await resolveSessionId();
-  return withCDPSession(resolvedSession, CDP_PORT, async (client) => {
+export async function browserNavigate(session: string, url: string): Promise<string> {
+  return withCDPSession(session, CDP_PORT, async (client) => {
     await client.Page.enable();
     await client.Page.navigate({ url });
     await new Promise(r => setTimeout(r, 500));
     const titleResult = await client.Runtime.evaluate({ expression: 'document.title', returnByValue: true });
     try {
       const info = await client.Target.getTargetInfo();
-      registerTab(resolvedSession, info.targetInfo.targetId);
+      registerTab(session, info.targetInfo.targetId);
     } catch {} // not all CDP versions support this
     return JSON.stringify({ navigated: true, url, title: titleResult.result?.value ?? '' }, null, 2);
   });
 }
 
-export async function browserEvaluate(sessionId: string | undefined, expression: string): Promise<string> {
-  return withCDPSession(sessionId ?? await resolveSessionId(), CDP_PORT, async (client) => {
+export async function browserEvaluate(session: string, expression: string): Promise<string> {
+  return withCDPSession(session, CDP_PORT, async (client) => {
     await client.Runtime.enable();
     const result = await client.Runtime.evaluate({ expression, returnByValue: true, awaitPromise: true });
     return JSON.stringify(result.result ?? result, null, 2);
   });
 }
 
-export async function browserScreenshot(sessionId: string | undefined, project: string, session: string): Promise<string> {
-  return withCDPSession(sessionId ?? await resolveSessionId(), CDP_PORT, async (client) => {
+export async function browserScreenshot(session: string, project: string): Promise<string> {
+  return withCDPSession(session, CDP_PORT, async (client) => {
     await client.Page.enable();
     const result = await client.Page.captureScreenshot({ format: 'png' });
     const base64 = result.data;
@@ -55,9 +54,9 @@ export async function browserScreenshot(sessionId: string | undefined, project: 
   });
 }
 
-export async function browserConsole(sessionId: string | undefined): Promise<string> {
+export async function browserConsole(session: string): Promise<string> {
   // Note: returns only events captured during this connection window (no persistent buffer)
-  return withCDPSession(sessionId ?? await resolveSessionId(), CDP_PORT, async (client) => {
+  return withCDPSession(session, CDP_PORT, async (client) => {
     const events: any[] = [];
     client.Runtime.on('consoleAPICalled', (e: any) => events.push(e));
     await client.Runtime.enable();
@@ -66,9 +65,9 @@ export async function browserConsole(sessionId: string | undefined): Promise<str
   });
 }
 
-export async function browserNetwork(sessionId: string | undefined): Promise<string> {
+export async function browserNetwork(session: string): Promise<string> {
   // Note: returns only requests captured during this connection window
-  return withCDPSession(sessionId ?? await resolveSessionId(), CDP_PORT, async (client) => {
+  return withCDPSession(session, CDP_PORT, async (client) => {
     const requests: any[] = [];
     client.Network.on('requestWillBeSent', (e: any) => requests.push(e));
     await client.Network.enable();
@@ -78,9 +77,8 @@ export async function browserNetwork(sessionId: string | undefined): Promise<str
 }
 
 
-export async function browserClick(selector: string, session?: string): Promise<string> {
-  const sessionId = session ?? await resolveSessionId();
-  return withCDPSession(sessionId, CDP_PORT, async (client) => {
+export async function browserClick(selector: string, session: string): Promise<string> {
+  return withCDPSession(session, CDP_PORT, async (client) => {
     await client.DOM.enable();
     await client.Runtime.enable();
     const docResult = await client.DOM.getDocument();
@@ -96,9 +94,8 @@ export async function browserClick(selector: string, session?: string): Promise<
   });
 }
 
-export async function browserFill(selector: string, value: string, session?: string): Promise<string> {
-  const sessionId = session ?? await resolveSessionId();
-  return withCDPSession(sessionId, CDP_PORT, async (client) => {
+export async function browserFill(selector: string, value: string, session: string): Promise<string> {
+  return withCDPSession(session, CDP_PORT, async (client) => {
     await client.Runtime.enable();
     const evalResult = await client.Runtime.evaluate({ expression: `document.querySelector(${JSON.stringify(selector)})`, returnByValue: false });
     const objectId = evalResult.result?.objectId;
@@ -113,10 +110,9 @@ export async function browserFill(selector: string, value: string, session?: str
   });
 }
 
-export async function browserSelect(selector: string, value: string, session?: string): Promise<string> {
+export async function browserSelect(selector: string, value: string, session: string): Promise<string> {
   // Same as fill — sets .value and dispatches change
-  const sessionId = session ?? await resolveSessionId();
-  return withCDPSession(sessionId, CDP_PORT, async (client) => {
+  return withCDPSession(session, CDP_PORT, async (client) => {
     await client.Runtime.enable();
     const evalResult = await client.Runtime.evaluate({ expression: `document.querySelector(${JSON.stringify(selector)})`, returnByValue: false });
     const objectId = evalResult.result?.objectId;
@@ -131,18 +127,16 @@ export async function browserSelect(selector: string, value: string, session?: s
   });
 }
 
-export async function browserPressKey(key: string, session?: string): Promise<string> {
-  const sessionId = session ?? await resolveSessionId();
-  return withCDPSession(sessionId, CDP_PORT, async (client) => {
+export async function browserPressKey(key: string, session: string): Promise<string> {
+  return withCDPSession(session, CDP_PORT, async (client) => {
     await client.Input.dispatchKeyEvent({ type: 'keyDown', key });
     await client.Input.dispatchKeyEvent({ type: 'keyUp', key });
     return JSON.stringify({ success: true, key }, null, 2);
   });
 }
 
-export async function browserHover(selector: string, session?: string): Promise<string> {
-  const sessionId = session ?? await resolveSessionId();
-  return withCDPSession(sessionId, CDP_PORT, async (client) => {
+export async function browserHover(selector: string, session: string): Promise<string> {
+  return withCDPSession(session, CDP_PORT, async (client) => {
     await client.DOM.enable();
     const docResult = await client.DOM.getDocument();
     const nodeResult = await client.DOM.querySelector({ nodeId: docResult.root.nodeId, selector });
@@ -154,18 +148,16 @@ export async function browserHover(selector: string, session?: string): Promise<
   });
 }
 
-export async function browserHandleDialog(accept: boolean, promptText?: string, session?: string): Promise<string> {
-  const sessionId = session ?? await resolveSessionId();
-  return withCDPSession(sessionId, CDP_PORT, async (client) => {
+export async function browserHandleDialog(accept: boolean, session: string, promptText?: string): Promise<string> {
+  return withCDPSession(session, CDP_PORT, async (client) => {
     await client.Page.enable();
     await client.Page.handleJavaScriptDialog({ accept, promptText: promptText ?? '' });
     return JSON.stringify({ success: true, accept }, null, 2);
   });
 }
 
-export async function browserWaitFor(selector: string | undefined, navigation: boolean | undefined, timeout: number | undefined, session?: string): Promise<string> {
-  const sessionId = session ?? await resolveSessionId();
-  return withCDPSession(sessionId, CDP_PORT, async (client) => {
+export async function browserWaitFor(selector: string | undefined, navigation: boolean | undefined, timeout: number | undefined, session: string): Promise<string> {
+  return withCDPSession(session, CDP_PORT, async (client) => {
     const deadline = Date.now() + (timeout ?? 5000);
     if (navigation) {
       await client.Page.enable();
@@ -190,9 +182,8 @@ export async function browserWaitFor(selector: string | undefined, navigation: b
   });
 }
 
-export async function browserGetUrl(session?: string): Promise<string> {
-  const sessionId = session ?? await resolveSessionId();
-  return withCDPSession(sessionId, CDP_PORT, async (client) => {
+export async function browserGetUrl(session: string): Promise<string> {
+  return withCDPSession(session, CDP_PORT, async (client) => {
     await client.Runtime.enable();
     const urlResult = await client.Runtime.evaluate({ expression: 'window.location.href', returnByValue: true });
     const titleResult = await client.Runtime.evaluate({ expression: 'document.title', returnByValue: true });
@@ -200,9 +191,8 @@ export async function browserGetUrl(session?: string): Promise<string> {
   });
 }
 
-export async function browserDrag(sourceSelector: string, targetSelector: string, session?: string): Promise<string> {
-  const sessionId = session ?? await resolveSessionId();
-  return withCDPSession(sessionId, CDP_PORT, async (client) => {
+export async function browserDrag(sourceSelector: string, targetSelector: string, session: string): Promise<string> {
+  return withCDPSession(session, CDP_PORT, async (client) => {
     await client.DOM.enable();
     const doc = await client.DOM.getDocument();
     const srcNode = await client.DOM.querySelector({ nodeId: doc.root.nodeId, selector: sourceSelector });
@@ -220,9 +210,8 @@ export async function browserDrag(sourceSelector: string, targetSelector: string
   });
 }
 
-export async function browserTypeText(text: string, session?: string): Promise<string> {
-  const sessionId = session ?? await resolveSessionId();
-  return withCDPSession(sessionId, CDP_PORT, async (client) => {
+export async function browserTypeText(text: string, session: string): Promise<string> {
+  return withCDPSession(session, CDP_PORT, async (client) => {
     for (const char of text) {
       await client.Input.dispatchKeyEvent({ type: 'keyDown', text: char, key: char });
       await client.Input.dispatchKeyEvent({ type: 'keyUp', text: char, key: char });
@@ -231,9 +220,8 @@ export async function browserTypeText(text: string, session?: string): Promise<s
   });
 }
 
-export async function browserFillForm(fields: Record<string, string>, session?: string): Promise<string> {
-  const sessionId = session ?? await resolveSessionId();
-  return withCDPSession(sessionId, CDP_PORT, async (client) => {
+export async function browserFillForm(fields: Record<string, string>, session: string): Promise<string> {
+  return withCDPSession(session, CDP_PORT, async (client) => {
     await client.Runtime.enable();
     const results: Record<string, boolean> = {};
     for (const [selector, value] of Object.entries(fields)) {
@@ -252,9 +240,8 @@ export async function browserFillForm(fields: Record<string, string>, session?: 
   });
 }
 
-export async function browserEmulate(device: string | undefined, width: number | undefined, height: number | undefined, mobile: boolean | undefined, session?: string): Promise<string> {
-  const sessionId = session ?? await resolveSessionId();
-  return withCDPSession(sessionId, CDP_PORT, async (client) => {
+export async function browserEmulate(device: string | undefined, width: number | undefined, height: number | undefined, mobile: boolean | undefined, session: string): Promise<string> {
+  return withCDPSession(session, CDP_PORT, async (client) => {
     const presets: Record<string, { width: number; height: number; mobile: boolean; deviceScaleFactor: number }> = {
       'iPhone 12':        { width: 390, height: 844, mobile: true,  deviceScaleFactor: 3 },
       'iPhone SE':        { width: 375, height: 667, mobile: true,  deviceScaleFactor: 2 },
@@ -274,27 +261,24 @@ export async function browserEmulate(device: string | undefined, width: number |
   });
 }
 
-export async function browserResizePage(width: number, height: number, session?: string): Promise<string> {
-  const sessionId = session ?? await resolveSessionId();
-  return withCDPSession(sessionId, CDP_PORT, async (client) => {
+export async function browserResizePage(width: number, height: number, session: string): Promise<string> {
+  return withCDPSession(session, CDP_PORT, async (client) => {
     await client.Emulation.setDeviceMetricsOverride({ width, height, deviceScaleFactor: 1, mobile: false });
     return JSON.stringify({ success: true, width, height }, null, 2);
   });
 }
 
 
-export async function browserTakeSnapshot(session?: string): Promise<string> {
-  const sessionId = session ?? await resolveSessionId();
-  return withCDPSession(sessionId, CDP_PORT, async (client) => {
+export async function browserTakeSnapshot(session: string): Promise<string> {
+  return withCDPSession(session, CDP_PORT, async (client) => {
     await client.DOM.enable();
     const { outerHTML } = await client.DOM.getOuterHTML({ nodeId: (await client.DOM.getDocument()).root.nodeId });
     return JSON.stringify({ snapshot: outerHTML }, null, 2);
   });
 }
 
-export async function browserTakeMemorySnapshot(session?: string): Promise<string> {
-  const sessionId = session ?? await resolveSessionId();
-  return withCDPSession(sessionId, CDP_PORT, async (client) => {
+export async function browserTakeMemorySnapshot(session: string): Promise<string> {
+  return withCDPSession(session, CDP_PORT, async (client) => {
     await client.HeapProfiler.enable();
     let chunks = '';
     client.HeapProfiler.on('addHeapSnapshotChunk', ({ chunk }: { chunk: string }) => { chunks += chunk; });
@@ -309,9 +293,8 @@ export async function browserTakeMemorySnapshot(session?: string): Promise<strin
   });
 }
 
-export async function browserUploadFile(selector: string, filePath: string, session?: string): Promise<string> {
-  const sessionId = session ?? await resolveSessionId();
-  return withCDPSession(sessionId, CDP_PORT, async (client) => {
+export async function browserUploadFile(selector: string, filePath: string, session: string): Promise<string> {
+  return withCDPSession(session, CDP_PORT, async (client) => {
     await client.DOM.enable();
     const doc = await client.DOM.getDocument();
     const node = await client.DOM.querySelector({ nodeId: doc.root.nodeId, selector });
@@ -321,9 +304,8 @@ export async function browserUploadFile(selector: string, filePath: string, sess
   });
 }
 
-export async function browserLighthouseAudit(url: string | undefined, session?: string): Promise<string> {
-  const sessionId = session ?? await resolveSessionId();
-  return withCDPSession(sessionId, CDP_PORT, async (client) => {
+export async function browserLighthouseAudit(url: string | undefined, session: string): Promise<string> {
+  return withCDPSession(session, CDP_PORT, async (client) => {
     await client.Page.enable();
     await client.Runtime.enable();
     if (url) await client.Page.navigate({ url });
@@ -346,9 +328,8 @@ export async function browserLighthouseAudit(url: string | undefined, session?: 
   });
 }
 
-export async function browserPerformanceAnalyzeInsight(session?: string): Promise<string> {
-  const sessionId = session ?? await resolveSessionId();
-  return withCDPSession(sessionId, CDP_PORT, async (client) => {
+export async function browserPerformanceAnalyzeInsight(session: string): Promise<string> {
+  return withCDPSession(session, CDP_PORT, async (client) => {
     await client.Performance.enable();
     await client.Runtime.enable();
     const metrics = await client.Performance.getMetrics();
@@ -371,14 +352,14 @@ export async function browserPerformanceAnalyzeInsight(session?: string): Promis
 export const browserToolSchemas = {
   browser_open: {
     name: 'browser_open',
-    description: 'Open a browser window to a URL via direct CDP connection. Returns a sessionId used for subsequent browser commands.',
+    description: 'Open a browser window to a URL in the given collab session.',
     inputSchema: {
       type: 'object',
       properties: {
         url: { type: 'string', description: 'URL to open in the browser' },
-        session: { type: 'string', description: 'CDP session ID (optional, auto-resolved if omitted)' },
+        session: { type: 'string', description: 'Collab session name (required)' },
       },
-      required: ['url'],
+      required: ['url', 'session'],
     },
   },
   browser_navigate: {
@@ -387,10 +368,10 @@ export const browserToolSchemas = {
     inputSchema: {
       type: 'object',
       properties: {
-        sessionId: { type: 'string', description: 'Browser session ID (optional, auto-resolved if omitted)' },
+        session: { type: 'string', description: 'Collab session name (required)' },
         url: { type: 'string', description: 'URL to navigate to' },
       },
-      required: ['url'],
+      required: ['url', 'session'],
     },
   },
   browser_evaluate: {
@@ -399,10 +380,10 @@ export const browserToolSchemas = {
     inputSchema: {
       type: 'object',
       properties: {
-        sessionId: { type: 'string', description: 'Browser session ID (optional, auto-resolved if omitted)' },
+        session: { type: 'string', description: 'Collab session name (required)' },
         expression: { type: 'string', description: 'JavaScript expression to evaluate' },
       },
-      required: ['expression'],
+      required: ['expression', 'session'],
     },
   },
   browser_screenshot: {
@@ -411,9 +392,8 @@ export const browserToolSchemas = {
     inputSchema: {
       type: 'object',
       properties: {
-        sessionId: { type: 'string', description: 'Browser session ID (optional, auto-resolved if omitted)' },
+        session: { type: 'string', description: 'Collab session name (required)' },
         project: { type: 'string', description: 'Absolute path to the project root directory' },
-        session: { type: 'string', description: 'Collab session name (used for image storage path)' },
       },
       required: ['project', 'session'],
     },
@@ -424,9 +404,9 @@ export const browserToolSchemas = {
     inputSchema: {
       type: 'object',
       properties: {
-        sessionId: { type: 'string', description: 'Browser session ID (optional, auto-resolved if omitted)' },
+        session: { type: 'string', description: 'Collab session name (required)' },
       },
-      required: [],
+      required: ['session'],
     },
   },
   browser_network: {
@@ -435,9 +415,9 @@ export const browserToolSchemas = {
     inputSchema: {
       type: 'object',
       properties: {
-        sessionId: { type: 'string', description: 'Browser session ID (optional, auto-resolved if omitted)' },
+        session: { type: 'string', description: 'Collab session name (required)' },
       },
-      required: [],
+      required: ['session'],
     },
   },
   browser_click: {
@@ -447,9 +427,9 @@ export const browserToolSchemas = {
       type: 'object',
       properties: {
         selector: { type: 'string', description: 'CSS selector of the element to click' },
-        session: { type: 'string', description: 'CDP session ID (optional, auto-resolved if omitted)' },
+        session: { type: 'string', description: 'Collab session name (required)' },
       },
-      required: ['selector'],
+      required: ['selector', 'session'],
     },
   },
   browser_fill: {
@@ -460,9 +440,9 @@ export const browserToolSchemas = {
       properties: {
         selector: { type: 'string', description: 'CSS selector of the input element' },
         value: { type: 'string', description: 'Value to set on the input element' },
-        session: { type: 'string', description: 'CDP session ID (optional, auto-resolved if omitted)' },
+        session: { type: 'string', description: 'Collab session name (required)' },
       },
-      required: ['selector', 'value'],
+      required: ['selector', 'value', 'session'],
     },
   },
   browser_select: {
@@ -473,9 +453,9 @@ export const browserToolSchemas = {
       properties: {
         selector: { type: 'string', description: 'CSS selector of the select element' },
         value: { type: 'string', description: 'Option value to select' },
-        session: { type: 'string', description: 'CDP session ID (optional, auto-resolved if omitted)' },
+        session: { type: 'string', description: 'Collab session name (required)' },
       },
-      required: ['selector', 'value'],
+      required: ['selector', 'value', 'session'],
     },
   },
   browser_press_key: {
@@ -485,9 +465,9 @@ export const browserToolSchemas = {
       type: 'object',
       properties: {
         key: { type: 'string', description: 'Key name to press (e.g. "Enter", "Escape", "Tab")' },
-        session: { type: 'string', description: 'CDP session ID (optional, auto-resolved if omitted)' },
+        session: { type: 'string', description: 'Collab session name (required)' },
       },
-      required: ['key'],
+      required: ['key', 'session'],
     },
   },
   browser_hover: {
@@ -497,9 +477,9 @@ export const browserToolSchemas = {
       type: 'object',
       properties: {
         selector: { type: 'string', description: 'CSS selector of the element to hover over' },
-        session: { type: 'string', description: 'CDP session ID (optional, auto-resolved if omitted)' },
+        session: { type: 'string', description: 'Collab session name (required)' },
       },
-      required: ['selector'],
+      required: ['selector', 'session'],
     },
   },
   browser_handle_dialog: {
@@ -510,9 +490,9 @@ export const browserToolSchemas = {
       properties: {
         accept: { type: 'boolean', description: 'Whether to accept (true) or dismiss (false) the dialog' },
         promptText: { type: 'string', description: 'Text to enter into a prompt dialog (optional)' },
-        session: { type: 'string', description: 'CDP session ID (optional, auto-resolved if omitted)' },
+        session: { type: 'string', description: 'Collab session name (required)' },
       },
-      required: ['accept'],
+      required: ['accept', 'session'],
     },
   },
   browser_wait_for: {
@@ -524,9 +504,9 @@ export const browserToolSchemas = {
         selector: { type: 'string', description: 'CSS selector to wait for (mutually exclusive with navigation)' },
         navigation: { type: 'boolean', description: 'If true, wait for page load event instead of a selector' },
         timeout: { type: 'number', description: 'Timeout in milliseconds (default: 5000)' },
-        session: { type: 'string', description: 'CDP session ID (optional, auto-resolved if omitted)' },
+        session: { type: 'string', description: 'Collab session name (required)' },
       },
-      required: [],
+      required: ['session'],
     },
   },
   browser_get_url: {
@@ -535,9 +515,9 @@ export const browserToolSchemas = {
     inputSchema: {
       type: 'object',
       properties: {
-        session: { type: 'string', description: 'CDP session ID (optional, auto-resolved if omitted)' },
+        session: { type: 'string', description: 'Collab session name (required)' },
       },
-      required: [],
+      required: ['session'],
     },
   },
   browser_drag: {
@@ -548,9 +528,9 @@ export const browserToolSchemas = {
       properties: {
         sourceSelector: { type: 'string', description: 'CSS selector of the element to drag' },
         targetSelector: { type: 'string', description: 'CSS selector of the drop target' },
-        session: { type: 'string', description: 'CDP session ID (optional, auto-resolved if omitted)' },
+        session: { type: 'string', description: 'Collab session name (required)' },
       },
-      required: ['sourceSelector', 'targetSelector'],
+      required: ['sourceSelector', 'targetSelector', 'session'],
     },
   },
   browser_type_text: {
@@ -560,9 +540,9 @@ export const browserToolSchemas = {
       type: 'object',
       properties: {
         text: { type: 'string', description: 'Text to type' },
-        session: { type: 'string', description: 'CDP session ID (optional, auto-resolved if omitted)' },
+        session: { type: 'string', description: 'Collab session name (required)' },
       },
-      required: ['text'],
+      required: ['text', 'session'],
     },
   },
   browser_fill_form: {
@@ -572,9 +552,9 @@ export const browserToolSchemas = {
       type: 'object',
       properties: {
         fields: { type: 'object', description: 'Map of CSS selector → value', additionalProperties: { type: 'string' } },
-        session: { type: 'string', description: 'CDP session ID (optional, auto-resolved if omitted)' },
+        session: { type: 'string', description: 'Collab session name (required)' },
       },
-      required: ['fields'],
+      required: ['fields', 'session'],
     },
   },
   browser_emulate: {
@@ -587,9 +567,9 @@ export const browserToolSchemas = {
         width: { type: 'number', description: 'Viewport width in px (overrides preset)' },
         height: { type: 'number', description: 'Viewport height in px (overrides preset)' },
         mobile: { type: 'boolean', description: 'Whether to emulate mobile (overrides preset)' },
-        session: { type: 'string', description: 'CDP session ID (optional, auto-resolved if omitted)' },
+        session: { type: 'string', description: 'Collab session name (required)' },
       },
-      required: [],
+      required: ['session'],
     },
   },
   browser_resize_page: {
@@ -600,9 +580,9 @@ export const browserToolSchemas = {
       properties: {
         width: { type: 'number', description: 'New viewport width in px' },
         height: { type: 'number', description: 'New viewport height in px' },
-        session: { type: 'string', description: 'CDP session ID (optional, auto-resolved if omitted)' },
+        session: { type: 'string', description: 'Collab session name (required)' },
       },
-      required: ['width', 'height'],
+      required: ['width', 'height', 'session'],
     },
   },
   browser_take_snapshot: {
@@ -611,9 +591,9 @@ export const browserToolSchemas = {
     inputSchema: {
       type: 'object',
       properties: {
-        session: { type: 'string', description: 'CDP session ID (optional, auto-resolved if omitted)' },
+        session: { type: 'string', description: 'Collab session name (required)' },
       },
-      required: [],
+      required: ['session'],
     },
   },
   browser_take_memory_snapshot: {
@@ -622,9 +602,9 @@ export const browserToolSchemas = {
     inputSchema: {
       type: 'object',
       properties: {
-        session: { type: 'string', description: 'CDP session ID (optional, auto-resolved if omitted)' },
+        session: { type: 'string', description: 'Collab session name (required)' },
       },
-      required: [],
+      required: ['session'],
     },
   },
   browser_upload_file: {
@@ -635,9 +615,9 @@ export const browserToolSchemas = {
       properties: {
         selector: { type: 'string', description: 'CSS selector of the file input element' },
         filePath: { type: 'string', description: 'Absolute path to the file on the server' },
-        session: { type: 'string', description: 'CDP session ID (optional, auto-resolved if omitted)' },
+        session: { type: 'string', description: 'Collab session name (required)' },
       },
-      required: ['selector', 'filePath'],
+      required: ['selector', 'filePath', 'session'],
     },
   },
   browser_lighthouse_audit: {
@@ -647,9 +627,9 @@ export const browserToolSchemas = {
       type: 'object',
       properties: {
         url: { type: 'string', description: 'URL to navigate to before auditing (optional, uses current page if omitted)' },
-        session: { type: 'string', description: 'CDP session ID (optional, auto-resolved if omitted)' },
+        session: { type: 'string', description: 'Collab session name (required)' },
       },
-      required: [],
+      required: ['session'],
     },
   },
   browser_performance_analyze_insight: {
@@ -658,9 +638,9 @@ export const browserToolSchemas = {
     inputSchema: {
       type: 'object',
       properties: {
-        session: { type: 'string', description: 'CDP session ID (optional, auto-resolved if omitted)' },
+        session: { type: 'string', description: 'Collab session name (required)' },
       },
-      required: [],
+      required: ['session'],
     },
   },
 };
