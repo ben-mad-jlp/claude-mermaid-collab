@@ -187,15 +187,19 @@ async function openDiff(filePath: string) {
   try {
     const gitExtension = vscode.extensions.getExtension('vscode.git');
     if (gitExtension?.isActive) {
-      const git = gitExtension.exports.getAPI(1) as { toGitUri(uri: vscode.Uri, ref: string): vscode.Uri };
-      const headUri = git.toGitUri(workingUri, 'HEAD');
-      const title = `${filePath.split('/').pop()} (Working Tree)`;
-      await vscode.commands.executeCommand('vscode.diff', headUri, workingUri, title);
-      return;
+      try {
+        const git = gitExtension.exports.getAPI(1) as { toGitUri(uri: vscode.Uri, ref: string): vscode.Uri };
+        const headUri = git.toGitUri(workingUri, 'HEAD');
+        const title = `${filePath.split('/').pop()} (Working Tree)`;
+        await vscode.commands.executeCommand('vscode.diff', headUri, workingUri, title);
+        return;
+      } catch { /* fall through to text fallback */ }
     }
-  } catch { /* fall through to text fallback */ }
-  const doc = await vscode.workspace.openTextDocument(workingUri);
-  await vscode.window.showTextDocument(doc, { preserveFocus: true, preview: false });
+    const doc = await vscode.workspace.openTextDocument(workingUri);
+    await vscode.window.showTextDocument(doc, { preserveFocus: true, preview: false });
+  } catch (err) {
+    vscode.window.showErrorMessage(`mermaid-collab: failed to open ${filePath.split('/').pop()} — ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 async function handleIdeReattach(msg: { claudePid: number; claudeSessionId: string; project: string; session: string; boundAt: string }) {

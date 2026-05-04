@@ -3929,16 +3929,20 @@ async function openDiff(filePath) {
   try {
     const gitExtension = vscode.extensions.getExtension("vscode.git");
     if (gitExtension?.isActive) {
-      const git = gitExtension.exports.getAPI(1);
-      const headUri = git.toGitUri(workingUri, "HEAD");
-      const title = `${filePath.split("/").pop()} (Working Tree)`;
-      await vscode.commands.executeCommand("vscode.diff", headUri, workingUri, title);
-      return;
+      try {
+        const git = gitExtension.exports.getAPI(1);
+        const headUri = git.toGitUri(workingUri, "HEAD");
+        const title = `${filePath.split("/").pop()} (Working Tree)`;
+        await vscode.commands.executeCommand("vscode.diff", headUri, workingUri, title);
+        return;
+      } catch {
+      }
     }
-  } catch {
+    const doc = await vscode.workspace.openTextDocument(workingUri);
+    await vscode.window.showTextDocument(doc, { preserveFocus: true, preview: false });
+  } catch (err) {
+    vscode.window.showErrorMessage(`mermaid-collab: failed to open ${filePath.split("/").pop()} \u2014 ${err instanceof Error ? err.message : String(err)}`);
   }
-  const doc = await vscode.workspace.openTextDocument(workingUri);
-  await vscode.window.showTextDocument(doc, { preserveFocus: true, preview: false });
 }
 async function handleIdeReattach(msg) {
   const isFirst = !hasReattachedThisSession;
@@ -4457,8 +4461,6 @@ async function startChromeDebug() {
       "-R",
       `${port}:127.0.0.1:${port}`,
       "-N",
-      "-F",
-      "/dev/null",
       "-o",
       "StrictHostKeyChecking=no",
       "-o",
