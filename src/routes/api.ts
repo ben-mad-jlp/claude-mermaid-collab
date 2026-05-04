@@ -18,7 +18,7 @@ import { projectRegistry } from '../services/project-registry';
 import { UpdateLogManager } from '../services/update-log-manager';
 import { join, isAbsolute } from 'path';
 import { homedir } from 'os';
-import { existsSync } from 'fs';
+import { existsSync, readdirSync } from 'fs';
 import { archiveSession, type ArchiveOptions } from '../mcp/tools/collab-state';
 import { addLesson, listLessons, type LessonCategory } from '../mcp/tools/lessons';
 import {
@@ -331,6 +331,17 @@ export async function handleAPI(
 
       // Register the project
       await projectRegistry.register(projectPath);
+
+      // Auto-register any existing sessions found on disk
+      const sessionsDir = join(projectPath, '.collab', 'sessions');
+      if (existsSync(sessionsDir)) {
+        const entries = readdirSync(sessionsDir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.isDirectory()) {
+            await sessionRegistry.register(projectPath, entry.name, false).catch(() => {});
+          }
+        }
+      }
 
       // Get the project details
       const projects = await projectRegistry.list();
