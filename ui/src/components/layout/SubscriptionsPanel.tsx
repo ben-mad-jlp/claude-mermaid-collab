@@ -194,8 +194,8 @@ const SubscriptionRow: React.FC<{
           : 'bg-gray-200 hover:bg-gray-300 border border-gray-300';
 
   const ctx = sub.contextPercent;
-  const ctxHigh = ctx !== undefined && ctx >= 90;
-  const ctxWarn = ctx !== undefined && ctx >= 70 && ctx < 90;
+  const ctxHigh = ctx !== undefined && ctx > 78;
+  const ctxWarn = ctx !== undefined && ctx > 68 && ctx <= 78;
 
   return (
     <div className={`flex items-center gap-1 ${isDragOver ? 'border-t-2 border-t-blue-400' : ''}`}>

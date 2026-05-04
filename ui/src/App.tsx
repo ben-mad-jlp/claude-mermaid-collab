@@ -939,10 +939,10 @@ const App: React.FC = () => {
           useSubscriptionStore.getState().updateContextPercent(project, session, contextPercent);
           const key = `${project}:${session}`;
           if (useSubscriptionStore.getState().subscriptions[key]) {
-            // Tier 1: 70%+ — warn once per crossing
-            // Tier 2: 90%+ — escalate with critical toast each time (separate tracking key)
+            // Tier 1: >68% — warn once per crossing
+            // Tier 2: >78% — escalate to critical
             const criticalKey = `${key}:critical`;
-            if (contextPercent >= 90) {
+            if (contextPercent > 78) {
               if (!notifiedContextThreshold.has(criticalKey)) {
                 notifiedContextThreshold.add(criticalKey);
                 if (Notification.permission === 'granted') {
@@ -959,7 +959,7 @@ const App: React.FC = () => {
                   duration: 0,
                 });
               }
-            } else if (contextPercent >= 70) {
+            } else if (contextPercent > 68) {
               notifiedContextThreshold.delete(criticalKey);
               if (!notifiedContextThreshold.has(key)) {
                 notifiedContextThreshold.add(key);
