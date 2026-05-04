@@ -1,7 +1,9 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { Globe } from 'lucide-react';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { useSessionStore } from '@/stores/sessionStore';
+import { getWebSocketClient } from '@/lib/websocket';
 
 const CLAUDE_PIX_BASE = '/claudepix';
 
@@ -135,6 +137,41 @@ function useTmuxSessions(): Set<string> {
   return sessions;
 }
 
+function useBrowserSessions(): Set<string> {
+  const [sessions, setSessions] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    // Poll every 15 seconds
+    const poll = () => {
+      fetch('/api/browser/sessions')
+        .then(r => r.json())
+        .then((data: { sessions: string[] }) => setSessions(new Set(data.sessions)))
+        .catch(() => {});
+    };
+    poll();
+    const interval = setInterval(poll, 15000);
+
+    // Subscribe to WS updates
+    const sub = getWebSocketClient().onMessage((msg: any) => {
+      if (msg.type === 'browser_tab_update') {
+        setSessions(prev => {
+          const next = new Set(prev);
+          if (msg.active) next.add(msg.session);
+          else next.delete(msg.session);
+          return next;
+        });
+      }
+    });
+
+    return () => {
+      clearInterval(interval);
+      sub.unsubscribe();
+    };
+  }, []);
+
+  return sessions;
+}
+
 const SubscriptionRow: React.FC<{
   subKey: string;
   sub: SubscribedSession;
@@ -145,7 +182,8 @@ const SubscriptionRow: React.FC<{
   onDragEnd: () => void;
   isDragOver: boolean;
   tmuxActive: boolean;
-}> = ({ subKey, sub, onNavigate, onUnsubscribe, onDragStart, onDragOver, onDragEnd, isDragOver, tmuxActive }) => {
+  browserActive: boolean;
+}> = ({ subKey, sub, onNavigate, onUnsubscribe, onDragStart, onDragOver, onDragEnd, isDragOver, tmuxActive, browserActive }) => {
   const elapsed = useElapsed(sub.lastUpdate, sub.status);
 
   const statusBg =
@@ -161,7 +199,7 @@ const SubscriptionRow: React.FC<{
     <div className={`flex items-center gap-1 ${isDragOver ? 'border-t-2 border-t-blue-400' : ''}`}>
       {/* Colored status card */}
       <div
-        className={`group flex-1 flex items-stretch gap-2 pl-3 pr-2 py-1 rounded text-sm cursor-pointer transition-colors min-w-0 ${statusBg}`}
+        className={`relative group flex-1 flex items-stretch gap-2 pl-3 pr-2 py-1 rounded text-sm cursor-pointer transition-colors min-w-0 ${statusBg}`}
         draggable
         onDragStart={(e) => onDragStart(e, subKey)}
         onDragOver={(e) => onDragOver(e, subKey)}
@@ -173,8 +211,32 @@ const SubscriptionRow: React.FC<{
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ session: sub.session }),
           }).catch(() => {});
+          if (browserActive) {
+            fetch('/api/browser/focus-tab', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ session: sub.session }),
+            }).catch(() => {});
+          }
         }}
       >
+        {/* Unsubscribe button — top-left, appears on hover */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onUnsubscribe(subKey);
+          }}
+          className="absolute top-1 left-1 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+          title="Unsubscribe"
+        >
+          <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+            <path
+              fillRule="evenodd"
+              d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+              clipRule="evenodd"
+            />
+          </svg>
+        </button>
         {/* Project / Session on two lines */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1">
@@ -200,12 +262,8 @@ const SubscriptionRow: React.FC<{
             )}
           </div>
         </div>
-        {/* Tmux indicator (top) + terminal button (bottom) */}
-        <div className="flex flex-col justify-between items-center flex-shrink-0 py-0.5">
-          <span
-            className={`w-1.5 h-1.5 rounded-full ${tmuxActive ? 'bg-green-500' : 'bg-gray-400 dark:bg-gray-600'}`}
-            title={tmuxActive ? `tmux session "${sub.session}" active` : `no tmux session "${sub.session}"`}
-          />
+        {/* 2-col grid: buttons | dots — rows share height so each button aligns with its dot */}
+        <div className="grid grid-cols-2 items-center flex-shrink-0 py-0.5 gap-x-0.5 gap-y-0.5">
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -215,31 +273,36 @@ const SubscriptionRow: React.FC<{
                 body: JSON.stringify({ session: sub.session }),
               }).catch(() => {});
             }}
-            className="p-0.5 text-black hover:text-green-600 transition-colors"
+            className="p-0.5 text-black hover:text-green-600 transition-colors justify-self-center"
             title={tmuxActive ? `Replace tmux session "${sub.session}"` : `Create tmux session "${sub.session}"`}
           >
             <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm3.293 1.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L7.586 10 5.293 7.707a1 1 0 010-1.414zM11 12a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
             </svg>
           </button>
+          <span
+            className={`w-1.5 h-1.5 rounded-full justify-self-center ${tmuxActive ? 'bg-green-500' : 'bg-gray-400 dark:bg-gray-600'}`}
+            title={tmuxActive ? `tmux session "${sub.session}" active` : `no tmux session "${sub.session}"`}
+          />
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              fetch('/api/browser/create-tab', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session: sub.session }),
+              }).catch(() => {});
+            }}
+            className="p-0.5 text-black hover:text-blue-600 transition-colors justify-self-center"
+            title="Open Chrome tab"
+          >
+            <Globe className="w-3 h-3" />
+          </button>
+          <span
+            className={`w-1.5 h-1.5 rounded-full justify-self-center ${browserActive ? 'bg-blue-500' : 'bg-gray-400 dark:bg-gray-600'}`}
+            title={browserActive ? `Chrome tab: ${sub.session}` : 'No browser tab'}
+          />
         </div>
-        {/* Unsubscribe button */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onUnsubscribe(subKey);
-          }}
-          className="p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 self-start mt-1"
-          title="Unsubscribe"
-        >
-          <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
-            <path
-              fillRule="evenodd"
-              d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-              clipRule="evenodd"
-            />
-          </svg>
-        </button>
       </div>
       {/* Claude pixel avatar — outside the colored card, right side */}
       <ClaudePixAvatar status={sub.status} />
@@ -257,6 +320,7 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
   const { subscriptions, order, unsubscribe, subscribe, reorder } = useSubscriptionStore();
   const { sessions, setCurrentSession } = useSessionStore();
   const tmuxSessions = useTmuxSessions();
+  const browserSessions = useBrowserSessions();
   const [collapsed, setCollapsed] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
@@ -444,6 +508,7 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
               onDragEnd={handleDragEnd}
               isDragOver={dragOverKey === key}
               tmuxActive={tmuxSessions.has(sub.session)}
+              browserActive={browserSessions.has(sub.session)}
             />
           ))}
         </div>

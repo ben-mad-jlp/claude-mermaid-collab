@@ -253,7 +253,7 @@ const server = Bun.serve<WsData>({
     }
 
     if (url.pathname.startsWith('/api/browser')) {
-      const res = await handleBrowserRoutes(req, url);
+      const res = await handleBrowserRoutes(req, url, wsHandler);
       if (res) return res;
     }
 

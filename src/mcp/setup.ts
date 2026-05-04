@@ -1598,6 +1598,14 @@ IMPORTANT - Common pitfalls to avoid:
       browserToolSchemas.browser_console,
       browserToolSchemas.browser_network,
       browserToolSchemas.browser_close,
+      browserToolSchemas.browser_click,
+      browserToolSchemas.browser_fill,
+      browserToolSchemas.browser_select,
+      browserToolSchemas.browser_press_key,
+      browserToolSchemas.browser_hover,
+      browserToolSchemas.browser_handle_dialog,
+      browserToolSchemas.browser_wait_for,
+      browserToolSchemas.browser_get_url,
       // Task management tools
       {
         name: 'update_task_status',
@@ -4283,52 +4291,97 @@ IMPORTANT - Common pitfalls to avoid:
           }
 
           case 'browser_open': {
-            const { url } = args as { url: string };
+            const { url, session } = args as { url: string; session?: string };
             if (!url) throw new Error('Missing required: url');
             const { browserOpen } = await import('./tools/browser.js');
-            return await browserOpen(url);
+            return await browserOpen(url, session);
           }
 
           case 'browser_navigate': {
-            const { sessionId, url } = args as { sessionId: string; url: string };
-            if (!sessionId || !url) throw new Error('Missing required: sessionId, url');
+            const { sessionId, url } = args as { sessionId?: string; url: string };
+            if (!url) throw new Error('Missing required: url');
             const { browserNavigate } = await import('./tools/browser.js');
             return await browserNavigate(sessionId, url);
           }
 
           case 'browser_evaluate': {
-            const { sessionId, expression } = args as { sessionId: string; expression: string };
-            if (!sessionId || !expression) throw new Error('Missing required: sessionId, expression');
+            const { sessionId, expression } = args as { sessionId?: string; expression: string };
+            if (!expression) throw new Error('Missing required: expression');
             const { browserEvaluate } = await import('./tools/browser.js');
             return await browserEvaluate(sessionId, expression);
           }
 
           case 'browser_screenshot': {
-            const { sessionId, project, session } = args as { sessionId: string; project: string; session: string };
-            if (!sessionId || !project || !session) throw new Error('Missing required: sessionId, project, session');
+            const { sessionId, project, session } = args as { sessionId?: string; project: string; session: string };
+            if (!project || !session) throw new Error('Missing required: project, session');
             const { browserScreenshot } = await import('./tools/browser.js');
             return await browserScreenshot(sessionId, project, session);
           }
 
           case 'browser_console': {
-            const { sessionId } = args as { sessionId: string };
-            if (!sessionId) throw new Error('Missing required: sessionId');
+            const { sessionId } = args as { sessionId?: string };
             const { browserConsole } = await import('./tools/browser.js');
             return await browserConsole(sessionId);
           }
 
           case 'browser_network': {
-            const { sessionId } = args as { sessionId: string };
-            if (!sessionId) throw new Error('Missing required: sessionId');
+            const { sessionId } = args as { sessionId?: string };
             const { browserNetwork } = await import('./tools/browser.js');
             return await browserNetwork(sessionId);
           }
 
           case 'browser_close': {
-            const { sessionId } = args as { sessionId: string };
-            if (!sessionId) throw new Error('Missing required: sessionId');
+            const { sessionId } = args as { sessionId?: string };
             const { browserClose } = await import('./tools/browser.js');
             return await browserClose(sessionId);
+          }
+
+          case 'browser_click': {
+            const { selector, session } = args as { selector: string; session?: string };
+            const { browserClick } = await import('./tools/browser.js');
+            return await browserClick(selector, session);
+          }
+
+          case 'browser_fill': {
+            const { selector, value, session } = args as { selector: string; value: string; session?: string };
+            const { browserFill } = await import('./tools/browser.js');
+            return await browserFill(selector, value, session);
+          }
+
+          case 'browser_select': {
+            const { selector, value, session } = args as { selector: string; value: string; session?: string };
+            const { browserSelect } = await import('./tools/browser.js');
+            return await browserSelect(selector, value, session);
+          }
+
+          case 'browser_press_key': {
+            const { key, session } = args as { key: string; session?: string };
+            const { browserPressKey } = await import('./tools/browser.js');
+            return await browserPressKey(key, session);
+          }
+
+          case 'browser_hover': {
+            const { selector, session } = args as { selector: string; session?: string };
+            const { browserHover } = await import('./tools/browser.js');
+            return await browserHover(selector, session);
+          }
+
+          case 'browser_handle_dialog': {
+            const { accept, promptText, session } = args as { accept: boolean; promptText?: string; session?: string };
+            const { browserHandleDialog } = await import('./tools/browser.js');
+            return await browserHandleDialog(accept, promptText, session);
+          }
+
+          case 'browser_wait_for': {
+            const { selector, navigation, timeout, session } = args as { selector?: string; navigation?: boolean; timeout?: number; session?: string };
+            const { browserWaitFor } = await import('./tools/browser.js');
+            return await browserWaitFor(selector, navigation, timeout, session);
+          }
+
+          case 'browser_get_url': {
+            const { session } = args as { session?: string };
+            const { browserGetUrl } = await import('./tools/browser.js');
+            return await browserGetUrl(session);
           }
 
           default:

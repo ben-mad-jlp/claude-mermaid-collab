@@ -86,7 +86,8 @@ export type WSMessage =
   | { type: 'ide_open_diff'; filePath: string }
   | { type: 'ide_connected'; vscodeVersion: string; extensionVersion: string; workspaceFolders?: string[] }
   | { type: 'ide_reattach'; claudePid: number; claudeSessionId: string; project: string; session: string; boundAt: string }
-  | { type: 'ide_disconnected'; reason?: string };
+  | { type: 'ide_disconnected'; reason?: string }
+  | { type: 'browser_tab_update'; session: string; active: boolean };
 
 export class WebSocketHandler {
   private connections: Set<ServerWebSocket<{ subscriptions: Set<string> }>> = new Set();
@@ -355,6 +356,10 @@ export class WebSocketHandler {
     for (const ws of deadConnections) {
       this.connections.delete(ws);
     }
+  }
+
+  broadcastBrowserTabUpdate(session: string, active: boolean): void {
+    this.broadcast({ type: 'browser_tab_update', session, active });
   }
 
   getConnectionCount(): number {
