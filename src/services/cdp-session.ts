@@ -45,7 +45,12 @@ export async function withCDPSession<T>(
 ): Promise<T> {
   let client: any;
   try {
-    client = await CDP({ host: '127.0.0.1', port });
+    const targetId = tabRegistry.get(sessionName);
+    if (targetId) {
+      client = await CDP({ host: '127.0.0.1', port, target: targetId });
+    } else {
+      client = await CDP({ host: '127.0.0.1', port });
+    }
   } catch (err: any) {
     if (err?.code === 'ECONNREFUSED') {
       throw new Error(

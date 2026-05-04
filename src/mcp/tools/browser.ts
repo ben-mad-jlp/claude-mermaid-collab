@@ -299,9 +299,11 @@ export async function browserListPages(): Promise<string> {
   return JSON.stringify({ pages: tabs.filter((t: any) => t.type === 'page').map((t: any) => ({ id: t.id, title: t.title, url: t.url })) }, null, 2);
 }
 
-export async function browserSelectPage(targetId: string): Promise<string> {
+export async function browserSelectPage(targetId: string, session?: string): Promise<string> {
   await CDP.Activate({ id: targetId, host: '127.0.0.1', port: CDP_PORT });
-  return JSON.stringify({ success: true, targetId }, null, 2);
+  const sessionId = session ?? await resolveSessionId();
+  registerTab(sessionId, targetId);
+  return JSON.stringify({ success: true, targetId, session: sessionId }, null, 2);
 }
 
 export async function browserTakeSnapshot(session?: string): Promise<string> {
@@ -648,11 +650,12 @@ export const browserToolSchemas = {
   },
   browser_select_page: {
     name: 'browser_select_page',
-    description: 'Activate (focus) a specific Chrome tab by its target ID (from browser_list_pages).',
+    description: 'Activate (focus) a specific Chrome tab by its target ID (from browser_list_pages). Also registers the tab so all subsequent browser tool calls in this session target it.',
     inputSchema: {
       type: 'object',
       properties: {
         targetId: { type: 'string', description: 'Target ID of the tab to activate' },
+        session: { type: 'string', description: 'Session name to bind this tab to (defaults to current Claude session)' },
       },
       required: ['targetId'],
     },

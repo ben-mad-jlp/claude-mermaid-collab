@@ -943,7 +943,7 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
   return (
     <aside
       data-testid="artifact-tree"
-      className={`flex flex-col w-72 bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 overflow-hidden ${className ?? ''}`}
+      className={`flex flex-col w-full bg-gray-50 dark:bg-gray-900 overflow-hidden ${className ?? ''}`}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >

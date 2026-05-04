@@ -4432,9 +4432,9 @@ IMPORTANT - Common pitfalls to avoid:
           }
 
           case 'browser_select_page': {
-            const { targetId } = args as { targetId: string };
+            const { targetId, session } = args as { targetId: string; session?: string };
             const { browserSelectPage } = await import('./tools/browser.js');
-            return await browserSelectPage(targetId);
+            return await browserSelectPage(targetId, session);
           }
 
           case 'browser_take_snapshot': {
