@@ -97,9 +97,17 @@ export async function createOrReplaceTab(sessionName: string, port: number): Pro
     if (existingId) {
       try { await CDP.Close({ id: existingId, host: '127.0.0.1', port }); } catch {}
     }
-    const tab = await CDP.New({ host: '127.0.0.1', port });
-    tabRegistry.set(sessionName, tab.id);
-    return tab.id;
+    // Use Target.createTarget with newWindow:false so the tab opens in the existing Chrome window
+    const client = await CDP({ host: '127.0.0.1', port });
+    let targetId: string;
+    try {
+      const { targetId: id } = await client.Target.createTarget({ url: 'about:blank', newWindow: false });
+      targetId = id;
+    } finally {
+      client.close().catch(() => {});
+    }
+    tabRegistry.set(sessionName, targetId);
+    return targetId;
   } catch (err: any) {
     if (err?.code === 'ECONNREFUSED') {
       throw new Error(`Chrome not reachable on port ${port} — toggle CDP button in VSCodium`);

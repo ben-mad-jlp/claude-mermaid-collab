@@ -1606,6 +1606,20 @@ IMPORTANT - Common pitfalls to avoid:
       browserToolSchemas.browser_handle_dialog,
       browserToolSchemas.browser_wait_for,
       browserToolSchemas.browser_get_url,
+      browserToolSchemas.browser_drag,
+      browserToolSchemas.browser_type_text,
+      browserToolSchemas.browser_fill_form,
+      browserToolSchemas.browser_emulate,
+      browserToolSchemas.browser_resize_page,
+      browserToolSchemas.browser_list_pages,
+      browserToolSchemas.browser_select_page,
+      browserToolSchemas.browser_take_snapshot,
+      browserToolSchemas.browser_take_memory_snapshot,
+      browserToolSchemas.browser_upload_file,
+      browserToolSchemas.browser_lighthouse_audit,
+      browserToolSchemas.browser_performance_start_trace,
+      browserToolSchemas.browser_performance_stop_trace,
+      browserToolSchemas.browser_performance_analyze_insight,
       // Task management tools
       {
         name: 'update_task_status',
@@ -4382,6 +4396,89 @@ IMPORTANT - Common pitfalls to avoid:
             const { session } = args as { session?: string };
             const { browserGetUrl } = await import('./tools/browser.js');
             return await browserGetUrl(session);
+          }
+
+          case 'browser_drag': {
+            const { sourceSelector, targetSelector, session } = args as { sourceSelector: string; targetSelector: string; session?: string };
+            const { browserDrag } = await import('./tools/browser.js');
+            return await browserDrag(sourceSelector, targetSelector, session);
+          }
+
+          case 'browser_type_text': {
+            const { text, session } = args as { text: string; session?: string };
+            const { browserTypeText } = await import('./tools/browser.js');
+            return await browserTypeText(text, session);
+          }
+
+          case 'browser_fill_form': {
+            const { fields, session } = args as { fields: Record<string, string>; session?: string };
+            const { browserFillForm } = await import('./tools/browser.js');
+            return await browserFillForm(fields, session);
+          }
+
+          case 'browser_emulate': {
+            const { device, width, height, mobile, session } = args as { device?: string; width?: number; height?: number; mobile?: boolean; session?: string };
+            const { browserEmulate } = await import('./tools/browser.js');
+            return await browserEmulate(device, width, height, mobile, session);
+          }
+
+          case 'browser_resize_page': {
+            const { width, height, session } = args as { width: number; height: number; session?: string };
+            const { browserResizePage } = await import('./tools/browser.js');
+            return await browserResizePage(width, height, session);
+          }
+
+          case 'browser_list_pages': {
+            const { browserListPages } = await import('./tools/browser.js');
+            return await browserListPages();
+          }
+
+          case 'browser_select_page': {
+            const { targetId } = args as { targetId: string };
+            const { browserSelectPage } = await import('./tools/browser.js');
+            return await browserSelectPage(targetId);
+          }
+
+          case 'browser_take_snapshot': {
+            const { session } = args as { session?: string };
+            const { browserTakeSnapshot } = await import('./tools/browser.js');
+            return await browserTakeSnapshot(session);
+          }
+
+          case 'browser_take_memory_snapshot': {
+            const { session } = args as { session?: string };
+            const { browserTakeMemorySnapshot } = await import('./tools/browser.js');
+            return await browserTakeMemorySnapshot(session);
+          }
+
+          case 'browser_upload_file': {
+            const { selector, filePath, session } = args as { selector: string; filePath: string; session?: string };
+            const { browserUploadFile } = await import('./tools/browser.js');
+            return await browserUploadFile(selector, filePath, session);
+          }
+
+          case 'browser_lighthouse_audit': {
+            const { url, session } = args as { url?: string; session?: string };
+            const { browserLighthouseAudit } = await import('./tools/browser.js');
+            return await browserLighthouseAudit(url, session);
+          }
+
+          case 'browser_performance_start_trace': {
+            const { session } = args as { session?: string };
+            const { browserPerformanceStartTrace } = await import('./tools/browser.js');
+            return await browserPerformanceStartTrace(session);
+          }
+
+          case 'browser_performance_stop_trace': {
+            const { session } = args as { session?: string };
+            const { browserPerformanceStopTrace } = await import('./tools/browser.js');
+            return await browserPerformanceStopTrace(session);
+          }
+
+          case 'browser_performance_analyze_insight': {
+            const { session } = args as { session?: string };
+            const { browserPerformanceAnalyzeInsight } = await import('./tools/browser.js');
+            return await browserPerformanceAnalyzeInsight(session);
           }
 
           default:
