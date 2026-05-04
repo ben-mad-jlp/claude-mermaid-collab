@@ -43,6 +43,12 @@ import { BindingSweeper } from './services/binding-sweeper.ts';
 const SCRATCH_PROJECT = join(homedir(), '.mermaid-collab');
 const SCRATCH_SESSION = 'scratch';
 
+// Close any browser tabs left open from a previous server run
+try {
+  const { closePersistedTabs, CDP_PORT } = await import('./services/cdp-session.js');
+  await closePersistedTabs(CDP_PORT);
+} catch {}
+
 // Register scratch session on startup.
 // This MUST be idempotent and non-fatal on corrupt registry — otherwise
 // the very first thing every boot does is a destructive read-modify-write

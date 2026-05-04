@@ -1,4 +1,5 @@
 import { promises as fsp } from 'node:fs';
+import { writeFileSync, readFileSync, unlinkSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -8,6 +9,27 @@ export const CDP_PORT = 9333;
 
 // Maps sessionName → targetId
 const tabRegistry = new Map<string, string>();
+
+const TABS_PERSIST_FILE = '/tmp/.mermaid-collab-tabs.json';
+
+function persistTabRegistry(): void {
+  try {
+    const data: Record<string, string> = {};
+    tabRegistry.forEach((targetId, session) => { data[session] = targetId; });
+    writeFileSync(TABS_PERSIST_FILE, JSON.stringify(data), 'utf-8');
+  } catch {}
+}
+
+export async function closePersistedTabs(port: number): Promise<void> {
+  try {
+    const raw = readFileSync(TABS_PERSIST_FILE, 'utf-8');
+    const data = JSON.parse(raw) as Record<string, string>;
+    try { unlinkSync(TABS_PERSIST_FILE); } catch {}
+    for (const targetId of Object.values(data)) {
+      try { await CDP.Close({ id: targetId, host: '127.0.0.1', port }); } catch {}
+    }
+  } catch {}
+}
 
 // Maps Claude PID → collab session name (in-process, survives file-lookup failures)
 const pidToSession = new Map<number, string>();
@@ -111,6 +133,7 @@ export async function focusTab(sessionName: string, port: number): Promise<void>
 
 export function registerTab(sessionName: string, tabId: string): void {
   tabRegistry.set(sessionName, tabId);
+  persistTabRegistry();
 }
 
 export async function createOrReplaceTab(sessionName: string, port: number): Promise<string> {
@@ -129,6 +152,7 @@ export async function createOrReplaceTab(sessionName: string, port: number): Pro
       client.close().catch(() => {});
     }
     tabRegistry.set(sessionName, targetId);
+    persistTabRegistry();
     return targetId;
   } catch (err: any) {
     if (err?.code === 'ECONNREFUSED') {
