@@ -47,6 +47,7 @@ export async function withCDPSession<T>(
   try {
     const targetId = tabRegistry.get(sessionName);
     if (targetId) {
+      try { await CDP.Activate({ id: targetId, host: '127.0.0.1', port }); } catch {}
       client = await CDP({ host: '127.0.0.1', port, target: targetId });
     } else {
       throw new Error(`No browser tab open for session "${sessionName}" — call browser_open first`);
