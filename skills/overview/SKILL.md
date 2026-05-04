@@ -1,5 +1,5 @@
 ---
-name: mermaid-collab
+name: overview
 description: Create and collaborate on Mermaid diagrams and UI designs with real-time preview and team sharing
 allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Skill
 user-invocable: false
