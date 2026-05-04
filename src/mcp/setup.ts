@@ -1617,8 +1617,6 @@ IMPORTANT - Common pitfalls to avoid:
       browserToolSchemas.browser_take_memory_snapshot,
       browserToolSchemas.browser_upload_file,
       browserToolSchemas.browser_lighthouse_audit,
-      browserToolSchemas.browser_performance_start_trace,
-      browserToolSchemas.browser_performance_stop_trace,
       browserToolSchemas.browser_performance_analyze_insight,
       // Task management tools
       {
@@ -4461,18 +4459,6 @@ IMPORTANT - Common pitfalls to avoid:
             const { url, session } = args as { url?: string; session?: string };
             const { browserLighthouseAudit } = await import('./tools/browser.js');
             return await browserLighthouseAudit(url, session);
-          }
-
-          case 'browser_performance_start_trace': {
-            const { session } = args as { session?: string };
-            const { browserPerformanceStartTrace } = await import('./tools/browser.js');
-            return await browserPerformanceStartTrace(session);
-          }
-
-          case 'browser_performance_stop_trace': {
-            const { session } = args as { session?: string };
-            const { browserPerformanceStopTrace } = await import('./tools/browser.js');
-            return await browserPerformanceStopTrace(session);
           }
 
           case 'browser_performance_analyze_insight': {

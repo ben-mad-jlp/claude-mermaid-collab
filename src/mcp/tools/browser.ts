@@ -367,34 +367,6 @@ export async function browserLighthouseAudit(url: string | undefined, session?: 
   });
 }
 
-export async function browserPerformanceStartTrace(session?: string): Promise<string> {
-  const sessionId = session ?? await resolveSessionId();
-  return withCDPSession(sessionId, CDP_PORT, async (client) => {
-    await client.Tracing.start({ transferMode: 'ReturnAsStream', traceConfig: { recordMode: 'recordAsMuchAsPossible' } });
-    return JSON.stringify({ success: true, message: 'Tracing started — call browser_performance_stop_trace to collect results' }, null, 2);
-  });
-}
-
-export async function browserPerformanceStopTrace(session?: string): Promise<string> {
-  const sessionId = session ?? await resolveSessionId();
-  return withCDPSession(sessionId, CDP_PORT, async (client) => {
-    const events: any[] = [];
-    client.Tracing.on('dataCollected', (e: any) => events.push(...(e.value ?? [])));
-    await new Promise<void>((resolve) => {
-      client.Tracing.on('tracingComplete', () => resolve());
-      client.Tracing.end();
-    });
-    const summary = {
-      eventCount: events.length,
-      categories: [...new Set(events.map((e: any) => e.cat).filter(Boolean))],
-      durationMs: events.length > 0
-        ? Math.round((Math.max(...events.map((e: any) => (e.ts ?? 0) + (e.dur ?? 0))) - Math.min(...events.map((e: any) => e.ts ?? 0))) / 1000)
-        : 0,
-    };
-    return JSON.stringify({ summary, sample: events.slice(0, 20) }, null, 2);
-  });
-}
-
 export async function browserPerformanceAnalyzeInsight(session?: string): Promise<string> {
   const sessionId = session ?? await resolveSessionId();
   return withCDPSession(sessionId, CDP_PORT, async (client) => {
@@ -727,28 +699,6 @@ export const browserToolSchemas = {
       type: 'object',
       properties: {
         url: { type: 'string', description: 'URL to navigate to before auditing (optional, uses current page if omitted)' },
-        session: { type: 'string', description: 'CDP session ID (optional, auto-resolved if omitted)' },
-      },
-      required: [],
-    },
-  },
-  browser_performance_start_trace: {
-    name: 'browser_performance_start_trace',
-    description: 'Start a Chrome performance trace. Call browser_performance_stop_trace to collect results.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        session: { type: 'string', description: 'CDP session ID (optional, auto-resolved if omitted)' },
-      },
-      required: [],
-    },
-  },
-  browser_performance_stop_trace: {
-    name: 'browser_performance_stop_trace',
-    description: 'Stop the running performance trace and return a summary of collected events.',
-    inputSchema: {
-      type: 'object',
-      properties: {
         session: { type: 'string', description: 'CDP session ID (optional, auto-resolved if omitted)' },
       },
       required: [],
