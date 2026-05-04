@@ -939,46 +939,26 @@ const App: React.FC = () => {
           useSubscriptionStore.getState().updateContextPercent(project, session, contextPercent);
           const key = `${project}:${session}`;
           if (useSubscriptionStore.getState().subscriptions[key]) {
-            // Tier 1: >68% — warn once per crossing
-            // Tier 2: >78% — escalate to critical
             const criticalKey = `${key}:critical`;
             if (contextPercent > 78) {
               if (!notifiedContextThreshold.has(criticalKey)) {
                 notifiedContextThreshold.add(criticalKey);
                 if (Notification.permission === 'granted') {
-                  new Notification(`⚠ Context critical ${contextPercent}% — ${session}`, {
-                    body: 'Consider starting a new session soon',
+                  new Notification(`⚠ Context ${contextPercent}% — ${session}`, {
+                    body: 'Run /vibe-checkpoint then /clear or start a new session',
                     tag: `context-critical-${key}`,
                     requireInteraction: true,
                   });
                 }
                 useNotificationStore.getState().addToast({
                   type: 'error',
-                  title: `Context critical — ${contextPercent}%`,
-                  message: `${session} is nearly full. Consider /compact or a new session.`,
+                  title: `Context ${contextPercent}% — ${session}`,
+                  message: 'Consider /vibe-checkpoint then /clear, or start a new session.',
                   duration: 0,
                 });
               }
-            } else if (contextPercent > 68) {
-              notifiedContextThreshold.delete(criticalKey);
-              if (!notifiedContextThreshold.has(key)) {
-                notifiedContextThreshold.add(key);
-                if (Notification.permission === 'granted') {
-                  new Notification(`Context at ${contextPercent}% — ${session}`, {
-                    body: `Context window is ${contextPercent}% full`,
-                    tag: `context-threshold-${key}`,
-                  });
-                }
-                useNotificationStore.getState().addToast({
-                  type: 'warning',
-                  title: `Context ${contextPercent}%`,
-                  message: `${session} context window is ${contextPercent}% full`,
-                  duration: 8000,
-                });
-              }
-            } else {
-              // Context dropped below threshold — reset so it can fire again if it grows back
-              notifiedContextThreshold.delete(key);
+            } else if (contextPercent <= 68) {
+              // Context dropped back to green — reset so notification fires again if it climbs back
               notifiedContextThreshold.delete(criticalKey);
             }
           }
