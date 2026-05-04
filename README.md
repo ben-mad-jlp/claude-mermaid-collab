@@ -1,339 +1,264 @@
 # Mermaid Collab
 
-A design-to-implementation toolkit for Claude Code that transforms ideas into working software through structured collaboration.
+A Claude Code plugin that provides a real-time collaboration UI, 150+ MCP tools, and structured workflows for designing and building software with Claude.
 
 <img src="ui/public/logo.png" alt="Mermaid Collab" width="200" />
 
 ## What is Mermaid Collab?
 
-Mermaid Collab is a Claude Code plugin that provides:
+Mermaid Collab gives Claude Code a persistent collaboration layer — a browser UI where diagrams, documents, designs, code snippets, and spreadsheets appear in real time as Claude works. It also includes a full browser automation suite (Chrome via CDP) and a pseudocode documentation system.
 
-1. **Collaboration Server** - Real-time Mermaid diagrams, code snippets, wireframes, and documents with a React GUI
-2. **Structured Workflow** - A state machine that guides you from idea to implementation
-3. **40+ Skills** - Orchestrated design patterns for brainstorming, planning, and development
-4. **Agent Chat (Preview)** - An early in-UI chat surface for talking to Claude directly from the browser (Phase 1: echo preview).
+**Key capabilities:**
+- **Collab UI** — React interface with live preview of all artifacts
+- **Visual Design Editor** — Figma-like canvas with layers, properties, and component system
+- **Browser Automation** — Drive real Chrome on Windows via CDP tunnel (27 tools)
+- **Pseudocode System** — File-level documentation with call graphs and coverage
+- **30 Skills** — Orchestrated workflow patterns for vibe sessions, planning, debugging, and review
+- **VSCode Extension** — Status bar integration with one-click Chrome CDP toggle
+
+---
 
 ## Quick Start
 
 ### 1. Install the Plugin
 
-```bash
-# In Claude Code
+```
 /plugin install ben-mad-jlp/claude-mermaid-collab
 ```
 
 ### 2. Start the Server
 
-After installation, you need to start the collaboration server once. Open a terminal and run:
-
 ```bash
-# Find your plugin installation path (version may vary)
-cd ~/.claude/plugins/cache/mermaid-collab-dev/mermaid-collab/*/
-
-# Install UI dependencies (first time only)
-cd ui && bun install && cd ..
-
-# Start the server
 bun run bin/mermaid-collab.ts start
 ```
 
-The server runs on `http://localhost:3737` and persists across Claude Code sessions.
-
-**Tip:** Add an alias to your shell profile for convenience:
-```bash
-alias collab-server='cd ~/.claude/plugins/cache/mermaid-collab-dev/mermaid-collab/*/ && bun run bin/mermaid-collab.ts'
-```
-Then use: `collab-server start`, `collab-server stop`, `collab-server status`
+The API server runs on `http://localhost:9002` and the UI at `http://localhost:9102`.
 
 ### 3. Start a Session
 
-```bash
-# In Claude Code in your terminal (restart Claude Code after starting server). An in-UI chat is in preview — see "Agent Chat" below.
+```
 /collab
 ```
 
-You're now guided through a structured workflow.
+---
+
+## Server Ports
+
+| Service | Port | Description |
+|---------|------|-------------|
+| API + WebSocket + MCP | 9002 | REST API, WebSocket, MCP HTTP transport |
+| UI | 9102 | React frontend (dev mode via Vite) |
+| CDP | 9333 | Chrome DevTools Protocol (Windows Chrome via SSH tunnel) |
 
 ---
 
-## The Collab Workflow
+## Collab UI
 
-The collab workflow is a state machine that ensures **design completeness before implementation**. Every idea goes through verification gates before any code is written.
+Access at `http://localhost:9102` after starting the server.
 
-### State Machine Overview
-
-```mermaid
-flowchart TD
-    A["/collab"] --> B["gather-goals"]
-
-    B --> C["EXPLORING"]
-    C --> D["CLARIFYING"]
-    D --> E["DESIGNING"]
-    E --> F["VALIDATING"]
-    F --> G["blueprint"]
-    G --> H["ready-to-implement"]
-    H --> I["executing-plans"]
-    I --> J["finishing-branch"]
-    J --> K["cleanup"]
-    K --> L(("Done"))
-
-    B -.->|bugfix| M["systematic-debugging"]
-    M -.-> C
-    F -.->|task| N["task-planning"]
-    N -.-> G
-
-    B ==>|vibe| V["vibe-active"]
-    V ==> K
-```
-
-The full workflow includes brainstorming phases, special routing for bugfixes and tasks, and a **vibe mode** shortcut for freeform work.
-
-### Two Session Types
-
-| Type | Flow | Best For |
-|------|------|----------|
-| **Structured** | Full state machine with verification gates | Features, refactors, complex work |
-| **Vibe** | Skip brainstorming → straight to cleanup | Quick sketches, exploration, prototyping |
-
-In **vibe mode**, you bypass all brainstorming phases and work directly with diagrams, documents, and wireframes. When done, go straight to cleanup.
-
-### Phase Details
-
-#### 1. Gather Goals
-Collect work items and classify them:
-- **Code** - Features requiring implementation
-- **Task** - Operational work (setup, config, organization)
-- **Bugfix** - Issues requiring investigation
-
-#### 2. Brainstorming (4 sub-phases)
-
-| Phase | Purpose |
-|-------|---------|
-| **EXPLORING** | Gather context, form initial understanding |
-| **CLARIFYING** | Discuss each item to fully understand requirements |
-| **DESIGNING** | Present design approach in validated sections |
-| **VALIDATING** | Run completeness gate before proceeding |
-
-Special routing:
-- **Bugfixes** → `systematic-debugging` (skip brainstorming)
-- **Tasks** → `task-planning` after design (skip rough-draft)
-
-#### 3. Rough-Draft (code items only)
-Progressive refinement through:
-- **Interface** - Define contracts and types
-- **Pseudocode** - Logic flow for each function
-- **Skeleton** - Generate stub files and task graph
-
-#### 4. Execution
-- Parallel task execution with dependency awareness
-- Verification gates between batches
-- Drift detection against original design
-
-#### 5. Cleanup
-- Archive session to `docs/designs/`
-- Or delete session files
-- Clean workspace for next project
-
----
-
-## Features
-
-### React GUI
-
-Access at `http://localhost:3737` after starting a session.
-
-**Dashboard Features:**
+- Split-pane editors with live preview for diagrams, documents, snippets, and spreadsheets
+- Visual design editor with layers panel, properties panel, and component library
+- Terminal integration (tmux sessions)
 - Session browser with project grouping
-- Split-pane editors with live preview
-- Diagram validation with syntax highlighting
-- Document editor with markdown preview
-- Wireframe designer with component palette
-- Terminal integration with tmux support
-- Real-time WebSocket updates
+- Real-time WebSocket updates across all open tabs
 
-### Wireframes
+---
 
-Create UI mockups with a JSON-based component system:
+## Visual Design Editor
 
-<img src="docs/images/wireframe-dashboard.svg" alt="Dashboard Wireframe" width="600" />
+A canvas-based design tool for creating UI mockups and design systems.
 
-<img src="docs/images/wireframe-login.svg" alt="Login Form Wireframe" width="300" />
+**Features:**
+- Freeform canvas with zoom and pan (middle-drag, Alt+drag, Shift+scroll)
+- Layers panel for node hierarchy
+- Properties panel for size, position, color, text, and style
+- Component system with instances and detach
+- Design tokens
+- Page-based layouts
+- Export to SVG and PNG
+- Version history with revert
 
-- 20+ component types (buttons, inputs, cards, lists, etc.)
-- Responsive viewports (mobile, tablet, desktop)
-- Hand-drawn "rough" style for sketching
-- Export to SVG/PNG
+**Tools available:** 40+ MCP tools for programmatic design creation and editing.
 
-### Code Snippets
+---
 
-Share and review code snippets with full editor support:
-- **10 languages** - JavaScript, TypeScript, Python, C#, C++, CSS, HTML, JSON, Markdown, YAML
-- CodeMirror editor with syntax highlighting and line numbers
-- **Line highlighting** - Subtle yellow background on specified lines
-- **Diff view** - Side-by-side comparison of original vs current code
-- File path display and language auto-detection from file extensions
-- Real-time sync between Claude Code (MCP) and browser (WebSocket)
-- Version history with revert support
+## Browser Automation (CDP)
+
+Claude can drive a real Chrome browser on your Windows machine via SSH tunnel. The VSCode extension manages Chrome launch and tunnel setup with one button.
+
+**Setup:**
+1. Install the VSCode extension (`mermaid-collab-vscode`)
+2. Click the CDP button in the status bar — Chrome launches with remote debugging on port 9333, tunneled to the Linux dev server
+
+**27 browser tools:**
+
+| Category | Tools |
+|----------|-------|
+| **Navigation** | `browser_open`, `browser_navigate`, `browser_list_pages`, `browser_select_page`, `browser_close` |
+| **Interaction** | `browser_click`, `browser_fill`, `browser_fill_form`, `browser_type_text`, `browser_drag`, `browser_hover`, `browser_press_key`, `browser_select`, `browser_upload_file`, `browser_handle_dialog` |
+| **Inspection** | `browser_screenshot`, `browser_take_snapshot`, `browser_evaluate`, `browser_get_url`, `browser_wait_for` |
+| **Diagnostics** | `browser_console`, `browser_network`, `browser_take_memory_snapshot`, `browser_emulate`, `browser_resize_page`, `browser_lighthouse_audit`, `browser_performance_analyze_insight` |
+
+---
+
+## Pseudocode System
+
+A file-level documentation layer stored in a SQLite database (`.collab/pseudo/`). Claude scans source files, writes prose descriptions of functions and modules, and maintains call graphs and coverage metrics.
+
+**Key tools:** `pseudo_hot_files`, `pseudo_search`, `pseudo_find_function_v6`, `pseudo_call_chain_v6`, `pseudo_coverage_report`, `pseudo_upsert_prose_v6`, `pseudo_import_graph`, `pseudo_impact_analysis`
+
+---
+
+## MCP Tools Reference
+
+All tools are available to Claude Code via HTTP MCP at `http://localhost:9002/mcp`.
+
+### Session & Project
+`check_server_health`, `list_sessions`, `list_projects`, `register_project`, `unregister_project`, `generate_session_name`, `register_claude_session`, `archive_session`, `clear_session_artifacts`, `generate_session_summary`, `validate_session_links`
 
 ### Diagrams
+`create_diagram`, `update_diagram`, `patch_diagram`, `get_diagram`, `list_diagrams`, `delete_diagram` (via deprecate), `validate_diagram`, `preview_diagram`, `export_diagram_svg`, `export_diagram_png`, `transpile_diagram`, `diagram_from_code`, `get_diagram_history`, `revert_diagram`
 
-Full Mermaid support with:
-- Flowcharts, sequence diagrams, class diagrams
-- State machines, entity relationships
-- Gantt charts, mind maps
-- Custom themes and styling
+### Documents
+`create_document`, `update_document`, `patch_document`, `get_document`, `list_documents`, `delete_document`, `preview_document`, `get_document_history`, `revert_document`
 
-### AI UI System
+### Designs (40+ tools)
+`create_design`, `update_design`, `get_design`, `list_designs`, `delete_design`, `add_design_node`, `update_design_node`, `get_design_node`, `remove_design_node`, `list_design_nodes`, `batch_design_operations`, `group_design_nodes`, `ungroup_design_nodes`, `duplicate_design_nodes`, `align_design_nodes`, `transform_design_nodes`, `reorder_design_nodes`, `create_design_from_tree`, `add_design_image`, `set_node_image`, `export_design_svg`, `export_design_png`, `export_design_code`, `describe_design`, `describe_design_changes`, `lint_design`, `annotate_node`, `get_annotations`, `remove_annotation`, `create_component`, `create_instance`, `detach_instance`, `list_components`, `save_component`, `load_component`, `list_library_components`, `create_design_tokens`, `apply_design_tokens`, `create_from_template`, `design_to_diagram`, `get_design_history`, `revert_design`, `get_design_item`, `patch_design_item`
 
-The `render_ui` tool pushes interactive components to the browser:
+### Snippets
+`create_snippet`, `update_snippet`, `patch_snippet`, `get_snippet`, `list_snippets`, `delete_snippet`, `export_snippet`, `snippet_history`, `revert_snippet`
 
-**32 Component Types:**
-- **Display**: Table, CodeBlock, DiffView, JsonViewer, Markdown, Image
-- **Layout**: Card, Section, Columns, Accordion, Alert
-- **Interactive**: Wizard, Checklist, ApprovalButtons, ProgressBar, Tabs
-- **Inputs**: TextInput, TextArea, Checkbox, RadioGroup, Toggle, Slider
+### Spreadsheets
+`create_spreadsheet`, `update_spreadsheet`, `patch_spreadsheet`, `get_spreadsheet`, `list_spreadsheets`, `delete_spreadsheet`, `export_spreadsheet_csv`, `get_spreadsheet_history`, `revert_spreadsheet`
 
-### Agent Chat (Preview)
+### Images & Embeds
+`create_image`, `get_image`, `list_images`, `delete_image`, `create_embed`, `list_embeds`, `delete_embed`, `create_storybook_embed`, `list_storybook_stories`
 
-An early in-UI chat panel is shipping incrementally. Today (Phase 1) it runs an **echo preview** so you can see the wiring — messages round-trip through the server and render in the chat drawer. Future phases will spawn a managed `claude` child process so you can drive sessions from the browser without a separate terminal. Until then, the existing Claude Code workflow (install the plugin, run `/collab` in your terminal) remains the primary way to collaborate.
+### Terminal
+`terminal_create_session`, `terminal_list_sessions`, `terminal_kill_session`, `terminal_rename_session`, `terminal_reorder_sessions`
+
+### Tasks & Workflow
+`get_task_graph`, `sync_task_graph`, `update_task_status`, `update_tasks_status`
+
+### Session Todos
+`add_session_todo`, `list_session_todos`, `update_session_todo`, `toggle_session_todo`, `remove_session_todo`, `clear_completed_session_todos`, `reorder_session_todos`
+
+### AI UI
+`render_ui`, `update_ui`, `get_ui_response`, `request_user_input`, `dismiss_ui`
+
+### Utilities
+`get_install_path`, `consult_grok`, `deprecate_artifact`, `set_artifact_metadata`, `add_lesson`, `list_lessons`, `generate_session_name`
+
+---
+
+## Skills (30)
+
+Skills are markdown instruction files loaded on-demand by Claude Code.
+
+| Skill | Purpose |
+|-------|---------|
+| `collab` | Entry point — session management |
+| `vibe-active` | Freeform collab session |
+| `vibe-checkpoint` | Save vibe state before `/clear` |
+| `vibe-read` | Read current vibe instructions |
+| `vibe-agents` | Toggle agent dispatch mode |
+| `vibe-go` | Launch agents in dependency waves |
+| `vibe-review` | Bug and completeness review |
+| `vibe-blueprint` | Generate task graph from artifacts |
+| `collab-todo` | Pick a session to work on |
+| `writing-plans` | Create implementation plan |
+| `writing-skills` | Create or edit skills |
+| `executing-plans-review` | Verify implementation against design |
+| `executing-plans-bugreview` | Bug review before completion |
+| `test-driven-development` | RED-GREEN-REFACTOR workflow |
+| `requesting-code-review` | Submit work for review |
+| `receiving-code-review` | Handle incoming review feedback |
+| `systematic-debugging` | Root cause analysis |
+| `pair-mode` | Toggle pair programming mode |
+| `pair` | Before/after diagram approval workflow |
+| `dispatching-parallel-agents` | Parallel independent task agents |
+| `pseudocode` | Create/update pseudocode for a file |
+| `pseudocode-seed` | Seed pseudocode across hot files |
+| `wireframing` | Create designs with MCP tools |
+| `mermaid-collab` | Create diagrams and designs |
+| `consult-grok` | Second opinion from Grok (xAI) |
+| `ui-question` | Ask user a question via browser UI |
+| `using-superpowers` | Establish skill/tool usage patterns |
 
 ---
 
 ## Architecture
 
-### Single Server Model
-
 ```
-┌─────────────────────────────────────────┐
-│           Collaboration Server          │
-│              (port 3737)                │
-├─────────────────────────────────────────┤
-│  React GUI    │  REST API  │  WebSocket │
-├───────────────┴────────────┴────────────┤
-│              MCP Transport              │
-├─────────────────────────────────────────┤
-│  DiagramManager │ DocumentManager │ ... │
-└─────────────────────────────────────────┘
-         ↓              ↓
-    Project A       Project B
-    └─ .collab/     └─ .collab/
-       └─ sessions     └─ sessions
+┌─────────────────────────────────────────────────────┐
+│                 Collaboration Server                 │
+│                     port 9002                        │
+├──────────────┬──────────────┬────────────────────────┤
+│  REST API    │  WebSocket   │  MCP HTTP Transport    │
+├──────────────┴──────────────┴────────────────────────┤
+│  DiagramManager │ DocumentManager │ DesignManager    │
+│  SnippetManager │ PseudoDB        │ TerminalManager  │
+└─────────────────────────────────────────────────────┘
+         ↓                    ↓
+  React UI (9102)      Claude Code (MCP)
+                              ↓
+                    chrome-devtools-mcp
+                    (CDP → port 9333)
+                              ↓
+                  Chrome on Windows (via SSH tunnel)
 ```
 
-One server instance serves all projects. Sessions are stored in each project's `.collab/` directory.
-
-### Session Storage
-
+**Session storage:**
 ```
-~/.mermaid-collab/           # Global config
-├── sessions.json            # Session registry
-├── server.pid               # Process ID
-└── server.log               # Server logs
-
 /your/project/
-├── .collab/
-│   └── session-name/
-│       ├── diagrams/        # .mmd files
-│       ├── documents/       # .md files
-│       ├── snippets/        # .snippet.json files
-│       ├── wireframes/      # .json files
-│       └── collab-state.json
-└── .kodex/                  # Knowledge base
-    └── topics/
+└── .collab/
+    ├── sessions/
+    │   └── <session-name>/
+    │       ├── documents/
+    │       ├── diagrams/
+    │       ├── designs/
+    │       ├── snippets/
+    │       ├── spreadsheets/
+    │       ├── images/
+    │       └── embeds/
+    └── pseudo/          # Pseudocode SQLite DB
 ```
 
 ---
 
-## MCP Tools
+## VSCode Extension
 
-All tools are available to Claude Code via the MCP protocol.
+The `mermaid-collab-vscode` extension adds:
+- Status bar showing collab server connection state
+- CDP toggle button — launches Chrome with `--remote-debugging-port=9333` and creates an SSH reverse tunnel so the Linux dev server can reach Windows Chrome
 
-### Session Management
-| Tool | Description |
-|------|-------------|
-| `check_server_health` | Server status and uptime |
-| `generate_session_name` | Create memorable name |
-| `list_sessions` | All sessions across projects |
-| `get_session_state` | Current phase and work items |
-
-### Content Creation
-| Tool | Description |
-|------|-------------|
-| `create_diagram` | New Mermaid diagram |
-| `create_document` | New markdown document |
-| `create_snippet` | New code snippet with language, highlighting |
-| `create_wireframe` | New UI wireframe |
-| `update_*` / `patch_*` | Modify existing content |
-| `validate_diagram` | Check Mermaid syntax |
-| `snippet_history` | Version history for a snippet |
-| `revert_snippet` | Restore snippet to previous version |
-
-### Workflow
-| Tool | Description |
-|------|-------------|
-| `complete_skill` | Report completion, get next skill |
-| `update_task_status` | Update task in graph |
-| `get_task_graph` | Current task dependencies |
-
-### Knowledge Base (Kodex)
-| Tool | Description |
-|------|-------------|
-| `kodex_query_topic` | Read topic content |
-| `kodex_create_topic` | Create new topic (as draft) |
-| `kodex_flag_topic` | Mark as outdated/incorrect |
+Install the `.vsix` from `extensions/vscode/`.
 
 ---
 
-## Skills (40+)
-
-Skills are orchestration instructions loaded on-demand. Key categories:
-
-### Core Workflow
-- `collab` - Entry point and session management
-- `gather-session-goals` - Collect and classify work items
-- `collab-cleanup` - Archive or delete artifacts
-
-### Brainstorming
-- `brainstorming-exploring` - Context gathering
-- `brainstorming-clarifying` - Requirement discussion
-- `brainstorming-designing` - Design presentation
-- `brainstorming-validating` - Completeness gate
-
-### Implementation
-- `rough-draft-blueprint` - Interface → Pseudocode → Skeleton
-- `executing-plans` - Parallel task execution
-- `test-driven-development` - RED-GREEN-REFACTOR
-
-### Utilities
-- `systematic-debugging` - 4-phase root cause analysis
-- `writing-skills` - Create new skills
-- `using-kodex` - Query project knowledge
-
----
-
-## CLI Commands
+## Development
 
 ```bash
-# Server management
-bun run bin/mermaid-collab.ts start   # Start in background
-bun run bin/mermaid-collab.ts stop    # Stop server
-bun run bin/mermaid-collab.ts status  # Check status
+# Start everything (recommended)
+/srv/codebase/dev-tools/dev-start.sh
 
-# Development
-bun run dev          # Full dev environment (API + UI)
-bun run dev:api      # API server only
-bun run dev:ui       # UI dev server only
-npm run test:ci      # Run all tests
+# Or manually
+bun run dev          # API server + Vite UI in parallel
+bun run dev:api      # API only (port 9002)
+bun run dev:ui       # Vite only (port 9102)
+
+# Server daemon
+bun run server:start
+bun run server:stop
+bun run server:status
+
+# Tests
+npm run test:ci           # All UI tests
+npm run test:ci -- path   # Specific test file
+npm run test:backend      # Backend tests
 ```
 
----
-
-## Key Principles
-
-1. **Spec-First** - Design is complete before code is written
-2. **Verification Gates** - Evidence-based checks at each transition
-3. **Drift Detection** - Implementation matches design exactly
-4. **Context Management** - Clear between phases to stay focused
+**Versioning** — always use `npm version patch|minor|major` (never edit version numbers manually). The version hook syncs `package.json`, `plugin.json`, `marketplace.json`, and `server.ts` automatically.
 
 ---
 
