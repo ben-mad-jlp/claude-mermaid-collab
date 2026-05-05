@@ -13,7 +13,7 @@ export function resolveImageSrc(
   src: string,
   ctx: ResolveImageSrcContext,
 ): string {
-  const { project, session, theme = 'dark' } = ctx;
+  const { project, session, theme = 'light' } = ctx;
   if (!src) return src;
   if (!project || !session) return src;
 

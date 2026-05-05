@@ -1292,7 +1292,10 @@ export async function handleAPI(
     }
 
     const id = path.split('/').pop()!;
-    const theme = (url.searchParams.get('theme') || 'default') as Theme;
+    const rawTheme = url.searchParams.get('theme') || 'default';
+    // Map UI theme names to valid Mermaid theme values
+    const themeMap: Record<string, string> = { light: 'default', dark: 'dark', sepia: 'neutral' };
+    const theme = (themeMap[rawTheme] ?? rawTheme) as Theme;
 
     const { diagramManager } = await createManagers(params.project, params.session);
     const diagram = await diagramManager.getDiagram(id);
