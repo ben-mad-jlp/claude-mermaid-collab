@@ -260,6 +260,16 @@ All session artifacts are stored on disk under `.collab/sessions/<session-name>/
 
 When a user references a screenshot or other file by name, look in the appropriate folder here before searching elsewhere. Images uploaded via the collab UI are in `images/`; documents, snippets, etc. are in their respective folders.
 
+## Context Usage — Proactive Checkpoint Nudge
+
+Monitor context usage throughout the vibe session. When context reaches **75% or above**, proactively suggest a checkpoint before continuing:
+
+```
+Context is at [X]% — recommend running /vibe-checkpoint before we go further so we don't lose our place on /clear. Want me to checkpoint now?
+```
+
+If the user says yes, invoke skill `vibe-checkpoint` immediately. If no, continue but repeat the nudge at 90%.
+
 ## Completion
 
 This skill completes when:
