@@ -60,6 +60,44 @@ EOF
 
 setup_mcp_permissions
 
+# Install statusline hook to ~/.claude/statusline.sh and wire up settings.json
+setup_statusline() {
+  local src="$SCRIPT_DIR/scripts/statusline.sh"
+  local dst="$HOME/.claude/statusline.sh"
+  local settings="$HOME/.claude/settings.json"
+
+  if [[ ! -f "$src" ]]; then
+    warn "scripts/statusline.sh not found — skipping statusline setup"
+    return
+  fi
+
+  cp "$src" "$dst" && chmod +x "$dst"
+  info "Installed statusline hook → $dst"
+
+  # Wire up settings.json statusLine if not already pointing to our script
+  if [[ -f "$settings" ]]; then
+    local current
+    current=$(python3 -c "import json,sys; d=json.load(open('$settings')); print(d.get('statusLine',{}).get('command',''))" 2>/dev/null || echo "")
+    if [[ "$current" != "$dst" && "$current" != "~/.claude/statusline.sh" ]]; then
+      python3 - "$settings" "$dst" <<'PYEOF'
+import json, sys
+path, script = sys.argv[1], sys.argv[2]
+with open(path) as f:
+    d = json.load(f)
+d['statusLine'] = {"type": "command", "command": script, "padding": 0}
+with open(path, 'w') as f:
+    json.dump(d, f, indent=2)
+    f.write('\n')
+PYEOF
+      info "Configured statusLine in $settings"
+    fi
+  else
+    warn "$settings not found — create it manually and set statusLine to $dst"
+  fi
+}
+
+setup_statusline
+
 # Check for ttyd installation
 check_ttyd() {
   if ! command -v ttyd &> /dev/null; then
