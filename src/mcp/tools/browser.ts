@@ -690,4 +690,137 @@ export const browserToolSchemas = {
       required: ['session'],
     },
   },
+  browser_save_setup: {
+    name: 'browser_save_setup',
+    description: 'Save a named browser setup (sequence of steps) to replay later.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        session: { type: 'string', description: 'Collab session name (required)' },
+        project: { type: 'string', description: 'Absolute path to project root (required)' },
+        name: { type: 'string', description: 'Name for the setup' },
+        steps: { type: 'array', description: 'Array of SetupStep objects', items: { type: 'object' } },
+        description: { type: 'string', description: 'Optional description of what this setup does' },
+        parameters: { type: 'array', description: 'Declared input parameters with optional defaults', items: { type: 'object', properties: { name: { type: 'string' }, default: { type: 'string' } } } },
+        check: { type: 'object', description: 'Smart-skip check: { url_contains?, selector? }', properties: { url_contains: { type: 'string' }, selector: { type: 'string' } } },
+      },
+      required: ['session', 'project', 'name', 'steps'],
+    },
+  },
+  browser_get_setup: {
+    name: 'browser_get_setup',
+    description: 'Get the full definition of a saved browser setup.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        session: { type: 'string', description: 'Collab session name (required)' },
+        project: { type: 'string', description: 'Absolute path to project root (required)' },
+        name: { type: 'string', description: 'Name of the setup to retrieve' },
+      },
+      required: ['session', 'project', 'name'],
+    },
+  },
+  browser_list_setups: {
+    name: 'browser_list_setups',
+    description: 'List all saved browser setups for the session.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        session: { type: 'string', description: 'Collab session name (required)' },
+        project: { type: 'string', description: 'Absolute path to project root (required)' },
+      },
+      required: ['session', 'project'],
+    },
+  },
+  browser_run_setup: {
+    name: 'browser_run_setup',
+    description: 'Replay a saved browser setup on the current session tab.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        session: { type: 'string', description: 'Collab session name (required)' },
+        project: { type: 'string', description: 'Absolute path to project root (required)' },
+        name: { type: 'string', description: 'Name of the setup to run' },
+        parameters: { type: 'object', description: 'Parameter values to substitute in steps', additionalProperties: { type: 'string' } },
+        start_step: { type: 'number', description: 'Step index to start from (default: 0)' },
+        step_timeout_ms: { type: 'number', description: 'Default timeout for wait steps in ms (default: 5000)' },
+        smart_skip: { type: 'boolean', description: 'Skip all steps if the check condition already passes' },
+      },
+      required: ['session', 'project', 'name'],
+    },
+  },
+  browser_delete_setup: {
+    name: 'browser_delete_setup',
+    description: 'Delete a saved browser setup.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        session: { type: 'string', description: 'Collab session name (required)' },
+        project: { type: 'string', description: 'Absolute path to project root (required)' },
+        name: { type: 'string', description: 'Name of the setup to delete' },
+      },
+      required: ['session', 'project', 'name'],
+    },
+  },
 };
+
+export async function browserSaveSetup(
+  session: string,
+  project: string,
+  name: string,
+  steps: import('../../services/browser-setups.js').SetupStep[],
+  description?: string,
+  parameters?: Array<{ name: string; default?: string }>,
+  check?: import('../../services/browser-setups.js').SetupCheck,
+): Promise<string> {
+  const { saveSetup, getSetup } = await import('../../services/browser-setups.js');
+  // Validate run_setup references exist
+  for (const step of steps) {
+    if (step.action === 'run_setup') {
+      try { await getSetup(project, session, step.setup); } catch {
+        throw new Error(`browser_save_setup: referenced setup "${step.setup}" does not exist`);
+      }
+    }
+  }
+  const now = new Date().toISOString();
+  let existing;
+  try { existing = await getSetup(project, session, name); } catch {}
+  await saveSetup(project, session, {
+    name, description, steps, parameters, check,
+    created: existing?.created ?? now,
+    modified: now,
+  });
+  return JSON.stringify({ success: true, name, stepCount: steps.length }, null, 2);
+}
+
+export async function browserGetSetup(session: string, project: string, name: string): Promise<string> {
+  const { getSetup } = await import('../../services/browser-setups.js');
+  const def = await getSetup(project, session, name);
+  return JSON.stringify(def, null, 2);
+}
+
+export async function browserListSetups(session: string, project: string): Promise<string> {
+  const { listSetups } = await import('../../services/browser-setups.js');
+  const setups = await listSetups(project, session);
+  return JSON.stringify(setups, null, 2);
+}
+
+export async function browserRunSetup(
+  session: string,
+  project: string,
+  name: string,
+  parameters?: Record<string, string>,
+  start_step?: number,
+  step_timeout_ms?: number,
+  smart_skip?: boolean,
+): Promise<string> {
+  const { runSetup } = await import('../../services/browser-setups.js');
+  const result = await runSetup(project, session, name, { parameters, start_step, step_timeout_ms, smart_skip });
+  return JSON.stringify(result, null, 2);
+}
+
+export async function browserDeleteSetup(session: string, project: string, name: string): Promise<string> {
+  const { deleteSetup } = await import('../../services/browser-setups.js');
+  await deleteSetup(project, session, name);
+  return JSON.stringify({ success: true, name }, null, 2);
+}

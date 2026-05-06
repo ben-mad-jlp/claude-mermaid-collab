@@ -1610,6 +1610,11 @@ IMPORTANT - Common pitfalls to avoid:
       browserToolSchemas.browser_upload_file,
       browserToolSchemas.browser_lighthouse_audit,
       browserToolSchemas.browser_performance_analyze_insight,
+      browserToolSchemas.browser_save_setup,
+      browserToolSchemas.browser_get_setup,
+      browserToolSchemas.browser_list_setups,
+      browserToolSchemas.browser_run_setup,
+      browserToolSchemas.browser_delete_setup,
       // Task management tools
       {
         name: 'update_task_status',
@@ -4443,6 +4448,37 @@ IMPORTANT - Common pitfalls to avoid:
             if (!session) throw new Error('browser_performance_analyze_insight requires session');
             const { browserPerformanceAnalyzeInsight } = await import('./tools/browser.js');
             return await browserPerformanceAnalyzeInsight(session);
+          }
+
+          case 'browser_save_setup': {
+            const { session, project, name, steps, description, parameters, check } = args as { session: string; project: string; name: string; steps: any[]; description?: string; parameters?: any[]; check?: any };
+            if (!session) throw new Error('browser_save_setup requires session');
+            const { browserSaveSetup } = await import('./tools/browser.js');
+            return await browserSaveSetup(session, project, name, steps, description, parameters, check);
+          }
+          case 'browser_get_setup': {
+            const { session, project, name } = args as { session: string; project: string; name: string };
+            if (!session) throw new Error('browser_get_setup requires session');
+            const { browserGetSetup } = await import('./tools/browser.js');
+            return await browserGetSetup(session, project, name);
+          }
+          case 'browser_list_setups': {
+            const { session, project } = args as { session: string; project: string };
+            if (!session) throw new Error('browser_list_setups requires session');
+            const { browserListSetups } = await import('./tools/browser.js');
+            return await browserListSetups(session, project);
+          }
+          case 'browser_run_setup': {
+            const { session, project, name, parameters, start_step, step_timeout_ms, smart_skip } = args as { session: string; project: string; name: string; parameters?: Record<string,string>; start_step?: number; step_timeout_ms?: number; smart_skip?: boolean };
+            if (!session) throw new Error('browser_run_setup requires session');
+            const { browserRunSetup } = await import('./tools/browser.js');
+            return await browserRunSetup(session, project, name, parameters, start_step, step_timeout_ms, smart_skip);
+          }
+          case 'browser_delete_setup': {
+            const { session, project, name } = args as { session: string; project: string; name: string };
+            if (!session) throw new Error('browser_delete_setup requires session');
+            const { browserDeleteSetup } = await import('./tools/browser.js');
+            return await browserDeleteSetup(session, project, name);
           }
 
           default:
