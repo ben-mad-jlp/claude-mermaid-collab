@@ -75,13 +75,21 @@ export function setupsDir(project: string, session: string): string {
   return join(project, '.collab', 'sessions', session, 'setups');
 }
 
+function validateSetupName(name: string): void {
+  if (!name || /[/\\]/.test(name) || name === '..' || name.includes('..')) {
+    throw new Error(`Invalid setup name: "${name}" — must not contain path separators`);
+  }
+}
+
 export async function saveSetup(project: string, session: string, def: SetupDef): Promise<void> {
+  validateSetupName(def.name);
   const dir = setupsDir(project, session);
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, `${def.name}.json`), JSON.stringify(def, null, 2), 'utf-8');
 }
 
 export async function getSetup(project: string, session: string, name: string): Promise<SetupDef> {
+  validateSetupName(name);
   try {
     const raw = await readFile(join(setupsDir(project, session), `${name}.json`), 'utf-8');
     return JSON.parse(raw) as SetupDef;
@@ -94,26 +102,33 @@ export async function listSetups(
   project: string,
   session: string,
 ): Promise<Array<{ name: string; description?: string; stepCount: number; modified: string }>> {
+  const dir = setupsDir(project, session);
+  let files: string[];
   try {
-    const dir = setupsDir(project, session);
-    const files = await readdir(dir);
-    const results = await Promise.all(
-      files.filter(f => f.endsWith('.json')).map(async f => {
-        const def = await getSetup(project, session, f.replace(/\.json$/, ''));
-        return { name: def.name, description: def.description, stepCount: def.steps.length, modified: def.modified };
-      }),
-    );
-    return results.sort((a, b) => b.modified.localeCompare(a.modified));
-  } catch {
-    return [];
+    files = await readdir(dir);
+  } catch (err: any) {
+    if (err?.code === 'ENOENT') return [];
+    throw err;
   }
+  const results: Array<{ name: string; description?: string; stepCount: number; modified: string }> = [];
+  for (const f of files.filter(f => f.endsWith('.json'))) {
+    try {
+      const def = await getSetup(project, session, f.replace(/\.json$/, ''));
+      results.push({ name: def.name, description: def.description, stepCount: def.steps.length, modified: def.modified });
+    } catch {
+      // skip corrupt/unreadable setup files
+    }
+  }
+  return results.sort((a, b) => b.modified.localeCompare(a.modified));
 }
 
 export async function deleteSetup(project: string, session: string, name: string): Promise<void> {
+  validateSetupName(name);
   try {
     await unlink(join(setupsDir(project, session), `${name}.json`));
-  } catch {
-    throw new Error(`Setup "${name}" not found`);
+  } catch (err: any) {
+    if (err?.code === 'ENOENT') throw new Error(`Setup "${name}" not found`);
+    throw err;
   }
 }
 
