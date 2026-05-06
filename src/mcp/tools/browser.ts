@@ -105,7 +105,11 @@ export async function browserClick(selector: string, session: string, text?: str
     const cy = (box.model.content[1] + box.model.content[5]) / 2;
     await client.Input.dispatchMouseEvent({ type: 'mousePressed', x: cx, y: cy, button: 'left', clickCount: 1 });
     await client.Input.dispatchMouseEvent({ type: 'mouseReleased', x: cx, y: cy, button: 'left', clickCount: 1 });
-    await new Promise(r => setTimeout(r, 500));
+    await client.Page.enable();
+    await Promise.race([
+      client.Page.loadEventFired(),
+      new Promise(r => setTimeout(r, 2000)),
+    ]);
     const urlResult = await client.Runtime.evaluate({ expression: 'window.location.href', returnByValue: true });
     const titleResult = await client.Runtime.evaluate({ expression: 'document.title', returnByValue: true });
     return JSON.stringify({ success: true, url: urlResult.result?.value, title: titleResult.result?.value }, null, 2);
