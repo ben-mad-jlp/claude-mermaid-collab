@@ -82,28 +82,28 @@ export async function browserClick(selector: string, session: string, text?: str
   return withCDPSession(session, CDP_PORT, async (client) => {
     await client.DOM.enable();
     await client.Runtime.enable();
-    const docResult = await client.DOM.getDocument();
 
-    let nodeId: number;
+    let x: number, y: number;
     if (text) {
-      // Find the element matching selector whose trimmed text content matches
+      // Get coordinates directly from JS to avoid objectId→nodeId conversion issues
       const expr = `(function() {
         const els = Array.from(document.querySelectorAll(${JSON.stringify(selector)}));
-        return els.find(el => el.textContent.trim() === ${JSON.stringify(text)}) || null;
+        const el = els.find(el => el.textContent.trim() === ${JSON.stringify(text)});
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
       })()`;
-      const evalResult = await client.Runtime.evaluate({ expression: expr, returnByValue: false });
-      if (!evalResult.result?.objectId) throw new Error(`Element not found: ${selector} with text "${text}"`);
-      const { node } = await client.DOM.describeNode({ objectId: evalResult.result.objectId });
-      nodeId = node.nodeId ?? 0;
-      if (!nodeId) throw new Error(`Element not found: ${selector} with text "${text}"`);
+      const evalResult = await client.Runtime.evaluate({ expression: expr, returnByValue: true });
+      const coords = evalResult.result?.value;
+      if (!coords) throw new Error(`Element not found: ${selector} with text "${text}"`);
+      x = coords.x; y = coords.y;
     } else {
+      const docResult = await client.DOM.getDocument();
       const nodeResult = await client.DOM.querySelector({ nodeId: docResult.root.nodeId, selector });
       if (!nodeResult.nodeId) throw new Error(`Element not found: ${selector}`);
-      nodeId = nodeResult.nodeId;
+      const boxResult = await client.DOM.getBoxModel({ nodeId: nodeResult.nodeId });
+      [x, y] = [boxResult.model.content[0], boxResult.model.content[1]];
     }
-
-    const boxResult = await client.DOM.getBoxModel({ nodeId });
-    const [x, y] = [boxResult.model.content[0], boxResult.model.content[1]];
     await client.Input.dispatchMouseEvent({ type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
     await client.Input.dispatchMouseEvent({ type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
     const urlResult = await client.Runtime.evaluate({ expression: 'window.location.href', returnByValue: true });
