@@ -1,4 +1,4 @@
-import { createOrReplaceTab, focusTab, listActiveSessions, CDP_PORT } from '../services/cdp-session.js';
+import { ensureTab, focusTab, listActiveSessions, CDP_PORT } from '../services/cdp-session.js';
 import type { WebSocketHandler } from '../websocket/handler.js';
 
 function jsonError(message: string, status: number): Response {
@@ -17,7 +17,7 @@ export async function handleBrowserRoutes(req: Request, url: URL, wsHandler: Web
     try { body = await req.json() as typeof body; } catch { return jsonError('Invalid JSON', 400); }
     if (!body.session) return jsonError('session is required', 400);
     try {
-      await createOrReplaceTab(body.session, body.port ?? CDP_PORT);
+      await ensureTab(body.session, body.port ?? CDP_PORT);
       wsHandler.broadcastBrowserTabUpdate(body.session, true);
       return Response.json({ success: true, session: body.session });
     } catch (err) {

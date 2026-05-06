@@ -170,9 +170,44 @@ export async function createOrReplaceTab(sessionName: string, port: number): Pro
   }
 }
 
-export async function ensureTab(sessionName: string, port: number): Promise<void> {
-  if (!tabRegistry.has(sessionName)) {
-    await createOrReplaceTab(sessionName, port);
+/**
+ * Ensure a tab exists for the session:
+ * - No entry → create a new tab
+ * - Entry exists and Chrome still has the target → focus it, return existing id
+ * - Entry exists but Chrome no longer has the target → throw so the caller can decide to replace
+ */
+export async function ensureTab(sessionName: string, port: number): Promise<string> {
+  try {
+    const existingId = tabRegistry.get(sessionName);
+    if (!existingId) {
+      return await createOrReplaceTab(sessionName, port);
+    }
+
+    // Verify the tab still exists in Chrome
+    let tabs: any[];
+    try {
+      tabs = await CDP.List({ host: '127.0.0.1', port });
+    } catch (err: any) {
+      if (err?.code === 'ECONNREFUSED') {
+        throw new Error(`Chrome not reachable on port ${port} — toggle CDP button in VSCodium`);
+      }
+      throw err;
+    }
+
+    const stillExists = tabs.some((t: any) => t.id === existingId);
+    if (!stillExists) {
+      tabRegistry.delete(sessionName);
+      persistTabRegistry();
+      throw new Error(`Browser tab for session "${sessionName}" no longer exists — create a new one`);
+    }
+
+    await CDP.Activate({ id: existingId, host: '127.0.0.1', port });
+    return existingId;
+  } catch (err: any) {
+    if (err?.code === 'ECONNREFUSED') {
+      throw new Error(`Chrome not reachable on port ${port} — toggle CDP button in VSCodium`);
+    }
+    throw err;
   }
 }
 

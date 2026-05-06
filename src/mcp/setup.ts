@@ -21,7 +21,6 @@ import { userInputBridge } from '../agent/user-input-bridge.js';
 import { getAgentRegistry } from '../agent/agent-registry-manager.js';
 import { updateUI, updateUISchema } from './tools/update-ui.js';
 import { renderUISchema } from './tools/render-ui.js';
-import { terminalToolSchemas } from './tools/terminal-sessions.js';
 import { browserToolSchemas } from './tools/browser.js';
 import {
   getSessionState,
@@ -1585,11 +1584,6 @@ IMPORTANT - Common pitfalls to avoid:
           required: ['prompt'],
         },
       },
-      terminalToolSchemas.terminal_create_session,
-      terminalToolSchemas.terminal_list_sessions,
-      terminalToolSchemas.terminal_kill_session,
-      terminalToolSchemas.terminal_rename_session,
-      terminalToolSchemas.terminal_reorder_sessions,
       // Browser tools (CDP via VS Code debug session)
       browserToolSchemas.browser_open,
       browserToolSchemas.browser_navigate,
@@ -3412,46 +3406,6 @@ IMPORTANT - Common pitfalls to avoid:
               deleteSession: delete_session,
               timestamp,
             });
-            return JSON.stringify(result, null, 2);
-          }
-
-          case 'terminal_create_session': {
-            const { terminalCreateSession } = await import('./tools/terminal-sessions.js');
-            const { project, session, name } = args as { project: string; session: string; name?: string };
-            if (!project || !session) throw new Error('Missing required: project, session');
-            const result = await terminalCreateSession(project, session, name);
-            return JSON.stringify(result, null, 2);
-          }
-
-          case 'terminal_list_sessions': {
-            const { terminalListSessions } = await import('./tools/terminal-sessions.js');
-            const { project, session } = args as { project: string; session: string };
-            if (!project || !session) throw new Error('Missing required: project, session');
-            const result = await terminalListSessions(project, session);
-            return JSON.stringify(result, null, 2);
-          }
-
-          case 'terminal_kill_session': {
-            const { terminalKillSession } = await import('./tools/terminal-sessions.js');
-            const { project, session, id } = args as { project: string; session: string; id: string };
-            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
-            const result = await terminalKillSession(project, session, id);
-            return JSON.stringify(result, null, 2);
-          }
-
-          case 'terminal_rename_session': {
-            const { terminalRenameSession } = await import('./tools/terminal-sessions.js');
-            const { project, session, id, name } = args as { project: string; session: string; id: string; name: string };
-            if (!project || !session || !id || !name) throw new Error('Missing required: project, session, id, name');
-            const result = await terminalRenameSession(project, session, id, name);
-            return JSON.stringify(result, null, 2);
-          }
-
-          case 'terminal_reorder_sessions': {
-            const { terminalReorderSessions } = await import('./tools/terminal-sessions.js');
-            const { project, session, orderedIds } = args as { project: string; session: string; orderedIds: string[] };
-            if (!project || !session || !orderedIds) throw new Error('Missing required: project, session, orderedIds');
-            const result = await terminalReorderSessions(project, session, orderedIds);
             return JSON.stringify(result, null, 2);
           }
 
