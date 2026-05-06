@@ -80,32 +80,27 @@ export async function browserNetwork(session: string): Promise<string> {
 
 export async function browserClick(selector: string, session: string, text?: string): Promise<string> {
   return withCDPSession(session, CDP_PORT, async (client) => {
-    await client.DOM.enable();
     await client.Runtime.enable();
 
-    let nodeId: number;
-    if (text) {
-      const expr = `(function() {
-        const els = Array.from(document.querySelectorAll(${JSON.stringify(selector)}));
-        return els.find(el => el.textContent.trim() === ${JSON.stringify(text)}) || null;
-      })()`;
-      const evalResult = await client.Runtime.evaluate({ expression: expr, returnByValue: false });
-      if (!evalResult.result?.objectId) throw new Error(`Element not found: ${selector} with text "${text}"`);
-      const { nodeId: resolvedId } = await client.DOM.requestNode({ objectId: evalResult.result.objectId });
-      nodeId = resolvedId;
-    } else {
-      const docResult = await client.DOM.getDocument();
-      const nodeResult = await client.DOM.querySelector({ nodeId: docResult.root.nodeId, selector });
-      if (!nodeResult.nodeId) throw new Error(`Element not found: ${selector}`);
-      nodeId = nodeResult.nodeId;
+    const expr = text
+      ? `(function() {
+          const el = Array.from(document.querySelectorAll(${JSON.stringify(selector)})).find(el => el.textContent.trim() === ${JSON.stringify(text)});
+          if (!el) return 'not-found';
+          el.click();
+          return 'clicked';
+        })()`
+      : `(function() {
+          const el = document.querySelector(${JSON.stringify(selector)});
+          if (!el) return 'not-found';
+          el.click();
+          return 'clicked';
+        })()`;
+
+    const result = await client.Runtime.evaluate({ expression: expr, returnByValue: true });
+    if (result.result?.value === 'not-found') {
+      throw new Error(text ? `Element not found: ${selector} with text "${text}"` : `Element not found: ${selector}`);
     }
 
-    const box = await client.DOM.getBoxModel({ nodeId });
-    const cx = (box.model.content[0] + box.model.content[4]) / 2;
-    const cy = (box.model.content[1] + box.model.content[5]) / 2;
-
-    await client.Input.dispatchMouseEvent({ type: 'mousePressed', x: cx, y: cy, button: 'left', clickCount: 1 });
-    await client.Input.dispatchMouseEvent({ type: 'mouseReleased', x: cx, y: cy, button: 'left', clickCount: 1 });
     await new Promise(r => setTimeout(r, 1500));
 
     const urlResult = await client.Runtime.evaluate({ expression: 'window.location.href', returnByValue: true });
