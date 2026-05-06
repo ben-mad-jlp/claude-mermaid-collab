@@ -177,7 +177,7 @@ const SubscriptionRow: React.FC<{
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ session: sub.session }),
           }).catch(() => {});
-          fetch('/api/browser/create-tab', {
+          fetch('/api/browser/focus-tab', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ session: sub.session }),
