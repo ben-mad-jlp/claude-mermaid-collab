@@ -95,7 +95,7 @@ export function useDataLoader(): UseDataLoaderReturn {
 
     try {
       const sessions = await api.getSessions();
-      setSessions(sessions);
+      setSessions([...sessions].sort((a, b) => a.name.localeCompare(b.name)));
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load sessions';
       setError(message);

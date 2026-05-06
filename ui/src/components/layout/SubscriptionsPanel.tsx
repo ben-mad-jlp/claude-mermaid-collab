@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Globe } from 'lucide-react';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { getWebSocketClient } from '@/lib/websocket';
@@ -135,40 +134,6 @@ function useTmuxSessions(): Set<string> {
   return sessions;
 }
 
-function useBrowserSessions(): Set<string> {
-  const [sessions, setSessions] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    // Poll every 15 seconds
-    const poll = () => {
-      fetch('/api/browser/sessions')
-        .then(r => r.json())
-        .then((data: { sessions: string[] }) => setSessions(new Set(data.sessions)))
-        .catch(() => {});
-    };
-    poll();
-    const interval = setInterval(poll, 15000);
-
-    // Subscribe to WS updates
-    const sub = getWebSocketClient().onMessage((msg: any) => {
-      if (msg.type === 'browser_tab_update') {
-        setSessions(prev => {
-          const next = new Set(prev);
-          if (msg.active) next.add(msg.session);
-          else next.delete(msg.session);
-          return next;
-        });
-      }
-    });
-
-    return () => {
-      clearInterval(interval);
-      sub.unsubscribe();
-    };
-  }, []);
-
-  return sessions;
-}
 
 const SubscriptionRow: React.FC<{
   subKey: string;
@@ -180,8 +145,7 @@ const SubscriptionRow: React.FC<{
   onDragEnd: () => void;
   isDragOver: boolean;
   tmuxActive: boolean;
-  browserActive: boolean;
-}> = ({ subKey, sub, onNavigate, onUnsubscribe, onDragStart, onDragOver, onDragEnd, isDragOver, tmuxActive, browserActive }) => {
+}> = ({ subKey, sub, onNavigate, onUnsubscribe, onDragStart, onDragOver, onDragEnd, isDragOver, tmuxActive }) => {
   const elapsed = useElapsed(sub.lastUpdate, sub.status);
 
   const statusBg =
@@ -213,13 +177,11 @@ const SubscriptionRow: React.FC<{
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ session: sub.session }),
           }).catch(() => {});
-          if (browserActive) {
-            fetch('/api/browser/focus-tab', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ session: sub.session }),
-            }).catch(() => {});
-          }
+          fetch('/api/browser/create-tab', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session: sub.session }),
+          }).catch(() => {});
         }}
       >
         {/* Unsubscribe button — top-left, appears on hover */}
@@ -288,20 +250,6 @@ const SubscriptionRow: React.FC<{
             <path fillRule="evenodd" d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm3.293 1.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L7.586 10 5.293 7.707a1 1 0 010-1.414zM11 12a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
           </svg>
         </button>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            fetch('/api/browser/create-tab', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ session: sub.session }),
-            }).catch(() => {});
-          }}
-          className={`flex items-center justify-center w-7 h-7 rounded-full transition-all hover:opacity-80 active:scale-90 active:brightness-75 ${browserActive ? 'bg-green-300 text-green-900' : 'bg-red-300 text-red-900'}`}
-          title={browserActive ? `Chrome tab: ${sub.session}` : 'Open Chrome tab'}
-        >
-          <Globe className="w-5 h-5" />
-        </button>
       </div>
       {/* Claude pixel avatar — outside the colored card, right side */}
       <ClaudePixAvatar status={sub.status} />
@@ -319,7 +267,6 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
   const { subscriptions, order, unsubscribe, subscribe, reorder } = useSubscriptionStore();
   const { sessions, setCurrentSession } = useSessionStore();
   const tmuxSessions = useTmuxSessions();
-  const browserSessions = useBrowserSessions();
   const [collapsed, setCollapsed] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
@@ -507,7 +454,6 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
               onDragEnd={handleDragEnd}
               isDragOver={dragOverKey === key}
               tmuxActive={tmuxSessions.has(sub.session)}
-              browserActive={browserSessions.has(sub.session)}
             />
           ))}
         </div>
