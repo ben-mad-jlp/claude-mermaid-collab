@@ -52,6 +52,7 @@ You can freely:
 - Create diagrams (Mermaid flowcharts, sequence diagrams, etc.)
 - Create documents (markdown design docs, notes)
 - Create designs (UI mockups with rough hand-drawn styling)
+- Control a real Chrome browser (screenshot, click, fill, navigate)
 
 The collab UI is available at http://localhost:3737
 
@@ -72,8 +73,106 @@ In vibe mode, respond to user requests to:
 2. **Create documents** - Use `mcp__plugin_mermaid-collab_mermaid__create_document`
 3. **Create designs** - Use `mcp__plugin_mermaid-collab_mermaid__create_design`
 4. **View/edit existing** - Use get/update variants of above
-5. **Checkpoint before /clear** - When user invokes /vibe-checkpoint: invoke skill `vibe-checkpoint`
-6. **Cleanup** - When user says "done" or invokes /collab-cleanup: invoke skill `collab-cleanup`
+5. **Browser automation** - See Browser section below
+6. **Checkpoint before /clear** - When user invokes /vibe-checkpoint: invoke skill `vibe-checkpoint`
+7. **Cleanup** - When user says "done" or invokes /collab-cleanup: invoke skill `collab-cleanup`
+
+## Browser Automation
+
+Browser tools let Claude control a real Chrome browser running on the user's machine via CDP. Chrome is tunneled over SSH — Claude connects on Linux port 9333 which forwards to Windows Chrome. The CDP toggle button in the VSCodium status bar must be active (amber) for browser tools to work.
+
+**Every browser tool requires a `session` parameter** — the collab session name. Each session gets its own registered tab in Chrome.
+
+### Tab lifecycle
+
+Always call `browser_open` first to create or navigate the session tab. All other tools reuse that tab.
+
+```
+browser_open(url, session)          → creates/reuses tab, navigates to URL
+browser_navigate(url, session)      → navigate existing tab (errors if no tab open)
+browser_screenshot(session, project)→ capture PNG, save to session images folder
+browser_get_url(session)            → current URL and title
+```
+
+If `browser_open` returns "tab is gone", call it again — the registry cleared and it will create a fresh tab.
+
+### Interaction tools
+
+```
+browser_click(selector, session, text?)   → click element; use text to disambiguate (e.g. selector:"button" text:"Login")
+browser_fill(selector, value, session)    → set input value + dispatch input/change events
+browser_fill_react(selector, value, session) → fill React-controlled inputs (use when browser_fill value resets)
+browser_type_text(text, session)          → type character-by-character (good for autocomplete fields)
+browser_select(selector, value, session)  → set <select> value
+browser_press_key(key, session)           → dispatch a key event
+browser_hover(selector, session)          → hover an element
+browser_drag(sourceSelector, targetSelector, session) → drag and drop
+browser_wait_for(selector, session, timeout?) → poll until selector exists in DOM
+browser_evaluate(expression, session)    → run arbitrary JS and return the result
+browser_console(session)                 → capture console events during this connection window
+browser_network(session)                 → capture network requests during this connection window
+```
+
+### Browser Setups — save and replay navigation sequences
+
+Browser setups let you save a named sequence of steps once and replay it on demand, instead of re-navigating to the same UI state every session.
+
+```
+browser_save_setup(session, project, name, steps, description?, parameters?, check?)
+  → saves a named sequence of steps to .collab/sessions/<session>/setups/<name>.json
+
+browser_run_setup(session, project, name, parameters?, start_step?, step_timeout_ms?, smart_skip?)
+  → replays the setup on the current session tab
+
+browser_list_setups(session, project)
+  → lists all saved setups with name, description, step count, last modified
+
+browser_get_setup(session, project, name)
+  → returns the full setup definition including all steps
+
+browser_delete_setup(session, project, name)
+  → deletes a saved setup
+```
+
+**When to use setups:** Any time you navigate to the same UI state more than once (login flows, reaching a specific screen, selecting a user). Save it once, replay it with one tool call.
+
+**Step actions:** `navigate`, `click` (with optional `text`), `fill`, `fill_react`, `type`, `select`, `press_key`, `wait`, `wait_for`, `wait_for_text`, `screenshot`, `eval`, `run_setup` (compose setups).
+
+**Parameterization:** Use `{{variableName}}` in any step field and pass `parameters: { variableName: "value" }` to `browser_run_setup`.
+
+**Smart skip:** If the setup has a `check` field (`{ url_contains, selector }`), pass `smart_skip: true` to skip all steps when the browser is already in the expected state.
+
+**Example:**
+
+```json
+browser_save_setup(
+  name: "app-login",
+  description: "Log in as a given user",
+  parameters: [{ name: "user", default: "BEN MADERAZO" }],
+  check: { url_contains: "/dashboard" },
+  steps: [
+    { action: "navigate", url: "http://192.168.100.33:8081" },
+    { action: "click", selector: ".user-option", text: "{{user}}" },
+    { action: "fill_react", selector: "input[placeholder='Enter password']", value: "password" },
+    { action: "click", selector: "button", text: "Login" },
+    { action: "wait_for", selector: ".dashboard" }
+  ]
+)
+
+browser_run_setup(name: "app-login", smart_skip: true)
+```
+
+### Screenshot workflow
+
+After any interaction, take a screenshot to verify the result before proceeding:
+
+```
+browser_click(...)
+browser_screenshot(session, project)
+Read(screenshotPath)   ← view the result
+```
+
+Always read the screenshot immediately after saving — it gives you visual confirmation of the page state without asking the user to describe it.
 
 ## Agent Dispatch
 
@@ -255,7 +354,8 @@ All session artifacts are stored on disk under `.collab/sessions/<session-name>/
   snippets/
   spreadsheets/
   embeds/
-  images/
+  images/     ← screenshots saved here
+  setups/     ← browser setup JSON files saved here
 ```
 
 When a user references a screenshot or other file by name, look in the appropriate folder here before searching elsewhere. Images uploaded via the collab UI are in `images/`; documents, snippets, etc. are in their respective folders.
