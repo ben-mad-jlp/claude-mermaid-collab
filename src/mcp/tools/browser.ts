@@ -78,14 +78,31 @@ export async function browserNetwork(session: string): Promise<string> {
 }
 
 
-export async function browserClick(selector: string, session: string): Promise<string> {
+export async function browserClick(selector: string, session: string, text?: string): Promise<string> {
   return withCDPSession(session, CDP_PORT, async (client) => {
     await client.DOM.enable();
     await client.Runtime.enable();
     const docResult = await client.DOM.getDocument();
-    const nodeResult = await client.DOM.querySelector({ nodeId: docResult.root.nodeId, selector });
-    if (!nodeResult.nodeId) throw new Error(`Element not found: ${selector}`);
-    const boxResult = await client.DOM.getBoxModel({ nodeId: nodeResult.nodeId });
+
+    let nodeId: number;
+    if (text) {
+      // Find the element matching selector whose trimmed text content matches
+      const expr = `(function() {
+        const els = Array.from(document.querySelectorAll(${JSON.stringify(selector)}));
+        return els.find(el => el.textContent.trim() === ${JSON.stringify(text)}) || null;
+      })()`;
+      const evalResult = await client.Runtime.evaluate({ expression: expr, returnByValue: false });
+      if (!evalResult.result?.objectId) throw new Error(`Element not found: ${selector} with text "${text}"`);
+      const { node } = await client.DOM.describeNode({ objectId: evalResult.result.objectId });
+      nodeId = node.nodeId ?? 0;
+      if (!nodeId) throw new Error(`Element not found: ${selector} with text "${text}"`);
+    } else {
+      const nodeResult = await client.DOM.querySelector({ nodeId: docResult.root.nodeId, selector });
+      if (!nodeResult.nodeId) throw new Error(`Element not found: ${selector}`);
+      nodeId = nodeResult.nodeId;
+    }
+
+    const boxResult = await client.DOM.getBoxModel({ nodeId });
     const [x, y] = [boxResult.model.content[0], boxResult.model.content[1]];
     await client.Input.dispatchMouseEvent({ type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
     await client.Input.dispatchMouseEvent({ type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
@@ -441,11 +458,12 @@ export const browserToolSchemas = {
   },
   browser_click: {
     name: 'browser_click',
-    description: 'Click an element in the browser identified by a CSS selector.',
+    description: 'Click an element in the browser identified by a CSS selector. Optionally filter by text content to avoid clicking the wrong element when multiple match the selector.',
     inputSchema: {
       type: 'object',
       properties: {
         selector: { type: 'string', description: 'CSS selector of the element to click' },
+        text: { type: 'string', description: 'Optional: only click the element whose trimmed text content matches this value' },
         session: { type: 'string', description: 'Collab session name (required)' },
       },
       required: ['selector', 'session'],

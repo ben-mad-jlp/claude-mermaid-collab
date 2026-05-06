@@ -4313,10 +4313,10 @@ IMPORTANT - Common pitfalls to avoid:
           }
 
           case 'browser_click': {
-            const { selector, session } = args as { selector: string; session: string };
+            const { selector, session, text } = args as { selector: string; session: string; text?: string };
             if (!session) throw new Error('browser_click requires session');
             const { browserClick } = await import('./tools/browser.js');
-            return await browserClick(selector, session);
+            return await browserClick(selector, session, text);
           }
 
           case 'browser_fill': {
