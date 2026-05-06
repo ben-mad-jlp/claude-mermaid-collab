@@ -83,27 +83,27 @@ export async function browserClick(selector: string, session: string, text?: str
     await client.DOM.enable();
     await client.Runtime.enable();
 
-    let x: number, y: number;
     if (text) {
-      // Get coordinates directly from JS to avoid objectId→nodeId conversion issues
       const expr = `(function() {
         const els = Array.from(document.querySelectorAll(${JSON.stringify(selector)}));
         const el = els.find(el => el.textContent.trim() === ${JSON.stringify(text)});
-        if (!el) return null;
-        const r = el.getBoundingClientRect();
-        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        if (!el) return false;
+        el.click();
+        return true;
       })()`;
       const evalResult = await client.Runtime.evaluate({ expression: expr, returnByValue: true });
-      const coords = evalResult.result?.value;
-      if (!coords) throw new Error(`Element not found: ${selector} with text "${text}"`);
-      x = coords.x; y = coords.y;
-    } else {
-      const docResult = await client.DOM.getDocument();
-      const nodeResult = await client.DOM.querySelector({ nodeId: docResult.root.nodeId, selector });
-      if (!nodeResult.nodeId) throw new Error(`Element not found: ${selector}`);
-      const boxResult = await client.DOM.getBoxModel({ nodeId: nodeResult.nodeId });
-      [x, y] = [boxResult.model.content[0], boxResult.model.content[1]];
+      if (!evalResult.result?.value) throw new Error(`Element not found: ${selector} with text "${text}"`);
+      await new Promise(r => setTimeout(r, 500));
+      const urlResult = await client.Runtime.evaluate({ expression: 'window.location.href', returnByValue: true });
+      const titleResult = await client.Runtime.evaluate({ expression: 'document.title', returnByValue: true });
+      return JSON.stringify({ success: true, url: urlResult.result?.value, title: titleResult.result?.value }, null, 2);
     }
+
+    const docResult = await client.DOM.getDocument();
+    const nodeResult = await client.DOM.querySelector({ nodeId: docResult.root.nodeId, selector });
+    if (!nodeResult.nodeId) throw new Error(`Element not found: ${selector}`);
+    const boxResult = await client.DOM.getBoxModel({ nodeId: nodeResult.nodeId });
+    const [x, y] = [boxResult.model.content[0], boxResult.model.content[1]];
     await client.Input.dispatchMouseEvent({ type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
     await client.Input.dispatchMouseEvent({ type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
     const urlResult = await client.Runtime.evaluate({ expression: 'window.location.href', returnByValue: true });
