@@ -92,7 +92,12 @@ export async function withCDPSession<T>(
     }
     const msg = err?.message ?? String(err);
     if (msg.includes('webSocketDebuggerUrl') || msg.includes('find(') || msg.includes('Cannot read')) {
-      tabRegistry.delete(sessionName);
+      // Only wipe the registry if Chrome confirms the tab is actually gone
+      try {
+        const tabs = await CDP.List({ host: '127.0.0.1', port });
+        const stillExists = tabs.some((t: any) => t.id === tabRegistry.get(sessionName));
+        if (!stillExists) tabRegistry.delete(sessionName);
+      } catch {}
       throw new Error(`Browser tab for session "${sessionName}" is gone — call browser_open to open a new one`);
     }
     throw err;
