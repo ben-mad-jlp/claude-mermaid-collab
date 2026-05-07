@@ -272,7 +272,7 @@ export async function runSetup(
 
       return {
         success: false,
-        stepsRun: i,
+        stepsRun: i + 1,
         durationMs: Date.now() - globalStart,
         stepResults,
         error: errorMsg,

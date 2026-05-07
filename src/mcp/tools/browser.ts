@@ -318,9 +318,10 @@ export async function browserTakeMemorySnapshot(session: string): Promise<string
         .then(() => resolve())
         .catch(reject);
     });
-    const parsed = JSON.parse(chunks);
-    const nodeCount = parsed.snapshot?.meta?.node_count ?? (chunks.length / 100); // rough estimate
-    return JSON.stringify({ nodeCount, size: chunks.length }, null, 2);
+    if (!chunks) return JSON.stringify({ nodeCount: 0, sizeBytes: 0 }, null, 2);
+    const match = chunks.match(/"node_count"\s*:\s*(\d+)/);
+    const nodeCount = match ? parseInt(match[1], 10) : 0;
+    return JSON.stringify({ nodeCount, sizeBytes: chunks.length }, null, 2);
   });
 }
 
