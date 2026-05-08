@@ -48,7 +48,7 @@ git diff --stat $BASE_SHA..$HEAD_SHA
 ```
 Tool: mcp__plugin_mermaid-collab_mermaid__list_documents
 ```
-Find all `Implementing/Wave *` documents and read them.
+Find all `Implementing/Go/Wave *` documents and read them.
 
 **Announce:**
 ```
@@ -102,11 +102,11 @@ Tool: mcp__plugin_mermaid-collab_mermaid__create_document
 Args: {
   "project": "{project}",
   "session": "{session}",
-  "name": "Implementing/Review/bugs",
+  "name": "Implementing/Go/Review/bugs",
   "content": "# Bug Review\n\n[findings]"
 }
 
-Return: "Bug review complete. [N bugs found / No bugs found]. Saved to Implementing/Review/bugs."
+Return: "Bug review complete. [N bugs found / No bugs found]. Saved to Implementing/Go/Review/bugs."
 ```
 
 ---
@@ -151,11 +151,11 @@ Tool: mcp__plugin_mermaid-collab_mermaid__create_document
 Args: {
   "project": "{project}",
   "session": "{session}",
-  "name": "Implementing/Review/completeness",
+  "name": "Implementing/Go/Review/completeness",
   "content": "# Completeness Review\n\n[findings]"
 }
 
-Return: "Completeness review done. [N gaps found / Everything complete]. Saved to Implementing/Review/completeness."
+Return: "Completeness review done. [N gaps found / Everything complete]. Saved to Implementing/Go/Review/completeness."
 ```
 
 ---
@@ -174,8 +174,8 @@ After both agents return, summarize:
 [Summary from completeness agent — gaps found, or "all complete"]
 
 ### Documents
-- Implementing/Review/bugs — open in collab UI for full findings
-- Implementing/Review/completeness — open in collab UI for full findings
+- Implementing/Go/Review/bugs — open in collab UI for full findings
+- Implementing/Go/Review/completeness — open in collab UI for full findings
 ```
 
 ## Step 4 — Fix Wave
@@ -230,7 +230,7 @@ After reading all files:
 
 2. For each behavioral file, post a before/after diagram to the collab tree:
    Tool: mcp__mermaid__create_diagram
-   Args: { \"project\": \"{project}\", \"session\": \"{session}\", \"name\": \"Implementing/Fix-Wave/{issue-slug}/{filename}\", \"content\": \"<mermaid flowchart diagram with before and after subgraphs. Style the before subgraph with fill:#ffdddd,stroke:#ffaaaa (pale red) and the after subgraph with fill:#ddffdd,stroke:#aaffaa (pale green). Example structure: flowchart TD\\n  subgraph before[\\\"Before\\\"]\\n    ...nodes...\\n  end\\n  subgraph after[\\\"After\\\"]\\n    ...nodes...\\n  end\\n  style before fill:#ffdddd,stroke:#ffaaaa\\n  style after fill:#ddffdd,stroke:#aaffaa>\" }
+   Args: { \"project\": \"{project}\", \"session\": \"{session}\", \"name\": \"Implementing/Go/Fix-Wave/{issue-slug}/{filename}\", \"content\": \"<mermaid flowchart diagram with before and after subgraphs. Style the before subgraph with fill:#ffdddd,stroke:#ffaaaa (pale red) and the after subgraph with fill:#ddffdd,stroke:#aaffaa (pale green). Example structure: flowchart TD\\n  subgraph before[\\\"Before\\\"]\\n    ...nodes...\\n  end\\n  subgraph after[\\\"After\\\"]\\n    ...nodes...\\n  end\\n  style before fill:#ffdddd,stroke:#ffaaaa\\n  style after fill:#ddffdd,stroke:#aaffaa>\" }
 
 Return in this EXACT format (include the ISSUE_ID on every line):
 
@@ -240,7 +240,7 @@ TASKS:
 - FILE: {absolute path} | CHANGES: {exactly what to edit — be specific: function name, what to add/remove/modify, the logic} | CLASS: behavioral|structural|trivial
 - FILE: {absolute path} | CHANGES: { ... } | CLASS: behavioral|structural|trivial
 DIAGRAMS:
-- {filename}: Implementing/Fix-Wave/{issue-slug}/{filename} (or \"none\" if structural/trivial)
+- {filename}: Implementing/Go/Fix-Wave/{issue-slug}/{filename} (or \"none\" if structural/trivial)
   "
 )
 ```
@@ -446,7 +446,7 @@ Tool: mcp__plugin_mermaid-collab_mermaid__create_document
 Args: {
   "project": "<cwd>",
   "session": "<session>",
-  "name": "Implementing/Fix-Wave/summary",
+  "name": "Implementing/Go/Fix-Wave/summary",
   "content": "# Fix Wave Summary\n\n## Issues Fixed\n{issue slugs and what was done}\n\n## Files Changed\n{per-file implement + verify results}\n\n## Final TSC\n{clean | errors}"
 }
 ```
