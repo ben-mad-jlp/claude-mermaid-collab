@@ -42,8 +42,7 @@ LOCK_FILE="/tmp/.mermaid-collab-notify-${SESSION_ID}.lock"
 
 echo "$NOTIFY_STATUS" > "$STATUS_FILE"
 
-(
-  flock -n 9 || exit 0
+_do_notify() {
   sleep 0.2
   FINAL_STATUS=$(cat "$STATUS_FILE" 2>/dev/null || echo "$NOTIFY_STATUS")
   PAYLOAD=$(jq -nc \
@@ -56,7 +55,15 @@ echo "$NOTIFY_STATUS" > "$STATUS_FILE"
     -H "Content-Type: application/json" \
     -d "$PAYLOAD" \
     > /dev/null 2>&1
-) 9>"$LOCK_FILE" &
+}
+
+if command -v flock >/dev/null 2>&1; then
+  ( flock -n 9 || exit 0; _do_notify ) 9>"$LOCK_FILE" &
+elif command -v lockf >/dev/null 2>&1; then
+  ( lockf -t 0 "$LOCK_FILE" sh -c "$(declare -f _do_notify); _do_notify" ) &
+else
+  ( _do_notify ) &
+fi
 
 echo '{"continue": true}'
 exit 0

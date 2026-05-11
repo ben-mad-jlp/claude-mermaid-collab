@@ -35,7 +35,7 @@ Tool: mcp__plugin_mermaid-collab_mermaid__consult_grok
 Args: {
   "prompt": "<the question>",
   "system": "<optional context>",
-  "model": "grok-3"
+  "model": "grok-4.20-reasoning"
 }
 ```
 
