@@ -66,7 +66,7 @@ Otherwise:
 3. Create the session by creating an initial document:
    ```
    Tool: mcp__plugin_mermaid-collab_mermaid__create_document
-   Args: { "project": "<cwd>", "session": "<name>", "name": "vibe.vibeinstructions", "content": "# Vibe: <name>\n\n## Goal\n[Not yet defined]\n\n## Context\n[No context recorded]\n\n## Currently Doing\n[Nothing recorded yet]" }
+   Args: { "project": "<cwd>", "session": "<name>", "name": "vibe.vibeinstructions", "content": "# Vibe: <name>\n\n## Goal\n[Not yet defined]\n\n## Context\n[No context recorded]\n\n## Pair Mode\nEnabled\n\n## Agent Mode\nEnabled\n\n## Currently Doing\n[Nothing recorded yet]" }
    ```
 4. Discover this Claude Code CLI's PID by running the Bash tool:
    ```
