@@ -11,6 +11,6 @@
   "hooks": {},
   "statusLine": {
     "type": "command",
-    "command": "/Users/benmaderazo/Code/claude-mermaid-collab/scripts/statusline.sh"
+    "command": "~/.claude/statusline.sh"
   }
 }
