@@ -38,6 +38,12 @@ Then read the `## Pair Mode` section from the vibeinstructions content. If its v
      ## Context
      [Any relevant context from the conversation so far]
 
+     ## Pair Mode
+     Enabled
+
+     ## Agent Mode
+     Enabled
+
      ## Currently Doing
      [Nothing yet — just started]
      ```
