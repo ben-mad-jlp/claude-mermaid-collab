@@ -2,7 +2,8 @@
 name: subagent-driven-development
 description: Use when executing implementation plans with independent tasks in the current session
 user-invocable: false
-model: haiku
+model: opus
+effort: low
 allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Glob, Grep, Task
 ---
 

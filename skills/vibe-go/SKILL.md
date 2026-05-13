@@ -87,7 +87,7 @@ Each research agent handles ONE task — reads only that task's files. This keep
 
 ```
 Agent(
-  model: "sonnet",
+  model: "opus",
   description: "Research {task-id}",
   prompt: "
 You are a RESEARCH agent. Read files and return a plan. Do NOT make any code edits.
@@ -184,7 +184,7 @@ Each implement agent touches exactly ONE file with ONE focused change.
 
 ```
 Agent(
-  model: "sonnet",
+  model: "opus",
   description: "Edit {filename}",
   prompt: "
 You are an IMPLEMENT agent. Make ONE specific edit to ONE file. Nothing else.
@@ -218,7 +218,7 @@ As each implement agent returns, immediately spawn its paired VERIFY agent — d
 
 ```
 Agent(
-  model: "sonnet",
+  model: "opus",
   description: "Verify {filename}",
   prompt: "
 You are a VERIFY agent. Check that ONE file was implemented correctly. Do NOT make code edits.
@@ -274,7 +274,7 @@ Track `previousErrors` per file (initially empty). On each verify failure for a 
 
 ```
 Agent(
-  model: "sonnet",
+  model: "opus",
   description: "Fix {filename} (attempt [M])",
   prompt: "
 You are a FIX agent. Apply the corrections below to ONE file. Do NOT run tests or verify.

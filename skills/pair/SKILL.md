@@ -13,9 +13,9 @@ When pair mode is on, every behavioral code change requires a before/after diagr
 
 | Agent | Model | Reason |
 |-------|-------|--------|
-| Implement | sonnet | interprets change description reliably |
-| Verify | sonnet | semantic review requires reasoning |
-| Fix | sonnet | needs judgment to apply corrections correctly |
+| Implement | opus | interprets change description reliably |
+| Verify | opus | semantic review requires reasoning |
+| Fix | opus | needs judgment to apply corrections correctly |
 
 ## Step 1 — Classify the change
 
@@ -60,6 +60,8 @@ Name format: `Implementing/Ad-hoc/{slug}/{filename}` (e.g. `Implementing/Ad-hoc/
 
 Call `create_diagram` with the full slash-separated name as above. Never use hyphens as folder separators — only `/` creates folder nesting in the UI.
 
+After all diagrams are posted, invoke the `vibe-checkpoint` skill to save context before waiting for approval.
+
 ## Step 4 — Stop and wait
 
 Tell the human: "Diagram posted for [file] — review in collab and respond approve / revise / reject."
@@ -89,7 +91,7 @@ Spawn one IMPLEMENT agent per file, all in parallel.
 
 ```
 Agent(
-  model: "sonnet",
+  model: "opus",
   description: "Edit {filename}",
   prompt: "
 You are an IMPLEMENT agent. Make ONE specific edit to ONE file. Nothing else.
@@ -122,7 +124,7 @@ As each implement agent returns, immediately spawn its paired VERIFY agent — d
 
 ```
 Agent(
-  model: "sonnet",
+  model: "opus",
   description: "Verify {filename}",
   prompt: "
 You are a VERIFY agent. Check that ONE file was implemented correctly. Do NOT make code edits.
@@ -173,7 +175,7 @@ Track `previousErrors` per file (initially empty). On each verify failure:
 
 ```
 Agent(
-  model: "sonnet",
+  model: "opus",
   description: "Fix {filename} (attempt [M])",
   prompt: "
 You are a FIX agent. Apply the corrections below to ONE file. Do NOT run tests or verify.

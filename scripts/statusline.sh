@@ -32,6 +32,7 @@ COST=$(echo "$input"    | jq -r '.cost.total_cost_usd // 0')
 FIVE_H=$(echo "$input"  | jq -r '.rate_limits.five_hour.used_percentage // 0' | cut -d. -f1)
 SEVEN_D=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // 0' | cut -d. -f1)
 MODEL=$(echo "$input" | jq -r '.model.display_name // ""')
+EFFORT=$(echo "$input" | jq -r '.effort.level // ""')
 
 # Format cost to 2 decimal places
 COST_FMT=$(printf "%.2f" "$COST")
@@ -64,5 +65,6 @@ color_cost() {
 }
 
 # Output one line
-MODEL_LABEL=${MODEL:+" | $MODEL"}
+EFFORT_SUFFIX=${EFFORT:+" ($EFFORT)"}
+MODEL_LABEL=${MODEL:+" | $MODEL${EFFORT_SUFFIX}"}
 printf '%b\n' "🧠 $(color_pct $PCT) ctx | 💰 $(color_cost $COST_FMT) | ⏱  5h:$(color_pct $FIVE_H) 7d:$(color_pct $SEVEN_D)${MODEL_LABEL}"
