@@ -793,6 +793,138 @@ async function updateSpreadsheet(project: string, session: string, id: string, c
   return JSON.stringify({ success: true, id, message: 'Spreadsheet updated successfully' }, null, 2);
 }
 
+// ============= Archive By Prefix =============
+
+interface ArchiveByPrefixResult {
+  archived: Array<{ type: string; oldName: string; oldId: string; newName: string; newId: string }>;
+  errors: Array<{ type: string; id: string; name: string; error: string }>;
+  slug: string;
+}
+
+async function deprecateItem(project: string, session: string, id: string): Promise<void> {
+  const response = await fetch(buildUrl(`/api/metadata/item/${id}`, project, session), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ deprecated: true }),
+  });
+  if (!response.ok) throw new Error(`Failed to deprecate ${id}: ${response.statusText}`);
+}
+
+function rewriteName(oldName: string, prefix: string, slug: string): string {
+  // Strip the prefix (with or without trailing slash) and prepend Archive/{slug}/
+  const stripped = oldName.startsWith(prefix) ? oldName.slice(prefix.length).replace(/^\/+/, '') : oldName;
+  return `Archive/${slug}/${stripped}`;
+}
+
+async function archiveByPrefix(
+  project: string,
+  session: string,
+  prefix: string,
+  options: { excludePrefixes?: string[]; extraNames?: string[]; archiveSlug?: string } = {}
+): Promise<ArchiveByPrefixResult> {
+  const excludePrefixes = options.excludePrefixes || [];
+  const extraNames = new Set(options.extraNames || []);
+  const matches = (name: string) =>
+    name.startsWith(prefix) && !excludePrefixes.some(ex => name.startsWith(ex));
+
+  const archived: ArchiveByPrefixResult['archived'] = [];
+  const errors: ArchiveByPrefixResult['errors'] = [];
+
+  // Pull all artifact lists in parallel.
+  const [docsRaw, diagsRaw, designsRes, snipsRes] = await Promise.all([
+    listDocuments(project, session).catch(() => '[]'),
+    listDiagrams(project, session).catch(() => '[]'),
+    handleListDesigns(project, session).catch(() => ({ designs: [] as any[] })),
+    handleListSnippets(project, session).catch(() => ({ snippets: [] as any[] }) as AnyJson),
+  ]);
+
+  const docs = JSON.parse(docsRaw) as any[];
+  const diagrams = JSON.parse(diagsRaw) as any[];
+  const designs = (designsRes as any).designs || [];
+  const snippets = (snipsRes as any).snippets || [];
+
+  // Determine slug: prefer caller-provided, else find a doc with blueprint:true under prefix
+  let slug = options.archiveSlug || '';
+  if (!slug) {
+    const blueprintDoc = docs.find(
+      d => d.blueprint && matches(d.name) && !d.deprecated
+    );
+    if (blueprintDoc) {
+      const tail = blueprintDoc.name.startsWith(prefix)
+        ? blueprintDoc.name.slice(prefix.length).replace(/^\/+/, '')
+        : blueprintDoc.name;
+      slug = tail.split('/')[0] || `unknown-${Date.now()}`;
+    } else {
+      slug = `archive-${Date.now()}`;
+    }
+  }
+
+  const shouldArchive = (item: any) =>
+    !item.deprecated && (matches(item.name) || extraNames.has(item.name) || extraNames.has(item.id));
+
+  // Documents
+  for (const d of docs) {
+    if (!shouldArchive(d)) continue;
+    try {
+      const fullRaw = await getDocument(project, session, d.id);
+      const full = JSON.parse(fullRaw);
+      const newName = rewriteName(d.name, prefix, slug);
+      const createdRaw = await createDocument(project, session, newName, full.content);
+      const created = JSON.parse(createdRaw);
+      await deprecateItem(project, session, d.id);
+      archived.push({ type: 'document', oldName: d.name, oldId: d.id, newName, newId: created.id });
+    } catch (err) {
+      errors.push({ type: 'document', id: d.id, name: d.name, error: String(err) });
+    }
+  }
+
+  // Diagrams
+  for (const d of diagrams) {
+    if (!shouldArchive(d)) continue;
+    try {
+      const fullRaw = await getDiagram(project, session, d.id);
+      const full = JSON.parse(fullRaw);
+      const newName = rewriteName(d.name, prefix, slug);
+      const createdRaw = await createDiagram(project, session, newName, full.content);
+      const created = JSON.parse(createdRaw);
+      await deprecateItem(project, session, d.id);
+      archived.push({ type: 'diagram', oldName: d.name, oldId: d.id, newName, newId: created.id });
+    } catch (err) {
+      errors.push({ type: 'diagram', id: d.id, name: d.name, error: String(err) });
+    }
+  }
+
+  // Designs
+  for (const d of designs as any[]) {
+    if (!shouldArchive(d)) continue;
+    try {
+      const full = await handleGetDesign(project, session, d.id);
+      const newName = rewriteName(d.name || d.id, prefix, slug);
+      const created = await handleCreateDesign(project, session, newName, full.content);
+      await deprecateItem(project, session, d.id);
+      archived.push({ type: 'design', oldName: d.name || d.id, oldId: d.id, newName, newId: created.id });
+    } catch (err) {
+      errors.push({ type: 'design', id: d.id, name: d.name || d.id, error: String(err) });
+    }
+  }
+
+  // Snippets
+  for (const s of snippets as any[]) {
+    if (!shouldArchive(s)) continue;
+    try {
+      const full = await handleGetSnippet(project, session, s.id);
+      const newName = rewriteName(s.name, prefix, slug);
+      const created = await handleCreateSnippet(project, session, newName, full.content);
+      await deprecateItem(project, session, s.id);
+      archived.push({ type: 'snippet', oldName: s.name, oldId: s.id, newName, newId: (created as any).id });
+    } catch (err) {
+      errors.push({ type: 'snippet', id: s.id, name: s.name, error: String(err) });
+    }
+  }
+
+  return { archived, errors, slug };
+}
+
 // ============= Session Tools =============
 
 async function listSessions(): Promise<string> {
@@ -1569,6 +1701,33 @@ IMPORTANT - Common pitfalls to avoid:
             timestamp: { type: 'boolean', description: 'Add timestamp to archive folder name (default: false)' },
           },
           required: ['project', 'session'],
+        },
+      },
+      {
+        name: 'archive_by_prefix',
+        description: 'Archive (copy + deprecate) all artifacts whose name begins with a given prefix. Scans documents, diagrams, designs, and snippets. Each match is copied to "Archive/{slug}/{rest-of-name}" and the original is deprecated. Returns the list of archived items. Useful for clearing out previous "Implementing/" work before generating a new blueprint.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to project root' },
+            session: { type: 'string', description: 'Session name' },
+            prefix: { type: 'string', description: 'Name prefix to match (e.g. "Implementing/")' },
+            exclude_prefixes: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Prefixes to exclude even if they start with `prefix` (e.g. ["Implementing/Ad-hoc/"])',
+            },
+            extra_names: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Additional artifact names or IDs to include (e.g. ["task-graph"])',
+            },
+            archive_slug: {
+              type: 'string',
+              description: 'Slug to use for the Archive/{slug}/ destination. If omitted, derived from the first blueprint:true doc under prefix, or a timestamp.',
+            },
+          },
+          required: ['project', 'session', 'prefix'],
         },
       },
       {
@@ -3410,6 +3569,24 @@ IMPORTANT - Common pitfalls to avoid:
             const result = await archiveSession(project, session, {
               deleteSession: delete_session,
               timestamp,
+            });
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'archive_by_prefix': {
+            const { project, session, prefix, exclude_prefixes, extra_names, archive_slug } = args as {
+              project: string;
+              session: string;
+              prefix: string;
+              exclude_prefixes?: string[];
+              extra_names?: string[];
+              archive_slug?: string;
+            };
+            if (!project || !session || !prefix) throw new Error('Missing required: project, session, prefix');
+            const result = await archiveByPrefix(project, session, prefix, {
+              excludePrefixes: exclude_prefixes,
+              extraNames: extra_names,
+              archiveSlug: archive_slug,
             });
             return JSON.stringify(result, null, 2);
           }
