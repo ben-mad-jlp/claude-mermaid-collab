@@ -40,13 +40,13 @@ export async function initializeMermaid(theme: 'light' | 'dark', diagramContent?
   // Always use 'default' so node colors are identical across light/dark/sepia
   if (!hasCustom) {
     config.theme = 'default';
-    // Override edge/arrow colors for readability in dark mode.
-    // Do NOT override textColor — nodes often have explicit light fills
-    // (e.g. pair-mode before/after diagrams) so node text must stay dark.
+    // In dark mode, only lighten the arrow lines so they're visible against
+    // the dark page background. Leave edge label background and text alone:
+    // mermaid's default light label box with dark text stays readable, and
+    // node text on light pair-mode subgraph fills stays dark.
     if (theme === 'dark') {
       config.themeVariables = {
         lineColor: '#cbd5e1',
-        edgeLabelBackground: '#1e293b',
       };
     }
   }
