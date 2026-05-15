@@ -127,8 +127,19 @@ export async function readInstances(paths: DiscoveryPaths = getDiscoveryPaths())
     try {
       release = await lock(lockPath, { realpath: false, retries: 0 });
     } catch {
-      // Owner alive — record is valid.
-      out.push(original);
+      // Lock held — but the owner may have been SIGKILL'd, leaving an
+      // orphan lock that proper-lockfile won't release until its staleness
+      // window elapses. Probe the pid directly.
+      let pidAlive = false;
+      try { process.kill(original.pid, 0); pidAlive = true; } catch { /* dead */ }
+      if (pidAlive) {
+        out.push(original);
+        continue;
+      }
+      // Owner is dead but lock is orphaned — best-effort cleanup of both
+      // files and skip. proper-lockfile will eventually GC its lock dir.
+      await unlink(instPath).catch(() => {});
+      await unlink(lockPath).catch(() => {});
       continue;
     }
 

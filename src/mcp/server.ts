@@ -43,7 +43,11 @@ async function main() {
   console.error(`MCP Mermaid Server v${SERVER_VERSION} running on stdio`);
 }
 
-main().catch((error) => {
-  console.error('Fatal error:', error);
-  process.exit(1);
-});
+// Only auto-run main() when this file is the process entry point
+// (avoids triggering the stdio MCP startup when imported for SERVER_VERSION).
+if (import.meta.main) {
+  main().catch((error) => {
+    console.error('Fatal error:', error);
+    process.exit(1);
+  });
+}

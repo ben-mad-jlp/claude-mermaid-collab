@@ -23,8 +23,8 @@ function validatePort(): number {
     throw new Error(`Invalid PORT value: "${portValue}" is not a valid number`);
   }
 
-  if (port < 1 || port > 65535) {
-    throw new Error(`Invalid PORT value: ${port} is out of valid range (1-65535)`);
+  if (port < 0 || port > 65535) {
+    throw new Error(`Invalid PORT value: ${port} is out of valid range (0-65535)`);
   }
 
   return port;
