@@ -838,8 +838,13 @@ async function archiveByPrefix(
     handleListSnippets(project, session).catch(() => ({ snippets: [] as any[] }) as AnyJson),
   ]);
 
-  const docs = JSON.parse(docsRaw) as any[];
-  const diagrams = JSON.parse(diagsRaw) as any[];
+  const parseList = (raw: string, key: string): any[] => {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed;
+    return parsed?.[key] || [];
+  };
+  const docs = parseList(docsRaw, 'documents');
+  const diagrams = parseList(diagsRaw, 'diagrams');
   const designs = (designsRes as any).designs || [];
   const snippets = (snipsRes as any).snippets || [];
 
