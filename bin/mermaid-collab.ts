@@ -13,6 +13,7 @@ import { readFile, writeFile, unlink, mkdir, readdir, symlink } from 'fs/promise
 import { existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
+import { whereami } from './whereami';
 
 const DATA_DIR = join(homedir(), '.mermaid-collab');
 const PID_FILE = join(DATA_DIR, 'server.pid');
@@ -261,6 +262,9 @@ switch (command) {
   case 'status':
     await status();
     break;
+  case 'whereami':
+    await whereami(process.argv.slice(3));
+    break;
   default:
     console.log('mermaid-collab - Mermaid collaboration server');
     console.log('');
@@ -268,6 +272,7 @@ switch (command) {
     console.log('  mermaid-collab start   Start the server in background');
     console.log('  mermaid-collab stop    Stop the server');
     console.log('  mermaid-collab status  Check if server is running');
+    console.log('  mermaid-collab whereami [--all] [--project <path>] [--session <name>]  List live server instances as JSON');
     console.log('');
     console.log('Environment:');
     console.log('  PORT  Server port (default: 9002)');

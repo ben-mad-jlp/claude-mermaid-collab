@@ -61,3 +61,24 @@ export const config = {
   WS_RECONNECT_MAX_DELAY: 30000,
   UI_DIST_DIR: join(PROJECT_ROOT, 'ui', 'dist'),
 } as const;
+
+/**
+ * Requested server port. Unlike {@link config.PORT}, this allows the literal
+ * value `0` to request an OS-assigned ephemeral port. The actual bound port
+ * should be read from `server.port` after `Bun.serve()` returns.
+ */
+export const PORT_REQUEST = (process.env.PORT ?? '9002') === '0'
+  ? 0
+  : Number.parseInt(process.env.PORT ?? '9002', 10);
+
+/**
+ * Project root advertised by this server instance for instance discovery.
+ * Defaults to the current working directory.
+ */
+export const MERMAID_PROJECT = process.env.MERMAID_PROJECT ?? process.cwd();
+
+/**
+ * Session name advertised by this server instance for instance discovery.
+ * Defaults to `'scratch'`.
+ */
+export const MERMAID_SESSION = process.env.MERMAID_SESSION ?? 'scratch';

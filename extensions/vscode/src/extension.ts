@@ -1,5 +1,7 @@
 // IDE bridge — terminal focus + diff opening
 import * as vscode from 'vscode';
+import { activateWorkspace } from './workspace-half';
+import { activateUi, findChrome } from './ui-half';
 import WebSocket from 'ws';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -7,12 +9,6 @@ import { promisify } from 'util';
 const execAsync = promisify(exec);
 
 let ws: WebSocket | null = null;
-let statusBarItem: vscode.StatusBarItem;
-let chromeDebugBar: vscode.StatusBarItem;
-let chromeDebugProcess: import('child_process').ChildProcess | null = null;
-let sshTunnelProcess: import('child_process').ChildProcess | null = null;
-let chromeDebugRunning = false;
-let outputChannel: vscode.OutputChannel;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectDelay = 1000;
 let reconnectAttempts = 0;
@@ -27,31 +23,13 @@ let reattachProcessing = false;
 const groupedSessionNames = new Map<string, string>(); // terminal name → tmux grouped session name
 
 export function activate(context: vscode.ExtensionContext) {
+  if (context.extension.extensionKind === vscode.ExtensionKind.Workspace) {
+    return activateWorkspace(context);
+  }
+  activateUi(context);
   _ctx = context;
 
-  statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  statusBarItem.command = 'mermaidCollab.showStatus';
-  statusBarItem.show();
-  context.subscriptions.push(statusBarItem);
-
-  chromeDebugBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
-  chromeDebugBar.command = 'mermaidCollab.toggleChromeDebug';
-  chromeDebugBar.show();
-  context.subscriptions.push(chromeDebugBar);
-  updateChromeDebugBar();
-
-  outputChannel = vscode.window.createOutputChannel('mermaid-collab CDP');
-  context.subscriptions.push(outputChannel);
-
   context.subscriptions.push(
-    vscode.commands.registerCommand('mermaidCollab.toggleChromeDebug', () => {
-      if (chromeDebugRunning) stopChromeDebug();
-      else void startChromeDebug();
-    }),
-    vscode.commands.registerCommand('mermaidCollab.showStatus', () => {
-      const state = ws?.readyState === WebSocket.OPEN ? 'Connected' : 'Disconnected';
-      vscode.window.showInformationMessage(`mermaid-collab: ${state}`);
-    }),
     vscode.commands.registerCommand('mermaidCollab.reconnect', () => {
       scheduleReconnect(0);
     }),
@@ -74,7 +52,6 @@ export function activate(context: vscode.ExtensionContext) {
     }),
   );
 
-  updateStatusBar(false);
   // Defer WebSocket connection until after extension host fully initializes.
   // Connecting immediately during startup causes the extension host to crash
   // (ECONNREFUSED → reconnect loop), triggering VS Code's "3 crashes" guard
@@ -94,7 +71,6 @@ function connect(context: vscode.ExtensionContext) {
   ws.on('open', () => {
     reconnectDelay = 1000;
     reconnectAttempts = 0;
-    updateStatusBar(true);
     ws!.send(JSON.stringify({ type: 'subscribe', channel: 'ide' }));
     ws!.send(JSON.stringify({
       type: 'ide_connected',
@@ -116,7 +92,6 @@ function connect(context: vscode.ExtensionContext) {
 
   ws.on('close', () => {
     hasReattachedThisSession = false;
-    updateStatusBar(false);
     reconnectAttempts++;
     if (reconnectAttempts <= MAX_ATTEMPTS) {
       scheduleReconnect(reconnectDelay);
@@ -254,12 +229,6 @@ function scheduleReconnect(delay: number) {
   }, delay);
 }
 
-function updateStatusBar(connected: boolean, sessionName?: string) {
-  statusBarItem.text = connected ? `$(plug) collab${sessionName ? ` · ${sessionName}` : ''}` : '$(debug-disconnect) collab';
-  statusBarItem.tooltip = connected ? 'mermaid-collab: Connected' : 'mermaid-collab: Disconnected — click to reconnect';
-  statusBarItem.command = connected ? 'mermaidCollab.showStatus' : 'mermaidCollab.reconnect';
-}
-
 export function deactivate() {
   hasReattachedThisSession = false;
   ws?.close();
@@ -271,7 +240,6 @@ export function deactivate() {
     cs.process.kill();
   }
   chromeSessions.clear();
-  stopChromeDebug();
 }
 
 // ── Browser CDP session management ─────────────────────────────────────────
@@ -318,56 +286,7 @@ function sendCollabMsg(msg: Record<string, unknown>): void {
   }
 }
 
-const CHROME_BINARIES_LINUX = [
-  '/opt/google/chrome/chrome',
-  '/usr/bin/google-chrome',
-  '/usr/bin/google-chrome-stable',
-  '/usr/bin/chromium-browser',
-  '/usr/bin/chromium',
-];
-const CHROME_BINARIES_MAC = [
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
-  '/Applications/Chromium.app/Contents/MacOS/Chromium',
-];
-const CHROME_BINARIES_WIN = [
-  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-  'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-  `${process.env.LOCALAPPDATA ?? 'C:\\Users\\Default\\AppData\\Local'}\\Google\\Chrome\\Application\\chrome.exe`,
-  `${process.env.PROGRAMFILES ?? 'C:\\Program Files'}\\Google\\Chrome\\Application\\chrome.exe`,
-  'C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe',
-  `${process.env.LOCALAPPDATA ?? ''}\\BraveSoftware\\Brave-Browser\\Application\\brave.exe`,
-  'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-  'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
-];
-
 let nextCdpPort = 9230;
-
-async function findChrome(): Promise<string> {
-  const { existsSync } = require('fs') as typeof import('fs');
-  const bins = process.platform === 'darwin' ? CHROME_BINARIES_MAC
-    : process.platform === 'win32' ? CHROME_BINARIES_WIN
-    : CHROME_BINARIES_LINUX;
-  for (const bin of bins) {
-    if (bin && existsSync(bin)) return bin;
-  }
-  if (process.platform === 'darwin') {
-    try {
-      const { execSync } = require('child_process') as typeof import('child_process');
-      const found = execSync('mdfind "kMDItemCFBundleIdentifier == \'com.google.Chrome\'" 2>/dev/null | head -1').toString().trim();
-      if (found) {
-        const bin = `${found}/Contents/MacOS/Google Chrome`;
-        if (existsSync(bin)) return bin;
-      }
-      const brave = execSync('mdfind "kMDItemCFBundleIdentifier == \'com.brave.Browser\'" 2>/dev/null | head -1').toString().trim();
-      if (brave) {
-        const bin = `${brave}/Contents/MacOS/Brave Browser`;
-        if (existsSync(bin)) return bin;
-      }
-    } catch { /* ignore */ }
-  }
-  throw new Error('No Chrome/Chromium binary found — install Chrome or set mermaidCollab.chromePath');
-}
 
 interface ChromeSession {
   process: import('child_process').ChildProcess;
@@ -719,183 +638,4 @@ function handleBrowserClose(sessionId: string): void {
   if (cs) { cs.process.kill(); chromeSessions.delete(sessionId); }
 }
 
-// ── Chrome debug tunnel (status bar toggle) ─────────────────────────────────
-
-function updateChromeDebugBar(): void {
-  if (chromeDebugRunning) {
-    chromeDebugBar.text = '$(broadcast) CDP';
-    chromeDebugBar.tooltip = 'Chrome debug tunnel running — click to stop';
-    chromeDebugBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
-  } else {
-    chromeDebugBar.text = '$(debug-disconnect) CDP';
-    chromeDebugBar.tooltip = 'Chrome debug tunnel stopped — click to start';
-    chromeDebugBar.backgroundColor = undefined;
-  }
-}
-
-let portWatcherTimer: ReturnType<typeof setInterval> | null = null;
-
-function checkPort(port: number): Promise<boolean> {
-  const net = require('net') as typeof import('net');
-  return new Promise(resolve => {
-    const sock = net.createConnection({ port, host: '127.0.0.1' });
-    sock.setTimeout(800);
-    sock.on('connect', () => { sock.destroy(); resolve(true); });
-    sock.on('error', () => resolve(false));
-    sock.on('timeout', () => { sock.destroy(); resolve(false); });
-  });
-}
-
-function startPortWatcher(port: number): void {
-  if (portWatcherTimer) clearInterval(portWatcherTimer);
-  portWatcherTimer = setInterval(async () => {
-    if (!chromeDebugRunning) { clearInterval(portWatcherTimer!); portWatcherTimer = null; return; }
-    const up = await checkPort(port);
-    if (!up) {
-      outputChannel.appendLine(`[CDP] Port ${port} gone — Chrome stopped`);
-      clearInterval(portWatcherTimer!); portWatcherTimer = null;
-      chromeDebugProcess = null;
-      chromeDebugRunning = false;
-      updateChromeDebugBar();
-    }
-  }, 3000);
-}
-
-async function pollForPort(port: number, budgetMs: number, launchStderr: string): Promise<void> {
-  const deadline = Date.now() + budgetMs;
-  const tryOnce = async (): Promise<void> => {
-    if (await checkPort(port)) {
-      outputChannel.appendLine(`[CDP] Port ${port} is up — Chrome started successfully`);
-      startPortWatcher(port);
-      return;
-    }
-    if (Date.now() < deadline) {
-      setTimeout(tryOnce, 400);
-    } else {
-      outputChannel.appendLine(`[CDP] Timed out waiting for port ${port}`);
-      chromeDebugRunning = false;
-      updateChromeDebugBar();
-      const hint = launchStderr.trim().split('\n')[0] || 'port never came up';
-      vscode.window.showErrorMessage(`mermaid-collab: Chrome failed to bind port ${port} — ${hint}`, 'Show Log')
-        .then(sel => { if (sel === 'Show Log') outputChannel.show(); });
-    }
-  };
-  await tryOnce();
-}
-
-async function startChromeDebug(): Promise<void> {
-  const cfg = vscode.workspace.getConfiguration('mermaidCollab');
-  const port = cfg.get<number>('chromeDebugPort') ?? 9333;
-  const defaultUserDataDir = process.platform === 'win32' ? 'C:\\ChromeDebug'
-    : process.platform === 'darwin' ? require('path').join(require('os').homedir(), 'Library', 'Application Support', 'ChromeDebug')
-    : '/tmp/chrome-debug';
-  const configuredDataDir = cfg.get<string>('chromeDebugUserDataDir') ?? '';
-  const isWindowsPath = (p: string) => /^[A-Za-z]:[\\\/]/.test(p);
-  const userDataDir = (configuredDataDir && !(process.platform !== 'win32' && isWindowsPath(configuredDataDir)))
-    ? configuredDataDir : defaultUserDataDir;
-  const sshTarget = cfg.get<string>('sshTunnelTarget') ?? '';
-
-  const configuredPath = cfg.get<string>('chromePath') ?? '';
-  let chromeBin: string;
-  try {
-    chromeBin = configuredPath.trim() || await findChrome();
-  } catch (err) {
-    vscode.window.showErrorMessage(`mermaid-collab: Chrome not found — ${err instanceof Error ? err.message : String(err)}`);
-    return;
-  }
-
-  const startTime = Date.now();
-
-  const chromeArgs = [
-    `--remote-debugging-port=${port}`,
-    '--remote-allow-origins=*',
-    '--no-first-run',
-    '--no-default-browser-check',
-    `--user-data-dir=${userDataDir}`,
-  ];
-
-  outputChannel.appendLine(`[CDP] Starting Chrome: ${chromeBin}`);
-  outputChannel.appendLine(`[CDP] Args: ${chromeArgs.join(' ')}`);
-  outputChannel.show(true);
-
-  const { spawn } = require('child_process') as typeof import('child_process');
-
-  if (process.platform === 'darwin') {
-    // On macOS, spawning the Chrome binary directly when Chrome is already running
-    // causes the launcher to silently delegate to the existing instance (no debug port).
-    // Use `open -n` to force a new independent instance.
-    const appBundle = chromeBin.replace(/\/Contents\/MacOS\/.*$/, '');
-    outputChannel.appendLine(`[CDP] macOS: using open -n "${appBundle}"`);
-    const openProc = spawn('open', ['-n', appBundle, '--args', ...chromeArgs],
-      { detached: false, stdio: ['ignore', 'pipe', 'pipe'] });
-    let openStderr = '';
-    openProc.stderr?.on('data', (d: Buffer) => { openStderr += d.toString(); });
-    openProc.on('exit', (code) => {
-      outputChannel.appendLine(`[CDP] open exited (code=${code})${openStderr.trim() ? ` — ${openStderr.trim()}` : ''}`);
-      // `open` exits immediately after launching the app — poll for port
-      if (!chromeDebugRunning) return;
-      void pollForPort(port, 8000, openStderr);
-    });
-    chromeDebugProcess = openProc;
-  } else {
-    chromeDebugProcess = spawn(chromeBin, chromeArgs,
-      { detached: false, stdio: ['ignore', 'pipe', 'pipe'] });
-
-    let chromeStderr = '';
-    chromeDebugProcess.stderr?.on('data', (d: Buffer) => {
-      const txt = d.toString();
-      chromeStderr += txt;
-      outputChannel.append(`[Chrome stderr] ${txt}`);
-    });
-    chromeDebugProcess.on('exit', (code) => {
-      const elapsed = Date.now() - startTime;
-      outputChannel.appendLine(`[CDP] Chrome exited (code=${code}, after ${elapsed}ms)`);
-      chromeDebugProcess = null;
-      if (!chromeDebugRunning) return;
-      chromeDebugRunning = false;
-      updateChromeDebugBar();
-      if (elapsed < 5000) {
-        const hint = chromeStderr.trim().split('\n')[0] || `exit code ${code}`;
-        vscode.window.showErrorMessage(`mermaid-collab: Chrome exited unexpectedly — ${hint}`, 'Show Log')
-          .then(sel => { if (sel === 'Show Log') outputChannel.show(); });
-      }
-    });
-  }
-
-  if (sshTarget) {
-    sshTunnelProcess = spawn('ssh', [
-      '-R', `${port}:127.0.0.1:${port}`,
-      '-N',
-      '-o', 'StrictHostKeyChecking=no',
-      '-o', 'ExitOnForwardFailure=yes',
-      sshTarget,
-    ], { detached: false, stdio: ['ignore', 'ignore', 'pipe'] });
-
-    let sshStderr = '';
-    sshTunnelProcess.stderr?.on('data', (d: Buffer) => { sshStderr += d.toString(); });
-
-    sshTunnelProcess.on('exit', (code) => {
-      sshTunnelProcess = null;
-      if (chromeDebugRunning) {
-        chromeDebugRunning = false;
-        updateChromeDebugBar();
-        const detail = sshStderr.trim() ? ` — ${sshStderr.trim().split('\n')[0]}` : ` (exit ${code})`;
-        vscode.window.showWarningMessage(`mermaid-collab: SSH tunnel disconnected${detail}`);
-      }
-    });
-  }
-
-  chromeDebugRunning = true;
-  updateChromeDebugBar();
-  vscode.window.showInformationMessage(`mermaid-collab: Chrome debug${sshTarget ? ' + SSH tunnel' : ''} started on port ${port}`);
-}
-
-function stopChromeDebug(): void {
-  if (portWatcherTimer) { clearInterval(portWatcherTimer); portWatcherTimer = null; }
-  chromeDebugProcess?.kill();
-  chromeDebugProcess = null;
-  sshTunnelProcess?.kill();
-  sshTunnelProcess = null;
-  chromeDebugRunning = false;
-  updateChromeDebugBar();
-}
+// ── Chrome debug tunnel moved to ui-half.ts ─────────────────────────────────

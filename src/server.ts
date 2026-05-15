@@ -2,6 +2,9 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { existsSync } from 'fs';
 import { config } from './config';
+import { PORT_REQUEST, MERMAID_PROJECT, MERMAID_SESSION } from './config';
+import { writeInstance, removeInstance, deriveSessionId, installSignalHandlers } from './services/instance-discovery';
+import { SERVER_VERSION } from './mcp/server';
 import { DiagramManager } from './services/diagram-manager';
 import { DocumentManager } from './services/document-manager';
 import { MetadataManager } from './services/metadata-manager';
@@ -177,7 +180,7 @@ const metadataManager = new MetadataManager('/tmp');
 // Create HTTP server
 type WsData = { type: string; sessionId?: string; subscriptions: Set<string> };
 const server = Bun.serve<WsData>({
-  port: config.PORT,
+  port: PORT_REQUEST,
   hostname: config.HOST,
 
   async fetch(req, server) {
@@ -374,25 +377,52 @@ const server = Bun.serve<WsData>({
 // Initialize PTY manager and register shutdown handlers
 import { ptyManager } from './terminal/index';
 
+if (typeof server.port !== 'number' || server.port === 0) {
+  console.error(`mermaid-collab: Bun.serve returned an invalid port: ${server.port}`);
+  process.exit(1);
+}
+const actualPort = server.port;
+const sessionId = deriveSessionId(MERMAID_PROJECT, MERMAID_SESSION);
+
 // Handle graceful shutdown - kill all PTY sessions
 process.on('SIGINT', () => {
   console.log('\n🛑 SIGINT received, shutting down gracefully...');
   sweeper.stop();
-  ptyManager.killAll();
-  process.exit(0);
+  removeInstance(sessionId).catch(() => {}).finally(() => {
+    ptyManager.killAll();
+    process.exit(0);
+  });
 });
 
 process.on('SIGTERM', () => {
   console.log('\n🛑 SIGTERM received, shutting down gracefully...');
   sweeper.stop();
-  ptyManager.killAll();
-  process.exit(0);
+  removeInstance(sessionId).catch(() => {}).finally(() => {
+    ptyManager.killAll();
+    process.exit(0);
+  });
 });
 
-console.log(`🚀 Mermaid Collaboration Server running on http://${config.HOST}:${config.PORT}`);
+try {
+  await writeInstance({
+    version: 1,
+    sessionId,
+    port: actualPort,
+    project: MERMAID_PROJECT,
+    session: MERMAID_SESSION,
+    pid: process.pid,
+    startedAt: new Date().toISOString(),
+    serverVersion: SERVER_VERSION,
+  });
+} catch (err) {
+  console.error(`mermaid-collab: failed to register instance — ${err instanceof Error ? err.message : String(err)}`);
+  process.exit(1);
+}
+installSignalHandlers(sessionId);
+console.log(`mermaid-collab listening on :${actualPort}, advertised as ${sessionId}`);
 console.log(`🌐 Public directory: ${config.PUBLIC_DIR}`);
 console.log(`🎨 UI dist directory: ${config.UI_DIST_DIR} (exists: ${existsSync(config.UI_DIST_DIR)})`);
-console.log(`🔌 WebSocket: ws://${config.HOST}:${config.PORT}/ws`);
-console.log(`🔌 Terminal: ws://${config.HOST}:${config.PORT}/terminal/:sessionId`);
-console.log(`🤖 MCP HTTP: http://${config.HOST}:${config.PORT}/mcp`);
+console.log(`🔌 WebSocket: ws://${config.HOST}:${actualPort}/ws`);
+console.log(`🔌 Terminal: ws://${config.HOST}:${actualPort}/terminal/:sessionId`);
+console.log(`🤖 MCP HTTP: http://${config.HOST}:${actualPort}/mcp`);
 

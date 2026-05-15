@@ -2,7 +2,7 @@
   "name": "mermaid-collab-vscode",
   "displayName": "mermaid-collab",
   "description": "Connects the mermaid-collab UI to VSCode terminals and editor",
-  "version": "1.0.14",
+  "version": "1.0.15",
   "publisher": "mermaid-collab",
   "engines": {
     "vscode": "^1.85.0"
@@ -14,7 +14,8 @@
     "onStartupFinished"
   ],
   "extensionKind": [
-    "ui"
+    "ui",
+    "workspace"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -34,6 +35,18 @@
       {
         "command": "mermaidCollab.toggleChromeDebug",
         "title": "mermaid-collab: Toggle Chrome Debug Tunnel"
+      },
+      {
+        "command": "mermaidCollab.ui.onInstanceUp",
+        "title": "mermaid-collab: On Instance Up (internal)"
+      },
+      {
+        "command": "mermaidCollab.ui.onInstanceDown",
+        "title": "mermaid-collab: On Instance Down (internal)"
+      },
+      {
+        "command": "mermaidCollab.openUi",
+        "title": "mermaid-collab: Open UI"
       }
     ],
     "configuration": {
