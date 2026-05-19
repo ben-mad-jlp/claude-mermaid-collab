@@ -4958,27 +4958,71 @@ async function focusTerminal(targetPid, sessionHint) {
   }
   void vscode3.window.showWarningMessage(`mermaid-collab: Terminal for session "${sessionHint}" not found.`);
 }
+function resolveDiffPath(filePath) {
+  const fs5 = require("fs");
+  const path5 = require("path");
+  const tryPath = (p) => {
+    try {
+      if (fs5.existsSync(p)) {
+        try {
+          return fs5.realpathSync.native(p);
+        } catch {
+          return p;
+        }
+      }
+    } catch {
+    }
+    return null;
+  };
+  const direct = tryPath(filePath);
+  if (direct)
+    return direct;
+  const folders = vscode3.workspace.workspaceFolders ?? [];
+  for (const f of folders) {
+    const root = f.uri.fsPath;
+    const idx = filePath.indexOf(`${path5.sep}${path5.basename(root)}${path5.sep}`);
+    if (idx !== -1) {
+      const reRooted = path5.join(root, filePath.slice(idx + path5.basename(root).length + 2));
+      const hit = tryPath(reRooted);
+      if (hit)
+        return hit;
+    }
+    const byBase = tryPath(path5.join(root, path5.basename(filePath)));
+    if (byBase)
+      return byBase;
+  }
+  return null;
+}
 async function openDiff(filePath) {
-  const workingUri = vscode3.Uri.file(filePath);
+  const resolved = resolveDiffPath(filePath);
+  if (!resolved) {
+    vscode3.window.showErrorMessage(
+      `mermaid-collab: cannot open diff \u2014 file not found on this host: ${filePath}`
+    );
+    return;
+  }
+  const workingUri = vscode3.Uri.file(resolved);
+  const title = `${resolved.split("/").pop()} (Working Tree)`;
   try {
     const gitExtension = vscode3.extensions.getExtension("vscode.git");
-    if (gitExtension?.isActive) {
-      try {
-        const git = gitExtension.exports.getAPI(1);
-        const headUri = git.toGitUri(workingUri, "HEAD");
-        const title = `${filePath.split("/").pop()} (Working Tree)`;
-        await vscode3.commands.executeCommand("vscode.diff", headUri, workingUri, title, {
-          preview: false,
-          preserveFocus: true
-        });
-        return;
-      } catch {
-      }
+    const git = gitExtension?.isActive ? gitExtension.exports.getAPI(1) : null;
+    if (git && git.getRepository(workingUri)) {
+      const headUri = git.toGitUri(workingUri, "HEAD");
+      await vscode3.commands.executeCommand("vscode.diff", headUri, workingUri, title, {
+        preview: false,
+        preserveFocus: true
+      });
+      return;
     }
+  } catch {
+  }
+  try {
     const doc = await vscode3.workspace.openTextDocument(workingUri);
     await vscode3.window.showTextDocument(doc, { preserveFocus: true, preview: false });
   } catch (err) {
-    vscode3.window.showErrorMessage(`mermaid-collab: failed to open ${filePath.split("/").pop()} \u2014 ${err instanceof Error ? err.message : String(err)}`);
+    vscode3.window.showErrorMessage(
+      `mermaid-collab: failed to open ${title} (${resolved}) \u2014 ${err instanceof Error ? err.message : String(err)}`
+    );
   }
 }
 async function handleIdeReattach(msg) {

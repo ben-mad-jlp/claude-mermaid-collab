@@ -161,28 +161,83 @@ async function focusTerminal(targetPid: number, sessionHint: string) {
   void vscode.window.showWarningMessage(`mermaid-collab: Terminal for session "${sessionHint}" not found.`);
 }
 
+/**
+ * Resolve the server-supplied path to one that actually exists on this host.
+ * Tries the path as-is, its realpath (macOS /var → /private/var symlink), and
+ * — if still missing — the same basename/relative tail under each workspace
+ * folder. Returns null if nothing resolves.
+ */
+function resolveDiffPath(filePath: string): string | null {
+  const fs = require('fs') as typeof import('fs');
+  const path = require('path') as typeof import('path');
+  const tryPath = (p: string): string | null => {
+    try {
+      if (fs.existsSync(p)) {
+        try { return fs.realpathSync.native(p); } catch { return p; }
+      }
+    } catch { /* ignore */ }
+    return null;
+  };
+  const direct = tryPath(filePath);
+  if (direct) return direct;
+
+  const folders = vscode.workspace.workspaceFolders ?? [];
+  for (const f of folders) {
+    const root = f.uri.fsPath;
+    // If the path shares a suffix with a workspace folder, re-root it there.
+    const idx = filePath.indexOf(`${path.sep}${path.basename(root)}${path.sep}`);
+    if (idx !== -1) {
+      const reRooted = path.join(root, filePath.slice(idx + path.basename(root).length + 2));
+      const hit = tryPath(reRooted);
+      if (hit) return hit;
+    }
+    const byBase = tryPath(path.join(root, path.basename(filePath)));
+    if (byBase) return byBase;
+  }
+  return null;
+}
+
 async function openDiff(filePath: string) {
-  const workingUri = vscode.Uri.file(filePath);
+  const resolved = resolveDiffPath(filePath);
+  if (!resolved) {
+    vscode.window.showErrorMessage(
+      `mermaid-collab: cannot open diff — file not found on this host: ${filePath}`,
+    );
+    return;
+  }
+  const workingUri = vscode.Uri.file(resolved);
+  const title = `${resolved.split('/').pop()} (Working Tree)`;
+
+  // Attempt a working-tree diff against HEAD. This only works for a tracked
+  // file inside a git repo; for untracked/new files (no HEAD blob) or no repo
+  // it throws/rejects — fall back to just opening the file (not an error).
   try {
     const gitExtension = vscode.extensions.getExtension('vscode.git');
-    if (gitExtension?.isActive) {
-      try {
-        const git = gitExtension.exports.getAPI(1) as { toGitUri(uri: vscode.Uri, ref: string): vscode.Uri };
-        const headUri = git.toGitUri(workingUri, 'HEAD');
-        const title = `${filePath.split('/').pop()} (Working Tree)`;
-        // preview:false → each diff gets its own persistent tab instead of
-        // reusing (and overwriting) the single shared preview tab.
-        await vscode.commands.executeCommand('vscode.diff', headUri, workingUri, title, {
-          preview: false,
-          preserveFocus: true,
-        });
-        return;
-      } catch { /* fall through to text fallback */ }
+    const git = gitExtension?.isActive
+      ? (gitExtension.exports.getAPI(1) as {
+          toGitUri(uri: vscode.Uri, ref: string): vscode.Uri;
+          getRepository(uri: vscode.Uri): unknown;
+        })
+      : null;
+    if (git && git.getRepository(workingUri)) {
+      const headUri = git.toGitUri(workingUri, 'HEAD');
+      // preview:false → each diff gets its own persistent tab instead of
+      // reusing (and overwriting) the single shared preview tab.
+      await vscode.commands.executeCommand('vscode.diff', headUri, workingUri, title, {
+        preview: false,
+        preserveFocus: true,
+      });
+      return;
     }
+  } catch { /* fall through to plain open */ }
+
+  try {
     const doc = await vscode.workspace.openTextDocument(workingUri);
     await vscode.window.showTextDocument(doc, { preserveFocus: true, preview: false });
   } catch (err) {
-    vscode.window.showErrorMessage(`mermaid-collab: failed to open ${filePath.split('/').pop()} — ${err instanceof Error ? err.message : String(err)}`);
+    vscode.window.showErrorMessage(
+      `mermaid-collab: failed to open ${title} (${resolved}) — ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
