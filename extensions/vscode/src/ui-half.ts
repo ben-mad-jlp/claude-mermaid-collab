@@ -4,10 +4,21 @@ import * as vscode from 'vscode';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs/promises';
+import * as fsSync from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import type { ChildProcess } from 'child_process';
+import { resolveServerSource } from './server-resolver';
+import { spawnCollabServer, AlreadyRunning } from './spawn-server';
 
 const execAsync = promisify(exec);
+
+type CollabServerState =
+  | { kind: 'stopped' }
+  | { kind: 'starting'; sessionId: string }
+  | { kind: 'ready'; sessionId: string; localPort: number }
+  | { kind: 'skew'; sessionId: string; localPort: number; uiVersion: string; remoteVersion: string }
+  | { kind: 'failed'; reason: string };
 
 // ====================================================================
 // Instance discovery (slim reader; full impl lives in src/services/...)
@@ -23,7 +34,7 @@ export interface Instance {
   serverVersion: string;
 }
 
-async function readLocalInstances(): Promise<Instance[]> {
+export async function readLocalInstances(): Promise<Instance[]> {
   const dir = path.join(os.homedir(), '.mermaid-collab', 'instances');
   let files: string[];
   try {
@@ -37,9 +48,14 @@ async function readLocalInstances(): Promise<Instance[]> {
     try {
       const raw = await fs.readFile(path.join(dir, f), 'utf8');
       const inst = JSON.parse(raw) as Instance;
-      if (typeof inst?.port === 'number' && typeof inst?.sessionId === 'string') {
-        out.push(inst);
+      if (typeof inst?.port !== 'number' || typeof inst?.sessionId !== 'string') continue;
+      // Skip instances whose process is no longer alive — the server may have
+      // died without cleaning its file (e.g. force-kill on Windows). Tunneling
+      // to a dead port would clobber serverUrl with a stale address.
+      if (typeof inst.pid === 'number') {
+        try { process.kill(inst.pid, 0); } catch { continue; }
       }
+      out.push(inst);
     } catch {}
   }
   return out;
@@ -55,7 +71,169 @@ let sshTunnelProcess: import('child_process').ChildProcess | null = null;
 let chromeDebugRunning = false;
 let outputChannel: vscode.OutputChannel;
 let portWatcherTimer: ReturnType<typeof setInterval> | null = null;
-const tunnelsBySessionId = new Map<string, { dispose(): void; localAddress: { host: string; port: number } | string }>();
+const tunnelsBySessionId = new Map<string, { dispose(): void; localAddress: { host: string; port: number } | string; remotePort: number }>();
+let collabServerState: CollabServerState = { kind: 'stopped' };
+let collabServerChild: ChildProcess | null = null;
+let collabServerBar: vscode.StatusBarItem;
+let collabServerOutput: vscode.OutputChannel;
+let instancesWatcher: fsSync.FSWatcher | null = null;
+const pendingInstanceUp = new Map<string, { resolve: (inst: Instance) => void; cancel: (err: Error) => void }>();
+
+// Read the current kind without TS narrowing it by assignment flow — the
+// state can be mutated to 'stopped' asynchronously (stop command / dispose).
+export function collabStateKind(): CollabServerState['kind'] {
+  return collabServerState.kind;
+}
+
+function updateCollabServerBar(): void {
+  if (!collabServerBar) return;
+  const s = collabServerState;
+  switch (s.kind) {
+    case 'stopped':
+      collabServerBar.text = '$(plug) collab';
+      collabServerBar.tooltip = 'Click to start collab server';
+      collabServerBar.backgroundColor = undefined;
+      break;
+    case 'starting':
+      collabServerBar.text = '$(loading~spin) collab';
+      collabServerBar.tooltip = 'Starting collab server…';
+      collabServerBar.backgroundColor = undefined;
+      break;
+    case 'ready':
+      collabServerBar.text = `$(check) collab :${s.localPort}`;
+      collabServerBar.tooltip = `Collab server on :${s.localPort} — click to open UI`;
+      collabServerBar.backgroundColor = undefined;
+      break;
+    case 'skew':
+      collabServerBar.text = `$(warning) collab :${s.localPort}`;
+      collabServerBar.tooltip = `Version mismatch — UI v${s.uiVersion}, remote v${s.remoteVersion}. Click to open UI anyway.`;
+      collabServerBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+      break;
+    case 'failed':
+      collabServerBar.text = '$(error) collab';
+      collabServerBar.tooltip = `Failed: ${s.reason} — click to view log`;
+      collabServerBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+      break;
+  }
+}
+
+export function awaitInstanceUp(sessionId: string, timeoutMs = 30_000): Promise<Instance> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingInstanceUp.delete(sessionId);
+      reject(new Error(`Timed out waiting for server (sessionId ${sessionId}) to come up`));
+    }, timeoutMs);
+    pendingInstanceUp.set(sessionId, {
+      resolve: (inst) => {
+        clearTimeout(timer);
+        pendingInstanceUp.delete(sessionId);
+        resolve(inst);
+      },
+      cancel: (err) => {
+        clearTimeout(timer);
+        pendingInstanceUp.delete(sessionId);
+        reject(err);
+      },
+    });
+  });
+}
+
+/** Rejects every in-flight awaitInstanceUp — used on stop/dispose so a late
+ *  instance file can't flip the bar back to `ready` after the user stopped. */
+export function cancelAllPending(reason: string): void {
+  for (const entry of Array.from(pendingInstanceUp.values())) {
+    try { entry.cancel(new Error(reason)); } catch {}
+  }
+  pendingInstanceUp.clear();
+}
+
+async function startCollabServerLocal(ctx: vscode.ExtensionContext, project: string, session: string): Promise<void> {
+  collabServerState = { kind: 'starting', sessionId: '' };
+  updateCollabServerBar();
+  try {
+    const source = await resolveServerSource();
+    const result = await spawnCollabServer({ project, session, source, output: collabServerOutput });
+    collabServerChild = result.child;
+    collabServerState = { kind: 'starting', sessionId: result.sessionId };
+    updateCollabServerBar();
+    // Detect a crash/exit of the spawned server so the bar doesn't stay green
+    // on a dead process. Only act if this child still owns the current state.
+    const onServerGone = (detail: string) => {
+      if (collabServerChild !== result.child) return;
+      collabServerChild = null;
+      cancelAllPending(`server exited (${detail})`);
+      const owns =
+        (collabServerState.kind === 'ready' || collabServerState.kind === 'skew' || collabServerState.kind === 'starting') &&
+        collabServerState.sessionId === result.sessionId;
+      if (!owns) return;
+      collabServerOutput.appendLine(`[server] ${detail} — marking collab server stopped`);
+      collabServerState = { kind: 'failed', reason: `server exited (${detail})` };
+      updateCollabServerBar();
+    };
+    result.child.once('exit', (code, signal) => onServerGone(`code=${code} signal=${signal}`));
+    result.child.once('error', (e) => onServerGone(e instanceof Error ? e.message : String(e)));
+    const inst = await awaitInstanceUp(result.sessionId);
+    // The user may have hit Stop while we were starting — don't override that.
+    if (collabServerState.kind !== 'starting' || collabServerState.sessionId !== result.sessionId) return;
+    // onInstanceUp has written the resolved tunnel port to globalState by now;
+    // prefer it over the raw server port (they can differ on non-loopback).
+    const localPort = ctx.globalState.get<number>(`tunnel:${result.sessionId}`) ?? inst.port;
+    const uiVersion = ctx.extension.packageJSON.version as string;
+    if (inst.serverVersion && inst.serverVersion !== uiVersion) {
+      collabServerState = { kind: 'skew', sessionId: result.sessionId, localPort, uiVersion, remoteVersion: inst.serverVersion };
+    } else {
+      collabServerState = { kind: 'ready', sessionId: result.sessionId, localPort };
+    }
+    updateCollabServerBar();
+  } catch (err) {
+    // User pressed Stop while starting — cancelAllPending rejected us; honor it.
+    if (collabStateKind() === 'stopped') return;
+    if (err instanceof AlreadyRunning) {
+      collabServerState = { kind: 'ready', sessionId: err.sessionId, localPort: err.port };
+      updateCollabServerBar();
+      await vscode.commands.executeCommand('mermaidCollab.openUi');
+      return;
+    }
+    const reason = err instanceof Error ? err.message : String(err);
+    collabServerOutput.appendLine(`[start] failed: ${reason}`);
+    collabServerOutput.show(true);
+    collabServerState = { kind: 'failed', reason };
+    updateCollabServerBar();
+    void vscode.window.showWarningMessage(`mermaid-collab: failed to start server — ${reason}`);
+  }
+}
+
+async function startCollabServerRemote(ctx: vscode.ExtensionContext, project: string, session: string): Promise<void> {
+  collabServerState = { kind: 'starting', sessionId: '' };
+  updateCollabServerBar();
+  try {
+    const result = await vscode.commands.executeCommand<{ pid: number; sessionId: string; version: string }>(
+      'mermaidCollab.workspace.startServer', { project, session },
+    );
+    if (!result) throw new Error('workspace half did not return a result');
+    collabServerState = { kind: 'starting', sessionId: result.sessionId };
+    updateCollabServerBar();
+    const inst = await awaitInstanceUp(result.sessionId);
+    if (collabServerState.kind !== 'starting' || collabServerState.sessionId !== result.sessionId) return;
+    const desiredLocal = ctx.globalState.get<number>(`tunnel:${result.sessionId}`);
+    const localPort = typeof desiredLocal === 'number' ? desiredLocal : inst.port;
+    const uiVersion = ctx.extension.packageJSON.version as string;
+    if (result.version && result.version !== uiVersion) {
+      collabServerState = { kind: 'skew', sessionId: result.sessionId, localPort, uiVersion, remoteVersion: result.version };
+    } else {
+      collabServerState = { kind: 'ready', sessionId: result.sessionId, localPort };
+    }
+    updateCollabServerBar();
+  } catch (err) {
+    if (collabStateKind() === 'stopped') return;
+    const reason = err instanceof Error ? err.message : String(err);
+    collabServerOutput.appendLine(`[start:remote] failed: ${reason}`);
+    collabServerOutput.show(true);
+    collabServerState = { kind: 'failed', reason };
+    updateCollabServerBar();
+    void vscode.window.showWarningMessage(`mermaid-collab: failed to start remote server — ${reason}`);
+  }
+}
 
 // ── Chrome binary discovery ────────────────────────────────────────────────
 
@@ -303,6 +481,40 @@ export function activateUi(ctx: vscode.ExtensionContext): void {
   outputChannel = vscode.window.createOutputChannel('mermaid-collab CDP');
   ctx.subscriptions.push(outputChannel);
 
+  collabServerBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 98);
+  collabServerBar.command = 'mermaidCollab.toggleCollabServer';
+  collabServerBar.show();
+  ctx.subscriptions.push(collabServerBar);
+  collabServerOutput = vscode.window.createOutputChannel('mermaid-collab Server');
+  ctx.subscriptions.push(collabServerOutput);
+  updateCollabServerBar();
+  ctx.subscriptions.push({ dispose: () => {
+    cancelAllPending('extension deactivated');
+    if (collabServerChild) { try { collabServerChild.kill('SIGTERM'); } catch {} }
+  } });
+
+  ctx.subscriptions.push(
+    vscode.commands.registerCommand('mermaidCollab.toggleCollabServer', async () => {
+      const wf = vscode.workspace.workspaceFolders?.[0];
+      if (!wf) { void vscode.window.showWarningMessage('mermaid-collab: open a folder first'); return; }
+      const project = wf.uri.fsPath;
+      const session = path.basename(project);
+      if (collabServerState.kind === 'ready' || collabServerState.kind === 'skew') {
+        return vscode.commands.executeCommand('mermaidCollab.openUi');
+      }
+      if (collabServerState.kind === 'starting') return;
+      if (collabServerState.kind === 'failed') collabServerOutput.show(true);
+      if (vscode.env.remoteName) return startCollabServerRemote(ctx, project, session);
+      return startCollabServerLocal(ctx, project, session);
+    }),
+    vscode.commands.registerCommand('mermaidCollab.stopCollabServer', async () => {
+      collabServerState = { kind: 'stopped' };
+      cancelAllPending('stopped by user');
+      if (collabServerChild) { try { collabServerChild.kill('SIGTERM'); } catch {} collabServerChild = null; }
+      updateCollabServerBar();
+    }),
+  );
+
   ctx.subscriptions.push(
     vscode.commands.registerCommand('mermaidCollab.toggleChromeDebug', () => {
       if (chromeDebugRunning) stopChromeDebug();
@@ -317,9 +529,27 @@ export function activateUi(ctx: vscode.ExtensionContext): void {
 
   // NEW: instance-up handler — opens tunnel and updates serverUrl
   ctx.subscriptions.push(
-    vscode.commands.registerCommand('mermaidCollab.ui.onInstanceUp', async (inst: Instance) => {
+    vscode.commands.registerCommand('mermaidCollab.ui.onInstanceUp', async (inst?: Instance) => {
+      // Internal RPC target — no-op when invoked manually from the command palette.
+      if (!inst || typeof inst.sessionId !== 'string' || typeof inst.port !== 'number') {
+        outputChannel.appendLine('[tunnel] onInstanceUp called without a valid Instance — ignoring');
+        return;
+      }
+      const pending = pendingInstanceUp.get(inst.sessionId);
+      let settled = false;
+      const settle = () => {
+        if (settled) return;
+        settled = true;
+        pending?.resolve(inst);
+      };
       try {
         const existing = tunnelsBySessionId.get(inst.sessionId);
+        if (existing && existing.remotePort === inst.port) {
+          // Same instance still on the same remote port — fs.watch fired for a
+          // heartbeat/.lock rewrite, not a real change. Don't churn the tunnel.
+          settle();
+          return;
+        }
         if (existing) {
           try { (existing as any).dispose?.(); } catch {}
           tunnelsBySessionId.delete(inst.sessionId);
@@ -331,7 +561,7 @@ export function activateUi(ctx: vscode.ExtensionContext): void {
           label: `collab:${inst.session}`,
         })) as { dispose(): void; localAddress: { host: string; port: number } | string };
         ctx.subscriptions.push(tunnel as vscode.Disposable);
-        tunnelsBySessionId.set(inst.sessionId, tunnel);
+        tunnelsBySessionId.set(inst.sessionId, { ...tunnel, dispose: () => tunnel.dispose(), remotePort: inst.port });
         const la: unknown = (tunnel as any).localAddress;
         let localPort: number | undefined;
         if (typeof la === 'string') {
@@ -342,23 +572,32 @@ export function activateUi(ctx: vscode.ExtensionContext): void {
         }
         if (typeof localPort !== 'number' || localPort <= 0) {
           outputChannel.appendLine(`[tunnel] could not determine local port for ${inst.session} from ${JSON.stringify(la)}`);
+          settle(); // server is up; caller falls back to inst.port
           return; // bail — don't write garbage
         }
         await ctx.globalState.update(`tunnel:${inst.sessionId}`, localPort);
         await vscode.workspace.getConfiguration('mermaidCollab')
           .update('serverUrl', `ws://127.0.0.1:${localPort}/ws`, vscode.ConfigurationTarget.Workspace);
         outputChannel.appendLine(`[tunnel] ${inst.session} → 127.0.0.1:${localPort} (remote ${inst.port})`);
+        // Resolve the awaiter only now — serverUrl is written, so an immediate
+        // open-UI click after `ready` can't read a stale serverUrl.
+        settle();
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         outputChannel.appendLine(`[tunnel] openTunnel failed for ${inst.session}: ${msg}`);
         void vscode.window.showWarningMessage(`mermaid-collab: Couldn't forward port for ${inst.session} — ${msg}`);
+        settle(); // server itself is up even if forwarding failed
       }
     }),
   );
 
   // NEW: instance-down handler — disposes tunnel
   ctx.subscriptions.push(
-    vscode.commands.registerCommand('mermaidCollab.ui.onInstanceDown', async (inst: { sessionId: string }) => {
+    vscode.commands.registerCommand('mermaidCollab.ui.onInstanceDown', async (inst?: { sessionId?: string }) => {
+      if (!inst || typeof inst.sessionId !== 'string') {
+        outputChannel.appendLine('[tunnel] onInstanceDown called without a valid sessionId — ignoring');
+        return;
+      }
       const t = tunnelsBySessionId.get(inst.sessionId);
       if (t) {
         try { t.dispose(); } catch {}
@@ -389,16 +628,59 @@ export function activateUi(ctx: vscode.ExtensionContext): void {
   // Local-only path: scan ~/.mermaid-collab/instances/ for already-running local servers
   if (ctx.extension.extensionKind === vscode.ExtensionKind.UI) {
     void (async () => {
-      try {
-        const instances = await readLocalInstances();
-        for (const inst of instances) {
-          await ctx.globalState.update(`tunnel:${inst.sessionId}`, inst.port);
-          await vscode.workspace.getConfiguration('mermaidCollab')
-            .update('serverUrl', `ws://127.0.0.1:${inst.port}/ws`, vscode.ConfigurationTarget.Workspace);
-          outputChannel.appendLine(`[local] ${inst.session} → 127.0.0.1:${inst.port}`);
+      const instancesDir = path.join(os.homedir(), '.mermaid-collab', 'instances');
+      try { await fs.mkdir(instancesDir, { recursive: true }); } catch {}
+      const rescan = async () => {
+        try {
+          const instances = await readLocalInstances();
+          for (const inst of instances) {
+            await vscode.commands.executeCommand('mermaidCollab.ui.onInstanceUp', inst);
+          }
+        } catch (err) {
+          collabServerOutput.appendLine(`[watch] rescan failed: ${err instanceof Error ? err.message : String(err)}`);
         }
-      } catch (err) {
-        outputChannel.appendLine(`[local] readInstances failed: ${err instanceof Error ? err.message : String(err)}`);
+      };
+      await rescan();
+
+      // Coalesce bursts (macOS fires rename ~2x; servers rewrite heartbeats).
+      let debounce: ReturnType<typeof setTimeout> | null = null;
+      const scheduleRescan = () => {
+        if (debounce) clearTimeout(debounce);
+        debounce = setTimeout(() => { debounce = null; void rescan(); }, 250);
+      };
+
+      let pollTimer: ReturnType<typeof setInterval> | null = null;
+      const startPolling = () => {
+        if (pollTimer) return;
+        collabServerOutput.appendLine('[watch] falling back to 30s polling');
+        pollTimer = setInterval(() => { void rescan(); }, 30_000);
+      };
+
+      try {
+        instancesWatcher = fsSync.watch(instancesDir, { persistent: false }, (_event, filename) => {
+          // Only .json files matter; ignore .lock churn and editor temp files.
+          if (filename && !String(filename).endsWith('.json')) return;
+          scheduleRescan();
+        });
+        // watch() can succeed then later emit 'error' (NFS, dir removed) — fall
+        // back to polling instead of silently going deaf.
+        instancesWatcher.on('error', (err) => {
+          collabServerOutput.appendLine(`[watch] watcher error: ${err instanceof Error ? err.message : String(err)}`);
+          try { instancesWatcher?.close(); } catch {}
+          instancesWatcher = null;
+          startPolling();
+        });
+        ctx.subscriptions.push({ dispose: () => {
+          if (debounce) clearTimeout(debounce);
+          if (pollTimer) clearInterval(pollTimer);
+          instancesWatcher?.close();
+        } });
+      } catch {
+        startPolling();
+        ctx.subscriptions.push({ dispose: () => {
+          if (debounce) clearTimeout(debounce);
+          if (pollTimer) clearInterval(pollTimer);
+        } });
       }
     })();
   }

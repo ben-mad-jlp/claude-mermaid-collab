@@ -2,7 +2,7 @@
   "name": "mermaid-collab-vscode",
   "displayName": "mermaid-collab",
   "description": "Connects the mermaid-collab UI to VSCode terminals and editor",
-  "version": "1.0.15",
+  "version": "1.0.17",
   "publisher": "mermaid-collab",
   "engines": {
     "vscode": "^1.85.0"
@@ -47,6 +47,18 @@
       {
         "command": "mermaidCollab.openUi",
         "title": "mermaid-collab: Open UI"
+      },
+      {
+        "command": "mermaidCollab.toggleCollabServer",
+        "title": "mermaid-collab: Start / Stop Collab Server"
+      },
+      {
+        "command": "mermaidCollab.stopCollabServer",
+        "title": "mermaid-collab: Stop Collab Server"
+      },
+      {
+        "command": "mermaidCollab.workspace.startServer",
+        "title": "mermaid-collab: (Workspace) Start Server (internal)"
       }
     ],
     "configuration": {

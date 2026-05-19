@@ -35,7 +35,7 @@ Args: {
 
 The tool:
 - Auto-derives the archive slug from any `blueprint: true` doc under `Implementing/` (or falls back to a timestamp)
-- Copies each match to `Archive/{slug}/{rest-of-name}` and deprecates the original
+- Moves each match to `Archive/{slug}/{rest-of-name}`: creates the archived copy (marked deprecated) and **deletes the original** so nothing stale lingers under `Implementing/`
 - Returns `{ archived: [...], errors: [...], slug }`
 
 Tell the user: `"Archived previous implementing work: ${result.slug} (${result.archived.length} items)"`. If `result.archived` is empty, say nothing.

@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
+import { resolveServerSource } from './server-resolver';
+import { spawnCollabServer, AlreadyRunning } from './spawn-server';
 
 interface Instance {
   version: 1;
@@ -15,6 +17,15 @@ interface Instance {
 }
 
 const INSTANCES_DIR = path.join(os.homedir(), '.mermaid-collab', 'instances');
+
+let remoteOutput: vscode.OutputChannel | undefined;
+function getOrCreateOutput(ctx: vscode.ExtensionContext): vscode.OutputChannel {
+  if (!remoteOutput) {
+    remoteOutput = vscode.window.createOutputChannel('mermaid-collab Server (remote)');
+    ctx.subscriptions.push(remoteOutput);
+  }
+  return remoteOutput;
+}
 
 function isInstance(x: unknown): x is Instance {
   if (!x || typeof x !== 'object') return false;
@@ -147,4 +158,27 @@ export async function activateWorkspace(ctx: vscode.ExtensionContext): Promise<v
     }
   }, 30_000);
   ctx.subscriptions.push({ dispose: () => clearInterval(pollTimer) });
+
+  const startServerCmd = vscode.commands.registerCommand(
+    'mermaidCollab.workspace.startServer',
+    async (args: { project: string; session: string }): Promise<{ pid: number; sessionId: string; version: string }> => {
+      const source = await resolveServerSource();
+      const output = getOrCreateOutput(ctx);
+      try {
+        const result = await spawnCollabServer({
+          project: args.project,
+          session: args.session,
+          source,
+          output,
+        });
+        return { pid: result.pid, sessionId: result.sessionId, version: source.version };
+      } catch (err) {
+        if (err instanceof AlreadyRunning) {
+          return { pid: err.pid, sessionId: err.sessionId, version: source.version };
+        }
+        throw err;
+      }
+    },
+  );
+  ctx.subscriptions.push(startServerCmd);
 }

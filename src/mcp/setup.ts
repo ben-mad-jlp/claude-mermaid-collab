@@ -810,6 +810,24 @@ async function deprecateItem(project: string, session: string, id: string): Prom
   if (!response.ok) throw new Error(`Failed to deprecate ${id}: ${response.statusText}`);
 }
 
+async function deleteArchivedOriginal(
+  project: string,
+  session: string,
+  type: 'document' | 'diagram' | 'design' | 'snippet',
+  id: string
+): Promise<void> {
+  if (type === 'document' || type === 'diagram') {
+    const response = await fetch(buildUrl(`/api/${type}/${id}`, project, session), {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw new Error(`Failed to delete ${type} ${id}: ${response.statusText}`);
+  } else if (type === 'design') {
+    await handleDeleteDesign(project, session, id);
+  } else {
+    await handleDeleteSnippet(project, session, id);
+  }
+}
+
 function rewriteName(oldName: string, prefix: string, slug: string): string {
   // Strip the prefix (with or without trailing slash) and prepend Archive/{slug}/
   const stripped = oldName.startsWith(prefix) ? oldName.slice(prefix.length).replace(/^\/+/, '') : oldName;
@@ -876,7 +894,8 @@ async function archiveByPrefix(
       const newName = rewriteName(d.name, prefix, slug);
       const createdRaw = await createDocument(project, session, newName, full.content);
       const created = JSON.parse(createdRaw);
-      await deprecateItem(project, session, d.id);
+      await deprecateItem(project, session, created.id);
+      await deleteArchivedOriginal(project, session, 'document', d.id);
       archived.push({ type: 'document', oldName: d.name, oldId: d.id, newName, newId: created.id });
     } catch (err) {
       errors.push({ type: 'document', id: d.id, name: d.name, error: String(err) });
@@ -892,7 +911,8 @@ async function archiveByPrefix(
       const newName = rewriteName(d.name, prefix, slug);
       const createdRaw = await createDiagram(project, session, newName, full.content);
       const created = JSON.parse(createdRaw);
-      await deprecateItem(project, session, d.id);
+      await deprecateItem(project, session, created.id);
+      await deleteArchivedOriginal(project, session, 'diagram', d.id);
       archived.push({ type: 'diagram', oldName: d.name, oldId: d.id, newName, newId: created.id });
     } catch (err) {
       errors.push({ type: 'diagram', id: d.id, name: d.name, error: String(err) });
@@ -906,7 +926,8 @@ async function archiveByPrefix(
       const full = await handleGetDesign(project, session, d.id);
       const newName = rewriteName(d.name || d.id, prefix, slug);
       const created = await handleCreateDesign(project, session, newName, full.content);
-      await deprecateItem(project, session, d.id);
+      await deprecateItem(project, session, created.id);
+      await deleteArchivedOriginal(project, session, 'design', d.id);
       archived.push({ type: 'design', oldName: d.name || d.id, oldId: d.id, newName, newId: created.id });
     } catch (err) {
       errors.push({ type: 'design', id: d.id, name: d.name || d.id, error: String(err) });
@@ -920,7 +941,8 @@ async function archiveByPrefix(
       const full = await handleGetSnippet(project, session, s.id);
       const newName = rewriteName(s.name, prefix, slug);
       const created = await handleCreateSnippet(project, session, newName, full.content);
-      await deprecateItem(project, session, s.id);
+      await deprecateItem(project, session, (created as any).id);
+      await deleteArchivedOriginal(project, session, 'snippet', s.id);
       archived.push({ type: 'snippet', oldName: s.name, oldId: s.id, newName, newId: (created as any).id });
     } catch (err) {
       errors.push({ type: 'snippet', id: s.id, name: s.name, error: String(err) });
