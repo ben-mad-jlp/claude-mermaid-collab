@@ -2,7 +2,7 @@
   "name": "mermaid-collab-vscode",
   "displayName": "mermaid-collab",
   "description": "Connects the mermaid-collab UI to VSCode terminals and editor",
-  "version": "1.0.18",
+  "version": "1.0.19",
   "publisher": "mermaid-collab",
   "engines": {
     "vscode": "^1.85.0"
@@ -20,10 +20,6 @@
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
-      {
-        "command": "mermaidCollab.showStatus",
-        "title": "mermaid-collab: Show Status"
-      },
       {
         "command": "mermaidCollab.reconnect",
         "title": "mermaid-collab: Reconnect"

@@ -64,7 +64,6 @@ export async function readLocalInstances(): Promise<Instance[]> {
 // ====================================================================
 // Module state (lifted from extension.ts)
 // ====================================================================
-let statusBarItem: vscode.StatusBarItem;
 let chromeDebugBar: vscode.StatusBarItem;
 let chromeDebugProcess: import('child_process').ChildProcess | null = null;
 let sshTunnelProcess: import('child_process').ChildProcess | null = null;
@@ -101,12 +100,12 @@ function updateCollabServerBar(): void {
       break;
     case 'ready':
       collabServerBar.text = `$(check) collab :${s.localPort}`;
-      collabServerBar.tooltip = `Collab server on :${s.localPort} — click to open UI`;
+      collabServerBar.tooltip = `Collab server on :${s.localPort} — click to (re)start / open UI`;
       collabServerBar.backgroundColor = undefined;
       break;
     case 'skew':
       collabServerBar.text = `$(warning) collab :${s.localPort}`;
-      collabServerBar.tooltip = `Version mismatch — UI v${s.uiVersion}, remote v${s.remoteVersion}. Click to open UI anyway.`;
+      collabServerBar.tooltip = `Version mismatch — UI v${s.uiVersion}, remote v${s.remoteVersion}. Click to (re)start / open UI.`;
       collabServerBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
       break;
     case 'failed':
@@ -465,13 +464,6 @@ function stopChromeDebug(): void {
 // activateUi
 // ====================================================================
 export function activateUi(ctx: vscode.ExtensionContext): void {
-  statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  statusBarItem.command = 'mermaidCollab.showStatus';
-  statusBarItem.text = '$(debug-disconnect) collab';
-  statusBarItem.tooltip = 'mermaid-collab UI half';
-  statusBarItem.show();
-  ctx.subscriptions.push(statusBarItem);
-
   chromeDebugBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
   chromeDebugBar.command = 'mermaidCollab.toggleChromeDebug';
   chromeDebugBar.show();
@@ -499,11 +491,12 @@ export function activateUi(ctx: vscode.ExtensionContext): void {
       if (!wf) { void vscode.window.showWarningMessage('mermaid-collab: open a folder first'); return; }
       const project = wf.uri.fsPath;
       const session = path.basename(project);
-      if (collabServerState.kind === 'ready' || collabServerState.kind === 'skew') {
-        return vscode.commands.executeCommand('mermaidCollab.openUi');
-      }
-      if (collabServerState.kind === 'starting') return;
+      if (collabServerState.kind === 'starting') return; // a start is in flight
       if (collabServerState.kind === 'failed') collabServerOutput.show(true);
+      // Otherwise (stopped / failed / ready / skew) (re)start. If a server is
+      // already serving this session, the spawn path detects it via
+      // AlreadyRunning and opens the UI instead of double-spawning — so the
+      // single button can always start, even when one looks active.
       if (vscode.env.remoteName) return startCollabServerRemote(ctx, project, session);
       return startCollabServerLocal(ctx, project, session);
     }),
@@ -522,9 +515,6 @@ export function activateUi(ctx: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand('mermaidCollab.startChromeDebug', () => { void startChromeDebug(); }),
     vscode.commands.registerCommand('mermaidCollab.stopChromeDebug', () => { stopChromeDebug(); }),
-    vscode.commands.registerCommand('mermaidCollab.showStatus', () => {
-      vscode.window.showInformationMessage('mermaid-collab UI half active');
-    }),
   );
 
   // NEW: instance-up handler — opens tunnel and updates serverUrl

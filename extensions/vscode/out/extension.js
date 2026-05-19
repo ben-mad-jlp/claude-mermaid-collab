@@ -4161,7 +4161,6 @@ async function readLocalInstances() {
   }
   return out;
 }
-var statusBarItem;
 var chromeDebugBar;
 var chromeDebugProcess = null;
 var sshTunnelProcess = null;
@@ -4195,12 +4194,12 @@ function updateCollabServerBar() {
       break;
     case "ready":
       collabServerBar.text = `$(check) collab :${s.localPort}`;
-      collabServerBar.tooltip = `Collab server on :${s.localPort} \u2014 click to open UI`;
+      collabServerBar.tooltip = `Collab server on :${s.localPort} \u2014 click to (re)start / open UI`;
       collabServerBar.backgroundColor = void 0;
       break;
     case "skew":
       collabServerBar.text = `$(warning) collab :${s.localPort}`;
-      collabServerBar.tooltip = `Version mismatch \u2014 UI v${s.uiVersion}, remote v${s.remoteVersion}. Click to open UI anyway.`;
+      collabServerBar.tooltip = `Version mismatch \u2014 UI v${s.uiVersion}, remote v${s.remoteVersion}. Click to (re)start / open UI.`;
       collabServerBar.backgroundColor = new vscode2.ThemeColor("statusBarItem.warningBackground");
       break;
     case "failed":
@@ -4562,12 +4561,6 @@ function stopChromeDebug() {
   updateChromeDebugBar();
 }
 function activateUi(ctx) {
-  statusBarItem = vscode2.window.createStatusBarItem(vscode2.StatusBarAlignment.Right, 100);
-  statusBarItem.command = "mermaidCollab.showStatus";
-  statusBarItem.text = "$(debug-disconnect) collab";
-  statusBarItem.tooltip = "mermaid-collab UI half";
-  statusBarItem.show();
-  ctx.subscriptions.push(statusBarItem);
   chromeDebugBar = vscode2.window.createStatusBarItem(vscode2.StatusBarAlignment.Right, 99);
   chromeDebugBar.command = "mermaidCollab.toggleChromeDebug";
   chromeDebugBar.show();
@@ -4600,9 +4593,6 @@ function activateUi(ctx) {
       }
       const project = wf.uri.fsPath;
       const session = path4.basename(project);
-      if (collabServerState.kind === "ready" || collabServerState.kind === "skew") {
-        return vscode2.commands.executeCommand("mermaidCollab.openUi");
-      }
       if (collabServerState.kind === "starting")
         return;
       if (collabServerState.kind === "failed")
@@ -4636,9 +4626,6 @@ function activateUi(ctx) {
     }),
     vscode2.commands.registerCommand("mermaidCollab.stopChromeDebug", () => {
       stopChromeDebug();
-    }),
-    vscode2.commands.registerCommand("mermaidCollab.showStatus", () => {
-      vscode2.window.showInformationMessage("mermaid-collab UI half active");
     })
   );
   ctx.subscriptions.push(
