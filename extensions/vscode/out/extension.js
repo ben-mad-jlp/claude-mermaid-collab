@@ -2277,7 +2277,7 @@ var require_websocket = __commonJS({
     var http = require("http");
     var net = require("net");
     var tls = require("tls");
-    var { randomBytes, createHash } = require("crypto");
+    var { randomBytes, createHash: createHash2 } = require("crypto");
     var { Duplex, Readable } = require("stream");
     var { URL } = require("url");
     var PerMessageDeflate2 = require_permessage_deflate();
@@ -2957,7 +2957,7 @@ var require_websocket = __commonJS({
           abortHandshake(websocket, socket, "Invalid Upgrade header");
           return;
         }
-        const digest = createHash("sha1").update(key + GUID).digest("base64");
+        const digest = createHash2("sha1").update(key + GUID).digest("base64");
         if (res.headers["sec-websocket-accept"] !== digest) {
           abortHandshake(websocket, socket, "Invalid Sec-WebSocket-Accept header");
           return;
@@ -3344,7 +3344,7 @@ var require_websocket_server = __commonJS({
     var EventEmitter = require("events");
     var http = require("http");
     var { Duplex } = require("stream");
-    var { createHash } = require("crypto");
+    var { createHash: createHash2 } = require("crypto");
     var extension2 = require_extension();
     var PerMessageDeflate2 = require_permessage_deflate();
     var subprotocol2 = require_subprotocol();
@@ -3653,7 +3653,7 @@ var require_websocket_server = __commonJS({
         }
         if (this._state > RUNNING)
           return abortHandshake(socket, 503);
-        const digest = createHash("sha1").update(key + GUID).digest("base64");
+        const digest = createHash2("sha1").update(key + GUID).digest("base64");
         const headers = [
           "HTTP/1.1 101 Switching Protocols",
           "Upgrade: websocket",
@@ -3746,7 +3746,1065 @@ __export(extension_exports, {
   deactivate: () => deactivate
 });
 module.exports = __toCommonJS(extension_exports);
+var vscode3 = __toESM(require("vscode"));
+
+// src/workspace-half.ts
 var vscode = __toESM(require("vscode"));
+var fs3 = __toESM(require("fs/promises"));
+var os3 = __toESM(require("os"));
+var path3 = __toESM(require("path"));
+
+// src/server-resolver.ts
+var fs = __toESM(require("fs/promises"));
+var import_fs = require("fs");
+var os = __toESM(require("os"));
+var path = __toESM(require("path"));
+var import_child_process = require("child_process");
+var import_util = require("util");
+var execAsync = (0, import_util.promisify)(import_child_process.exec);
+async function findHighestSemverDir(parent) {
+  let entries;
+  try {
+    entries = await fs.readdir(parent);
+  } catch {
+    return null;
+  }
+  const semver = /^(\d+)\.(\d+)\.(\d+)(?:-(.+))?$/;
+  const parsed = entries.map((e) => {
+    const m = e.match(semver);
+    return m ? { name: e, t: [Number(m[1]), Number(m[2]), Number(m[3])], pre: m[4] ?? "" } : null;
+  }).filter((x) => x !== null);
+  if (parsed.length === 0)
+    return null;
+  parsed.sort((a, b) => {
+    const byTuple = b.t[0] - a.t[0] || b.t[1] - a.t[1] || b.t[2] - a.t[2];
+    if (byTuple !== 0)
+      return byTuple;
+    if (a.pre === b.pre)
+      return 0;
+    if (!a.pre)
+      return -1;
+    if (!b.pre)
+      return 1;
+    return b.pre.localeCompare(a.pre);
+  });
+  return path.join(parent, parsed[0].name);
+}
+async function resolveRootDir() {
+  const candidates = [
+    process.env.MERMAID_COLLAB_ROOT,
+    process.env.CLAUDE_PLUGIN_ROOT
+  ];
+  for (const c of candidates) {
+    if (c && (0, import_fs.existsSync)(path.join(c, "src", "server.ts")) && (0, import_fs.existsSync)(path.join(c, "package.json"))) {
+      return c;
+    }
+  }
+  const cacheParent = path.join(os.homedir(), ".claude", "plugins", "cache", "mermaid-collab-dev", "mermaid-collab");
+  const latest = await findHighestSemverDir(cacheParent);
+  if (latest && (0, import_fs.existsSync)(path.join(latest, "src", "server.ts")) && (0, import_fs.existsSync)(path.join(latest, "package.json"))) {
+    return latest;
+  }
+  throw new Error("Could not locate mermaid-collab source dir \u2014 set MERMAID_COLLAB_ROOT");
+}
+async function readVersion(rootDir) {
+  try {
+    const raw = await fs.readFile(path.join(rootDir, "package.json"), "utf8");
+    const v = JSON.parse(raw).version;
+    return typeof v === "string" ? v : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+async function validateBun(bunPath) {
+  try {
+    const { stdout } = await execAsync(`"${bunPath}" --version`);
+    return /^\d+\.\d+\.\d+/.test(stdout.trim());
+  } catch {
+    return false;
+  }
+}
+async function resolveBunPath() {
+  const isWin = process.platform === "win32";
+  if (process.env.BUN_PATH && await validateBun(process.env.BUN_PATH)) {
+    return process.env.BUN_PATH;
+  }
+  try {
+    const cmd = isWin ? "where.exe bun" : "which bun";
+    const { stdout } = await execAsync(cmd);
+    const first = stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)[0];
+    if (first && await validateBun(first))
+      return first;
+  } catch {
+  }
+  const fallback = isWin ? path.join(os.homedir(), ".bun", "bin", "bun.exe") : path.join(os.homedir(), ".bun", "bin", "bun");
+  if ((0, import_fs.existsSync)(fallback) && await validateBun(fallback)) {
+    return fallback;
+  }
+  throw new Error("Could not locate bun binary \u2014 install from https://bun.sh or set BUN_PATH");
+}
+async function resolveServerSource() {
+  const rootDir = await resolveRootDir();
+  const version2 = await readVersion(rootDir);
+  const bunPath = await resolveBunPath();
+  return { rootDir, version: version2, bunPath };
+}
+
+// src/spawn-server.ts
+var child_process = __toESM(require("child_process"));
+var fs2 = __toESM(require("fs/promises"));
+var import_fs2 = require("fs");
+var os2 = __toESM(require("os"));
+var path2 = __toESM(require("path"));
+var import_crypto = require("crypto");
+var AlreadyRunning = class extends Error {
+  constructor(pid, port, sessionId) {
+    super(`mermaid-collab server already running for sessionId ${sessionId} (pid ${pid}, port ${port})`);
+    this.pid = pid;
+    this.port = port;
+    this.sessionId = sessionId;
+    this.name = "AlreadyRunning";
+  }
+};
+function deriveSessionId(project, session) {
+  return (0, import_crypto.createHash)("sha1").update(project + "\0" + session).digest("hex").slice(0, 12);
+}
+function pipeLines(stream, prefix, output) {
+  if (!stream)
+    return;
+  stream.setEncoding("utf8");
+  let buf = "";
+  stream.on("data", (chunk) => {
+    buf += chunk;
+    const lines = buf.split("\n");
+    buf = lines.pop() ?? "";
+    for (const line of lines)
+      output.appendLine(prefix + line);
+  });
+  stream.on("end", () => {
+    if (buf.length > 0)
+      output.appendLine(prefix + buf);
+  });
+}
+async function spawnCollabServer(opts) {
+  const { output } = opts;
+  const sessionId = deriveSessionId(opts.project, opts.session);
+  const instancesDir = path2.join(os2.homedir(), ".mermaid-collab", "instances");
+  const instancePath = path2.join(instancesDir, sessionId + ".json");
+  const lockPath = path2.join(instancesDir, sessionId + ".lock");
+  if ((0, import_fs2.existsSync)(instancePath)) {
+    let inst = null;
+    try {
+      inst = JSON.parse(await fs2.readFile(instancePath, "utf8"));
+    } catch {
+      inst = null;
+    }
+    if (inst && typeof inst.pid === "number") {
+      let alive = false;
+      try {
+        process.kill(inst.pid, 0);
+        alive = true;
+      } catch {
+      }
+      if (alive) {
+        throw new AlreadyRunning(inst.pid, typeof inst.port === "number" ? inst.port : 0, sessionId);
+      }
+    }
+    await fs2.unlink(instancePath).catch(() => {
+    });
+    await fs2.unlink(lockPath).catch(() => {
+    });
+  }
+  output.appendLine("\u2500".repeat(60));
+  output.appendLine(`[spawn] mermaid-collab server`);
+  output.appendLine(`[spawn] source : ${opts.source.rootDir}`);
+  output.appendLine(`[spawn] version: ${opts.source.version ?? "unknown"}`);
+  output.appendLine(`[spawn] bun    : ${opts.source.bunPath}`);
+  output.appendLine(`[spawn] project: ${opts.project}`);
+  output.appendLine(`[spawn] session: ${opts.session}`);
+  output.appendLine(`[spawn] sessionId: ${sessionId}`);
+  output.appendLine(`[spawn] at ${(/* @__PURE__ */ new Date()).toISOString()}`);
+  output.appendLine("\u2500".repeat(60));
+  const child = child_process.spawn(opts.source.bunPath, ["src/server.ts"], {
+    cwd: opts.source.rootDir,
+    env: {
+      ...process.env,
+      PORT: "0",
+      MERMAID_PROJECT: opts.project,
+      MERMAID_SESSION: opts.session
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+    detached: false
+  });
+  pipeLines(child.stdout, "[server] ", output);
+  pipeLines(child.stderr, "[server:err] ", output);
+  child.on("error", (err) => output.appendLine(`[server:error] ${err.message}`));
+  child.on(
+    "exit",
+    (code, signal) => output.appendLine(`[server:exit] code=${code} signal=${signal}`)
+  );
+  if (opts.signal) {
+    opts.signal.addEventListener("abort", () => {
+      try {
+        child.kill("SIGTERM");
+      } catch {
+      }
+    });
+  }
+  if (typeof child.pid !== "number") {
+    throw new Error("Failed to spawn bun \u2014 child has no pid (bad bun path?)");
+  }
+  return { pid: child.pid, sessionId, child };
+}
+
+// src/workspace-half.ts
+var INSTANCES_DIR = path3.join(os3.homedir(), ".mermaid-collab", "instances");
+var remoteOutput;
+function getOrCreateOutput(ctx) {
+  if (!remoteOutput) {
+    remoteOutput = vscode.window.createOutputChannel("mermaid-collab Server (remote)");
+    ctx.subscriptions.push(remoteOutput);
+  }
+  return remoteOutput;
+}
+function isInstance(x) {
+  if (!x || typeof x !== "object")
+    return false;
+  const o = x;
+  return typeof o.sessionId === "string" && typeof o.port === "number" && typeof o.project === "string" && typeof o.session === "string";
+}
+async function readInstanceFile(uri) {
+  try {
+    const raw = await fs3.readFile(uri.fsPath, "utf8");
+    const parsed = JSON.parse(raw);
+    return isInstance(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+function sessionIdFromUri(uri) {
+  return path3.basename(uri.fsPath).replace(/\.json$/, "");
+}
+async function announceUp(uri, knownInstances) {
+  const inst = await readInstanceFile(uri);
+  if (!inst)
+    return;
+  knownInstances.set(inst.sessionId, inst);
+  try {
+    await vscode.commands.executeCommand("mermaidCollab.ui.onInstanceUp", inst);
+  } catch (err) {
+    console.warn(`[workspace-half] onInstanceUp dispatch failed:`, err);
+  }
+}
+async function announceDown(sessionId, knownInstances) {
+  knownInstances.delete(sessionId);
+  try {
+    await vscode.commands.executeCommand("mermaidCollab.ui.onInstanceDown", { sessionId });
+  } catch (err) {
+    console.warn(`[workspace-half] onInstanceDown dispatch failed:`, err);
+  }
+}
+async function instanceState(known) {
+  const filePath = path3.join(INSTANCES_DIR, known.sessionId + ".json");
+  let raw;
+  try {
+    raw = await fs3.readFile(filePath, "utf8");
+  } catch {
+    return "dead";
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return "dead";
+  }
+  if (typeof parsed?.startedAt !== "string")
+    return "dead";
+  if (parsed.startedAt !== known.startedAt)
+    return "replaced";
+  if (typeof known.pid !== "number")
+    return "alive";
+  try {
+    process.kill(known.pid, 0);
+    return "alive";
+  } catch {
+    return "dead";
+  }
+}
+async function activateWorkspace(ctx) {
+  const known = /* @__PURE__ */ new Map();
+  try {
+    await fs3.mkdir(INSTANCES_DIR, { recursive: true });
+  } catch (err) {
+    console.warn(`[workspace-half] mkdir ${INSTANCES_DIR} failed:`, err);
+  }
+  try {
+    const files = await fs3.readdir(INSTANCES_DIR);
+    for (const f of files) {
+      if (!f.endsWith(".json"))
+        continue;
+      const uri = vscode.Uri.file(path3.join(INSTANCES_DIR, f));
+      await announceUp(uri, known);
+    }
+  } catch (err) {
+    console.warn(`[workspace-half] initial scan failed:`, err);
+  }
+  const watcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(vscode.Uri.file(INSTANCES_DIR), "*.json")
+  );
+  ctx.subscriptions.push(watcher);
+  watcher.onDidCreate((uri) => {
+    void announceUp(uri, known);
+  });
+  watcher.onDidChange((uri) => {
+    void announceUp(uri, known);
+  });
+  watcher.onDidDelete((uri) => {
+    void announceDown(sessionIdFromUri(uri), known);
+  });
+  const pollTimer = setInterval(async () => {
+    try {
+      const filesNow = /* @__PURE__ */ new Set();
+      let entries = [];
+      try {
+        entries = await fs3.readdir(INSTANCES_DIR);
+      } catch {
+        return;
+      }
+      for (const f of entries) {
+        if (!f.endsWith(".json"))
+          continue;
+        const id = f.replace(/\.json$/, "");
+        filesNow.add(id);
+        if (!known.has(id)) {
+          await announceUp(vscode.Uri.file(path3.join(INSTANCES_DIR, f)), known);
+        }
+      }
+      for (const [id, inst] of known) {
+        if (!filesNow.has(id)) {
+          await announceDown(id, known);
+          continue;
+        }
+        const state = await instanceState(inst);
+        if (state === "dead") {
+          await announceDown(id, known);
+        } else if (state === "replaced") {
+          await announceDown(id, known);
+          await announceUp(vscode.Uri.file(path3.join(INSTANCES_DIR, id + ".json")), known);
+        }
+      }
+    } catch (err) {
+      console.warn(`[workspace-half] poll failed:`, err);
+    }
+  }, 3e4);
+  ctx.subscriptions.push({ dispose: () => clearInterval(pollTimer) });
+  const startServerCmd = vscode.commands.registerCommand(
+    "mermaidCollab.workspace.startServer",
+    async (args) => {
+      const source = await resolveServerSource();
+      const output = getOrCreateOutput(ctx);
+      try {
+        const result = await spawnCollabServer({
+          project: args.project,
+          session: args.session,
+          source,
+          output
+        });
+        return { pid: result.pid, sessionId: result.sessionId, version: source.version };
+      } catch (err) {
+        if (err instanceof AlreadyRunning) {
+          return { pid: err.pid, sessionId: err.sessionId, version: source.version };
+        }
+        throw err;
+      }
+    }
+  );
+  ctx.subscriptions.push(startServerCmd);
+}
+
+// src/ui-half.ts
+var vscode2 = __toESM(require("vscode"));
+var import_child_process2 = require("child_process");
+var import_util2 = require("util");
+var fs4 = __toESM(require("fs/promises"));
+var fsSync = __toESM(require("fs"));
+var os4 = __toESM(require("os"));
+var path4 = __toESM(require("path"));
+var execAsync2 = (0, import_util2.promisify)(import_child_process2.exec);
+async function readLocalInstances() {
+  const dir = path4.join(os4.homedir(), ".mermaid-collab", "instances");
+  let files;
+  try {
+    files = await fs4.readdir(dir);
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const f of files) {
+    if (!f.endsWith(".json"))
+      continue;
+    try {
+      const raw = await fs4.readFile(path4.join(dir, f), "utf8");
+      const inst = JSON.parse(raw);
+      if (typeof inst?.port !== "number" || typeof inst?.sessionId !== "string")
+        continue;
+      if (typeof inst.pid === "number") {
+        try {
+          process.kill(inst.pid, 0);
+        } catch {
+          continue;
+        }
+      }
+      out.push(inst);
+    } catch {
+    }
+  }
+  return out;
+}
+var statusBarItem;
+var chromeDebugBar;
+var chromeDebugProcess = null;
+var sshTunnelProcess = null;
+var chromeDebugRunning = false;
+var outputChannel;
+var portWatcherTimer = null;
+var tunnelsBySessionId = /* @__PURE__ */ new Map();
+var collabServerState = { kind: "stopped" };
+var collabServerChild = null;
+var collabServerBar;
+var collabServerOutput;
+var instancesWatcher = null;
+var pendingInstanceUp = /* @__PURE__ */ new Map();
+function collabStateKind() {
+  return collabServerState.kind;
+}
+function updateCollabServerBar() {
+  if (!collabServerBar)
+    return;
+  const s = collabServerState;
+  switch (s.kind) {
+    case "stopped":
+      collabServerBar.text = "$(plug) collab";
+      collabServerBar.tooltip = "Click to start collab server";
+      collabServerBar.backgroundColor = void 0;
+      break;
+    case "starting":
+      collabServerBar.text = "$(loading~spin) collab";
+      collabServerBar.tooltip = "Starting collab server\u2026";
+      collabServerBar.backgroundColor = void 0;
+      break;
+    case "ready":
+      collabServerBar.text = `$(check) collab :${s.localPort}`;
+      collabServerBar.tooltip = `Collab server on :${s.localPort} \u2014 click to open UI`;
+      collabServerBar.backgroundColor = void 0;
+      break;
+    case "skew":
+      collabServerBar.text = `$(warning) collab :${s.localPort}`;
+      collabServerBar.tooltip = `Version mismatch \u2014 UI v${s.uiVersion}, remote v${s.remoteVersion}. Click to open UI anyway.`;
+      collabServerBar.backgroundColor = new vscode2.ThemeColor("statusBarItem.warningBackground");
+      break;
+    case "failed":
+      collabServerBar.text = "$(error) collab";
+      collabServerBar.tooltip = `Failed: ${s.reason} \u2014 click to view log`;
+      collabServerBar.backgroundColor = new vscode2.ThemeColor("statusBarItem.warningBackground");
+      break;
+  }
+}
+function awaitInstanceUp(sessionId, timeoutMs = 3e4) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingInstanceUp.delete(sessionId);
+      reject(new Error(`Timed out waiting for server (sessionId ${sessionId}) to come up`));
+    }, timeoutMs);
+    pendingInstanceUp.set(sessionId, {
+      resolve: (inst) => {
+        clearTimeout(timer);
+        pendingInstanceUp.delete(sessionId);
+        resolve(inst);
+      },
+      cancel: (err) => {
+        clearTimeout(timer);
+        pendingInstanceUp.delete(sessionId);
+        reject(err);
+      }
+    });
+  });
+}
+function cancelAllPending(reason) {
+  for (const entry of Array.from(pendingInstanceUp.values())) {
+    try {
+      entry.cancel(new Error(reason));
+    } catch {
+    }
+  }
+  pendingInstanceUp.clear();
+}
+async function startCollabServerLocal(ctx, project, session) {
+  collabServerState = { kind: "starting", sessionId: "" };
+  updateCollabServerBar();
+  try {
+    const source = await resolveServerSource();
+    const result = await spawnCollabServer({ project, session, source, output: collabServerOutput });
+    collabServerChild = result.child;
+    collabServerState = { kind: "starting", sessionId: result.sessionId };
+    updateCollabServerBar();
+    const onServerGone = (detail) => {
+      if (collabServerChild !== result.child)
+        return;
+      collabServerChild = null;
+      cancelAllPending(`server exited (${detail})`);
+      const owns = (collabServerState.kind === "ready" || collabServerState.kind === "skew" || collabServerState.kind === "starting") && collabServerState.sessionId === result.sessionId;
+      if (!owns)
+        return;
+      collabServerOutput.appendLine(`[server] ${detail} \u2014 marking collab server stopped`);
+      collabServerState = { kind: "failed", reason: `server exited (${detail})` };
+      updateCollabServerBar();
+    };
+    result.child.once("exit", (code, signal) => onServerGone(`code=${code} signal=${signal}`));
+    result.child.once("error", (e) => onServerGone(e instanceof Error ? e.message : String(e)));
+    const inst = await awaitInstanceUp(result.sessionId);
+    if (collabServerState.kind !== "starting" || collabServerState.sessionId !== result.sessionId)
+      return;
+    const localPort = ctx.globalState.get(`tunnel:${result.sessionId}`) ?? inst.port;
+    const uiVersion = ctx.extension.packageJSON.version;
+    if (inst.serverVersion && inst.serverVersion !== uiVersion) {
+      collabServerState = { kind: "skew", sessionId: result.sessionId, localPort, uiVersion, remoteVersion: inst.serverVersion };
+    } else {
+      collabServerState = { kind: "ready", sessionId: result.sessionId, localPort };
+    }
+    updateCollabServerBar();
+  } catch (err) {
+    if (collabStateKind() === "stopped")
+      return;
+    if (err instanceof AlreadyRunning) {
+      collabServerState = { kind: "ready", sessionId: err.sessionId, localPort: err.port };
+      updateCollabServerBar();
+      await vscode2.commands.executeCommand("mermaidCollab.openUi");
+      return;
+    }
+    const reason = err instanceof Error ? err.message : String(err);
+    collabServerOutput.appendLine(`[start] failed: ${reason}`);
+    collabServerOutput.show(true);
+    collabServerState = { kind: "failed", reason };
+    updateCollabServerBar();
+    void vscode2.window.showWarningMessage(`mermaid-collab: failed to start server \u2014 ${reason}`);
+  }
+}
+async function startCollabServerRemote(ctx, project, session) {
+  collabServerState = { kind: "starting", sessionId: "" };
+  updateCollabServerBar();
+  try {
+    const result = await vscode2.commands.executeCommand(
+      "mermaidCollab.workspace.startServer",
+      { project, session }
+    );
+    if (!result)
+      throw new Error("workspace half did not return a result");
+    collabServerState = { kind: "starting", sessionId: result.sessionId };
+    updateCollabServerBar();
+    const inst = await awaitInstanceUp(result.sessionId);
+    if (collabServerState.kind !== "starting" || collabServerState.sessionId !== result.sessionId)
+      return;
+    const desiredLocal = ctx.globalState.get(`tunnel:${result.sessionId}`);
+    const localPort = typeof desiredLocal === "number" ? desiredLocal : inst.port;
+    const uiVersion = ctx.extension.packageJSON.version;
+    if (result.version && result.version !== uiVersion) {
+      collabServerState = { kind: "skew", sessionId: result.sessionId, localPort, uiVersion, remoteVersion: result.version };
+    } else {
+      collabServerState = { kind: "ready", sessionId: result.sessionId, localPort };
+    }
+    updateCollabServerBar();
+  } catch (err) {
+    if (collabStateKind() === "stopped")
+      return;
+    const reason = err instanceof Error ? err.message : String(err);
+    collabServerOutput.appendLine(`[start:remote] failed: ${reason}`);
+    collabServerOutput.show(true);
+    collabServerState = { kind: "failed", reason };
+    updateCollabServerBar();
+    void vscode2.window.showWarningMessage(`mermaid-collab: failed to start remote server \u2014 ${reason}`);
+  }
+}
+var CHROME_BINARIES_LINUX = [
+  "/opt/google/chrome/chrome",
+  "/usr/bin/google-chrome",
+  "/usr/bin/google-chrome-stable",
+  "/usr/bin/chromium-browser",
+  "/usr/bin/chromium"
+];
+var CHROME_BINARIES_MAC = [
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+  "/Applications/Chromium.app/Contents/MacOS/Chromium"
+];
+var CHROME_BINARIES_WIN = [
+  "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+  "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+  `${process.env.LOCALAPPDATA ?? "C:\\Users\\Default\\AppData\\Local"}\\Google\\Chrome\\Application\\chrome.exe`,
+  `${process.env.PROGRAMFILES ?? "C:\\Program Files"}\\Google\\Chrome\\Application\\chrome.exe`,
+  "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe",
+  `${process.env.LOCALAPPDATA ?? ""}\\BraveSoftware\\Brave-Browser\\Application\\brave.exe`,
+  "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+  "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe"
+];
+async function findChrome() {
+  const { existsSync: existsSync3 } = require("fs");
+  const bins = process.platform === "darwin" ? CHROME_BINARIES_MAC : process.platform === "win32" ? CHROME_BINARIES_WIN : CHROME_BINARIES_LINUX;
+  for (const bin of bins) {
+    if (bin && existsSync3(bin))
+      return bin;
+  }
+  if (process.platform === "darwin") {
+    try {
+      const { execSync } = require("child_process");
+      const found = execSync(`mdfind "kMDItemCFBundleIdentifier == 'com.google.Chrome'" 2>/dev/null | head -1`).toString().trim();
+      if (found) {
+        const bin = `${found}/Contents/MacOS/Google Chrome`;
+        if (existsSync3(bin))
+          return bin;
+      }
+      const brave = execSync(`mdfind "kMDItemCFBundleIdentifier == 'com.brave.Browser'" 2>/dev/null | head -1`).toString().trim();
+      if (brave) {
+        const bin = `${brave}/Contents/MacOS/Brave Browser`;
+        if (existsSync3(bin))
+          return bin;
+      }
+    } catch {
+    }
+  }
+  throw new Error("No Chrome/Chromium binary found \u2014 install Chrome or set mermaidCollab.chromePath");
+}
+function updateChromeDebugBar() {
+  if (chromeDebugRunning) {
+    chromeDebugBar.text = "$(broadcast) CDP";
+    chromeDebugBar.tooltip = "Chrome debug tunnel running \u2014 click to stop";
+    chromeDebugBar.backgroundColor = new vscode2.ThemeColor("statusBarItem.warningBackground");
+  } else {
+    chromeDebugBar.text = "$(debug-disconnect) CDP";
+    chromeDebugBar.tooltip = "Chrome debug tunnel stopped \u2014 click to start";
+    chromeDebugBar.backgroundColor = void 0;
+  }
+}
+function checkPort(port) {
+  const net = require("net");
+  return new Promise((resolve) => {
+    const sock = net.createConnection({ port, host: "127.0.0.1" });
+    sock.setTimeout(800);
+    sock.on("connect", () => {
+      sock.destroy();
+      resolve(true);
+    });
+    sock.on("error", () => resolve(false));
+    sock.on("timeout", () => {
+      sock.destroy();
+      resolve(false);
+    });
+  });
+}
+function startPortWatcher(port) {
+  if (portWatcherTimer)
+    clearInterval(portWatcherTimer);
+  portWatcherTimer = setInterval(async () => {
+    if (!chromeDebugRunning) {
+      clearInterval(portWatcherTimer);
+      portWatcherTimer = null;
+      return;
+    }
+    const up = await checkPort(port);
+    if (!up) {
+      outputChannel.appendLine(`[CDP] Port ${port} gone \u2014 Chrome stopped`);
+      clearInterval(portWatcherTimer);
+      portWatcherTimer = null;
+      chromeDebugProcess = null;
+      chromeDebugRunning = false;
+      updateChromeDebugBar();
+    }
+  }, 3e3);
+}
+async function pollForPort(port, budgetMs, launchStderr) {
+  const deadline = Date.now() + budgetMs;
+  const tryOnce = async () => {
+    if (await checkPort(port)) {
+      outputChannel.appendLine(`[CDP] Port ${port} is up \u2014 Chrome started successfully`);
+      startPortWatcher(port);
+      return;
+    }
+    if (Date.now() < deadline) {
+      setTimeout(tryOnce, 400);
+    } else {
+      outputChannel.appendLine(`[CDP] Timed out waiting for port ${port}`);
+      chromeDebugRunning = false;
+      updateChromeDebugBar();
+      const hint = launchStderr.trim().split("\n")[0] || "port never came up";
+      vscode2.window.showErrorMessage(`mermaid-collab: Chrome failed to bind port ${port} \u2014 ${hint}`, "Show Log").then((sel) => {
+        if (sel === "Show Log")
+          outputChannel.show();
+      });
+    }
+  };
+  await tryOnce();
+}
+async function startChromeDebug() {
+  const cfg = vscode2.workspace.getConfiguration("mermaidCollab");
+  const port = cfg.get("chromeDebugPort") ?? 9333;
+  const defaultUserDataDir = process.platform === "win32" ? "C:\\ChromeDebug" : process.platform === "darwin" ? require("path").join(require("os").homedir(), "Library", "Application Support", "ChromeDebug") : "/tmp/chrome-debug";
+  const configuredDataDir = cfg.get("chromeDebugUserDataDir") ?? "";
+  const isWindowsPath = (p) => /^[A-Za-z]:[\\\/]/.test(p);
+  const userDataDir = configuredDataDir && !(process.platform !== "win32" && isWindowsPath(configuredDataDir)) ? configuredDataDir : defaultUserDataDir;
+  const sshTarget = cfg.get("sshTunnelTarget") ?? "";
+  const configuredPath = cfg.get("chromePath") ?? "";
+  let chromeBin;
+  try {
+    chromeBin = configuredPath.trim() || await findChrome();
+  } catch (err) {
+    vscode2.window.showErrorMessage(`mermaid-collab: Chrome not found \u2014 ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+  const startTime = Date.now();
+  const chromeArgs = [
+    `--remote-debugging-port=${port}`,
+    "--remote-allow-origins=*",
+    "--no-first-run",
+    "--no-default-browser-check",
+    `--user-data-dir=${userDataDir}`
+  ];
+  outputChannel.appendLine(`[CDP] Starting Chrome: ${chromeBin}`);
+  outputChannel.appendLine(`[CDP] Args: ${chromeArgs.join(" ")}`);
+  outputChannel.show(true);
+  const { spawn: spawn2 } = require("child_process");
+  if (process.platform === "darwin") {
+    const appBundle = chromeBin.replace(/\/Contents\/MacOS\/.*$/, "");
+    outputChannel.appendLine(`[CDP] macOS: using open -n "${appBundle}"`);
+    const openProc = spawn2(
+      "open",
+      ["-n", appBundle, "--args", ...chromeArgs],
+      { detached: false, stdio: ["ignore", "pipe", "pipe"] }
+    );
+    let openStderr = "";
+    openProc.stderr?.on("data", (d) => {
+      openStderr += d.toString();
+    });
+    openProc.on("exit", (code) => {
+      outputChannel.appendLine(`[CDP] open exited (code=${code})${openStderr.trim() ? ` \u2014 ${openStderr.trim()}` : ""}`);
+      if (!chromeDebugRunning)
+        return;
+      void pollForPort(port, 8e3, openStderr);
+    });
+    chromeDebugProcess = openProc;
+  } else {
+    chromeDebugProcess = spawn2(
+      chromeBin,
+      chromeArgs,
+      { detached: false, stdio: ["ignore", "pipe", "pipe"] }
+    );
+    let chromeStderr = "";
+    chromeDebugProcess.stderr?.on("data", (d) => {
+      const txt = d.toString();
+      chromeStderr += txt;
+      outputChannel.append(`[Chrome stderr] ${txt}`);
+    });
+    chromeDebugProcess.on("exit", (code) => {
+      const elapsed = Date.now() - startTime;
+      outputChannel.appendLine(`[CDP] Chrome exited (code=${code}, after ${elapsed}ms)`);
+      chromeDebugProcess = null;
+      if (!chromeDebugRunning)
+        return;
+      chromeDebugRunning = false;
+      updateChromeDebugBar();
+      if (elapsed < 5e3) {
+        const hint = chromeStderr.trim().split("\n")[0] || `exit code ${code}`;
+        vscode2.window.showErrorMessage(`mermaid-collab: Chrome exited unexpectedly \u2014 ${hint}`, "Show Log").then((sel) => {
+          if (sel === "Show Log")
+            outputChannel.show();
+        });
+      }
+    });
+  }
+  if (sshTarget) {
+    sshTunnelProcess = spawn2("ssh", [
+      "-R",
+      `${port}:127.0.0.1:${port}`,
+      "-N",
+      "-o",
+      "StrictHostKeyChecking=no",
+      "-o",
+      "ExitOnForwardFailure=yes",
+      sshTarget
+    ], { detached: false, stdio: ["ignore", "ignore", "pipe"] });
+    let sshStderr = "";
+    sshTunnelProcess.stderr?.on("data", (d) => {
+      sshStderr += d.toString();
+    });
+    sshTunnelProcess.on("exit", (code) => {
+      sshTunnelProcess = null;
+      if (chromeDebugRunning) {
+        chromeDebugRunning = false;
+        updateChromeDebugBar();
+        const detail = sshStderr.trim() ? ` \u2014 ${sshStderr.trim().split("\n")[0]}` : ` (exit ${code})`;
+        vscode2.window.showWarningMessage(`mermaid-collab: SSH tunnel disconnected${detail}`);
+      }
+    });
+  }
+  chromeDebugRunning = true;
+  updateChromeDebugBar();
+  vscode2.window.showInformationMessage(`mermaid-collab: Chrome debug${sshTarget ? " + SSH tunnel" : ""} started on port ${port}`);
+}
+function stopChromeDebug() {
+  if (portWatcherTimer) {
+    clearInterval(portWatcherTimer);
+    portWatcherTimer = null;
+  }
+  chromeDebugProcess?.kill();
+  chromeDebugProcess = null;
+  sshTunnelProcess?.kill();
+  sshTunnelProcess = null;
+  chromeDebugRunning = false;
+  updateChromeDebugBar();
+}
+function activateUi(ctx) {
+  statusBarItem = vscode2.window.createStatusBarItem(vscode2.StatusBarAlignment.Right, 100);
+  statusBarItem.command = "mermaidCollab.showStatus";
+  statusBarItem.text = "$(debug-disconnect) collab";
+  statusBarItem.tooltip = "mermaid-collab UI half";
+  statusBarItem.show();
+  ctx.subscriptions.push(statusBarItem);
+  chromeDebugBar = vscode2.window.createStatusBarItem(vscode2.StatusBarAlignment.Right, 99);
+  chromeDebugBar.command = "mermaidCollab.toggleChromeDebug";
+  chromeDebugBar.show();
+  ctx.subscriptions.push(chromeDebugBar);
+  updateChromeDebugBar();
+  outputChannel = vscode2.window.createOutputChannel("mermaid-collab CDP");
+  ctx.subscriptions.push(outputChannel);
+  collabServerBar = vscode2.window.createStatusBarItem(vscode2.StatusBarAlignment.Right, 98);
+  collabServerBar.command = "mermaidCollab.toggleCollabServer";
+  collabServerBar.show();
+  ctx.subscriptions.push(collabServerBar);
+  collabServerOutput = vscode2.window.createOutputChannel("mermaid-collab Server");
+  ctx.subscriptions.push(collabServerOutput);
+  updateCollabServerBar();
+  ctx.subscriptions.push({ dispose: () => {
+    cancelAllPending("extension deactivated");
+    if (collabServerChild) {
+      try {
+        collabServerChild.kill("SIGTERM");
+      } catch {
+      }
+    }
+  } });
+  ctx.subscriptions.push(
+    vscode2.commands.registerCommand("mermaidCollab.toggleCollabServer", async () => {
+      const wf = vscode2.workspace.workspaceFolders?.[0];
+      if (!wf) {
+        void vscode2.window.showWarningMessage("mermaid-collab: open a folder first");
+        return;
+      }
+      const project = wf.uri.fsPath;
+      const session = path4.basename(project);
+      if (collabServerState.kind === "ready" || collabServerState.kind === "skew") {
+        return vscode2.commands.executeCommand("mermaidCollab.openUi");
+      }
+      if (collabServerState.kind === "starting")
+        return;
+      if (collabServerState.kind === "failed")
+        collabServerOutput.show(true);
+      if (vscode2.env.remoteName)
+        return startCollabServerRemote(ctx, project, session);
+      return startCollabServerLocal(ctx, project, session);
+    }),
+    vscode2.commands.registerCommand("mermaidCollab.stopCollabServer", async () => {
+      collabServerState = { kind: "stopped" };
+      cancelAllPending("stopped by user");
+      if (collabServerChild) {
+        try {
+          collabServerChild.kill("SIGTERM");
+        } catch {
+        }
+        collabServerChild = null;
+      }
+      updateCollabServerBar();
+    })
+  );
+  ctx.subscriptions.push(
+    vscode2.commands.registerCommand("mermaidCollab.toggleChromeDebug", () => {
+      if (chromeDebugRunning)
+        stopChromeDebug();
+      else
+        void startChromeDebug();
+    }),
+    vscode2.commands.registerCommand("mermaidCollab.startChromeDebug", () => {
+      void startChromeDebug();
+    }),
+    vscode2.commands.registerCommand("mermaidCollab.stopChromeDebug", () => {
+      stopChromeDebug();
+    }),
+    vscode2.commands.registerCommand("mermaidCollab.showStatus", () => {
+      vscode2.window.showInformationMessage("mermaid-collab UI half active");
+    })
+  );
+  ctx.subscriptions.push(
+    vscode2.commands.registerCommand("mermaidCollab.ui.onInstanceUp", async (inst) => {
+      if (!inst || typeof inst.sessionId !== "string" || typeof inst.port !== "number") {
+        outputChannel.appendLine("[tunnel] onInstanceUp called without a valid Instance \u2014 ignoring");
+        return;
+      }
+      const pending = pendingInstanceUp.get(inst.sessionId);
+      let settled = false;
+      const settle = () => {
+        if (settled)
+          return;
+        settled = true;
+        pending?.resolve(inst);
+      };
+      try {
+        const existing = tunnelsBySessionId.get(inst.sessionId);
+        if (existing && existing.remotePort === inst.port) {
+          settle();
+          return;
+        }
+        if (existing) {
+          try {
+            existing.dispose?.();
+          } catch {
+          }
+          tunnelsBySessionId.delete(inst.sessionId);
+        }
+        const desiredLocal = ctx.globalState.get(`tunnel:${inst.sessionId}`);
+        const tunnel = await vscode2.workspace.openTunnel({
+          remoteAddress: { host: "127.0.0.1", port: inst.port },
+          localAddressPort: desiredLocal,
+          label: `collab:${inst.session}`
+        });
+        ctx.subscriptions.push(tunnel);
+        tunnelsBySessionId.set(inst.sessionId, { ...tunnel, dispose: () => tunnel.dispose(), remotePort: inst.port });
+        const la = tunnel.localAddress;
+        let localPort;
+        if (typeof la === "string") {
+          const m = la.match(/:(\d+)$/);
+          localPort = m ? Number(m[1]) : void 0;
+        } else if (la && typeof la === "object" && typeof la.port === "number") {
+          localPort = la.port;
+        }
+        if (typeof localPort !== "number" || localPort <= 0) {
+          outputChannel.appendLine(`[tunnel] could not determine local port for ${inst.session} from ${JSON.stringify(la)}`);
+          settle();
+          return;
+        }
+        await ctx.globalState.update(`tunnel:${inst.sessionId}`, localPort);
+        await vscode2.workspace.getConfiguration("mermaidCollab").update("serverUrl", `ws://127.0.0.1:${localPort}/ws`, vscode2.ConfigurationTarget.Workspace);
+        outputChannel.appendLine(`[tunnel] ${inst.session} \u2192 127.0.0.1:${localPort} (remote ${inst.port})`);
+        settle();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        outputChannel.appendLine(`[tunnel] openTunnel failed for ${inst.session}: ${msg}`);
+        void vscode2.window.showWarningMessage(`mermaid-collab: Couldn't forward port for ${inst.session} \u2014 ${msg}`);
+        settle();
+      }
+    })
+  );
+  ctx.subscriptions.push(
+    vscode2.commands.registerCommand("mermaidCollab.ui.onInstanceDown", async (inst) => {
+      if (!inst || typeof inst.sessionId !== "string") {
+        outputChannel.appendLine("[tunnel] onInstanceDown called without a valid sessionId \u2014 ignoring");
+        return;
+      }
+      const t = tunnelsBySessionId.get(inst.sessionId);
+      if (t) {
+        try {
+          t.dispose();
+        } catch {
+        }
+        tunnelsBySessionId.delete(inst.sessionId);
+        outputChannel.appendLine(`[tunnel] ${inst.sessionId} closed`);
+      }
+    })
+  );
+  ctx.subscriptions.push(
+    vscode2.commands.registerCommand("mermaidCollab.openUi", async (inst) => {
+      let localPort;
+      if (inst)
+        localPort = ctx.globalState.get(`tunnel:${inst.sessionId}`);
+      if (!localPort) {
+        const cfg = vscode2.workspace.getConfiguration("mermaidCollab").get("serverUrl") ?? "";
+        const m = cfg.match(/:(\d+)\/ws$/);
+        localPort = m ? Number(m[1]) : void 0;
+      }
+      if (!localPort) {
+        void vscode2.window.showWarningMessage("mermaid-collab: no local UI port known yet");
+        return;
+      }
+      await vscode2.env.openExternal(vscode2.Uri.parse(`http://127.0.0.1:${localPort}`));
+    })
+  );
+  if (ctx.extension.extensionKind === vscode2.ExtensionKind.UI) {
+    void (async () => {
+      const instancesDir = path4.join(os4.homedir(), ".mermaid-collab", "instances");
+      try {
+        await fs4.mkdir(instancesDir, { recursive: true });
+      } catch {
+      }
+      const rescan = async () => {
+        try {
+          const instances = await readLocalInstances();
+          for (const inst of instances) {
+            await vscode2.commands.executeCommand("mermaidCollab.ui.onInstanceUp", inst);
+          }
+        } catch (err) {
+          collabServerOutput.appendLine(`[watch] rescan failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      };
+      await rescan();
+      let debounce = null;
+      const scheduleRescan = () => {
+        if (debounce)
+          clearTimeout(debounce);
+        debounce = setTimeout(() => {
+          debounce = null;
+          void rescan();
+        }, 250);
+      };
+      let pollTimer = null;
+      const startPolling = () => {
+        if (pollTimer)
+          return;
+        collabServerOutput.appendLine("[watch] falling back to 30s polling");
+        pollTimer = setInterval(() => {
+          void rescan();
+        }, 3e4);
+      };
+      try {
+        instancesWatcher = fsSync.watch(instancesDir, { persistent: false }, (_event, filename) => {
+          if (filename && !String(filename).endsWith(".json"))
+            return;
+          scheduleRescan();
+        });
+        instancesWatcher.on("error", (err) => {
+          collabServerOutput.appendLine(`[watch] watcher error: ${err instanceof Error ? err.message : String(err)}`);
+          try {
+            instancesWatcher?.close();
+          } catch {
+          }
+          instancesWatcher = null;
+          startPolling();
+        });
+        ctx.subscriptions.push({ dispose: () => {
+          if (debounce)
+            clearTimeout(debounce);
+          if (pollTimer)
+            clearInterval(pollTimer);
+          instancesWatcher?.close();
+        } });
+      } catch {
+        startPolling();
+        ctx.subscriptions.push({ dispose: () => {
+          if (debounce)
+            clearTimeout(debounce);
+          if (pollTimer)
+            clearInterval(pollTimer);
+        } });
+      }
+    })();
+  }
+}
 
 // node_modules/ws/wrapper.mjs
 var import_stream = __toESM(require_stream(), 1);
@@ -3760,16 +4818,10 @@ var import_websocket_server = __toESM(require_websocket_server(), 1);
 var wrapper_default = import_websocket.default;
 
 // src/extension.ts
-var import_child_process = require("child_process");
-var import_util = require("util");
-var execAsync = (0, import_util.promisify)(import_child_process.exec);
+var import_child_process3 = require("child_process");
+var import_util3 = require("util");
+var execAsync3 = (0, import_util3.promisify)(import_child_process3.exec);
 var ws = null;
-var statusBarItem;
-var chromeDebugBar;
-var chromeDebugProcess = null;
-var sshTunnelProcess = null;
-var chromeDebugRunning = false;
-var outputChannel;
 var reconnectTimer = null;
 var reconnectDelay = 1e3;
 var reconnectAttempts = 0;
@@ -3781,34 +4833,17 @@ var reattachQueue = [];
 var reattachProcessing = false;
 var groupedSessionNames = /* @__PURE__ */ new Map();
 function activate(context) {
+  if (context.extension.extensionKind === vscode3.ExtensionKind.Workspace) {
+    return activateWorkspace(context);
+  }
+  activateUi(context);
   _ctx = context;
-  statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  statusBarItem.command = "mermaidCollab.showStatus";
-  statusBarItem.show();
-  context.subscriptions.push(statusBarItem);
-  chromeDebugBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
-  chromeDebugBar.command = "mermaidCollab.toggleChromeDebug";
-  chromeDebugBar.show();
-  context.subscriptions.push(chromeDebugBar);
-  updateChromeDebugBar();
-  outputChannel = vscode.window.createOutputChannel("mermaid-collab CDP");
-  context.subscriptions.push(outputChannel);
   context.subscriptions.push(
-    vscode.commands.registerCommand("mermaidCollab.toggleChromeDebug", () => {
-      if (chromeDebugRunning)
-        stopChromeDebug();
-      else
-        void startChromeDebug();
-    }),
-    vscode.commands.registerCommand("mermaidCollab.showStatus", () => {
-      const state = ws?.readyState === wrapper_default.OPEN ? "Connected" : "Disconnected";
-      vscode.window.showInformationMessage(`mermaid-collab: ${state}`);
-    }),
-    vscode.commands.registerCommand("mermaidCollab.reconnect", () => {
+    vscode3.commands.registerCommand("mermaidCollab.reconnect", () => {
       scheduleReconnect(0);
     }),
-    vscode.commands.registerCommand("mermaidCollab.update", async () => {
-      const serverUrl = vscode.workspace.getConfiguration("mermaidCollab").get("serverUrl") ?? "ws://127.0.0.1:9002/ws";
+    vscode3.commands.registerCommand("mermaidCollab.update", async () => {
+      const serverUrl = vscode3.workspace.getConfiguration("mermaidCollab").get("serverUrl") ?? "ws://127.0.0.1:9002/ws";
       const httpBase = serverUrl.replace(/^ws(s?):\/\//, "http$1://").replace(/\/ws$/, "");
       try {
         const res = await fetch(`${httpBase}/api/extension/js`);
@@ -3817,16 +4852,15 @@ function activate(context) {
         const js = await res.text();
         const { writeFileSync } = require("fs");
         writeFileSync(__filename, js, "utf-8");
-        const choice = await vscode.window.showInformationMessage("mermaid-collab extension updated. Reload to apply?", "Reload Now");
+        const choice = await vscode3.window.showInformationMessage("mermaid-collab extension updated. Reload to apply?", "Reload Now");
         if (choice === "Reload Now") {
-          await vscode.commands.executeCommand("workbench.action.reloadWindow");
+          await vscode3.commands.executeCommand("workbench.action.reloadWindow");
         }
       } catch (err) {
-        vscode.window.showErrorMessage(`mermaid-collab update failed: ${err instanceof Error ? err.message : String(err)}`);
+        vscode3.window.showErrorMessage(`mermaid-collab update failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     })
   );
-  updateStatusBar(false);
   setTimeout(() => connect(context), 5e3);
 }
 function connect(context) {
@@ -3836,18 +4870,17 @@ function connect(context) {
     });
     ws.close();
   }
-  const url = vscode.workspace.getConfiguration("mermaidCollab").get("serverUrl") ?? "ws://127.0.0.1:9002/ws";
+  const url = vscode3.workspace.getConfiguration("mermaidCollab").get("serverUrl") ?? "ws://127.0.0.1:9002/ws";
   ws = new wrapper_default(url);
   ws.on("open", () => {
     reconnectDelay = 1e3;
     reconnectAttempts = 0;
-    updateStatusBar(true);
     ws.send(JSON.stringify({ type: "subscribe", channel: "ide" }));
     ws.send(JSON.stringify({
       type: "ide_connected",
-      vscodeVersion: vscode.version,
+      vscodeVersion: vscode3.version,
       extensionVersion: context.extension.packageJSON.version,
-      workspaceFolders: vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath) ?? [],
+      workspaceFolders: vscode3.workspace.workspaceFolders?.map((f) => f.uri.fsPath) ?? [],
       platform: process.platform,
       arch: process.arch,
       pid: process.pid
@@ -3862,7 +4895,6 @@ function connect(context) {
   });
   ws.on("close", () => {
     hasReattachedThisSession = false;
-    updateStatusBar(false);
     reconnectAttempts++;
     if (reconnectAttempts <= MAX_ATTEMPTS) {
       scheduleReconnect(reconnectDelay);
@@ -3901,7 +4933,7 @@ async function handleMessage(msg) {
   }
 }
 async function focusTerminal(targetPid, sessionHint) {
-  const terminals = vscode.window.terminals;
+  const terminals = vscode3.window.terminals;
   const resolved = await Promise.all(
     terminals.map(async (t) => ({ terminal: t, pid: await t.processId }))
   );
@@ -3925,26 +4957,29 @@ async function focusTerminal(targetPid, sessionHint) {
     nameMatch.show(false);
     return;
   }
-  void vscode.window.showWarningMessage(`mermaid-collab: Terminal for session "${sessionHint}" not found.`);
+  void vscode3.window.showWarningMessage(`mermaid-collab: Terminal for session "${sessionHint}" not found.`);
 }
 async function openDiff(filePath) {
-  const workingUri = vscode.Uri.file(filePath);
+  const workingUri = vscode3.Uri.file(filePath);
   try {
-    const gitExtension = vscode.extensions.getExtension("vscode.git");
+    const gitExtension = vscode3.extensions.getExtension("vscode.git");
     if (gitExtension?.isActive) {
       try {
         const git = gitExtension.exports.getAPI(1);
         const headUri = git.toGitUri(workingUri, "HEAD");
         const title = `${filePath.split("/").pop()} (Working Tree)`;
-        await vscode.commands.executeCommand("vscode.diff", headUri, workingUri, title);
+        await vscode3.commands.executeCommand("vscode.diff", headUri, workingUri, title, {
+          preview: false,
+          preserveFocus: true
+        });
         return;
       } catch {
       }
     }
-    const doc = await vscode.workspace.openTextDocument(workingUri);
-    await vscode.window.showTextDocument(doc, { preserveFocus: true, preview: false });
+    const doc = await vscode3.workspace.openTextDocument(workingUri);
+    await vscode3.window.showTextDocument(doc, { preserveFocus: true, preview: false });
   } catch (err) {
-    vscode.window.showErrorMessage(`mermaid-collab: failed to open ${filePath.split("/").pop()} \u2014 ${err instanceof Error ? err.message : String(err)}`);
+    vscode3.window.showErrorMessage(`mermaid-collab: failed to open ${filePath.split("/").pop()} \u2014 ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 async function handleIdeReattach(msg) {
@@ -3968,7 +5003,7 @@ async function drainReattachQueue(isFirst) {
 }
 async function processOneReattach(msg, showTerminal) {
   const sessionHint = msg.session;
-  const existing = vscode.window.terminals.find((t2) => t2.name === sessionHint);
+  const existing = vscode3.window.terminals.find((t2) => t2.name === sessionHint);
   if (existing) {
     if (showTerminal) {
       existing.show(false);
@@ -3978,7 +5013,7 @@ async function processOneReattach(msg, showTerminal) {
   const groupedName = `vscode-collab-${sessionHint}`;
   const cmd = `(tmux has-session -t '${groupedName}' 2>/dev/null || tmux new-session -d -s '${groupedName}' -t '${sessionHint}') && tmux attach-session -t '${groupedName}'`;
   groupedSessionNames.set(sessionHint, groupedName);
-  const t = vscode.window.createTerminal({
+  const t = vscode3.window.createTerminal({
     name: sessionHint,
     shellPath: "/bin/sh",
     shellArgs: ["-c", cmd]
@@ -3996,11 +5031,6 @@ function scheduleReconnect(delay) {
     }
   }, delay);
 }
-function updateStatusBar(connected, sessionName) {
-  statusBarItem.text = connected ? `$(plug) collab${sessionName ? ` \xB7 ${sessionName}` : ""}` : "$(debug-disconnect) collab";
-  statusBarItem.tooltip = connected ? "mermaid-collab: Connected" : "mermaid-collab: Disconnected \u2014 click to reconnect";
-  statusBarItem.command = connected ? "mermaidCollab.showStatus" : "mermaidCollab.reconnect";
-}
 function deactivate() {
   hasReattachedThisSession = false;
   ws?.close();
@@ -4012,7 +5042,6 @@ function deactivate() {
     cs.process.kill();
   }
   chromeSessions.clear();
-  stopChromeDebug();
 }
 var browserSessions = /* @__PURE__ */ new Map();
 function sendCollabMsg(msg) {
@@ -4022,62 +5051,13 @@ function sendCollabMsg(msg) {
     console.log("[mermaid-collab] sendCollabMsg dropped (ws not open):", msg.type);
   }
 }
-var CHROME_BINARIES_LINUX = [
-  "/opt/google/chrome/chrome",
-  "/usr/bin/google-chrome",
-  "/usr/bin/google-chrome-stable",
-  "/usr/bin/chromium-browser",
-  "/usr/bin/chromium"
-];
-var CHROME_BINARIES_MAC = [
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-  "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
-  "/Applications/Chromium.app/Contents/MacOS/Chromium"
-];
-var CHROME_BINARIES_WIN = [
-  "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-  "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
-  `${process.env.LOCALAPPDATA ?? "C:\\Users\\Default\\AppData\\Local"}\\Google\\Chrome\\Application\\chrome.exe`,
-  `${process.env.PROGRAMFILES ?? "C:\\Program Files"}\\Google\\Chrome\\Application\\chrome.exe`,
-  "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe",
-  `${process.env.LOCALAPPDATA ?? ""}\\BraveSoftware\\Brave-Browser\\Application\\brave.exe`,
-  "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
-  "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe"
-];
 var nextCdpPort = 9230;
-async function findChrome() {
-  const { existsSync } = require("fs");
-  const bins = process.platform === "darwin" ? CHROME_BINARIES_MAC : process.platform === "win32" ? CHROME_BINARIES_WIN : CHROME_BINARIES_LINUX;
-  for (const bin of bins) {
-    if (bin && existsSync(bin))
-      return bin;
-  }
-  if (process.platform === "darwin") {
-    try {
-      const { execSync } = require("child_process");
-      const found = execSync(`mdfind "kMDItemCFBundleIdentifier == 'com.google.Chrome'" 2>/dev/null | head -1`).toString().trim();
-      if (found) {
-        const bin = `${found}/Contents/MacOS/Google Chrome`;
-        if (existsSync(bin))
-          return bin;
-      }
-      const brave = execSync(`mdfind "kMDItemCFBundleIdentifier == 'com.brave.Browser'" 2>/dev/null | head -1`).toString().trim();
-      if (brave) {
-        const bin = `${brave}/Contents/MacOS/Brave Browser`;
-        if (existsSync(bin))
-          return bin;
-      }
-    } catch {
-    }
-  }
-  throw new Error("No Chrome/Chromium binary found \u2014 install Chrome or set mermaidCollab.chromePath");
-}
 var chromeSessions = /* @__PURE__ */ new Map();
-function httpGetJson(host, port, path, timeoutMs) {
+function httpGetJson(host, port, path5, timeoutMs) {
   return new Promise((resolve, reject) => {
     const http = require("http");
     const req = http.request(
-      { hostname: host, port, path, method: "GET", headers: { Host: `${host}:${port}`, Connection: "close" } },
+      { hostname: host, port, path: path5, method: "GET", headers: { Host: `${host}:${port}`, Connection: "close" } },
       (res) => {
         let data = "";
         res.on("data", (chunk) => {
@@ -4101,7 +5081,7 @@ function httpGetJson(host, port, path, timeoutMs) {
 }
 async function findCdpUrlViaPowerShell(port) {
   try {
-    const { stdout } = await execAsync(
+    const { stdout } = await execAsync3(
       `powershell.exe -NoProfile -Command "(Invoke-WebRequest -Uri 'http://127.0.0.1:${port}/json' -UseBasicParsing).Content"`
     );
     const targets = JSON.parse(stdout.trim());
@@ -4226,10 +5206,10 @@ async function openBrowserSession(requestId, targetUrl) {
   browserSessions.set(sessionId, session);
   sendCollabMsg({ type: "browser_ready", requestId, sessionId });
   void (async () => {
-    const popup = (text) => void vscode.window.showInformationMessage(`[collab ${process.platform}] ${text}`);
-    const popupErr = (text) => void vscode.window.showErrorMessage(`[collab ${process.platform}] ${text}`);
+    const popup = (text) => void vscode3.window.showInformationMessage(`[collab ${process.platform}] ${text}`);
+    const popupErr = (text) => void vscode3.window.showErrorMessage(`[collab ${process.platform}] ${text}`);
     try {
-      const configuredPath = vscode.workspace.getConfiguration("mermaidCollab").get("chromePath") ?? "";
+      const configuredPath = vscode3.workspace.getConfiguration("mermaidCollab").get("chromePath") ?? "";
       let chromeBin;
       try {
         chromeBin = configuredPath.trim() || await findChrome();
@@ -4371,7 +5351,7 @@ function sendCdp(session, method, params) {
 }
 function handleBrowserOpen(requestId, targetUrl) {
   console.log("[mermaid-collab] browser_open \u2014 platform:", process.platform, "pid:", process.pid, "url:", targetUrl);
-  void vscode.window.showInformationMessage(`[collab] browser_open received on ${process.platform} (pid ${process.pid})`);
+  void vscode3.window.showInformationMessage(`[collab] browser_open received on ${process.platform} (pid ${process.pid})`);
   void openBrowserSession(requestId, targetUrl);
 }
 async function handleBrowserCommand(requestId, sessionId, method, params) {
@@ -4420,192 +5400,6 @@ function handleBrowserClose(sessionId) {
     cs.process.kill();
     chromeSessions.delete(sessionId);
   }
-}
-function updateChromeDebugBar() {
-  if (chromeDebugRunning) {
-    chromeDebugBar.text = "$(broadcast) CDP";
-    chromeDebugBar.tooltip = "Chrome debug tunnel running \u2014 click to stop";
-    chromeDebugBar.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
-  } else {
-    chromeDebugBar.text = "$(debug-disconnect) CDP";
-    chromeDebugBar.tooltip = "Chrome debug tunnel stopped \u2014 click to start";
-    chromeDebugBar.backgroundColor = void 0;
-  }
-}
-var portWatcherTimer = null;
-function checkPort(port) {
-  const net = require("net");
-  return new Promise((resolve) => {
-    const sock = net.createConnection({ port, host: "127.0.0.1" });
-    sock.setTimeout(800);
-    sock.on("connect", () => {
-      sock.destroy();
-      resolve(true);
-    });
-    sock.on("error", () => resolve(false));
-    sock.on("timeout", () => {
-      sock.destroy();
-      resolve(false);
-    });
-  });
-}
-function startPortWatcher(port) {
-  if (portWatcherTimer)
-    clearInterval(portWatcherTimer);
-  portWatcherTimer = setInterval(async () => {
-    if (!chromeDebugRunning) {
-      clearInterval(portWatcherTimer);
-      portWatcherTimer = null;
-      return;
-    }
-    const up = await checkPort(port);
-    if (!up) {
-      outputChannel.appendLine(`[CDP] Port ${port} gone \u2014 Chrome stopped`);
-      clearInterval(portWatcherTimer);
-      portWatcherTimer = null;
-      chromeDebugProcess = null;
-      chromeDebugRunning = false;
-      updateChromeDebugBar();
-    }
-  }, 3e3);
-}
-async function pollForPort(port, budgetMs, launchStderr) {
-  const deadline = Date.now() + budgetMs;
-  const tryOnce = async () => {
-    if (await checkPort(port)) {
-      outputChannel.appendLine(`[CDP] Port ${port} is up \u2014 Chrome started successfully`);
-      startPortWatcher(port);
-      return;
-    }
-    if (Date.now() < deadline) {
-      setTimeout(tryOnce, 400);
-    } else {
-      outputChannel.appendLine(`[CDP] Timed out waiting for port ${port}`);
-      chromeDebugRunning = false;
-      updateChromeDebugBar();
-      const hint = launchStderr.trim().split("\n")[0] || "port never came up";
-      vscode.window.showErrorMessage(`mermaid-collab: Chrome failed to bind port ${port} \u2014 ${hint}`, "Show Log").then((sel) => {
-        if (sel === "Show Log")
-          outputChannel.show();
-      });
-    }
-  };
-  await tryOnce();
-}
-async function startChromeDebug() {
-  const cfg = vscode.workspace.getConfiguration("mermaidCollab");
-  const port = cfg.get("chromeDebugPort") ?? 9333;
-  const defaultUserDataDir = process.platform === "win32" ? "C:\\ChromeDebug" : process.platform === "darwin" ? require("path").join(require("os").homedir(), "Library", "Application Support", "ChromeDebug") : "/tmp/chrome-debug";
-  const userDataDir = cfg.get("chromeDebugUserDataDir") ?? defaultUserDataDir;
-  const sshTarget = cfg.get("sshTunnelTarget") ?? "";
-  const configuredPath = cfg.get("chromePath") ?? "";
-  let chromeBin;
-  try {
-    chromeBin = configuredPath.trim() || await findChrome();
-  } catch (err) {
-    vscode.window.showErrorMessage(`mermaid-collab: Chrome not found \u2014 ${err instanceof Error ? err.message : String(err)}`);
-    return;
-  }
-  const startTime = Date.now();
-  const chromeArgs = [
-    `--remote-debugging-port=${port}`,
-    "--remote-allow-origins=*",
-    "--no-first-run",
-    "--no-default-browser-check",
-    `--user-data-dir=${userDataDir}`
-  ];
-  outputChannel.appendLine(`[CDP] Starting Chrome: ${chromeBin}`);
-  outputChannel.appendLine(`[CDP] Args: ${chromeArgs.join(" ")}`);
-  outputChannel.show(true);
-  const { spawn } = require("child_process");
-  if (process.platform === "darwin") {
-    const appBundle = chromeBin.replace(/\/Contents\/MacOS\/.*$/, "");
-    outputChannel.appendLine(`[CDP] macOS: using open -n "${appBundle}"`);
-    const openProc = spawn(
-      "open",
-      ["-n", appBundle, "--args", ...chromeArgs],
-      { detached: false, stdio: ["ignore", "pipe", "pipe"] }
-    );
-    let openStderr = "";
-    openProc.stderr?.on("data", (d) => {
-      openStderr += d.toString();
-    });
-    openProc.on("exit", (code) => {
-      outputChannel.appendLine(`[CDP] open exited (code=${code})${openStderr.trim() ? ` \u2014 ${openStderr.trim()}` : ""}`);
-      if (!chromeDebugRunning)
-        return;
-      void pollForPort(port, 8e3, openStderr);
-    });
-    chromeDebugProcess = openProc;
-  } else {
-    chromeDebugProcess = spawn(
-      chromeBin,
-      chromeArgs,
-      { detached: false, stdio: ["ignore", "pipe", "pipe"] }
-    );
-    let chromeStderr = "";
-    chromeDebugProcess.stderr?.on("data", (d) => {
-      const txt = d.toString();
-      chromeStderr += txt;
-      outputChannel.append(`[Chrome stderr] ${txt}`);
-    });
-    chromeDebugProcess.on("exit", (code) => {
-      const elapsed = Date.now() - startTime;
-      outputChannel.appendLine(`[CDP] Chrome exited (code=${code}, after ${elapsed}ms)`);
-      chromeDebugProcess = null;
-      if (!chromeDebugRunning)
-        return;
-      chromeDebugRunning = false;
-      updateChromeDebugBar();
-      if (elapsed < 5e3) {
-        const hint = chromeStderr.trim().split("\n")[0] || `exit code ${code}`;
-        vscode.window.showErrorMessage(`mermaid-collab: Chrome exited unexpectedly \u2014 ${hint}`, "Show Log").then((sel) => {
-          if (sel === "Show Log")
-            outputChannel.show();
-        });
-      }
-    });
-  }
-  if (sshTarget) {
-    sshTunnelProcess = spawn("ssh", [
-      "-R",
-      `${port}:127.0.0.1:${port}`,
-      "-N",
-      "-o",
-      "StrictHostKeyChecking=no",
-      "-o",
-      "ExitOnForwardFailure=yes",
-      sshTarget
-    ], { detached: false, stdio: ["ignore", "ignore", "pipe"] });
-    let sshStderr = "";
-    sshTunnelProcess.stderr?.on("data", (d) => {
-      sshStderr += d.toString();
-    });
-    sshTunnelProcess.on("exit", (code) => {
-      sshTunnelProcess = null;
-      if (chromeDebugRunning) {
-        chromeDebugRunning = false;
-        updateChromeDebugBar();
-        const detail = sshStderr.trim() ? ` \u2014 ${sshStderr.trim().split("\n")[0]}` : ` (exit ${code})`;
-        vscode.window.showWarningMessage(`mermaid-collab: SSH tunnel disconnected${detail}`);
-      }
-    });
-  }
-  chromeDebugRunning = true;
-  updateChromeDebugBar();
-  vscode.window.showInformationMessage(`mermaid-collab: Chrome debug${sshTarget ? " + SSH tunnel" : ""} started on port ${port}`);
-}
-function stopChromeDebug() {
-  if (portWatcherTimer) {
-    clearInterval(portWatcherTimer);
-    portWatcherTimer = null;
-  }
-  chromeDebugProcess?.kill();
-  chromeDebugProcess = null;
-  sshTunnelProcess?.kill();
-  sshTunnelProcess = null;
-  chromeDebugRunning = false;
-  updateChromeDebugBar();
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {

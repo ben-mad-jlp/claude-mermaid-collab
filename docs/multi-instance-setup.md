@@ -132,6 +132,57 @@ Open the VS Code "mermaid-collab CDP" output channel and look for `[tunnel]` err
 
 FS watcher events sometimes don't fire on NFS mounts. The 30-second poll fallback in `workspace-half.ts` will pick up new and removed instances within at most ~30s — it's slower than native FS events but reliable.
 
+## One-Click Launch (VS Code status bar)
+
+For the common single-user case you don't have to touch a terminal at all. The mermaid-collab VS Code extension (≥ 1.0.17) contributes a `$(plug) collab` item to the status bar. Click it to start a collab server scoped to the current workspace — no terminal, no environment variables to set.
+
+### Status bar states
+
+The item reflects the server lifecycle:
+
+- **stopped** — `$(plug) collab`. Click to launch.
+- **starting** — `$(loading~spin)` while the server boots.
+- **ready** — `$(check) collab :PORT`. Click again to open the UI in your browser.
+- **version-skew warning** — `$(warning)`. The local and resolved server/extension versions differ but the server is still usable (see below).
+- **failed** — `$(error)`. Click to open the "mermaid-collab Server" output channel and read the underlying error.
+
+### What happens under the hood
+
+- **Local (macOS / Windows):** the extension resolves the plugin source plus a `bun` binary, then spawns `bun src/server.ts` with `PORT=0` and the workspace path as `MERMAID_PROJECT`. It watches `~/.mermaid-collab/instances/` for the new record and sets `mermaidCollab.serverUrl` automatically once the server is up.
+- **Remote-SSH:** the click is delegated to the workspace half, which spawns the server on the remote. The UI half then opens an SSH tunnel and rewrites `serverUrl` to the local tunnel address. Remote server output lands in the "mermaid-collab Server (remote)" channel.
+
+### Resolution order
+
+**Plugin source** is resolved in this order:
+
+1. `MERMAID_COLLAB_ROOT` environment variable
+2. `CLAUDE_PLUGIN_ROOT` environment variable
+3. The highest-semver directory under `~/.claude/plugins/cache/mermaid-collab-dev/mermaid-collab/`
+
+**Bun binary** is resolved in this order:
+
+1. `BUN_PATH` environment variable
+2. `which bun` (or `where.exe bun` on Windows)
+3. `~/.bun/bin/bun` (macOS/Linux) or `%USERPROFILE%\.bun\bin\bun.exe` (Windows)
+
+If `bun` can't be found, you get a clear error pointing to https://bun.sh.
+
+### Already-running detection
+
+Clicking when a healthy server already owns this workspace's `(project, session)` pair simply opens the existing UI instead of erroring — so it's safe to click twice.
+
+### Stopping the server
+
+Run the `mermaid-collab: Stop Collab Server` command from the command palette. The server is also SIGTERM'd automatically when the extension deactivates.
+
+### Per-platform notes
+
+On Windows the child process is force-terminated rather than asked to gracefully `removeInstance` itself, so a stale instance file may briefly linger. The next `whereami` or launch sweeps it via the dead-pid probe. This is expected and harmless.
+
+### Version skew
+
+If the local extension version and the resolved server version differ — common under Remote-SSH where the remote's plugin cache lags behind your local install — the status bar shows the warning state. The server still works for any matching protocol; update both sides if you run into issues.
+
 ## Limitations / Future Work
 
 - **UDS (Unix domain socket) isolation** is not yet implemented. Today the server binds TCP loopback or `0.0.0.0`.

@@ -144,8 +144,9 @@ const SubscriptionRow: React.FC<{
   onDragOver: (e: React.DragEvent, key: string) => void;
   onDragEnd: () => void;
   isDragOver: boolean;
+  isSelected: boolean;
   tmuxActive: boolean;
-}> = ({ subKey, sub, onNavigate, onUnsubscribe, onDragStart, onDragOver, onDragEnd, isDragOver, tmuxActive }) => {
+}> = ({ subKey, sub, onNavigate, onUnsubscribe, onDragStart, onDragOver, onDragEnd, isDragOver, isSelected, tmuxActive }) => {
   const elapsed = useElapsed(sub.lastUpdate, sub.status);
 
   const statusBg =
@@ -184,6 +185,13 @@ const SubscriptionRow: React.FC<{
           }).catch(() => {});
         }}
       >
+        {/* Selected-session indicator — accent bar on the left edge */}
+        {isSelected && (
+          <span
+            aria-hidden
+            className="absolute left-0 top-0 bottom-0 w-1.5 bg-accent-600 dark:bg-accent-400 rounded-l"
+          />
+        )}
         {/* Unsubscribe button — top-left, appears on hover */}
         <button
           onClick={(e) => {
@@ -265,7 +273,7 @@ export interface SubscriptionsPanelProps {
 
 export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentProject, onNavigate }) => {
   const { subscriptions, order, unsubscribe, subscribe, reorder } = useSubscriptionStore();
-  const { sessions, setCurrentSession } = useSessionStore();
+  const { sessions, setCurrentSession, currentSession } = useSessionStore();
   const tmuxSessions = useTmuxSessions();
   const [collapsed, setCollapsed] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -453,6 +461,11 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
               onDragOver={handleDragOver}
               onDragEnd={handleDragEnd}
               isDragOver={dragOverKey === key}
+              isSelected={
+                !!currentSession &&
+                currentSession.project === sub.project &&
+                currentSession.name === sub.session
+              }
               tmuxActive={tmuxSessions.has(sub.session)}
             />
           ))}
