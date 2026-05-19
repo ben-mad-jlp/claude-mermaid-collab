@@ -882,8 +882,12 @@ async function archiveByPrefix(
     }
   }
 
+  // Archive regardless of `deprecated` — a deprecated doc still under
+  // `Implementing/` is exactly what we want to move out. Only skip items
+  // already in `Archive/` so repeated calls stay idempotent.
   const shouldArchive = (item: any) =>
-    !item.deprecated && (matches(item.name) || extraNames.has(item.name) || extraNames.has(item.id));
+    !String(item.name).startsWith('Archive/') &&
+    (matches(item.name) || extraNames.has(item.name) || extraNames.has(item.id));
 
   // Documents
   for (const d of docs) {
