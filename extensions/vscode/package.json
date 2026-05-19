@@ -2,7 +2,7 @@
   "name": "mermaid-collab-vscode",
   "displayName": "mermaid-collab",
   "description": "Connects the mermaid-collab UI to VSCode terminals and editor",
-  "version": "1.0.19",
+  "version": "1.0.20",
   "publisher": "mermaid-collab",
   "engines": {
     "vscode": "^1.85.0"

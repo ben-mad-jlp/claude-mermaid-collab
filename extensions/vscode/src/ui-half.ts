@@ -569,6 +569,17 @@ export function activateUi(ctx: vscode.ExtensionContext): void {
         await vscode.workspace.getConfiguration('mermaidCollab')
           .update('serverUrl', `ws://127.0.0.1:${localPort}/ws`, vscode.ConfigurationTarget.Workspace);
         outputChannel.appendLine(`[tunnel] ${inst.session} → 127.0.0.1:${localPort} (remote ${inst.port})`);
+        // Reflect a passively-discovered server in the status bar so the icon
+        // shows connected even when it wasn't started from this button.
+        // Skip while a self-start is in flight — that path owns the state.
+        if (collabStateKind() !== 'starting') {
+          const uiVersion = ctx.extension.packageJSON.version as string;
+          collabServerState =
+            inst.serverVersion && inst.serverVersion !== uiVersion
+              ? { kind: 'skew', sessionId: inst.sessionId, localPort, uiVersion, remoteVersion: inst.serverVersion }
+              : { kind: 'ready', sessionId: inst.sessionId, localPort };
+          updateCollabServerBar();
+        }
         // Resolve the awaiter only now — serverUrl is written, so an immediate
         // open-UI click after `ready` can't read a stale serverUrl.
         settle();
@@ -593,6 +604,15 @@ export function activateUi(ctx: vscode.ExtensionContext): void {
         try { t.dispose(); } catch {}
         tunnelsBySessionId.delete(inst.sessionId);
         outputChannel.appendLine(`[tunnel] ${inst.sessionId} closed`);
+      }
+      // If the bar was reflecting this (passively-discovered) server, show
+      // disconnected again. Don't disturb an in-flight self-start.
+      if (collabStateKind() !== 'starting') {
+        const cur = collabServerState;
+        if ((cur.kind === 'ready' || cur.kind === 'skew') && cur.sessionId === inst.sessionId) {
+          collabServerState = { kind: 'stopped' };
+          updateCollabServerBar();
+        }
       }
     }),
   );

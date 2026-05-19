@@ -4679,6 +4679,11 @@ function activateUi(ctx) {
         await ctx.globalState.update(`tunnel:${inst.sessionId}`, localPort);
         await vscode2.workspace.getConfiguration("mermaidCollab").update("serverUrl", `ws://127.0.0.1:${localPort}/ws`, vscode2.ConfigurationTarget.Workspace);
         outputChannel.appendLine(`[tunnel] ${inst.session} \u2192 127.0.0.1:${localPort} (remote ${inst.port})`);
+        if (collabStateKind() !== "starting") {
+          const uiVersion = ctx.extension.packageJSON.version;
+          collabServerState = inst.serverVersion && inst.serverVersion !== uiVersion ? { kind: "skew", sessionId: inst.sessionId, localPort, uiVersion, remoteVersion: inst.serverVersion } : { kind: "ready", sessionId: inst.sessionId, localPort };
+          updateCollabServerBar();
+        }
         settle();
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -4702,6 +4707,13 @@ function activateUi(ctx) {
         }
         tunnelsBySessionId.delete(inst.sessionId);
         outputChannel.appendLine(`[tunnel] ${inst.sessionId} closed`);
+      }
+      if (collabStateKind() !== "starting") {
+        const cur = collabServerState;
+        if ((cur.kind === "ready" || cur.kind === "skew") && cur.sessionId === inst.sessionId) {
+          collabServerState = { kind: "stopped" };
+          updateCollabServerBar();
+        }
       }
     })
   );
