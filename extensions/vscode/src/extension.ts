@@ -170,7 +170,12 @@ async function openDiff(filePath: string) {
         const git = gitExtension.exports.getAPI(1) as { toGitUri(uri: vscode.Uri, ref: string): vscode.Uri };
         const headUri = git.toGitUri(workingUri, 'HEAD');
         const title = `${filePath.split('/').pop()} (Working Tree)`;
-        await vscode.commands.executeCommand('vscode.diff', headUri, workingUri, title);
+        // preview:false → each diff gets its own persistent tab instead of
+        // reusing (and overwriting) the single shared preview tab.
+        await vscode.commands.executeCommand('vscode.diff', headUri, workingUri, title, {
+          preview: false,
+          preserveFocus: true,
+        });
         return;
       } catch { /* fall through to text fallback */ }
     }

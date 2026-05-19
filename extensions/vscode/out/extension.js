@@ -4968,7 +4968,10 @@ async function openDiff(filePath) {
         const git = gitExtension.exports.getAPI(1);
         const headUri = git.toGitUri(workingUri, "HEAD");
         const title = `${filePath.split("/").pop()} (Working Tree)`;
-        await vscode3.commands.executeCommand("vscode.diff", headUri, workingUri, title);
+        await vscode3.commands.executeCommand("vscode.diff", headUri, workingUri, title, {
+          preview: false,
+          preserveFocus: true
+        });
         return;
       } catch {
       }
