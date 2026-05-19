@@ -869,9 +869,11 @@ async function archiveByPrefix(
   // Determine slug: prefer caller-provided, else find a doc with blueprint:true under prefix
   let slug = options.archiveSlug || '';
   if (!slug) {
-    const blueprintDoc = docs.find(
-      d => d.blueprint && matches(d.name) && !d.deprecated
-    );
+    // Prefer a live blueprint, but fall back to a deprecated one so the
+    // archive folder is still named after the work rather than a timestamp.
+    const blueprintDoc =
+      docs.find(d => d.blueprint && matches(d.name) && !d.deprecated) ||
+      docs.find(d => d.blueprint && matches(d.name));
     if (blueprintDoc) {
       const tail = blueprintDoc.name.startsWith(prefix)
         ? blueprintDoc.name.slice(prefix.length).replace(/^\/+/, '')
