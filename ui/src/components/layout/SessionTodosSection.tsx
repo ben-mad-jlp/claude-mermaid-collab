@@ -7,6 +7,7 @@ import { SessionTodo } from '@/types';
 
 interface TodoRowProps {
   todo: SessionTodo;
+  index: number;
   project: string;
   session: string;
   onDragStart: (e: React.DragEvent, id: number) => void;
@@ -18,6 +19,7 @@ interface TodoRowProps {
 
 const TodoRow: React.FC<TodoRowProps> = ({
   todo,
+  index,
   project,
   session,
   onDragStart,
@@ -97,6 +99,9 @@ const TodoRow: React.FC<TodoRowProps> = ({
         className="w-3.5 h-3.5 shrink-0 cursor-pointer mt-0.5"
         aria-label={`Toggle ${todo.text}`}
       />
+      <span className="shrink-0 tabular-nums mt-0.5 select-none text-gray-400 dark:text-gray-500">
+        {index}.
+      </span>
       <div className="flex-1 min-w-0">
         {editing ? (
           <input
@@ -405,10 +410,11 @@ export const SessionTodosSection = forwardRef<SessionTodosSectionHandle, Session
               className="space-y-0.5 max-h-80 overflow-y-auto"
               onDragLeave={() => setDragOverId(null)}
             >
-              {visibleTodos.map((todo) => (
+              {visibleTodos.map((todo, i) => (
                 <TodoRow
                   key={todo.id}
                   todo={todo}
+                  index={i + 1}
                   project={currentSession.project}
                   session={currentSession.name}
                   onDragStart={handleDragStart}

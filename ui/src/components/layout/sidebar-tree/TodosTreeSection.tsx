@@ -26,11 +26,12 @@ export type { SessionTodosSectionProps as TodosTreeSectionProps };
 
 interface TodoRowProps {
   todo: SessionTodo;
+  index: number;
   project: string;
   session: string;
 }
 
-function TodoRow({ todo, project, session }: TodoRowProps) {
+function TodoRow({ todo, index, project, session }: TodoRowProps) {
   const upsertSessionTodo = useSessionStore((s) => s.upsertSessionTodo);
   const removeSessionTodoLocal = useSessionStore((s) => s.removeSessionTodoLocal);
   const [editing, setEditing] = useState(false);
@@ -95,6 +96,9 @@ function TodoRow({ todo, project, session }: TodoRowProps) {
           className="w-3.5 h-3.5 shrink-0 cursor-pointer mt-0.5"
           aria-label={`Toggle ${todo.text}`}
         />
+        <span className="shrink-0 tabular-nums mt-0.5 select-none text-gray-400 dark:text-gray-500">
+          {index}.
+        </span>
         {editing ? (
           <input
             type="text"
@@ -298,10 +302,11 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
                 {sessionTodos.length === 0 ? 'No todos yet.' : 'No matching todos.'}
               </div>
             ) : (
-              visibleTodos.map((todo) => (
+              visibleTodos.map((todo, i) => (
                 <TodoRow
                   key={todo.id}
                   todo={todo}
+                  index={i + 1}
                   project={currentSession.project}
                   session={currentSession.name}
                 />
