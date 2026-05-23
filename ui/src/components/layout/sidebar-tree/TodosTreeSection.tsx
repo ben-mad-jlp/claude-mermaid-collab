@@ -13,6 +13,11 @@ import { ConfirmClearCompletedDialog } from '@/components/dialogs/ConfirmClearCo
 import { SessionTodo } from '@/types';
 import { SectionBranchRow } from './TreeBranchRow';
 
+function shortSlug(blueprintId: string): string {
+  const m = blueprintId.match(/^(?:Implementing|Archive)\/(?:[^/]+\/)?(.+)$/);
+  return m ? m[1] : blueprintId;
+}
+
 export interface SessionTodosSectionHandle {
   revealAddInput: () => void;
 }
@@ -33,6 +38,7 @@ interface TodoRowProps {
 function TodoRow({ todo, project, session }: TodoRowProps) {
   const upsertSessionTodo = useSessionStore((s) => s.upsertSessionTodo);
   const removeSessionTodoLocal = useSessionStore((s) => s.removeSessionTodoLocal);
+  const selectDocument = useSessionStore((s) => s.selectDocument);
   const [editing, setEditing] = useState(false);
   const [draftText, setDraftText] = useState(todo.text);
 
@@ -124,6 +130,16 @@ function TodoRow({ todo, project, session }: TodoRowProps) {
             onClick={() => setEditing(true)}
           >
             {todo.text}
+          </span>
+        )}
+        {todo.link && (
+          <span
+            data-testid="todo-link-chip"
+            onClick={(e) => { e.stopPropagation(); selectDocument(todo.link!.blueprintId); }}
+            title={todo.link.blueprintId + (todo.link.taskId ? ` · ${todo.link.taskId}` : '')}
+            className="shrink-0 mt-0.5 inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300"
+          >
+            ↳ {shortSlug(todo.link.blueprintId)}{todo.link.taskId ? ` · ${todo.link.taskId}` : ''}
           </span>
         )}
         <button

@@ -346,6 +346,13 @@ Args: { "project": "{project}", "session": "{session}", "taskId": "{task-id}", "
 ```
 (One call per task-id — do all in sequence.)
 
+Then, for each task just marked completed, mark its linked session todos done:
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__complete_linked_todos
+Args: { "project": "{project}", "session": "{session}", "blueprintId": "{blueprint-doc-id}", "taskId": "{task-id}" }
+```
+(`blueprintId` is the id of the blueprint document loaded in Step 3. One call per completed task-id, in sequence. Skip silently if it returns no todos.)
+
 **Save wave implementation summary:**
 ```
 Tool: mcp__plugin_mermaid-collab_mermaid__create_document

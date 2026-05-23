@@ -70,6 +70,7 @@ import {
   removeSessionTodo,
   clearCompletedSessionTodos,
   reorderSessionTodos,
+  completeTodosForTask,
   listSessionTodosSchema,
   addSessionTodoSchema,
   updateSessionTodoSchema,
@@ -77,6 +78,8 @@ import {
   removeSessionTodoSchema,
   clearCompletedSessionTodosSchema,
   reorderSessionTodosSchema,
+  completeLinkedTodosSchema,
+  type SessionTodoLink,
 } from './tools/session-todos.js';
 import {
   handleCreateDesign,
@@ -1933,6 +1936,11 @@ IMPORTANT - Common pitfalls to avoid:
         description: 'Reorder per-session todos by providing a full permutation of existing todo ids. Assigns new order values (10, 20, 30, ...) in the provided sequence.',
         inputSchema: reorderSessionTodosSchema,
       },
+      {
+        name: 'complete_linked_todos',
+        description: 'Mark completed all session todos linked to a blueprint (and optional taskId). Used to sync linked todos when a Go task finishes.',
+        inputSchema: completeLinkedTodosSchema,
+      },
       // Spreadsheet tools
       {
         name: 'list_spreadsheets',
@@ -3697,28 +3705,30 @@ IMPORTANT - Common pitfalls to avoid:
           }
 
           case 'add_session_todo': {
-            const { project, session, text } = args as {
+            const { project, session, text, link } = args as {
               project: string;
               session: string;
               text: string;
+              link?: SessionTodoLink;
             };
             if (!project || !session || !text) throw new Error('Missing required: project, session, text');
-            const result = await addSessionTodo(project, session, text);
+            const result = await addSessionTodo(project, session, text, link);
             getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
             return JSON.stringify(result, null, 2);
           }
 
           case 'update_session_todo': {
-            const { project, session, id, text, completed, order } = args as {
+            const { project, session, id, text, completed, order, link } = args as {
               project: string;
               session: string;
               id: number;
               text?: string;
               completed?: boolean;
               order?: number;
+              link?: SessionTodoLink | null;
             };
             if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
-            const result = await updateSessionTodo(project, session, id, { text, completed, order });
+            const result = await updateSessionTodo(project, session, id, { text, completed, order, link });
             getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
             return JSON.stringify(result, null, 2);
           }
@@ -3764,6 +3774,16 @@ IMPORTANT - Common pitfalls to avoid:
             };
             if (!project || !session || !Array.isArray(orderedIds)) throw new Error('Missing required: project, session, orderedIds');
             const result = await reorderSessionTodos(project, session, orderedIds);
+            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'complete_linked_todos': {
+            const { project, session, blueprintId, taskId } = args as {
+              project: string; session: string; blueprintId: string; taskId?: string;
+            };
+            if (!project || !session || !blueprintId) throw new Error('Missing required: project, session, blueprintId');
+            const result = await completeTodosForTask(project, session, blueprintId, taskId);
             getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
             return JSON.stringify(result, null, 2);
           }

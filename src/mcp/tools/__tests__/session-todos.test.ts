@@ -17,6 +17,8 @@ import {
   removeSessionTodo,
   clearCompletedSessionTodos,
   reorderSessionTodos,
+  completeTodosForTask,
+  type SessionTodoLink,
 } from '../session-todos';
 
 let projectDir: string;
@@ -108,6 +110,15 @@ describe('addSessionTodo', () => {
     expect(c.id).toBe(3);
   });
 
+  it('persists link when provided', async () => {
+    const link: SessionTodoLink = { blueprintId: 'bp-1', taskId: 't1' };
+    const todo = await addSessionTodo(projectDir, sessionName, 'text', link);
+    expect(todo.link).toEqual(link);
+
+    const list = await listSessionTodos(projectDir, sessionName);
+    expect(list[0].link).toEqual(link);
+  });
+
   it('uses max+10 for order, not length*10, after a manual reorder', async () => {
     const a = await addSessionTodo(projectDir, sessionName, 'A');
     const b = await addSessionTodo(projectDir, sessionName, 'B');
@@ -189,6 +200,28 @@ describe('updateSessionTodo', () => {
     await expect(
       updateSessionTodo(projectDir, sessionName, 9999, { text: 'nope' })
     ).rejects.toThrow('Todo not found');
+  });
+
+  it('sets link when provided as object', async () => {
+    const todo = await addSessionTodo(projectDir, sessionName, 'Task');
+    const updated = await updateSessionTodo(projectDir, sessionName, todo.id, {
+      link: { blueprintId: 'bp-1' },
+    });
+    expect(updated.link).toEqual({ blueprintId: 'bp-1' });
+  });
+
+  it('clears link when provided as null', async () => {
+    const link: SessionTodoLink = { blueprintId: 'bp-1', taskId: 't1' };
+    const todo = await addSessionTodo(projectDir, sessionName, 'Task', link);
+    const updated = await updateSessionTodo(projectDir, sessionName, todo.id, { link: null });
+    expect(updated.link).toBeUndefined();
+  });
+
+  it('leaves link unchanged when link key absent', async () => {
+    const link: SessionTodoLink = { blueprintId: 'bp-1', taskId: 't1' };
+    const todo = await addSessionTodo(projectDir, sessionName, 'Task', link);
+    const updated = await updateSessionTodo(projectDir, sessionName, todo.id, { text: 'x' });
+    expect(updated.link).toEqual(link);
   });
 });
 
@@ -362,6 +395,68 @@ describe('reorderSessionTodos', () => {
     for (const todo of list) {
       expect(todo.updatedAt).not.toBe(before.get(todo.id));
     }
+  });
+});
+
+describe('completeTodosForTask', () => {
+  it('completes only (bp,t1) and (bp,no-task) when taskId is provided', async () => {
+    const t_bp_t1 = await addSessionTodo(projectDir, sessionName, 'bp+t1', { blueprintId: 'bp', taskId: 't1' });
+    const t_bp_t2 = await addSessionTodo(projectDir, sessionName, 'bp+t2', { blueprintId: 'bp', taskId: 't2' });
+    const t_bp_none = await addSessionTodo(projectDir, sessionName, 'bp+none', { blueprintId: 'bp' });
+    const t_other = await addSessionTodo(projectDir, sessionName, 'other+t1', { blueprintId: 'otherBp', taskId: 't1' });
+
+    const completed = await completeTodosForTask(projectDir, sessionName, 'bp', 't1');
+    const completedIds = completed.map((t) => t.id);
+    expect(completedIds).toContain(t_bp_t1.id);
+    expect(completedIds).toContain(t_bp_none.id);
+    expect(completedIds).not.toContain(t_bp_t2.id);
+    expect(completedIds).not.toContain(t_other.id);
+    expect(completed).toHaveLength(2);
+
+    const list = await listSessionTodos(projectDir, sessionName);
+    const bp_t2 = list.find((t) => t.id === t_bp_t2.id)!;
+    const other = list.find((t) => t.id === t_other.id)!;
+    expect(bp_t2.completed).toBe(false);
+    expect(other.completed).toBe(false);
+  });
+
+  it('completes all bp todos when no taskId provided', async () => {
+    const t_bp_t1 = await addSessionTodo(projectDir, sessionName, 'bp+t1', { blueprintId: 'bp', taskId: 't1' });
+    const t_bp_t2 = await addSessionTodo(projectDir, sessionName, 'bp+t2', { blueprintId: 'bp', taskId: 't2' });
+    const t_bp_none = await addSessionTodo(projectDir, sessionName, 'bp+none', { blueprintId: 'bp' });
+    await addSessionTodo(projectDir, sessionName, 'other+t1', { blueprintId: 'otherBp', taskId: 't1' });
+
+    const completed = await completeTodosForTask(projectDir, sessionName, 'bp');
+    const completedIds = completed.map((t) => t.id);
+    expect(completedIds).toContain(t_bp_t1.id);
+    expect(completedIds).toContain(t_bp_t2.id);
+    expect(completedIds).toContain(t_bp_none.id);
+    expect(completed).toHaveLength(3);
+  });
+
+  it('never completes otherBp todos when targeting bp', async () => {
+    await addSessionTodo(projectDir, sessionName, 'bp+t1', { blueprintId: 'bp', taskId: 't1' });
+    const t_other = await addSessionTodo(projectDir, sessionName, 'other+t1', { blueprintId: 'otherBp', taskId: 't1' });
+
+    await completeTodosForTask(projectDir, sessionName, 'bp', 't1');
+
+    const list = await listSessionTodos(projectDir, sessionName);
+    const other = list.find((t) => t.id === t_other.id)!;
+    expect(other.completed).toBe(false);
+  });
+
+  it('does not include already-completed matching todos in the returned array', async () => {
+    const t_bp_t1 = await addSessionTodo(projectDir, sessionName, 'bp+t1', { blueprintId: 'bp', taskId: 't1' });
+    await updateSessionTodo(projectDir, sessionName, t_bp_t1.id, { completed: true });
+
+    const completed = await completeTodosForTask(projectDir, sessionName, 'bp', 't1');
+    expect(completed.map((t) => t.id)).not.toContain(t_bp_t1.id);
+  });
+
+  it('returns [] when no todos match', async () => {
+    await addSessionTodo(projectDir, sessionName, 'other', { blueprintId: 'otherBp', taskId: 't1' });
+    const completed = await completeTodosForTask(projectDir, sessionName, 'bp', 't1');
+    expect(completed).toEqual([]);
   });
 });
 

@@ -39,6 +39,7 @@ describe('SessionTodosSection', () => {
     removeSessionTodoLocal: vi.fn(),
     setSessionTodosList: vi.fn(),
     setSessionTodosShowCompleted: vi.fn(),
+    selectDocument: vi.fn(),
     ...overrides,
   });
 
@@ -207,6 +208,53 @@ describe('SessionTodosSection', () => {
 
     expect(onToggle).toHaveBeenCalledTimes(1);
     expect(screen.getByLabelText('Add a new todo')).toBeInTheDocument();
+  });
+
+  describe('link chip', () => {
+    it('renders chip with shortSlug and taskId when todo has a link', () => {
+      mockStore(
+        makeState({
+          sessionTodos: [
+            makeTodo({
+              link: { blueprintId: 'Implementing/Go/Wave 3/foo', taskId: 'bar' },
+            }),
+          ],
+        }),
+      );
+      render(<SessionTodosSection />);
+      const chip = screen.getByTestId('todo-link-chip');
+      expect(chip).toBeInTheDocument();
+      expect(chip.textContent).toContain('Wave 3/foo');
+      expect(chip.textContent).toContain('bar');
+    });
+
+    it('does not render chip when todo has no link', () => {
+      mockStore(
+        makeState({
+          sessionTodos: [makeTodo()],
+        }),
+      );
+      render(<SessionTodosSection />);
+      expect(screen.queryByTestId('todo-link-chip')).toBeNull();
+    });
+
+    it('clicking the chip calls selectDocument with the blueprintId', () => {
+      const selectDocument = vi.fn();
+      mockStore(
+        makeState({
+          sessionTodos: [
+            makeTodo({
+              link: { blueprintId: 'Implementing/Go/Wave 3/foo', taskId: 'bar' },
+            }),
+          ],
+          selectDocument,
+        }),
+      );
+      render(<SessionTodosSection />);
+      const chip = screen.getByTestId('todo-link-chip');
+      fireEvent.click(chip);
+      expect(selectDocument).toHaveBeenCalledWith('Implementing/Go/Wave 3/foo');
+    });
   });
 
   it('revealAddInput imperative handle focuses the add input', async () => {

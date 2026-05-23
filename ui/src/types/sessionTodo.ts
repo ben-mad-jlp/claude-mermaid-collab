@@ -1,3 +1,5 @@
+export interface SessionTodoLink { blueprintId: string; taskId?: string }
+
 export interface SessionTodo {
   id: number;
   text: string;
@@ -5,4 +7,5 @@ export interface SessionTodo {
   order: number;
   createdAt: string;
   updatedAt: string;
+  link?: SessionTodoLink;
 }

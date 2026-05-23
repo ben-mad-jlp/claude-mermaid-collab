@@ -28,6 +28,7 @@ import {
   removeSessionTodo,
   clearCompletedSessionTodos,
   reorderSessionTodos,
+  type SessionTodoLink,
 } from '../mcp/tools/session-todos';
 import {
   listDesignsHandler,
@@ -2538,10 +2539,11 @@ export async function handleAPI(
   // POST /api/session-todos - Add a session todo
   if (path === '/api/session-todos' && req.method === 'POST') {
     try {
-      const { project, session, text } = await req.json() as {
+      const { project, session, text, link } = await req.json() as {
         project?: string;
         session?: string;
         text?: string;
+        link?: SessionTodoLink;
       };
 
       if (!project || !session || !text) {
@@ -2551,7 +2553,7 @@ export async function handleAPI(
         return Response.json({ error: 'text must be non-empty' }, { status: 400 });
       }
 
-      const todo = await addSessionTodo(project, session, text);
+      const todo = await addSessionTodo(project, session, text, link);
 
       wsHandler.broadcast({
         type: 'session_todos_updated',
@@ -2621,12 +2623,13 @@ export async function handleAPI(
   const sessionTodosPatchMatch = path.match(/^\/api\/session-todos\/(\d+)$/);
   if (sessionTodosPatchMatch && req.method === 'PATCH') {
     try {
-      const { project, session, text, completed, order } = await req.json() as {
+      const { project, session, text, completed, order, link } = await req.json() as {
         project?: string;
         session?: string;
         text?: string;
         completed?: boolean;
         order?: number;
+        link?: SessionTodoLink | null;
       };
 
       if (!project || !session) {
@@ -2637,7 +2640,7 @@ export async function handleAPI(
       }
 
       const id = parseInt(sessionTodosPatchMatch[1], 10);
-      const todo = await updateSessionTodo(project, session, id, { text, completed, order });
+      const todo = await updateSessionTodo(project, session, id, { text, completed, order, link });
 
       wsHandler.broadcast({
         type: 'session_todos_updated',

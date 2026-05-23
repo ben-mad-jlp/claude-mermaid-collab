@@ -5,6 +5,12 @@ import { api } from '@/lib/api';
 import { ConfirmClearCompletedDialog } from '@/components/dialogs/ConfirmClearCompletedDialog';
 import { SessionTodo } from '@/types';
 
+function shortSlug(blueprintId: string): string {
+  // strip a leading "Implementing/" or "Archive/<slug>/" prefix
+  const m = blueprintId.match(/^(?:Implementing|Archive)\/(?:[^/]+\/)?(.+)$/);
+  return m ? m[1] : blueprintId;
+}
+
 interface TodoRowProps {
   todo: SessionTodo;
   project: string;
@@ -28,6 +34,7 @@ const TodoRow: React.FC<TodoRowProps> = ({
 }) => {
   const upsertSessionTodo = useSessionStore((s) => s.upsertSessionTodo);
   const removeSessionTodoLocal = useSessionStore((s) => s.removeSessionTodoLocal);
+  const selectDocument = useSessionStore((s) => s.selectDocument);
 
   const [editing, setEditing] = useState(false);
   const [draftText, setDraftText] = useState(todo.text);
@@ -132,6 +139,16 @@ const TodoRow: React.FC<TodoRowProps> = ({
           </span>
         )}
       </div>
+      {todo.link && (
+        <span
+          data-testid="todo-link-chip"
+          onClick={(e) => { e.stopPropagation(); selectDocument(todo.link!.blueprintId); }}
+          title={todo.link.blueprintId + (todo.link.taskId ? ` · ${todo.link.taskId}` : '')}
+          className="shrink-0 mt-0.5 inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300"
+        >
+          ↳ {shortSlug(todo.link.blueprintId)}{todo.link.taskId ? ` · ${todo.link.taskId}` : ''}
+        </span>
+      )}
       <button
         onClick={handleDelete}
         className="shrink-0 opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-opacity"

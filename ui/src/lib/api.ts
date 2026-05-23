@@ -2,7 +2,7 @@
  * API Client - HTTP fetch methods for communicating with the backend
  */
 
-import type { Session, Diagram, Document, CollabState, Snippet, SessionTodo, Image } from '@/types';
+import type { Session, Diagram, Document, CollabState, Snippet, SessionTodo, SessionTodoLink, Image } from '@/types';
 import type { Design, Spreadsheet } from '@/stores/sessionStore';
 import type { UICodeFile } from '@/types/code-file';
 import { getWebSocketClient } from './websocket';
@@ -99,8 +99,8 @@ export interface ApiClient {
   updateSnippet(project: string, session: string, id: string, content: string): Promise<void>;
   deleteSnippet(project: string, session: string, id: string): Promise<void>;
   getSessionTodos(project: string, session: string, includeCompleted?: boolean): Promise<SessionTodo[]>;
-  addSessionTodo(project: string, session: string, text: string): Promise<SessionTodo>;
-  patchSessionTodo(project: string, session: string, id: number, updates: { text?: string; completed?: boolean; order?: number }): Promise<SessionTodo>;
+  addSessionTodo(project: string, session: string, text: string, link?: SessionTodoLink): Promise<SessionTodo>;
+  patchSessionTodo(project: string, session: string, id: number, updates: { text?: string; completed?: boolean; order?: number; link?: SessionTodoLink | null }): Promise<SessionTodo>;
   removeSessionTodo(project: string, session: string, id: number): Promise<void>;
   reorderSessionTodos(project: string, session: string, orderedIds: number[]): Promise<SessionTodo[]>;
   clearCompletedSessionTodos(project: string, session: string): Promise<{ removedCount: number }>;
@@ -642,11 +642,11 @@ export const api: ApiClient = {
   /**
    * Add a session todo
    */
-  async addSessionTodo(project: string, session: string, text: string): Promise<SessionTodo> {
+  async addSessionTodo(project: string, session: string, text: string, link?: SessionTodoLink): Promise<SessionTodo> {
     const response = await fetch('/api/session-todos', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project, session, text }),
+      body: JSON.stringify({ project, session, text, ...(link ? { link } : {}) }),
     });
     if (!response.ok) {
       throw new Error(response.statusText);
@@ -662,7 +662,7 @@ export const api: ApiClient = {
     project: string,
     session: string,
     id: number,
-    updates: { text?: string; completed?: boolean; order?: number }
+    updates: { text?: string; completed?: boolean; order?: number; link?: SessionTodoLink | null }
   ): Promise<SessionTodo> {
     const response = await fetch(`/api/session-todos/${id}`, {
       method: 'PATCH',

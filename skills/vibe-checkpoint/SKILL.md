@@ -35,15 +35,28 @@ If not found, the content template is:
 [Nothing recorded yet]
 ```
 
-### Step 3 — Write the checkpoint summary
+### Step 3 — Fetch open session todos
+
+Call `mcp__plugin_mermaid-collab_mermaid__list_session_todos` for the current project and session with `includeCompleted: false` (or filter to incomplete todos only).
+
+If there are incomplete todos, format up to 10 as a list:
+```
+#{id} {text}
+```
+If a todo has a `link` field, append ` ↳ {link.blueprintId}` on the same line, and if `link.taskId` is also present append ` · {link.taskId}` after it.
+
+Keep this list for use in Step 4. If there are no incomplete todos, skip the list.
+
+### Step 4 — Write the checkpoint summary
 
 Based on the recent conversation context, write a concise "Currently Doing" summary (3–8 bullet points) covering:
 - What task/feature/problem we're in the middle of
 - What files or components are relevant
 - What the next concrete step is
 - Any important decisions or blockers
+- If there are open todos from Step 3, append them at the end as a sub-list under a `**Open todos:**` label. Do NOT include completed todos.
 
-### Step 4 — Update the instructions
+### Step 5 — Update the instructions
 
 Find the `## Currently Doing` heading line number in the snippet. Replace only the lines *after* the heading (the bullet points) — do not include the `## Currently Doing` heading in `newContent`.
 
@@ -55,7 +68,7 @@ If it does not exist: call `mcp__plugin_mermaid-collab_mermaid__create_document`
 - `name`: `vibe.vibeinstructions`
 - `content`: the full template with the checkpoint filled in
 
-### Step 5 — Confirm and prompt
+### Step 6 — Confirm and prompt
 
 Tell the user:
 ```

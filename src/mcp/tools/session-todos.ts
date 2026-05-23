@@ -37,6 +37,12 @@ export interface SessionTodo {
   order: number;
   createdAt: string;
   updatedAt: string;
+  link?: SessionTodoLink;
+}
+
+export interface SessionTodoLink {
+  blueprintId: string;
+  taskId?: string;
 }
 
 export interface SessionTodosFile {
@@ -73,6 +79,15 @@ export const addSessionTodoSchema = {
     project: { type: 'string', description: 'Absolute path to project root' },
     session: { type: 'string', description: 'Session name' },
     text: { type: 'string', description: 'Todo text' },
+    link: {
+      type: 'object',
+      description: 'Optional link to a blueprint task',
+      properties: {
+        blueprintId: { type: 'string', description: 'Blueprint id' },
+        taskId: { type: 'string', description: 'Task id within the blueprint (optional)' },
+      },
+      required: ['blueprintId'],
+    },
   },
   required: ['project', 'session', 'text'],
 };
@@ -86,8 +101,28 @@ export const updateSessionTodoSchema = {
     text: { type: 'string', description: 'New text (optional)' },
     completed: { type: 'boolean', description: 'New completed state (optional)' },
     order: { type: 'number', description: 'New explicit order value (optional)' },
+    link: {
+      type: 'object',
+      description: 'Set or clear the blueprint link. Provide null to clear, or an object to set.',
+      properties: {
+        blueprintId: { type: 'string', description: 'Blueprint id' },
+        taskId: { type: 'string', description: 'Task id within the blueprint (optional)' },
+      },
+      required: ['blueprintId'],
+    },
   },
   required: ['project', 'session', 'id'],
+};
+
+export const completeLinkedTodosSchema = {
+  type: 'object',
+  properties: {
+    project: { type: 'string', description: 'Absolute path to project root' },
+    session: { type: 'string', description: 'Session name' },
+    blueprintId: { type: 'string', description: 'Blueprint id to match' },
+    taskId: { type: 'string', description: 'Task id to match (optional; matches all tasks in blueprint when omitted)' },
+  },
+  required: ['project', 'session', 'blueprintId'],
 };
 
 export const toggleSessionTodoSchema = {
@@ -193,7 +228,8 @@ export async function listSessionTodos(
 export async function addSessionTodo(
   project: string,
   session: string,
-  text: string
+  text: string,
+  link?: SessionTodoLink,
 ): Promise<SessionTodo> {
   const trimmed = text.trim();
   if (!trimmed) throw new Error('text must be non-empty');
@@ -208,6 +244,7 @@ export async function addSessionTodo(
       order: data.todos.length === 0 ? 10 : maxOrder + 10,
       createdAt: now,
       updatedAt: now,
+      ...(link ? { link } : {}),
     };
     data.todos.push(todo);
     data.nextId += 1;
@@ -220,7 +257,7 @@ export async function updateSessionTodo(
   project: string,
   session: string,
   id: number,
-  updates: { text?: string; completed?: boolean; order?: number }
+  updates: { text?: string; completed?: boolean; order?: number; link?: SessionTodoLink | null }
 ): Promise<SessionTodo> {
   let trimmedText: string | undefined;
   if (updates.text !== undefined) {
@@ -236,6 +273,11 @@ export async function updateSessionTodo(
     if (trimmedText !== undefined) todo.text = trimmedText;
     if (updates.completed !== undefined) todo.completed = updates.completed;
     if (updates.order !== undefined) todo.order = updates.order;
+    if (updates.link === null) {
+      delete todo.link;
+    } else if (updates.link !== undefined) {
+      todo.link = updates.link;
+    }
     todo.updatedAt = nowIso();
     await writeSessionTodosFile(project, session, data);
     return todo;
@@ -330,5 +372,28 @@ export async function reorderSessionTodos(
     data.todos = orderedIds.map(id => byId.get(id)!);
     await writeSessionTodosFile(project, session, data);
     return data.todos.slice();
+  });
+}
+
+export async function completeTodosForTask(
+  project: string,
+  session: string,
+  blueprintId: string,
+  taskId?: string,
+): Promise<SessionTodo[]> {
+  return withLock(project, session, async () => {
+    const data = await readSessionTodosFile(project, session);
+    const now = nowIso();
+    const changed: SessionTodo[] = [];
+    for (const todo of data.todos) {
+      if (todo.completed) continue;
+      if (todo.link?.blueprintId !== blueprintId) continue;
+      if (taskId !== undefined && todo.link.taskId !== undefined && todo.link.taskId !== taskId) continue;
+      todo.completed = true;
+      todo.updatedAt = now;
+      changed.push(todo);
+    }
+    if (changed.length > 0) await writeSessionTodosFile(project, session, data);
+    return changed;
   });
 }
