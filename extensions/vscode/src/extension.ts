@@ -18,7 +18,7 @@ const MAX_ATTEMPTS = 20;
 let _ctx: vscode.ExtensionContext | undefined;
 
 let hasReattachedThisSession = false;
-const reattachQueue: Array<{ claudePid: number; claudeSessionId: string; project: string; session: string; boundAt: string }> = [];
+const reattachQueue: Array<{ claudePid: number; claudeSessionId: string; project: string; session: string; tmuxSession: string; boundAt: string }> = [];
 let reattachProcessing = false;
 const groupedSessionNames = new Map<string, string>(); // terminal name → tmux grouped session name
 
@@ -105,16 +105,16 @@ function connect(context: vscode.ExtensionContext) {
 async function handleMessage(msg: { type: string; [k: string]: unknown }) {
   switch (msg.type) {
     case 'ide_focus_terminal':
-      await focusTerminal(msg.claudePid as number, msg.session as string);
+      await focusTerminal(msg.claudePid as number, msg.session as string, msg.project as string | undefined);
       break;
     case 'ide_open_diff':
       await openDiff(msg.filePath as string);
       break;
     case 'ide_reattach':
-      void handleIdeReattach(msg as unknown as { claudePid: number; claudeSessionId: string; project: string; session: string; boundAt: string });
+      void handleIdeReattach(msg as unknown as { claudePid: number; claudeSessionId: string; project: string; session: string; tmuxSession: string; boundAt: string });
       break;
     case 'ide_open_terminal':
-      void processOneReattach({ session: msg.session as string }, true);
+      void processOneReattach({ session: msg.session as string, project: msg.project as string | undefined, tmuxSession: msg.tmuxSession as string | undefined }, true);
       break;
     case 'browser_open':
       void handleBrowserOpen(msg.requestId as string, msg.url as string);
@@ -131,7 +131,16 @@ async function handleMessage(msg: { type: string; [k: string]: unknown }) {
   }
 }
 
-async function focusTerminal(targetPid: number, sessionHint: string) {
+function projectBasename(project?: string): string {
+  if (!project) return '';
+  return project.split('/').filter(Boolean).pop() ?? project;
+}
+function terminalDisplayName(session: string, project?: string): string {
+  const base = projectBasename(project);
+  return base ? `${session} · ${base}` : session;
+}
+
+async function focusTerminal(targetPid: number, sessionHint: string, project?: string) {
   const terminals = vscode.window.terminals;
   const resolved = await Promise.all(
     terminals.map(async (t) => ({ terminal: t, pid: await t.processId }))
@@ -153,7 +162,9 @@ async function focusTerminal(targetPid: number, sessionHint: string) {
     match.terminal.show(false);
     return;
   }
-  const nameMatch = terminals.find((t) => t.name.toLowerCase().includes(sessionHint.toLowerCase()));
+  const display = terminalDisplayName(sessionHint, project);
+  const nameMatch = terminals.find((t) => t.name === display)
+    ?? terminals.find((t) => t.name.toLowerCase().includes(sessionHint.toLowerCase()));
   if (nameMatch) {
     nameMatch.show(false);
     return;
@@ -241,7 +252,7 @@ async function openDiff(filePath: string) {
   }
 }
 
-async function handleIdeReattach(msg: { claudePid: number; claudeSessionId: string; project: string; session: string; boundAt: string }) {
+async function handleIdeReattach(msg: { claudePid: number; claudeSessionId: string; project: string; session: string; tmuxSession: string; boundAt: string }) {
   const isFirst = !hasReattachedThisSession;
   hasReattachedThisSession = true;
   reattachQueue.push(msg);
@@ -262,20 +273,21 @@ async function drainReattachQueue(isFirst: boolean) {
   reattachProcessing = false;
 }
 
-async function processOneReattach(msg: { session: string }, showTerminal: boolean) {
-  const sessionHint = msg.session;
-  const existing = vscode.window.terminals.find(t => t.name === sessionHint);
+async function processOneReattach(msg: { session: string; project?: string; tmuxSession?: string }, showTerminal: boolean) {
+  const display = terminalDisplayName(msg.session, msg.project);
+  const existing = vscode.window.terminals.find(t => t.name === display);
   if (existing) {
     if (showTerminal) { existing.show(false); }
     return;
   }
   // Run the tmux check inside the terminal shell (on the remote/Linux side) so
   // the has-session call works even when the extension host is on Windows.
-  const groupedName = `vscode-collab-${sessionHint}`;
-  const cmd = `(tmux has-session -t '${groupedName}' 2>/dev/null || tmux new-session -d -s '${groupedName}' -t '${sessionHint}') && tmux attach-session -t '${groupedName}'`;
-  groupedSessionNames.set(sessionHint, groupedName);
+  const base = msg.tmuxSession ?? msg.session;
+  const groupedName = `vscode-collab-${base}`;
+  const cmd = `(tmux has-session -t '${groupedName}' 2>/dev/null || tmux new-session -d -s '${groupedName}' -t '${base}') && tmux attach-session -t '${groupedName}'`;
+  groupedSessionNames.set(display, groupedName);
   const t = vscode.window.createTerminal({
-    name: sessionHint,
+    name: display,
     shellPath: '/bin/sh',
     shellArgs: ['-c', cmd],
   });

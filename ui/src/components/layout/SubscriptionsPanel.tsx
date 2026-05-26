@@ -113,6 +113,12 @@ interface SubscribedSession {
   contextPercent?: number;
 }
 
+function tmuxBaseName(project: string, session: string): string {
+  const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24) || 'x';
+  const basename = project.split('/').filter(Boolean).pop() ?? 'project';
+  return `mc-${slug(basename)}-${slug(session)}`;
+}
+
 function useTmuxSessions(): Set<string> {
   const [sessions, setSessions] = useState<Set<string>>(new Set());
 
@@ -176,7 +182,7 @@ const SubscriptionRow: React.FC<{
           fetch('/api/ide/create-terminal', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ session: sub.session }),
+            body: JSON.stringify({ session: sub.session, project: sub.project }),
           }).catch(() => {});
           fetch('/api/browser/focus-tab', {
             method: 'POST',
@@ -248,7 +254,7 @@ const SubscriptionRow: React.FC<{
             fetch('/api/ide/create-terminal', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ session: sub.session }),
+              body: JSON.stringify({ session: sub.session, project: sub.project }),
             }).catch(() => {});
           }}
           className={`flex items-center justify-center w-7 h-7 rounded-full transition-all hover:opacity-80 active:scale-90 active:brightness-75 ${tmuxActive ? 'bg-green-300 text-green-900' : 'bg-red-300 text-red-900'}`}
@@ -385,7 +391,7 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
                 fetch('/api/ide/create-terminal', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ session: sub.session }),
+                  body: JSON.stringify({ session: sub.session, project: sub.project }),
                 }).catch(() => {});
               }
             }}
@@ -466,7 +472,7 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
                 currentSession.project === sub.project &&
                 currentSession.name === sub.session
               }
-              tmuxActive={tmuxSessions.has(sub.session)}
+              tmuxActive={tmuxSessions.has(tmuxBaseName(sub.project, sub.session))}
             />
           ))}
         </div>

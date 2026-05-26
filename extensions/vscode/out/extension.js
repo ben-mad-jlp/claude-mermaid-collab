@@ -4906,7 +4906,7 @@ function connect(context) {
 async function handleMessage(msg) {
   switch (msg.type) {
     case "ide_focus_terminal":
-      await focusTerminal(msg.claudePid, msg.session);
+      await focusTerminal(msg.claudePid, msg.session, msg.project);
       break;
     case "ide_open_diff":
       await openDiff(msg.filePath);
@@ -4915,7 +4915,7 @@ async function handleMessage(msg) {
       void handleIdeReattach(msg);
       break;
     case "ide_open_terminal":
-      void processOneReattach({ session: msg.session }, true);
+      void processOneReattach({ session: msg.session, project: msg.project, tmuxSession: msg.tmuxSession }, true);
       break;
     case "browser_open":
       void handleBrowserOpen(msg.requestId, msg.url);
@@ -4931,7 +4931,16 @@ async function handleMessage(msg) {
       break;
   }
 }
-async function focusTerminal(targetPid, sessionHint) {
+function projectBasename(project) {
+  if (!project)
+    return "";
+  return project.split("/").filter(Boolean).pop() ?? project;
+}
+function terminalDisplayName(session, project) {
+  const base = projectBasename(project);
+  return base ? `${session} \xB7 ${base}` : session;
+}
+async function focusTerminal(targetPid, sessionHint, project) {
   const terminals = vscode3.window.terminals;
   const resolved = await Promise.all(
     terminals.map(async (t) => ({ terminal: t, pid: await t.processId }))
@@ -4951,7 +4960,8 @@ async function focusTerminal(targetPid, sessionHint) {
     match.terminal.show(false);
     return;
   }
-  const nameMatch = terminals.find((t) => t.name.toLowerCase().includes(sessionHint.toLowerCase()));
+  const display = terminalDisplayName(sessionHint, project);
+  const nameMatch = terminals.find((t) => t.name === display) ?? terminals.find((t) => t.name.toLowerCase().includes(sessionHint.toLowerCase()));
   if (nameMatch) {
     nameMatch.show(false);
     return;
@@ -5045,19 +5055,20 @@ async function drainReattachQueue(isFirst) {
   reattachProcessing = false;
 }
 async function processOneReattach(msg, showTerminal) {
-  const sessionHint = msg.session;
-  const existing = vscode3.window.terminals.find((t2) => t2.name === sessionHint);
+  const display = terminalDisplayName(msg.session, msg.project);
+  const existing = vscode3.window.terminals.find((t2) => t2.name === display);
   if (existing) {
     if (showTerminal) {
       existing.show(false);
     }
     return;
   }
-  const groupedName = `vscode-collab-${sessionHint}`;
-  const cmd = `(tmux has-session -t '${groupedName}' 2>/dev/null || tmux new-session -d -s '${groupedName}' -t '${sessionHint}') && tmux attach-session -t '${groupedName}'`;
-  groupedSessionNames.set(sessionHint, groupedName);
+  const base = msg.tmuxSession ?? msg.session;
+  const groupedName = `vscode-collab-${base}`;
+  const cmd = `(tmux has-session -t '${groupedName}' 2>/dev/null || tmux new-session -d -s '${groupedName}' -t '${base}') && tmux attach-session -t '${groupedName}'`;
+  groupedSessionNames.set(display, groupedName);
   const t = vscode3.window.createTerminal({
-    name: sessionHint,
+    name: display,
     shellPath: "/bin/sh",
     shellArgs: ["-c", cmd]
   });

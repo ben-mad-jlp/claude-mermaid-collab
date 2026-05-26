@@ -84,8 +84,9 @@ export type WSMessage =
   | { type: 'mcp_token_cost_updated'; serverName: string; toolName: string; inputTokens: number; outputTokens: number; costUsd?: number }
   | { type: 'ide_focus_terminal'; claudePid: number; claudeSessionId: string; project: string; session: string }
   | { type: 'ide_open_diff'; filePath: string }
+  | { type: 'ide_open_terminal'; session: string; project: string; tmuxSession: string }
   | { type: 'ide_connected'; vscodeVersion: string; extensionVersion: string; workspaceFolders?: string[] }
-  | { type: 'ide_reattach'; claudePid: number; claudeSessionId: string; project: string; session: string; boundAt: string }
+  | { type: 'ide_reattach'; claudePid: number; claudeSessionId: string; project: string; session: string; tmuxSession: string; boundAt: string }
   | { type: 'ide_disconnected'; reason?: string }
   | { type: 'browser_tab_update'; session: string; active: boolean };
 

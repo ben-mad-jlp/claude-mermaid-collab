@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import type { WebSocketHandler } from '../websocket/handler.ts';
 import { ideState } from '../services/ide-state.ts';
+import { tmuxBaseName } from '../services/tmux-naming.js';
 
 function jsonError(message: string, status: number): Response {
   return Response.json({ error: message }, { status });
@@ -54,18 +55,24 @@ export async function handleIdeRoutes(req: Request, url: URL, wsHandler: WebSock
 
   if (url.pathname === '/api/ide/create-terminal' && req.method === 'POST') {
     try {
-      const { session } = await req.json() as { session?: string };
+      const { session, project } = await req.json() as { session?: string; project?: string };
       if (!session || typeof session !== 'string') {
         return jsonError('session is required', 400);
       }
+      if (!project || typeof project !== 'string') {
+        return jsonError('project is required', 400);
+      }
+      const tmuxSession = tmuxBaseName(project, session);
       const proc = Bun.spawn(
-        ['tmux', 'new-session', '-d', '-s', session],
+        ['tmux', 'new-session', '-d', '-s', tmuxSession],
         { stdout: 'ignore', stderr: 'ignore' }
       );
       await proc.exited; // ok if it fails (session already exists)
       wsHandler.broadcastToChannel('ide', {
         type: 'ide_open_terminal',
         session,
+        project,
+        tmuxSession,
       });
       return Response.json({ success: true });
     } catch (err) {

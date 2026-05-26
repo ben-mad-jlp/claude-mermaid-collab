@@ -1,6 +1,7 @@
 import type { ServerWebSocket } from 'bun';
 import { promises as fsp } from 'node:fs';
 import * as path from 'node:path';
+import { tmuxBaseName } from './tmux-naming.js';
 
 interface BrowserPending {
   resolve: (v: unknown) => void;
@@ -79,6 +80,7 @@ export class IdeState {
         claudeSessionId,
         project,
         session,
+        tmuxSession: tmuxBaseName(project, session),
         claudePid: Number(claudePid),
         boundAt,
       }));
