@@ -34,7 +34,7 @@ function validatePort(): number {
  * Application configuration loaded from environment variables with sensible defaults.
  *
  * @property {number} PORT - Server port number (1-65535). Default: 9002. Set via PORT env var.
- * @property {string} HOST - Server host address. Default: '0.0.0.0'. Set via HOST env var.
+ * @property {string} HOST - Server bind address. Default: '127.0.0.1' (loopback, safe by default). Set via MERMAID_BIND_HOST (preferred) or HOST env var; use '0.0.0.0' to share on the LAN.
  * @property {string} PUBLIC_DIR - Directory path for static files.
  * @property {number} MAX_FILE_SIZE - Maximum allowed file size in bytes. Default: 1048576 (1MB).
  * @property {number} THUMBNAIL_CACHE_SIZE - Maximum number of thumbnails to cache. Default: 100.
@@ -43,7 +43,7 @@ function validatePort(): number {
  */
 export const config = {
   PORT: validatePort(),
-  HOST: process.env.HOST || '0.0.0.0',
+  HOST: process.env.MERMAID_BIND_HOST ?? process.env.HOST ?? '127.0.0.1',
   PUBLIC_DIR: join(PROJECT_ROOT, 'public'),
   MAX_FILE_SIZE: 1048576, // 1MB
   MAX_IMAGE_SIZE: 50 * 1024 * 1024, // 50 MB
@@ -93,3 +93,11 @@ export const CDP_PORT = (() => {
   const v = Number(process.env.CDP_PORT ?? '9333');
   return Number.isNaN(v) ? 9333 : v;
 })();
+
+/**
+ * Optional bearer token required for authenticated HTTP/WS endpoints.
+ * Empty (the default) disables token enforcement — today's open-localhost
+ * behavior. Set MERMAID_AUTH_TOKEN when binding beyond loopback so remote
+ * clients must present `Authorization: Bearer <token>`.
+ */
+export const MERMAID_AUTH_TOKEN = process.env.MERMAID_AUTH_TOKEN ?? '';

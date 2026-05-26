@@ -3,6 +3,7 @@ import { homedir } from 'os';
 import { existsSync } from 'fs';
 import { config } from './config';
 import { PORT_REQUEST, MERMAID_PROJECT, MERMAID_SESSION } from './config';
+import { checkAuth } from './auth';
 import { writeInstance, removeInstance, deriveSessionId, installSignalHandlers } from './services/instance-discovery';
 import { SERVER_VERSION } from './mcp/server';
 import { DiagramManager } from './services/diagram-manager';
@@ -185,6 +186,10 @@ const server = Bun.serve<WsData>({
 
   async fetch(req, server) {
     const url = new URL(req.url);
+
+    // Auth gate — precedes WS upgrades, /mcp, and all /api routes.
+    const denied = checkAuth(req, url);
+    if (denied) return denied;
 
     // WebSocket upgrade for collaboration
     if (url.pathname === '/ws') {

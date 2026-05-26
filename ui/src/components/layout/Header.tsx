@@ -15,6 +15,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useTheme } from '@/hooks/useTheme';
 import { useSession } from '@/hooks/useSession';
 import { NavMenu } from './NavMenu';
+import { ServerSwitcher } from '@/components/ServerSwitcher';
 import { Session } from '@/types';
 
 export interface HeaderProps {
@@ -209,6 +210,9 @@ export const Header: React.FC<HeaderProps> = ({
           <h1 className="text-sm font-semibold text-gray-900 dark:text-white">
             Collab
           </h1>
+
+          {/* Server switcher — native-app only (renders nothing in a browser tab) */}
+          <ServerSwitcher />
 
           {/* WebSocket Connection Status Badge */}
           <div

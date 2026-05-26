@@ -1,7 +1,9 @@
 import { join } from 'node:path';
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import { ServerSupervisor, getFreePort } from './server-supervisor';
 import { createBrowserPane, type BrowserPane } from './browser-pane';
+import { ServerProxy } from './server-proxy';
+import { ConnectionStore } from './connection-store';
 
 // Phase 0.1 — Electron shell skeleton.
 // Single-instance lock so a second launch focuses the first window.
@@ -12,6 +14,28 @@ if (!gotLock) {
 
 let supervisor: ServerSupervisor | null = null;
 let browserPane: BrowserPane | null = null;
+let proxy: ServerProxy | null = null;
+let store: ConnectionStore | null = null;
+
+/** Register the `mc` IPC handlers backing the preload bridge. */
+function registerIpc(): void {
+  ipcMain.handle('mc:listServers', () => store?.list() ?? []);
+  ipcMain.handle('mc:getActiveServer', () => store?.getActive()?.id ?? null);
+  ipcMain.handle('mc:addServer', (_e, opts: { label: string; host: string; port: number; token?: string }) =>
+    store?.add(opts) ?? null
+  );
+  ipcMain.handle('mc:removeServer', (_e, id: string) => {
+    store?.remove(id);
+  });
+  ipcMain.handle('mc:switchServer', (_e, id: string) => {
+    if (!store || !proxy) return { ok: false };
+    const entry = store.get(id);
+    if (!entry) return { ok: false };
+    store.setActive(id);
+    proxy.setUpstream({ host: entry.host, port: entry.port, token: entry.token });
+    return { ok: true };
+  });
+}
 
 // Register the mermaid-collab:// deep-link scheme so links from browsers/Slack
 // open (or focus) this app at a given project/session.
@@ -107,8 +131,22 @@ async function bootstrap(): Promise<void> {
   const { port, attached } = await supervisor.start();
   console.log(`[bootstrap] sidecar ${attached ? 'attached' : 'spawned'} on port ${port}; cdp on ${cdpPort}`);
 
-  // Load the real collab UI from the sidecar.
-  if (mainWindow) mainWindow.loadURL(`http://127.0.0.1:${port}`);
+  // Start the per-server proxy and point it at the local sidecar. The renderer
+  // talks only to the proxy (single origin → relative URLs keep working);
+  // switching servers later just repoints the proxy upstream.
+  proxy = new ServerProxy();
+  const { port: proxyPort } = await proxy.start();
+  proxy.setUpstream({ host: '127.0.0.1', port }); // local sidecar, no token
+  console.log(`[bootstrap] proxy on ${proxyPort} → sidecar ${port}`);
+
+  // Connection store: persisted server list + auto-listed local instances.
+  store = new ConnectionStore();
+  await store.init();
+  await store.refreshLocal();
+  registerIpc();
+
+  // Load the real collab UI through the proxy.
+  if (mainWindow) mainWindow.loadURL(`http://127.0.0.1:${proxyPort}`);
 
   // Create the controlled browser pane. Zero bounds for now — the renderer
   // lays it out via IPC in a later phase; the marker page is still discoverable
@@ -130,6 +168,7 @@ if (gotLock) {
   void bootstrap();
 
   app.on('before-quit', () => {
+    void proxy?.stop();
     void supervisor?.stop();
   });
 

@@ -1,6 +1,13 @@
-import { contextBridge } from 'electron';
+import { contextBridge, ipcRenderer } from 'electron';
 
-// Phase 0.1 — minimal, tiny preload. The `mc` namespace is the single
-// contextBridge surface; later phases add IPC methods (browser pane bounds,
-// server switch, etc.). Keep this small per the design's security guidance.
-contextBridge.exposeInMainWorld('mc', {});
+// The `mc` bridge — the single contextBridge surface to the main process.
+// Server-switcher methods are thin IPC wrappers; tokens never cross this
+// boundary (the store omits them; the proxy injects them in main).
+contextBridge.exposeInMainWorld('mc', {
+  listServers: () => ipcRenderer.invoke('mc:listServers'),
+  getActiveServer: () => ipcRenderer.invoke('mc:getActiveServer'),
+  switchServer: (id: string) => ipcRenderer.invoke('mc:switchServer', id),
+  addServer: (opts: { label: string; host: string; port: number; token?: string }) =>
+    ipcRenderer.invoke('mc:addServer', opts),
+  removeServer: (id: string) => ipcRenderer.invoke('mc:removeServer', id),
+});
