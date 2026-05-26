@@ -5,10 +5,38 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const CDP = require('chrome-remote-interface') as any;
 
-export const CDP_PORT = 9333;
+import { CDP_PORT } from '../config.js';
+export { CDP_PORT };
 
 // Maps sessionName → targetId
 const tabRegistry = new Map<string, string>();
+
+/**
+ * Marker used to identify the Electron embedded browser pane's WebContentsView
+ * target among the CDP targets. When MC_BROWSER_TARGET=electron-view, the
+ * browser tools select the existing view (whose title/url carries this marker)
+ * instead of creating a new target. The browser-pane code must load the pane
+ * with this title (or a URL containing it) so the two stay in sync.
+ */
+export const ELECTRON_VIEW_MARKER = 'mc-browser-pane';
+
+/**
+ * Select the Electron embedded browser pane's target from a CDP target list.
+ * Pure (no I/O) so it is directly unit-testable. The spike confirmed multiple
+ * `page` targets exist, so we match the marker deliberately rather than [0].
+ * @throws if no matching `page` target carries the marker.
+ */
+export function selectElectronViewTarget(tabs: Array<{ id: string; type?: string; title?: string; url?: string }>): string {
+  const view = tabs.find(
+    (t) =>
+      t.type === 'page' &&
+      ((t.url ?? '').includes(ELECTRON_VIEW_MARKER) || t.title === ELECTRON_VIEW_MARKER)
+  );
+  if (!view) {
+    throw new Error('embedded view target not found');
+  }
+  return view.id;
+}
 
 const TABS_PERSIST_FILE = '/tmp/.mermaid-collab-tabs.json';
 
@@ -151,6 +179,17 @@ export function registerTab(sessionName: string, tabId: string): void {
 
 export async function createOrReplaceTab(sessionName: string, port: number): Promise<string> {
   try {
+    // Electron embedded-view mode: do NOT create a target. Select the existing
+    // WebContentsView (identified by ELECTRON_VIEW_MARKER) — the spike confirmed
+    // multiple `page` targets exist, so match deliberately rather than picking [0].
+    if (process.env.MC_BROWSER_TARGET === 'electron-view') {
+      const tabs = await CDP.List({ host: '127.0.0.1', port });
+      const viewId = selectElectronViewTarget(tabs);
+      tabRegistry.set(sessionName, viewId);
+      persistTabRegistry();
+      return viewId;
+    }
+
     const existingId = tabRegistry.get(sessionName);
     if (existingId) {
       try { await CDP.Close({ id: existingId, host: '127.0.0.1', port }); } catch {}

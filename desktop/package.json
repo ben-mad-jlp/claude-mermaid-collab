@@ -1,0 +1,20 @@
+{
+  "name": "mermaid-collab-desktop",
+  "private": true,
+  "version": "0.0.0",
+  "description": "mermaid-collab native desktop app (Electron)",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "spike": "electron spikes/main.js",
+    "spike:full": "electron spikes/extended.js"
+  },
+  "devDependencies": {
+    "electron": "^37.0.0",
+    "electron-vite": "^2.3.0",
+    "typescript": "^5.6.0",
+    "vite": "^5.4.0"
+  }
+}

@@ -82,3 +82,14 @@ export const MERMAID_PROJECT = process.env.MERMAID_PROJECT ?? process.cwd();
  * Defaults to `'scratch'`.
  */
 export const MERMAID_SESSION = process.env.MERMAID_SESSION ?? 'scratch';
+
+/**
+ * CDP (Chrome DevTools Protocol) port the browser tools connect to.
+ * Defaults to 9333. Settable via the CDP_PORT env var so the Electron-spawned
+ * sidecar can point at the app's own --remote-debugging-port. Falls back to
+ * 9333 if the env value is not a valid number.
+ */
+export const CDP_PORT = (() => {
+  const v = Number(process.env.CDP_PORT ?? '9333');
+  return Number.isNaN(v) ? 9333 : v;
+})();
