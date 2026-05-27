@@ -111,9 +111,14 @@ async function bootstrap(): Promise<void> {
   // The CDP switch MUST be set before the app reaches 'ready'. getFreePort is
   // fast, so awaiting it here is safe (spike lesson: a long await before this
   // lets the app become ready first and the switch is ignored).
-  const cdpPort = await getFreePort();
+  // MC_CDP_PORT pins the renderer CDP port for debugging (so tools can attach to
+  // a known endpoint); otherwise a free port is chosen. MC_INSPECT exposes the
+  // Node main process to the inspector (e.g. MC_INSPECT=9229). Both are opt-in —
+  // normal launches are unaffected.
+  const cdpPort = process.env.MC_CDP_PORT ? Number(process.env.MC_CDP_PORT) : await getFreePort();
   app.commandLine.appendSwitch('remote-debugging-port', String(cdpPort));
   app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1');
+  if (process.env.MC_INSPECT) app.commandLine.appendSwitch('inspect', process.env.MC_INSPECT);
 
   await app.whenReady();
   createWindow();
