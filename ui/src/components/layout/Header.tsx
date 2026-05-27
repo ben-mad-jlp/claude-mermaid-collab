@@ -220,39 +220,6 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Server switcher — native-app only (renders nothing in a browser tab) */}
           <ServerSwitcher />
 
-          {/* WebSocket Connection Status Badge */}
-          <div
-            data-testid="connection-badge"
-            className={`
-              flex items-center gap-1.5
-              px-2 py-1
-              text-xs font-medium
-              rounded-full
-              ${
-                isConnected
-                  ? 'bg-green-300 text-black'
-                  : isConnecting
-                  ? 'bg-yellow-300 text-black'
-                  : 'bg-red-300 text-black'
-              }
-            `}
-          >
-            <span
-              className={`
-                w-2 h-2 rounded-full
-                ${
-                  isConnected
-                    ? 'bg-green-500'
-                    : isConnecting
-                    ? 'bg-yellow-500 animate-pulse'
-                    : 'bg-red-500'
-                }
-              `}
-            />
-            <span>
-              {`Collab ${isConnected ? 'Connected' : isConnecting ? 'Connecting' : 'Disconnected'}`}
-            </span>
-          </div>
 
           {/* VS Code Connection Badge */}
           <div

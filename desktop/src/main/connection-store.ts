@@ -1,5 +1,5 @@
 import { readdir, readFile, writeFile, mkdir } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { homedir, hostname } from 'node:os';
 import { join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
@@ -51,6 +51,9 @@ interface PersistedEntry extends Omit<ServerEntry, 'token'> {
 export class ConnectionStore {
   private entries = new Map<string, ServerEntry>();
   private activeId: string | null = null;
+  // host:port of local servers the user explicitly forgot, so refreshLocal
+  // doesn't auto-re-add them while the instance is still alive.
+  private forgotten = new Set<string>();
   private readonly userDataDir: string;
   private readonly instancesDir: string;
   private readonly safeStorage: SafeStorageLike;
@@ -68,8 +71,9 @@ export class ConnectionStore {
     await mkdir(this.userDataDir, { recursive: true });
     try {
       const raw = await readFile(this.serversFile, 'utf-8');
-      const parsed = JSON.parse(raw) as { entries: PersistedEntry[]; activeId: string | null };
+      const parsed = JSON.parse(raw) as { entries: PersistedEntry[]; activeId: string | null; forgotten?: string[] };
       this.entries.clear();
+      this.forgotten = new Set(parsed.forgotten ?? []);
       for (const p of parsed.entries ?? []) {
         const { encryptedToken, ...rest } = p;
         const entry: ServerEntry = { ...rest };
@@ -113,6 +117,10 @@ export class ConnectionStore {
   }
 
   remove(id: string): void {
+    const e = this.entries.get(id);
+    // Forgetting a still-running local server must stick — otherwise refreshLocal
+    // re-adds it from the live registry. Manual servers just delete (no rediscovery).
+    if (e?.source === 'local') this.forgotten.add(`${e.host}:${e.port}`);
     this.entries.delete(id);
     if (this.activeId === id) this.activeId = null;
     void this.persist();
@@ -159,19 +167,23 @@ export class ConnectionStore {
       const key = `127.0.0.1:${inst.port}`;
       liveKeys.add(key);
       if (manualKeys.has(key)) continue; // a manual entry already covers this host:port
+      if (this.forgotten.has(key)) continue; // user forgot this local server
 
+      // Local servers are all on this machine — label by system hostname (the
+      // host:port shown alongside disambiguates multiple local instances).
+      const localLabel = hostname();
       const existing = Array.from(this.entries.values()).find(
         (e) => e.source === 'local' && `${e.host}:${e.port}` === key
       );
       if (existing) {
-        existing.label = `${inst.project}/${inst.session}`;
+        existing.label = localLabel;
         existing.lastProject = inst.project;
         existing.lastSession = inst.session;
       } else {
         const id = randomUUID();
         this.entries.set(id, {
           id,
-          label: `${inst.project}/${inst.session}`,
+          label: localLabel,
           host: '127.0.0.1',
           port: inst.port,
           status: 'offline',
@@ -203,7 +215,7 @@ export class ConnectionStore {
       return p;
     });
     await mkdir(dirname(this.serversFile), { recursive: true });
-    await writeFile(this.serversFile, JSON.stringify({ entries, activeId: this.activeId }, null, 2));
+    await writeFile(this.serversFile, JSON.stringify({ entries, activeId: this.activeId, forgotten: [...this.forgotten] }, null, 2));
   }
 }
 
