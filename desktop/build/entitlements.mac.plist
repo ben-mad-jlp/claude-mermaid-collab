@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Electron's V8 JITs JavaScript. -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <!-- Required so the hardened app can spawn the separately-built Bun sidecar
+       binary and Chrome/Chromium (which load their own libraries). Without this,
+       hardened-runtime library validation blocks the sidecar/Chrome at launch. -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <!-- The sidecar reads MERMAID_RESOURCES_PATH / PORT / etc. from its env. -->
+  <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+  <true/>
+</dict>
+</plist>
