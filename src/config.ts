@@ -101,3 +101,18 @@ export const CDP_PORT = (() => {
  * clients must present `Authorization: Bearer <token>`.
  */
 export const MERMAID_AUTH_TOKEN = process.env.MERMAID_AUTH_TOKEN ?? '';
+
+/**
+ * How the browser_* tools obtain a Chrome:
+ * - 'electron-view' — drive the Electron app's embedded WebContentsView (set by the app supervisor)
+ * - 'owned-chrome'  — the server spawns + owns a Chrome on this machine (remote/headless boxes)
+ * - '' (default)    — expect an external Chrome already listening on CDP_PORT (SSH tunnel / VSCodium)
+ */
+export const MC_BROWSER_TARGET = process.env.MC_BROWSER_TARGET ?? '';
+
+/** Explicit Chrome/Chromium binary path (overrides auto-discovery; needed on headless boxes). */
+export const MERMAID_CHROME_PATH = process.env.MERMAID_CHROME_PATH ?? '';
+
+/** Force headless Chrome. Default: headless when no display is detected. */
+export const MERMAID_BROWSER_HEADLESS = process.env.MERMAID_BROWSER_HEADLESS === '1'
+  || process.env.MERMAID_BROWSER_HEADLESS === 'true';

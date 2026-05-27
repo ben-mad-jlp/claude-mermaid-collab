@@ -2,7 +2,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { existsSync } from 'fs';
 import { config } from './config';
-import { PORT_REQUEST, MERMAID_PROJECT, MERMAID_SESSION } from './config';
+import { PORT_REQUEST, MERMAID_PROJECT, MERMAID_SESSION, MC_BROWSER_TARGET, MERMAID_CHROME_PATH, MERMAID_BROWSER_HEADLESS } from './config';
 import { checkAuth } from './auth';
 import { writeInstance, removeInstance, deriveSessionId, installSignalHandlers } from './services/instance-discovery';
 import { SERVER_VERSION } from './mcp/server';
@@ -52,6 +52,28 @@ try {
   const { closePersistedTabs, CDP_PORT } = await import('./services/cdp-session.js');
   await closePersistedTabs(CDP_PORT);
 } catch {}
+
+// Owned-chrome mode (Phase 7): on remote/headless boxes the server spawns and
+// owns its own Chrome on CDP_PORT so the browser_* tools work without any
+// cross-network CDP. Non-fatal on failure — tools just error until it's up.
+let chromeManager: import('./services/chrome-manager').ChromeManager | null = null;
+if (MC_BROWSER_TARGET === 'owned-chrome') {
+  try {
+    const { ChromeManager } = await import('./services/chrome-manager.js');
+    const { CDP_PORT } = await import('./config.js');
+    const headless = MERMAID_BROWSER_HEADLESS || (process.platform === 'linux' && !process.env.DISPLAY);
+    chromeManager = new ChromeManager({
+      cdpPort: CDP_PORT,
+      headless,
+      chromePath: MERMAID_CHROME_PATH || undefined,
+    });
+    await chromeManager.start();
+    console.log(`🌐 owned Chrome ready on CDP ${CDP_PORT}${headless ? ' (headless)' : ''}`);
+  } catch (err) {
+    console.error(`mermaid-collab: owned-chrome start failed — ${err instanceof Error ? err.message : String(err)}`);
+    chromeManager = null;
+  }
+}
 
 // Register scratch session on startup.
 // This MUST be idempotent and non-fatal on corrupt registry — otherwise
@@ -393,6 +415,7 @@ const sessionId = deriveSessionId(MERMAID_PROJECT, MERMAID_SESSION);
 process.on('SIGINT', () => {
   console.log('\n🛑 SIGINT received, shutting down gracefully...');
   sweeper.stop();
+  chromeManager?.stop();
   removeInstance(sessionId).catch(() => {}).finally(() => {
     ptyManager.killAll();
     process.exit(0);
@@ -402,6 +425,7 @@ process.on('SIGINT', () => {
 process.on('SIGTERM', () => {
   console.log('\n🛑 SIGTERM received, shutting down gracefully...');
   sweeper.stop();
+  chromeManager?.stop();
   removeInstance(sessionId).catch(() => {}).finally(() => {
     ptyManager.killAll();
     process.exit(0);
