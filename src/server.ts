@@ -214,6 +214,11 @@ const server = Bun.serve<WsData>({
   async fetch(req, server) {
     const url = new URL(req.url);
 
+    // Treat any HTTP request as activity: push the idle-shutdown deadline so a
+    // server actively used over MCP/HTTP (but with no WS client) doesn't exit
+    // mid-session. When a WS client is connected, idle is already cancelled.
+    if (MERMAID_IDLE_SHUTDOWN_MS > 0 && wsHandler.getConnectionCount() === 0) armIdle();
+
     // Auth gate — precedes WS upgrades, /mcp, and all /api routes.
     const denied = checkAuth(req, url);
     if (denied) return denied;
@@ -300,7 +305,9 @@ const server = Bun.serve<WsData>({
 
     // Serve compiled extension JS for in-place updates
     if (url.pathname === '/api/extension/js' && req.method === 'GET') {
-      const extJsPath = '/srv/codebase/claude-mermaid-collab/extensions/vscode/out/extension.js';
+      // Resolve relative to this module (src/server.ts → repo root) so it works
+      // on any host, not just the original author's deploy path.
+      const extJsPath = join(import.meta.dir, '..', 'extensions', 'vscode', 'out', 'extension.js');
       const extJs = Bun.file(extJsPath);
       if (await extJs.exists()) {
         return new Response(extJs, { headers: { 'Content-Type': 'application/javascript' } });
