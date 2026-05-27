@@ -12,6 +12,12 @@ contextBridge.exposeInMainWorld('mc', {
   removeServer: (id: string) => ipcRenderer.invoke('mc:removeServer', id),
   setZoomFactor: (factor: number) => ipcRenderer.invoke('mc:setZoomFactor', factor),
   probeServer: (host: string, port: number) => ipcRenderer.invoke('mc:probeServer', { host, port }),
+  setWatchedServers: (ids: string[]) => ipcRenderer.invoke('mc:setWatchedServers', ids),
+  onWatchEvent: (cb: (e: any) => void) => {
+    const h = (_e: any, evt: any) => cb(evt);
+    ipcRenderer.on('mc:watch-event', h);
+    return () => ipcRenderer.removeListener('mc:watch-event', h);
+  },
   browser: {
     listTabs: () => ipcRenderer.invoke('mc:browser:listTabs'),
     openTab: (opts: { url?: string }) => ipcRenderer.invoke('mc:browser:openTab', opts),

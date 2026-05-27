@@ -28,6 +28,18 @@ export interface ServerInfo {
   lastSession?: string;
 }
 
+export interface WatchEvent {
+  serverId: string;
+  type: string;
+  project: string;
+  session: string;
+  status?: string;
+  contextPercent?: number;
+  claudeSessionId?: string;
+  claudePid?: number;
+  [k: string]: unknown;
+}
+
 export interface McBridge {
   listServers(): Promise<ServerInfo[]>;
   getActiveServer(): Promise<string | null>;
@@ -35,6 +47,8 @@ export interface McBridge {
   addServer(opts: { label: string; host: string; port: number; token?: string }): Promise<string>;
   removeServer(id: string): Promise<void>;
   probeServer?(host: string, port: number): Promise<boolean>;
+  setWatchedServers?(ids: string[]): Promise<void>;
+  onWatchEvent?(cb: (e: WatchEvent) => void): () => void;
 }
 
 declare global {

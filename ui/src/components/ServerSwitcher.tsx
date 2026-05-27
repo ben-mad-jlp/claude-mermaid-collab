@@ -7,6 +7,7 @@
  */
 import React, { useState } from 'react';
 import { useServer } from '@/contexts/ServerContext';
+import { useWatchStore } from '@/stores/watchStore';
 
 const dot: Record<string, string> = {
   online: '#3fb950',
@@ -24,6 +25,8 @@ export function ServerSwitcher() {
   const { available, servers, activeId, switchServer, addServer, removeServer } = useServer();
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
+  const watchedIds = useWatchStore((w) => w.watchedIds);
+  const isWatched = (id: string) => watchedIds.includes(id);
   const [form, setForm] = useState({ label: '', host: '', port: '9002', token: '' });
 
   if (!available) return null;
@@ -50,6 +53,7 @@ export function ServerSwitcher() {
       >
         <span style={{ width: 8, height: 8, borderRadius: '50%', background: dot[active?.status ?? 'online'] }} />
         {activeLabel}
+        {watchedIds.length > 0 && <span style={{ opacity: 0.7, fontSize: 11 }}>👁 {watchedIds.length}</span>}
         <span aria-hidden>▾</span>
       </button>
 
@@ -78,6 +82,14 @@ export function ServerSwitcher() {
                   ✕
                 </button>
               )}
+              <button
+                type="button"
+                title={isWatched(s.id) ? 'Unwatch' : 'Watch'}
+                onClick={(e) => { e.stopPropagation(); useWatchStore.getState().toggleWatched(s.id); }}
+                style={{ cursor: 'pointer', opacity: isWatched(s.id) ? 1 : 0.35, fontSize: 14, background: 'none', border: 'none' }}
+              >
+                👁
+              </button>
             </div>
           ))}
 

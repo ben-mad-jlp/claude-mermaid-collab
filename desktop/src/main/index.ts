@@ -5,6 +5,7 @@ import { BrowserPaneManager } from './browser-pane';
 import { DesktopControl } from './desktop-control';
 import { ServerProxy } from './server-proxy';
 import { ConnectionStore } from './connection-store';
+import { WatchAggregator } from './watch-aggregator';
 
 // Phase 0.1 — Electron shell skeleton.
 // Single-instance lock so a second launch focuses the first window.
@@ -18,6 +19,7 @@ let paneManager: BrowserPaneManager | null = null;
 let proxy: ServerProxy | null = null;
 let store: ConnectionStore | null = null;
 let control: DesktopControl | null = null;
+let aggregator: WatchAggregator | null = null;
 
 /** Register the `mc` IPC handlers backing the preload bridge. */
 function registerIpc(): void {
@@ -53,6 +55,11 @@ function registerIpc(): void {
     } catch {
       return false;
     }
+  });
+  ipcMain.handle('mc:setWatchedServers', (_e, ids: string[]) => {
+    if (!store || !aggregator) return;
+    const ups = (ids ?? []).map((id: string) => store!.get(id)).filter(Boolean).map((e: any) => ({ id: e.id, host: e.host, port: e.port, token: e.token }));
+    aggregator.setWatched(ups);
   });
 }
 
@@ -180,6 +187,7 @@ async function bootstrap(): Promise<void> {
   await store.init();
   await store.refreshLocal();
   registerIpc();
+  aggregator = new WatchAggregator((e) => mainWindow?.webContents.send('mc:watch-event', e));
 
   // Load the real collab UI through the proxy.
   if (mainWindow) mainWindow.loadURL(`http://127.0.0.1:${proxyPort}`);
@@ -207,6 +215,7 @@ if (gotLock) {
   void bootstrap();
 
   app.on('before-quit', () => {
+    aggregator?.stop();
     void control?.stop();
     void proxy?.stop();
     void supervisor?.stop();

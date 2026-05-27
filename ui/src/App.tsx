@@ -36,6 +36,7 @@ import { useWebSocket } from '@/hooks/useWebSocket';
 import { useSessionPolling } from '@/hooks/useSessionPolling';
 import { useProposedEditWatcher } from '@/hooks/useProposedEditWatcher';
 import { usePrefetchWatchedSessions } from '@/hooks/usePrefetchWatchedSessions';
+import { useWatchEvents } from '@/hooks/useWatchEvents';
 import { getWebSocketClient } from '@/lib/websocket';
 import { useShallow } from 'zustand/react/shallow';
 import { api, generateSessionName, type CachedUIState } from '@/lib/api';
@@ -278,6 +279,7 @@ const App: React.FC = () => {
     selectSpreadsheetWithContent,
   } = useDataLoader();
   usePrefetchWatchedSessions();
+  useWatchEvents();
 
   // Ref for MermaidPreview imperative methods
   const mermaidPreviewRef = useRef<MermaidPreviewRef>(null);
