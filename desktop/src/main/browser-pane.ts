@@ -118,6 +118,20 @@ export class BrowserPaneManager {
     if (tab) await tab.view.webContents.loadURL(url);
   }
 
+  goBack(id: string): void {
+    const wc = this.tabs.get(id)?.view.webContents;
+    if (wc?.navigationHistory.canGoBack()) wc.navigationHistory.goBack();
+  }
+
+  goForward(id: string): void {
+    const wc = this.tabs.get(id)?.view.webContents;
+    if (wc?.navigationHistory.canGoForward()) wc.navigationHistory.goForward();
+  }
+
+  reload(id: string): void {
+    this.tabs.get(id)?.view.webContents.reload();
+  }
+
   listTabs(): TabInfo[] {
     return Array.from(this.tabs.values()).map(tab => ({
       id: tab.id,

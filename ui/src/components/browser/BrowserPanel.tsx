@@ -19,6 +19,9 @@ export function BrowserPanel() {
   const closeTab = useBrowserStore((s) => s.closeTab);
   const activateTab = useBrowserStore((s) => s.activateTab);
   const navigate = useBrowserStore((s) => s.navigate);
+  const goBack = useBrowserStore((s) => s.goBack);
+  const goForward = useBrowserStore((s) => s.goForward);
+  const reload = useBrowserStore((s) => s.reload);
   const hide = useBrowserStore((s) => s.hide);
   const refresh = useBrowserStore((s) => s.refresh);
 
@@ -104,7 +107,7 @@ export function BrowserPanel() {
                     : 'border-transparent text-gray-500 dark:text-gray-400'
                 }`}
               >
-                <span>{label}</span>
+                <span className="truncate" style={{ maxWidth: 120 }} title={label}>{label}</span>
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }}
@@ -140,8 +143,35 @@ export function BrowserPanel() {
           </button>
         </div>
 
-        {/* Address bar */}
-        <div className="flex items-center px-2 py-1 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
+        {/* Nav controls + address bar */}
+        <div className="flex items-center gap-1 px-2 py-1 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
+          <button
+            type="button"
+            onClick={() => activeId && goBack(activeId)}
+            disabled={!activeId}
+            title="Back"
+            className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-30 px-1 leading-none"
+          >
+            ←
+          </button>
+          <button
+            type="button"
+            onClick={() => activeId && goForward(activeId)}
+            disabled={!activeId}
+            title="Forward"
+            className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-30 px-1 leading-none"
+          >
+            →
+          </button>
+          <button
+            type="button"
+            onClick={() => activeId && reload(activeId)}
+            disabled={!activeId}
+            title="Reload"
+            className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-30 px-1 leading-none"
+          >
+            ⟳
+          </button>
           <input
             type="text"
             value={addressValue}
@@ -151,7 +181,7 @@ export function BrowserPanel() {
                 navigate(activeId, addressValue);
               }
             }}
-            placeholder="Enter URL…"
+            placeholder="Enter URL or search…"
             className="flex-1 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-300 dark:border-gray-600 rounded px-2 py-0.5 text-xs outline-none"
           />
         </div>

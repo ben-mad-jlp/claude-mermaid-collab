@@ -22,10 +22,23 @@ interface BrowserState {
   closeTab: (id: string) => Promise<void>;
   activateTab: (id: string) => void;
   navigate: (id: string, url: string) => Promise<void>;
+  goBack: (id: string) => Promise<void>;
+  goForward: (id: string) => Promise<void>;
+  reload: (id: string) => Promise<void>;
   activateSession: (session: string) => Promise<void>;
 }
 
 const bridge = () => (window as any).mc?.browser;
+
+/** Turn what the user typed into a navigable URL: pass through real URLs,
+ *  prefix https:// for bare domains, else web-search the text. */
+function normalizeUrl(input: string): string {
+  const s = input.trim();
+  if (!s) return s;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(s) || s.startsWith('about:') || s.startsWith('data:')) return s;
+  if (/^[^\s.]+\.[^\s]{2,}/.test(s)) return `https://${s}`;
+  return `https://www.google.com/search?q=${encodeURIComponent(s)}`;
+}
 
 export const useBrowserStore = create<BrowserState>((set, get) => ({
   visible: false,
@@ -65,8 +78,13 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
 
   navigate: async (id, url) => {
     if (!bridge()) return;
-    await bridge()?.navigate?.(id, url);
+    await bridge()?.navigate?.(id, normalizeUrl(url));
+    await get().refresh(); // pick up the new url/title for the tab + address bar
   },
+
+  goBack: async (id) => { if (!bridge()) return; await bridge()?.goBack?.(id); await get().refresh(); },
+  goForward: async (id) => { if (!bridge()) return; await bridge()?.goForward?.(id); await get().refresh(); },
+  reload: async (id) => { if (!bridge()) return; await bridge()?.reload?.(id); },
 
   activateSession: async (session) => {
     if (!bridge()) return;

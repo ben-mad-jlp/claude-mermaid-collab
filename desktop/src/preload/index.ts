@@ -24,6 +24,9 @@ contextBridge.exposeInMainWorld('mc', {
     closeTab: (id: string) => ipcRenderer.invoke('mc:browser:closeTab', id),
     activateTab: (id: string) => ipcRenderer.invoke('mc:browser:activateTab', id),
     navigate: (id: string, url: string) => ipcRenderer.invoke('mc:browser:navigate', id, url),
+    goBack: (id: string) => ipcRenderer.invoke('mc:browser:goBack', id),
+    goForward: (id: string) => ipcRenderer.invoke('mc:browser:goForward', id),
+    reload: (id: string) => ipcRenderer.invoke('mc:browser:reload', id),
     setBounds: (rect: { x: number; y: number; width: number; height: number }) =>
       ipcRenderer.invoke('mc:browser:setBounds', rect),
   },
