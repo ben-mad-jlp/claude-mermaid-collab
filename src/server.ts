@@ -52,6 +52,16 @@ try {
   await closePersistedTabs(CDP_PORT);
 } catch {}
 
+// Migrate legacy per-session todo JSON files into the per-project todo-store
+// (idempotent — renames sources, so it's a no-op after the first run).
+try {
+  const { migrateProject } = await import('./services/todo-migration.js');
+  const { migrated } = await migrateProject(MERMAID_PROJECT);
+  if (migrated > 0) console.log(`📋 Migrated ${migrated} legacy todo(s) into the per-project store`);
+} catch (err) {
+  console.error(`mermaid-collab: todo migration failed — ${err instanceof Error ? err.message : String(err)}`);
+}
+
 // Register scratch session on startup.
 // This MUST be idempotent and non-fatal on corrupt registry — otherwise
 // the very first thing every boot does is a destructive read-modify-write

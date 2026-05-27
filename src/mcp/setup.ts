@@ -71,6 +71,7 @@ import {
   clearCompletedSessionTodos,
   reorderSessionTodos,
   completeTodosForTask,
+  assignSessionTodo,
   listSessionTodosSchema,
   addSessionTodoSchema,
   updateSessionTodoSchema,
@@ -79,6 +80,7 @@ import {
   clearCompletedSessionTodosSchema,
   reorderSessionTodosSchema,
   completeLinkedTodosSchema,
+  assignSessionTodoSchema,
   type SessionTodoLink,
 } from './tools/session-todos.js';
 import {
@@ -1941,6 +1943,11 @@ IMPORTANT - Common pitfalls to avoid:
         description: 'Mark completed all session todos linked to a blueprint (and optional taskId). Used to sync linked todos when a Go task finishes.',
         inputSchema: completeLinkedTodosSchema,
       },
+      {
+        name: 'assign_session_todo',
+        description: 'Assign a session todo to a specific session (assigneeSession). Pass null to unassign.',
+        inputSchema: assignSessionTodoSchema,
+      },
       // Spreadsheet tools
       {
         name: 'list_spreadsheets',
@@ -3694,41 +3701,55 @@ IMPORTANT - Common pitfalls to avoid:
 
           // Session todos tools
           case 'list_session_todos': {
-            const { project, session, includeCompleted } = args as {
+            const { project, session, includeCompleted, assigneeSession, status } = args as {
               project: string;
               session: string;
               includeCompleted?: boolean;
+              assigneeSession?: string;
+              status?: import('../services/todo-store.js').TodoStatus;
             };
             if (!project || !session) throw new Error('Missing required: project, session');
-            const result = await listSessionTodos(project, session, { includeCompleted });
+            const result = await listSessionTodos(project, session, { includeCompleted, assigneeSession, status });
             return JSON.stringify(result, null, 2);
           }
 
           case 'add_session_todo': {
-            const { project, session, text, link } = args as {
+            const { project, session, text, title, link, assigneeSession, description, status, priority, dueDate } = args as {
               project: string;
               session: string;
-              text: string;
+              text?: string;
+              title?: string;
               link?: SessionTodoLink;
+              assigneeSession?: string;
+              description?: string;
+              status?: import('../services/todo-store.js').TodoStatus;
+              priority?: 0 | 1 | 2 | 3 | 4;
+              dueDate?: string;
             };
-            if (!project || !session || !text) throw new Error('Missing required: project, session, text');
-            const result = await addSessionTodo(project, session, text, link);
+            if (!project || !session || !(title ?? text)) throw new Error('Missing required: project, session, text');
+            const result = await addSessionTodo(project, session, title ?? text!, link, { assigneeSession, description, status, priority, dueDate });
             getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
             return JSON.stringify(result, null, 2);
           }
 
           case 'update_session_todo': {
-            const { project, session, id, text, completed, order, link } = args as {
+            const { project, session, id, text, title, completed, order, link, assigneeSession, description, status, priority, dueDate } = args as {
               project: string;
               session: string;
-              id: number;
+              id: string;
               text?: string;
+              title?: string;
               completed?: boolean;
               order?: number;
               link?: SessionTodoLink | null;
+              assigneeSession?: string;
+              description?: string;
+              status?: import('../services/todo-store.js').TodoStatus;
+              priority?: 0 | 1 | 2 | 3 | 4 | null;
+              dueDate?: string;
             };
             if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
-            const result = await updateSessionTodo(project, session, id, { text, completed, order, link });
+            const result = await updateSessionTodo(project, session, id, { text, title, completed, link, assigneeSession, description, status, priority, dueDate });
             getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
             return JSON.stringify(result, null, 2);
           }
@@ -3737,7 +3758,7 @@ IMPORTANT - Common pitfalls to avoid:
             const { project, session, id, completed } = args as {
               project: string;
               session: string;
-              id: number;
+              id: string;
               completed?: boolean;
             };
             if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
@@ -3750,7 +3771,7 @@ IMPORTANT - Common pitfalls to avoid:
             const { project, session, id } = args as {
               project: string;
               session: string;
-              id: number;
+              id: string;
             };
             if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
             const result = await removeSessionTodo(project, session, id);
@@ -3770,10 +3791,23 @@ IMPORTANT - Common pitfalls to avoid:
             const { project, session, orderedIds } = args as {
               project: string;
               session: string;
-              orderedIds: number[];
+              orderedIds: string[];
             };
             if (!project || !session || !Array.isArray(orderedIds)) throw new Error('Missing required: project, session, orderedIds');
             const result = await reorderSessionTodos(project, session, orderedIds);
+            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'assign_session_todo': {
+            const { project, session, id, assigneeSession } = args as {
+              project: string;
+              session: string;
+              id: string;
+              assigneeSession: string | null;
+            };
+            if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
+            const result = await assignSessionTodo(project, session, id, assigneeSession);
             getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
             return JSON.stringify(result, null, 2);
           }

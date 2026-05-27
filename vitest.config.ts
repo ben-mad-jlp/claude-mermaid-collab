@@ -16,6 +16,8 @@ export default defineConfig({
       'src/services/__tests__/onboarding-manager.test.ts',
       'src/services/__tests__/pseudo-db.test.ts',
       'src/services/__tests__/source-scanner.test.ts',
+      'src/services/__tests__/todo-store.test.ts',
+      'src/services/__tests__/todo-migration.test.ts',
       'src/mcp/tools/lessons.test.ts',
     ],
     setupFiles: ['./vitest.setup.ts'],

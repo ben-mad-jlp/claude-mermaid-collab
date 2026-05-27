@@ -2,56 +2,38 @@
  * Session Todos Tools
  *
  * MCP tools for managing per-session todo items (checkable list
- * attached to a specific collab session). Stored as JSON at
- * <project>/.collab/sessions/<session>/session-todos.json
+ * attached to a specific collab session). Delegates to the project-scoped
+ * todo-store (SQLite) introduced in the todos-upgrade.
  */
 
-import { readFile, writeFile, mkdir } from 'fs/promises';
-import { join, dirname } from 'path';
+import {
+  listTodos,
+  getTodo,
+  createTodo,
+  updateTodo,
+  assignTodo,
+  removeTodo,
+  clearCompleted,
+  reorder,
+  type Todo,
+  type TodoStatus,
+  type TodoLink,
+} from '../../services/todo-store.js';
 
-// ============= Per-(project, session) write mutex =============
+// ============= Type Re-exports =============
 
-const mutexes = new Map<string, Promise<unknown>>();
+/** Compat alias — api.ts imports SessionTodoLink */
+export type SessionTodoLink = TodoLink;
 
-function withLock<T>(project: string, session: string, fn: () => Promise<T>): Promise<T> {
-  const key = `${project}::${session}`;
-  const prev = mutexes.get(key) ?? Promise.resolve();
-  const next = prev.then(fn, fn);
-  mutexes.set(
-    key,
-    next.catch(() => {}).finally(() => {
-      if (mutexes.get(key) === next) {
-        mutexes.delete(key);
-      }
-    }),
-  );
-  return next;
-}
+/** Compat alias — setup.ts and api.ts may import SessionTodo */
+export type SessionTodo = Todo;
 
-// ============= Type Definitions =============
-
-export interface SessionTodo {
-  id: number;
-  text: string;
-  completed: boolean;
-  order: number;
-  createdAt: string;
-  updatedAt: string;
-  link?: SessionTodoLink;
-}
-
-export interface SessionTodoLink {
-  blueprintId: string;
-  taskId?: string;
-}
-
-export interface SessionTodosFile {
-  todos: SessionTodo[];
-  nextId: number;
-}
+// ============= Options / Result Interfaces =============
 
 export interface ListSessionTodosOptions {
   includeCompleted?: boolean;
+  assigneeSession?: string;
+  status?: TodoStatus;
 }
 
 export interface ClearCompletedResult {
@@ -69,6 +51,15 @@ export const listSessionTodosSchema = {
       type: 'boolean',
       description: 'Include completed todos in the result (default: true)',
     },
+    assigneeSession: {
+      type: 'string',
+      description: 'Filter todos assigned to this session',
+    },
+    status: {
+      type: 'string',
+      enum: ['backlog', 'todo', 'in_progress', 'blocked', 'done'],
+      description: 'Filter todos by status',
+    },
   },
   required: ['project', 'session'],
 };
@@ -78,7 +69,17 @@ export const addSessionTodoSchema = {
   properties: {
     project: { type: 'string', description: 'Absolute path to project root' },
     session: { type: 'string', description: 'Session name' },
-    text: { type: 'string', description: 'Todo text' },
+    text: { type: 'string', description: 'Todo text (becomes title)' },
+    title: { type: 'string', description: 'Todo title (alias for text)' },
+    assigneeSession: { type: 'string', description: 'Session to assign the todo to' },
+    description: { type: 'string', description: 'Optional longer description' },
+    status: {
+      type: 'string',
+      enum: ['backlog', 'todo', 'in_progress', 'blocked', 'done'],
+      description: 'Initial status (default: todo)',
+    },
+    priority: { type: 'number', description: 'Priority 0-4 (0=highest)' },
+    dueDate: { type: 'string', description: 'ISO date string for due date' },
     link: {
       type: 'object',
       description: 'Optional link to a blueprint task',
@@ -97,10 +98,19 @@ export const updateSessionTodoSchema = {
   properties: {
     project: { type: 'string', description: 'Absolute path to project root' },
     session: { type: 'string', description: 'Session name' },
-    id: { type: 'number', description: 'Todo id to update' },
-    text: { type: 'string', description: 'New text (optional)' },
+    id: { type: 'string', description: 'Todo id to update' },
+    text: { type: 'string', description: 'New text/title (optional)' },
+    title: { type: 'string', description: 'New title (optional, alias for text)' },
     completed: { type: 'boolean', description: 'New completed state (optional)' },
-    order: { type: 'number', description: 'New explicit order value (optional)' },
+    status: {
+      type: 'string',
+      enum: ['backlog', 'todo', 'in_progress', 'blocked', 'done'],
+      description: 'New status (optional)',
+    },
+    assigneeSession: { type: 'string', description: 'Reassign to this session (optional)' },
+    description: { type: 'string', description: 'New description (optional)' },
+    priority: { type: 'number', description: 'New priority 0-4 (optional)' },
+    dueDate: { type: 'string', description: 'New due date ISO string (optional)' },
     link: {
       type: 'object',
       description: 'Set or clear the blueprint link. Provide null to clear, or an object to set.',
@@ -130,7 +140,7 @@ export const toggleSessionTodoSchema = {
   properties: {
     project: { type: 'string', description: 'Absolute path to project root' },
     session: { type: 'string', description: 'Session name' },
-    id: { type: 'number', description: 'Todo id to toggle' },
+    id: { type: 'string', description: 'Todo id to toggle' },
     completed: {
       type: 'boolean',
       description: 'Explicit state; when omitted the current value is flipped',
@@ -144,7 +154,7 @@ export const removeSessionTodoSchema = {
   properties: {
     project: { type: 'string', description: 'Absolute path to project root' },
     session: { type: 'string', description: 'Session name' },
-    id: { type: 'number', description: 'Todo id to remove' },
+    id: { type: 'string', description: 'Todo id to remove' },
   },
   required: ['project', 'session', 'id'],
 };
@@ -165,49 +175,26 @@ export const reorderSessionTodosSchema = {
     session: { type: 'string', description: 'Session name' },
     orderedIds: {
       type: 'array',
-      items: { type: 'number' },
+      items: { type: 'string' },
       description: 'Full permutation of existing todo ids in desired order',
     },
   },
   required: ['project', 'session', 'orderedIds'],
 };
 
-// ============= Helpers =============
-
-export function getSessionTodosPath(project: string, session: string): string {
-  return join(project, '.collab', 'sessions', session, 'session-todos.json');
-}
-
-export async function readSessionTodosFile(
-  project: string,
-  session: string
-): Promise<SessionTodosFile> {
-  const filePath = getSessionTodosPath(project, session);
-  try {
-    const content = await readFile(filePath, 'utf-8');
-    const parsed = JSON.parse(content) as Partial<SessionTodosFile>;
-    return {
-      todos: Array.isArray(parsed.todos) ? (parsed.todos as SessionTodo[]) : [],
-      nextId: typeof parsed.nextId === 'number' ? parsed.nextId : 1,
-    };
-  } catch {
-    return { todos: [], nextId: 1 };
-  }
-}
-
-export async function writeSessionTodosFile(
-  project: string,
-  session: string,
-  data: SessionTodosFile
-): Promise<void> {
-  const filePath = getSessionTodosPath(project, session);
-  await mkdir(dirname(filePath), { recursive: true });
-  await writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
-}
-
-function nowIso(): string {
-  return new Date().toISOString();
-}
+export const assignSessionTodoSchema = {
+  type: 'object',
+  properties: {
+    project: { type: 'string', description: 'Absolute path to project root' },
+    session: { type: 'string', description: 'Session name' },
+    id: { type: 'string', description: 'Todo id to assign' },
+    assigneeSession: {
+      type: ['string', 'null'],
+      description: 'Session to assign the todo to, or null to unassign',
+    },
+  },
+  required: ['project', 'session', 'id', 'assigneeSession'],
+};
 
 // ============= Tool Functions =============
 
@@ -215,14 +202,13 @@ export async function listSessionTodos(
   project: string,
   session: string,
   opts: ListSessionTodosOptions = {}
-): Promise<SessionTodo[]> {
-  const { includeCompleted = true } = opts;
-  const data = await readSessionTodosFile(project, session);
-  const todos = includeCompleted
-    ? data.todos.slice()
-    : data.todos.filter(t => !t.completed);
-  todos.sort((a, b) => a.order - b.order);
-  return todos;
+): Promise<Todo[]> {
+  return listTodos(project, {
+    session,
+    assigneeSession: opts.assigneeSession,
+    status: opts.status,
+    includeCompleted: opts.includeCompleted,
+  });
 }
 
 export async function addSessionTodo(
@@ -230,149 +216,96 @@ export async function addSessionTodo(
   session: string,
   text: string,
   link?: SessionTodoLink,
-): Promise<SessionTodo> {
-  const trimmed = text.trim();
+  extras?: {
+    title?: string;
+    assigneeSession?: string;
+    description?: string;
+    status?: TodoStatus;
+    priority?: 0 | 1 | 2 | 3 | 4;
+    dueDate?: string;
+  },
+): Promise<Todo> {
+  const { title: _extrasTitle, ...extrasRest } = extras ?? {};
+  const trimmed = (extras?.title ?? text).trim();
   if (!trimmed) throw new Error('text must be non-empty');
-  return withLock(project, session, async () => {
-    const data = await readSessionTodosFile(project, session);
-    const maxOrder = data.todos.reduce((m, t) => (t.order > m ? t.order : m), 0);
-    const now = nowIso();
-    const todo: SessionTodo = {
-      id: data.nextId,
-      text: trimmed,
-      completed: false,
-      order: data.todos.length === 0 ? 10 : maxOrder + 10,
-      createdAt: now,
-      updatedAt: now,
-      ...(link ? { link } : {}),
-    };
-    data.todos.push(todo);
-    data.nextId += 1;
-    await writeSessionTodosFile(project, session, data);
-    return todo;
+  return createTodo(project, {
+    ownerSession: session,
+    ...extrasRest,
+    title: trimmed, // after the spread so the trimmed value always wins
+    link: link ?? null,
   });
 }
 
 export async function updateSessionTodo(
   project: string,
   session: string,
-  id: number,
-  updates: { text?: string; completed?: boolean; order?: number; link?: SessionTodoLink | null }
-): Promise<SessionTodo> {
-  let trimmedText: string | undefined;
-  if (updates.text !== undefined) {
-    trimmedText = updates.text.trim();
-    if (!trimmedText) throw new Error('text must be non-empty');
+  id: string | number,
+  updates: {
+    text?: string;
+    title?: string;
+    completed?: boolean;
+    status?: TodoStatus;
+    assigneeSession?: string | null;
+    description?: string | null;
+    priority?: 0 | 1 | 2 | 3 | 4 | null;
+    dueDate?: string | null;
+    link?: SessionTodoLink | null;
   }
-  return withLock(project, session, async () => {
-    const data = await readSessionTodosFile(project, session);
-    const todo = data.todos.find(t => t.id === id);
-    if (!todo) {
-      throw new Error('Todo not found');
-    }
-    if (trimmedText !== undefined) todo.text = trimmedText;
-    if (updates.completed !== undefined) todo.completed = updates.completed;
-    if (updates.order !== undefined) todo.order = updates.order;
-    if (updates.link === null) {
-      delete todo.link;
-    } else if (updates.link !== undefined) {
-      todo.link = updates.link;
-    }
-    todo.updatedAt = nowIso();
-    await writeSessionTodosFile(project, session, data);
-    return todo;
+): Promise<Todo> {
+  const titleValue = updates.title ?? updates.text;
+  if (titleValue !== undefined && !titleValue.trim()) {
+    throw new Error('text must be non-empty');
+  }
+  return updateTodo(project, String(id), {
+    title: titleValue?.trim(),
+    completed: updates.completed,
+    status: updates.status,
+    assigneeSession: updates.assigneeSession,
+    description: updates.description,
+    priority: updates.priority,
+    dueDate: updates.dueDate,
+    link: updates.link,
   });
 }
 
 export async function toggleSessionTodo(
   project: string,
   session: string,
-  id: number,
+  id: string | number,
   completed?: boolean
-): Promise<SessionTodo> {
-  return withLock(project, session, async () => {
-    const data = await readSessionTodosFile(project, session);
-    const todo = data.todos.find(t => t.id === id);
-    if (!todo) {
-      throw new Error('Todo not found');
-    }
-    const nextCompleted = completed === undefined ? !todo.completed : completed;
-    todo.completed = nextCompleted;
-    todo.updatedAt = nowIso();
-    await writeSessionTodosFile(project, session, data);
-    return todo;
+): Promise<Todo> {
+  const current = getTodo(project, String(id));
+  return updateTodo(project, String(id), {
+    completed: completed ?? !(current?.completed ?? false),
   });
 }
 
 export async function removeSessionTodo(
   project: string,
   session: string,
-  id: number
-): Promise<SessionTodo> {
-  return withLock(project, session, async () => {
-    const data = await readSessionTodosFile(project, session);
-    const idx = data.todos.findIndex(t => t.id === id);
-    if (idx === -1) {
-      throw new Error('Todo not found');
-    }
-    const [removed] = data.todos.splice(idx, 1);
-    await writeSessionTodosFile(project, session, data);
-    return removed;
-  });
+  id: string | number
+): Promise<Todo | null> {
+  const t = getTodo(project, String(id));
+  await removeTodo(project, String(id));
+  return t;
 }
 
 export async function clearCompletedSessionTodos(
   project: string,
   session: string
 ): Promise<ClearCompletedResult> {
-  return withLock(project, session, async () => {
-    const data = await readSessionTodosFile(project, session);
-    const before = data.todos.length;
-    data.todos = data.todos.filter(t => !t.completed);
-    const removedCount = before - data.todos.length;
-    if (removedCount > 0) {
-      await writeSessionTodosFile(project, session, data);
-    }
-    return { removedCount };
-  });
+  const r = await clearCompleted(project, session);
+  return { removedCount: r.removed };
 }
 
 export async function reorderSessionTodos(
   project: string,
   session: string,
-  orderedIds: number[]
-): Promise<SessionTodo[]> {
-  return withLock(project, session, async () => {
-    const data = await readSessionTodosFile(project, session);
-
-    if (orderedIds.length !== data.todos.length) {
-      throw new Error('orderedIds must be a permutation of existing todo ids');
-    }
-    const seen = new Set<number>();
-    for (const id of orderedIds) {
-      if (seen.has(id)) {
-        throw new Error('orderedIds contains duplicate id');
-      }
-      seen.add(id);
-    }
-    const byId = new Map(data.todos.map(t => [t.id, t] as const));
-    for (const id of orderedIds) {
-      if (!byId.has(id)) {
-        throw new Error('orderedIds contains unknown id');
-      }
-    }
-
-    const now = nowIso();
-    orderedIds.forEach((id, i) => {
-      const todo = byId.get(id)!;
-      todo.order = (i + 1) * 10;
-      todo.updatedAt = now;
-    });
-
-    data.todos = orderedIds.map(id => byId.get(id)!);
-    await writeSessionTodosFile(project, session, data);
-    return data.todos.slice();
-  });
+  orderedIds: (string | number)[]
+): Promise<Todo[]> {
+  await reorder(project, orderedIds.map(String));
+  // includeCompleted so the returned list reflects the full reordered set.
+  return listTodos(project, { session, includeCompleted: true });
 }
 
 export async function completeTodosForTask(
@@ -380,20 +313,22 @@ export async function completeTodosForTask(
   session: string,
   blueprintId: string,
   taskId?: string,
-): Promise<SessionTodo[]> {
-  return withLock(project, session, async () => {
-    const data = await readSessionTodosFile(project, session);
-    const now = nowIso();
-    const changed: SessionTodo[] = [];
-    for (const todo of data.todos) {
-      if (todo.completed) continue;
-      if (todo.link?.blueprintId !== blueprintId) continue;
-      if (taskId !== undefined && todo.link.taskId !== undefined && todo.link.taskId !== taskId) continue;
-      todo.completed = true;
-      todo.updatedAt = now;
-      changed.push(todo);
-    }
-    if (changed.length > 0) await writeSessionTodosFile(project, session, data);
-    return changed;
-  });
+): Promise<Todo[]> {
+  const todos = listTodos(project, { session, includeCompleted: false });
+  const matched = todos.filter(
+    t => t.link?.blueprintId === blueprintId && (taskId ? t.link?.taskId === taskId : true)
+  );
+  for (const t of matched) {
+    await updateTodo(project, t.id, { status: 'done' });
+  }
+  return matched;
+}
+
+export async function assignSessionTodo(
+  project: string,
+  session: string,
+  id: string | number,
+  assigneeSession: string | null
+): Promise<Todo> {
+  return assignTodo(project, String(id), assigneeSession);
 }
