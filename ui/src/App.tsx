@@ -49,6 +49,7 @@ import type { Item, Session, ToolbarAction } from '@/types';
 import Header from '@/components/layout/Header';
 import Sidebar from '@/components/layout/Sidebar';
 import { GlobalSearch } from '@/components/layout/GlobalSearch';
+import { TerminalDrawer } from '@/components/terminal/TerminalDrawer';
 import EditorToolbar from '@/components/layout/EditorToolbar';
 import { MobileLayout } from '@/components/layout/MobileLayout';
 import QuestionPanel from '@/components/question-panel/QuestionPanel';
@@ -1714,6 +1715,9 @@ const App: React.FC = () => {
 
         {/* Global Search (Cmd+K) */}
         <GlobalSearch />
+
+        {/* In-app terminal (toggled from Header; renders nothing when closed) */}
+        <TerminalDrawer />
       </div>
     </ErrorBoundary>
   );

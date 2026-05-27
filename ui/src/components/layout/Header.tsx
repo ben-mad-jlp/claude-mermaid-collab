@@ -16,6 +16,7 @@ import { useTheme } from '@/hooks/useTheme';
 import { useSession } from '@/hooks/useSession';
 import { NavMenu } from './NavMenu';
 import { ServerSwitcher } from '@/components/ServerSwitcher';
+import { useTerminalStore } from '@/stores/terminalStore';
 import { Session } from '@/types';
 
 export interface HeaderProps {
@@ -269,6 +270,27 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right-side controls */}
         <div className="flex items-center gap-3">
+          {/* Terminal toggle */}
+          <button
+            data-testid="toggle-terminal"
+            onClick={() => useTerminalStore.getState().toggle()}
+            aria-label="Toggle terminal"
+            title="Toggle terminal"
+            className="
+              p-2
+              text-gray-600 dark:text-gray-300
+              hover:text-gray-900 dark:hover:text-white
+              hover:bg-gray-100 dark:hover:bg-gray-700
+              rounded-lg
+              transition-colors
+            "
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="4 17 10 11 4 5" />
+              <line x1="12" y1="19" x2="20" y2="19" />
+            </svg>
+          </button>
+
           {/* Refresh Button */}
           {onRefreshSessions && (
             <button
