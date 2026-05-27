@@ -23,6 +23,7 @@ import { archiveSession, type ArchiveOptions } from '../mcp/tools/collab-state';
 import { addLesson, listLessons, type LessonCategory } from '../mcp/tools/lessons';
 import {
   listTodos,
+  getTodo,
   createTodo,
   updateTodo,
   removeTodo,
@@ -200,7 +201,10 @@ export async function handleAPI(
   // GET /api/sessions - List all registered sessions
   if (path === '/api/sessions' && req.method === 'GET') {
     try {
-      const sessions = await sessionRegistry.list();
+      const all = await sessionRegistry.list();
+      // Optional ?project= filter (assignee picker lists sibling sessions).
+      const projectFilter = url.searchParams.get('project');
+      const sessions = projectFilter ? all.filter((s) => s.project === projectFilter) : all;
       return Response.json({ sessions }, {
         headers: {
           'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -2571,6 +2575,8 @@ export async function handleAPI(
         type: 'session_todos_updated',
         project,
         session,
+        ownerSession: todo.ownerSession,
+        assigneeSession: todo.assigneeSession ?? undefined,
       });
 
       return Response.json({ todo }, { status: 201 });
@@ -2667,6 +2673,8 @@ export async function handleAPI(
         type: 'session_todos_updated',
         project,
         session,
+        ownerSession: todo.ownerSession,
+        assigneeSession: todo.assigneeSession ?? undefined,
       });
 
       return Response.json({ todo });
@@ -2687,12 +2695,15 @@ export async function handleAPI(
     const id = sessionTodosDeleteMatch[1];
 
     try {
+      const deletedTodo = getTodo(params.project, id); // snapshot before delete for broadcast targeting
       await removeTodo(params.project, id);
 
       wsHandler.broadcast({
         type: 'session_todos_updated',
         project: params.project,
         session: params.session,
+        ownerSession: deletedTodo?.ownerSession,
+        assigneeSession: deletedTodo?.assigneeSession ?? undefined,
       });
 
       return Response.json({ ok: true });

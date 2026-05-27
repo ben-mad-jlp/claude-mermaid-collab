@@ -1,6 +1,7 @@
 import React, {
   forwardRef,
   useCallback,
+  useEffect,
   useImperativeHandle,
   useMemo,
   useRef,
@@ -9,6 +10,7 @@ import React, {
 import { useShallow } from 'zustand/react/shallow';
 import { useSessionStore } from '@/stores/sessionStore';
 import { api } from '@/lib/api';
+import { ManagerDashboard } from '@/components/todos/ManagerDashboard';
 import { ConfirmClearCompletedDialog } from '@/components/dialogs/ConfirmClearCompletedDialog';
 import { SessionTodo, TodoStatus } from '@/types/sessionTodo';
 import { SectionBranchRow } from './TreeBranchRow';
@@ -60,10 +62,25 @@ interface TodoRowProps {
   todo: SessionTodo;
   project: string;
   session: string;
+  /** Sibling session names in this project (for the assignee picker). */
+  siblings: string[];
 }
 
-function TodoRow({ todo, project, session }: TodoRowProps) {
+function TodoRow({ todo, project, session, siblings }: TodoRowProps) {
   const upsertSessionTodo = useSessionStore((s) => s.upsertSessionTodo);
+
+  const handleAssign = useCallback(async (value: string) => {
+    const assigneeSession = value || null;
+    const optimistic: SessionTodo = { ...todo, assigneeSession };
+    upsertSessionTodo(optimistic);
+    try {
+      const updated = await api.patchSessionTodo(project, session, todo.id, { assigneeSession });
+      upsertSessionTodo(updated);
+    } catch (err) {
+      upsertSessionTodo(todo);
+      console.error('Failed to assign todo', err);
+    }
+  }, [todo, project, session, upsertSessionTodo]);
   const removeSessionTodoLocal = useSessionStore((s) => s.removeSessionTodoLocal);
   const selectDocument = useSessionStore((s) => s.selectDocument);
   const [editing, setEditing] = useState(false);
@@ -164,15 +181,29 @@ function TodoRow({ todo, project, session }: TodoRowProps) {
             {currentTitle}
           </span>
         )}
-        {/* Inline badges */}
-        {todo.assigneeSession && (
-          <span
-            title={`Assigned to ${todo.assigneeSession}`}
-            className="shrink-0 mt-0.5 inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 max-w-[72px] truncate"
-          >
-            → {todo.assigneeSession}
-          </span>
-        )}
+        {/* Assignee picker — assign this todo to a sibling session (or unassign) */}
+        <select
+          value={todo.assigneeSession ?? ''}
+          onChange={(e) => handleAssign(e.target.value)}
+          onClick={(e) => e.stopPropagation()}
+          title={todo.assigneeSession ? `Assigned to ${todo.assigneeSession}` : 'Assign to a session'}
+          className={`shrink-0 mt-0.5 max-w-[88px] truncate rounded text-[10px] py-0.5 px-1 cursor-pointer border-none focus:outline-none focus:ring-1 focus:ring-purple-400 ${
+            todo.assigneeSession
+              ? 'bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400'
+              : 'bg-transparent text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100'
+          }`}
+        >
+          <option value="">{todo.assigneeSession ? '✕ unassign' : '＋ assign'}</option>
+          {/* Ensure the current assignee is always selectable, even if not in the loaded sibling list. */}
+          {todo.assigneeSession && !siblings.includes(todo.assigneeSession) && (
+            <option value={todo.assigneeSession}>→ {todo.assigneeSession}</option>
+          )}
+          {siblings.map((name) => (
+            <option key={name} value={name}>
+              → {name}{name === session ? ' (me)' : ''}
+            </option>
+          ))}
+        </select>
         {todo.priority !== null && todo.priority !== undefined && (
           <span
             title={`Priority ${todo.priority}`}
@@ -250,6 +281,7 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
     // Filter state
     const [statusFilter, setStatusFilter] = useState<TodoStatus | 'all'>('all');
     const [assignedToMe, setAssignedToMe] = useState(false);
+    const [managerView, setManagerView] = useState(false);
 
     useImperativeHandle(
       ref,
@@ -263,6 +295,18 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
     );
 
     const me = currentSession?.name ?? null;
+
+    // Sibling sessions in this project — for the assignee picker.
+    const [siblings, setSiblings] = useState<string[]>([]);
+    useEffect(() => {
+      const project = currentSession?.project;
+      if (!project) return;
+      let cancelled = false;
+      api.getSessions(project)
+        .then((sessions) => { if (!cancelled) setSiblings(sessions.map((s) => s.name)); })
+        .catch(() => { /* picker just shows assign/unassign */ });
+      return () => { cancelled = true; };
+    }, [currentSession?.project]);
 
     const orderedTodos = useMemo(
       () => [...sessionTodos].sort((a, b) => a.order - b.order),
@@ -364,6 +408,17 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
                   Mine
                 </label>
               )}
+              {me && (
+                <label className="flex items-center gap-1 cursor-pointer select-none whitespace-nowrap" title="Manager view: todos you own, grouped by assignee">
+                  <input
+                    type="checkbox"
+                    checked={managerView}
+                    onChange={(e) => setManagerView(e.target.checked)}
+                    className="w-3 h-3"
+                  />
+                  Manager
+                </label>
+              )}
             </div>
 
             <div
@@ -409,7 +464,11 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
               </div>
             )}
 
-            {visibleTodos.length === 0 ? (
+            {managerView && me ? (
+              <div style={{ paddingLeft: '16px' }}>
+                <ManagerDashboard todos={sessionTodos} me={me} />
+              </div>
+            ) : visibleTodos.length === 0 ? (
               <div
                 style={{ paddingLeft: '16px' }}
                 className="px-2 py-1 text-xs text-gray-400 dark:text-gray-500 italic"
@@ -423,6 +482,7 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
                   todo={todo}
                   project={currentSession.project}
                   session={currentSession.name}
+                  siblings={siblings}
                 />
               ))
             )}

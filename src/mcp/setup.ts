@@ -965,8 +965,11 @@ async function archiveByPrefix(
 
 // ============= Session Tools =============
 
-async function listSessions(): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/api/sessions`);
+async function listSessions(project?: string): Promise<string> {
+  const url = project
+    ? `${API_BASE_URL}/api/sessions?project=${encodeURIComponent(project)}`
+    : `${API_BASE_URL}/api/sessions`;
+  const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Failed to list sessions: ${response.statusText}`);
   }
@@ -1079,8 +1082,8 @@ export async function setupMCPServer(): Promise<Server> {
       },
       {
         name: 'list_sessions',
-        description: 'List all registered collab sessions across all projects.',
-        inputSchema: { type: 'object', properties: {} },
+        description: 'List registered collab sessions. Pass `project` to list only sessions in that project (e.g. to pick an assignee for cross-session todos); omit for all projects.',
+        inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Absolute project path to filter sessions by (optional).' } } },
       },
       {
         name: 'list_projects',
@@ -2644,7 +2647,7 @@ IMPORTANT - Common pitfalls to avoid:
             return JSON.stringify({ name: generateSessionName() }, null, 2);
 
           case 'list_sessions':
-            return await listSessions();
+            return await listSessions((args as { project?: string })?.project);
 
           case 'list_projects': {
             const result = await handleListProjects();
@@ -3728,7 +3731,7 @@ IMPORTANT - Common pitfalls to avoid:
             };
             if (!project || !session || !(title ?? text)) throw new Error('Missing required: project, session, text');
             const result = await addSessionTodo(project, session, title ?? text!, link, { assigneeSession, description, status, priority, dueDate });
-            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
+            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined });
             return JSON.stringify(result, null, 2);
           }
 
@@ -3750,7 +3753,7 @@ IMPORTANT - Common pitfalls to avoid:
             };
             if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
             const result = await updateSessionTodo(project, session, id, { text, title, completed, link, assigneeSession, description, status, priority, dueDate });
-            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
+            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined });
             return JSON.stringify(result, null, 2);
           }
 
@@ -3763,7 +3766,7 @@ IMPORTANT - Common pitfalls to avoid:
             };
             if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
             const result = await toggleSessionTodo(project, session, id, completed);
-            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
+            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined });
             return JSON.stringify(result, null, 2);
           }
 
@@ -3775,7 +3778,7 @@ IMPORTANT - Common pitfalls to avoid:
             };
             if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
             const result = await removeSessionTodo(project, session, id);
-            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
+            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result?.ownerSession, assigneeSession: result?.assigneeSession ?? undefined });
             return JSON.stringify(result, null, 2);
           }
 
@@ -3808,7 +3811,7 @@ IMPORTANT - Common pitfalls to avoid:
             };
             if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
             const result = await assignSessionTodo(project, session, id, assigneeSession);
-            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
+            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined });
             return JSON.stringify(result, null, 2);
           }
 

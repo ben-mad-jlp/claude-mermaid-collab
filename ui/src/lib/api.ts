@@ -68,7 +68,7 @@ export interface ArchiveResult {
 }
 
 export interface ApiClient {
-  getSessions(): Promise<Session[]>;
+  getSessions(project?: string): Promise<Session[]>;
   createSession(project: string, session: string, useRenderUI?: boolean): Promise<Session>;
   deleteSession(project: string, session: string): Promise<boolean>;
   archiveSession(project: string, session: string, options?: { deleteSession?: boolean; timestamp?: boolean }): Promise<ArchiveResult>;
@@ -101,7 +101,7 @@ export interface ApiClient {
   deleteSnippet(project: string, session: string, id: string): Promise<void>;
   getSessionTodos(project: string, session: string, includeCompleted?: boolean, status?: TodoStatus, assigneeSession?: string): Promise<SessionTodo[]>;
   addSessionTodo(project: string, session: string, title: string, opts?: { status?: TodoStatus; assigneeSession?: string; priority?: number; dueDate?: string; description?: string; link?: SessionTodoLink }): Promise<SessionTodo>;
-  patchSessionTodo(project: string, session: string, id: string, updates: { title?: string; completed?: boolean; link?: SessionTodoLink | null; status?: TodoStatus; assigneeSession?: string; priority?: number; dueDate?: string; description?: string }): Promise<SessionTodo>;
+  patchSessionTodo(project: string, session: string, id: string, updates: { title?: string; completed?: boolean; link?: SessionTodoLink | null; status?: TodoStatus; assigneeSession?: string | null; priority?: number; dueDate?: string; description?: string }): Promise<SessionTodo>;
   removeSessionTodo(project: string, session: string, id: string): Promise<void>;
   reorderSessionTodos(project: string, session: string, orderedIds: string[]): Promise<SessionTodo[]>;
   clearCompletedSessionTodos(project: string, session: string): Promise<{ removedCount: number }>;
@@ -138,8 +138,8 @@ export const api: ApiClient = {
   /**
    * Fetch all available sessions
    */
-  async getSessions(): Promise<Session[]> {
-    const response = await fetch('/api/sessions');
+  async getSessions(project?: string): Promise<Session[]> {
+    const response = await fetch(project ? `/api/sessions?project=${encodeURIComponent(project)}` : '/api/sessions');
     if (!response.ok) {
       throw new Error(response.statusText);
     }
@@ -670,7 +670,7 @@ export const api: ApiClient = {
     project: string,
     session: string,
     id: string,
-    updates: { title?: string; completed?: boolean; link?: SessionTodoLink | null; status?: TodoStatus; assigneeSession?: string; priority?: number; dueDate?: string; description?: string }
+    updates: { title?: string; completed?: boolean; link?: SessionTodoLink | null; status?: TodoStatus; assigneeSession?: string | null; priority?: number; dueDate?: string; description?: string }
   ): Promise<SessionTodo> {
     const response = await fetch(`/api/session-todos/${id}`, {
       method: 'PATCH',
