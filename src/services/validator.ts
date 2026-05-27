@@ -1,3 +1,8 @@
+// Establish the jsdom `window` global BEFORE this module's dynamic
+// `import('mermaid')` (in validate) runs — otherwise mermaid's bundled dompurify
+// evaluates windowless and caches as the factory (no `addHook`), poisoning every
+// later render process-wide with "DOMPurify.addHook is not a function".
+import './dom-setup';
 import * as yaml from 'js-yaml';
 
 export interface ValidationResult {

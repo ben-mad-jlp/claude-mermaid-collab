@@ -1,3 +1,8 @@
+// MUST be first: set up the jsdom DOM globals before ANY module (e.g. the
+// Validator's dynamic mermaid import) pulls in mermaid/dompurify — otherwise
+// dompurify caches windowless and server-side diagram rendering fails with
+// "DOMPurify.addHook is not a function".
+import './services/dom-setup';
 import { join } from 'path';
 import { homedir } from 'os';
 import { existsSync } from 'fs';
