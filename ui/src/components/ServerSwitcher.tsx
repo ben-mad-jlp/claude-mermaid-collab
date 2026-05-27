@@ -14,6 +14,12 @@ const dot: Record<string, string> = {
   connecting: '#d29922',
 };
 
+/** Compact label: project folder basename + session, not the whole path. */
+function shortLabel(s: { label: string; lastProject?: string; lastSession?: string }): string {
+  const base = (s.lastProject ?? s.label).split('/').filter(Boolean).pop() ?? s.label;
+  return s.lastSession ? `${base} / ${s.lastSession}` : base;
+}
+
 export function ServerSwitcher() {
   const { available, servers, activeId, switchServer, addServer, removeServer } = useServer();
   const [open, setOpen] = useState(false);
@@ -23,7 +29,7 @@ export function ServerSwitcher() {
   if (!available) return null;
 
   const active = servers.find((s) => s.id === activeId);
-  const activeLabel = active?.label ?? 'This Mac';
+  const activeLabel = active ? shortLabel(active) : 'This Mac';
 
   const submitAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,9 +66,10 @@ export function ServerSwitcher() {
               <button
                 type="button"
                 onClick={() => { void switchServer(s.id); setOpen(false); }}
-                style={{ flex: 1, textAlign: 'left', cursor: 'pointer', fontWeight: s.id === activeId ? 600 : 400 }}
+                title={s.label}
+                style={{ flex: 1, textAlign: 'left', cursor: 'pointer', fontWeight: s.id === activeId ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
               >
-                {s.label}
+                {shortLabel(s)}
                 <span style={{ opacity: 0.6, marginLeft: 6 }}>{s.host}:{s.port}</span>
                 {s.id === activeId && <span style={{ marginLeft: 6 }}>✓</span>}
               </button>
