@@ -50,7 +50,8 @@ export function ServerSwitcher() {
       {open && (
         <div
           role="menu"
-          style={{ position: 'absolute', top: '100%', left: 0, minWidth: 260, marginTop: 4, border: '1px solid #30363d', borderRadius: 8, background: 'var(--mc-surface, #1c2128)', zIndex: 50, padding: 6 }}
+          className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700 shadow-lg"
+          style={{ position: 'absolute', top: '100%', left: 0, minWidth: 260, marginTop: 4, borderRadius: 8, zIndex: 50, padding: 6 }}
         >
           {servers.length === 0 && <div style={{ padding: 8, opacity: 0.7 }}>No servers found</div>}
           {servers.map((s) => (
@@ -73,7 +74,7 @@ export function ServerSwitcher() {
             </div>
           ))}
 
-          <div style={{ borderTop: '1px solid #30363d', marginTop: 4, paddingTop: 4 }}>
+          <div className="border-t border-gray-200 dark:border-gray-700" style={{ marginTop: 4, paddingTop: 4 }}>
             {!adding ? (
               <button type="button" onClick={() => setAdding(true)} style={{ padding: '6px 8px', cursor: 'pointer', width: '100%', textAlign: 'left' }}>
                 + Add server…

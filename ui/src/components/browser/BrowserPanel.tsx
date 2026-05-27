@@ -76,114 +76,88 @@ export function BrowserPanel() {
       cancelAnimationFrame(raf);
       bridge()?.setBounds?.(zero);
     };
-  }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Re-run on activeId so a newly-opened/switched tab gets the current column
+    // rect pushed immediately (fresh `last` → no dedup skip).
+  }, [visible, activeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!visible) return null;
 
   return (
     <ResizableColumn width={width} onResize={setWidth} min={360}>
-      <div className="flex flex-col h-full min-h-0 bg-white dark:bg-gray-900">
-      {/* Tab strip */}
-      <div
-        style={{
-          display: 'flex', alignItems: 'center', gap: 2,
-          padding: '0 6px', borderBottom: '1px solid #30363d',
-          background: '#161b22', minHeight: 32, overflowX: 'auto',
-        }}
-      >
-        {tabs.map((tab) => {
-          const label =
-            tab.kind === 'session'
-              ? (tab.session ?? 'Session')
-              : (tab.title || tab.url || 'New Tab');
-          const isActive = tab.id === activeId;
+      <div className="flex flex-col flex-1 min-h-0 bg-white dark:bg-gray-900">
+        {/* Tab strip */}
+        <div className="flex items-center gap-0.5 px-1.5 min-h-[32px] overflow-x-auto bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+          {tabs.map((tab) => {
+            const label =
+              tab.kind === 'session'
+                ? (tab.session ?? 'Session')
+                : (tab.title || tab.url || 'New Tab');
+            const isActive = tab.id === activeId;
 
-          return (
-            <div
-              key={tab.id}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 4,
-                padding: '4px 8px', cursor: 'pointer', fontSize: 12,
-                borderBottom: isActive ? '2px solid #58a6ff' : '2px solid transparent',
-                color: isActive ? '#c9d1d9' : '#6e7681',
-                whiteSpace: 'nowrap',
-              }}
-              onClick={() => activateTab(tab.id)}
-            >
-              <span>{label}</span>
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }}
-                title="Close tab"
-                style={{
-                  cursor: 'pointer', color: '#6e7681', background: 'none',
-                  border: 'none', padding: '0 2px', fontSize: 11, lineHeight: 1,
-                }}
+            return (
+              <div
+                key={tab.id}
+                onClick={() => activateTab(tab.id)}
+                className={`flex items-center gap-1 px-2 py-1 cursor-pointer text-xs whitespace-nowrap border-b-2 ${
+                  isActive
+                    ? 'border-blue-500 text-gray-900 dark:text-gray-100'
+                    : 'border-transparent text-gray-500 dark:text-gray-400'
+                }`}
               >
-                ×
-              </button>
-            </div>
-          );
-        })}
+                <span>{label}</span>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }}
+                  title="Close tab"
+                  className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 px-0.5 leading-none text-[11px]"
+                >
+                  ×
+                </button>
+              </div>
+            );
+          })}
 
-        {/* New tab */}
-        <button
-          type="button"
-          onClick={() => openUserTab()}
-          title="New tab"
-          style={{
-            cursor: 'pointer', color: '#6e7681', background: 'none',
-            border: 'none', padding: '4px 8px', fontSize: 16, lineHeight: 1,
-          }}
-        >
-          +
-        </button>
+          {/* New tab */}
+          <button
+            type="button"
+            onClick={() => openUserTab()}
+            title="New tab"
+            className="text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 px-2 py-1 text-base leading-none"
+          >
+            +
+          </button>
 
-        {/* Spacer */}
-        <div style={{ flex: 1 }} />
+          <div className="flex-1" />
 
-        {/* Close panel */}
-        <button
-          type="button"
-          onClick={hide}
-          title="Close browser"
-          style={{
-            cursor: 'pointer', color: '#6e7681', background: 'none',
-            border: 'none', padding: '4px 8px', fontSize: 12,
-          }}
-        >
-          ✕
-        </button>
-      </div>
+          {/* Close panel */}
+          <button
+            type="button"
+            onClick={hide}
+            title="Close browser"
+            className="text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 px-2 py-1 text-xs"
+          >
+            ✕
+          </button>
+        </div>
 
-      {/* Address bar */}
-      <div
-        style={{
-          display: 'flex', alignItems: 'center',
-          padding: '4px 8px', background: '#0d1117',
-          borderBottom: '1px solid #30363d',
-        }}
-      >
-        <input
-          type="text"
-          value={addressValue}
-          onChange={(e) => setAddressValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && activeId) {
-              navigate(activeId, addressValue);
-            }
-          }}
-          placeholder="Enter URL…"
-          style={{
-            flex: 1, background: '#161b22', color: '#c9d1d9',
-            border: '1px solid #30363d', borderRadius: 4,
-            padding: '3px 8px', fontSize: 12, outline: 'none',
-          }}
-        />
-      </div>
+        {/* Address bar */}
+        <div className="flex items-center px-2 py-1 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
+          <input
+            type="text"
+            value={addressValue}
+            onChange={(e) => setAddressValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && activeId) {
+                navigate(activeId, addressValue);
+              }
+            }}
+            placeholder="Enter URL…"
+            className="flex-1 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-300 dark:border-gray-600 rounded px-2 py-0.5 text-xs outline-none"
+          />
+        </div>
 
-      {/* Viewport placeholder — native WebContentsView sits over this rect */}
-      <div ref={viewportRef} className="flex-1" />
+        {/* Viewport placeholder — native WebContentsView sits over this rect */}
+        <div ref={viewportRef} className="flex-1" />
       </div>
     </ResizableColumn>
   );

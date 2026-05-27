@@ -31,7 +31,7 @@ export function TerminalDrawer() {
 
   return (
     <ResizableColumn width={width} onResize={setWidth} min={320}>
-      <div style={{ background: '#0d1117', display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <div style={{ background: '#0d1117', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       {/* Tab strip */}
       <div
         style={{

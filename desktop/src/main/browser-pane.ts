@@ -96,11 +96,14 @@ export class BrowserPaneManager {
 
   activateTab(id: string): void {
     if (!this.tabs.has(id)) return;
+    this.activeId = id;
+    // Raise z-order FIRST: re-adding a child view can reset its bounds, so set
+    // bounds last to guarantee the active view ends up exactly on activeBounds
+    // (otherwise a newly-opened tab can flash/stick at full-window size).
+    this.win.contentView.addChildView(this.tabs.get(id)!.view);
     for (const tab of this.tabs.values()) {
       tab.view.setBounds(tab.id === id ? this.activeBounds : this.zeroRect);
     }
-    this.activeId = id;
-    this.win.contentView.addChildView(this.tabs.get(id)!.view);
   }
 
   setBounds(rect: Rect): void {
