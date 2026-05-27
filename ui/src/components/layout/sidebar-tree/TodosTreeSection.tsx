@@ -70,9 +70,11 @@ function TodoRow({ todo, project, session }: TodoRowProps) {
   const [draftText, setDraftText] = useState(todo.title ?? todo.text ?? '');
 
   const currentTitle = todo.title ?? todo.text ?? '';
+  // Tolerate legacy/old-backend todos that lack `status` (numeric-id era).
+  const status: TodoStatus = todo.status ?? (todo.completed ? 'done' : 'todo');
 
   const handleStatusCycle = useCallback(async () => {
-    const idx = STATUS_ORDER.indexOf(todo.status);
+    const idx = STATUS_ORDER.indexOf(status);
     const next = STATUS_ORDER[(idx + 1) % STATUS_ORDER.length];
     const optimistic: SessionTodo = { ...todo, status: next, completed: next === 'done' };
     upsertSessionTodo(optimistic);
@@ -115,7 +117,7 @@ function TodoRow({ todo, project, session }: TodoRowProps) {
     }
   }, [todo.id, project, session, removeSessionTodoLocal]);
 
-  const isDone = todo.status === 'done' || todo.completed;
+  const isDone = status === 'done' || todo.completed;
 
   return (
     <div
@@ -125,14 +127,14 @@ function TodoRow({ todo, project, session }: TodoRowProps) {
       <div className="group w-full text-left px-2 py-1 rounded text-xs flex items-start gap-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800">
         <button
           onClick={handleStatusCycle}
-          title={`Status: ${todo.status} (click to advance)`}
-          className={`shrink-0 mt-0.5 inline-flex items-center justify-center rounded px-1 py-0.5 text-[10px] font-mono font-semibold cursor-pointer transition-colors ${STATUS_COLORS[todo.status]}`}
-          aria-label={`Status: ${todo.status}`}
+          title={`Status: ${status} (click to advance)`}
+          className={`shrink-0 mt-0.5 inline-flex items-center justify-center rounded px-1 py-0.5 text-[10px] font-mono font-semibold cursor-pointer transition-colors ${STATUS_COLORS[status]}`}
+          aria-label={`Status: ${status}`}
         >
-          {STATUS_LABEL[todo.status]}
+          {STATUS_LABEL[status]}
         </button>
         <span className="shrink-0 tabular-nums mt-0.5 select-none text-gray-400 dark:text-gray-500">
-          #{todo.id.slice(0, 6)}
+          #{String(todo.id).slice(0, 6)}
         </span>
         {editing ? (
           <input
