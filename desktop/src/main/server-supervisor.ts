@@ -64,45 +64,15 @@ export class ServerSupervisor {
     this.fetchImpl = opts.fetchImpl ?? fetch;
   }
 
-  /**
-   * Detect an already-running server for this (project, session) — started by
-   * Claude's SessionStart hook or the CLI — and return its port so we attach
-   * instead of double-binding. Requires `discoveryImpl` (the app wires it to the
-   * instance registry's readInstances); without it, we always spawn.
-   * Only attaches if the discovered instance actually passes a health check.
-   */
-  private async checkExistingInstance(): Promise<number | null> {
-    if (!this.opts.discoveryImpl) return null;
-    let instances: Array<{ project: string; session: string; port: number }>;
-    try {
-      instances = await this.opts.discoveryImpl();
-    } catch {
-      return null;
-    }
-    const match = instances.find(
-      (i) => i.project === this.opts.project && i.session === this.opts.session
-    );
-    if (!match) return null;
-    try {
-      const r = await this.fetchImpl(`http://${this.opts.host}:${match.port}/api/health`, {
-        signal: AbortSignal.timeout(1500),
-      });
-      if (r.ok) return match.port;
-    } catch {
-      // discovered instance is stale/dead — fall through to spawn
-    }
-    return null;
-  }
-
   async start(): Promise<{ port: number; attached: boolean }> {
-    const existing = await this.checkExistingInstance();
-    if (existing != null) {
-      this.port = existing;
-      this.attached = true;
-      return { port: existing, attached: true };
-    }
+    const port = this.opts.port ?? Number(process.env.MERMAID_PORT ?? 9002);
 
-    const port = this.opts.port ?? (await getFreePort());
+    // Attach to an already-running server on the canonical port (e.g. started by
+    // Claude's SessionStart hook or the CLI) rather than double-binding.
+    try {
+      const r = await this.fetchImpl(`http://${this.opts.host}:${port}/api/health`, { signal: AbortSignal.timeout(1500) });
+      if (r.ok) { this.port = port; this.attached = true; return { port, attached: true }; }
+    } catch { /* not up — fall through to spawn */ }
 
     const env: NodeJS.ProcessEnv = {
       ...process.env,

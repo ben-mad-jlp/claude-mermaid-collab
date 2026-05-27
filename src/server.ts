@@ -2,7 +2,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { existsSync } from 'fs';
 import { config } from './config';
-import { PORT_REQUEST, MERMAID_PROJECT, MERMAID_SESSION, MC_BROWSER_TARGET, MERMAID_CHROME_PATH, MERMAID_BROWSER_HEADLESS } from './config';
+import { PORT_REQUEST, MERMAID_PROJECT, MERMAID_SESSION, MC_BROWSER_TARGET, MERMAID_CHROME_PATH, MERMAID_BROWSER_HEADLESS, MERMAID_IDLE_SHUTDOWN_MS } from './config';
 import { checkAuth } from './auth';
 import { writeInstance, removeInstance, deriveSessionId, installSignalHandlers } from './services/instance-discovery';
 import { SERVER_VERSION } from './mcp/server';
@@ -412,7 +412,18 @@ const actualPort = server.port;
 const sessionId = deriveSessionId(MERMAID_PROJECT, MERMAID_SESSION);
 
 // Handle graceful shutdown - kill all PTY sessions
+let idleTimer: ReturnType<typeof setTimeout> | null = null;
+const cancelIdle = () => { if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; } };
+const armIdle = () => {
+  cancelIdle();
+  idleTimer = setTimeout(async () => {
+    try { await removeInstance(sessionId); } catch {}
+    process.exit(0);
+  }, MERMAID_IDLE_SHUTDOWN_MS);
+};
+
 process.on('SIGINT', () => {
+  cancelIdle();
   console.log('\n🛑 SIGINT received, shutting down gracefully...');
   sweeper.stop();
   chromeManager?.stop();
@@ -423,6 +434,7 @@ process.on('SIGINT', () => {
 });
 
 process.on('SIGTERM', () => {
+  cancelIdle();
   console.log('\n🛑 SIGTERM received, shutting down gracefully...');
   sweeper.stop();
   chromeManager?.stop();
@@ -448,6 +460,14 @@ try {
   process.exit(1);
 }
 installSignalHandlers(sessionId);
+
+if (MERMAID_IDLE_SHUTDOWN_MS > 0) {
+  wsHandler.setOnConnectionsChanged((n: number) => {
+    if (n === 0) armIdle(); else cancelIdle();
+  });
+  armIdle(); // cover startup gap before any client connects
+}
+
 console.log(`mermaid-collab listening on :${actualPort}, advertised as ${sessionId}`);
 console.log(`🌐 Public directory: ${config.PUBLIC_DIR}`);
 console.log(`🎨 UI dist directory: ${config.UI_DIST_DIR} (exists: ${existsSync(config.UI_DIST_DIR)})`);

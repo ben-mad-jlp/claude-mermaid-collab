@@ -8,6 +8,11 @@ const CDP = require('chrome-remote-interface') as any;
 import { CDP_PORT } from '../config.js';
 export { CDP_PORT };
 
+let runtimeElectronTarget: { cdpPort: number } | null = null;
+
+export function setElectronTarget(cdpPort: number): void { runtimeElectronTarget = { cdpPort }; }
+export function clearElectronTarget(): void { runtimeElectronTarget = null; }
+
 // Maps sessionName → targetId
 const tabRegistry = new Map<string, string>();
 
@@ -198,8 +203,9 @@ export async function createOrReplaceTab(sessionName: string, port: number): Pro
     // Electron embedded-view mode: do NOT create a target. Select the existing
     // WebContentsView (identified by ELECTRON_VIEW_MARKER) — the spike confirmed
     // multiple `page` targets exist, so match deliberately rather than picking [0].
-    if (process.env.MC_BROWSER_TARGET === 'electron-view') {
-      const tabs = await CDP.List({ host: '127.0.0.1', port });
+    if (runtimeElectronTarget != null || process.env.MC_BROWSER_TARGET === 'electron-view') {
+      const effectivePort = runtimeElectronTarget?.cdpPort ?? port;
+      const tabs = await CDP.List({ host: '127.0.0.1', port: effectivePort });
       const viewId = selectElectronViewTarget(tabs, sessionName);
       tabRegistry.set(sessionName, viewId);
       persistTabRegistry();
@@ -240,7 +246,8 @@ export async function ensureTab(sessionName: string, port: number): Promise<stri
   try {
     // Electron embedded-view mode: ensure the pane via the control server, then
     // select the per-session target. Skip the normal tab-registry path entirely.
-    if (process.env.MC_BROWSER_TARGET === 'electron-view') {
+    if (runtimeElectronTarget != null || process.env.MC_BROWSER_TARGET === 'electron-view') {
+      const effectivePort = runtimeElectronTarget?.cdpPort ?? port;
       if (process.env.MC_DESKTOP_CONTROL_URL) {
         try {
           const res = await fetch(`${process.env.MC_DESKTOP_CONTROL_URL}/panes/ensure`, {
@@ -255,10 +262,10 @@ export async function ensureTab(sessionName: string, port: number): Promise<stri
       }
       let tabs: any[];
       try {
-        tabs = await CDP.List({ host: '127.0.0.1', port });
+        tabs = await CDP.List({ host: '127.0.0.1', port: effectivePort });
       } catch (err: any) {
         if (err?.code === 'ECONNREFUSED') {
-          throw new Error(`Chrome not reachable on port ${port} — toggle CDP button in VSCodium`);
+          throw new Error(`Chrome not reachable on port ${effectivePort} — toggle CDP button in VSCodium`);
         }
         throw err;
       }

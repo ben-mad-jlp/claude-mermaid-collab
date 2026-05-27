@@ -122,3 +122,9 @@ export const MERMAID_CHROME_PATH = process.env.MERMAID_CHROME_PATH ?? '';
 /** Force headless Chrome. Default: headless when no display is detected. */
 export const MERMAID_BROWSER_HEADLESS = process.env.MERMAID_BROWSER_HEADLESS === '1'
   || process.env.MERMAID_BROWSER_HEADLESS === 'true';
+
+/** Idle self-shutdown: exit after this many ms with zero WS connections. Default 600000 (10 min); 0 disables. */
+export const MERMAID_IDLE_SHUTDOWN_MS = (() => {
+  const v = Number(process.env.MERMAID_IDLE_SHUTDOWN_MS ?? '600000');
+  return Number.isNaN(v) ? 600000 : v;
+})();

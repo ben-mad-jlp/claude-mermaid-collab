@@ -176,6 +176,7 @@ async function bootstrap(): Promise<void> {
   });
   const { port, attached } = await supervisor.start();
   console.log(`[bootstrap] sidecar ${attached ? 'attached' : 'spawned'} on port ${port}; cdp on ${cdpPort}`);
+  await fetch(`http://127.0.0.1:${port}/api/browser/electron-target`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cdpPort }) }).catch(() => {});
 
   // Start the per-server proxy and point it at the local sidecar. The renderer
   // talks only to the proxy (single origin → relative URLs keep working);
@@ -221,7 +222,6 @@ if (gotLock) {
     aggregator?.stop();
     void control?.stop();
     void proxy?.stop();
-    void supervisor?.stop();
   });
 
   app.on('window-all-closed', () => {
