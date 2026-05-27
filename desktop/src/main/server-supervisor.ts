@@ -18,6 +18,10 @@ export interface SupervisorOpts {
   /** Health-poll overrides (mainly for tests). */
   healthTimeoutMs?: number;
   healthPollMs?: number;
+  /** Prod: path to the compiled sidecar binary. When set, spawn it instead of `bun run src/server.ts`. */
+  serverBinaryPath?: string;
+  /** Prod: bundled resources dir (ui/dist, public) passed to the sidecar as MERMAID_RESOURCES_PATH. */
+  resourcesPath?: string;
 }
 
 const HEALTH_TIMEOUT_MS = 25_000;
@@ -112,7 +116,20 @@ export class ServerSupervisor {
       env.MERMAID_AUTH_TOKEN = this.opts.token;
     }
 
-    this.child = this.spawnImpl('bun', ['run', 'src/server.ts'], {
+    // Prod: run the compiled sidecar binary directly, with assets resolved from
+    // the bundled resources dir. Dev: `bun run src/server.ts` from the repo.
+    let cmd: string;
+    let args: string[];
+    if (this.opts.serverBinaryPath) {
+      cmd = this.opts.serverBinaryPath;
+      args = [];
+      if (this.opts.resourcesPath) env.MERMAID_RESOURCES_PATH = this.opts.resourcesPath;
+    } else {
+      cmd = 'bun';
+      args = ['run', 'src/server.ts'];
+    }
+
+    this.child = this.spawnImpl(cmd, args, {
       cwd: this.opts.repoRoot,
       env,
       stdio: ['ignore', 'pipe', 'pipe'],

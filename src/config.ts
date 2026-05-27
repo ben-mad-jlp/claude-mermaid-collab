@@ -3,8 +3,14 @@ import { fileURLToPath } from 'url';
 
 // Get the directory where this module lives (src/)
 // Go up one level to reach the project root where public/ is located
-// Handle both Bun (import.meta.dir) and Node.js (import.meta.url) environments
-const PROJECT_ROOT = dirname(
+// Handle both Bun (import.meta.dir) and Node.js (import.meta.url) environments.
+//
+// MERMAID_RESOURCES_PATH override: in a packaged app the server runs as a
+// `bun build --compile` binary whose import.meta.dir points at Bun's virtual
+// filesystem (/$bunfs/...), so ui/dist & public can't be found relative to it.
+// The Electron main process sets MERMAID_RESOURCES_PATH=process.resourcesPath
+// (where extraResources bundles ui/dist + public), and we resolve from there.
+const PROJECT_ROOT = process.env.MERMAID_RESOURCES_PATH ?? dirname(
   typeof (import.meta as any).dir !== 'undefined'
     ? (import.meta as any).dir
     : dirname(fileURLToPath(import.meta.url))

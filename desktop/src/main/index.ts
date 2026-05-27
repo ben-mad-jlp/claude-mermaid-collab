@@ -121,12 +121,19 @@ async function bootstrap(): Promise<void> {
   // Spawn (or attach to) the Bun sidecar, pointing its browser tools at our
   // own embedded view via CDP_PORT + MC_BROWSER_TARGET (set inside the supervisor).
   const repoRoot = process.env.MC_REPO_ROOT ?? join(app.getAppPath(), '..');
+  // In a packaged app the server is a compiled binary in resources/ and its
+  // assets (ui/dist, public) live alongside it; in dev we run from the repo.
+  const prodBinary = app.isPackaged
+    ? join(process.resourcesPath, process.platform === 'win32' ? 'mc-server.exe' : 'mc-server')
+    : undefined;
   supervisor = new ServerSupervisor({
     repoRoot,
     project: repoRoot,
     session: process.env.MC_SESSION ?? 'desktop',
     host: '127.0.0.1',
     cdpPort,
+    serverBinaryPath: prodBinary,
+    resourcesPath: app.isPackaged ? process.resourcesPath : undefined,
   });
   const { port, attached } = await supervisor.start();
   console.log(`[bootstrap] sidecar ${attached ? 'attached' : 'spawned'} on port ${port}; cdp on ${cdpPort}`);
@@ -158,6 +165,13 @@ async function bootstrap(): Promise<void> {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+
+  // Auto-update (packaged builds only; inert without a publish feed + signing).
+  if (app.isPackaged) {
+    import('electron-updater')
+      .then(({ autoUpdater }) => autoUpdater.checkForUpdatesAndNotify())
+      .catch(() => { /* no update feed / unsigned — ignore */ });
+  }
 }
 
 // Only the primary instance boots the app and owns the sidecar. A second
