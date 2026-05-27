@@ -1,44 +1,113 @@
+import { useEffect } from 'react';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useTerminalStore } from '@/stores/terminalStore';
+import { ResizableColumn } from '@/components/layout/ResizableColumn';
 import { TerminalPane } from './TerminalPane';
 
 /**
- * Bottom drawer hosting the in-app terminal. Rendered as a fixed overlay (not a
- * layout split) to keep App.tsx untouched. The PTY session id is the collab
- * session name; remounts when the session changes (key) so each session gets
- * its own shell.
+ * Right-side resizable column hosting tabbed in-app terminals. Each tab connects
+ * to a distinct PTY session (UUID). The tab strip sits above the active pane.
  */
 export function TerminalDrawer() {
   const open = useTerminalStore((s) => s.open);
-  const setOpen = useTerminalStore((s) => s.setOpen);
+  const tabs = useTerminalStore((s) => s.tabs);
+  const activeTabId = useTerminalStore((s) => s.activeTabId);
+  const width = useTerminalStore((s) => s.width);
+  const setWidth = useTerminalStore((s) => s.setWidth);
+  const setActive = useTerminalStore((s) => s.setActive);
+  const closeTab = useTerminalStore((s) => s.closeTab);
+  const openFor = useTerminalStore((s) => s.openFor);
+  const close = useTerminalStore((s) => s.close);
   const currentSession = useSessionStore((s) => s.currentSession);
 
+  // Auto-open a tab for the current session when the column first opens with no tabs
+  useEffect(() => {
+    if (open && tabs.length === 0 && currentSession) {
+      openFor(currentSession.project, currentSession.name);
+    }
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!open) return null;
-  const sessionId = currentSession?.name ?? 'scratch';
 
   return (
-    <div
-      style={{
-        position: 'fixed', left: 0, right: 0, bottom: 0, height: 300, zIndex: 40,
-        background: '#0d1117', borderTop: '1px solid #30363d',
-        display: 'flex', flexDirection: 'column',
-      }}
-    >
+    <ResizableColumn width={width} onResize={setWidth} min={320}>
+      <div style={{ background: '#0d1117', display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      {/* Tab strip */}
       <div
         style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '4px 10px', borderBottom: '1px solid #30363d',
-          color: '#c9d1d9', fontSize: 12,
+          display: 'flex', alignItems: 'center', gap: 2,
+          padding: '0 6px', borderBottom: '1px solid #30363d',
+          background: '#161b22', minHeight: 32, overflowX: 'auto',
         }}
       >
-        <span>Terminal — {sessionId}</span>
-        <button type="button" onClick={() => setOpen(false)} title="Close terminal" style={{ cursor: 'pointer', color: '#c9d1d9' }}>
+        {tabs.map((tab) => (
+          <div
+            key={tab.id}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 4,
+              padding: '4px 8px', cursor: 'pointer', fontSize: 12,
+              borderBottom: tab.id === activeTabId ? '2px solid #58a6ff' : '2px solid transparent',
+              color: tab.id === activeTabId ? '#c9d1d9' : '#6e7681',
+              whiteSpace: 'nowrap',
+            }}
+            onClick={() => setActive(tab.id)}
+          >
+            <span>{tab.title}</span>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }}
+              title="Close tab"
+              style={{
+                cursor: 'pointer', color: '#6e7681', background: 'none',
+                border: 'none', padding: '0 2px', fontSize: 11, lineHeight: 1,
+              }}
+            >
+              ×
+            </button>
+          </div>
+        ))}
+
+        {/* New tab button */}
+        <button
+          type="button"
+          onClick={() => currentSession && openFor(currentSession.project, currentSession.name)}
+          title="New terminal"
+          style={{
+            cursor: 'pointer', color: '#6e7681', background: 'none',
+            border: 'none', padding: '4px 8px', fontSize: 16, lineHeight: 1,
+          }}
+        >
+          +
+        </button>
+
+        {/* Spacer */}
+        <div style={{ flex: 1 }} />
+
+        {/* Close drawer */}
+        <button
+          type="button"
+          onClick={close}
+          title="Close terminal"
+          style={{
+            cursor: 'pointer', color: '#6e7681', background: 'none',
+            border: 'none', padding: '4px 8px', fontSize: 12,
+          }}
+        >
           ✕
         </button>
       </div>
+
+      {/* Active pane */}
       <div style={{ flex: 1, minHeight: 0, padding: 6 }}>
-        <TerminalPane key={sessionId} sessionId={sessionId} />
+        {activeTabId ? (
+          <TerminalPane key={activeTabId} sessionId={activeTabId} />
+        ) : (
+          <div style={{ color: '#6e7681', fontSize: 12, padding: 8 }}>
+            No terminal open — click + to start one
+          </div>
+        )}
       </div>
-    </div>
+      </div>
+    </ResizableColumn>
   );
 }

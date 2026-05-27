@@ -22,6 +22,10 @@ export interface SupervisorOpts {
   serverBinaryPath?: string;
   /** Prod: bundled resources dir (ui/dist, public) passed to the sidecar as MERMAID_RESOURCES_PATH. */
   resourcesPath?: string;
+  /** Desktop control server URL passed to the sidecar as MC_DESKTOP_CONTROL_URL. */
+  controlUrl?: string;
+  /** Desktop control server auth token passed to the sidecar as MC_DESKTOP_CONTROL_TOKEN. */
+  controlToken?: string;
 }
 
 const HEALTH_TIMEOUT_MS = 25_000;
@@ -112,6 +116,8 @@ export class ServerSupervisor {
       env.CDP_PORT = String(this.opts.cdpPort);
       env.MC_BROWSER_TARGET = 'electron-view';
     }
+    if (this.opts.controlUrl) env.MC_DESKTOP_CONTROL_URL = this.opts.controlUrl;
+    if (this.opts.controlToken) env.MC_DESKTOP_CONTROL_TOKEN = this.opts.controlToken;
     if (this.opts.token) {
       env.MERMAID_AUTH_TOKEN = this.opts.token;
     }

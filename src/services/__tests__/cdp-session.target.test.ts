@@ -31,4 +31,35 @@ describe('selectElectronViewTarget', () => {
       selectElectronViewTarget([{ id: 'x', type: 'page', title: 'other', url: 'http://x' }])
     ).toThrow('embedded view target not found');
   });
+
+  it('picks the per-session target among multiple', () => {
+    const id = selectElectronViewTarget(
+      [
+        { id: 'u', type: 'page', title: 'mc-browser-pane:user:foo' },
+        { id: 's', type: 'page', title: 'mc-browser-pane:mysession' },
+        { id: 'bare', type: 'page', title: 'mc-browser-pane' },
+      ],
+      'mysession'
+    );
+    expect(id).toBe('s');
+  });
+
+  it('falls back to bare marker when no session given', () => {
+    const id = selectElectronViewTarget(
+      [
+        { id: 's', type: 'page', title: 'mc-browser-pane:mysession' },
+        { id: 'bare', type: 'page', title: 'mc-browser-pane' },
+      ]
+    );
+    expect(id).toBe('bare');
+  });
+
+  it('does not pick a user tab when session given with no match', () => {
+    expect(() =>
+      selectElectronViewTarget(
+        [{ id: 'u', type: 'page', title: 'mc-browser-pane:user:alice' }],
+        'alice'
+      )
+    ).toThrow('embedded view target not found');
+  });
 });

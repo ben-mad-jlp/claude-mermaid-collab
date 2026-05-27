@@ -50,6 +50,7 @@ import Header from '@/components/layout/Header';
 import Sidebar from '@/components/layout/Sidebar';
 import { GlobalSearch } from '@/components/layout/GlobalSearch';
 import { TerminalDrawer } from '@/components/terminal/TerminalDrawer';
+import { BrowserPanel } from '@/components/browser/BrowserPanel';
 import EditorToolbar from '@/components/layout/EditorToolbar';
 import { MobileLayout } from '@/components/layout/MobileLayout';
 import QuestionPanel from '@/components/question-panel/QuestionPanel';
@@ -1200,6 +1201,18 @@ const App: React.FC = () => {
     }
   }, [theme]);
 
+  // Apply zoom level. In the desktop app use Electron's whole-window zoom factor
+  // (scales everything uniformly). On the web, scale the root font-size instead.
+  // Use ONE mechanism — applying both compounds (e.g. 0.8 × 0.8) and over-shrinks.
+  useEffect(() => {
+    const setZoom = (window.mc as any)?.setZoomFactor;
+    if (typeof setZoom === 'function') {
+      setZoom(zoomLevel / 100);
+    } else {
+      document.documentElement.style.fontSize = `${16 * zoomLevel / 100}px`;
+    }
+  }, [zoomLevel]);
+
   // Update page title with project and session name
   useEffect(() => {
     if (currentSession) {
@@ -1683,6 +1696,12 @@ const App: React.FC = () => {
           >
             {renderMainContent()}
           </main>
+
+          {/* Resizable right columns beside the artifact preview (toggled from
+              the Header). Each renders nothing when closed. Browser first, then
+              terminal — order: sidebar | preview | browser | terminal. */}
+          <BrowserPanel />
+          <TerminalDrawer />
         </div>
 
         {/* Question Panel Overlay */}
@@ -1715,9 +1734,6 @@ const App: React.FC = () => {
 
         {/* Global Search (Cmd+K) */}
         <GlobalSearch />
-
-        {/* In-app terminal (toggled from Header; renders nothing when closed) */}
-        <TerminalDrawer />
       </div>
     </ErrorBoundary>
   );

@@ -1,4 +1,5 @@
 import { BrowserWindow, WebContentsView } from 'electron';
+import { randomUUID } from 'node:crypto';
 
 // Phase 2.3 — the embedded controlled browser pane.
 // The pane is a WebContentsView whose initial page carries the marker title so
@@ -24,6 +25,109 @@ export interface BrowserPane {
  * `--remote-debugging-port` must already be set on the app (in main, before
  * `ready`) and passed to the sidecar as CDP_PORT so the tools target this view.
  */
+// ── BrowserPaneManager ──────────────────────────────────────────────────────
+
+export type Rect = { x: number; y: number; width: number; height: number };
+type TabKind = 'session' | 'user';
+interface PaneTab { id: string; kind: TabKind; sessionKey?: string; view: WebContentsView; marker: string; }
+export interface TabInfo { id: string; kind: TabKind; session?: string; marker: string; url: string; }
+
+function markerPage(marker: string): string {
+  return (
+    'data:text/html,' +
+    encodeURIComponent(`<title>${marker}</title><body style="font:14px system-ui;padding:1rem">browser pane ready</body>`)
+  );
+}
+
+export class BrowserPaneManager {
+  private tabs = new Map<string, PaneTab>();
+  private sessionIndex = new Map<string, string>(); // sessionKey -> tabId
+  private inFlight = new Map<string, Promise<{ id: string }>>();
+  private activeId: string | null = null;
+  private zeroRect: Rect = { x: 0, y: 0, width: 0, height: 0 };
+
+  constructor(private win: BrowserWindow, private activeBounds: Rect) {}
+
+  async ensureSessionTab(session: string): Promise<{ id: string }> {
+    const existing = this.sessionIndex.get(session);
+    if (existing) return { id: existing };
+    const flying = this.inFlight.get(session);
+    if (flying) return flying;
+
+    const promise = (async () => {
+      try {
+        const id = randomUUID();
+        const marker = `mc-browser-pane:${session}`;
+        const view = new WebContentsView();
+        this.win.contentView.addChildView(view);
+        view.setBounds(this.zeroRect);
+        await view.webContents.loadURL(markerPage(marker));
+        this.tabs.set(id, { id, kind: 'session', sessionKey: session, view, marker });
+        this.sessionIndex.set(session, id);
+        return { id };
+      } finally {
+        this.inFlight.delete(session);
+      }
+    })();
+
+    this.inFlight.set(session, promise);
+    return promise;
+  }
+
+  openUserTab(opts: { url?: string }): { id: string } {
+    const id = randomUUID();
+    const marker = `mc-browser-pane:user:${id}`;
+    const view = new WebContentsView();
+    this.win.contentView.addChildView(view);
+    view.setBounds(this.zeroRect);
+    void view.webContents.loadURL(opts.url ?? markerPage(marker));
+    this.tabs.set(id, { id, kind: 'user', view, marker });
+    return { id };
+  }
+
+  closeTab(id: string): void {
+    const tab = this.tabs.get(id);
+    if (!tab) return;
+    this.win.contentView.removeChildView(tab.view);
+    this.tabs.delete(id);
+    if (tab.sessionKey) this.sessionIndex.delete(tab.sessionKey);
+    if (this.activeId === id) this.activeId = null;
+  }
+
+  activateTab(id: string): void {
+    if (!this.tabs.has(id)) return;
+    for (const tab of this.tabs.values()) {
+      tab.view.setBounds(tab.id === id ? this.activeBounds : this.zeroRect);
+    }
+    this.activeId = id;
+    this.win.contentView.addChildView(this.tabs.get(id)!.view);
+  }
+
+  setBounds(rect: Rect): void {
+    this.activeBounds = rect;
+    if (this.activeId && this.tabs.has(this.activeId)) {
+      this.tabs.get(this.activeId)!.view.setBounds(rect);
+    }
+  }
+
+  async navigate(id: string, url: string): Promise<void> {
+    const tab = this.tabs.get(id);
+    if (tab) await tab.view.webContents.loadURL(url);
+  }
+
+  listTabs(): TabInfo[] {
+    return Array.from(this.tabs.values()).map(tab => ({
+      id: tab.id,
+      kind: tab.kind,
+      session: tab.sessionKey,
+      marker: tab.marker,
+      url: tab.view.webContents.getURL(),
+    }));
+  }
+}
+
+// ── legacy single-pane API (kept for back-compat) ───────────────────────────
+
 export function createBrowserPane(
   win: BrowserWindow,
   initialBounds: { x: number; y: number; width: number; height: number }

@@ -1,7 +1,8 @@
 import { join } from 'node:path';
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { ServerSupervisor, getFreePort } from './server-supervisor';
-import { createBrowserPane, type BrowserPane } from './browser-pane';
+import { BrowserPaneManager } from './browser-pane';
+import { DesktopControl } from './desktop-control';
 import { ServerProxy } from './server-proxy';
 import { ConnectionStore } from './connection-store';
 
@@ -13,9 +14,10 @@ if (!gotLock) {
 }
 
 let supervisor: ServerSupervisor | null = null;
-let browserPane: BrowserPane | null = null;
+let paneManager: BrowserPaneManager | null = null;
 let proxy: ServerProxy | null = null;
 let store: ConnectionStore | null = null;
+let control: DesktopControl | null = null;
 
 /** Register the `mc` IPC handlers backing the preload bridge. */
 function registerIpc(): void {
@@ -35,6 +37,13 @@ function registerIpc(): void {
     proxy.setUpstream({ host: entry.host, port: entry.port, token: entry.token });
     return { ok: true };
   });
+  ipcMain.handle('mc:browser:listTabs', () => paneManager?.listTabs() ?? []);
+  ipcMain.handle('mc:browser:openTab', (_e, opts) => paneManager?.openUserTab(opts ?? {}) ?? null);
+  ipcMain.handle('mc:browser:closeTab', (_e, id: string) => { paneManager?.closeTab(id); });
+  ipcMain.handle('mc:browser:activateTab', (_e, id: string) => { paneManager?.activateTab(id); });
+  ipcMain.handle('mc:browser:navigate', (_e, id: string, url: string) => paneManager?.navigate(id, url));
+  ipcMain.handle('mc:browser:setBounds', (_e, rect) => { paneManager?.setBounds(rect); });
+  ipcMain.handle('mc:setZoomFactor', (_e, factor: number) => { mainWindow?.webContents.setZoomFactor(factor); });
 }
 
 // Register the mermaid-collab:// deep-link scheme so links from browsers/Slack
@@ -98,10 +107,10 @@ function createWindow(): void {
   }
 
   mainWindow.on('closed', () => {
-    // Release the embedded pane's WebContentsView so it doesn't leak.
-    if (browserPane) {
-      browserPane.view.webContents.close();
-      browserPane = null;
+    // Release all browser pane tabs so they don't leak.
+    if (paneManager) {
+      for (const t of paneManager.listTabs()) paneManager.closeTab(t.id);
+      paneManager = null;
     }
     mainWindow = null;
   });
@@ -131,12 +140,17 @@ async function bootstrap(): Promise<void> {
   const prodBinary = app.isPackaged
     ? join(process.resourcesPath, process.platform === 'win32' ? 'mc-server.exe' : 'mc-server')
     : undefined;
+  paneManager = new BrowserPaneManager(mainWindow!, { x: 0, y: 0, width: 0, height: 0 });
+  control = new DesktopControl(paneManager);
+  const { url: controlUrl, token: controlToken } = await control.start();
   supervisor = new ServerSupervisor({
     repoRoot,
     project: repoRoot,
     session: process.env.MC_SESSION ?? 'desktop',
     host: '127.0.0.1',
     cdpPort,
+    controlUrl,
+    controlToken,
     serverBinaryPath: prodBinary,
     resourcesPath: app.isPackaged ? process.resourcesPath : undefined,
   });
@@ -160,12 +174,8 @@ async function bootstrap(): Promise<void> {
   // Load the real collab UI through the proxy.
   if (mainWindow) mainWindow.loadURL(`http://127.0.0.1:${proxyPort}`);
 
-  // Create the controlled browser pane. Zero bounds for now — the renderer
-  // lays it out via IPC in a later phase; the marker page is still discoverable
-  // by the browser_* tools regardless of size.
-  if (mainWindow) {
-    browserPane = createBrowserPane(mainWindow, { x: 0, y: 0, width: 0, height: 0 });
-  }
+  // Ensure the app's own session tab exists so browser_* tools keep working.
+  await paneManager.ensureSessionTab(process.env.MC_SESSION ?? 'desktop');
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -187,6 +197,7 @@ if (gotLock) {
   void bootstrap();
 
   app.on('before-quit', () => {
+    void control?.stop();
     void proxy?.stop();
     void supervisor?.stop();
   });

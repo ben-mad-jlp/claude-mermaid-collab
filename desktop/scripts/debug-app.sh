@@ -33,7 +33,10 @@ echo "▶ stopping any running instance…"
 # single-instance lock so the relaunch isn't bounced.
 pkill -f "mermaid-collab-desktop" 2>/dev/null
 pkill -f "Resources/mc-server" 2>/dev/null
-pkill -f "electron \." 2>/dev/null
+# The main process is `Electron .` (capital E) with NO user-data-dir in its args,
+# so the patterns above only catch helpers. Match the dev Electron binary directly
+# (case-sensitive) to free the single-instance lock + the CDP port.
+pkill -f "node_modules/electron/dist/Electron.app/Contents/MacOS/Electron" 2>/dev/null
 sleep 1.5
 
 echo "▶ launching (CDP :$MC_CDP_PORT, inspector :$MC_INSPECT)…"

@@ -42,6 +42,7 @@ import {
   type TaskGraphTask,
 } from '../mcp/workflow/task-sync';
 import { mergeSettings, readSettings, writeSettings, patchSettings } from '../agent/settings-store.js';
+import { tmuxBaseName } from '../services/tmux-naming.js';
 
 /**
  * Expand ~ to home directory in paths
@@ -3025,14 +3026,18 @@ export async function handleAPI(
       // Generate unique session ID
       const id = randomUUID();
 
+      // Derive tmux names from project/session
+      const base = tmuxBaseName(project, session);
+      const grouped = `vscode-collab-${base}`;
+
       // Create PTY session via ptyManager with project as cwd
-      await ptyManager.create(id, { cwd: project });
+      await ptyManager.create(id, { cwd: project, tmux: { base, grouped } });
 
       // Create session record for persistence
       const newSession = {
         id,
         name: displayName,
-        tmuxSession: id, // Use same ID (no tmux, but keep field for compatibility)
+        tmuxSession: grouped,
         created: new Date().toISOString(),
         order: state.sessions.length,
       };
@@ -3044,7 +3049,7 @@ export async function handleAPI(
       // Return session info with 201 Created status
       return Response.json({
         id,
-        tmuxSession: id,
+        tmuxSession: grouped,
         wsUrl: `ws://localhost:9002/terminal/${id}`,
       }, { status: 201 });
     } catch (error: any) {
