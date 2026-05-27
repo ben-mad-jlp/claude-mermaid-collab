@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('mc', {
     ipcRenderer.invoke('mc:addServer', opts),
   removeServer: (id: string) => ipcRenderer.invoke('mc:removeServer', id),
   setZoomFactor: (factor: number) => ipcRenderer.invoke('mc:setZoomFactor', factor),
+  probeServer: (host: string, port: number) => ipcRenderer.invoke('mc:probeServer', { host, port }),
   browser: {
     listTabs: () => ipcRenderer.invoke('mc:browser:listTabs'),
     openTab: (opts: { url?: string }) => ipcRenderer.invoke('mc:browser:openTab', opts),

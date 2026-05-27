@@ -34,6 +34,7 @@ export interface McBridge {
   switchServer(id: string): Promise<{ ok: boolean }>;
   addServer(opts: { label: string; host: string; port: number; token?: string }): Promise<string>;
   removeServer(id: string): Promise<void>;
+  probeServer?(host: string, port: number): Promise<boolean>;
 }
 
 declare global {
@@ -61,16 +62,40 @@ export function ServerProvider({ children }: { children: React.ReactNode }) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [version, setVersion] = useState(0); // bump to remount the subtree
 
+  // Probe each server's reachability (main-process fetch — the renderer can't
+  // cross-origin probe other servers) and update the status dots. The active
+  // server is online by definition (we're talking to it through the proxy).
+  const probe = useCallback(
+    async (list: ServerInfo[], active: string | null) => {
+      if (!mc?.probeServer) return;
+      const results = await Promise.all(
+        list.map((s) => (s.id === active ? Promise.resolve(true) : mc.probeServer!(s.host, s.port).catch(() => false)))
+      );
+      setServers((prev) =>
+        prev.map((s) => {
+          const i = list.findIndex((x) => x.id === s.id);
+          return i >= 0 ? { ...s, status: results[i] ? 'online' : 'offline' } : s;
+        })
+      );
+    },
+    [mc]
+  );
+
   const refresh = useCallback(async () => {
     if (!mc) return;
     const [list, active] = await Promise.all([mc.listServers(), mc.getActiveServer()]);
-    setServers(list);
+    setServers(list.map((s) => ({ ...s, status: s.id === active ? 'online' : 'connecting' })));
     setActiveId(active);
-  }, [mc]);
+    void probe(list, active);
+  }, [mc, probe]);
 
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+    if (!mc?.probeServer) return;
+    // Re-probe periodically so the dots stay accurate as servers come and go.
+    const t = setInterval(() => void refresh(), 10_000);
+    return () => clearInterval(t);
+  }, [refresh, mc]);
 
   const switchServer = useCallback(
     async (id: string) => {

@@ -44,6 +44,16 @@ function registerIpc(): void {
   ipcMain.handle('mc:browser:navigate', (_e, id: string, url: string) => paneManager?.navigate(id, url));
   ipcMain.handle('mc:browser:setBounds', (_e, rect) => { paneManager?.setBounds(rect); });
   ipcMain.handle('mc:setZoomFactor', (_e, factor: number) => { mainWindow?.webContents.setZoomFactor(factor); });
+  // Probe a server's reachability from the main process (the renderer can't
+  // cross-origin fetch other servers). Returns true iff /api/health responds OK.
+  ipcMain.handle('mc:probeServer', async (_e, opts: { host: string; port: number }) => {
+    try {
+      const r = await fetch(`http://${opts.host}:${opts.port}/api/health`, { signal: AbortSignal.timeout(1500) });
+      return r.ok;
+    } catch {
+      return false;
+    }
+  });
 }
 
 // Register the mermaid-collab:// deep-link scheme so links from browsers/Slack
