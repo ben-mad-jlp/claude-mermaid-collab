@@ -39,14 +39,17 @@
     "mac": {
       "target": ["dmg", "zip"],
       "category": "public.app-category.developer-tools",
-      "hardenedRuntime": true
+      "hardenedRuntime": true,
+      "icon": "build/icon.png"
     },
     "win": {
-      "target": ["nsis"]
+      "target": ["nsis"],
+      "icon": "build/icon.png"
     },
     "linux": {
       "target": ["AppImage", "deb"],
-      "category": "Development"
+      "category": "Development",
+      "icon": "build/icon.png"
     },
     "publish": null
   }
