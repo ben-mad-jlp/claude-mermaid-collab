@@ -9,7 +9,7 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "build:sidecar": "bun run scripts/build-sidecar.ts",
-    "build:ui": "cd .. && bun run build",
+    "build:ui": "cd ../ui && bunx vite build",
     "dist": "npm run build:ui && npm run build && npm run build:sidecar && electron-builder",
     "dist:dir": "npm run build:ui && npm run build && npm run build:sidecar && electron-builder --dir",
     "spike": "electron spikes/main.js",
