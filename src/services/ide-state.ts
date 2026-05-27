@@ -3,19 +3,11 @@ import { promises as fsp } from 'node:fs';
 import * as path from 'node:path';
 import { tmuxBaseName } from './tmux-naming.js';
 
-interface BrowserPending {
-  resolve: (v: unknown) => void;
-  reject: (e: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-}
-
 export class IdeState {
   private connectedWs: ServerWebSocket<{ subscriptions: Set<string> }> | null = null;
   private connectedAt: Date | null = null;
   private openDiffs: Set<string> = new Set();
   private workspaceFolders: string[] = [];
-  private browserPending = new Map<string, BrowserPending>();
-  private cdpTunnels = new Map<string, number>(); // sessionId → tunneled port on Linux
 
   async ideConnected(ws: ServerWebSocket<{ subscriptions: Set<string> }>, workspaceFolders: string[]): Promise<void> {
     if (this.connectedWs && this.connectedWs !== ws) {
@@ -167,37 +159,6 @@ export class IdeState {
     if (!this.connectedWs) return false;
     this.connectedWs.send(JSON.stringify(msg));
     return true;
-  }
-
-  waitForBrowserResponse<T = unknown>(requestId: string, timeoutMs = 30_000): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.browserPending.delete(requestId);
-        reject(new Error('Browser request timed out'));
-      }, timeoutMs);
-      this.browserPending.set(requestId, {
-        resolve: resolve as (v: unknown) => void,
-        reject,
-        timer,
-      });
-    });
-  }
-
-  setCdpTunnel(sessionId: string, port: number): void {
-    this.cdpTunnels.set(sessionId, port);
-  }
-
-  getCdpTunnel(sessionId: string): number | null {
-    return this.cdpTunnels.get(sessionId) ?? null;
-  }
-
-  resolveBrowserRequest(requestId: string, result?: unknown, error?: string): void {
-    const p = this.browserPending.get(requestId);
-    if (!p) return;
-    this.browserPending.delete(requestId);
-    clearTimeout(p.timer);
-    if (error) p.reject(new Error(error));
-    else p.resolve(result);
   }
 }
 

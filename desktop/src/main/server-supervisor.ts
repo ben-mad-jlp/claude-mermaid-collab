@@ -13,8 +13,6 @@ export interface SupervisorOpts {
   spawnImpl?: (cmd: string, args: string[], opts: SpawnOptions) => ChildProcess;
   /** Injectable for tests. Defaults to global fetch. */
   fetchImpl?: typeof fetch;
-  /** Seam for the supervisor-instance-dedup task. */
-  discoveryImpl?: () => Promise<Array<{ project: string; session: string; port: number }>>;
   /** Health-poll overrides (mainly for tests). */
   healthTimeoutMs?: number;
   healthPollMs?: number;

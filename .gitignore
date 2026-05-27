@@ -34,6 +34,17 @@ Thumbs.db
 /.collab/pseudo/cache/
 !/.collab/pseudo/pseudo.db
 /.collab/**/*.tmp
+# Local runtime artifacts (agent/todo sqlite, agent sessions, kodex cache, pseudo prose state)
+/.collab/*.db
+/.collab/*.db-shm
+/.collab/*.db-wal
+/.collab/todos.json
+/.collab/agent-sessions/
+/.collab/kodex/
+/.collab/pseudo/prose/
+/.collab/pseudo/.migrated*
+/scratch/
+/extensions/vscode/*.vsix
 .worktrees/
 
 # Legacy pseudo file format (deleted in Phase 6, never coming back)

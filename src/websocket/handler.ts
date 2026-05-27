@@ -171,22 +171,6 @@ export class WebSocketHandler {
         ideState.ideConnected(ws, d.workspaceFolders ?? []).then(() => {
           this.broadcastToChannel('ide', { type: 'ide_status', connected: true } as unknown as WSMessage);
         });
-      } else if (data.type === 'browser_ready') {
-        const d = data as { requestId: string; sessionId: string };
-        ideState.resolveBrowserRequest(d.requestId, { sessionId: d.sessionId });
-      } else if (data.type === 'browser_response') {
-        const d = data as { requestId: string; result?: unknown; error?: string };
-        ideState.resolveBrowserRequest(d.requestId, d.result, d.error);
-      } else if (data.type === 'browser_debug') {
-        const d = data as { sessionId: string; message: string };
-        console.log(`[browser-debug] ${d.sessionId}: ${d.message}`);
-      } else if (data.type === 'browser_cdp_tunnel') {
-        const d = data as { sessionId: string; port: number };
-        console.log(`[browser-cdp-tunnel] ${d.sessionId}: tunnel port ${d.port}`);
-        ideState.setCdpTunnel(d.sessionId, d.port);
-      } else if (data.type === 'browser_error') {
-        const d = data as { requestId: string; error: string };
-        ideState.resolveBrowserRequest(d.requestId, undefined, d.error);
       }
     } catch (error) {
       console.error('Failed to parse WebSocket message:', error);
