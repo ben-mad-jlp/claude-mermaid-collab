@@ -33,6 +33,17 @@ export interface CreateOptions {
   tmux?: { base: string; grouped: string };
 }
 
+/**
+ * Build the shell command that attaches a PTY to a tmux *grouped* session
+ * (mirroring the VSCodium extension so the desktop app and the IDE share live
+ * sessions). The base session must exist before the grouped session can target
+ * it, so it is created first (with `;` so creation failure of an existing base
+ * doesn't abort the chain). Exported for unit testing.
+ */
+export function buildTmuxAttachCommand(base: string, grouped: string): string {
+  return `(tmux has-session -t '${base}' 2>/dev/null || tmux new-session -d -s '${base}') ; (tmux has-session -t '${grouped}' 2>/dev/null || tmux new-session -d -s '${grouped}' -t '${base}') && tmux attach-session -t '${grouped}'`;
+}
+
 export interface AttachOptions {
   cols?: number;
   rows?: number;
@@ -115,7 +126,7 @@ export class PTYManager {
       if (options?.tmux) {
         // Spawn via tmux grouping
         const { base, grouped } = options.tmux;
-        const tmuxCmd = `(tmux has-session -t '${base}' 2>/dev/null || tmux new-session -d -s '${base}') ; (tmux has-session -t '${grouped}' 2>/dev/null || tmux new-session -d -s '${grouped}' -t '${base}') && tmux attach-session -t '${grouped}'`;
+        const tmuxCmd = buildTmuxAttachCommand(base, grouped);
         session.shell = '/bin/sh';
         proc = Bun.spawn(['/bin/sh', '-c', tmuxCmd], {
           cwd,
