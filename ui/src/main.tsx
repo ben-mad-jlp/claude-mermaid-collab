@@ -16,6 +16,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import App from './App';
+import { ServerProvider } from './contexts/ServerContext';
 import { OnboardingLayout } from './pages/onboarding/OnboardingLayout';
 import { BrowseDashboard } from './pages/onboarding/BrowseDashboard';
 import { TopicDetail as OnboardingTopicDetail } from './pages/onboarding/TopicDetail';
@@ -61,7 +62,14 @@ ReactDOM.createRoot(root).render(
         <Route path="/sidebar" element={<SidebarView />} />
 
         {/* Main Collab App - catch all other routes */}
-        <Route path="/*" element={<App />} />
+        <Route
+          path="/*"
+          element={
+            <ServerProvider>
+              <App />
+            </ServerProvider>
+          }
+        />
       </Routes>
     </BrowserRouter>
   </React.StrictMode>

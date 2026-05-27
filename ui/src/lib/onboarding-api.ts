@@ -98,9 +98,10 @@ async function handleResponse<T>(response: Response): Promise<T> {
 }
 
 function buildUrl(path: string, project: string): string {
-  const url = new URL(`/api/onboarding${path}`, window.location.origin);
-  url.searchParams.set('project', project);
-  return url.toString();
+  // Relative URL so it resolves against the document origin — in the native app
+  // that's the main-process proxy, so this rides the active-server switch like
+  // every other API call (no hardcoded window.location.origin).
+  return `/api/onboarding${path}?project=${enc(project)}`;
 }
 
 // ============================================================================

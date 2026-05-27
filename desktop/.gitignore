@@ -1,0 +1,8 @@
+node_modules/
+out/
+dist/
+resources/mc-server
+resources/mc-server.exe
+spike-result.json
+spike-extended-result.json
+spike-emulation-result.json

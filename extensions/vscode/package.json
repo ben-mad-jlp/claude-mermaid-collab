@@ -1,8 +1,8 @@
 {
   "name": "mermaid-collab-vscode",
   "displayName": "mermaid-collab",
-  "description": "Connects the mermaid-collab UI to VSCode terminals and editor",
-  "version": "1.0.21",
+  "description": "Opens mermaid-collab working-tree diffs in the editor",
+  "version": "1.1.0",
   "publisher": "mermaid-collab",
   "engines": {
     "vscode": "^1.85.0"
@@ -14,7 +14,6 @@
     "onStartupFinished"
   ],
   "extensionKind": [
-    "ui",
     "workspace"
   ],
   "main": "./out/extension.js",
@@ -27,34 +26,6 @@
       {
         "command": "mermaidCollab.update",
         "title": "mermaid-collab: Update Extension"
-      },
-      {
-        "command": "mermaidCollab.toggleChromeDebug",
-        "title": "mermaid-collab: Toggle Chrome Debug Tunnel"
-      },
-      {
-        "command": "mermaidCollab.ui.onInstanceUp",
-        "title": "mermaid-collab: On Instance Up (internal)"
-      },
-      {
-        "command": "mermaidCollab.ui.onInstanceDown",
-        "title": "mermaid-collab: On Instance Down (internal)"
-      },
-      {
-        "command": "mermaidCollab.openUi",
-        "title": "mermaid-collab: Open UI"
-      },
-      {
-        "command": "mermaidCollab.toggleCollabServer",
-        "title": "mermaid-collab: Start / Stop Collab Server"
-      },
-      {
-        "command": "mermaidCollab.stopCollabServer",
-        "title": "mermaid-collab: Stop Collab Server"
-      },
-      {
-        "command": "mermaidCollab.workspace.startServer",
-        "title": "mermaid-collab: (Workspace) Start Server (internal)"
       }
     ],
     "configuration": {
@@ -64,26 +35,6 @@
           "type": "string",
           "default": "ws://127.0.0.1:9002/ws",
           "description": "WebSocket URL of the mermaid-collab server"
-        },
-        "mermaidCollab.chromePath": {
-          "type": "string",
-          "default": "",
-          "description": "Path to Chrome/Chromium binary (leave blank for auto-detect)"
-        },
-        "mermaidCollab.chromeDebugPort": {
-          "type": "number",
-          "default": 9333,
-          "description": "CDP remote debugging port for the Chrome debug tunnel"
-        },
-        "mermaidCollab.chromeDebugUserDataDir": {
-          "type": "string",
-          "default": "C:\\ChromeDebug",
-          "description": "Chrome user data directory for the debug tunnel instance"
-        },
-        "mermaidCollab.sshTunnelTarget": {
-          "type": "string",
-          "default": "",
-          "description": "SSH target (user@host) for the reverse tunnel. Leave blank to skip SSH (Chrome debug only)."
         }
       }
     }

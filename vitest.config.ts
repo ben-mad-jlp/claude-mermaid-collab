@@ -5,7 +5,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['src/**/*.test.ts', 'extensions/vscode/src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'extensions/vscode/src/**/*.test.ts', 'desktop/src/**/*.test.ts'],
     exclude: [
       '**/node_modules/**',
       // bun:test files — run via `bun test`, not vitest

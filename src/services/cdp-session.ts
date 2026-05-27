@@ -5,10 +5,59 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const CDP = require('chrome-remote-interface') as any;
 
-export const CDP_PORT = 9333;
+import { CDP_PORT } from '../config.js';
+export { CDP_PORT };
+
+let runtimeElectronTarget: { cdpPort: number } | null = null;
+
+export function setElectronTarget(cdpPort: number): void { runtimeElectronTarget = { cdpPort }; }
+export function clearElectronTarget(): void { runtimeElectronTarget = null; }
 
 // Maps sessionName → targetId
 const tabRegistry = new Map<string, string>();
+
+/**
+ * Marker used to identify the Electron embedded browser pane's WebContentsView
+ * target among the CDP targets. When MC_BROWSER_TARGET=electron-view, the
+ * browser tools select the existing view (whose title/url carries this marker)
+ * instead of creating a new target. The browser-pane code must load the pane
+ * with this title (or a URL containing it) so the two stay in sync.
+ */
+export const ELECTRON_VIEW_MARKER = 'mc-browser-pane';
+
+/**
+ * Select the Electron embedded browser pane's target from a CDP target list.
+ * Pure (no I/O) so it is directly unit-testable. The spike confirmed multiple
+ * `page` targets exist, so we match the marker deliberately rather than [0].
+ * @throws if no matching `page` target carries the marker.
+ */
+export function selectElectronViewTarget(tabs: Array<{ id: string; type?: string; title?: string; url?: string }>, session?: string): string {
+  if (session) {
+    const sessionMarker = ELECTRON_VIEW_MARKER + ':' + session;
+    const sessionView = tabs.find(
+      (t) =>
+        t.type === 'page' &&
+        (t.title === sessionMarker || (t.url ?? '').includes(sessionMarker))
+    );
+    if (sessionView) return sessionView.id;
+    // Fallback to bare marker (exact title match only — do NOT use .includes to avoid matching other sessions)
+    const bareView = tabs.find(
+      (t) => t.type === 'page' && t.title === ELECTRON_VIEW_MARKER
+    );
+    if (bareView) return bareView.id;
+    throw new Error('embedded view target not found');
+  }
+  // No session: match bare marker (tightened to exact title or url includes)
+  const view = tabs.find(
+    (t) =>
+      t.type === 'page' &&
+      (t.title === ELECTRON_VIEW_MARKER || (t.url ?? '').includes(ELECTRON_VIEW_MARKER))
+  );
+  if (!view) {
+    throw new Error('embedded view target not found');
+  }
+  return view.id;
+}
 
 const TABS_PERSIST_FILE = '/tmp/.mermaid-collab-tabs.json';
 
@@ -151,6 +200,18 @@ export function registerTab(sessionName: string, tabId: string): void {
 
 export async function createOrReplaceTab(sessionName: string, port: number): Promise<string> {
   try {
+    // Electron embedded-view mode: do NOT create a target. Select the existing
+    // WebContentsView (identified by ELECTRON_VIEW_MARKER) — the spike confirmed
+    // multiple `page` targets exist, so match deliberately rather than picking [0].
+    if (runtimeElectronTarget != null || process.env.MC_BROWSER_TARGET === 'electron-view') {
+      const effectivePort = runtimeElectronTarget?.cdpPort ?? port;
+      const tabs = await CDP.List({ host: '127.0.0.1', port: effectivePort });
+      const viewId = selectElectronViewTarget(tabs, sessionName);
+      tabRegistry.set(sessionName, viewId);
+      persistTabRegistry();
+      return viewId;
+    }
+
     const existingId = tabRegistry.get(sessionName);
     if (existingId) {
       try { await CDP.Close({ id: existingId, host: '127.0.0.1', port }); } catch {}
@@ -183,6 +244,37 @@ export async function createOrReplaceTab(sessionName: string, port: number): Pro
  */
 export async function ensureTab(sessionName: string, port: number): Promise<string> {
   try {
+    // Electron embedded-view mode: ensure the pane via the control server, then
+    // select the per-session target. Skip the normal tab-registry path entirely.
+    if (runtimeElectronTarget != null || process.env.MC_BROWSER_TARGET === 'electron-view') {
+      const effectivePort = runtimeElectronTarget?.cdpPort ?? port;
+      if (process.env.MC_DESKTOP_CONTROL_URL) {
+        try {
+          const res = await fetch(`${process.env.MC_DESKTOP_CONTROL_URL}/panes/ensure`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', authorization: `Bearer ${process.env.MC_DESKTOP_CONTROL_TOKEN ?? ''}` },
+            body: JSON.stringify({ session: sessionName }),
+          });
+          if (!res.ok) throw new Error(`desktop control /panes/ensure failed for session '${sessionName}': HTTP ${res.status}`);
+        } catch (e) {
+          throw new Error(`failed to ensure desktop browser pane for session '${sessionName}': ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+      let tabs: any[];
+      try {
+        tabs = await CDP.List({ host: '127.0.0.1', port: effectivePort });
+      } catch (err: any) {
+        if (err?.code === 'ECONNREFUSED') {
+          throw new Error(`Chrome not reachable on port ${effectivePort} — toggle CDP button in VSCodium`);
+        }
+        throw err;
+      }
+      const viewId = selectElectronViewTarget(tabs, sessionName);
+      tabRegistry.set(sessionName, viewId);
+      persistTabRegistry();
+      return viewId;
+    }
+
     const existingId = tabRegistry.get(sessionName);
     if (!existingId) {
       return await createOrReplaceTab(sessionName, port);

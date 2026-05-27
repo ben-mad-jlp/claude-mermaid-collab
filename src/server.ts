@@ -2,7 +2,8 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { existsSync } from 'fs';
 import { config } from './config';
-import { PORT_REQUEST, MERMAID_PROJECT, MERMAID_SESSION } from './config';
+import { PORT_REQUEST, MERMAID_PROJECT, MERMAID_SESSION, MC_BROWSER_TARGET, MERMAID_CHROME_PATH, MERMAID_BROWSER_HEADLESS, MERMAID_IDLE_SHUTDOWN_MS } from './config';
+import { checkAuth } from './auth';
 import { writeInstance, removeInstance, deriveSessionId, installSignalHandlers } from './services/instance-discovery';
 import { SERVER_VERSION } from './mcp/server';
 import { DiagramManager } from './services/diagram-manager';
@@ -51,6 +52,28 @@ try {
   const { closePersistedTabs, CDP_PORT } = await import('./services/cdp-session.js');
   await closePersistedTabs(CDP_PORT);
 } catch {}
+
+// Owned-chrome mode (Phase 7): on remote/headless boxes the server spawns and
+// owns its own Chrome on CDP_PORT so the browser_* tools work without any
+// cross-network CDP. Non-fatal on failure — tools just error until it's up.
+let chromeManager: import('./services/chrome-manager').ChromeManager | null = null;
+if (MC_BROWSER_TARGET === 'owned-chrome') {
+  try {
+    const { ChromeManager } = await import('./services/chrome-manager.js');
+    const { CDP_PORT } = await import('./config.js');
+    const headless = MERMAID_BROWSER_HEADLESS || (process.platform === 'linux' && !process.env.DISPLAY);
+    chromeManager = new ChromeManager({
+      cdpPort: CDP_PORT,
+      headless,
+      chromePath: MERMAID_CHROME_PATH || undefined,
+    });
+    await chromeManager.start();
+    console.log(`🌐 owned Chrome ready on CDP ${CDP_PORT}${headless ? ' (headless)' : ''}`);
+  } catch (err) {
+    console.error(`mermaid-collab: owned-chrome start failed — ${err instanceof Error ? err.message : String(err)}`);
+    chromeManager = null;
+  }
+}
 
 // Register scratch session on startup.
 // This MUST be idempotent and non-fatal on corrupt registry — otherwise
@@ -185,6 +208,10 @@ const server = Bun.serve<WsData>({
 
   async fetch(req, server) {
     const url = new URL(req.url);
+
+    // Auth gate — precedes WS upgrades, /mcp, and all /api routes.
+    const denied = checkAuth(req, url);
+    if (denied) return denied;
 
     // WebSocket upgrade for collaboration
     if (url.pathname === '/ws') {
@@ -385,9 +412,21 @@ const actualPort = server.port;
 const sessionId = deriveSessionId(MERMAID_PROJECT, MERMAID_SESSION);
 
 // Handle graceful shutdown - kill all PTY sessions
+let idleTimer: ReturnType<typeof setTimeout> | null = null;
+const cancelIdle = () => { if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; } };
+const armIdle = () => {
+  cancelIdle();
+  idleTimer = setTimeout(async () => {
+    try { await removeInstance(sessionId); } catch {}
+    process.exit(0);
+  }, MERMAID_IDLE_SHUTDOWN_MS);
+};
+
 process.on('SIGINT', () => {
+  cancelIdle();
   console.log('\n🛑 SIGINT received, shutting down gracefully...');
   sweeper.stop();
+  chromeManager?.stop();
   removeInstance(sessionId).catch(() => {}).finally(() => {
     ptyManager.killAll();
     process.exit(0);
@@ -395,8 +434,10 @@ process.on('SIGINT', () => {
 });
 
 process.on('SIGTERM', () => {
+  cancelIdle();
   console.log('\n🛑 SIGTERM received, shutting down gracefully...');
   sweeper.stop();
+  chromeManager?.stop();
   removeInstance(sessionId).catch(() => {}).finally(() => {
     ptyManager.killAll();
     process.exit(0);
@@ -419,6 +460,14 @@ try {
   process.exit(1);
 }
 installSignalHandlers(sessionId);
+
+if (MERMAID_IDLE_SHUTDOWN_MS > 0) {
+  wsHandler.setOnConnectionsChanged((n: number) => {
+    if (n === 0) armIdle(); else cancelIdle();
+  });
+  armIdle(); // cover startup gap before any client connects
+}
+
 console.log(`mermaid-collab listening on :${actualPort}, advertised as ${sessionId}`);
 console.log(`🌐 Public directory: ${config.PUBLIC_DIR}`);
 console.log(`🎨 UI dist directory: ${config.UI_DIST_DIR} (exists: ${existsSync(config.UI_DIST_DIR)})`);

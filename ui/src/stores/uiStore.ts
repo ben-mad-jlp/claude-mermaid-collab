@@ -82,9 +82,9 @@ const DEFAULT_SIDEBAR_POSITION = 20;
 const DEFAULT_SESSION_PANEL_POSITION = 20;
 const DEFAULT_EDITOR_SPLIT_POSITION = 50;
 const DEFAULT_ZOOM_LEVEL = 100;
-const MIN_ZOOM_LEVEL = 25;
-const MAX_ZOOM_LEVEL = 1000;
-const ZOOM_STEP = 25;
+const MIN_ZOOM_LEVEL = 60;
+const MAX_ZOOM_LEVEL = 160;
+const ZOOM_STEP = 10;
 
 const getDefaultTheme = (): Theme => {
   if (typeof window === 'undefined') {

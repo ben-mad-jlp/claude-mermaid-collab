@@ -92,7 +92,16 @@ export type WSMessage =
 
 export class WebSocketHandler {
   private connections: Set<ServerWebSocket<{ subscriptions: Set<string> }>> = new Set();
+  private onConnectionsChanged: ((n: number) => void) | null = null;
   private agentDispatcher: AgentDispatcherLike | null = null;
+
+  setOnConnectionsChanged(cb: (n: number) => void): void {
+    this.onConnectionsChanged = cb;
+  }
+
+  private fireConnectionsChanged(): void {
+    this.onConnectionsChanged?.(this.connections.size);
+  }
 
   setAgentDispatcher(dispatcher: AgentDispatcherLike): void {
     this.agentDispatcher = dispatcher;
@@ -101,10 +110,12 @@ export class WebSocketHandler {
   handleConnection(ws: ServerWebSocket<{ subscriptions: Set<string> }>): void {
     ws.data.subscriptions = new Set();
     this.connections.add(ws);
+    this.fireConnectionsChanged();
   }
 
   handleDisconnection(ws: ServerWebSocket<{ subscriptions: Set<string> }>): void {
     this.connections.delete(ws);
+    this.fireConnectionsChanged();
     ideState.ideDisconnected(ws);
     this.broadcastToChannel('ide', { type: 'ide_status', connected: false } as unknown as WSMessage);
   }
@@ -200,6 +211,7 @@ export class WebSocketHandler {
     for (const ws of deadConnections) {
       this.connections.delete(ws);
     }
+    if (deadConnections.length > 0) this.fireConnectionsChanged();
   }
 
   broadcastToDiagram(id: string, message: WSMessage): void {
@@ -221,6 +233,7 @@ export class WebSocketHandler {
     for (const ws of deadConnections) {
       this.connections.delete(ws);
     }
+    if (deadConnections.length > 0) this.fireConnectionsChanged();
   }
 
   broadcastToDocument(id: string, message: WSMessage): void {
@@ -242,6 +255,7 @@ export class WebSocketHandler {
     for (const ws of deadConnections) {
       this.connections.delete(ws);
     }
+    if (deadConnections.length > 0) this.fireConnectionsChanged();
   }
 
   broadcastToSpreadsheet(id: string, message: WSMessage): void {
@@ -263,6 +277,7 @@ export class WebSocketHandler {
     for (const ws of deadConnections) {
       this.connections.delete(ws);
     }
+    if (deadConnections.length > 0) this.fireConnectionsChanged();
   }
 
   broadcastToSnippet(id: string, message: WSMessage): void {
@@ -284,6 +299,7 @@ export class WebSocketHandler {
     for (const ws of deadConnections) {
       this.connections.delete(ws);
     }
+    if (deadConnections.length > 0) this.fireConnectionsChanged();
   }
 
   broadcastToChannel(channel: string, message: WSMessage): void {
@@ -305,6 +321,7 @@ export class WebSocketHandler {
     for (const ws of deadConnections) {
       this.connections.delete(ws);
     }
+    if (deadConnections.length > 0) this.fireConnectionsChanged();
   }
 
   broadcastNotification(notificationData: NotificationData): void {
@@ -330,6 +347,7 @@ export class WebSocketHandler {
     for (const ws of deadConnections) {
       this.connections.delete(ws);
     }
+    if (deadConnections.length > 0) this.fireConnectionsChanged();
   }
 
   broadcastStatus(status: 'working' | 'waiting' | 'idle', message?: string, lastActivity?: string): void {
@@ -357,6 +375,7 @@ export class WebSocketHandler {
     for (const ws of deadConnections) {
       this.connections.delete(ws);
     }
+    if (deadConnections.length > 0) this.fireConnectionsChanged();
   }
 
   broadcastBrowserTabUpdate(session: string, active: boolean): void {

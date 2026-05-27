@@ -30,6 +30,18 @@ export interface CreateOptions {
   cwd?: string;        // Default: process.cwd()
   cols?: number;       // Default: 80
   rows?: number;       // Default: 24
+  tmux?: { base: string; grouped: string };
+}
+
+/**
+ * Build the shell command that attaches a PTY to a tmux *grouped* session
+ * (mirroring the VSCodium extension so the desktop app and the IDE share live
+ * sessions). The base session must exist before the grouped session can target
+ * it, so it is created first (with `;` so creation failure of an existing base
+ * doesn't abort the chain). Exported for unit testing.
+ */
+export function buildTmuxAttachCommand(base: string, grouped: string): string {
+  return `(tmux has-session -t '${base}' 2>/dev/null || tmux new-session -d -s '${base}') ; (tmux has-session -t '${grouped}' 2>/dev/null || tmux new-session -d -s '${grouped}' -t '${base}') && tmux attach-session -t '${grouped}'`;
 }
 
 export interface AttachOptions {
@@ -109,8 +121,56 @@ export class PTYManager {
     };
 
     try {
+      let proc: ReturnType<typeof Bun.spawn>;
+
+      if (options?.tmux) {
+        // Spawn via tmux grouping
+        const { base, grouped } = options.tmux;
+        const tmuxCmd = buildTmuxAttachCommand(base, grouped);
+        session.shell = '/bin/sh';
+        proc = Bun.spawn(['/bin/sh', '-c', tmuxCmd], {
+          cwd,
+          env: {
+            ...process.env,
+            TERM: 'xterm-256color',
+          },
+          terminal: {
+            cols,
+            rows,
+            data: (terminal, data) => {
+              const text = new TextDecoder().decode(data);
+              session.buffer.write(text);
+              session.lastActivity = new Date();
+
+              for (const ws of session.websockets) {
+                try {
+                  if (session.hasReceivedResize || !session.deferReplay) {
+                    ws.send(JSON.stringify({ type: 'output', data: text }));
+                  }
+                } catch (error) {
+                  // WebSocket may have been closed, ignore
+                }
+              }
+            },
+            exit: (terminal, exitCode, signal) => {
+              console.log(`PTY session ${sessionId} exited: code=${exitCode}, signal=${signal}`);
+              session.lastActivity = new Date();
+
+              for (const ws of session.websockets) {
+                try {
+                  ws.send(JSON.stringify({ type: 'exit', code: exitCode }));
+                } catch (error) {
+                  // WebSocket already closed, ignore
+                }
+              }
+
+              this.sessions.delete(sessionId);
+            },
+          },
+        });
+      } else {
       // Spawn shell with Bun's native terminal option (callback-based API)
-      const proc = Bun.spawn([shell], {
+      proc = Bun.spawn([shell], {
         cwd,
         env: {
           ...process.env,
@@ -156,6 +216,7 @@ export class PTYManager {
           },
         },
       });
+      }
 
       session.process = proc as unknown as Subprocess<'ignore', 'ignore', 'ignore'>;
       session.terminal = proc.terminal!;

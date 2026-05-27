@@ -2,6 +2,8 @@ import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useBrowserStore } from '@/stores/browserStore';
+import { useTerminalStore } from '@/stores/terminalStore';
 import { getWebSocketClient } from '@/lib/websocket';
 
 const CLAUDE_PIX_BASE = '/claudepix';
@@ -189,6 +191,8 @@ const SubscriptionRow: React.FC<{
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ session: sub.session }),
           }).catch(() => {});
+          useBrowserStore.getState().activateSession(sub.session);
+          void useTerminalStore.getState().openFor(sub.project, sub.session);
         }}
       >
         {/* Selected-session indicator — accent bar on the left edge */}

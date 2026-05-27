@@ -1,4 +1,4 @@
-import { ensureTab, focusTab, listActiveSessions, CDP_PORT } from '../services/cdp-session.js';
+import { ensureTab, focusTab, listActiveSessions, CDP_PORT, setElectronTarget, clearElectronTarget } from '../services/cdp-session.js';
 import type { WebSocketHandler } from '../websocket/handler.js';
 
 function jsonError(message: string, status: number): Response {
@@ -36,6 +36,21 @@ export async function handleBrowserRoutes(req: Request, url: URL, wsHandler: Web
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : String(err), 503);
     }
+  }
+
+  // POST /api/browser/electron-target { cdpPort? }
+  if (url.pathname === '/api/browser/electron-target' && req.method === 'POST') {
+    let body: { cdpPort?: number };
+    try { body = await req.json() as typeof body; } catch { return jsonError('Invalid JSON', 400); }
+    if (typeof body.cdpPort !== 'number') return jsonError('cdpPort must be a number', 400);
+    setElectronTarget(body.cdpPort);
+    return Response.json({ success: true });
+  }
+
+  // DELETE /api/browser/electron-target
+  if (url.pathname === '/api/browser/electron-target' && req.method === 'DELETE') {
+    clearElectronTarget();
+    return Response.json({ success: true });
   }
 
   return null;

@@ -15,6 +15,10 @@ import { Link, useLocation } from 'react-router-dom';
 import { useTheme } from '@/hooks/useTheme';
 import { useSession } from '@/hooks/useSession';
 import { NavMenu } from './NavMenu';
+import { ServerSwitcher } from '@/components/ServerSwitcher';
+import { useTerminalStore } from '@/stores/terminalStore';
+import { useBrowserStore } from '@/stores/browserStore';
+import { useUIStore } from '@/stores/uiStore';
 import { Session } from '@/types';
 
 export interface HeaderProps {
@@ -63,6 +67,9 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const { theme, toggleTheme } = useTheme();
   const { currentSession } = useSession();
+  const zoomLevel = useUIStore((s) => s.zoomLevel);
+  const zoomIn = useUIStore((s) => s.zoomIn);
+  const zoomOut = useUIStore((s) => s.zoomOut);
   const location = useLocation();
 
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
@@ -210,39 +217,9 @@ export const Header: React.FC<HeaderProps> = ({
             Collab
           </h1>
 
-          {/* WebSocket Connection Status Badge */}
-          <div
-            data-testid="connection-badge"
-            className={`
-              flex items-center gap-1.5
-              px-2 py-1
-              text-xs font-medium
-              rounded-full
-              ${
-                isConnected
-                  ? 'bg-green-300 text-black'
-                  : isConnecting
-                  ? 'bg-yellow-300 text-black'
-                  : 'bg-red-300 text-black'
-              }
-            `}
-          >
-            <span
-              className={`
-                w-2 h-2 rounded-full
-                ${
-                  isConnected
-                    ? 'bg-green-500'
-                    : isConnecting
-                    ? 'bg-yellow-500 animate-pulse'
-                    : 'bg-red-500'
-                }
-              `}
-            />
-            <span>
-              {`Collab ${isConnected ? 'Connected' : isConnecting ? 'Connecting' : 'Disconnected'}`}
-            </span>
-          </div>
+          {/* Server switcher — native-app only (renders nothing in a browser tab) */}
+          <ServerSwitcher />
+
 
           {/* VS Code Connection Badge */}
           <div
@@ -265,6 +242,49 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right-side controls */}
         <div className="flex items-center gap-3">
+          {/* Terminal toggle */}
+          <button
+            data-testid="toggle-terminal"
+            onClick={() => useTerminalStore.getState().toggle()}
+            aria-label="Toggle terminal"
+            title="Toggle terminal"
+            className="
+              p-2
+              text-gray-600 dark:text-gray-300
+              hover:text-gray-900 dark:hover:text-white
+              hover:bg-gray-100 dark:hover:bg-gray-700
+              rounded-lg
+              transition-colors
+            "
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="4 17 10 11 4 5" />
+              <line x1="12" y1="19" x2="20" y2="19" />
+            </svg>
+          </button>
+
+          {/* Browser toggle */}
+          <button
+            data-testid="toggle-browser"
+            onClick={() => useBrowserStore.getState().toggle()}
+            aria-label="Toggle browser"
+            title="Browser"
+            className="
+              p-2
+              text-gray-600 dark:text-gray-300
+              hover:text-gray-900 dark:hover:text-white
+              hover:bg-gray-100 dark:hover:bg-gray-700
+              rounded-lg
+              transition-colors
+            "
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <circle cx="12" cy="12" r="9"/>
+              <line x1="3" y1="12" x2="21" y2="12"/>
+              <path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/>
+            </svg>
+          </button>
+
           {/* Refresh Button */}
           {onRefreshSessions && (
             <button
@@ -541,6 +561,27 @@ export const Header: React.FC<HeaderProps> = ({
                 )}
               </div>
             )}
+          </div>
+
+          {/* Text Size Control */}
+          <div className="flex items-center gap-0.5">
+            <button
+              onClick={zoomOut}
+              title="Decrease text size"
+              className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+            >
+              −
+            </button>
+            <span className="text-xs text-gray-500 dark:text-gray-400 tabular-nums min-w-[3ch] text-center">
+              {zoomLevel}%
+            </span>
+            <button
+              onClick={zoomIn}
+              title="Increase text size"
+              className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+            >
+              +
+            </button>
           </div>
 
           {/* Theme Toggle */}

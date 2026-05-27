@@ -3,8 +3,14 @@ import { fileURLToPath } from 'url';
 
 // Get the directory where this module lives (src/)
 // Go up one level to reach the project root where public/ is located
-// Handle both Bun (import.meta.dir) and Node.js (import.meta.url) environments
-const PROJECT_ROOT = dirname(
+// Handle both Bun (import.meta.dir) and Node.js (import.meta.url) environments.
+//
+// MERMAID_RESOURCES_PATH override: in a packaged app the server runs as a
+// `bun build --compile` binary whose import.meta.dir points at Bun's virtual
+// filesystem (/$bunfs/...), so ui/dist & public can't be found relative to it.
+// The Electron main process sets MERMAID_RESOURCES_PATH=process.resourcesPath
+// (where extraResources bundles ui/dist + public), and we resolve from there.
+const PROJECT_ROOT = process.env.MERMAID_RESOURCES_PATH ?? dirname(
   typeof (import.meta as any).dir !== 'undefined'
     ? (import.meta as any).dir
     : dirname(fileURLToPath(import.meta.url))
@@ -34,7 +40,7 @@ function validatePort(): number {
  * Application configuration loaded from environment variables with sensible defaults.
  *
  * @property {number} PORT - Server port number (1-65535). Default: 9002. Set via PORT env var.
- * @property {string} HOST - Server host address. Default: '0.0.0.0'. Set via HOST env var.
+ * @property {string} HOST - Server bind address. Default: '127.0.0.1' (loopback, safe by default). Set via MERMAID_BIND_HOST (preferred) or HOST env var; use '0.0.0.0' to share on the LAN.
  * @property {string} PUBLIC_DIR - Directory path for static files.
  * @property {number} MAX_FILE_SIZE - Maximum allowed file size in bytes. Default: 1048576 (1MB).
  * @property {number} THUMBNAIL_CACHE_SIZE - Maximum number of thumbnails to cache. Default: 100.
@@ -43,7 +49,7 @@ function validatePort(): number {
  */
 export const config = {
   PORT: validatePort(),
-  HOST: process.env.HOST || '0.0.0.0',
+  HOST: process.env.MERMAID_BIND_HOST ?? process.env.HOST ?? '127.0.0.1',
   PUBLIC_DIR: join(PROJECT_ROOT, 'public'),
   MAX_FILE_SIZE: 1048576, // 1MB
   MAX_IMAGE_SIZE: 50 * 1024 * 1024, // 50 MB
@@ -82,3 +88,43 @@ export const MERMAID_PROJECT = process.env.MERMAID_PROJECT ?? process.cwd();
  * Defaults to `'scratch'`.
  */
 export const MERMAID_SESSION = process.env.MERMAID_SESSION ?? 'scratch';
+
+/**
+ * CDP (Chrome DevTools Protocol) port the browser tools connect to.
+ * Defaults to 9333. Settable via the CDP_PORT env var so the Electron-spawned
+ * sidecar can point at the app's own --remote-debugging-port. Falls back to
+ * 9333 if the env value is not a valid number.
+ */
+export const CDP_PORT = (() => {
+  const v = Number(process.env.CDP_PORT ?? '9333');
+  return Number.isNaN(v) ? 9333 : v;
+})();
+
+/**
+ * Optional bearer token required for authenticated HTTP/WS endpoints.
+ * Empty (the default) disables token enforcement — today's open-localhost
+ * behavior. Set MERMAID_AUTH_TOKEN when binding beyond loopback so remote
+ * clients must present `Authorization: Bearer <token>`.
+ */
+export const MERMAID_AUTH_TOKEN = process.env.MERMAID_AUTH_TOKEN ?? '';
+
+/**
+ * How the browser_* tools obtain a Chrome:
+ * - 'electron-view' — drive the Electron app's embedded WebContentsView (set by the app supervisor)
+ * - 'owned-chrome'  — the server spawns + owns a Chrome on this machine (remote/headless boxes)
+ * - '' (default)    — expect an external Chrome already listening on CDP_PORT (SSH tunnel / VSCodium)
+ */
+export const MC_BROWSER_TARGET = process.env.MC_BROWSER_TARGET ?? '';
+
+/** Explicit Chrome/Chromium binary path (overrides auto-discovery; needed on headless boxes). */
+export const MERMAID_CHROME_PATH = process.env.MERMAID_CHROME_PATH ?? '';
+
+/** Force headless Chrome. Default: headless when no display is detected. */
+export const MERMAID_BROWSER_HEADLESS = process.env.MERMAID_BROWSER_HEADLESS === '1'
+  || process.env.MERMAID_BROWSER_HEADLESS === 'true';
+
+/** Idle self-shutdown: exit after this many ms with zero WS connections. Default 600000 (10 min); 0 disables. */
+export const MERMAID_IDLE_SHUTDOWN_MS = (() => {
+  const v = Number(process.env.MERMAID_IDLE_SHUTDOWN_MS ?? '600000');
+  return Number.isNaN(v) ? 600000 : v;
+})();
