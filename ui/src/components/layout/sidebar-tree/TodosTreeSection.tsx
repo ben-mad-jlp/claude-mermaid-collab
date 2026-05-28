@@ -1,7 +1,6 @@
 import React, {
   forwardRef,
   useCallback,
-  useEffect,
   useImperativeHandle,
   useMemo,
   useRef,
@@ -11,14 +10,8 @@ import { useShallow } from 'zustand/react/shallow';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useTabsStore } from '@/stores/tabsStore';
 import { api } from '@/lib/api';
-import { ConfirmClearCompletedDialog } from '@/components/dialogs/ConfirmClearCompletedDialog';
 import { SessionTodo, TodoStatus } from '@/types/sessionTodo';
 import { SectionBranchRow } from './TreeBranchRow';
-
-function shortSlug(blueprintId: string): string {
-  const m = blueprintId.match(/^(?:Implementing|Archive)\/(?:[^/]+\/)?(.+)$/);
-  return m ? m[1] : blueprintId;
-}
 
 const PRIORITY_LABEL: Record<number, string> = { 0: 'P0', 1: 'P1', 2: 'P2', 3: 'P3', 4: 'P4' };
 const PRIORITY_COLORS: Record<number, string> = {
@@ -44,27 +37,10 @@ interface TodoRowProps {
   todo: SessionTodo;
   project: string;
   session: string;
-  /** Sibling session names in this project (for the assignee picker). */
-  siblings: string[];
 }
 
-function TodoRow({ todo, project, session, siblings }: TodoRowProps) {
-  const upsertSessionTodo = useSessionStore((s) => s.upsertSessionTodo);
-
-  const handleAssign = useCallback(async (value: string) => {
-    const assigneeSession = value || null;
-    const optimistic: SessionTodo = { ...todo, assigneeSession };
-    upsertSessionTodo(optimistic);
-    try {
-      const updated = await api.patchSessionTodo(project, session, todo.id, { assigneeSession });
-      upsertSessionTodo(updated);
-    } catch (err) {
-      upsertSessionTodo(todo);
-      console.error('Failed to assign todo', err);
-    }
-  }, [todo, project, session, upsertSessionTodo]);
+function TodoRow({ todo, project, session }: TodoRowProps) {
   const removeSessionTodoLocal = useSessionStore((s) => s.removeSessionTodoLocal);
-  const selectDocument = useSessionStore((s) => s.selectDocument);
   const openPreview = useTabsStore((s) => s.openPreview);
 
   const currentTitle = todo.title ?? todo.text ?? '';
@@ -129,53 +105,25 @@ function TodoRow({ todo, project, session, siblings }: TodoRowProps) {
             </svg>
           </button>
         </div>
-        {/* Row 2 — meta: assignee · priority · due · link (empty-friendly; assign affordance shows on hover) */}
-        <div className="flex items-center gap-2 flex-wrap text-sm text-gray-400 dark:text-gray-500">
-          <select
-            value={todo.assigneeSession ?? ''}
-            onChange={(e) => handleAssign(e.target.value)}
-            onClick={(e) => e.stopPropagation()}
-            title={todo.assigneeSession ? `Assigned to ${todo.assigneeSession}` : 'Assign to a session'}
-            className={`shrink-0 max-w-[160px] truncate rounded text-sm py-0.5 px-1 cursor-pointer border-none focus:outline-none focus:ring-1 focus:ring-purple-400 ${
-              todo.assigneeSession
-                ? 'bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400'
-                : 'bg-transparent text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100'
-            }`}
-          >
-            <option value="">{todo.assigneeSession ? '✕ unassign' : '＋ assign'}</option>
-            {todo.assigneeSession && !siblings.includes(todo.assigneeSession) && (
-              <option value={todo.assigneeSession}>→ {todo.assigneeSession}</option>
+        {/* Row 2 — meta: only priority + due date in the sidebar.
+            Assignee + attached artifact (link) live in the detail pane. */}
+        {(todo.priority !== null && todo.priority !== undefined) || todo.dueDate ? (
+          <div className="flex items-center gap-2 flex-wrap text-sm text-gray-400 dark:text-gray-500">
+            {todo.priority !== null && todo.priority !== undefined && (
+              <span
+                title={`Priority ${todo.priority}`}
+                className={`shrink-0 text-sm font-semibold ${PRIORITY_COLORS[todo.priority]}`}
+              >
+                {PRIORITY_LABEL[todo.priority]}
+              </span>
             )}
-            {siblings.map((name) => (
-              <option key={name} value={name}>
-                → {name}{name === session ? ' (me)' : ''}
-              </option>
-            ))}
-          </select>
-          {todo.priority !== null && todo.priority !== undefined && (
-            <span
-              title={`Priority ${todo.priority}`}
-              className={`shrink-0 text-sm font-semibold ${PRIORITY_COLORS[todo.priority]}`}
-            >
-              {PRIORITY_LABEL[todo.priority]}
-            </span>
-          )}
-          {todo.dueDate && (
-            <span title={`Due: ${todo.dueDate}`} className="shrink-0 text-sm">
-              {todo.dueDate.slice(0, 10)}
-            </span>
-          )}
-          {todo.link && (
-            <span
-              data-testid="todo-link-chip"
-              onClick={(e) => { e.stopPropagation(); selectDocument(todo.link!.blueprintId); }}
-              title={todo.link.blueprintId + (todo.link.taskId ? ` · ${todo.link.taskId}` : '')}
-              className="shrink-0 inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-sm bg-gray-100 dark:bg-gray-800 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300"
-            >
-              ↳ {shortSlug(todo.link.blueprintId)}{todo.link.taskId ? ` · ${todo.link.taskId}` : ''}
-            </span>
-          )}
-        </div>
+            {todo.dueDate && (
+              <span title={`Due: ${todo.dueDate}`} className="shrink-0 text-sm">
+                {todo.dueDate.slice(0, 10)}
+              </span>
+            )}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -202,7 +150,6 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
     const handleToggle = props.onToggle ?? (() => setInternalCollapsed((c) => !c));
 
     const [newTodoText, setNewTodoText] = useState('');
-    const [confirmClearOpen, setConfirmClearOpen] = useState(false);
     const [addInputVisible, setAddInputVisible] = useState(true);
     const addInputRef = useRef<HTMLInputElement>(null);
 
@@ -218,19 +165,6 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
       [],
     );
 
-    const me = currentSession?.name ?? null;
-
-    // Sibling sessions in this project — for the assignee picker.
-    const [siblings, setSiblings] = useState<string[]>([]);
-    useEffect(() => {
-      const project = currentSession?.project;
-      if (!project) return;
-      let cancelled = false;
-      api.getSessions(project)
-        .then((sessions) => { if (!cancelled) setSiblings(sessions.map((s) => s.name)); })
-        .catch(() => { /* picker just shows assign/unassign */ });
-      return () => { cancelled = true; };
-    }, [currentSession?.project]);
 
     const orderedTodos = useMemo(
       () => [...sessionTodos].sort((a, b) => a.order - b.order),
@@ -267,23 +201,6 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
       }
     }, [currentSession, newTodoText, upsertSessionTodo]);
 
-    const handleClearCompleted = useCallback(async () => {
-      if (!currentSession) return;
-      setConfirmClearOpen(false);
-      const snapshot = sessionTodos;
-      const remaining = sessionTodos.filter((t) => !t.completed && t.status !== 'done');
-      setSessionTodos(remaining);
-      try {
-        await api.clearCompletedSessionTodos(
-          currentSession.project,
-          currentSession.name,
-        );
-      } catch (err) {
-        console.error('Failed to clear completed session todos', err);
-        setSessionTodos(snapshot);
-      }
-    }, [currentSession, sessionTodos, setSessionTodos]);
-
     if (!currentSession) return null;
 
     return (
@@ -298,21 +215,6 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
         />
         {!isCollapsed && (
           <>
-            {/* Filter row — only Clear (status filter removed; completed drop out of the list) */}
-            <div
-              style={{ paddingLeft: '16px' }}
-              className="flex items-center justify-end gap-2 px-2 py-1 text-sm text-gray-600 dark:text-gray-400"
-            >
-              <button
-                onClick={() => setConfirmClearOpen(true)}
-                disabled={completedCount === 0}
-                className="shrink-0 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-40 disabled:hover:text-gray-600"
-                title="Clear completed todos"
-              >
-                Clear
-              </button>
-            </div>
-
             {addInputVisible && (
               <div style={{ paddingLeft: '16px' }} className="px-2 py-1">
                 <input
@@ -347,19 +249,11 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
                   todo={todo}
                   project={currentSession.project}
                   session={currentSession.name}
-                  siblings={siblings}
                 />
               ))
             )}
           </>
         )}
-
-        <ConfirmClearCompletedDialog
-          isOpen={confirmClearOpen}
-          completedCount={completedCount}
-          onConfirm={handleClearCompleted}
-          onCancel={() => setConfirmClearOpen(false)}
-        />
       </div>
     );
   },
