@@ -25,6 +25,29 @@ export interface ServerEntry {
   lastProject?: string;
   lastSession?: string;
   source: 'local' | 'manual';
+  /** Deterministic emoji icon assigned at add/discover time, persisted. */
+  icon: string;
+}
+
+/**
+ * Lucide icon-name pool for per-server icons. The store holds the NAME; the
+ * renderer maps name → lucide component (`ui/src/components/ServerIcon.tsx`).
+ * Names match `lucide-react`'s exported component names exactly.
+ */
+const ICON_POOL: readonly string[] = [
+  'Circle', 'Square', 'Triangle', 'Diamond', 'Hexagon',
+  'Star', 'Heart', 'Cloud', 'Sun', 'Moon',
+  'Zap', 'Flame', 'Leaf', 'Flag', 'Anchor',
+  'Box', 'Compass', 'Crown', 'Feather', 'Gem',
+  'Globe', 'Key', 'Lock', 'Mountain', 'Rocket',
+  'Shield', 'Snowflake', 'Sparkles', 'Target', 'Tent',
+];
+
+/** Pick an icon from the pool, preferring those not already taken. */
+function pickIcon(taken: Set<string>): string {
+  const available = ICON_POOL.filter((i) => !taken.has(i));
+  const pool = available.length > 0 ? available : ICON_POOL;
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 /** Minimal safeStorage surface so tests can supply a fake without Electron. */
@@ -90,6 +113,32 @@ export class ConnectionStore {
     } catch {
       // no file yet — empty store
     }
+    // Icon backfill / re-migration. Triggers when:
+    // - the entry has no icon (first-time backfill on legacy stores), OR
+    // - the entry's icon isn't in the current ICON_POOL (e.g. the previous
+    //   pool was emoji; we've since switched to lucide icon names).
+    // Compute `taken` incrementally so each new icon prefers unused ones,
+    // and persist once at the end iff anything changed.
+    let patched = false;
+    const poolSet = new Set(ICON_POOL);
+    const taken = new Set<string>();
+    for (const e of this.entries.values()) {
+      if (e.icon && poolSet.has(e.icon)) taken.add(e.icon);
+    }
+    for (const e of this.entries.values()) {
+      if (!e.icon || !poolSet.has(e.icon)) {
+        e.icon = pickIcon(taken);
+        taken.add(e.icon);
+        patched = true;
+      }
+    }
+    if (patched) await this.persist();
+  }
+
+  private takenIcons(): Set<string> {
+    const s = new Set<string>();
+    for (const e of this.entries.values()) if (e.icon) s.add(e.icon);
+    return s;
   }
 
   /** Renderer-facing list — never includes tokens. */
@@ -111,6 +160,7 @@ export class ConnectionStore {
       token: opts.token,
       status: 'offline',
       source: 'manual',
+      icon: pickIcon(this.takenIcons()),
     });
     void this.persist();
     return id;
@@ -190,6 +240,7 @@ export class ConnectionStore {
           source: 'local',
           lastProject: inst.project,
           lastSession: inst.session,
+          icon: pickIcon(this.takenIcons()),
         });
       }
     }

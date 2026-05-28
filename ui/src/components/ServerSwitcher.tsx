@@ -7,7 +7,7 @@
  */
 import React, { useState, useEffect, useRef } from 'react';
 import { useServer } from '@/contexts/ServerContext';
-import { useWatchStore } from '@/stores/watchStore';
+import { ServerIcon } from '@/components/ServerIcon';
 
 const dot: Record<string, string> = {
   online: '#3fb950',
@@ -26,8 +26,6 @@ export function ServerSwitcher() {
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ label: '', host: '', port: '9002', token: '' });
-  const watchedIds = useWatchStore((w) => w.watchedIds);
-  const isWatched = (id: string) => watchedIds.includes(id);
   const rootRef = useRef<HTMLDivElement>(null);
 
   // Close the dropdown when clicking outside it.
@@ -76,14 +74,9 @@ export function ServerSwitcher() {
           {servers.length === 0 && <div style={{ padding: 8, opacity: 0.7 }}>No servers found</div>}
           {servers.map((s) => (
             <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6 }}>
-              <input
-                type="checkbox"
-                title="Watch this server's sessions"
-                checked={isWatched(s.id)}
-                onClick={(e) => e.stopPropagation()}
-                onChange={(e) => { e.stopPropagation(); useWatchStore.getState().toggleWatched(s.id); }}
-              />
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: dot[s.status] }} />
+              <ServerIcon name={s.icon} size={14} title={`Server: ${s.label}`} />
+
               <button
                 type="button"
                 onClick={() => { void switchServer(s.id); setOpen(false); }}

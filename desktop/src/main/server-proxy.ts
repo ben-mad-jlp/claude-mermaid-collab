@@ -21,6 +21,8 @@ export class ServerProxy {
   private wss: WebSocketServer | null = null;
   private upstream: Upstream | null = null;
   private openPairs = new Set<{ client: WebSocket; up: WebSocket }>();
+  private perServerPairs = new Set<{ client: WebSocket; up: WebSocket }>();
+  private resolver: ((id: string) => Upstream | null) | null = null;
   private port: number | null = null;
 
   async start(): Promise<{ port: number }> {
@@ -36,11 +38,17 @@ export class ServerProxy {
   setUpstream(u: Upstream | null): void {
     this.upstream = u;
     // Drop existing proxied WS connections so the renderer reconnects to the new upstream.
+    // Per-server pairs are NOT dropped here — they're routed by the resolver and
+    // remain valid across active-server switches.
     for (const pair of this.openPairs) {
       try { pair.client.terminate(); } catch { /* ignore */ }
       try { pair.up.terminate(); } catch { /* ignore */ }
     }
     this.openPairs.clear();
+  }
+
+  setResolver(fn: ((id: string) => Upstream | null) | null): void {
+    this.resolver = fn;
   }
 
   getPort(): number | null {
@@ -75,8 +83,35 @@ export class ServerProxy {
   }
 
   private handleUpgrade(req: http.IncomingMessage, socket: Duplex, head: Buffer): void {
+    if (!this.wss) {
+      socket.destroy();
+      return;
+    }
+    // Per-server bridge: /_per-server/<serverId>/<rest>. Resolved live via the
+    // resolver so tokens stay in main and the connection survives active-server
+    // switches.
+    const perServerMatch = (req.url ?? '').match(/^\/_per-server\/([^/]+)(\/.*)?$/);
+    if (perServerMatch && this.resolver) {
+      const serverId = decodeURIComponent(perServerMatch[1]);
+      const rest = perServerMatch[2] || '/';
+      const target = this.resolver(serverId);
+      if (!target) {
+        socket.destroy();
+        return;
+      }
+      this.wss.handleUpgrade(req, socket, head, (client) => {
+        const headers: Record<string, string> = {};
+        if (target.token) headers['authorization'] = `Bearer ${target.token}`;
+        const upConn = new WebSocket(`ws://${target.host}:${target.port}${rest}`, { headers });
+        const pair = { client, up: upConn };
+        this.perServerPairs.add(pair);
+        this.wireBridge(client, upConn, pair, this.perServerPairs);
+      });
+      return;
+    }
+
     const up = this.upstream;
-    if (!up || !this.wss) {
+    if (!up) {
       socket.destroy();
       return;
     }
@@ -86,9 +121,19 @@ export class ServerProxy {
       const upConn = new WebSocket(`ws://${up.host}:${up.port}${req.url}`, { headers });
       const pair = { client, up: upConn };
       this.openPairs.add(pair);
+      this.wireBridge(client, upConn, pair, this.openPairs);
+    });
+  }
 
+  private wireBridge(
+    client: WebSocket,
+    upConn: WebSocket,
+    pair: { client: WebSocket; up: WebSocket },
+    owner: Set<{ client: WebSocket; up: WebSocket }>
+  ): void {
+    {
       const cleanup = () => {
-        this.openPairs.delete(pair);
+        owner.delete(pair);
         try { client.terminate(); } catch { /* ignore */ }
         try { upConn.terminate(); } catch { /* ignore */ }
       };
@@ -115,11 +160,16 @@ export class ServerProxy {
       upConn.on('close', cleanup);
       client.on('error', cleanup);
       upConn.on('error', cleanup);
-    });
+    }
   }
 
   async stop(): Promise<void> {
     this.setUpstream(null);
+    for (const pair of this.perServerPairs) {
+      try { pair.client.terminate(); } catch { /* ignore */ }
+      try { pair.up.terminate(); } catch { /* ignore */ }
+    }
+    this.perServerPairs.clear();
     this.wss?.close();
     await new Promise<void>((resolve) => {
       if (!this.server) return resolve();

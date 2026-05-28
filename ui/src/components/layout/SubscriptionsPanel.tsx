@@ -4,7 +4,9 @@ import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useBrowserStore } from '@/stores/browserStore';
 import { useTerminalStore } from '@/stores/terminalStore';
+import { useServer } from '@/contexts/ServerContext';
 import { getWebSocketClient } from '@/lib/websocket';
+import { ServerIcon } from '@/components/ServerIcon';
 
 const CLAUDE_PIX_BASE = '/claudepix';
 
@@ -107,6 +109,7 @@ function useElapsed(lastUpdate: number, status: string): string | null {
 }
 
 interface SubscribedSession {
+  serverId: string;
   project: string;
   session: string;
   claudeSessionId?: string;
@@ -146,7 +149,9 @@ function useTmuxSessions(): Set<string> {
 const SubscriptionRow: React.FC<{
   subKey: string;
   sub: SubscribedSession;
-  onNavigate: (project: string, session: string) => void;
+  serverLabel?: string;
+  serverIcon?: string;
+  onNavigate: (sub: SubscribedSession) => void;
   onUnsubscribe: (key: string) => void;
   onDragStart: (e: React.DragEvent, key: string) => void;
   onDragOver: (e: React.DragEvent, key: string) => void;
@@ -154,7 +159,7 @@ const SubscriptionRow: React.FC<{
   isDragOver: boolean;
   isSelected: boolean;
   tmuxActive: boolean;
-}> = ({ subKey, sub, onNavigate, onUnsubscribe, onDragStart, onDragOver, onDragEnd, isDragOver, isSelected, tmuxActive }) => {
+}> = ({ subKey, sub, serverLabel, serverIcon, onNavigate, onUnsubscribe, onDragStart, onDragOver, onDragEnd, isDragOver, isSelected, tmuxActive }) => {
   const elapsed = useElapsed(sub.lastUpdate, sub.status);
 
   const statusBg =
@@ -180,19 +185,39 @@ const SubscriptionRow: React.FC<{
         onDragOver={(e) => onDragOver(e, subKey)}
         onDragEnd={onDragEnd}
         onClick={() => {
-          onNavigate(sub.project, sub.session);
-          fetch('/api/ide/create-terminal', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ session: sub.session, project: sub.project }),
-          }).catch(() => {});
-          fetch('/api/browser/focus-tab', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ session: sub.session }),
-          }).catch(() => {});
+          // Per-server IPC: keep "active server" unchanged when clicking an
+          // off-active row. Terminal + browser-focus get routed at sub.serverId.
+          onNavigate(sub);
+          const mc = (window as any).mc;
+          if (mc?.invokeOnServer) {
+            void mc.invokeOnServer(sub.serverId, {
+              path: '/api/ide/create-terminal',
+              method: 'POST',
+              body: { session: sub.session, project: sub.project },
+            });
+            void mc.invokeOnServer(sub.serverId, {
+              path: '/api/browser/focus-tab',
+              method: 'POST',
+              body: { session: sub.session },
+            });
+          } else {
+            // Plain browser fallback (no Electron bridge): relative fetch.
+            fetch('/api/ide/create-terminal', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ session: sub.session, project: sub.project }),
+            }).catch(() => {});
+            fetch('/api/browser/focus-tab', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ session: sub.session }),
+            }).catch(() => {});
+          }
           useBrowserStore.getState().activateSession(sub.session);
-          void useTerminalStore.getState().openFor(sub.project, sub.session);
+          void useTerminalStore.getState().openFor(sub.project, sub.session, {
+            serverId: sub.serverId,
+            serverLabel,
+          });
         }}
       >
         {/* Selected-session indicator — accent bar on the left edge */}
@@ -223,6 +248,12 @@ const SubscriptionRow: React.FC<{
         <div className="flex-1 min-w-0 pb-1">
           <div className="flex items-center gap-1">
             <span className="text-xs text-black truncate">{sub.project.split('/').pop()}</span>
+            <ServerIcon
+              name={serverIcon}
+              size={14}
+              className="flex-shrink-0 text-black"
+              title={serverLabel ? `Server: ${serverLabel}` : undefined}
+            />
           </div>
           <div className="flex items-center gap-1">
             <span className="text-xs text-black truncate">{sub.session}</span>
@@ -255,11 +286,20 @@ const SubscriptionRow: React.FC<{
         <button
           onClick={(e) => {
             e.stopPropagation();
-            fetch('/api/ide/create-terminal', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ session: sub.session, project: sub.project }),
-            }).catch(() => {});
+            const mc = (window as any).mc;
+            if (mc?.invokeOnServer) {
+              void mc.invokeOnServer(sub.serverId, {
+                path: '/api/ide/create-terminal',
+                method: 'POST',
+                body: { session: sub.session, project: sub.project },
+              });
+            } else {
+              fetch('/api/ide/create-terminal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session: sub.session, project: sub.project }),
+              }).catch(() => {});
+            }
           }}
           className={`flex items-center justify-center w-7 h-7 rounded-full transition-all hover:opacity-80 active:scale-90 active:brightness-75 ${tmuxActive ? 'bg-green-300 text-green-900' : 'bg-red-300 text-red-900'}`}
           title={tmuxActive ? `Replace tmux session "${sub.session}"` : `Create tmux session "${sub.session}"`}
@@ -284,11 +324,29 @@ export interface SubscriptionsPanelProps {
 export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentProject, onNavigate }) => {
   const { subscriptions, order, unsubscribe, subscribe, reorder } = useSubscriptionStore();
   const { sessions, setCurrentSession, currentSession } = useSessionStore();
+  const { servers, activeId } = useServer();
   const tmuxSessions = useTmuxSessions();
   const [collapsed, setCollapsed] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
   const dragKeyRef = useRef<string | null>(null);
+  // Cross-server session list, populated when the subscribe modal opens.
+  // Shape: one entry per (server, project, session). The modal groups by server.
+  const [crossServerSessions, setCrossServerSessions] = useState<
+    Array<{ serverId: string; serverLabel: string; project: string; name: string; displayName?: string }>
+  >([]);
+
+  const serverLabelById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const s of servers) m.set(s.id, s.label);
+    return m;
+  }, [servers]);
+
+  const serverIconById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const s of servers) if (s.icon) m.set(s.id, s.icon);
+    return m;
+  }, [servers]);
 
   // Build ordered entries: use stored order, append any keys not yet in order
   const projectSubscriptions = useMemo(() => {
@@ -324,40 +382,108 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
     reorder(keys);
   }, [dragOverKey, projectSubscriptions, reorder]);
 
-  // Sessions available for subscribing (not already subscribed, from all projects)
+  // Sessions available for subscribing — filter the cross-server fan-out by
+  // existing subscriptions (composite-keyed by serverId).
   const availableSessions = useMemo(() => {
-    const subscribedKeys = new Set(
-      projectSubscriptions.map(([key]) => key),
-    );
-    return sessions
-      .filter((s) => !subscribedKeys.has(`${s.project}:${s.name}`))
+    const subscribedKeys = new Set(projectSubscriptions.map(([key]) => key));
+    return crossServerSessions
+      .filter((s) => !subscribedKeys.has(`${s.serverId}:${s.project}:${s.name}`))
       .sort((a, b) => {
-        const projA = a.project.split('/').pop() ?? a.project;
-        const projB = b.project.split('/').pop() ?? b.project;
+        const labA = a.serverLabel ?? '';
+        const labB = b.serverLabel ?? '';
+        const labCmp = labA.localeCompare(labB, undefined, { sensitivity: 'base' });
+        if (labCmp !== 0) return labCmp;
+        const projAFull = a.project ?? '';
+        const projBFull = b.project ?? '';
+        const projA = projAFull.split('/').pop() ?? projAFull;
+        const projB = projBFull.split('/').pop() ?? projBFull;
         const projCmp = projA.localeCompare(projB, undefined, { sensitivity: 'base' });
         if (projCmp !== 0) return projCmp;
-        const nameA = a.displayName || a.name;
-        const nameB = b.displayName || b.name;
+        const nameA = (a.displayName || a.name) ?? '';
+        const nameB = (b.displayName || b.name) ?? '';
         return nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
       });
-  }, [sessions, projectSubscriptions]);
+  }, [crossServerSessions, projectSubscriptions]);
 
-  const handleNavigate = useCallback(
-    (project: string, sessionName: string) => {
-      const target = sessions.find(
-        (s) => s.project === project && s.name === sessionName,
-      );
-      if (target) {
-        setCurrentSession(target);
-        onNavigate?.(project, sessionName);
+  // Group available sessions by server for the modal.
+  const availableByServer = useMemo(() => {
+    const map = new Map<string, { label: string; items: typeof availableSessions }>();
+    for (const s of availableSessions) {
+      const cur = map.get(s.serverId) ?? { label: s.serverLabel, items: [] };
+      cur.items.push(s);
+      map.set(s.serverId, cur);
+    }
+    return Array.from(map.entries());
+  }, [availableSessions]);
+
+  // Fan-out: when the modal opens, ask main for each server's session list.
+  // Falls back to the active-server `sessions` from useSessionStore for plain
+  // browser tabs where window.mc isn't present.
+  useEffect(() => {
+    if (!showDropdown) return;
+    let cancelled = false;
+    const mc = (window as any).mc;
+    (async () => {
+      if (mc?.listSessionsForServer && servers.length > 0) {
+        const results = await Promise.all(
+          servers.map(async (s) => {
+            const list = await mc.listSessionsForServer(s.id).catch(() => []);
+            return list
+              .filter((row: any) => row && row.project)
+              .map((row: any) => {
+                // The server's /api/sessions returns `{ project, session, lastAccess }`;
+                // the renderer's sessionStore uses `name`/`displayName`. Normalize.
+                const name = row.name ?? row.session ?? '';
+                return {
+                  serverId: s.id,
+                  serverLabel: s.label,
+                  project: String(row.project),
+                  name,
+                  displayName: row.displayName ?? name,
+                };
+              });
+          })
+        );
+        if (!cancelled) setCrossServerSessions(results.flat());
+      } else {
+        // Plain browser: only the active server's sessions are reachable; tag them.
+        if (!cancelled) {
+          setCrossServerSessions(
+            sessions.map((s) => ({
+              serverId: activeId ?? '',
+              serverLabel: serverLabelById.get(activeId ?? '') ?? '(local)',
+              project: s.project,
+              name: s.name,
+              displayName: s.displayName,
+            }))
+          );
+        }
       }
+    })();
+    return () => { cancelled = true; };
+  }, [showDropdown, servers, sessions, activeId, serverLabelById]);
+
+  // Navigate to a watched row. Side-effects (create terminal, focus browser
+  // tab) fire via per-server IPC in the row click handler — they target the
+  // row's serverId without touching the active server. Here we only update
+  // local state for SAME-server rows. For cross-server rows we do nothing:
+  // the active server stays put, the URL stays put, and the row's per-server
+  // actions still fire.
+  const handleNavigate = useCallback(
+    (sub: SubscribedSession) => {
+      if (sub.serverId && activeId && sub.serverId !== activeId) {
+        return; // cross-server — never switch active or update local context
+      }
+      const target = sessions.find((s) => s.project === sub.project && s.name === sub.session);
+      if (target) setCurrentSession(target);
+      onNavigate?.(sub.project, sub.session);
     },
-    [sessions, setCurrentSession, onNavigate],
+    [sessions, setCurrentSession, onNavigate, activeId],
   );
 
   const handleSubscribe = useCallback(
-    (project: string, sessionName: string) => {
-      subscribe(project, sessionName);
+    (serverId: string, project: string, sessionName: string) => {
+      subscribe(serverId, project, sessionName);
       setShowDropdown(false);
     },
     [subscribe],
@@ -391,12 +517,21 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
         {projectSubscriptions.length > 0 && (
           <button
             onClick={() => {
+              const mc = (window as any).mc;
               for (const [, sub] of projectSubscriptions) {
-                fetch('/api/ide/create-terminal', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ session: sub.session, project: sub.project }),
-                }).catch(() => {});
+                if (mc?.invokeOnServer && sub.serverId) {
+                  void mc.invokeOnServer(sub.serverId, {
+                    path: '/api/ide/create-terminal',
+                    method: 'POST',
+                    body: { session: sub.session, project: sub.project },
+                  });
+                } else {
+                  fetch('/api/ide/create-terminal', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session: sub.session, project: sub.project }),
+                  }).catch(() => {});
+                }
               }
             }}
             className="px-2 py-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
@@ -439,16 +574,25 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
                     No sessions available to watch
                   </div>
                 ) : (
-                  availableSessions.map((s) => (
-                    <button
-                      key={`${s.project}:${s.name}`}
-                      onClick={() => handleSubscribe(s.project, s.name)}
-                      className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                    >
-                      <span className="text-gray-400 dark:text-gray-500">{s.project.split('/').pop()}</span>
-                      <span className="text-gray-400 dark:text-gray-500"> / </span>
-                      <span className="text-gray-900 dark:text-gray-100">{s.displayName || s.name}</span>
-                    </button>
+                  availableByServer.map(([serverId, group]) => (
+                    <details key={serverId} open className="border-b last:border-b-0 border-gray-100 dark:border-gray-700">
+                      <summary className="px-4 py-2 text-xs font-semibold text-gray-600 dark:text-gray-300 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2">
+                        <ServerIcon name={serverIconById.get(serverId)} size={14} title={group.label} />
+                        <span>{group.label}</span>
+                        <span className="ml-1 text-gray-400 dark:text-gray-500 font-normal">{group.items.length}</span>
+                      </summary>
+                      {group.items.map((s) => (
+                        <button
+                          key={`${s.serverId}:${s.project}:${s.name}`}
+                          onClick={() => handleSubscribe(s.serverId, s.project, s.name)}
+                          className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                        >
+                          <span className="text-gray-400 dark:text-gray-500">{s.project.split('/').pop()}</span>
+                          <span className="text-gray-400 dark:text-gray-500"> / </span>
+                          <span className="text-gray-900 dark:text-gray-100">{s.displayName || s.name}</span>
+                        </button>
+                      ))}
+                    </details>
                   ))
                 )}
               </div>
@@ -465,6 +609,8 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
               key={key}
               subKey={key}
               sub={sub}
+              serverLabel={serverLabelById.get(sub.serverId)}
+              serverIcon={serverIconById.get(sub.serverId)}
               onNavigate={handleNavigate}
               onUnsubscribe={unsubscribe}
               onDragStart={handleDragStart}

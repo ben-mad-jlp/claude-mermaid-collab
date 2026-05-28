@@ -29,7 +29,7 @@ describe('openFor', () => {
   it('creates a tab, sets activeTabId, opens drawer on first call', async () => {
     global.fetch = makeFetch();
 
-    await useTerminalStore.getState().openFor('p', 's');
+    await useTerminalStore.getState().openFor('p', 's', { serverId: 'srv1', serverLabel: 'local' });
 
     const state = useTerminalStore.getState();
     expect(state.tabs).toHaveLength(1);
@@ -44,8 +44,8 @@ describe('openFor', () => {
   it('dedup: second sequential call for same session activates existing tab without fetching again', async () => {
     global.fetch = makeFetch();
 
-    await useTerminalStore.getState().openFor('p', 's');
-    await useTerminalStore.getState().openFor('p', 's');
+    await useTerminalStore.getState().openFor('p', 's', { serverId: 'srv1', serverLabel: 'local' });
+    await useTerminalStore.getState().openFor('p', 's', { serverId: 'srv1', serverLabel: 'local' });
 
     const state = useTerminalStore.getState();
     expect(state.tabs).toHaveLength(1);
@@ -57,8 +57,8 @@ describe('openFor', () => {
     global.fetch = makeFetch(20);
 
     await Promise.all([
-      useTerminalStore.getState().openFor('p', 's'),
-      useTerminalStore.getState().openFor('p', 's'),
+      useTerminalStore.getState().openFor('p', 's', { serverId: 'srv1', serverLabel: 'local' }),
+      useTerminalStore.getState().openFor('p', 's', { serverId: 'srv1', serverLabel: 'local' }),
     ]);
 
     const state = useTerminalStore.getState();
@@ -70,7 +70,7 @@ describe('openFor', () => {
 describe('closeTab', () => {
   it('removes the tab and clears activeTabId when the closed tab was active', async () => {
     global.fetch = makeFetch();
-    await useTerminalStore.getState().openFor('p', 's');
+    await useTerminalStore.getState().openFor('p', 's', { serverId: 'srv1', serverLabel: 'local' });
 
     useTerminalStore.getState().closeTab('abc');
 
@@ -82,11 +82,11 @@ describe('closeTab', () => {
 
   it('does not affect activeTabId when a non-active tab is closed', async () => {
     global.fetch = makeFetch();
-    await useTerminalStore.getState().openFor('p', 's1');
+    await useTerminalStore.getState().openFor('p', 's1', { serverId: 'srv1', serverLabel: 'local' });
 
     // Add second tab manually
     useTerminalStore.setState((s) => ({
-      tabs: [...s.tabs, { id: 'def', title: 's2', tmuxName: 'tmux-s2' }],
+      tabs: [...s.tabs, { id: 'def', title: 's2', tmuxName: 'tmux-s2', serverId: 'srv1', serverLabel: 'local' }],
     }));
     useTerminalStore.getState().setActive('abc');
 
@@ -100,7 +100,7 @@ describe('closeTab', () => {
 
 describe('setActive / toggle / setWidth', () => {
   it('setActive updates activeTabId', () => {
-    useTerminalStore.setState({ tabs: [{ id: 'x', title: 't', tmuxName: 'n' }] });
+    useTerminalStore.setState({ tabs: [{ id: 'x', title: 't', tmuxName: 'n', serverId: 'srv1', serverLabel: 'local' }] });
     useTerminalStore.getState().setActive('x');
     expect(useTerminalStore.getState().activeTabId).toBe('x');
   });

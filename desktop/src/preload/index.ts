@@ -13,6 +13,9 @@ contextBridge.exposeInMainWorld('mc', {
   setZoomFactor: (factor: number) => ipcRenderer.invoke('mc:setZoomFactor', factor),
   probeServer: (host: string, port: number) => ipcRenderer.invoke('mc:probeServer', { host, port }),
   setWatchedServers: (ids: string[]) => ipcRenderer.invoke('mc:setWatchedServers', ids),
+  listSessionsForServer: (serverId: string) => ipcRenderer.invoke('mc:listSessionsForServer', serverId),
+  invokeOnServer: (serverId: string, opts: { path: string; method?: string; body?: unknown; query?: Record<string, string> }) =>
+    ipcRenderer.invoke('mc:invokeOnServer', serverId, opts),
   onWatchEvent: (cb: (e: any) => void) => {
     const h = (_e: any, evt: any) => cb(evt);
     ipcRenderer.on('mc:watch-event', h);

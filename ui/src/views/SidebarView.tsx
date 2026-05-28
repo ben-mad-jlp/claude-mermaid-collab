@@ -5,6 +5,7 @@ import { useDataLoader } from '../hooks/useDataLoader';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { getWebSocketClient } from '../lib/websocket';
 import { useSubscriptionStore } from '../stores/subscriptionStore';
+import { useServer } from '../contexts/ServerContext';
 import { SessionInfo } from '../components/layout/SessionInfo';
 import { VibeInstructions } from '../components/layout/VibeInstructions';
 import { SubscriptionsPanel } from '../components/layout/SubscriptionsPanel';
@@ -12,6 +13,7 @@ import { ArtifactTree } from '../components/layout/sidebar-tree/ArtifactTree';
 
 export function SidebarView() {
   const [searchParams] = useSearchParams();
+  const { activeId: activeServerId } = useServer();
 
   useEffect(() => {
     const client = getWebSocketClient();
@@ -19,18 +21,22 @@ export function SidebarView() {
       switch (message.type) {
         case 'claude_session_registered': {
           const { claudeSessionId, project, session, claudePid } = message as any;
-          useSubscriptionStore.getState().updateStatus(claudeSessionId, 'active', project, session, claudePid);
+          if (activeServerId) {
+            useSubscriptionStore.getState().updateStatus(activeServerId, claudeSessionId, 'active', project, session, claudePid);
+          }
           break;
         }
         case 'claude_session_status': {
           const { claudeSessionId, project, session, status } = message as any;
-          useSubscriptionStore.getState().updateStatus(claudeSessionId, status, project, session);
+          if (activeServerId) {
+            useSubscriptionStore.getState().updateStatus(activeServerId, claudeSessionId, status, project, session);
+          }
           break;
         }
       }
     });
     return () => subscription.unsubscribe();
-  }, []);
+  }, [activeServerId]);
   const project = searchParams.get('project') ?? undefined;
   const session = searchParams.get('session') ?? undefined;
 

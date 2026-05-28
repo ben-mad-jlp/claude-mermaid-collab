@@ -26,6 +26,7 @@ export interface ServerInfo {
   source: 'local' | 'manual';
   lastProject?: string;
   lastSession?: string;
+  icon?: string;
 }
 
 export interface WatchEvent {
@@ -49,6 +50,13 @@ export interface McBridge {
   probeServer?(host: string, port: number): Promise<boolean>;
   setWatchedServers?(ids: string[]): Promise<void>;
   onWatchEvent?(cb: (e: WatchEvent) => void): () => void;
+  /** Fetch a server's session list directly from main (no proxy / no active-server switch). */
+  listSessionsForServer?(serverId: string): Promise<Array<{ project: string; name: string; displayName?: string }>>;
+  /** Invoke an HTTP endpoint on a specific server (token resolved in main). */
+  invokeOnServer?(
+    serverId: string,
+    opts: { path: string; method?: string; body?: unknown; query?: Record<string, string> }
+  ): Promise<{ ok: boolean; status: number; body: unknown }>;
 }
 
 declare global {

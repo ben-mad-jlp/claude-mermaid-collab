@@ -64,6 +64,58 @@ function registerIpc(): void {
     const ups = (ids ?? []).map((id: string) => store!.get(id)).filter(Boolean).map((e: any) => ({ id: e.id, host: e.host, port: e.port, token: e.token }));
     aggregator.setWatched(ups);
   });
+  // Cross-server session listing: lets the renderer's subscribe modal show
+  // sessions from any registered server (not just the active one) without
+  // switching active. Returns [] on any error rather than throwing across IPC.
+  ipcMain.handle('mc:listSessionsForServer', async (_e, serverId: string) => {
+    if (!store) return [];
+    const entry = store.get(serverId);
+    if (!entry) return [];
+    try {
+      const headers: Record<string, string> = {};
+      if (entry.token) headers['Authorization'] = `Bearer ${entry.token}`;
+      const r = await fetch(`http://${entry.host}:${entry.port}/api/sessions`, {
+        headers,
+        signal: AbortSignal.timeout(4000),
+      });
+      if (!r.ok) return [];
+      const body = await r.json();
+      // Server responses vary; if it's an array, return it; else look for .sessions.
+      if (Array.isArray(body)) return body;
+      if (body && Array.isArray((body as any).sessions)) return (body as any).sessions;
+      return [];
+    } catch (err) {
+      console.warn(`[mc:listSessionsForServer] ${serverId} failed:`, err);
+      return [];
+    }
+  });
+  // Per-server invoke: lets the renderer route a row action (terminal,
+  // browser-focus, navigate) at the row's serverId instead of the active
+  // server's proxy. Tokens stay in main. Returns a structured envelope so the
+  // renderer can branch on ok/status without losing the body.
+  ipcMain.handle('mc:invokeOnServer', async (_e, serverId: string, opts: { path: string; method?: string; body?: unknown; query?: Record<string, string> }) => {
+    if (!store) return { ok: false, status: 0, body: 'no store' };
+    const entry = store.get(serverId);
+    if (!entry) return { ok: false, status: 0, body: 'unknown server' };
+    try {
+      const qs = opts.query ? `?${new URLSearchParams(opts.query).toString()}` : '';
+      const headers: Record<string, string> = { 'content-type': 'application/json' };
+      if (entry.token) headers['Authorization'] = `Bearer ${entry.token}`;
+      const r = await fetch(`http://${entry.host}:${entry.port}${opts.path}${qs}`, {
+        method: opts.method ?? 'GET',
+        headers,
+        body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+        signal: AbortSignal.timeout(8000),
+      });
+      const text = await r.text();
+      let parsed: unknown = text;
+      try { parsed = JSON.parse(text); } catch { /* keep text */ }
+      return { ok: r.ok, status: r.status, body: parsed };
+    } catch (err) {
+      console.warn(`[mc:invokeOnServer] ${serverId} ${opts.path} failed:`, err);
+      return { ok: false, status: 0, body: String(err) };
+    }
+  });
 }
 
 // Register the mermaid-collab:// deep-link scheme so links from browsers/Slack
@@ -211,6 +263,12 @@ async function bootstrap(): Promise<void> {
   store = new ConnectionStore();
   await store.init();
   await store.refreshLocal();
+  // Resolver: live lookup keeps tokens in main and lets per-server WS bridges
+  // pick the right upstream regardless of which server is "active".
+  proxy.setResolver((id) => {
+    const e = store?.get(id);
+    return e ? { host: e.host, port: e.port, token: e.token } : null;
+  });
   registerIpc();
   aggregator = new WatchAggregator((e) => mainWindow?.webContents.send('mc:watch-event', e));
 

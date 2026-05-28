@@ -1,8 +1,10 @@
 import { useEffect } from 'react';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useTerminalStore } from '@/stores/terminalStore';
+import { useServer } from '@/contexts/ServerContext';
 import { ResizableColumn } from '@/components/layout/ResizableColumn';
 import { TerminalPane } from './TerminalPane';
+import { ServerIcon } from '@/components/ServerIcon';
 
 /**
  * Right-side resizable column hosting tabbed in-app terminals. Each tab connects
@@ -19,11 +21,23 @@ export function TerminalDrawer() {
   const openFor = useTerminalStore((s) => s.openFor);
   const close = useTerminalStore((s) => s.close);
   const currentSession = useSessionStore((s) => s.currentSession);
+  const { servers, activeId } = useServer();
+
+  const openForActive = () => {
+    if (!currentSession) return;
+    if (!activeId) {
+      console.warn('[TerminalDrawer] no active server — cannot open terminal');
+      return;
+    }
+    const label = servers.find((s) => s.id === activeId)?.label;
+    void openFor(currentSession.project, currentSession.name, { serverId: activeId, serverLabel: label });
+  };
 
   // Auto-open a tab for the current session when the column first opens with no tabs
   useEffect(() => {
-    if (open && tabs.length === 0 && currentSession) {
-      openFor(currentSession.project, currentSession.name);
+    if (open && tabs.length === 0 && currentSession && activeId) {
+      const label = servers.find((s) => s.id === activeId)?.label;
+      void openFor(currentSession.project, currentSession.name, { serverId: activeId, serverLabel: label });
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -40,7 +54,11 @@ export function TerminalDrawer() {
           background: '#161b22', minHeight: 32, overflowX: 'auto',
         }}
       >
-        {tabs.map((tab) => (
+        {tabs.map((tab) => {
+          const srv = servers.find((s) => s.id === tab.serverId);
+          const label = tab.serverLabel || srv?.label || '(unknown)';
+          const icon = srv?.icon;
+          return (
           <div
             key={tab.id}
             style={{
@@ -53,6 +71,7 @@ export function TerminalDrawer() {
             onClick={() => setActive(tab.id)}
           >
             <span>{tab.title}</span>
+            <ServerIcon name={icon} size={14} title={`server: ${label}`} />
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }}
@@ -65,12 +84,13 @@ export function TerminalDrawer() {
               ×
             </button>
           </div>
-        ))}
+          );
+        })}
 
         {/* New tab button */}
         <button
           type="button"
-          onClick={() => currentSession && openFor(currentSession.project, currentSession.name)}
+          onClick={() => openForActive()}
           title="New terminal"
           style={{
             cursor: 'pointer', color: '#6e7681', background: 'none',
@@ -99,8 +119,11 @@ export function TerminalDrawer() {
 
       {/* Active pane */}
       <div style={{ flex: 1, minHeight: 0, padding: 6 }}>
-        {activeTabId ? (
-          <TerminalPane key={activeTabId} sessionId={activeTabId} />
+        {activeTabId && tabs.find((t) => t.id === activeTabId) ? (
+          (() => {
+            const tab = tabs.find((t) => t.id === activeTabId)!;
+            return <TerminalPane key={tab.id} sessionId={tab.id} serverId={tab.serverId} />;
+          })()
         ) : (
           <div style={{ color: '#6e7681', fontSize: 12, padding: 8 }}>
             No terminal open — click + to start one

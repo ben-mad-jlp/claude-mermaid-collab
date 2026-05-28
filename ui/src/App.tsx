@@ -37,6 +37,7 @@ import { useSessionPolling } from '@/hooks/useSessionPolling';
 import { useProposedEditWatcher } from '@/hooks/useProposedEditWatcher';
 import { usePrefetchWatchedSessions } from '@/hooks/usePrefetchWatchedSessions';
 import { useWatchEvents } from '@/hooks/useWatchEvents';
+import { useServer } from '@/contexts/ServerContext';
 import { getWebSocketClient } from '@/lib/websocket';
 import { useShallow } from 'zustand/react/shallow';
 import { api, generateSessionName, type CachedUIState } from '@/lib/api';
@@ -281,6 +282,30 @@ const App: React.FC = () => {
   } = useDataLoader();
   usePrefetchWatchedSessions();
   useWatchEvents();
+
+  // Cross-server watching wiring:
+  // 1) One-shot legacy-entry migration: tag pre-cross-server localStorage
+  //    entries (no serverId) with the boot-time active server's id.
+  // 2) Drive WatchAggregator from the union of subscription serverIds — the
+  //    aggregator opens a WS to every server represented in the watch list.
+  //    Replaces the deleted watchStore.watchedIds → mc.setWatchedServers path.
+  const { activeId: activeServerId } = useServer();
+  const subscriptionsForWatch = useSubscriptionStore((s) => s.subscriptions);
+  useEffect(() => {
+    const mc = (window as any).mc;
+    if (!mc?.getActiveServer) return;
+    void mc.getActiveServer().then((id: string | null) => {
+      useSubscriptionStore.getState().migrateLegacyEntries(id);
+    });
+  }, []);
+  useEffect(() => {
+    const mc = (window as any).mc;
+    if (!mc?.setWatchedServers) return;
+    const ids = Array.from(
+      new Set(Object.values(subscriptionsForWatch).map((s) => s.serverId).filter(Boolean))
+    ).sort();
+    void mc.setWatchedServers(ids);
+  }, [subscriptionsForWatch]);
 
   // Ref for MermaidPreview imperative methods
   const mermaidPreviewRef = useRef<MermaidPreviewRef>(null);
@@ -933,14 +958,19 @@ const App: React.FC = () => {
 
         case 'claude_session_registered': {
           const { claudeSessionId, project, session, claudePid } = message as any;
-          useSubscriptionStore.getState().updateStatus(claudeSessionId, 'active', project, session, claudePid);
+          // Active-server WS doesn't carry serverId — tag with our active id.
+          if (activeServerId) {
+            useSubscriptionStore.getState().updateStatus(activeServerId, claudeSessionId, 'active', project, session, claudePid);
+          }
           break;
         }
         case 'claude_session_status': {
           const { claudeSessionId, project, session, status } = message as any;
-          useSubscriptionStore.getState().updateStatus(claudeSessionId, status, project, session);
+          if (activeServerId) {
+            useSubscriptionStore.getState().updateStatus(activeServerId, claudeSessionId, status, project, session);
+          }
           if ((status === 'waiting' || status === 'permission') && document.hidden) {
-            const key = `${project}:${session}`;
+            const key = activeServerId ? `${activeServerId}:${project}:${session}` : `${project}:${session}`;
             if (useSubscriptionStore.getState().subscriptions[key]) {
               if (Notification.permission === 'granted') {
                 new Notification(status === 'permission' ? `Permission needed — ${session}` : `Claude is waiting — ${session}`, {
@@ -956,8 +986,10 @@ const App: React.FC = () => {
 
         case 'claude_context_update': {
           const { project, session, contextPercent } = message as any;
-          useSubscriptionStore.getState().updateContextPercent(project, session, contextPercent);
-          const key = `${project}:${session}`;
+          if (activeServerId) {
+            useSubscriptionStore.getState().updateContextPercent(activeServerId, project, session, contextPercent);
+          }
+          const key = activeServerId ? `${activeServerId}:${project}:${session}` : `${project}:${session}`;
           if (useSubscriptionStore.getState().subscriptions[key]) {
             const criticalKey = `${key}:critical`;
             if (contextPercent > 78) {
@@ -1009,7 +1041,7 @@ const App: React.FC = () => {
     return () => {
       subscription.unsubscribe();
     };
-  }, [isConnected, currentSession, updateDiagram, updateDocument, updateDesign, updateSpreadsheet, addDiagram, addDocument, addDesign, addSpreadsheet, removeDiagram, removeDocument, removeDesign, removeSpreadsheet, addSnippet, updateSnippet, removeSnippet, addEmbed, removeEmbed, addImage, removeImage, setPendingDiff, setCollabState, receiveQuestion, restoreUIState]);
+  }, [isConnected, currentSession, activeServerId, updateDiagram, updateDocument, updateDesign, updateSpreadsheet, addDiagram, addDocument, addDesign, addSpreadsheet, removeDiagram, removeDocument, removeDesign, removeSpreadsheet, addSnippet, updateSnippet, removeSnippet, addEmbed, removeEmbed, addImage, removeImage, setPendingDiff, setCollabState, receiveQuestion, restoreUIState]);
 
   // Compute selected item from diagrams/documents/designs
   const selectedItem: Item | null = useMemo(() => {
