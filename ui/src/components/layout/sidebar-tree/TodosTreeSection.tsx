@@ -130,13 +130,13 @@ function TodoRow({ todo, project, session, siblings }: TodoRowProps) {
           </button>
         </div>
         {/* Row 2 — meta: assignee · priority · due · link (empty-friendly; assign affordance shows on hover) */}
-        <div className="flex items-center gap-2 flex-wrap text-[10px] text-gray-400 dark:text-gray-500">
+        <div className="flex items-center gap-2 flex-wrap text-sm text-gray-400 dark:text-gray-500">
           <select
             value={todo.assigneeSession ?? ''}
             onChange={(e) => handleAssign(e.target.value)}
             onClick={(e) => e.stopPropagation()}
             title={todo.assigneeSession ? `Assigned to ${todo.assigneeSession}` : 'Assign to a session'}
-            className={`shrink-0 max-w-[120px] truncate rounded text-[10px] py-0.5 px-1 cursor-pointer border-none focus:outline-none focus:ring-1 focus:ring-purple-400 ${
+            className={`shrink-0 max-w-[160px] truncate rounded text-sm py-0.5 px-1 cursor-pointer border-none focus:outline-none focus:ring-1 focus:ring-purple-400 ${
               todo.assigneeSession
                 ? 'bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400'
                 : 'bg-transparent text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100'
@@ -155,13 +155,13 @@ function TodoRow({ todo, project, session, siblings }: TodoRowProps) {
           {todo.priority !== null && todo.priority !== undefined && (
             <span
               title={`Priority ${todo.priority}`}
-              className={`shrink-0 font-semibold ${PRIORITY_COLORS[todo.priority]}`}
+              className={`shrink-0 text-sm font-semibold ${PRIORITY_COLORS[todo.priority]}`}
             >
               {PRIORITY_LABEL[todo.priority]}
             </span>
           )}
           {todo.dueDate && (
-            <span title={`Due: ${todo.dueDate}`} className="shrink-0">
+            <span title={`Due: ${todo.dueDate}`} className="shrink-0 text-sm">
               {todo.dueDate.slice(0, 10)}
             </span>
           )}
@@ -170,7 +170,7 @@ function TodoRow({ todo, project, session, siblings }: TodoRowProps) {
               data-testid="todo-link-chip"
               onClick={(e) => { e.stopPropagation(); selectDocument(todo.link!.blueprintId); }}
               title={todo.link.blueprintId + (todo.link.taskId ? ` · ${todo.link.taskId}` : '')}
-              className="shrink-0 inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300"
+              className="shrink-0 inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-sm bg-gray-100 dark:bg-gray-800 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300"
             >
               ↳ {shortSlug(todo.link.blueprintId)}{todo.link.taskId ? ` · ${todo.link.taskId}` : ''}
             </span>
@@ -206,8 +206,6 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
     const [addInputVisible, setAddInputVisible] = useState(true);
     const addInputRef = useRef<HTMLInputElement>(null);
 
-    // Filter state
-    const [statusFilter, setStatusFilter] = useState<TodoStatus | 'all'>('all');
 
     useImperativeHandle(
       ref,
@@ -238,14 +236,13 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
       () => [...sessionTodos].sort((a, b) => a.order - b.order),
       [sessionTodos],
     );
-    const visibleTodos = useMemo(() => {
-      // The status filter replaces the old "show completed" toggle:
-      // - "all" → active todos only (hide done/completed)
-      // - a specific status (incl. "done") → just that status
-      return statusFilter === 'all'
-        ? orderedTodos.filter((t) => !t.completed && t.status !== 'done')
-        : orderedTodos.filter((t) => t.status === statusFilter);
-    }, [orderedTodos, statusFilter]);
+    // Sidebar shows active todos only; completed ones drop out of the list
+    // (they're still in the store — set via the detail pane's status dropdown,
+    // removed via Clear).
+    const visibleTodos = useMemo(
+      () => orderedTodos.filter((t) => !t.completed && t.status !== 'done'),
+      [orderedTodos],
+    );
 
     const completedCount = useMemo(
       () => sessionTodos.filter((t) => t.completed || t.status === 'done').length,
@@ -301,29 +298,16 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
         />
         {!isCollapsed && (
           <>
-            {/* Filter row */}
+            {/* Filter row — only Clear (status filter removed; completed drop out of the list) */}
             <div
               style={{ paddingLeft: '16px' }}
-              className="flex items-center gap-2 px-2 py-1 text-xs text-gray-600 dark:text-gray-400"
+              className="flex items-center justify-end gap-2 px-2 py-1 text-sm text-gray-600 dark:text-gray-400"
             >
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as TodoStatus | 'all')}
-                className="flex-1 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
-                aria-label="Filter by status"
-              >
-                <option value="all">All statuses</option>
-                <option value="backlog">Backlog</option>
-                <option value="todo">Todo</option>
-                <option value="in_progress">In progress</option>
-                <option value="blocked">Blocked</option>
-                <option value="done">Done</option>
-              </select>
               <button
                 onClick={() => setConfirmClearOpen(true)}
                 disabled={completedCount === 0}
                 className="shrink-0 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-40 disabled:hover:text-gray-600"
-                title="Clear completed todos (select the Done filter to view them)"
+                title="Clear completed todos"
               >
                 Clear
               </button>
@@ -343,7 +327,7 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
                     }
                   }}
                   placeholder="Add a todo..."
-                  className="w-full bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  className="w-full bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
                   aria-label="Add a new todo"
                 />
               </div>
@@ -352,7 +336,7 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
             {visibleTodos.length === 0 ? (
               <div
                 style={{ paddingLeft: '16px' }}
-                className="px-2 py-1 text-xs text-gray-400 dark:text-gray-500 italic"
+                className="px-2 py-1 text-sm text-gray-400 dark:text-gray-500 italic"
               >
                 {sessionTodos.length === 0 ? 'No todos yet.' : 'No matching todos.'}
               </div>
