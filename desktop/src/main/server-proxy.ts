@@ -62,6 +62,33 @@ export class ServerProxy {
   }
 
   private handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
+    const srvMatch = (req.url ?? '').match(/^\/srv\/([^/]+)(\/.*)$/);
+    if (srvMatch) {
+      const id = decodeURIComponent(srvMatch[1]);
+      const target = this.resolver ? this.resolver(id) : null;
+      if (!target) {
+        res.writeHead(404, { 'content-type': 'text/plain' });
+        res.end('unknown server');
+        return;
+      }
+      const rest = srvMatch[2];
+      const headers: http.OutgoingHttpHeaders = { ...req.headers };
+      delete headers.host;
+      if (target.token) headers['authorization'] = `Bearer ${target.token}`;
+      const proxyReq = http.request(
+        { host: target.host, port: target.port, method: req.method, path: rest, headers },
+        (proxyRes) => {
+          res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
+          proxyRes.pipe(res);
+        }
+      );
+      proxyReq.on('error', () => {
+        if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain' });
+        res.end('upstream error');
+      });
+      req.pipe(proxyReq);
+      return;
+    }
     const up = this.upstream;
     if (!up) {
       res.writeHead(503, { 'content-type': 'text/plain' });

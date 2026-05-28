@@ -88,10 +88,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   // Load session items when current session changes
   useEffect(() => {
-    if (currentSession) {
-      loadSessionItems(currentSession.project, currentSession.name);
+    if (currentSession?.serverId) {
+      loadSessionItems(currentSession.serverId, currentSession.project, currentSession.name);
     }
-  }, [currentSession, loadSessionItems]);
+  }, [currentSession, currentSession?.serverId, loadSessionItems]);
 
   // Combine diagrams, documents, and designs into items
   const items: GridItem[] = useMemo(() => {
@@ -161,19 +161,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
   );
 
   const handleRefresh = useCallback(async () => {
-    if (!currentSession) return;
+    if (!currentSession?.serverId) return;
 
     setIsRefreshing(true);
 
     try {
       // Fetch both in parallel
-      await loadSessionItems(currentSession.project, currentSession.name);
+      await loadSessionItems(currentSession.serverId, currentSession.project, currentSession.name);
     } catch (error) {
       console.error('Refresh failed:', error);
     } finally {
       setIsRefreshing(false);
     }
-  }, [currentSession, loadSessionItems]);
+  }, [currentSession, currentSession?.serverId, loadSessionItems]);
 
   return (
     <div

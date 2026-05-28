@@ -18,13 +18,14 @@ export function useDesignHistory(designId: string | null): UseDesignHistoryRetur
   const { currentSession } = useSession()
   const project = currentSession?.project ?? null
   const session = currentSession?.name ?? null
+  const serverId = currentSession?.serverId ?? null
 
   // Keep a ref to the current designId to check for staleness
   const designIdRef = useRef(designId)
   designIdRef.current = designId
 
   const fetchHistory = useCallback(async (signal?: AbortSignal) => {
-    if (!designId || !project || !session) {
+    if (!designId || !project || !session || !serverId) {
       setHistory(null)
       return
     }
@@ -33,7 +34,7 @@ export function useDesignHistory(designId: string | null): UseDesignHistoryRetur
     setError(null)
 
     try {
-      const data = await api.getDesignHistory(project, session, designId, signal)
+      const data = await api.getDesignHistory(serverId, project, session, designId, signal)
 
       // Check if designId is still current when response arrives
       if (designIdRef.current !== designId) return
@@ -52,14 +53,14 @@ export function useDesignHistory(designId: string | null): UseDesignHistoryRetur
         setIsLoading(false)
       }
     }
-  }, [designId, project, session])
+  }, [designId, project, session, serverId])
 
   const getVersionAt = useCallback(
     async (timestamp: string): Promise<string | null> => {
-      if (!designId || !project || !session) return null
+      if (!designId || !project || !session || !serverId) return null
 
       try {
-        const data = await api.getDesignVersion(project, session, designId, timestamp)
+        const data = await api.getDesignVersion(serverId, project, session, designId, timestamp)
         if (data) {
           return data.content
         }
@@ -68,7 +69,7 @@ export function useDesignHistory(designId: string | null): UseDesignHistoryRetur
       }
       return null
     },
-    [designId, project, session]
+    [designId, project, session, serverId]
   )
 
   useEffect(() => {

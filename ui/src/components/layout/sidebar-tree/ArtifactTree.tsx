@@ -540,6 +540,7 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
     if (!currentSession) return;
     try {
       const diagram = await api.getDiagram(
+        currentSession.serverId,
         currentSession.project,
         currentSession.name,
         id,
@@ -556,6 +557,7 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
     if (!currentSession) return;
     try {
       const doc = await api.getDocument(
+        currentSession.serverId,
         currentSession.project,
         currentSession.name,
         id,
@@ -884,7 +886,7 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
         const item = nodeToItem(node);
         if (!item) break;
         try {
-          await downloadArtifact(project, session, item);
+          await downloadArtifact(currentSession.serverId, project, session, item);
         } catch (err) {
           console.error('[ArtifactTree] download failed', err);
         }
@@ -894,7 +896,7 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
         const item = nodeToItem(node);
         if (!item) break;
         try {
-          await emailArtifact(project, session, item);
+          await emailArtifact(currentSession.serverId, project, session, item);
         } catch (err) {
           console.error('[ArtifactTree] email failed', err);
         }

@@ -110,12 +110,16 @@ function registerIpc(): void {
       const text = await r.text();
       let parsed: unknown = text;
       try { parsed = JSON.parse(text); } catch { /* keep text */ }
+      if (opts.path === '/api/ide/create-terminal' && r.ok && parsed && typeof parsed === 'object' && 'tmux' in (parsed as Record<string, unknown>)) {
+        store.setServerCapabilities(serverId, { tmux: Boolean((parsed as { tmux?: unknown }).tmux) });
+      }
       return { ok: r.ok, status: r.status, body: parsed };
     } catch (err) {
       console.warn(`[mc:invokeOnServer] ${serverId} ${opts.path} failed:`, err);
       return { ok: false, status: 0, body: String(err) };
     }
   });
+  ipcMain.handle('mc:getServerCapabilities', (_e, serverId: string) => store?.getServerCapabilities(serverId) ?? { tmux: false });
 }
 
 // Register the mermaid-collab:// deep-link scheme so links from browsers/Slack
@@ -123,18 +127,31 @@ function registerIpc(): void {
 app.setAsDefaultProtocolClient('mermaid-collab');
 
 let mainWindow: BrowserWindow | null = null;
+let pendingDeepLink: { project: string; session: string; srv: string | null } | null = null;
 
-/** Parse a mermaid-collab://<project>/<session> URL. Routing comes later. */
-function parseDeepLink(url: string): { project: string; session: string } | null {
+/** Parse a mermaid-collab://<project>/<session>?srv=<id> URL. */
+function parseDeepLink(url: string): { project: string; session: string; srv: string | null } | null {
   try {
     const u = new URL(url);
     const project = u.hostname;
     const session = u.pathname.replace(/^\//, '');
-    console.log(`[deeplink] project=${project} session=${session}`);
-    return { project, session };
+    const srv = u.searchParams.get('srv');
+    console.log(`[deeplink] project=${project} session=${session} srv=${srv}`);
+    return { project, session, srv };
   } catch {
     console.warn(`[deeplink] could not parse: ${url}`);
     return null;
+  }
+}
+
+function dispatchDeepLink(parsed: { project: string; session: string; srv: string | null } | null): void {
+  if (!parsed) return;
+  const srv = parsed.srv ?? (store?.list().find((e) => e.source === 'local')?.id ?? store?.getActive()?.id ?? null);
+  const payload = { srv, project: parsed.project, session: parsed.session };
+  if (mainWindow && !mainWindow.webContents.isLoading()) {
+    mainWindow.webContents.send('mc:deeplink', payload);
+  } else {
+    pendingDeepLink = { project: parsed.project, session: parsed.session, srv };
   }
 }
 
@@ -147,14 +164,14 @@ function focusMainWindow(): void {
 // Windows/Linux: a second launch forwards its argv here.
 app.on('second-instance', (_event, argv) => {
   const url = argv.find((a) => a.startsWith('mermaid-collab://'));
-  if (url) parseDeepLink(url);
+  if (url) dispatchDeepLink(parseDeepLink(url));
   focusMainWindow();
 });
 
 // macOS: deep links arrive via open-url, not argv.
 app.on('open-url', (event, url) => {
   event.preventDefault();
-  parseDeepLink(url);
+  dispatchDeepLink(parseDeepLink(url));
   focusMainWindow();
 });
 
@@ -198,6 +215,13 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
   }
+
+  mainWindow.webContents.once('did-finish-load', () => {
+    if (pendingDeepLink && mainWindow) {
+      mainWindow.webContents.send('mc:deeplink', pendingDeepLink);
+      pendingDeepLink = null;
+    }
+  });
 
   mainWindow.on('closed', () => {
     // Release all browser pane tabs so they don't leak.

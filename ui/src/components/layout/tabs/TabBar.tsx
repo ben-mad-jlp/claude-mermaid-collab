@@ -100,23 +100,26 @@ export const TabBar: React.FC<TabBarProps> = ({ onContextMenu }) => {
     // selectedXxxId untouched and the viewer kept showing the previous tab's
     // artifact — producing the "off-by-one" tab switch bug.
     if (tab.kind === 'blueprint' && cs) {
-      selectDocumentWithContent(cs.project, cs.name, tab.artifactId);
+      if (!cs.serverId) return;
+      selectDocumentWithContent(cs.serverId, cs.project, cs.name, tab.artifactId);
       return;
     }
     if (tab.kind === 'task-graph') {
       return;
     }
     if (tab.kind === 'task-details' && cs) {
-      selectDocumentWithContent(cs.project, cs.name, tab.artifactId);
+      if (!cs.serverId) return;
+      selectDocumentWithContent(cs.serverId, cs.project, cs.name, tab.artifactId);
       return;
     }
     if (tab.kind === 'artifact' && tab.artifactType && cs) {
-      const { project, name } = cs;
+      const { project, name, serverId } = cs;
+      if (!serverId) return;
       switch (tab.artifactType) {
-        case 'diagram': selectDiagramWithContent(project, name, tab.artifactId); break;
-        case 'document': selectDocumentWithContent(project, name, tab.artifactId); break;
-        case 'design': selectDesignWithContent(project, name, tab.artifactId); break;
-        case 'spreadsheet': selectSpreadsheetWithContent(project, name, tab.artifactId); break;
+        case 'diagram': selectDiagramWithContent(serverId, project, name, tab.artifactId); break;
+        case 'document': selectDocumentWithContent(serverId, project, name, tab.artifactId); break;
+        case 'design': selectDesignWithContent(serverId, project, name, tab.artifactId); break;
+        case 'spreadsheet': selectSpreadsheetWithContent(serverId, project, name, tab.artifactId); break;
         case 'snippet': s.selectSnippet(tab.artifactId); break;
       }
     }

@@ -97,7 +97,7 @@ export const SpreadsheetEditor: React.FC<SpreadsheetEditorProps> = ({ spreadshee
   useEffect(() => {
     if (spreadsheet && !spreadsheet.content && currentSession) {
       api
-        .getSpreadsheet(currentSession.project, currentSession.name, spreadsheet.id)
+        .getSpreadsheet(currentSession.serverId, currentSession.project, currentSession.name, spreadsheet.id)
         .then((full) => {
           if (full?.content) updateSpreadsheet(spreadsheet.id, { content: full.content });
         })

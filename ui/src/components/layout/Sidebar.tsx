@@ -3,6 +3,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useTabsStore, useSessionTabs } from '@/stores/tabsStore';
 import { SubscriptionsPanel } from '@/components/layout/SubscriptionsPanel';
+import { SupervisorPanel } from '@/components/layout/SupervisorPanel';
 import { ServersTreeSection } from '@/components/layout/sidebar-tree/ServersTreeSection';
 import { ArtifactTree } from '@/components/layout/sidebar-tree/ArtifactTree';
 import { WorktreeBadge } from '@/components/layout/WorktreeBadge';
@@ -58,7 +59,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 artifactId: vibeInstructionsDoc.id,
                 name: vibeInstructionsDoc.name,
               });
-              selectDocumentWithContent(currentSession.project, currentSession.name, vibeInstructionsDoc.id);
+              selectDocumentWithContent(currentSession.serverId, currentSession.project, currentSession.name, vibeInstructionsDoc.id);
             }}
             className={`
               w-full text-left px-3 py-2 rounded-lg
@@ -79,6 +80,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       )}
       <ServersTreeSection />
+      <SupervisorPanel currentProject={currentSession?.project} currentSession={currentSession?.name} />
       <SubscriptionsPanel currentProject={currentSession?.project} />
       <ArtifactTree />
     </aside>

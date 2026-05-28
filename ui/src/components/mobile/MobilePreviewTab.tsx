@@ -79,9 +79,9 @@ export const MobilePreviewTab: React.FC<MobilePreviewTabProps> = ({
     (item: Item) => {
       if (!currentSession) return;
       if (item.type === 'diagram') {
-        selectDiagramWithContent(currentSession.project, currentSession.name, item.id);
+        selectDiagramWithContent(currentSession.serverId, currentSession.project, currentSession.name, item.id);
       } else {
-        selectDocumentWithContent(currentSession.project, currentSession.name, item.id);
+        selectDocumentWithContent(currentSession.serverId, currentSession.project, currentSession.name, item.id);
       }
       setIsDrawerOpen(false);
     },

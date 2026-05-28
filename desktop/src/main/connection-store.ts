@@ -15,6 +15,10 @@ interface Instance {
   serverVersion: string;
 }
 
+export interface ServerCapabilities {
+  tmux: boolean;
+}
+
 export interface ServerEntry {
   id: string;
   label: string;
@@ -73,6 +77,10 @@ interface PersistedEntry extends Omit<ServerEntry, 'token'> {
  */
 export class ConnectionStore {
   private entries = new Map<string, ServerEntry>();
+  // Runtime-learned server capabilities (e.g. tmux support). NOT persisted —
+  // re-detected on each app launch since features may be enabled/disabled
+  // server-side between sessions.
+  private capabilities = new Map<string, ServerCapabilities>();
   private activeId: string | null = null;
   // host:port of local servers the user explicitly forgot, so refreshLocal
   // doesn't auto-re-add them while the instance is still alive.
@@ -172,8 +180,19 @@ export class ConnectionStore {
     // re-adds it from the live registry. Manual servers just delete (no rediscovery).
     if (e?.source === 'local') this.forgotten.add(`${e.host}:${e.port}`);
     this.entries.delete(id);
+    this.capabilities.delete(id);
     if (this.activeId === id) this.activeId = null;
     void this.persist();
+  }
+
+  getServerCapabilities(id: string): ServerCapabilities {
+    return this.capabilities.get(id) ?? { tmux: false };
+  }
+
+  setServerCapabilities(id: string, caps: Partial<ServerCapabilities>): void {
+    if (!this.entries.has(id)) return;
+    const current = this.capabilities.get(id) ?? { tmux: false };
+    this.capabilities.set(id, { ...current, ...caps });
   }
 
   setActive(id: string): void {
@@ -253,6 +272,7 @@ export class ConnectionStore {
     for (const [id, e] of this.entries) {
       if (e.source === 'local' && !liveKeys.has(`${e.host}:${e.port}`)) {
         this.entries.delete(id);
+        this.capabilities.delete(id);
         if (this.activeId === id) this.activeId = null;
       }
     }

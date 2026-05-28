@@ -22,6 +22,16 @@ import { ServerIcon } from '@/components/ServerIcon';
 
 const CLAUDE_PIX_BASE = '/claudepix';
 
+const capsCache = new Map<string, { tmux: boolean }>();
+async function fetchCapabilities(serverId: string): Promise<{ tmux: boolean }> {
+  if (capsCache.has(serverId)) return capsCache.get(serverId)!;
+  const mc = (window as any).mc;
+  if (!mc?.getServerCapabilities) return { tmux: true }; // browser fallback: same-origin to its own server
+  const caps = await mc.getServerCapabilities(serverId).catch(() => ({ tmux: false }));
+  capsCache.set(serverId, caps);
+  return caps;
+}
+
 const ANIMATIONS: Record<string, string[]> = {
   active:     ['work_coding.html', 'dance_bounce_dj.html', 'dance_sway_dj.html', 'dance_djmix.html'],
   waiting:    ['expression_wink.html', 'expression_sleep.html', 'idle_breathe.html', 'idle_blink.html', 'idle_look_around.html'],
@@ -196,29 +206,35 @@ const SubscriptionRow: React.FC<{
         onDragStart={(e) => onDragStart(e, subKey)}
         onDragOver={(e) => onDragOver(e, subKey)}
         onDragEnd={onDragEnd}
-        onClick={() => {
+        onClick={async () => {
           // Per-server IPC: keep "active server" unchanged when clicking an
           // off-active row. Terminal + browser-focus get routed at sub.serverId.
           onNavigate(sub);
           const mc = (window as any).mc;
+          const caps = await fetchCapabilities(sub.serverId);
+          if (caps.tmux) {
+            if (mc?.invokeOnServer) {
+              void mc.invokeOnServer(sub.serverId, {
+                path: '/api/ide/create-terminal',
+                method: 'POST',
+                body: { session: sub.session, project: sub.project },
+              });
+            } else {
+              fetch('/api/ide/create-terminal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session: sub.session, project: sub.project }),
+              }).catch(() => {});
+            }
+          }
+          // Always fire browser focus — not gated by tmux capability.
           if (mc?.invokeOnServer) {
-            void mc.invokeOnServer(sub.serverId, {
-              path: '/api/ide/create-terminal',
-              method: 'POST',
-              body: { session: sub.session, project: sub.project },
-            });
             void mc.invokeOnServer(sub.serverId, {
               path: '/api/browser/focus-tab',
               method: 'POST',
               body: { session: sub.session },
             });
           } else {
-            // Plain browser fallback (no Electron bridge): relative fetch.
-            fetch('/api/ide/create-terminal', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ session: sub.session, project: sub.project }),
-            }).catch(() => {});
             fetch('/api/browser/focus-tab', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -296,8 +312,10 @@ const SubscriptionRow: React.FC<{
       {/* Action buttons — outside the card, own bordered section, square columns */}
       <div className="flex items-center flex-shrink-0 gap-1 px-1">
         <button
-          onClick={(e) => {
+          onClick={async (e) => {
             e.stopPropagation();
+            const caps = await fetchCapabilities(sub.serverId);
+            if (!caps.tmux) return;
             const mc = (window as any).mc;
             if (mc?.invokeOnServer) {
               void mc.invokeOnServer(sub.serverId, {
@@ -330,7 +348,7 @@ const SubscriptionRow: React.FC<{
 
 export interface SubscriptionsPanelProps {
   currentProject?: string;
-  onNavigate?: (project: string, session: string) => void;
+  onNavigate?: (serverId: string, project: string, session: string) => void;
 }
 
 export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentProject, onNavigate }) => {
@@ -574,7 +592,7 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
       }
       const target = sessions.find((s) => s.project === sub.project && s.name === sub.session);
       if (target) setCurrentSession(target);
-      onNavigate?.(sub.project, sub.session);
+      onNavigate?.(sub.serverId ?? activeId ?? '', sub.project, sub.session);
     },
     [sessions, setCurrentSession, onNavigate, activeId],
   );
@@ -614,9 +632,11 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
         {/* Open all watched sessions in IDE */}
         {projectSubscriptions.length > 0 && (
           <button
-            onClick={() => {
+            onClick={async () => {
               const mc = (window as any).mc;
               for (const [, sub] of projectSubscriptions) {
+                const caps = await fetchCapabilities(sub.serverId);
+                if (!caps.tmux) continue;
                 if (mc?.invokeOnServer && sub.serverId) {
                   void mc.invokeOnServer(sub.serverId, {
                     path: '/api/ide/create-terminal',

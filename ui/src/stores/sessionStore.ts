@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import { Session, Diagram, Document, CollabState, Snippet, Embed, SessionTodo, Image } from '../types';
 import { api } from '../lib/api';
 import { getSessionItemsCache } from '@/lib/sessionItemsCache';
@@ -49,6 +50,7 @@ export interface SessionState {
   currentSession: Session | null;
   isLoading: boolean;
   error: string | null;
+  hydrated: boolean;
 
   // Diagrams in current session
   diagrams: Diagram[];
@@ -163,6 +165,9 @@ export interface SessionState {
   // Clear all session data
   clearSession: () => void;
 
+  // Validate current session against known servers; clears if invalid
+  validateAgainstServers: (servers: Array<{ id: string; status: string }>) => boolean;
+
   // Reset store to initial state
   reset: () => void;
 }
@@ -175,6 +180,7 @@ const initialState = {
   currentSession: null,
   isLoading: false,
   error: null,
+  hydrated: false,
   diagrams: [],
   selectedDiagramId: null,
   documents: [],
@@ -206,7 +212,7 @@ const initialState = {
  *
  * All state updates are immutable and can be subscribed to for reactivity
  */
-export const useSessionStore = create<SessionState>((set, get) => ({
+export const useSessionStore = create<SessionState>()(persist((set, get) => ({
   ...initialState,
 
   // Sessions list management
@@ -582,8 +588,25 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     });
   },
 
+  // Validate against known servers
+  validateAgainstServers: (servers: Array<{ id: string; status: string }>) => {
+    const { currentSession } = get();
+    if (!currentSession) return true;
+    const server = servers.find((s) => s.id === currentSession.serverId);
+    if (!server || server.status !== 'online') {
+      get().clearSession();
+      return false;
+    }
+    return true;
+  },
+
   // Reset store to initial state
   reset: () => set(initialState),
+}), {
+  name: 'session-current',
+  version: 1,
+  partialize: (s) => ({ currentSession: s.currentSession }),
+  onRehydrateStorage: () => (state) => { if (state) state.hydrated = true; },
 }));
 
 if (typeof window !== 'undefined') {

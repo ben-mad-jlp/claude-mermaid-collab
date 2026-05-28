@@ -13,9 +13,11 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { resetWebSocketClient } from '@/lib/websocket';
+import { useSessionStore } from '@/stores/sessionStore';
 
 export interface ServerInfo {
   id: string;
@@ -118,6 +120,37 @@ export function ServerProvider({ children }: { children: React.ReactNode }) {
     const t = setInterval(() => void refresh(), 10_000);
     return () => clearInterval(t);
   }, [refresh, mc]);
+
+  // Once the session store has rehydrated AND we've loaded the server list at
+  // least once, validate the persisted currentSession against the known servers.
+  // If its server is gone (or never existed), validateAgainstServers clears it
+  // and the normal empty-session UI takes over. We track the last validated
+  // snapshot by stringified ids so we don't re-run for identical lists.
+  const lastValidatedRef = useRef<string | null>(null);
+  const loadedOnceRef = useRef(false);
+  useEffect(() => {
+    if (servers.length > 0 || activeId !== null) loadedOnceRef.current = true;
+  }, [servers, activeId]);
+  useEffect(() => {
+    if (!loadedOnceRef.current) return;
+    const { hydrated, validateAgainstServers } = useSessionStore.getState();
+    if (!hydrated) return;
+    const key = servers.map((s) => s.id).sort().join('|');
+    if (lastValidatedRef.current === key) return;
+    lastValidatedRef.current = key;
+    validateAgainstServers(servers);
+  }, [servers]);
+  // Also re-check when hydration flips to true after the first server-list load.
+  useEffect(() => {
+    const unsub = useSessionStore.subscribe((state, prev) => {
+      if (state.hydrated && !prev.hydrated && loadedOnceRef.current) {
+        lastValidatedRef.current = null; // force re-validate on next servers tick
+        state.validateAgainstServers(servers);
+        lastValidatedRef.current = servers.map((s) => s.id).sort().join('|');
+      }
+    });
+    return unsub;
+  }, [servers]);
 
   const switchServer = useCallback(
     async (id: string) => {

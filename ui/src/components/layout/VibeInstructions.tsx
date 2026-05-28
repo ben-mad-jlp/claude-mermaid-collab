@@ -40,7 +40,7 @@ export function VibeInstructions({ vsCodeMode }: VibeInstructionsProps) {
         artifactId: doc.id,
         name: doc.name,
       });
-      selectDocumentWithContent(currentSession.project, currentSession.name, doc.id);
+      selectDocumentWithContent(currentSession.serverId, currentSession.project, currentSession.name, doc.id);
     }
   }
 

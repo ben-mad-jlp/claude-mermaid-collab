@@ -25,43 +25,23 @@ export interface UseDataLoaderReturn {
   /** Load all available sessions from the API */
   loadSessions: () => Promise<void>;
   /** Load diagrams, documents, designs, and spreadsheets for a specific session */
-  loadSessionItems: (project: string, session: string) => Promise<void>;
+  loadSessionItems: (serverId: string, project: string, session: string) => Promise<void>;
   /** Refresh session items while preserving current selection */
-  refreshSessionItems: (project: string, session: string) => Promise<void>;
+  refreshSessionItems: (serverId: string, project: string, session: string) => Promise<void>;
   /** Select a diagram and fetch its content */
-  selectDiagramWithContent: (project: string, session: string, id: string) => Promise<void>;
+  selectDiagramWithContent: (serverId: string, project: string, session: string, id: string) => Promise<void>;
   /** Select a document and fetch its content */
-  selectDocumentWithContent: (project: string, session: string, id: string) => Promise<void>;
+  selectDocumentWithContent: (serverId: string, project: string, session: string, id: string) => Promise<void>;
   /** Select a design and fetch its content */
-  selectDesignWithContent: (project: string, session: string, id: string) => Promise<void>;
+  selectDesignWithContent: (serverId: string, project: string, session: string, id: string) => Promise<void>;
   /** Select a spreadsheet and fetch its content */
-  selectSpreadsheetWithContent: (project: string, session: string, id: string) => Promise<void>;
+  selectSpreadsheetWithContent: (serverId: string, project: string, session: string, id: string) => Promise<void>;
 }
 
 /**
  * Hook to load sessions and session items from the API
  *
  * @returns Object with loading state, error state, and load functions
- *
- * @example
- * ```tsx
- * function SessionLoader() {
- *   const { isLoading, error, loadSessions, loadSessionItems } = useDataLoader();
- *
- *   useEffect(() => {
- *     loadSessions();
- *   }, [loadSessions]);
- *
- *   const handleSessionSelect = (session) => {
- *     loadSessionItems(session.project, session.name);
- *   };
- *
- *   if (isLoading) return <div>Loading...</div>;
- *   if (error) return <div>Error: {error}</div>;
- *
- *   return <div>Sessions loaded!</div>;
- * }
- * ```
  */
 export function useDataLoader(): UseDataLoaderReturn {
   const [isLoading, setIsLoading] = useState(false);
@@ -108,9 +88,10 @@ export function useDataLoader(): UseDataLoaderReturn {
    * Load collab session state
    */
   const loadCollabState = useCallback(
-    async (project: string, session: string): Promise<import('@/types').CollabState | null> => {
+    async (serverId: string, project: string, session: string): Promise<import('@/types').CollabState | null> => {
+      if (!serverId || !session) return null;
       try {
-        const state = await api.getSessionState(project, session);
+        const state = await api.getSessionState(serverId, project, session);
         setCollabState(state);
         return state;
       } catch (err) {
@@ -126,7 +107,8 @@ export function useDataLoader(): UseDataLoaderReturn {
    * Load diagrams, documents, and designs for a specific session
    */
   const loadSessionItems = useCallback(
-    async (project: string, session: string) => {
+    async (serverId: string, project: string, session: string) => {
+      if (!serverId || !session) return;
       setError(null);
       let showedSpinner = false;
 
@@ -149,13 +131,13 @@ export function useDataLoader(): UseDataLoaderReturn {
 
       try {
         const [diagrams, documents, designs, spreadsheets, snippets, embeds, images] = await Promise.all([
-          api.getDiagrams(project, session),
-          api.getDocuments(project, session),
-          api.getDesigns(project, session),
-          api.getSpreadsheets(project, session),
-          api.getSnippets(project, session),
-          embedsApi.fetchEmbeds(session, project),
-          api.listImages(project, session),
+          api.getDiagrams(serverId, project, session),
+          api.getDocuments(serverId, project, session),
+          api.getDesigns(serverId, project, session),
+          api.getSpreadsheets(serverId, project, session),
+          api.getSnippets(serverId, project, session),
+          embedsApi.fetchEmbeds(serverId, session, project),
+          api.listImages(serverId, project, session),
         ]);
         setDiagrams(diagrams);
         setDocuments(documents);
@@ -166,7 +148,7 @@ export function useDataLoader(): UseDataLoaderReturn {
         setImages(images);
 
         // Also load collab state — capture return value directly to avoid cross-session store races
-        const collabState = await loadCollabState(project, session);
+        const collabState = await loadCollabState(serverId, project, session);
 
         // Phase 2 — write fresh snapshot to cache
         const snapshot: SessionItemsSnapshot = {
@@ -195,12 +177,13 @@ export function useDataLoader(): UseDataLoaderReturn {
    * Refresh session items while preserving current selection
    */
   const refreshSessionItems = useCallback(
-    async (project: string, session: string) => {
+    async (serverId: string, project: string, session: string) => {
+      if (!serverId || !session) return;
       // Capture current selection
       const { selectedDiagramId, selectedDocumentId, selectedDesignId, selectedSpreadsheetId } = useSessionStore.getState();
 
       // Load fresh data
-      await loadSessionItems(project, session);
+      await loadSessionItems(serverId, project, session);
 
       // Restore selection if items still exist
       const { diagrams: newDiagrams, documents: newDocuments, designs: newDesigns, spreadsheets: newSpreadsheets } = useSessionStore.getState();
@@ -222,13 +205,13 @@ export function useDataLoader(): UseDataLoaderReturn {
    * Select a diagram and fetch its full content
    */
   const selectDiagramWithContent = useCallback(
-    async (project: string, session: string, id: string) => {
+    async (serverId: string, project: string, session: string, id: string) => {
       // First, set the selection (for immediate UI feedback)
       selectDiagram(id);
 
       // Then fetch the full content
       try {
-        const diagram = await api.getDiagram(project, session, id);
+        const diagram = await api.getDiagram(serverId, project, session, id);
         if (diagram) {
           // Update the diagram in the store with its content
           updateDiagram(id, { content: diagram.content });
@@ -245,13 +228,13 @@ export function useDataLoader(): UseDataLoaderReturn {
    * Select a document and fetch its full content
    */
   const selectDocumentWithContent = useCallback(
-    async (project: string, session: string, id: string) => {
+    async (serverId: string, project: string, session: string, id: string) => {
       // First, set the selection (for immediate UI feedback)
       selectDocument(id);
 
       // Then fetch the full content
       try {
-        const document = await api.getDocument(project, session, id);
+        const document = await api.getDocument(serverId, project, session, id);
         if (document) {
           // Update the document in the store with its content
           updateDocument(id, { content: document.content });
@@ -268,13 +251,13 @@ export function useDataLoader(): UseDataLoaderReturn {
    * Select a design and fetch its full content
    */
   const selectDesignWithContent = useCallback(
-    async (project: string, session: string, id: string) => {
+    async (serverId: string, project: string, session: string, id: string) => {
       // First, set the selection (for immediate UI feedback)
       selectDesign(id);
 
       // Then fetch the full content
       try {
-        const design = await api.getDesign(project, session, id);
+        const design = await api.getDesign(serverId, project, session, id);
         if (design) {
           // Update the design in the store with its content
           updateDesign(id, { content: design.content });
@@ -291,11 +274,11 @@ export function useDataLoader(): UseDataLoaderReturn {
    * Select a spreadsheet and fetch its full content
    */
   const selectSpreadsheetWithContent = useCallback(
-    async (project: string, session: string, id: string) => {
+    async (serverId: string, project: string, session: string, id: string) => {
       selectSpreadsheet(id);
 
       try {
-        const spreadsheet = await api.getSpreadsheet(project, session, id);
+        const spreadsheet = await api.getSpreadsheet(serverId, project, session, id);
         if (spreadsheet) {
           updateSpreadsheet(id, { content: spreadsheet.content });
         }

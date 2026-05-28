@@ -206,7 +206,7 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
   // Hydrate snippet content from server if not loaded (list endpoint omits content)
   useEffect(() => {
     if (snippet && !snippet.content && currentSession) {
-      api.getSnippet(currentSession.project, currentSession.name, snippet.id)
+      api.getSnippet(currentSession.serverId, currentSession.project, currentSession.name, snippet.id)
         .then(full => {
           if (full?.content) storeUpdateSnippet(snippet.id, { content: full.content });
         })

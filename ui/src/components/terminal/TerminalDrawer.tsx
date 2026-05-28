@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useTerminalStore } from '@/stores/terminalStore';
 import { useServer } from '@/contexts/ServerContext';
@@ -22,14 +23,62 @@ export function TerminalDrawer() {
   const currentSession = useSessionStore((s) => s.currentSession);
   const { servers, activeId } = useServer();
 
-  const openForActive = () => {
-    if (!currentSession) return;
-    if (!activeId) {
-      console.warn('[TerminalDrawer] no active server — cannot open terminal');
-      return;
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [focusedIdx, setFocusedIdx] = useState(0);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+
+  const menuServers = useMemo(() => {
+    const online = servers.filter((s) => s.status === 'online');
+    return online.length > 0 ? online : servers;
+  }, [servers]);
+
+  const defaultIdx = useMemo(() => {
+    const preferred = currentSession?.serverId;
+    if (preferred) {
+      const i = menuServers.findIndex((s) => s.id === preferred);
+      if (i >= 0) return i;
     }
-    const label = servers.find((s) => s.id === activeId)?.label;
-    void openFor(currentSession.project, currentSession.name, { serverId: activeId, serverLabel: label });
+    const local = menuServers.findIndex((s) => s.id === 'local');
+    if (local >= 0) return local;
+    return 0;
+  }, [menuServers, currentSession?.serverId]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    setFocusedIdx(defaultIdx);
+    const onDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (menuRef.current?.contains(target)) return;
+      if (triggerRef.current?.contains(target)) return;
+      setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [menuOpen, defaultIdx]);
+
+  const selectServer = (s: typeof menuServers[number]) => {
+    if (currentSession) {
+      void openFor(currentSession.project, currentSession.name, { serverId: s.id, serverLabel: s.label });
+    }
+    setMenuOpen(false);
+  };
+
+  const onMenuKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setFocusedIdx((i) => (i + 1) % menuServers.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setFocusedIdx((i) => (i - 1 + menuServers.length) % menuServers.length);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const s = menuServers[focusedIdx];
+      if (s) selectServer(s);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setMenuOpen(false);
+    }
   };
 
   // No auto-open: clicking a watched row or pressing the + button are the
@@ -83,18 +132,61 @@ export function TerminalDrawer() {
           );
         })}
 
-        {/* New tab button */}
-        <button
-          type="button"
-          onClick={() => openForActive()}
-          title="New terminal"
-          style={{
-            cursor: 'pointer', color: '#6e7681', background: 'none',
-            border: 'none', padding: '4px 8px', fontSize: 16, lineHeight: 1,
-          }}
-        >
-          +
-        </button>
+        {/* New tab dropdown */}
+        <div style={{ position: 'relative' }}>
+          <button
+            ref={triggerRef}
+            type="button"
+            onClick={() => setMenuOpen((v) => !v)}
+            title="New terminal"
+            style={{
+              cursor: 'pointer', color: '#6e7681', background: 'none',
+              border: 'none', padding: '4px 8px', fontSize: 14, lineHeight: 1,
+              display: 'inline-flex', alignItems: 'center', gap: 2,
+            }}
+          >
+            <span style={{ fontSize: 16 }}>+</span>
+            <span style={{ fontSize: 10 }}>▾</span>
+          </button>
+          {menuOpen && (
+            <div
+              ref={(el) => {
+                menuRef.current = el;
+                if (el) el.focus();
+              }}
+              tabIndex={-1}
+              onKeyDown={onMenuKeyDown}
+              role="menu"
+              style={{
+                position: 'absolute', top: '100%', left: 0, zIndex: 1000,
+                marginTop: 2, minWidth: 160,
+                background: '#161b22', border: '1px solid #30363d',
+                borderRadius: 4, padding: 4, boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+                outline: 'none',
+              }}
+            >
+              {menuServers.map((s, i) => (
+                <div
+                  key={s.id}
+                  role="menuitem"
+                  onMouseEnter={() => setFocusedIdx(i)}
+                  onClick={() => selectServer(s)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    padding: '4px 8px', cursor: 'pointer', fontSize: 12,
+                    color: '#c9d1d9',
+                    background: i === focusedIdx ? '#30363d' : 'transparent',
+                    borderLeft: i === focusedIdx ? '2px solid #58a6ff' : '2px solid transparent',
+                    borderRadius: 2,
+                  }}
+                >
+                  <ServerIcon name={s.icon} size={14} />
+                  <span>{s.label}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Spacer */}
         <div style={{ flex: 1 }} />

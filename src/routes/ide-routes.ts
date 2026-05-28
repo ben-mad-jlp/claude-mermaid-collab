@@ -63,18 +63,58 @@ export async function handleIdeRoutes(req: Request, url: URL, wsHandler: WebSock
         return jsonError('project is required', 400);
       }
       const tmuxSession = tmuxBaseName(project, session);
-      const proc = Bun.spawn(
-        ['tmux', 'new-session', '-d', '-s', tmuxSession],
-        { stdout: 'ignore', stderr: 'ignore' }
-      );
-      await proc.exited; // ok if it fails (session already exists)
+      let tmuxAvailable = true;
+      try {
+        const proc = Bun.spawn(
+          ['tmux', 'new-session', '-d', '-s', tmuxSession],
+          { stdout: 'ignore', stderr: 'ignore' }
+        );
+        await proc.exited; // ok if it fails (session already exists)
+      } catch (e: any) {
+        // tmux not installed on this host (ENOENT) or otherwise unspawnable —
+        // degrade gracefully: still broadcast the WS event so any IDE-side
+        // listener can react, and return 200 so the client doesn't see a 500.
+        tmuxAvailable = false;
+        console.warn(
+          `[ide/create-terminal] tmux spawn failed (${e?.code ?? 'unknown'}): ${e?.message ?? String(e)} — treating as soft no-op`
+        );
+      }
       wsHandler.broadcastToChannel('ide', {
         type: 'ide_open_terminal',
         session,
         project,
         tmuxSession,
       });
-      return Response.json({ success: true });
+      return Response.json({ success: true, tmux: tmuxAvailable });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  if (url.pathname === '/api/ide/tmux-send-keys' && req.method === 'POST') {
+    try {
+      const { project, session, text } = await req.json() as { project?: string; session?: string; text?: string };
+      if (!project || typeof project !== 'string') {
+        return jsonError('project is required', 400);
+      }
+      if (!session || typeof session !== 'string') {
+        return jsonError('session is required', 400);
+      }
+      if (!text || typeof text !== 'string') {
+        return jsonError('text is required', 400);
+      }
+      const tmuxSession = tmuxBaseName(project, session);
+      try {
+        const check = Bun.spawn(['tmux', 'has-session', '-t', tmuxSession], { stdout: 'ignore', stderr: 'ignore' });
+        const code = await check.exited;
+        if (code !== 0) return jsonError('tmux session not found', 404);
+        const send = Bun.spawn(['tmux', 'send-keys', '-t', tmuxSession, text, 'Enter'], { stdout: 'ignore', stderr: 'ignore' });
+        await send.exited;
+      } catch (e: any) {
+        console.warn(`[ide/tmux-send-keys] tmux spawn failed (${e?.code ?? 'unknown'}): ${e?.message ?? String(e)} — treating as soft no-op`);
+        return Response.json({ success: true, tmux: false });
+      }
+      return Response.json({ success: true, tmux: true });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }

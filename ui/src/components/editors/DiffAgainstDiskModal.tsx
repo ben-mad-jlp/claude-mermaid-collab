@@ -19,6 +19,7 @@ export interface DiffAgainstDiskModalProps {
   filePath: string;
   projectPath: string;
   sessionName: string;
+  serverId: string;
 }
 
 interface ParsedSnippet {
@@ -56,6 +57,7 @@ export const DiffAgainstDiskModal: React.FC<DiffAgainstDiskModalProps> = ({
   filePath,
   projectPath,
   sessionName,
+  serverId,
 }) => {
   const [parsed, setParsed] = useState<ParsedSnippet>({ code: '', originalCode: '', diskCode: '' });
   const [loading, setLoading] = useState(false);
@@ -75,7 +77,7 @@ export const DiffAgainstDiskModal: React.FC<DiffAgainstDiskModalProps> = ({
 
     (async () => {
       try {
-        const snippet = await api.getSnippet(projectPath, sessionName, snippetId);
+        const snippet = await api.getSnippet(serverId, projectPath, sessionName, snippetId);
         if (cancelled) return;
         if (!snippet) {
           setError('Snippet not found');
@@ -94,7 +96,7 @@ export const DiffAgainstDiskModal: React.FC<DiffAgainstDiskModalProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [open, snippetId, projectPath, sessionName]);
+  }, [open, snippetId, projectPath, sessionName, serverId]);
 
   // Escape key handler
   const onCloseRef = useRef(onClose);

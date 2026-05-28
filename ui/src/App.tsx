@@ -74,7 +74,7 @@ import { shouldRefetchTodos, type TodoUpdatedEvent } from '@/lib/todoEvents';
 const notifiedContextThreshold = new Set<string>();
 
 // Import dialogs
-import { SessionCleanupDialog, type CleanupAction, CreateSessionDialog } from '@/components/dialogs';
+import { SessionCleanupDialog, type CleanupAction, CreateSessionDialog, AddProjectDialog } from '@/components/dialogs';
 
 /**
  * Error Boundary Component
@@ -289,7 +289,7 @@ const App: React.FC = () => {
   // 2) Drive WatchAggregator from the union of subscription serverIds — the
   //    aggregator opens a WS to every server represented in the watch list.
   //    Replaces the deleted watchStore.watchedIds → mc.setWatchedServers path.
-  const { activeId: activeServerId } = useServer();
+  const { activeId: activeServerId, servers } = useServer();
   const subscriptionsForWatch = useSubscriptionStore((s) => s.subscriptions);
   useEffect(() => {
     const mc = (window as any).mc;
@@ -419,7 +419,11 @@ const App: React.FC = () => {
   const [createSessionDialog, setCreateSessionDialog] = useState<{
     project: string;
     suggestedName: string;
+    defaultServerId: string;
   } | null>(null);
+
+  // Add project dialog state
+  const [addProjectOpen, setAddProjectOpen] = useState(false);
 
   // Load registered projects from API
   const loadProjects = useCallback(async () => {
@@ -957,18 +961,11 @@ const App: React.FC = () => {
         }
 
         case 'claude_session_registered': {
-          const { claudeSessionId, project, session, claudePid } = message as any;
-          // Active-server WS doesn't carry serverId — tag with our active id.
-          if (activeServerId) {
-            useSubscriptionStore.getState().updateStatus(activeServerId, claudeSessionId, 'active', project, session, claudePid);
-          }
+          // No-op: aggregator handles subscription status updates.
           break;
         }
         case 'claude_session_status': {
           const { claudeSessionId, project, session, status } = message as any;
-          if (activeServerId) {
-            useSubscriptionStore.getState().updateStatus(activeServerId, claudeSessionId, status, project, session);
-          }
           if ((status === 'waiting' || status === 'permission') && document.hidden) {
             const key = activeServerId ? `${activeServerId}:${project}:${session}` : `${project}:${session}`;
             if (useSubscriptionStore.getState().subscriptions[key]) {
@@ -986,9 +983,6 @@ const App: React.FC = () => {
 
         case 'claude_context_update': {
           const { project, session, contextPercent } = message as any;
-          if (activeServerId) {
-            useSubscriptionStore.getState().updateContextPercent(activeServerId, project, session, contextPercent);
-          }
           const key = activeServerId ? `${activeServerId}:${project}:${session}` : `${project}:${session}`;
           if (useSubscriptionStore.getState().subscriptions[key]) {
             const criticalKey = `${key}:critical`;
@@ -1293,22 +1287,24 @@ const App: React.FC = () => {
   // only and `selectDocument` / `selectDiagram` etc. don't fetch content).
   useEffect(() => {
     if (!currentSession) return;
+    if (!currentSession.serverId) return;
     const project = currentSession.project || '';
     (async () => {
-      await loadSessionItems(project, currentSession.name);
+      await loadSessionItems(currentSession.serverId, project, currentSession.name);
       const entry = useTabsStore.getState().bySession[sessionKey(project, currentSession.name)];
       if (!entry?.activeTabId) return;
       const tab = entry.tabs.find((t) => t.id === entry.activeTabId);
       if (!tab || tab.kind !== 'artifact' || !tab.artifactType) return;
       switch (tab.artifactType) {
-        case 'document': selectDocumentWithContent(project, currentSession.name, tab.artifactId); break;
-        case 'diagram': selectDiagramWithContent(project, currentSession.name, tab.artifactId); break;
-        case 'design': selectDesignWithContent(project, currentSession.name, tab.artifactId); break;
-        case 'spreadsheet': selectSpreadsheetWithContent(project, currentSession.name, tab.artifactId); break;
+        case 'document': selectDocumentWithContent(currentSession.serverId, project, currentSession.name, tab.artifactId); break;
+        case 'diagram': selectDiagramWithContent(currentSession.serverId, project, currentSession.name, tab.artifactId); break;
+        case 'design': selectDesignWithContent(currentSession.serverId, project, currentSession.name, tab.artifactId); break;
+        case 'spreadsheet': selectSpreadsheetWithContent(currentSession.serverId, project, currentSession.name, tab.artifactId); break;
       }
     })();
   }, [
     currentSession,
+    currentSession?.serverId,
     loadSessionItems,
     selectDocumentWithContent,
     selectDiagramWithContent,
@@ -1339,15 +1335,15 @@ const App: React.FC = () => {
   // Handle creating a new session in a specific project
   const handleCreateSession = useCallback((project: string) => {
     const suggestedName = generateSessionName();
-    setCreateSessionDialog({ project, suggestedName });
-  }, []);
+    setCreateSessionDialog({ project, suggestedName, defaultServerId: activeServerId ?? 'local' });
+  }, [activeServerId]);
 
   // Handle create session dialog confirmation
-  const handleCreateSessionConfirm = useCallback(async (name: string, useRenderUI: boolean) => {
+  const handleCreateSessionConfirm = useCallback(async (name: string, useRenderUI: boolean, serverId: string) => {
     if (!createSessionDialog) return;
 
     try {
-      const newSession = await api.createSession(createSessionDialog.project, name, useRenderUI);
+      const newSession = await api.createSession(createSessionDialog.project, name, serverId, useRenderUI);
       // Refresh sessions list and select the new session
       await loadSessions();
       setCurrentSession(newSession);
@@ -1363,30 +1359,33 @@ const App: React.FC = () => {
     setCreateSessionDialog(null);
   }, []);
 
-  // Handle adding a new project
-  const handleAddProject = useCallback(async () => {
-    const projectPath = window.prompt('Enter project path:', '/Users');
+  // Handle adding a new project — opens the picker dialog
+  const handleAddProject = useCallback(() => {
+    setAddProjectOpen(true);
+  }, []);
 
-    // User cancelled or entered empty path
-    if (!projectPath?.trim()) {
-      return;
-    }
-
+  // Submit handler — routes to the chosen server via mc bridge when available
+  const handleAddProjectSubmit = useCallback(async (serverId: string, path: string) => {
     try {
-      // Register the project via the projects API
-      const response = await fetch('/api/projects', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: projectPath.trim() }),
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        alert(data.error || 'Failed to add project');
-        return;
+      const mc = (window as any).mc;
+      if (mc?.invokeOnServer) {
+        const res = await mc.invokeOnServer(serverId, { path: '/api/projects', method: 'POST', body: { path } });
+        if (res && res.ok === false) {
+          alert(res.error || 'Failed to add project');
+          return;
+        }
+      } else {
+        const response = await fetch('/api/projects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path }),
+        });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          alert(data.error || 'Failed to add project');
+          return;
+        }
       }
-
-      // Refresh projects and sessions lists
       await loadProjects();
       await loadSessions();
     } catch (error) {
@@ -1427,11 +1426,11 @@ const App: React.FC = () => {
     await loadSessions();
 
     // Refresh current session items if a session is selected
-    if (currentSession) {
+    if (currentSession?.serverId) {
       const project = currentSession.project || '';
-      await loadSessionItems(project, currentSession.name);
+      await loadSessionItems(currentSession.serverId, project, currentSession.name);
     }
-  }, [loadProjects, loadSessions, loadSessionItems, currentSession]);
+  }, [loadProjects, loadSessions, loadSessionItems, currentSession, currentSession?.serverId]);
 
   // Handle deleting an embed
   const handleDeleteEmbed = useCallback(async (id: string) => {
@@ -1535,9 +1534,9 @@ const App: React.FC = () => {
           </svg>
         ),
         onClick: () => {
-          if (currentSession) {
+          if (currentSession?.serverId) {
             const project = currentSession.project || '';
-            loadSessionItems(project, currentSession.name);
+            loadSessionItems(currentSession.serverId, project, currentSession.name);
           }
         },
       },
@@ -1693,8 +1692,20 @@ const App: React.FC = () => {
         {createSessionDialog && (
           <CreateSessionDialog
             suggestedName={createSessionDialog.suggestedName}
+            servers={servers}
+            defaultServerId={createSessionDialog.defaultServerId}
             onConfirm={handleCreateSessionConfirm}
             onClose={handleCreateSessionClose}
+          />
+        )}
+
+        {/* Add Project Dialog */}
+        {addProjectOpen && (
+          <AddProjectDialog
+            servers={servers}
+            defaultServerId={servers.find((s) => s.id === 'local')?.id ?? activeServerId ?? ''}
+            onSubmit={handleAddProjectSubmit}
+            onClose={() => setAddProjectOpen(false)}
           />
         )}
 
@@ -1774,8 +1785,20 @@ const App: React.FC = () => {
         {createSessionDialog && (
           <CreateSessionDialog
             suggestedName={createSessionDialog.suggestedName}
+            servers={servers}
+            defaultServerId={createSessionDialog.defaultServerId}
             onConfirm={handleCreateSessionConfirm}
             onClose={handleCreateSessionClose}
+          />
+        )}
+
+        {/* Add Project Dialog */}
+        {addProjectOpen && (
+          <AddProjectDialog
+            servers={servers}
+            defaultServerId={servers.find((s) => s.id === 'local')?.id ?? activeServerId ?? ''}
+            onSubmit={handleAddProjectSubmit}
+            onClose={() => setAddProjectOpen(false)}
           />
         )}
 

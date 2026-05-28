@@ -10,7 +10,9 @@ export function usePrefetchWatchedSessions(): void {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     const entries = Object.values(subscriptions);
-    entries.forEach(({ project, session }, idx) => {
+    entries.forEach((sub, idx) => {
+      if (!sub.serverId) return;
+      const { project, session, serverId } = sub;
       const cached = getSessionItemsCache(project, session);
       if (!cached || isCacheStale(cached)) {
         setTimeout(() => {
@@ -18,7 +20,7 @@ export function usePrefetchWatchedSessions(): void {
           const currentSubs = useSubscriptionStore.getState().subscriptions;
           const key = `${project}:${session}`;
           if (!currentSubs[key]) return;
-          loadSessionItems(project, session);
+          loadSessionItems(serverId, project, session);
         }, idx * 200);
       }
     });

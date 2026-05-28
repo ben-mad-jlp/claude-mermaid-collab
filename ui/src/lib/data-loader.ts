@@ -84,12 +84,13 @@ async function retryWithBackoff<T>(
  * Load diagrams for a session
  */
 export async function loadDiagrams(
+  serverId: string,
   project: string,
   session: string
 ): Promise<Diagram[]> {
   try {
     const diagrams = await retryWithBackoff(() =>
-      api.getDiagrams(project, session)
+      api.getDiagrams(serverId, project, session)
     );
     useSessionStore.getState().setDiagrams(diagrams);
     dispatchLoadingProgress({
@@ -117,12 +118,13 @@ export async function loadDiagrams(
  * Load documents for a session
  */
 export async function loadDocuments(
+  serverId: string,
   project: string,
   session: string
 ): Promise<Document[]> {
   try {
     const documents = await retryWithBackoff(() =>
-      api.getDocuments(project, session)
+      api.getDocuments(serverId, project, session)
     );
     useSessionStore.getState().setDocuments(documents);
     dispatchLoadingProgress({
@@ -149,12 +151,13 @@ export async function loadDocuments(
  * Load designs for a session
  */
 export async function loadDesigns(
+  serverId: string,
   project: string,
   session: string
 ): Promise<Design[]> {
   try {
     const designs = await retryWithBackoff(() =>
-      api.getDesigns(project, session)
+      api.getDesigns(serverId, project, session)
     );
     useSessionStore.getState().setDesigns(designs);
     dispatchLoadingProgress({
@@ -181,12 +184,13 @@ export async function loadDesigns(
  * Load spreadsheets for a session
  */
 export async function loadSpreadsheets(
+  serverId: string,
   project: string,
   session: string
 ): Promise<Spreadsheet[]> {
   try {
     const spreadsheets = await retryWithBackoff(() =>
-      api.getSpreadsheets(project, session)
+      api.getSpreadsheets(serverId, project, session)
     );
     useSessionStore.getState().setSpreadsheets(spreadsheets);
     dispatchLoadingProgress({
@@ -213,12 +217,13 @@ export async function loadSpreadsheets(
  * Load snippets for a session
  */
 export async function loadSnippets(
+  serverId: string,
   project: string,
   session: string
 ): Promise<Snippet[]> {
   try {
     const snippets = await retryWithBackoff(() =>
-      api.getSnippets(project, session)
+      api.getSnippets(serverId, project, session)
     );
     useSessionStore.getState().setSnippets(snippets);
     dispatchLoadingProgress({
@@ -259,6 +264,7 @@ export async function loadSnippets(
  * ```
  */
 export async function loadAllArtifacts(
+  serverId: string,
   project: string,
   session: string
 ): Promise<{
@@ -277,11 +283,11 @@ export async function loadAllArtifacts(
   try {
     // Load all artifact types in parallel for performance
     const [diagrams, documents, designs, spreadsheets, snippets] = await Promise.all([
-      loadDiagrams(project, session),
-      loadDocuments(project, session),
-      loadDesigns(project, session),
-      loadSpreadsheets(project, session),
-      loadSnippets(project, session),
+      loadDiagrams(serverId, project, session),
+      loadDocuments(serverId, project, session),
+      loadDesigns(serverId, project, session),
+      loadSpreadsheets(serverId, project, session),
+      loadSnippets(serverId, project, session),
     ]);
 
     const totalArtifacts =

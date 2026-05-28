@@ -53,6 +53,44 @@ export function generateSessionName(): string {
 }
 
 /**
+ * Multi-server fetch helper.
+ *
+ * In the native (Electron/desktop) shell, `window.mc.invokeOnServer` proxies
+ * the request to the per-server backend process. In a browser the request is
+ * routed through `/srv/<id>/...` (server-id-prefixed reverse proxy).
+ */
+async function apiFetch(serverId: string, path: string, init: RequestInit = {}): Promise<Response> {
+  const mc = (window as any).mc;
+  if (mc?.invokeOnServer && serverId) {
+    const method = init.method || 'GET';
+    const headers = (init.headers as Record<string, string>) || {};
+    let body: any = undefined;
+    if (init.body != null) {
+      if (typeof init.body === 'string') {
+        try { body = JSON.parse(init.body); } catch { body = init.body; }
+      } else {
+        // FormData / Blob etc. are not supported by the IPC bridge — fall through to browser fetch.
+        return fetch(serverId ? `/srv/${encodeURIComponent(serverId)}${path}` : path, init);
+      }
+    }
+    const res: any = await mc.invokeOnServer(serverId, { path, method, body, headers });
+    if (!res) {
+      return new Response(null, { status: 502, statusText: 'invokeOnServer failed' });
+    }
+    const respBody = typeof res.body === 'string'
+      ? res.body
+      : res.body == null ? null : JSON.stringify(res.body);
+    return new Response(respBody, {
+      status: res.status ?? 200,
+      statusText: res.statusText ?? '',
+      headers: res.headers ?? {},
+    });
+  }
+  const url = serverId ? `/srv/${encodeURIComponent(serverId)}${path}` : path;
+  return fetch(url, init);
+}
+
+/**
  * API client interface defining available HTTP operations
  */
 export interface ArchiveResult {
@@ -69,34 +107,34 @@ export interface ArchiveResult {
 
 export interface ApiClient {
   getSessions(project?: string): Promise<Session[]>;
-  createSession(project: string, session: string, useRenderUI?: boolean): Promise<Session>;
+  createSession(project: string, session: string, serverId: string, useRenderUI?: boolean): Promise<Session>;
   deleteSession(project: string, session: string): Promise<boolean>;
   archiveSession(project: string, session: string, options?: { deleteSession?: boolean; timestamp?: boolean }): Promise<ArchiveResult>;
-  getDiagrams(project: string, session: string): Promise<Diagram[]>;
-  getDocuments(project: string, session: string): Promise<Document[]>;
-  getDiagram(project: string, session: string, id: string): Promise<Diagram | null>;
-  getDocument(project: string, session: string, id: string): Promise<Document | null>;
+  getDiagrams(serverId: string, project: string, session: string): Promise<Diagram[]>;
+  getDocuments(serverId: string, project: string, session: string): Promise<Document[]>;
+  getDiagram(serverId: string, project: string, session: string, id: string): Promise<Diagram | null>;
+  getDocument(serverId: string, project: string, session: string, id: string): Promise<Document | null>;
   updateDiagram(project: string, session: string, id: string, content: string): Promise<void>;
   updateDocument(project: string, session: string, id: string, content: string): Promise<void>;
-  getSessionState(project: string, session: string): Promise<CollabState | null>;
+  getSessionState(serverId: string, project: string, session: string): Promise<CollabState | null>;
   getUIState(project: string, session: string): Promise<CachedUIState | null>;
-  getDesigns(project: string, session: string): Promise<Design[]>;
-  getDesign(project: string, session: string, id: string): Promise<Design | null>;
+  getDesigns(serverId: string, project: string, session: string): Promise<Design[]>;
+  getDesign(serverId: string, project: string, session: string, id: string): Promise<Design | null>;
   updateDesign(project: string, session: string, id: string, content: string): Promise<void>;
-  getDesignHistory(project: string, session: string, designId: string, signal?: AbortSignal): Promise<any | null>;
-  getDesignVersion(project: string, session: string, designId: string, timestamp: string, signal?: AbortSignal): Promise<{ content: string } | null>;
+  getDesignHistory(serverId: string, project: string, session: string, designId: string, signal?: AbortSignal): Promise<any | null>;
+  getDesignVersion(serverId: string, project: string, session: string, designId: string, timestamp: string, signal?: AbortSignal): Promise<{ content: string } | null>;
   deleteDiagram(project: string, session: string, id: string): Promise<void>;
   deleteDocument(project: string, session: string, id: string): Promise<void>;
   deleteDesign(project: string, session: string, id: string): Promise<void>;
-  getSpreadsheets(project: string, session: string): Promise<Spreadsheet[]>;
-  getSpreadsheet(project: string, session: string, id: string): Promise<Spreadsheet | null>;
+  getSpreadsheets(serverId: string, project: string, session: string): Promise<Spreadsheet[]>;
+  getSpreadsheet(serverId: string, project: string, session: string, id: string): Promise<Spreadsheet | null>;
   updateSpreadsheet(project: string, session: string, id: string, content: string): Promise<void>;
   deleteSpreadsheet(project: string, session: string, id: string): Promise<void>;
   createSnippet(project: string, session: string, name: string, content: string): Promise<{ id: string; success: boolean }>;
-  getSnippets(project: string, session: string): Promise<Snippet[]>;
+  getSnippets(serverId: string, project: string, session: string): Promise<Snippet[]>;
   getCodeFiles(project: string, session: string): Promise<UICodeFile[]>;
   getCodeFile(project: string, session: string, id: string): Promise<UICodeFile | null>;
-  getSnippet(project: string, session: string, id: string): Promise<Snippet | null>;
+  getSnippet(serverId: string, project: string, session: string, id: string): Promise<Snippet | null>;
   updateSnippet(project: string, session: string, id: string, content: string): Promise<void>;
   deleteSnippet(project: string, session: string, id: string): Promise<void>;
   getSessionTodos(project: string, session: string, includeCompleted?: boolean, status?: TodoStatus, assigneeSession?: string): Promise<SessionTodo[]>;
@@ -117,7 +155,7 @@ export interface ApiClient {
   getCodeDiff(project: string, session: string, id: string): Promise<any>;
   clearTaskGraph(project: string, session: string): Promise<any>;
   createImage(project: string, session: string, file: File): Promise<{ id: string; name: string; mimeType: string; size: number; uploadedAt: string; success: boolean }>;
-  listImages(project: string, session: string): Promise<Image[]>;
+  listImages(serverId: string, project: string, session: string): Promise<Image[]>;
   deleteImage(project: string, session: string, id: string): Promise<void>;
   getFileContent(filePath: string): Promise<{ content: string; language: string }>;
   saveFileContent(filePath: string, content: string): Promise<void>;
@@ -158,9 +196,10 @@ export const api: ApiClient = {
   async createSession(
     project: string,
     session: string,
+    serverId: string,
     useRenderUI?: boolean
   ): Promise<Session> {
-    const response = await fetch('/api/sessions', {
+    const response = await apiFetch(serverId, '/api/sessions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -175,6 +214,7 @@ export const api: ApiClient = {
     return {
       project: data.project,
       name: data.session,
+      serverId,
     };
   },
 
@@ -226,9 +266,9 @@ export const api: ApiClient = {
   /**
    * Fetch diagrams for a specific session
    */
-  async getDiagrams(project: string, session: string): Promise<Diagram[]> {
+  async getDiagrams(serverId: string, project: string, session: string): Promise<Diagram[]> {
     const url = `/api/diagrams?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
-    const response = await fetch(url);
+    const response = await apiFetch(serverId, url);
     if (!response.ok) {
       throw new Error(response.statusText);
     }
@@ -240,9 +280,9 @@ export const api: ApiClient = {
   /**
    * Fetch documents for a specific session
    */
-  async getDocuments(project: string, session: string): Promise<Document[]> {
+  async getDocuments(serverId: string, project: string, session: string): Promise<Document[]> {
     const url = `/api/documents?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
-    const response = await fetch(url);
+    const response = await apiFetch(serverId, url);
     if (!response.ok) {
       throw new Error(response.statusText);
     }
@@ -254,9 +294,9 @@ export const api: ApiClient = {
   /**
    * Fetch a single diagram with full content
    */
-  async getDiagram(project: string, session: string, id: string): Promise<Diagram | null> {
+  async getDiagram(serverId: string, project: string, session: string, id: string): Promise<Diagram | null> {
     const url = `/api/diagram/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
-    const response = await fetch(url);
+    const response = await apiFetch(serverId, url);
     if (response.status === 404) {
       return null;
     }
@@ -269,9 +309,9 @@ export const api: ApiClient = {
   /**
    * Fetch a single document with full content
    */
-  async getDocument(project: string, session: string, id: string): Promise<Document | null> {
+  async getDocument(serverId: string, project: string, session: string, id: string): Promise<Document | null> {
     const url = `/api/document/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
-    const response = await fetch(url);
+    const response = await apiFetch(serverId, url);
     if (response.status === 404) {
       return null;
     }
@@ -318,9 +358,9 @@ export const api: ApiClient = {
   /**
    * Get collab session state
    */
-  async getSessionState(project: string, session: string): Promise<CollabState | null> {
+  async getSessionState(serverId: string, project: string, session: string): Promise<CollabState | null> {
     const url = `/api/session-state?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
-    const response = await fetch(url);
+    const response = await apiFetch(serverId, url);
     if (response.status === 404) {
       return null;
     }
@@ -350,9 +390,9 @@ export const api: ApiClient = {
   /**
    * Fetch designs for a specific session
    */
-  async getDesigns(project: string, session: string): Promise<Design[]> {
+  async getDesigns(serverId: string, project: string, session: string): Promise<Design[]> {
     const url = `/api/designs?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
-    const response = await fetch(url);
+    const response = await apiFetch(serverId, url);
     if (!response.ok) {
       throw new Error(response.statusText);
     }
@@ -363,9 +403,9 @@ export const api: ApiClient = {
   /**
    * Fetch a single design with full content
    */
-  async getDesign(project: string, session: string, id: string): Promise<Design | null> {
+  async getDesign(serverId: string, project: string, session: string, id: string): Promise<Design | null> {
     const url = `/api/design/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
-    const response = await fetch(url);
+    const response = await apiFetch(serverId, url);
     if (response.status === 404) {
       return null;
     }
@@ -396,10 +436,10 @@ export const api: ApiClient = {
   /**
    * Fetch design history
    */
-  async getDesignHistory(project: string, session: string, designId: string, signal?: AbortSignal): Promise<any | null> {
+  async getDesignHistory(serverId: string, project: string, session: string, designId: string, signal?: AbortSignal): Promise<any | null> {
     const params = new URLSearchParams({ project, session });
     const url = `/api/design/${encodeURIComponent(designId)}/history?${params}`;
-    const response = await fetch(url, { signal });
+    const response = await apiFetch(serverId, url, { signal });
     if (response.status === 404) {
       return null;
     }
@@ -412,10 +452,10 @@ export const api: ApiClient = {
   /**
    * Fetch a specific design version by timestamp
    */
-  async getDesignVersion(project: string, session: string, designId: string, timestamp: string, signal?: AbortSignal): Promise<{ content: string } | null> {
+  async getDesignVersion(serverId: string, project: string, session: string, designId: string, timestamp: string, signal?: AbortSignal): Promise<{ content: string } | null> {
     const params = new URLSearchParams({ project, session, timestamp });
     const url = `/api/design/${encodeURIComponent(designId)}/version?${params}`;
-    const response = await fetch(url, { signal });
+    const response = await apiFetch(serverId, url, { signal });
     if (!response.ok) {
       return null;
     }
@@ -458,9 +498,9 @@ export const api: ApiClient = {
   /**
    * Fetch spreadsheets for a specific session
    */
-  async getSpreadsheets(project: string, session: string): Promise<Spreadsheet[]> {
+  async getSpreadsheets(serverId: string, project: string, session: string): Promise<Spreadsheet[]> {
     const url = `/api/spreadsheets?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
-    const response = await fetch(url);
+    const response = await apiFetch(serverId, url);
     if (!response.ok) {
       throw new Error(response.statusText);
     }
@@ -471,9 +511,9 @@ export const api: ApiClient = {
   /**
    * Fetch a single spreadsheet with full content
    */
-  async getSpreadsheet(project: string, session: string, id: string): Promise<Spreadsheet | null> {
+  async getSpreadsheet(serverId: string, project: string, session: string, id: string): Promise<Spreadsheet | null> {
     const url = `/api/spreadsheet/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
-    const response = await fetch(url);
+    const response = await apiFetch(serverId, url);
     if (response.status === 404) {
       return null;
     }
@@ -530,9 +570,9 @@ export const api: ApiClient = {
   /**
    * Fetch snippets for a specific session
    */
-  async getSnippets(project: string, session: string): Promise<Snippet[]> {
+  async getSnippets(serverId: string, project: string, session: string): Promise<Snippet[]> {
     const url = `/api/snippets?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
-    const response = await fetch(url);
+    const response = await apiFetch(serverId, url);
     if (!response.ok) {
       throw new Error(response.statusText);
     }
@@ -584,9 +624,9 @@ export const api: ApiClient = {
   /**
    * Fetch a single snippet with full content
    */
-  async getSnippet(project: string, session: string, id: string): Promise<Snippet | null> {
+  async getSnippet(serverId: string, project: string, session: string, id: string): Promise<Snippet | null> {
     const url = `/api/snippet/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
-    const response = await fetch(url);
+    const response = await apiFetch(serverId, url);
     if (response.status === 404) {
       return null;
     }
@@ -859,9 +899,9 @@ export const api: ApiClient = {
   /**
    * Fetch images for a specific session
    */
-  async listImages(project: string, session: string): Promise<Image[]> {
+  async listImages(serverId: string, project: string, session: string): Promise<Image[]> {
     const url = `/api/images?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
-    const response = await fetch(url);
+    const response = await apiFetch(serverId, url);
     if (!response.ok) {
       throw new Error(response.statusText);
     }

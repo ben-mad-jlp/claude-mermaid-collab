@@ -23,14 +23,14 @@ import { useSessionStore } from '../stores/sessionStore';
  * This hook automatically loads all artifacts for a session
  * and manages loading states.
  */
-export function useLoadSessionArtifacts(project: string | null, session: string | null) {
+export function useLoadSessionArtifacts(serverId: string | null, project: string | null, session: string | null) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [totalArtifacts, setTotalArtifacts] = useState(0);
   const [loadedCount, setLoadedCount] = useState(0);
 
   useEffect(() => {
-    if (!project || !session) return;
+    if (!serverId || !project || !session) return;
 
     const loadArtifacts = async () => {
       setIsLoading(true);
@@ -38,7 +38,7 @@ export function useLoadSessionArtifacts(project: string | null, session: string 
       setLoadedCount(0);
 
       try {
-        const result = await loadAllArtifacts(project, session);
+        const result = await loadAllArtifacts(serverId, project, session);
         setTotalArtifacts(result.totalArtifacts);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to load artifacts';
@@ -154,9 +154,9 @@ export function useArtifactTypeProgress(artifactType: string) {
  *
  * Shows how to manually trigger artifact loading with custom error handling.
  */
-export async function handleSessionChange(project: string, session: string) {
+export async function handleSessionChange(serverId: string, project: string, session: string) {
   try {
-    const result = await loadAllArtifacts(project, session);
+    const result = await loadAllArtifacts(serverId, project, session);
     console.log(`Loaded ${result.totalArtifacts} artifacts`);
 
     // Check if any artifact type failed to load
@@ -213,9 +213,9 @@ import {
   loadSnippets,
 } from './data-loader';
 
-export async function loadOnlyDiagrams(project: string, session: string) {
+export async function loadOnlyDiagrams(serverId: string, project: string, session: string) {
   try {
-    const diagrams = await loadDiagrams(project, session);
+    const diagrams = await loadDiagrams(serverId, project, session);
     console.log('Loaded diagrams:', diagrams);
     return diagrams;
   } catch (error) {
@@ -224,9 +224,9 @@ export async function loadOnlyDiagrams(project: string, session: string) {
   }
 }
 
-export async function loadOnlyDocuments(project: string, session: string) {
+export async function loadOnlyDocuments(serverId: string, project: string, session: string) {
   try {
-    const documents = await loadDocuments(project, session);
+    const documents = await loadDocuments(serverId, project, session);
     console.log('Loaded documents:', documents);
     return documents;
   } catch (error) {
