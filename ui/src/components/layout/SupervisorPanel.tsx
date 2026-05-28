@@ -130,6 +130,12 @@ export interface SupervisorPanelProps {
 
 export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject, currentSession }) => {
   const activeId = useSessionStore((s) => s.currentSession)?.serverId ?? null;
+  // Routing scope for supervisor API calls. The supervisor store is GLOBAL
+  // (server-side), so its data is the same regardless of which server we route
+  // through; fall back to 'local' so the panel still loads when no server is
+  // active (e.g. the standalone sidebar). When a desktop bridge is present,
+  // 'local' resolves to the local server via the fetch fallback.
+  const serverScope = activeId ?? 'local';
 
   const {
     watchedProjects,
@@ -152,22 +158,19 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
 
   // Load projects / escalations / locks for the active routing server.
   useEffect(() => {
-    if (activeId) {
-      void loadProjects(activeId);
-      void loadEscalations(activeId);
-      void loadLocks(activeId);
-    }
-  }, [activeId, loadProjects, loadEscalations, loadLocks]);
+    void loadProjects(serverScope);
+    void loadEscalations(serverScope);
+    void loadLocks(serverScope);
+  }, [serverScope, loadProjects, loadEscalations, loadLocks]);
 
   // Load roadmap for each watched project.
   const watchedKey = watchedProjects.map((p) => p.project).join('|');
   useEffect(() => {
-    if (!activeId) return;
     for (const p of watchedProjects) {
-      void loadRoadmap(activeId, p.project);
+      void loadRoadmap(serverScope, p.project);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId, watchedKey, loadRoadmap]);
+  }, [serverScope, watchedKey, loadRoadmap]);
 
   const serverIconById = useMemo(() => {
     const m = new Map<string, string>();
@@ -400,7 +403,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                   <div className="flex items-center gap-2 pt-0.5">
                     <button
                       onClick={() => {
-                        if (activeId) void resolveEscalation(activeId, e.id, 'resolved');
+                        void resolveEscalation(serverScope, e.id, 'resolved');
                       }}
                       className="px-2 py-0.5 text-[11px] rounded bg-green-100 text-green-700 border border-green-300 hover:bg-green-200 dark:bg-green-900/40 dark:text-green-300 dark:border-green-700 transition-colors"
                     >
