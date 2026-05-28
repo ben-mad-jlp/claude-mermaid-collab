@@ -1,6 +1,7 @@
 import type { ServerWebSocket } from 'bun';
 import type { AgentCommand, AgentEvent, EffortLevel } from '../agent/contracts.ts';
 import { ideState } from '../services/ide-state.ts';
+import { getStatuses } from '../services/session-status-store.ts';
 
 type AgentDispatcherLike = { handle(ws: ServerWebSocket<{ subscriptions: Set<string> }>, cmd: AgentCommand): Promise<void> };
 
@@ -43,7 +44,7 @@ export type WSMessage =
   | { type: 'design_deleted'; id: string; project: string; session: string }
   | { type: 'design_history_updated'; id: string; project: string; session: string; changeCount: number }
   | { type: 'metadata_updated'; itemId?: string; updates?: Record<string, unknown>; foldersChanged?: boolean; project?: string; session?: string }
-  | { type: 'subscribe'; id?: string; channel?: string }
+  | { type: 'subscribe'; id?: string; channel?: string; project?: string }
   | { type: 'unsubscribe'; id?: string; channel?: string }
   | { type: 'question_responded'; questionId: string; response: string; project: string; session: string }
   | { type: 'ui_render'; uiId: string; project: string; session: string; ui: any; blocking: boolean; timestamp: number }
@@ -134,6 +135,22 @@ export class WebSocketHandler {
           // Send current state immediately so client doesn't wait for the next change
           if (data.channel === 'ide') {
             ws.send(JSON.stringify({ type: 'ide_status', connected: ideState.getStatus().connected }));
+          }
+          // Replay last-known Claude session statuses so a fresh subscriber sees current state.
+          // NOTE: session-status-store is per-PROJECT and getStatuses() requires a project path.
+          // The subscribe message currently carries only a channel (no project), so we can only
+          // replay when a project is explicitly supplied. We intentionally do NOT scan all
+          // projects (no such API; openDb() would create stray empty DB files).
+          if (data.channel === 'updates' && data.project) {
+            for (const row of getStatuses(data.project)) {
+              ws.send(JSON.stringify({
+                type: 'claude_session_status',
+                project: row.project,
+                session: row.session,
+                status: row.status,
+                lastUpdate: row.updatedAt,
+              }));
+            }
           }
         }
       } else if (data.type === 'unsubscribe') {

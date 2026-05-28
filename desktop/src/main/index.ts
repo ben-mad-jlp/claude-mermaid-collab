@@ -135,14 +135,25 @@ function parseDeepLink(url: string): { project: string; session: string; srv: st
   }
 }
 
-function dispatchDeepLink(parsed: { project: string; session: string; srv: string | null } | null): void {
+function dispatchDeepLink(
+  parsed: { project: string; session: string; srv: string | null } | null,
+  retriesLeft = 60 /* 30s @ 500ms */,
+): void {
   if (!parsed) return;
   const srv = parsed.srv ?? (store?.list().find((e) => e.source === 'local')?.id ?? null);
+  if (srv == null) {
+    if (retriesLeft > 0) {
+      setTimeout(() => dispatchDeepLink(parsed, retriesLeft - 1), 500);
+    } else {
+      console.warn('[deeplink] no server resolved; dropping', parsed);
+    }
+    return;
+  }
   const payload = { srv, project: parsed.project, session: parsed.session };
   if (mainWindow && !mainWindow.webContents.isLoading()) {
     mainWindow.webContents.send('mc:deeplink', payload);
   } else {
-    pendingDeepLink = { project: parsed.project, session: parsed.session, srv };
+    pendingDeepLink = payload;
   }
 }
 

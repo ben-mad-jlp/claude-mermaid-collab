@@ -1334,6 +1334,7 @@ const App: React.FC = () => {
 
   // Handle create session dialog confirmation
   const handleCreateSessionConfirm = useCallback(async (name: string, useRenderUI: boolean, serverId: string) => {
+    if (!serverId) { console.warn('No server'); return; }
     if (!createSessionDialog) return;
 
     try {
@@ -1360,6 +1361,7 @@ const App: React.FC = () => {
 
   // Submit handler — routes to the chosen server via mc bridge when available
   const handleAddProjectSubmit = useCallback(async (serverId: string, path: string) => {
+    if (!serverId) { return; }
     try {
       const mc = (window as any).mc;
       if (mc?.invokeOnServer) {
@@ -1697,7 +1699,7 @@ const App: React.FC = () => {
         {addProjectOpen && (
           <AddProjectDialog
             servers={servers}
-            defaultServerId={servers.find((s) => s.id === 'local')?.id ?? activeServerId ?? ''}
+            defaultServerId={servers.find((s) => s.id === 'local')?.id ?? activeServerId ?? servers[0]?.id ?? ''}
             onSubmit={handleAddProjectSubmit}
             onClose={() => setAddProjectOpen(false)}
           />
@@ -1790,7 +1792,7 @@ const App: React.FC = () => {
         {addProjectOpen && (
           <AddProjectDialog
             servers={servers}
-            defaultServerId={servers.find((s) => s.id === 'local')?.id ?? activeServerId ?? ''}
+            defaultServerId={servers.find((s) => s.id === 'local')?.id ?? activeServerId ?? servers[0]?.id ?? ''}
             onSubmit={handleAddProjectSubmit}
             onClose={() => setAddProjectOpen(false)}
           />

@@ -126,7 +126,7 @@ export function ServerProvider({ children }: { children: React.ReactNode }) {
     if (!loadedOnceRef.current) return;
     const { hydrated, validateAgainstServers } = useSessionStore.getState();
     if (!hydrated) return;
-    const key = servers.map((s) => s.id).sort().join('|');
+    const key = servers.map((s) => `${s.id}:${s.status}`).sort().join('|');
     if (lastValidatedRef.current === key) return;
     lastValidatedRef.current = key;
     validateAgainstServers(servers);
@@ -137,7 +137,7 @@ export function ServerProvider({ children }: { children: React.ReactNode }) {
       if (state.hydrated && !prev.hydrated && loadedOnceRef.current) {
         lastValidatedRef.current = null; // force re-validate on next servers tick
         state.validateAgainstServers(servers);
-        lastValidatedRef.current = servers.map((s) => s.id).sort().join('|');
+        lastValidatedRef.current = servers.map((s) => `${s.id}:${s.status}`).sort().join('|');
       }
     });
     return unsub;

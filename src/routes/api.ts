@@ -31,6 +31,7 @@ import {
   reorder,
   type TodoLink as SessionTodoLink,
 } from '../services/todo-store';
+import { recordStatus, getStatuses } from '../services/session-status-store';
 import {
   listDesignsHandler,
   createDesignHandler,
@@ -2414,6 +2415,12 @@ export async function handleAPI(
       return Response.json({ error: `Corrupt binding file: ${err?.message || String(err)}` }, { status: 500 });
     }
 
+    try {
+      recordStatus(project, session, status as 'active' | 'waiting' | 'permission');
+    } catch (err: any) {
+      console.error(`[session-notify] Failed to persist status for ${project}/${session}: ${err?.message || String(err)}`);
+    }
+
     wsHandler.broadcast({
       type: 'claude_session_status',
       claudeSessionId,
@@ -2424,6 +2431,15 @@ export async function handleAPI(
     });
 
     return Response.json({ success: true });
+  }
+
+  // GET /api/session-status?project=
+  if (path === '/api/session-status' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) {
+      return Response.json({ error: 'project required' }, { status: 400 });
+    }
+    return Response.json({ statuses: getStatuses(project) });
   }
 
   // POST /api/session/context-update

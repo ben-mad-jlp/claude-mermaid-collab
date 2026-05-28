@@ -37,7 +37,7 @@ const compositeKey = (serverId: string, project: string, session: string) => `${
  * Hydrate raw localStorage payload. Legacy entries (pre-cross-server-watch)
  * were keyed by `${project}:${session}` and had no `serverId` field. We do NOT
  * drop them — they get silently tagged with the boot-time active server's id
- * via `migrateLegacyEntries`, called once from App.tsx after `mc.getActiveServer()`
+ * via `migrateLegacyEntries`, called once from App.tsx after `currentSession.serverId`
  * resolves. Until then they sit in the map with empty `serverId` and the
  * old-style key; they don't crash but won't receive aggregator updates
  * (which now require a matching serverId).

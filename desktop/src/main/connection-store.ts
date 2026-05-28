@@ -184,7 +184,11 @@ export class ConnectionStore {
   }
 
   getServerCapabilities(id: string): ServerCapabilities {
-    return this.capabilities.get(id) ?? { tmux: false };
+    // Optimistic default: assume tmux is available until the server's
+    // create-terminal handler tells us otherwise via setServerCapabilities.
+    // Returning false here caused a deadlock — the client gates create-terminal
+    // on caps.tmux, so caps would never get learned.
+    return this.capabilities.get(id) ?? { tmux: true };
   }
 
   setServerCapabilities(id: string, caps: Partial<ServerCapabilities>): void {

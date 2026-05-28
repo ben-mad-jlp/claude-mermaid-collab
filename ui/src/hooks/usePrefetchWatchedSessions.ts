@@ -18,7 +18,7 @@ export function usePrefetchWatchedSessions(): void {
         setTimeout(() => {
           // Re-check subscription membership — session may have been unsubscribed during the stagger window
           const currentSubs = useSubscriptionStore.getState().subscriptions;
-          const key = `${project}:${session}`;
+          const key = `${serverId}:${project}:${session}`;
           if (!currentSubs[key]) return;
           loadSessionItems(serverId, project, session);
         }, idx * 200);

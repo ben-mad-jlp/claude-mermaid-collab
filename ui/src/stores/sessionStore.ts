@@ -593,7 +593,7 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
     const { currentSession } = get();
     if (!currentSession) return true;
     const server = servers.find((s) => s.id === currentSession.serverId);
-    if (!server || server.status !== 'online') {
+    if (!server || server.status === 'offline') {
       get().clearSession();
       return false;
     }

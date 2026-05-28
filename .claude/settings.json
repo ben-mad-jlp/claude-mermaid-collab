@@ -8,9 +8,5 @@
       "Bash(cd * && git *)"
     ]
   },
-  "hooks": {},
-  "statusLine": {
-    "type": "command",
-    "command": "~/.claude/statusline.sh"
-  }
+  "hooks": {}
 }

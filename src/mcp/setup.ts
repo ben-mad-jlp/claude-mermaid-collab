@@ -38,6 +38,11 @@ import {
 import { getWebSocketHandler } from '../services/ws-handler-manager.js';
 import { sessionRegistry } from '../services/session-registry.js';
 import { projectRegistry } from '../services/project-registry.js';
+import * as roadmapStore from '../services/roadmap-store.js';
+import * as supervisorStore from '../services/supervisor-store.js';
+import { getStatuses } from '../services/session-status-store.js';
+import { lastAssistantTurn } from '../services/transcript-reader.js';
+import { listTodos } from '../services/todo-store.js';
 import { updateTaskStatus, updateTasksStatus, getTaskGraph } from './workflow/task-status.js';
 import { syncTasksFromTaskGraph } from './workflow/task-sync.js';
 import {
@@ -1881,6 +1886,18 @@ IMPORTANT - Common pitfalls to avoid:
         description: 'Assign a session todo to a specific session (assigneeSession). Pass null to unassign.',
         inputSchema: assignSessionTodoSchema,
       },
+      { name: 'roadmap_list', description: 'List all roadmap items for a project.', inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Absolute path to project root' } }, required: ['project'] } },
+      { name: 'roadmap_add', description: 'Create a roadmap item.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, title: { type: 'string' }, description: { type: 'string' }, parentId: { type: 'string' }, dependsOn: { type: 'array', items: { type: 'string' } } }, required: ['project', 'title'] } },
+      { name: 'roadmap_update', description: 'Update a roadmap item (title, description, status, ord, parentId, dependsOn).', inputSchema: { type: 'object', properties: { project: { type: 'string' }, id: { type: 'string' }, title: { type: 'string' }, description: { type: 'string' }, status: { type: 'string', enum: ['planned','ready','in_progress','blocked','done','dropped'] }, ord: { type: 'number' }, parentId: { type: 'string' }, dependsOn: { type: 'array', items: { type: 'string' } } }, required: ['project', 'id'] } },
+      { name: 'roadmap_spawn_session', description: 'Spawn a collab session for a roadmap item: materializes the session via assigned todos, links them to the item, and registers the session as supervised.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, itemId: { type: 'string' }, session: { type: 'string' }, todos: { type: 'array', items: { type: 'string' }, description: 'Todo titles to create, assigned to the session' } }, required: ['project', 'itemId', 'session'] } },
+      { name: 'supervisor_list_supervised', description: 'List all supervised sessions across all projects.', inputSchema: { type: 'object', properties: {} } },
+      { name: 'supervisor_reconcile', description: 'For every watched project, return session status + open-todo counts and supervised/locked flags.', inputSchema: { type: 'object', properties: {} } },
+      { name: 'read_last_assistant_turn', description: 'Read the last completed assistant turn from a Claude Code session transcript.', inputSchema: { type: 'object', properties: { claudeSessionId: { type: 'string' } }, required: ['claudeSessionId'] } },
+      { name: 'escalation_list', description: 'List open escalations.', inputSchema: { type: 'object', properties: {} } },
+      { name: 'escalation_resolve', description: 'Resolve an escalation by id with a status.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, status: { type: 'string' } }, required: ['id', 'status'] } },
+      { name: 'escalation_create', description: 'Create (or dedupe) an open escalation for a session.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, kind: { type: 'string' }, questionText: { type: 'string' } }, required: ['project', 'session', 'kind', 'questionText'] } },
+      { name: 'attended_lock_set', description: 'Set an attended lock on a session (default TTL 30m).', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, reason: { type: 'string' }, ttlMs: { type: 'number' } }, required: ['project', 'session'] } },
+      { name: 'attended_lock_release', description: 'Release an attended lock on a session.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' } }, required: ['project', 'session'] } },
       // Spreadsheet tools
       {
         name: 'list_spreadsheets',
@@ -3349,6 +3366,85 @@ IMPORTANT - Common pitfalls to avoid:
             const result = await assignSessionTodo(project, session, id, assigneeSession);
             getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined });
             return JSON.stringify(result, null, 2);
+          }
+
+          case 'roadmap_list': {
+            const { project } = args as { project: string };
+            if (!project) throw new Error('Missing required: project');
+            return JSON.stringify(roadmapStore.listItems(project), null, 2);
+          }
+          case 'roadmap_add': {
+            const { project, title, description, parentId, dependsOn } = args as { project: string; title: string; description?: string; parentId?: string; dependsOn?: string[] };
+            if (!project || !title) throw new Error('Missing required: project, title');
+            const item = await roadmapStore.createItem(project, { title, description, parentId, dependsOn });
+            return JSON.stringify(item, null, 2);
+          }
+          case 'roadmap_update': {
+            const { project, id, ...patch } = args as { project: string; id: string; [k: string]: unknown };
+            if (!project || !id) throw new Error('Missing required: project, id');
+            const item = await roadmapStore.updateItem(project, id, patch as Parameters<typeof roadmapStore.updateItem>[2]);
+            return JSON.stringify(item, null, 2);
+          }
+          case 'roadmap_spawn_session': {
+            const { project, itemId, session, todos } = args as { project: string; itemId: string; session: string; todos?: string[] };
+            if (!project || !itemId || !session) throw new Error('Missing required: project, itemId, session');
+            const createdTodoIds: string[] = [];
+            for (const t of todos ?? []) {
+              const todo = await addSessionTodo(project, session, t, undefined, { assigneeSession: session });
+              createdTodoIds.push(todo.id);
+              await roadmapStore.linkTodo(project, itemId, todo.id);
+            }
+            await roadmapStore.setItemSession(project, itemId, session);
+            supervisorStore.addSupervised(project, session, 'roadmap');
+            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
+            return JSON.stringify({ session, createdTodoIds }, null, 2);
+          }
+          case 'supervisor_list_supervised': {
+            return JSON.stringify(supervisorStore.listSupervised(), null, 2);
+          }
+          case 'supervisor_reconcile': {
+            const out: Array<{ project: string; session: string; status: string | null; updatedAt: number | null; openTodos: number; supervised: boolean; locked: boolean }> = [];
+            for (const wp of supervisorStore.listWatchedProjects()) {
+              const statuses = getStatuses(wp.project);
+              for (const s of statuses) {
+                const supervised = supervisorStore.isSupervised(wp.project, s.session);
+                const openTodos = supervised ? listTodos(wp.project, { session: s.session, includeCompleted: false }).length : 0;
+                out.push({ project: wp.project, session: s.session, status: s.status, updatedAt: s.updatedAt, openTodos, supervised, locked: supervisorStore.isLocked(wp.project, s.session) });
+              }
+            }
+            return JSON.stringify(out, null, 2);
+          }
+          case 'read_last_assistant_turn': {
+            const { claudeSessionId } = args as { claudeSessionId: string };
+            if (!claudeSessionId) throw new Error('Missing required: claudeSessionId');
+            return JSON.stringify(await lastAssistantTurn(claudeSessionId), null, 2);
+          }
+          case 'escalation_list': {
+            return JSON.stringify(supervisorStore.listOpenEscalations(), null, 2);
+          }
+          case 'escalation_resolve': {
+            const { id, status } = args as { id: string; status: string };
+            if (!id || !status) throw new Error('Missing required: id, status');
+            supervisorStore.resolveEscalation(id, status);
+            return JSON.stringify({ success: true, id, status }, null, 2);
+          }
+          case 'escalation_create': {
+            const { project, session, kind, questionText } = args as { project: string; session: string; kind: string; questionText: string };
+            if (!project || !session || !kind || !questionText) throw new Error('Missing required: project, session, kind, questionText');
+            return JSON.stringify(supervisorStore.createEscalation({ project, session, kind, questionText }), null, 2);
+          }
+          case 'attended_lock_set': {
+            const { project, session, reason, ttlMs } = args as { project: string; session: string; reason?: string; ttlMs?: number };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            if (ttlMs === undefined) supervisorStore.setLock(project, session, reason ?? 'attended');
+            else supervisorStore.setLock(project, session, reason ?? 'attended', ttlMs);
+            return JSON.stringify({ success: true, lock: supervisorStore.getLock(project, session) }, null, 2);
+          }
+          case 'attended_lock_release': {
+            const { project, session } = args as { project: string; session: string };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            supervisorStore.releaseLock(project, session);
+            return JSON.stringify({ success: true }, null, 2);
           }
 
           case 'complete_linked_todos': {

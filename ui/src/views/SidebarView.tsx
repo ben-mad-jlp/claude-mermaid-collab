@@ -21,18 +21,16 @@ export function SidebarView() {
       switch (message.type) {
         case 'claude_session_registered': {
           const { claudeSessionId, project, session, claudePid } = message as any;
-          const sid = (message as any).serverId ?? searchParams.get('srv') ?? 'local';
-          if (sid) {
-            useSubscriptionStore.getState().updateStatus(sid, claudeSessionId, 'active', project, session, claudePid);
-          }
+          const sid = (message as any).serverId ?? searchParams.get('srv');
+          if (!sid) return;
+          useSubscriptionStore.getState().updateStatus(sid, claudeSessionId, 'active', project, session, claudePid);
           break;
         }
         case 'claude_session_status': {
           const { claudeSessionId, project, session, status } = message as any;
-          const sid = (message as any).serverId ?? searchParams.get('srv') ?? 'local';
-          if (sid) {
-            useSubscriptionStore.getState().updateStatus(sid, claudeSessionId, status, project, session);
-          }
+          const sid = (message as any).serverId ?? searchParams.get('srv');
+          if (!sid) return;
+          useSubscriptionStore.getState().updateStatus(sid, claudeSessionId, status, project, session);
           break;
         }
       }
@@ -49,7 +47,11 @@ export function SidebarView() {
 
   useEffect(() => {
     if (!project || !session) return;
-    const resolvedServerId = searchParams.get('srv') ?? 'local';
+    const resolvedServerId = searchParams.get('srv');
+    if (!resolvedServerId) {
+      console.warn('SidebarView: no ?srv= param; cannot resolve serverId');
+      return;
+    }
     setCurrentSession({ project, name: session, serverId: resolvedServerId });
     loadSessions();
     loadSessionItems(resolvedServerId, project, session);

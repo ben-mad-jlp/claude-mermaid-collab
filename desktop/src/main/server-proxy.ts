@@ -125,6 +125,23 @@ export class ServerProxy {
       return;
     }
 
+    const srvWsMatch = (req.url ?? '').match(/^\/srv\/([^/]+)(\/.*)$/);
+    if (srvWsMatch && this.resolver) {
+      const id = decodeURIComponent(srvWsMatch[1]);
+      const rest = srvWsMatch[2] || '/';
+      const target = this.resolver(id);
+      if (!target) { socket.destroy(); return; }
+      this.wss.handleUpgrade(req, socket, head, (client) => {
+        const headers: Record<string, string> = {};
+        if (target.token) headers['authorization'] = `Bearer ${target.token}`;
+        const upConn = new WebSocket(`ws://${target.host}:${target.port}${rest}`, { headers });
+        const pair = { client, up: upConn };
+        this.perServerPairs.add(pair);
+        this.wireBridge(client, upConn, pair, this.perServerPairs);
+      });
+      return;
+    }
+
     const up = this.localUpstream;
     this.wss.handleUpgrade(req, socket, head, (client) => {
       const headers: Record<string, string> = {};

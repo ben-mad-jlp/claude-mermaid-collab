@@ -67,15 +67,25 @@ async function apiFetch(serverId: string, path: string, init: RequestInit = {}):
     let body: any = undefined;
     if (init.body != null) {
       if (typeof init.body === 'string') {
-        try { body = JSON.parse(init.body); } catch { body = init.body; }
+        body = init.body;
       } else {
         // FormData / Blob etc. are not supported by the IPC bridge — fall through to browser fetch.
-        return fetch(serverId ? `/srv/${encodeURIComponent(serverId)}${path}` : path, init);
+        const fallbackUrl = new URL(
+          '/srv/' + encodeURIComponent(serverId) + path,
+          window.location.origin,
+        ).toString();
+        return fetch(fallbackUrl, init);
       }
     }
     const res: any = await mc.invokeOnServer(serverId, { path, method, body, headers });
     if (!res) {
       return new Response(null, { status: 502, statusText: 'invokeOnServer failed' });
+    }
+    const respHeaders = new Headers();
+    const rawHeaders = (res.headers ?? {}) as Record<string, string | string[]>;
+    for (const [k, v] of Object.entries(rawHeaders)) {
+      if (Array.isArray(v)) v.forEach((x) => respHeaders.append(k, String(x)));
+      else if (v != null) respHeaders.set(k, String(v));
     }
     const respBody = typeof res.body === 'string'
       ? res.body
@@ -83,10 +93,12 @@ async function apiFetch(serverId: string, path: string, init: RequestInit = {}):
     return new Response(respBody, {
       status: res.status ?? 200,
       statusText: res.statusText ?? '',
-      headers: res.headers ?? {},
+      headers: respHeaders,
     });
   }
-  const url = serverId ? `/srv/${encodeURIComponent(serverId)}${path}` : path;
+  const url = serverId
+    ? new URL('/srv/' + encodeURIComponent(serverId) + path, window.location.origin).toString()
+    : path;
   return fetch(url, init);
 }
 

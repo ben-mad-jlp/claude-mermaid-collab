@@ -27,7 +27,9 @@ async function fetchCapabilities(serverId: string): Promise<{ tmux: boolean }> {
   if (capsCache.has(serverId)) return capsCache.get(serverId)!;
   const mc = (window as any).mc;
   if (!mc?.getServerCapabilities) return { tmux: true }; // browser fallback: same-origin to its own server
-  const caps = await mc.getServerCapabilities(serverId).catch(() => ({ tmux: false }));
+  // Optimistic on failure/nullish: let the call happen — the server response
+  // will flip caps off if tmux truly isn't available.
+  const caps = (await mc.getServerCapabilities(serverId).catch(() => null)) ?? { tmux: true };
   capsCache.set(serverId, caps);
   return caps;
 }
@@ -167,6 +169,29 @@ function useTmuxSessions(): Set<string> {
   return sessions;
 }
 
+function useSupervisedSessions(): { set: Set<string>; refresh: () => void } {
+  const [set, setSet] = useState<Set<string>>(new Set());
+  const [tick, setTick] = useState(0);
+  const refresh = useCallback(() => setTick((t) => t + 1), []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const poll = () => {
+      fetch('/api/supervisor/supervised')
+        .then((r) => r.json())
+        .then((data: { supervised: { project: string; session: string }[] }) => {
+          if (!cancelled) setSet(new Set((data.supervised ?? []).map((s) => `${s.project}:${s.session}`)));
+        })
+        .catch(() => {});
+    };
+    poll();
+    const id = setInterval(poll, 15_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [tick]);
+
+  return { set, refresh };
+}
+
 
 const SubscriptionRow: React.FC<{
   subKey: string;
@@ -181,7 +206,9 @@ const SubscriptionRow: React.FC<{
   isDragOver: boolean;
   isSelected: boolean;
   tmuxActive: boolean;
-}> = ({ subKey, sub, serverLabel, serverIcon, onNavigate, onUnsubscribe, onDragStart, onDragOver, onDragEnd, isDragOver, isSelected, tmuxActive }) => {
+  supervised: boolean;
+  onToggleSupervise: (sub: SubscribedSession, next: boolean) => void;
+}> = ({ subKey, sub, serverLabel, serverIcon, onNavigate, onUnsubscribe, onDragStart, onDragOver, onDragEnd, isDragOver, isSelected, tmuxActive, supervised, onToggleSupervise }) => {
   const elapsed = useElapsed(sub.lastUpdate, sub.status);
 
   const statusBg =
@@ -312,6 +339,18 @@ const SubscriptionRow: React.FC<{
       {/* Action buttons — outside the card, own bordered section, square columns */}
       <div className="flex items-center flex-shrink-0 gap-1 px-1">
         <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleSupervise(sub, !supervised);
+          }}
+          className={`flex items-center justify-center w-7 h-7 rounded-full transition-all hover:opacity-80 active:scale-90 active:brightness-75 ${supervised ? 'bg-green-300 text-green-900' : 'bg-gray-200 text-gray-500'}`}
+          title={supervised ? 'Stop supervising' : 'Supervise this session'}
+        >
+          <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M9.661 2.237a.531.531 0 01.678 0 11.947 11.947 0 007.078 2.749.5.5 0 01.479.425c.069.52.104 1.05.104 1.59 0 5.162-3.26 9.563-7.834 11.256a.48.48 0 01-.332 0C5.26 16.564 2 12.163 2 7c0-.538.035-1.069.104-1.589a.5.5 0 01.48-.425 11.947 11.947 0 007.077-2.75zM10 8a2 2 0 100-4 2 2 0 000 4zm0 1.5c-1.66 0-3 1.12-3 2.5v.5h6v-.5c0-1.38-1.34-2.5-3-2.5z" clipRule="evenodd" />
+          </svg>
+        </button>
+        <button
           onClick={async (e) => {
             e.stopPropagation();
             const caps = await fetchCapabilities(sub.serverId);
@@ -355,8 +394,15 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
   const { subscriptions, order, unsubscribe, subscribe, reorder } = useSubscriptionStore();
   const { sessions, setCurrentSession, currentSession } = useSessionStore();
   const { servers } = useServers();
+  // Invalidate capsCache entries for servers that no longer exist, so a
+  // re-added server doesn't reuse a stale (possibly wrong) tmux capability.
+  useEffect(() => {
+    const ids = new Set(servers.map((s) => s.id));
+    for (const k of capsCache.keys()) if (!ids.has(k)) capsCache.delete(k);
+  }, [servers]);
   const activeId = currentSession?.serverId ?? null;
   const tmuxSessions = useTmuxSessions();
+  const supervised = useSupervisedSessions();
   const [collapsed, setCollapsed] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
@@ -596,6 +642,28 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
       onNavigate?.(sub.serverId ?? activeId ?? '', sub.project, sub.session);
     },
     [sessions, setCurrentSession, onNavigate, activeId],
+  );
+
+  const handleToggleSupervise = useCallback(
+    async (sub: SubscribedSession, next: boolean) => {
+      const mc = (window as any).mc;
+      const path = '/api/supervisor/supervised';
+      const body = next
+        ? { project: sub.project, session: sub.session, source: 'manual' }
+        : { project: sub.project, session: sub.session };
+      const method = next ? 'POST' : 'DELETE';
+      if (mc?.invokeOnServer) {
+        await mc.invokeOnServer(sub.serverId, { path, method, body });
+      } else {
+        await fetch(path, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }).catch(() => {});
+      }
+      supervised.refresh();
+    },
+    [supervised],
   );
 
   const handleSubscribe = useCallback(
@@ -918,6 +986,8 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
                 currentSession.name === sub.session
               }
               tmuxActive={tmuxSessions.has(tmuxBaseName(sub.project, sub.session))}
+              supervised={supervised.set.has(`${sub.project}:${sub.session}`)}
+              onToggleSupervise={handleToggleSupervise}
             />
           ))}
         </div>
