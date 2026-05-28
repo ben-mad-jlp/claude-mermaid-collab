@@ -82,7 +82,7 @@ function TodoRow({ todo, project, session }: TodoRowProps) {
         {/* Row 1 — title + (hover) delete */}
         <div className="flex items-start gap-2">
           <span
-            className={`flex-1 min-w-0 cursor-pointer text-sm leading-snug whitespace-normal break-words [overflow-wrap:anywhere] ${
+            className={`flex-1 min-w-0 cursor-pointer text-xs leading-snug whitespace-normal break-words [overflow-wrap:anywhere] ${
               isDone ? 'line-through text-gray-400 dark:text-gray-500' : ''
             }`}
             onClick={openDetail}
@@ -108,17 +108,17 @@ function TodoRow({ todo, project, session }: TodoRowProps) {
         {/* Row 2 — meta: only priority + due date in the sidebar.
             Assignee + attached artifact (link) live in the detail pane. */}
         {(todo.priority !== null && todo.priority !== undefined) || todo.dueDate ? (
-          <div className="flex items-center gap-2 flex-wrap text-sm text-gray-400 dark:text-gray-500">
+          <div className="flex items-center gap-2 flex-wrap text-xs text-gray-400 dark:text-gray-500">
             {todo.priority !== null && todo.priority !== undefined && (
               <span
                 title={`Priority ${todo.priority}`}
-                className={`shrink-0 text-sm font-semibold ${PRIORITY_COLORS[todo.priority]}`}
+                className={`shrink-0 text-xs font-semibold ${PRIORITY_COLORS[todo.priority]}`}
               >
                 {PRIORITY_LABEL[todo.priority]}
               </span>
             )}
             {todo.dueDate && (
-              <span title={`Due: ${todo.dueDate}`} className="shrink-0 text-sm">
+              <span title={`Due: ${todo.dueDate}`} className="shrink-0 text-xs">
                 {todo.dueDate.slice(0, 10)}
               </span>
             )}
@@ -229,7 +229,7 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
                     }
                   }}
                   placeholder="Add a todo..."
-                  className="w-full bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  className="w-full bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
                   aria-label="Add a new todo"
                 />
               </div>
@@ -238,7 +238,7 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
             {visibleTodos.length === 0 ? (
               <div
                 style={{ paddingLeft: '16px' }}
-                className="px-2 py-1 text-sm text-gray-400 dark:text-gray-500 italic"
+                className="px-2 py-1 text-xs text-gray-400 dark:text-gray-500 italic"
               >
                 {sessionTodos.length === 0 ? 'No todos yet.' : 'No matching todos.'}
               </div>

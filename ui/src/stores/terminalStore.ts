@@ -140,6 +140,9 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         activeTabId: data.id,
         open: true,
       }));
+    } catch (err) {
+      console.error('[terminalStore.openFor] failed', err);
+      throw err;
     } finally {
       openingSessions.delete(key);
     }

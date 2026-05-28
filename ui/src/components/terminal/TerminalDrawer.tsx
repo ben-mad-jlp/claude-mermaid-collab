@@ -1,4 +1,3 @@
-import { useEffect } from 'react';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useTerminalStore } from '@/stores/terminalStore';
 import { useServer } from '@/contexts/ServerContext';
@@ -33,13 +32,10 @@ export function TerminalDrawer() {
     void openFor(currentSession.project, currentSession.name, { serverId: activeId, serverLabel: label });
   };
 
-  // Auto-open a tab for the current session when the column first opens with no tabs
-  useEffect(() => {
-    if (open && tabs.length === 0 && currentSession && activeId) {
-      const label = servers.find((s) => s.id === activeId)?.label;
-      void openFor(currentSession.project, currentSession.name, { serverId: activeId, serverLabel: label });
-    }
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  // No auto-open: clicking a watched row or pressing the + button are the
+  // explicit entry points for a new terminal tab. Auto-open would race with
+  // the watched-row open and steal focus by creating a tab on the active
+  // server immediately after the user opened one on a different server.
 
   if (!open) return null;
 

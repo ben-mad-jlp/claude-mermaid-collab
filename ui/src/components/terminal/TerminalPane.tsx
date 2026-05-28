@@ -39,6 +39,13 @@ export function TerminalPane({ sessionId, serverId }: { sessionId: string; serve
     ws.onopen = () => {
       send({ type: 'resize', cols: term.cols, rows: term.rows, isInitial: true });
     };
+    ws.onerror = (e) => {
+      console.error('[TerminalPane] WS error', sessionId, e);
+    };
+    ws.onclose = (e) => {
+      // Keep only the close-with-error log; clean close is too noisy.
+      if (!e.wasClean) console.warn('[TerminalPane] WS unclean close', sessionId, { code: e.code, reason: e.reason });
+    };
     ws.onmessage = (e) => {
       try {
         const msg = JSON.parse(typeof e.data === 'string' ? e.data : '');

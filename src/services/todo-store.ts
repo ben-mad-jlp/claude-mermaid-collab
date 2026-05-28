@@ -185,8 +185,12 @@ export function listTodos(project: string, filter: TodoFilter = {}): Todo[] {
   const where: string[] = [];
   const params: unknown[] = [];
   if (filter.session) {
-    where.push('(ownerSession = ? OR assigneeSession = ?)');
-    params.push(filter.session, filter.session);
+    // Session scope shows only todos OWNED by this session. Assigned-to-me
+    // todos from other sessions used to leak in via OR — that surfaces noise
+    // in the sidebar. Use the explicit `assigneeSession` filter (e.g. via
+    // ManagerDashboard / a dedicated "assigned to me" view) when needed.
+    where.push('ownerSession = ?');
+    params.push(filter.session);
   }
   if (filter.ownerSession) { where.push('ownerSession = ?'); params.push(filter.ownerSession); }
   if (filter.assigneeSession) { where.push('assigneeSession = ?'); params.push(filter.assigneeSession); }

@@ -46,16 +46,20 @@ function hydrateSubscriptions(): Record<string, SubscribedSession> {
   try {
     const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') as Record<string, any>;
     const out: Record<string, SubscribedSession> = {};
+    // Transient state (status, contextPercent, claudeSessionId, claudePid)
+    // doesn't carry across an app reopen — those reflect what was true the
+    // last time a WS event fired, which is stale by the time the user comes
+    // back. Reset them on hydrate so cards start "unknown" and the WatchAggregator's
+    // live events repopulate as they arrive. The identity (serverId/project/session)
+    // and the user-set fields stay persisted.
+    const now = Date.now();
     for (const [k, v] of Object.entries(raw)) {
       out[k] = {
         serverId: typeof v.serverId === 'string' ? v.serverId : '',
         project: v.project,
         session: v.session,
-        claudeSessionId: v.claudeSessionId,
-        claudePid: v.claudePid,
-        status: v.status ?? 'unknown',
-        lastUpdate: v.lastUpdate ?? Date.now(),
-        contextPercent: v.contextPercent,
+        status: 'unknown',
+        lastUpdate: now,
       };
     }
     return out;
