@@ -2,11 +2,6 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import React from 'react';
 
-// Mock the lazy-loaded PseudoViewer so Suspense resolves synchronously
-vi.mock('@/pages/pseudo/PseudoViewer', () => ({
-  PseudoViewer: () => <div data-testid="pseudo-viewer">Prose</div>,
-}));
-
 // Mock CodeMirrorWrapper to a simple textarea-like stand-in
 vi.mock('../CodeMirrorWrapper', () => ({
   __esModule: true,
@@ -25,8 +20,8 @@ vi.mock('@/hooks/useEditorAutoPromote', () => ({
   reportEditorDirty: vi.fn(),
 }));
 
-// Mock pseudo-api to control fetch
-vi.mock('@/lib/pseudo-api', () => {
+// Mock code-file-api to control fetch
+vi.mock('@/lib/code-file-api', () => {
   class CodeFileNotFoundError extends Error {
     constructor(message = 'File not found') {
       super(message);
@@ -41,15 +36,13 @@ vi.mock('@/lib/pseudo-api', () => {
   }
   return {
     fetchCodeFile: vi.fn(),
-    peekPseudoFile: vi.fn(() => null),
     CodeFileNotFoundError,
     CodeFilePathError,
   };
 });
 
-
 import { CodeFileView } from '../CodeFileView';
-import { fetchCodeFile, CodeFileNotFoundError } from '@/lib/pseudo-api';
+import { fetchCodeFile, CodeFileNotFoundError } from '@/lib/code-file-api';
 
 describe('CodeFileView', () => {
   beforeEach(() => {

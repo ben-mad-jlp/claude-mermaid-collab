@@ -19,7 +19,6 @@ import DocumentView from '@/components/editors/DocumentView';
 import { EmbedViewer } from '@/components/EmbedViewer';
 import { ImageViewer } from '@/components/ImageViewer';
 import { TaskGraphView } from '@/components/task-graph';
-import { PseudoViewer } from '@/pages/pseudo/PseudoViewer';
 import CodeFileView from '@/components/editors/CodeFileView';
 import { CodeEditor } from '@/components/editors/CodeEditor';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -79,7 +78,6 @@ export const PaneContent: React.FC<PaneContentProps> = ({
       embeds: s.embeds,
     })),
   );
-  const codeFirstView = useUIStore((s) => s.codeFirstView);
   const pairMode = useUIStore((s) => s.pairMode);
   const zoomLevel = useUIStore((s) => s.zoomLevel);
   const zoomIn = useUIStore((s) => s.zoomIn);
@@ -202,15 +200,12 @@ export const PaneContent: React.FC<PaneContentProps> = ({
       if (!project) {
         return <NotFound message="Code file requires a project" />;
       }
-      if (codeFirstView) {
-        return (
-          <CodeEditor
-            filePath={tab.filePath ?? tab.artifactId}
-            project={project}
-          />
-        );
-      }
-      return <PseudoViewer path={tab.filePath ?? tab.artifactId} project={project} />;
+      return (
+        <CodeEditor
+          filePath={tab.filePath ?? tab.artifactId}
+          project={project}
+        />
+      );
     }
 
     default:

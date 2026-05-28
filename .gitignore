@@ -26,26 +26,14 @@ Thumbs.db
 /documents/
 /metadata.json
 # Collab data directory
-# The main pseudo-db IS committed for team sharing.
-# Sessions and WAL sidecars stay local.
 /.collab/sessions/
-/.collab/pseudo/pseudo.db-wal
-/.collab/pseudo/pseudo.db-shm
-/.collab/pseudo/cache/
-!/.collab/pseudo/pseudo.db
 /.collab/**/*.tmp
-# Local runtime artifacts (agent/todo sqlite, agent sessions, kodex cache, pseudo prose state)
+# Local runtime artifacts (agent/todo sqlite, agent sessions)
 /.collab/*.db
 /.collab/*.db-shm
 /.collab/*.db-wal
 /.collab/todos.json
 /.collab/agent-sessions/
-/.collab/kodex/
-/.collab/pseudo/prose/
-/.collab/pseudo/.migrated*
 /scratch/
 /extensions/vscode/*.vsix
 .worktrees/
-
-# Legacy pseudo file format (deleted in Phase 6, never coming back)
-*.pseudo

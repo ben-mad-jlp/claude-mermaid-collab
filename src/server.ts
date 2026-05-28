@@ -25,9 +25,7 @@ import { createGitOps } from './agent/git-ops';
 import { userInputBridge } from './agent/user-input-bridge';
 import { initializeAgentRegistry } from './agent/agent-registry-manager';
 import { handleAPI } from './routes/api';
-import { handlePseudoAPI } from './routes/pseudo-api';
 import { handleFileContentAPI } from './routes/file-content.js';
-import { handleOnboardingAPI } from './routes/onboarding-api';
 import { handleAttachments } from './routes/agent-attachments';
 import { handleEditorRoundtrip } from './routes/editor-roundtrip';
 import { handleAgentSessionsAPI } from './routes/agent-sessions';
@@ -256,19 +254,9 @@ const server = Bun.serve<WsData>({
       return handleMCPRequest(req);
     }
 
-    // Pseudo API routes
-    if (url.pathname.startsWith('/api/pseudo')) {
-      return handlePseudoAPI(req);
-    }
-
     // File content API routes
     if (url.pathname.startsWith('/api/files/content')) {
       return handleFileContentAPI(req);
-    }
-
-    // Onboarding API routes
-    if (url.pathname.startsWith('/api/onboarding')) {
-      return handleOnboardingAPI(req);
     }
 
     if (url.pathname.startsWith('/api/agent/attachments')) {
