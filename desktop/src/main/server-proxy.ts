@@ -12,18 +12,23 @@ export interface Upstream {
 /**
  * Per-server local HTTP+WS proxy in the Electron main process. The renderer
  * talks only to this loopback proxy (single origin → relative URLs keep
- * working); the proxy forwards to the active upstream collab server, injecting
- * the auth token. Switching servers = setUpstream(), which also drops open WS
- * connections so the renderer reconnects against the new target.
+ * working); the proxy forwards to the configured local upstream collab server,
+ * injecting the auth token. The local upstream is fixed for the lifetime of
+ * the proxy; cross-server traffic uses the /srv/<id>/... and /_per-server/<id>
+ * branches resolved live via the resolver.
  */
 export class ServerProxy {
   private server: http.Server | null = null;
   private wss: WebSocketServer | null = null;
-  private upstream: Upstream | null = null;
+  private readonly localUpstream: Upstream;
   private openPairs = new Set<{ client: WebSocket; up: WebSocket }>();
   private perServerPairs = new Set<{ client: WebSocket; up: WebSocket }>();
   private resolver: ((id: string) => Upstream | null) | null = null;
   private port: number | null = null;
+
+  constructor(localUpstream: Upstream) {
+    this.localUpstream = localUpstream;
+  }
 
   async start(): Promise<{ port: number }> {
     const port = await getFreePort();
@@ -33,18 +38,6 @@ export class ServerProxy {
     await new Promise<void>((resolve) => this.server!.listen(port, '127.0.0.1', resolve));
     this.port = port;
     return { port };
-  }
-
-  setUpstream(u: Upstream | null): void {
-    this.upstream = u;
-    // Drop existing proxied WS connections so the renderer reconnects to the new upstream.
-    // Per-server pairs are NOT dropped here — they're routed by the resolver and
-    // remain valid across active-server switches.
-    for (const pair of this.openPairs) {
-      try { pair.client.terminate(); } catch { /* ignore */ }
-      try { pair.up.terminate(); } catch { /* ignore */ }
-    }
-    this.openPairs.clear();
   }
 
   setResolver(fn: ((id: string) => Upstream | null) | null): void {
@@ -57,7 +50,7 @@ export class ServerProxy {
 
   private authHeaders(base: http.IncomingHttpHeaders): http.OutgoingHttpHeaders {
     const headers: http.OutgoingHttpHeaders = { ...base };
-    if (this.upstream?.token) headers['authorization'] = `Bearer ${this.upstream.token}`;
+    if (this.localUpstream.token) headers['authorization'] = `Bearer ${this.localUpstream.token}`;
     return headers;
   }
 
@@ -89,12 +82,7 @@ export class ServerProxy {
       req.pipe(proxyReq);
       return;
     }
-    const up = this.upstream;
-    if (!up) {
-      res.writeHead(503, { 'content-type': 'text/plain' });
-      res.end('no upstream');
-      return;
-    }
+    const up = this.localUpstream;
     const proxyReq = http.request(
       { host: up.host, port: up.port, method: req.method, path: req.url, headers: this.authHeaders(req.headers) },
       (proxyRes) => {
@@ -137,11 +125,7 @@ export class ServerProxy {
       return;
     }
 
-    const up = this.upstream;
-    if (!up) {
-      socket.destroy();
-      return;
-    }
+    const up = this.localUpstream;
     this.wss.handleUpgrade(req, socket, head, (client) => {
       const headers: Record<string, string> = {};
       if (up.token) headers['authorization'] = `Bearer ${up.token}`;
@@ -191,7 +175,11 @@ export class ServerProxy {
   }
 
   async stop(): Promise<void> {
-    this.setUpstream(null);
+    for (const pair of this.openPairs) {
+      try { pair.client.terminate(); } catch { /* ignore */ }
+      try { pair.up.terminate(); } catch { /* ignore */ }
+    }
+    this.openPairs.clear();
     for (const pair of this.perServerPairs) {
       try { pair.client.terminate(); } catch { /* ignore */ }
       try { pair.up.terminate(); } catch { /* ignore */ }

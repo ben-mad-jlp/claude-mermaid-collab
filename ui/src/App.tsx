@@ -37,7 +37,7 @@ import { useSessionPolling } from '@/hooks/useSessionPolling';
 import { useProposedEditWatcher } from '@/hooks/useProposedEditWatcher';
 import { usePrefetchWatchedSessions } from '@/hooks/usePrefetchWatchedSessions';
 import { useWatchEvents } from '@/hooks/useWatchEvents';
-import { useServer } from '@/contexts/ServerContext';
+import { useServers } from '@/contexts/ServerContext';
 import { getWebSocketClient } from '@/lib/websocket';
 import { useShallow } from 'zustand/react/shallow';
 import { api, generateSessionName, type CachedUIState } from '@/lib/api';
@@ -289,15 +289,9 @@ const App: React.FC = () => {
   // 2) Drive WatchAggregator from the union of subscription serverIds — the
   //    aggregator opens a WS to every server represented in the watch list.
   //    Replaces the deleted watchStore.watchedIds → mc.setWatchedServers path.
-  const { activeId: activeServerId, servers } = useServer();
+  const { servers } = useServers();
+  const activeServerId = currentSession?.serverId ?? null;
   const subscriptionsForWatch = useSubscriptionStore((s) => s.subscriptions);
-  useEffect(() => {
-    const mc = (window as any).mc;
-    if (!mc?.getActiveServer) return;
-    void mc.getActiveServer().then((id: string | null) => {
-      useSubscriptionStore.getState().migrateLegacyEntries(id);
-    });
-  }, []);
   useEffect(() => {
     const mc = (window as any).mc;
     if (!mc?.setWatchedServers) return;

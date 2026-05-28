@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useTerminalStore } from '@/stores/terminalStore';
-import { useServer } from '@/contexts/ServerContext';
+import { useServers } from '@/contexts/ServerContext';
 import { ResizableColumn } from '@/components/layout/ResizableColumn';
 import { TerminalPane } from './TerminalPane';
 import { ServerIcon } from '@/components/ServerIcon';
@@ -21,7 +21,7 @@ export function TerminalDrawer() {
   const openFor = useTerminalStore((s) => s.openFor);
   const close = useTerminalStore((s) => s.close);
   const currentSession = useSessionStore((s) => s.currentSession);
-  const { servers, activeId } = useServer();
+  const { servers } = useServers();
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [focusedIdx, setFocusedIdx] = useState(0);

@@ -16,7 +16,7 @@ import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useBrowserStore } from '@/stores/browserStore';
 import { useTerminalStore } from '@/stores/terminalStore';
-import { useServer } from '@/contexts/ServerContext';
+import { useServers } from '@/contexts/ServerContext';
 import { getWebSocketClient } from '@/lib/websocket';
 import { ServerIcon } from '@/components/ServerIcon';
 
@@ -354,7 +354,8 @@ export interface SubscriptionsPanelProps {
 export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentProject, onNavigate }) => {
   const { subscriptions, order, unsubscribe, subscribe, reorder } = useSubscriptionStore();
   const { sessions, setCurrentSession, currentSession } = useSessionStore();
-  const { servers, activeId } = useServer();
+  const { servers } = useServers();
+  const activeId = currentSession?.serverId ?? null;
   const tmuxSessions = useTmuxSessions();
   const [collapsed, setCollapsed] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);

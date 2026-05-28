@@ -81,7 +81,6 @@ export class ConnectionStore {
   // re-detected on each app launch since features may be enabled/disabled
   // server-side between sessions.
   private capabilities = new Map<string, ServerCapabilities>();
-  private activeId: string | null = null;
   // host:port of local servers the user explicitly forgot, so refreshLocal
   // doesn't auto-re-add them while the instance is still alive.
   private forgotten = new Set<string>();
@@ -102,7 +101,8 @@ export class ConnectionStore {
     await mkdir(this.userDataDir, { recursive: true });
     try {
       const raw = await readFile(this.serversFile, 'utf-8');
-      const parsed = JSON.parse(raw) as { entries: PersistedEntry[]; activeId: string | null; forgotten?: string[] };
+      // `activeId` may be present in legacy persisted files — ignored on read.
+      const parsed = JSON.parse(raw) as { entries: PersistedEntry[]; forgotten?: string[] };
       this.entries.clear();
       this.forgotten = new Set(parsed.forgotten ?? []);
       for (const p of parsed.entries ?? []) {
@@ -117,7 +117,6 @@ export class ConnectionStore {
         }
         this.entries.set(entry.id, entry);
       }
-      this.activeId = parsed.activeId ?? null;
     } catch {
       // no file yet — empty store
     }
@@ -181,7 +180,6 @@ export class ConnectionStore {
     if (e?.source === 'local') this.forgotten.add(`${e.host}:${e.port}`);
     this.entries.delete(id);
     this.capabilities.delete(id);
-    if (this.activeId === id) this.activeId = null;
     void this.persist();
   }
 
@@ -193,17 +191,6 @@ export class ConnectionStore {
     if (!this.entries.has(id)) return;
     const current = this.capabilities.get(id) ?? { tmux: false };
     this.capabilities.set(id, { ...current, ...caps });
-  }
-
-  setActive(id: string): void {
-    if (!this.entries.has(id)) throw new Error(`unknown server id: ${id}`);
-    this.activeId = id;
-    void this.persist();
-  }
-
-  getActive(): ServerEntry | null {
-    if (!this.activeId) return null;
-    return this.entries.get(this.activeId) ?? null;
   }
 
   /** Sync the `source:'local'` entries with the live instance registry. */
@@ -273,7 +260,6 @@ export class ConnectionStore {
       if (e.source === 'local' && !liveKeys.has(`${e.host}:${e.port}`)) {
         this.entries.delete(id);
         this.capabilities.delete(id);
-        if (this.activeId === id) this.activeId = null;
       }
     }
   }
@@ -286,7 +272,7 @@ export class ConnectionStore {
       return p;
     });
     await mkdir(dirname(this.serversFile), { recursive: true });
-    await writeFile(this.serversFile, JSON.stringify({ entries, activeId: this.activeId, forgotten: [...this.forgotten] }, null, 2));
+    await writeFile(this.serversFile, JSON.stringify({ entries, forgotten: [...this.forgotten] }, null, 2));
   }
 }
 

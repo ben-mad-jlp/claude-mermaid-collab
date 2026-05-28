@@ -5,7 +5,6 @@ import { useDataLoader } from '../hooks/useDataLoader';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { getWebSocketClient } from '../lib/websocket';
 import { useSubscriptionStore } from '../stores/subscriptionStore';
-import { useServer } from '../contexts/ServerContext';
 import { SessionInfo } from '../components/layout/SessionInfo';
 import { VibeInstructions } from '../components/layout/VibeInstructions';
 import { SubscriptionsPanel } from '../components/layout/SubscriptionsPanel';
@@ -15,7 +14,6 @@ import { ArtifactTree } from '../components/layout/sidebar-tree/ArtifactTree';
 
 export function SidebarView() {
   const [searchParams] = useSearchParams();
-  const { activeId: activeServerId } = useServer();
 
   useEffect(() => {
     const client = getWebSocketClient();
@@ -23,7 +21,7 @@ export function SidebarView() {
       switch (message.type) {
         case 'claude_session_registered': {
           const { claudeSessionId, project, session, claudePid } = message as any;
-          const sid = (message as any).serverId ?? searchParams.get('srv') ?? activeServerId;
+          const sid = (message as any).serverId ?? searchParams.get('srv') ?? 'local';
           if (sid) {
             useSubscriptionStore.getState().updateStatus(sid, claudeSessionId, 'active', project, session, claudePid);
           }
@@ -31,7 +29,7 @@ export function SidebarView() {
         }
         case 'claude_session_status': {
           const { claudeSessionId, project, session, status } = message as any;
-          const sid = (message as any).serverId ?? searchParams.get('srv') ?? activeServerId;
+          const sid = (message as any).serverId ?? searchParams.get('srv') ?? 'local';
           if (sid) {
             useSubscriptionStore.getState().updateStatus(sid, claudeSessionId, status, project, session);
           }
@@ -40,7 +38,7 @@ export function SidebarView() {
       }
     });
     return () => subscription.unsubscribe();
-  }, [activeServerId, searchParams]);
+  }, [searchParams]);
   const project = searchParams.get('project') ?? undefined;
   const session = searchParams.get('session') ?? undefined;
 
@@ -51,11 +49,11 @@ export function SidebarView() {
 
   useEffect(() => {
     if (!project || !session) return;
-    const resolvedServerId = searchParams.get('srv') ?? activeServerId ?? 'local';
+    const resolvedServerId = searchParams.get('srv') ?? 'local';
     setCurrentSession({ project, name: session, serverId: resolvedServerId });
     loadSessions();
     loadSessionItems(resolvedServerId, project, session);
-  }, [project, session, setCurrentSession, loadSessions, loadSessionItems, searchParams, activeServerId]);
+  }, [project, session, setCurrentSession, loadSessions, loadSessionItems, searchParams]);
 
   if (!project || !session) {
     return (

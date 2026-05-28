@@ -24,20 +24,11 @@ let aggregator: WatchAggregator | null = null;
 /** Register the `mc` IPC handlers backing the preload bridge. */
 function registerIpc(): void {
   ipcMain.handle('mc:listServers', () => store?.list() ?? []);
-  ipcMain.handle('mc:getActiveServer', () => store?.getActive()?.id ?? null);
   ipcMain.handle('mc:addServer', (_e, opts: { label: string; host: string; port: number; token?: string }) =>
     store?.add(opts) ?? null
   );
   ipcMain.handle('mc:removeServer', (_e, id: string) => {
     store?.remove(id);
-  });
-  ipcMain.handle('mc:switchServer', (_e, id: string) => {
-    if (!store || !proxy) return { ok: false };
-    const entry = store.get(id);
-    if (!entry) return { ok: false };
-    store.setActive(id);
-    proxy.setUpstream({ host: entry.host, port: entry.port, token: entry.token });
-    return { ok: true };
   });
   ipcMain.handle('mc:browser:listTabs', () => paneManager?.listTabs() ?? []);
   ipcMain.handle('mc:browser:openTab', (_e, opts) => paneManager?.openUserTab(opts ?? {}) ?? null);
@@ -146,7 +137,7 @@ function parseDeepLink(url: string): { project: string; session: string; srv: st
 
 function dispatchDeepLink(parsed: { project: string; session: string; srv: string | null } | null): void {
   if (!parsed) return;
-  const srv = parsed.srv ?? (store?.list().find((e) => e.source === 'local')?.id ?? store?.getActive()?.id ?? null);
+  const srv = parsed.srv ?? (store?.list().find((e) => e.source === 'local')?.id ?? null);
   const payload = { srv, project: parsed.project, session: parsed.session };
   if (mainWindow && !mainWindow.webContents.isLoading()) {
     mainWindow.webContents.send('mc:deeplink', payload);
@@ -275,12 +266,12 @@ async function bootstrap(): Promise<void> {
   console.log(`[bootstrap] sidecar ${attached ? 'attached' : 'spawned'} on port ${port}; cdp on ${cdpPort}`);
   await fetch(`http://127.0.0.1:${port}/api/browser/electron-target`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cdpPort }) }).catch(() => {});
 
-  // Start the per-server proxy and point it at the local sidecar. The renderer
-  // talks only to the proxy (single origin → relative URLs keep working);
-  // switching servers later just repoints the proxy upstream.
-  proxy = new ServerProxy();
+  // Start the per-server proxy pinned to the local sidecar. The renderer talks
+  // only to the proxy (single origin → relative URLs keep working). The local
+  // upstream is immutable for the lifetime of the app; per-server requests are
+  // routed via the resolver below (and `mc:invokeOnServer`) instead.
+  proxy = new ServerProxy({ host: '127.0.0.1', port });
   const { port: proxyPort } = await proxy.start();
-  proxy.setUpstream({ host: '127.0.0.1', port }); // local sidecar, no token
   console.log(`[bootstrap] proxy on ${proxyPort} → sidecar ${port}`);
 
   // Connection store: persisted server list + auto-listed local instances.

@@ -8,9 +8,8 @@
  * removes it; ServerSwitcher.tsx is deleted in Wave 3's cleanup.
  */
 import React, { forwardRef, useState, useImperativeHandle } from 'react';
-import { useServer } from '@/contexts/ServerContext';
+import { useServers } from '@/contexts/ServerContext';
 import { ServerIcon } from '@/components/ServerIcon';
-import { SectionBranchRow } from './TreeBranchRow';
 
 const STATUS_DOT: Record<string, string> = {
   online: '#3fb950',
@@ -29,7 +28,7 @@ export interface ServersTreeSectionHandle {
 
 const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSectionProps>(
   (props, ref) => {
-    const { available, servers, activeId, switchServer, addServer, removeServer } = useServer();
+    const { available, servers, addServer, removeServer } = useServers();
 
     const [internalCollapsed, setInternalCollapsed] = useState(false);
     const isCollapsed = props.collapsed ?? internalCollapsed;
@@ -70,45 +69,62 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
     };
 
     return (
-      <div data-testid="sidebar-servers-section">
-        <SectionBranchRow
-          id="servers"
-          title="Servers"
-          count={servers.length}
-          collapsed={isCollapsed}
-          onToggle={handleToggle}
-          level={0}
-        />
+      <div data-testid="sidebar-servers-section" className="border-b border-gray-200 dark:border-gray-700">
+        {/* Header — mirrors the Watching panel */}
+        <div className="flex items-center">
+          <button
+            onClick={handleToggle}
+            className="flex-1 flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+          >
+            <span>Servers</span>
+            <span className="ml-1 text-gray-400 dark:text-gray-500 font-normal">
+              {servers.length}
+            </span>
+            <svg
+              className={`w-3 h-3 ml-auto text-gray-400 transition-transform ${isCollapsed ? '-rotate-90' : ''}`}
+              viewBox="0 0 20 20"
+              fill="currentColor"
+            >
+              <path
+                fillRule="evenodd"
+                d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </button>
+          {/* Add server button */}
+          <button
+            onClick={() => { if (isCollapsed) handleToggle(); setAdding(true); }}
+            className="px-2 py-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+            title="Add a server"
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+              <path
+                fillRule="evenodd"
+                d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </button>
+        </div>
         {!isCollapsed && (
-          <>
+          <div className="px-2 pb-2 space-y-1">
             {servers.length === 0 && (
-              <div
-                style={{ paddingLeft: '16px' }}
-                className="px-2 py-1 text-xs text-gray-400 dark:text-gray-500 italic"
-              >
+              <div className="px-2 py-1 text-xs text-gray-400 dark:text-gray-500 italic">
                 No servers found
               </div>
             )}
             {servers.map((s) => {
-              const isActive = s.id === activeId;
               const isManual = s.source === 'manual';
               return (
                 <div
                   key={s.id}
-                  style={{ paddingLeft: '16px' }}
                   data-testid={`sidebar-server-row-${s.id}`}
                 >
                   <div
-                    className="relative group flex items-center gap-1.5 px-2 py-1 rounded text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
-                    onClick={() => { void switchServer(s.id); }}
-                    title={`Connect to ${s.label}`}
+                    className="relative group flex items-center gap-1.5 px-2 py-1 rounded text-xs text-gray-700 dark:text-gray-300"
+                    title={s.label}
                   >
-                    {isActive && (
-                      <span
-                        aria-hidden
-                        className="absolute left-0 top-0 bottom-0 w-1 bg-accent-600 dark:bg-accent-400 rounded-l"
-                      />
-                    )}
                     <span
                       aria-hidden
                       style={{
@@ -120,7 +136,7 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
                       }}
                     />
                     <ServerIcon name={s.icon} size={14} title={`Server: ${s.label}`} />
-                    <span className={`flex-1 min-w-0 truncate ${isActive ? 'font-semibold' : ''}`}>
+                    <span className="flex-1 min-w-0 truncate">
                       {s.label || 'server'}
                     </span>
                     <span className="text-gray-400 dark:text-gray-500 truncate">
@@ -144,17 +160,8 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
               );
             })}
 
-            <div style={{ paddingLeft: '16px' }}>
-              {!adding ? (
-                <button
-                  type="button"
-                  onClick={() => setAdding(true)}
-                  className="w-full text-left px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
-                >
-                  + Add server…
-                </button>
-              ) : (
-                <form onSubmit={submitAdd} className="px-2 py-1.5 grid gap-1.5">
+            {adding && (
+              <form onSubmit={submitAdd} className="px-2 py-1.5 grid gap-1.5">
                   <input
                     placeholder="Label"
                     value={form.label}
@@ -196,10 +203,9 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
                       Save &amp; Connect
                     </button>
                   </div>
-                </form>
-              )}
-            </div>
-          </>
+              </form>
+            )}
+          </div>
         )}
       </div>
     );
