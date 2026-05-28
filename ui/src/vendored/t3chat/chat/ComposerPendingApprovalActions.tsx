@@ -38,7 +38,7 @@ export const ComposerPendingApprovalActions: React.FC<ComposerPendingApprovalAct
     {sessionId && (
       <AllowAllForCommandMenu
         sessionId={sessionId}
-        toolName={toolName}
+        toolName={toolName ?? ''}
         input={toolInput}
         disabled={disabled}
       />

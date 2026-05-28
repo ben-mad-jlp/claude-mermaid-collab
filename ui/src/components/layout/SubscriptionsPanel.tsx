@@ -72,7 +72,6 @@ const ClaudePixAvatar: React.FC<{ status: string }> = ({ status }) => {
           scrolling="no"
           frameBorder="0"
           sandbox="allow-scripts"
-          allowtransparency="true"
           className="rounded-sm overflow-hidden pointer-events-none"
           style={{ width: 44, height: 44, imageRendering: 'pixelated', background: 'transparent', display: 'block' }}
         />
@@ -90,7 +89,6 @@ const ClaudePixAvatar: React.FC<{ status: string }> = ({ status }) => {
               scrolling="no"
               frameBorder="0"
               sandbox="allow-scripts"
-              allowtransparency="true"
               style={{ width: '80vmin', height: '80vmin', imageRendering: 'pixelated', background: 'transparent', display: 'block' }}
             />
             <button

@@ -12,9 +12,9 @@ import { RefObject, useState, useRef, useEffect, useCallback } from 'react';
 
 export interface SyncScrollOptions {
   /** Editor scroll container ref */
-  editorRef: RefObject<HTMLElement>;
+  editorRef: RefObject<HTMLElement | null>;
   /** Preview scroll container ref */
-  previewRef: RefObject<HTMLElement>;
+  previewRef: RefObject<HTMLElement | null>;
   /** Whether sync is enabled */
   enabled: boolean;
   /** Debounce delay in ms (default: 16) */

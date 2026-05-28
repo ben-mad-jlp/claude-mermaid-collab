@@ -16,7 +16,7 @@ import { initEditorRefs, destroyEditorRefs, getEditorRefs } from '@/stores/desig
 import { useDesignEditorStore } from '@/stores/designEditorStore'
 
 export interface UseDesignCanvasReturn {
-  canvasRef: React.RefObject<HTMLCanvasElement>
+  canvasRef: React.RefObject<HTMLCanvasElement | null>
   isLoading: boolean
   error: string | null
   hitTestSectionTitle: (canvasX: number, canvasY: number) => SceneNode | null

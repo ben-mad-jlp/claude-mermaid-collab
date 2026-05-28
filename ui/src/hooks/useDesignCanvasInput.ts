@@ -104,7 +104,7 @@ function hitTestRotationHandle(sx: number, sy: number, absX: number, absY: numbe
 }
 
 interface UseDesignCanvasInputOptions {
-  canvasRef: React.RefObject<HTMLCanvasElement>
+  canvasRef: React.RefObject<HTMLCanvasElement | null>
   hitTestSectionTitle: (cx: number, cy: number) => SceneNode | null
   hitTestComponentLabel: (cx: number, cy: number) => SceneNode | null
 }

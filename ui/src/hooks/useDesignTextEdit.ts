@@ -22,7 +22,7 @@ import { useDesignEditorStore } from '@/stores/designEditorStore'
 
 const CARET_BLINK_MS = 530
 
-export function useDesignTextEdit(canvasRef: React.RefObject<HTMLCanvasElement>) {
+export function useDesignTextEdit(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const isComposingRef = useRef(false)
   const blinkTimerRef = useRef(0)

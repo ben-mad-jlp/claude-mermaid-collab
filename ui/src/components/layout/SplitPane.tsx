@@ -79,8 +79,8 @@ export const SplitPane: React.FC<SplitPaneProps> = ({
 
   // Handle layout changes - MixedSizes has sizePercentage and sizePixels properties
   const handleLayout = useCallback(
-    (sizes: Array<{ sizePercentage: number; sizePixels: number }>) => {
-      const primarySize = sizes[0]?.sizePercentage ?? 0;
+    (sizes: number[]) => {
+      const primarySize = sizes[0] ?? 0;
       onSizeChange?.(primarySize);
 
       // Check for collapse/expand events

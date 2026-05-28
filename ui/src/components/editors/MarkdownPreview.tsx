@@ -361,10 +361,11 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
           return <pre className="my-4 p-4 bg-gray-100 dark:bg-gray-800 rounded-lg overflow-auto">{children}</pre>;
         }
 
-        const codeClassName = codeElement.props.className || '';
+        const codeProps = codeElement.props as { className?: string; children?: unknown };
+        const codeClassName = codeProps.className || '';
         const match = /language-(\w+)/.exec(codeClassName);
         const language = match ? match[1] : 'text';
-        const code = String(codeElement.props.children).replace(/\n$/, '');
+        const code = String(codeProps.children).replace(/\n$/, '');
 
         return (
           <div className="my-4 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">

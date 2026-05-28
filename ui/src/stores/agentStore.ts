@@ -733,7 +733,7 @@ export const useAgentStore = create<AgentState & AgentActions>((set, get) => ({
           mimeType: (event as any).mimeType,
         }];
         const next = [...timeline];
-        next[idx] = { ...msg, attachments } as AgentMessage;
+        next[idx] = { ...msg, attachments } as AgentTimelineItem;
         set({ timeline: next });
         return;
       }

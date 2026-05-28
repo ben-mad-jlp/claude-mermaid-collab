@@ -105,7 +105,7 @@ export const CollapsibleDetails: React.FC<CollapsibleDetailsProps> = ({
         child.type === CollapsibleSummary ||
         (typeof child.type === 'string' && child.type === 'summary')
       ) {
-        summaryContent = child.props.children;
+        summaryContent = (child.props as { children?: React.ReactNode }).children;
       } else {
         contentChildren.push(child);
       }

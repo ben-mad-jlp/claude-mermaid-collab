@@ -484,7 +484,7 @@ export const DocumentEditorLegacy: React.FC<DocumentEditorProps> = ({
                   diff={showDiff ? { oldContent: previousContent, newContent: content } : null}
                   onClearDiff={handleClearDiff}
                   onElementClick={handleSourceLineClick}
-                  scrollRef={previewScrollRef}
+                  scrollRef={previewScrollRef as React.RefObject<HTMLDivElement>}
                   collapsibleSections
                   onContentChange={handleContentChange}
                 />
