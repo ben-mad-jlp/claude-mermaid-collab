@@ -9,6 +9,7 @@ import { useServer } from '../contexts/ServerContext';
 import { SessionInfo } from '../components/layout/SessionInfo';
 import { VibeInstructions } from '../components/layout/VibeInstructions';
 import { SubscriptionsPanel } from '../components/layout/SubscriptionsPanel';
+import { ServersTreeSection } from '../components/layout/sidebar-tree/ServersTreeSection';
 import { ArtifactTree } from '../components/layout/sidebar-tree/ArtifactTree';
 
 export function SidebarView() {
@@ -62,6 +63,7 @@ export function SidebarView() {
     <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900 overflow-hidden">
       <SessionInfo project={currentSession?.project ?? project ?? ''} session={currentSession?.name ?? session ?? ''} connected={wsConnected} isConnecting={wsConnecting} />
       <VibeInstructions vsCodeMode={true} />
+      <ServersTreeSection />
       <SubscriptionsPanel currentProject={project ?? ''} onNavigate={loadSessionItems} />
       <ArtifactTree vsCodeMode={true} className="flex-1 min-h-0 w-full" />
     </div>

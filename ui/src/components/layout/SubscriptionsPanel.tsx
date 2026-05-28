@@ -1,3 +1,15 @@
+/**
+ * SubscriptionsPanel — the "Watching" section and its Subscribe modal.
+ *
+ * Mental model after the sidebar-servers refactor:
+ * - Servers live in the sidebar (`ServersTreeSection`).
+ * - The Subscribe modal lists sessions across ALL known servers (grouped),
+ *   and lets the user create new projects + sessions on any server without
+ *   switching active. Per-server actions route through `mc.invokeOnServer`;
+ *   tokens stay in main.
+ * - Subscribed rows carry a `serverId` and a per-server icon chip; their
+ *   click actions target the row's server, not the active one.
+ */
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
@@ -335,6 +347,14 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
   const [crossServerSessions, setCrossServerSessions] = useState<
     Array<{ serverId: string; serverLabel: string; project: string; name: string; displayName?: string }>
   >([]);
+  const [pendingProjects, setPendingProjects] = useState<Record<string, string[]>>({});
+  const [addProjectOpenFor, setAddProjectOpenFor] = useState<string | null>(null);
+  const [addProjectInput, setAddProjectInput] = useState('');
+  const [addProjectError, setAddProjectError] = useState<string | null>(null);
+  const [addSessionOpenFor, setAddSessionOpenFor] = useState<string | null>(null); // composite key "serverId|project"
+  const [addSessionInput, setAddSessionInput] = useState('');
+  const [addSessionError, setAddSessionError] = useState<string | null>(null);
+  const [refreshTick, setRefreshTick] = useState(0);
 
   const serverLabelById = useMemo(() => {
     const m = new Map<string, string>();
@@ -461,7 +481,83 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
       }
     })();
     return () => { cancelled = true; };
-  }, [showDropdown, servers, sessions, activeId, serverLabelById]);
+  }, [showDropdown, servers, sessions, activeId, serverLabelById, refreshTick]);
+
+  const handleAddProject = useCallback(async (serverId: string) => {
+    const path = addProjectInput.trim();
+    if (!path.startsWith('/')) {
+      setAddProjectError('Path must be absolute (start with "/")');
+      return;
+    }
+    const mc = (window as any).mc;
+    if (mc?.invokeOnServer) {
+      const res = await mc.invokeOnServer(serverId, {
+        path: '/api/projects',
+        method: 'POST',
+        body: { path },
+      }).catch(() => null);
+      if (res?.ok) {
+        setRefreshTick((t) => t + 1);
+        setAddProjectInput('');
+        setAddProjectOpenFor(null);
+        setAddProjectError(null);
+        return;
+      }
+      setAddProjectError(
+        (typeof res?.body === 'object' && res?.body && 'error' in res.body
+          ? String((res.body as any).error)
+          : `Server rejected (${res?.status ?? 'no response'}). Queued locally.`)
+      );
+    }
+    // Fallback: keep as pending project (renderer-only); Task E will let the user
+    // create a session under it, which lazy-creates the project on the server.
+    setPendingProjects((p) => ({
+      ...p,
+      [serverId]: Array.from(new Set([...(p[serverId] ?? []), path])),
+    }));
+    setAddProjectInput('');
+    setAddProjectOpenFor(null);
+  }, [addProjectInput]);
+
+  const handleAddSession = useCallback(async (serverId: string, project: string) => {
+    const name = addSessionInput.trim();
+    if (!name) {
+      setAddSessionError('Session name required');
+      return;
+    }
+    const mc = (window as any).mc;
+    if (!mc?.invokeOnServer) {
+      setAddSessionError('Adding sessions requires the desktop app');
+      return;
+    }
+    const res = await mc.invokeOnServer(serverId, {
+      path: '/api/sessions',
+      method: 'POST',
+      body: { project, session: name },
+    }).catch(() => null);
+    if (!res?.ok) {
+      setAddSessionError(
+        typeof res?.body === 'object' && res?.body && 'error' in res.body
+          ? String((res.body as any).error)
+          : `Server rejected (${res?.status ?? 'no response'})`
+      );
+      return;
+    }
+    // Auto-subscribe so the new session lands in Watching immediately.
+    subscribe(serverId, project, name);
+    // If this was a pending project, promote it: server now knows about it,
+    // so drop from pendingProjects.
+    setPendingProjects((p) => {
+      const list = p[serverId] ?? [];
+      const filtered = list.filter((q) => q !== project);
+      if (filtered.length === list.length) return p;
+      return { ...p, [serverId]: filtered };
+    });
+    setRefreshTick((t) => t + 1);
+    setAddSessionInput('');
+    setAddSessionOpenFor(null);
+    setAddSessionError(null);
+  }, [addSessionInput, subscribe]);
 
   // Navigate to a watched row. Side-effects (create terminal, focus browser
   // tab) fire via per-server IPC in the row click handler — they target the
@@ -569,32 +665,197 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
                 </button>
               </div>
               <div className="overflow-y-auto py-1">
-                {availableSessions.length === 0 ? (
-                  <div className="px-4 py-6 text-sm text-gray-500 dark:text-gray-400 text-center">
-                    No sessions available to watch
-                  </div>
-                ) : (
-                  availableByServer.map(([serverId, group]) => (
+                {(() => {
+                  const groupMap = new Map(availableByServer);
+                  // Ensure every known server has a group entry so the user can
+                  // still add a project even if no sessions are reachable yet.
+                  const rendered: Array<[string, { label: string; items: typeof availableSessions }]> = [];
+                  for (const srv of servers) {
+                    const existing = groupMap.get(srv.id);
+                    rendered.push([srv.id, existing ?? { label: srv.label, items: [] }]);
+                    groupMap.delete(srv.id);
+                  }
+                  // Append any leftover groups (e.g. sessions for servers no longer in `servers`).
+                  for (const [id, group] of groupMap) rendered.push([id, group]);
+
+                  if (rendered.length === 0) {
+                    return (
+                      <div className="px-4 py-6 text-sm text-gray-500 dark:text-gray-400 text-center">
+                        No sessions available to watch
+                      </div>
+                    );
+                  }
+
+                  return rendered.map(([serverId, group]) => (
                     <details key={serverId} open className="border-b last:border-b-0 border-gray-100 dark:border-gray-700">
                       <summary className="px-4 py-2 text-xs font-semibold text-gray-600 dark:text-gray-300 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2">
                         <ServerIcon name={serverIconById.get(serverId)} size={14} title={group.label} />
                         <span>{group.label}</span>
                         <span className="ml-1 text-gray-400 dark:text-gray-500 font-normal">{group.items.length}</span>
                       </summary>
-                      {group.items.map((s) => (
-                        <button
-                          key={`${s.serverId}:${s.project}:${s.name}`}
-                          onClick={() => handleSubscribe(s.serverId, s.project, s.name)}
-                          className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                        >
-                          <span className="text-gray-400 dark:text-gray-500">{s.project.split('/').pop()}</span>
-                          <span className="text-gray-400 dark:text-gray-500"> / </span>
-                          <span className="text-gray-900 dark:text-gray-100">{s.displayName || s.name}</span>
-                        </button>
-                      ))}
+                      {/* New project affordance */}
+                      <div className="px-4 py-1.5 flex items-center gap-2">
+                        {addProjectOpenFor === serverId ? (
+                          <>
+                            <input
+                              autoFocus
+                              type="text"
+                              value={addProjectInput}
+                              placeholder="/absolute/path"
+                              onChange={(e) => { setAddProjectInput(e.target.value); setAddProjectError(null); }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') { e.preventDefault(); void handleAddProject(serverId); }
+                                else if (e.key === 'Escape') {
+                                  e.preventDefault();
+                                  setAddProjectOpenFor(null);
+                                  setAddProjectInput('');
+                                  setAddProjectError(null);
+                                }
+                              }}
+                              className="flex-1 min-w-0 text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                            />
+                            <button
+                              onClick={() => void handleAddProject(serverId)}
+                              className="text-xs px-2 py-1 rounded bg-accent-600 text-white hover:bg-accent-700"
+                            >
+                              Add
+                            </button>
+                            <button
+                              onClick={() => {
+                                setAddProjectOpenFor(null);
+                                setAddProjectInput('');
+                                setAddProjectError(null);
+                              }}
+                              className="text-xs px-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                              title="Cancel"
+                            >
+                              ×
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setAddProjectOpenFor(serverId);
+                              setAddProjectInput('');
+                              setAddProjectError(null);
+                            }}
+                            className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                          >
+                            + New project
+                          </button>
+                        )}
+                      </div>
+                      {addProjectOpenFor === serverId && addProjectError && (
+                        <div className="px-4 pb-1 text-xs text-red-500">{addProjectError}</div>
+                      )}
+                      {(() => {
+                        // Union of distinct projects: real items + pending.
+                        const realProjects: string[] = [];
+                        const seen = new Set<string>();
+                        for (const it of group.items) {
+                          if (!seen.has(it.project)) {
+                            seen.add(it.project);
+                            realProjects.push(it.project);
+                          }
+                        }
+                        const pending = pendingProjects[serverId] ?? [];
+                        // Order: pending projects first (newly created, empty),
+                        // then existing/real projects. Header → + New project →
+                        // pending → existing (each with + New session).
+                        const pendingOnly: string[] = [];
+                        for (const p of pending) {
+                          if (!seen.has(p)) {
+                            seen.add(p);
+                            pendingOnly.push(p);
+                          }
+                        }
+                        const allProjects = [...pendingOnly, ...realProjects];
+                        return allProjects.map((project) => {
+                          const isPending = pending.includes(project) && !realProjects.includes(project);
+                          const projectItems = group.items.filter((s) => s.project === project);
+                          const compositeKey = `${serverId}|${project}`;
+                          const sessionOpen = addSessionOpenFor === compositeKey;
+                          return (
+                            <div key={`proj:${serverId}:${project}`}>
+                              <div
+                                className="pl-7 pr-4 py-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300"
+                                title={project}
+                              >
+                                {project.split('/').filter(Boolean).pop() ?? project}
+                                {isPending && (
+                                  <span className="text-gray-400 dark:text-gray-500 font-normal"> (new — empty)</span>
+                                )}
+                              </div>
+                              {projectItems.map((s) => (
+                                <button
+                                  key={`${s.serverId}:${s.project}:${s.name}`}
+                                  onClick={() => handleSubscribe(s.serverId, s.project, s.name)}
+                                  className="w-full text-left pl-10 pr-4 py-1.5 text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                                >
+                                  {s.displayName || s.name}
+                                </button>
+                              ))}
+                              <div className="pl-10 pr-4 py-1.5 flex items-center gap-2">
+                                {sessionOpen ? (
+                                  <>
+                                    <input
+                                      autoFocus
+                                      type="text"
+                                      value={addSessionInput}
+                                      placeholder="session-name"
+                                      onChange={(e) => { setAddSessionInput(e.target.value); setAddSessionError(null); }}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') { e.preventDefault(); void handleAddSession(serverId, project); }
+                                        else if (e.key === 'Escape') {
+                                          e.preventDefault();
+                                          setAddSessionOpenFor(null);
+                                          setAddSessionInput('');
+                                          setAddSessionError(null);
+                                        }
+                                      }}
+                                      className="flex-1 min-w-0 text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                                    />
+                                    <button
+                                      onClick={() => void handleAddSession(serverId, project)}
+                                      className="text-xs px-2 py-1 rounded bg-accent-600 text-white hover:bg-accent-700"
+                                    >
+                                      Add
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setAddSessionOpenFor(null);
+                                        setAddSessionInput('');
+                                        setAddSessionError(null);
+                                      }}
+                                      className="text-xs px-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                                      title="Cancel"
+                                    >
+                                      ×
+                                    </button>
+                                  </>
+                                ) : (
+                                  <button
+                                    onClick={() => {
+                                      setAddSessionOpenFor(compositeKey);
+                                      setAddSessionInput('');
+                                      setAddSessionError(null);
+                                    }}
+                                    className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                                  >
+                                    + New session
+                                  </button>
+                                )}
+                              </div>
+                              {sessionOpen && addSessionError && (
+                                <div className="px-4 pb-1 text-xs text-red-500">{addSessionError}</div>
+                              )}
+                            </div>
+                          );
+                        });
+                      })()}
                     </details>
-                  ))
-                )}
+                  ));
+                })()}
               </div>
             </div>
           </div>

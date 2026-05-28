@@ -3,6 +3,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useTabsStore, useSessionTabs } from '@/stores/tabsStore';
 import { SubscriptionsPanel } from '@/components/layout/SubscriptionsPanel';
+import { ServersTreeSection } from '@/components/layout/sidebar-tree/ServersTreeSection';
 import { ArtifactTree } from '@/components/layout/sidebar-tree/ArtifactTree';
 import { WorktreeBadge } from '@/components/layout/WorktreeBadge';
 import { useDataLoader } from '@/hooks/useDataLoader';
@@ -77,6 +78,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
       )}
+      <ServersTreeSection />
       <SubscriptionsPanel currentProject={currentSession?.project} />
       <ArtifactTree />
     </aside>
