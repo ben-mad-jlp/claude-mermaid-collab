@@ -159,6 +159,12 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
     >
       {/* Header */}
       <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-200 dark:border-gray-700 text-sm">
+        <span
+          className="shrink-0 tabular-nums text-xs text-gray-400 dark:text-gray-500 select-all"
+          title={todo.id}
+        >
+          #{String(todo.id).slice(-4)}
+        </span>
         <select
           value={status}
           onChange={(e) => changeStatus(e.target.value as TodoStatus)}
@@ -251,28 +257,16 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
           </div>
         ) : (
           <div className="px-4 py-3">
-            {/* Title: click to enter edit mode (cursor + subtle hover) */}
-            <h1
-              onClick={beginEdit}
-              title="Click to edit"
-              className="text-base font-medium text-gray-900 dark:text-gray-100 mb-3 break-words [overflow-wrap:anywhere] cursor-text rounded px-1 -mx-1 py-0.5 hover:bg-gray-50 dark:hover:bg-gray-800/50"
-            >
+            <h1 className="text-base font-medium text-gray-900 dark:text-gray-100 mb-3 break-words [overflow-wrap:anywhere]">
               {currentTitle}
             </h1>
             {currentDesc.trim() ? (
-              <div
-                onClick={beginEdit}
-                title="Click to edit"
-                className="text-sm cursor-text rounded px-1 -mx-1 py-0.5 hover:bg-gray-50 dark:hover:bg-gray-800/50"
-              >
+              <div className="text-sm">
                 <MarkdownPreview content={currentDesc} />
               </div>
             ) : (
-              <p
-                onClick={beginEdit}
-                className="text-sm text-gray-400 dark:text-gray-500 italic cursor-text"
-              >
-                No description. Click to add one.
+              <p className="text-sm text-gray-400 dark:text-gray-500 italic">
+                No description. Press <span className="font-medium">Edit</span> to add one.
               </p>
             )}
           </div>

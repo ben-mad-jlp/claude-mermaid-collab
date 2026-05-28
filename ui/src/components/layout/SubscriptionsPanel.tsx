@@ -503,14 +503,16 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
         setAddProjectError(null);
         return;
       }
+      // Server rejected — keep the form open so the user sees the error.
       setAddProjectError(
-        (typeof res?.body === 'object' && res?.body && 'error' in res.body
+        typeof res?.body === 'object' && res?.body && 'error' in res.body
           ? String((res.body as any).error)
-          : `Server rejected (${res?.status ?? 'no response'}). Queued locally.`)
+          : `Server rejected (${res?.status ?? 'no response'})`,
       );
+      return;
     }
-    // Fallback: keep as pending project (renderer-only); Task E will let the user
-    // create a session under it, which lazy-creates the project on the server.
+    // No bridge (browser tab): fall back to a renderer-only pending project
+    // so the user can still author a session under it via Task E's flow.
     setPendingProjects((p) => ({
       ...p,
       [serverId]: Array.from(new Set([...(p[serverId] ?? []), path])),
@@ -686,8 +688,11 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
                     );
                   }
 
-                  return rendered.map(([serverId, group]) => (
-                    <details key={serverId} open className="border-b last:border-b-0 border-gray-100 dark:border-gray-700">
+                  return rendered.map(([serverId, group]) => {
+                    const hasContent =
+                      group.items.length > 0 || (pendingProjects[serverId]?.length ?? 0) > 0;
+                    return (
+                    <details key={serverId} open={hasContent} className="border-b last:border-b-0 border-gray-100 dark:border-gray-700">
                       <summary className="px-4 py-2 text-xs font-semibold text-gray-600 dark:text-gray-300 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2">
                         <ServerIcon name={serverIconById.get(serverId)} size={14} title={group.label} />
                         <span>{group.label}</span>
@@ -776,23 +781,30 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
                           const compositeKey = `${serverId}|${project}`;
                           const sessionOpen = addSessionOpenFor === compositeKey;
                           return (
-                            <div key={`proj:${serverId}:${project}`}>
-                              <div
-                                className="pl-7 pr-4 py-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300"
+                            <details key={`proj:${serverId}:${project}`} className="group/proj">
+                              <summary
+                                className="pl-7 pr-4 py-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300 flex items-center gap-1.5 cursor-pointer list-none hover:bg-gray-50 dark:hover:bg-gray-700/50 [&::-webkit-details-marker]:hidden"
                                 title={project}
                               >
-                                {project.split('/').filter(Boolean).pop() ?? project}
+                                <span
+                                  aria-hidden
+                                  className="text-gray-400 dark:text-gray-500 transition-transform group-open/proj:rotate-90"
+                                >
+                                  ▸
+                                </span>
+                                <span>{project.split('/').filter(Boolean).pop() ?? project}</span>
                                 {isPending && (
-                                  <span className="text-gray-400 dark:text-gray-500 font-normal"> (new — empty)</span>
+                                  <span className="text-gray-400 dark:text-gray-500 font-normal">(new — empty)</span>
                                 )}
-                              </div>
+                              </summary>
                               {projectItems.map((s) => (
                                 <button
                                   key={`${s.serverId}:${s.project}:${s.name}`}
                                   onClick={() => handleSubscribe(s.serverId, s.project, s.name)}
-                                  className="w-full text-left pl-10 pr-4 py-1.5 text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                                  className="w-full text-left pl-10 pr-4 py-1.5 text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center gap-1.5"
                                 >
-                                  {s.displayName || s.name}
+                                  <span aria-hidden className="text-gray-400 dark:text-gray-500">·</span>
+                                  <span>{s.displayName || s.name}</span>
                                 </button>
                               ))}
                               <div className="pl-10 pr-4 py-1.5 flex items-center gap-2">
@@ -849,12 +861,13 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
                               {sessionOpen && addSessionError && (
                                 <div className="px-4 pb-1 text-xs text-red-500">{addSessionError}</div>
                               )}
-                            </div>
+                            </details>
                           );
                         });
                       })()}
                     </details>
-                  ));
+                    );
+                  });
                 })()}
               </div>
             </div>

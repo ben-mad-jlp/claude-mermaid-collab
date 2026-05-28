@@ -141,8 +141,10 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         open: true,
       }));
     } catch (err) {
+      // Swallow after logging — callers fire-and-forget (`void openFor(...)`),
+      // so rethrowing would surface as an unhandledrejection. The console
+      // trace is the diagnostic path.
       console.error('[terminalStore.openFor] failed', err);
-      throw err;
     } finally {
       openingSessions.delete(key);
     }

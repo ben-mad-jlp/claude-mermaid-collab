@@ -82,6 +82,12 @@ function TodoRow({ todo, project, session }: TodoRowProps) {
         {/* Row 1 — title + (hover) delete */}
         <div className="flex items-start gap-2">
           <span
+            className="shrink-0 mt-0.5 tabular-nums text-[10px] text-gray-400 dark:text-gray-500 select-all"
+            title={todo.id}
+          >
+            #{String(todo.id).slice(-4)}
+          </span>
+          <span
             className={`flex-1 min-w-0 cursor-pointer text-xs leading-snug whitespace-normal break-words [overflow-wrap:anywhere] ${
               isDone ? 'line-through text-gray-400 dark:text-gray-500' : ''
             }`}

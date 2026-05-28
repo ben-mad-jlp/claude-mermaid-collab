@@ -73,9 +73,6 @@ export const Header: React.FC<HeaderProps> = ({
     toggleTheme();
   }, [toggleTheme]);
 
-  const handleRefreshSessions = useCallback(() => {
-    onRefreshSessions?.();
-  }, [onRefreshSessions]);
 
   // Get display name for project (basename)
   const getProjectDisplayName = (project: string) => {
@@ -163,39 +160,6 @@ export const Header: React.FC<HeaderProps> = ({
               <path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/>
             </svg>
           </button>
-
-          {/* Refresh Button */}
-          {onRefreshSessions && (
-            <button
-              data-testid="refresh-sessions"
-              onClick={handleRefreshSessions}
-              aria-label="Refresh"
-              title="Refresh projects and sessions"
-              className="
-                p-2
-                text-gray-600 dark:text-gray-300
-                hover:text-gray-900 dark:hover:text-white
-                hover:bg-gray-100 dark:hover:bg-gray-700
-                rounded-lg
-                transition-colors
-              "
-            >
-              <svg
-                className="w-4 h-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M23 4v6h-6" />
-                <path d="M1 20v-6h6" />
-                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10" />
-                <path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14" />
-              </svg>
-            </button>
-          )}
 
           {/* Project + Session Labels */}
           <div
