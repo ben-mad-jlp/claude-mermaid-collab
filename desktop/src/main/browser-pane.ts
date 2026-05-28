@@ -74,7 +74,13 @@ export class BrowserPaneManager {
   closeTab(id: string): void {
     const tab = this.tabs.get(id);
     if (!tab) return;
-    this.win.contentView.removeChildView(tab.view);
+    // The window may already be torn down when this fires from the BrowserWindow
+    // `closed` handler — accessing `contentView` then throws "Object has been
+    // destroyed". Skip the detach; the view is being released with the window
+    // anyway. Always keep the internal book-keeping in sync.
+    if (!this.win.isDestroyed()) {
+      this.win.contentView.removeChildView(tab.view);
+    }
     this.tabs.delete(id);
     if (tab.sessionKey) this.sessionIndex.delete(tab.sessionKey);
     if (this.activeId === id) this.activeId = null;
