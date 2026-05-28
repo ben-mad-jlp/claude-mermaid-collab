@@ -102,82 +102,80 @@ function TodoRow({ todo, project, session, siblings }: TodoRowProps) {
       style={{ paddingLeft: '16px' }}
       data-testid={`session-todo-row-${todo.id}`}
     >
-      <div className="group w-full text-left px-2 py-1 rounded text-xs flex items-start gap-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800">
-        <span className="shrink-0 tabular-nums mt-0.5 select-none text-gray-400 dark:text-gray-500">
-          #{String(todo.id).slice(0, 6)}
-        </span>
-        <span
-          className={`flex-1 min-w-0 cursor-pointer whitespace-normal break-words [overflow-wrap:anywhere] ${
-            isDone ? 'line-through text-gray-400 dark:text-gray-500' : ''
-          }`}
-          onClick={openDetail}
-          title="Open todo details"
-        >
-          {currentTitle}
-        </span>
-        {/* Assignee picker — assign this todo to a sibling session (or unassign) */}
-        <select
-          value={todo.assigneeSession ?? ''}
-          onChange={(e) => handleAssign(e.target.value)}
-          onClick={(e) => e.stopPropagation()}
-          title={todo.assigneeSession ? `Assigned to ${todo.assigneeSession}` : 'Assign to a session'}
-          className={`shrink-0 mt-0.5 max-w-[88px] truncate rounded text-[10px] py-0.5 px-1 cursor-pointer border-none focus:outline-none focus:ring-1 focus:ring-purple-400 ${
-            todo.assigneeSession
-              ? 'bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400'
-              : 'bg-transparent text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100'
-          }`}
-        >
-          <option value="">{todo.assigneeSession ? '✕ unassign' : '＋ assign'}</option>
-          {/* Ensure the current assignee is always selectable, even if not in the loaded sibling list. */}
-          {todo.assigneeSession && !siblings.includes(todo.assigneeSession) && (
-            <option value={todo.assigneeSession}>→ {todo.assigneeSession}</option>
+      <div className="group w-full text-left px-2 py-1.5 rounded flex flex-col gap-0.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800">
+        {/* Row 1 — title + (hover) delete */}
+        <div className="flex items-start gap-2">
+          <span
+            className={`flex-1 min-w-0 cursor-pointer text-sm leading-snug whitespace-normal break-words [overflow-wrap:anywhere] ${
+              isDone ? 'line-through text-gray-400 dark:text-gray-500' : ''
+            }`}
+            onClick={openDetail}
+            title="Open todo details"
+          >
+            {currentTitle}
+          </span>
+          <button
+            onClick={handleDelete}
+            className="shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-opacity"
+            title="Delete todo"
+            aria-label={`Delete ${currentTitle}`}
+          >
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+              />
+            </svg>
+          </button>
+        </div>
+        {/* Row 2 — meta: assignee · priority · due · link (empty-friendly; assign affordance shows on hover) */}
+        <div className="flex items-center gap-2 flex-wrap text-[10px] text-gray-400 dark:text-gray-500">
+          <select
+            value={todo.assigneeSession ?? ''}
+            onChange={(e) => handleAssign(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            title={todo.assigneeSession ? `Assigned to ${todo.assigneeSession}` : 'Assign to a session'}
+            className={`shrink-0 max-w-[120px] truncate rounded text-[10px] py-0.5 px-1 cursor-pointer border-none focus:outline-none focus:ring-1 focus:ring-purple-400 ${
+              todo.assigneeSession
+                ? 'bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400'
+                : 'bg-transparent text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100'
+            }`}
+          >
+            <option value="">{todo.assigneeSession ? '✕ unassign' : '＋ assign'}</option>
+            {todo.assigneeSession && !siblings.includes(todo.assigneeSession) && (
+              <option value={todo.assigneeSession}>→ {todo.assigneeSession}</option>
+            )}
+            {siblings.map((name) => (
+              <option key={name} value={name}>
+                → {name}{name === session ? ' (me)' : ''}
+              </option>
+            ))}
+          </select>
+          {todo.priority !== null && todo.priority !== undefined && (
+            <span
+              title={`Priority ${todo.priority}`}
+              className={`shrink-0 font-semibold ${PRIORITY_COLORS[todo.priority]}`}
+            >
+              {PRIORITY_LABEL[todo.priority]}
+            </span>
           )}
-          {siblings.map((name) => (
-            <option key={name} value={name}>
-              → {name}{name === session ? ' (me)' : ''}
-            </option>
-          ))}
-        </select>
-        {todo.priority !== null && todo.priority !== undefined && (
-          <span
-            title={`Priority ${todo.priority}`}
-            className={`shrink-0 mt-0.5 text-[10px] font-semibold ${PRIORITY_COLORS[todo.priority]}`}
-          >
-            {PRIORITY_LABEL[todo.priority]}
-          </span>
-        )}
-        {todo.dueDate && (
-          <span
-            title={`Due: ${todo.dueDate}`}
-            className="shrink-0 mt-0.5 text-[10px] text-gray-400 dark:text-gray-500"
-          >
-            {todo.dueDate.slice(0, 10)}
-          </span>
-        )}
-        {todo.link && (
-          <span
-            data-testid="todo-link-chip"
-            onClick={(e) => { e.stopPropagation(); selectDocument(todo.link!.blueprintId); }}
-            title={todo.link.blueprintId + (todo.link.taskId ? ` · ${todo.link.taskId}` : '')}
-            className="shrink-0 mt-0.5 inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300"
-          >
-            ↳ {shortSlug(todo.link.blueprintId)}{todo.link.taskId ? ` · ${todo.link.taskId}` : ''}
-          </span>
-        )}
-        <button
-          onClick={handleDelete}
-          className="shrink-0 opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-opacity"
-          title="Delete todo"
-          aria-label={`Delete ${currentTitle}`}
-        >
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-            />
-          </svg>
-        </button>
+          {todo.dueDate && (
+            <span title={`Due: ${todo.dueDate}`} className="shrink-0">
+              {todo.dueDate.slice(0, 10)}
+            </span>
+          )}
+          {todo.link && (
+            <span
+              data-testid="todo-link-chip"
+              onClick={(e) => { e.stopPropagation(); selectDocument(todo.link!.blueprintId); }}
+              title={todo.link.blueprintId + (todo.link.taskId ? ` · ${todo.link.taskId}` : '')}
+              className="shrink-0 inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300"
+            >
+              ↳ {shortSlug(todo.link.blueprintId)}{todo.link.taskId ? ` · ${todo.link.taskId}` : ''}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );
