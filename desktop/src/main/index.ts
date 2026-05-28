@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeImage } from 'electron';
 import { ServerSupervisor, getFreePort } from './server-supervisor';
 import { BrowserPaneManager } from './browser-pane';
 import { DesktopControl } from './desktop-control';
@@ -106,11 +106,32 @@ app.on('open-url', (event, url) => {
   focusMainWindow();
 });
 
+/**
+ * The collab brand icon (pixel whale). electron-builder bakes it into the
+ * packaged .icns/.ico via build/icon.png; this also sets it at runtime so the
+ * window + macOS dock show it when running unpackaged (e.g. `electron .` / debug).
+ * Packaged: copied to resourcesPath via `extraResources`. Dev: read from build/.
+ */
+function loadAppIcon(): Electron.NativeImage {
+  const iconPath = app.isPackaged
+    ? join(process.resourcesPath, 'icon.png')
+    : join(app.getAppPath(), 'build', 'icon.png');
+  return nativeImage.createFromPath(iconPath);
+}
+
 function createWindow(): void {
+  const appIcon = loadAppIcon();
+  // macOS shows the dock icon from the bundle, but unpackaged dev runs default
+  // to the Electron icon unless we set it explicitly.
+  if (process.platform === 'darwin' && app.dock && !appIcon.isEmpty()) {
+    app.dock.setIcon(appIcon);
+  }
+
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 800,
     show: true,
+    icon: appIcon,
     webPreferences: {
       contextIsolation: true,
       sandbox: true,
