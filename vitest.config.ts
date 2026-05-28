@@ -11,6 +11,8 @@ export default defineConfig({
       // bun:test files — run via `bun test`, not vitest
       'src/types/update-log.test.ts',
       'src/services/__tests__/question-manager.test.ts',
+      'src/services/__tests__/todo-store.test.ts',
+      'src/services/__tests__/todo-migration.test.ts',
       'src/mcp/tools/lessons.test.ts',
     ],
     setupFiles: ['./vitest.setup.ts'],

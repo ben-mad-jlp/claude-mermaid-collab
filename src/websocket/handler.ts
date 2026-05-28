@@ -51,7 +51,7 @@ export type WSMessage =
   | { type: 'ui_updated'; patch: Record<string, unknown>; project: string; session: string }
   | { type: 'session_created'; project: string; session: string }
   | { type: 'session_deleted'; project: string; session: string }
-  | { type: 'session_todos_updated'; project: string; session: string }
+  | { type: 'session_todos_updated'; project: string; session: string; ownerSession?: string; assigneeSession?: string }
   | { type: 'claude_session_registered'; project: string; session: string; claudePid?: string | number; claudeSessionId?: string; [k: string]: unknown }
   | { type: 'claude_session_status'; project: string; session: string; status: string; [k: string]: unknown }
   | { type: 'claude_context_update'; project: string; session: string; contextPercent: number }

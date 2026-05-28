@@ -22,14 +22,15 @@ import { existsSync, readdirSync } from 'fs';
 import { archiveSession, type ArchiveOptions } from '../mcp/tools/collab-state';
 import { addLesson, listLessons, type LessonCategory } from '../mcp/tools/lessons';
 import {
-  listSessionTodos,
-  addSessionTodo,
-  updateSessionTodo,
-  removeSessionTodo,
-  clearCompletedSessionTodos,
-  reorderSessionTodos,
-  type SessionTodoLink,
-} from '../mcp/tools/session-todos';
+  listTodos,
+  getTodo,
+  createTodo,
+  updateTodo,
+  removeTodo,
+  clearCompleted,
+  reorder,
+  type TodoLink as SessionTodoLink,
+} from '../services/todo-store';
 import {
   listDesignsHandler,
   createDesignHandler,
@@ -201,7 +202,10 @@ export async function handleAPI(
   // GET /api/sessions - List all registered sessions
   if (path === '/api/sessions' && req.method === 'GET') {
     try {
-      const sessions = await sessionRegistry.list();
+      const all = await sessionRegistry.list();
+      // Optional ?project= filter (assignee picker lists sibling sessions).
+      const projectFilter = url.searchParams.get('project');
+      const sessions = projectFilter ? all.filter((s) => s.project === projectFilter) : all;
       return Response.json({ sessions }, {
         headers: {
           'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -2517,7 +2521,7 @@ export async function handleAPI(
   // Session Todos Routes (per-session checklist)
   // ============================================
 
-  // GET /api/session-todos?project=...&session=...&includeCompleted=...
+  // GET /api/session-todos?project=...&session=...&includeCompleted=...&ownerSession=...&assigneeSession=...&status=...
   if (path === '/api/session-todos' && req.method === 'GET') {
     const params = getSessionParams(url);
     if (!params) {
@@ -2528,9 +2532,12 @@ export async function handleAPI(
     const includeCompleted = includeCompletedParam === null
       ? true
       : includeCompletedParam !== 'false';
+    const ownerSession = url.searchParams.get('ownerSession') ?? undefined;
+    const assigneeSession = url.searchParams.get('assigneeSession') ?? undefined;
+    const status = url.searchParams.get('status') as import('../services/todo-store').TodoStatus | null ?? undefined;
 
     try {
-      const todos = await listSessionTodos(params.project, params.session, { includeCompleted });
+      const todos = listTodos(params.project, { session: params.session, ownerSession, assigneeSession, status, includeCompleted });
       return Response.json({ todos });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 500 });
@@ -2540,26 +2547,37 @@ export async function handleAPI(
   // POST /api/session-todos - Add a session todo
   if (path === '/api/session-todos' && req.method === 'POST') {
     try {
-      const { project, session, text, link } = await req.json() as {
+      const body = await req.json() as {
         project?: string;
         session?: string;
+        title?: string;
         text?: string;
         link?: SessionTodoLink;
+        status?: import('../services/todo-store').TodoStatus;
+        assigneeSession?: string;
+        priority?: 0 | 1 | 2 | 3 | 4;
+        dueDate?: string;
+        description?: string;
       };
 
-      if (!project || !session || !text) {
-        return Response.json({ error: 'project, session, and text required' }, { status: 400 });
+      const { project, session, link, status, assigneeSession, priority, dueDate, description } = body;
+      const title = body.title ?? body.text;
+
+      if (!project || !session || !title) {
+        return Response.json({ error: 'project, session, and title (or text) required' }, { status: 400 });
       }
-      if (!text.trim()) {
-        return Response.json({ error: 'text must be non-empty' }, { status: 400 });
+      if (!title.trim()) {
+        return Response.json({ error: 'title must be non-empty' }, { status: 400 });
       }
 
-      const todo = await addSessionTodo(project, session, text, link);
+      const todo = await createTodo(project, { ownerSession: session, title, link, status, assigneeSession, priority, dueDate, description });
 
       wsHandler.broadcast({
         type: 'session_todos_updated',
         project,
         session,
+        ownerSession: todo.ownerSession,
+        assigneeSession: todo.assigneeSession ?? undefined,
       });
 
       return Response.json({ todo }, { status: 201 });
@@ -2577,9 +2595,9 @@ export async function handleAPI(
         return Response.json({ error: 'project and session required' }, { status: 400 });
       }
 
-      const result = await clearCompletedSessionTodos(project, session);
+      const result = await clearCompleted(project, session);
 
-      if (result.removedCount > 0) {
+      if (result.removed > 0) {
         wsHandler.broadcast({
           type: 'session_todos_updated',
           project,
@@ -2587,7 +2605,8 @@ export async function handleAPI(
         });
       }
 
-      return Response.json(result);
+      // Return both keys: `removedCount` is the historical contract the UI/MCP read.
+      return Response.json({ removed: result.removed, removedCount: result.removed });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
     }
@@ -2599,14 +2618,14 @@ export async function handleAPI(
       const { project, session, orderedIds } = await req.json() as {
         project?: string;
         session?: string;
-        orderedIds?: number[];
+        orderedIds?: string[];
       };
 
       if (!project || !session || !Array.isArray(orderedIds)) {
         return Response.json({ error: 'project, session, and orderedIds required' }, { status: 400 });
       }
 
-      const todos = await reorderSessionTodos(project, session, orderedIds);
+      await reorder(project, orderedIds);
 
       wsHandler.broadcast({
         type: 'session_todos_updated',
@@ -2614,70 +2633,83 @@ export async function handleAPI(
         session,
       });
 
-      return Response.json({ todos });
+      return Response.json({ ok: true });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
     }
   }
 
   // PATCH /api/session-todos/:id - Update a session todo
-  const sessionTodosPatchMatch = path.match(/^\/api\/session-todos\/(\d+)$/);
+  const sessionTodosPatchMatch = path.match(/^\/api\/session-todos\/([^/]+)$/);
   if (sessionTodosPatchMatch && req.method === 'PATCH') {
     try {
-      const { project, session, text, completed, order, link } = await req.json() as {
+      const body = await req.json() as {
         project?: string;
         session?: string;
+        title?: string;
         text?: string;
         completed?: boolean;
-        order?: number;
+        status?: import('../services/todo-store').TodoStatus;
+        assigneeSession?: string | null;
+        priority?: 0 | 1 | 2 | 3 | 4 | null;
+        dueDate?: string | null;
+        description?: string | null;
         link?: SessionTodoLink | null;
       };
+
+      const { project, session, completed, status, assigneeSession, priority, dueDate, description, link } = body;
+      const title = body.title ?? body.text;
 
       if (!project || !session) {
         return Response.json({ error: 'project and session required' }, { status: 400 });
       }
-      if (text !== undefined && !text.trim()) {
-        return Response.json({ error: 'text must be non-empty' }, { status: 400 });
+      if (title !== undefined && !title.trim()) {
+        return Response.json({ error: 'title must be non-empty' }, { status: 400 });
       }
 
-      const id = parseInt(sessionTodosPatchMatch[1], 10);
-      const todo = await updateSessionTodo(project, session, id, { text, completed, order, link });
+      const id = sessionTodosPatchMatch[1];
+      const todo = await updateTodo(project, id, { title, completed, status, assigneeSession, priority, dueDate, description, link });
 
       wsHandler.broadcast({
         type: 'session_todos_updated',
         project,
         session,
+        ownerSession: todo.ownerSession,
+        assigneeSession: todo.assigneeSession ?? undefined,
       });
 
       return Response.json({ todo });
     } catch (error: any) {
-      const status = error.message === 'Todo not found' ? 404 : 400;
+      const status = error.message?.includes('not found') ? 404 : 400;
       return Response.json({ error: error.message }, { status });
     }
   }
 
   // DELETE /api/session-todos/:id?project=...&session=...
-  const sessionTodosDeleteMatch = path.match(/^\/api\/session-todos\/(\d+)$/);
+  const sessionTodosDeleteMatch = path.match(/^\/api\/session-todos\/([^/]+)$/);
   if (sessionTodosDeleteMatch && req.method === 'DELETE') {
     const params = getSessionParams(url);
     if (!params) {
       return Response.json({ error: 'project and session query params required' }, { status: 400 });
     }
 
-    const id = parseInt(sessionTodosDeleteMatch[1], 10);
+    const id = sessionTodosDeleteMatch[1];
 
     try {
-      const todo = await removeSessionTodo(params.project, params.session, id);
+      const deletedTodo = getTodo(params.project, id); // snapshot before delete for broadcast targeting
+      await removeTodo(params.project, id);
 
       wsHandler.broadcast({
         type: 'session_todos_updated',
         project: params.project,
         session: params.session,
+        ownerSession: deletedTodo?.ownerSession,
+        assigneeSession: deletedTodo?.assigneeSession ?? undefined,
       });
 
-      return Response.json({ todo });
+      return Response.json({ ok: true });
     } catch (error: any) {
-      const status = error.message === 'Todo not found' ? 404 : 500;
+      const status = error.message?.includes('not found') ? 404 : 500;
       return Response.json({ error: error.message }, { status });
     }
   }

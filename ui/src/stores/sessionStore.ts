@@ -152,7 +152,7 @@ export interface SessionState {
   // Session todo actions
   setSessionTodos: (todos: SessionTodo[]) => void;
   upsertSessionTodo: (todo: SessionTodo) => void;
-  removeSessionTodoLocal: (id: number) => void;
+  removeSessionTodoLocal: (id: string) => void;
   setSessionTodosList: (todos: SessionTodo[]) => void;
   setSessionTodosShowCompleted: (value: boolean) => void;
 
@@ -538,7 +538,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   },
 
-  removeSessionTodoLocal: (id: number) => {
+  removeSessionTodoLocal: (id: string) => {
     const { sessionTodos } = get();
     set({ sessionTodos: sessionTodos.filter((t) => t.id !== id) });
   },

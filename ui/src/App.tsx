@@ -66,6 +66,7 @@ import type { MermaidPreviewRef } from '@/components/editors/MermaidPreview';
 import { ToastContainer } from '@/components/notifications';
 import { requestNotificationPermission, showUserInputNotification } from '@/services/notification-service';
 import { useNotificationStore } from '@/stores/notificationStore';
+import { shouldRefetchTodos, type TodoUpdatedEvent } from '@/lib/todoEvents';
 
 // Track which project:session pairs have already fired a context threshold notification
 // so we only fire once per threshold crossing (reset when context drops below 70)
@@ -880,15 +881,30 @@ const App: React.FC = () => {
         }
 
         case 'session_todos_updated': {
-          // Keep UI in sync when MCP clients (e.g. Claude) edit session todos
-          const { project, session } = message as any;
+          // Keep UI in sync when MCP clients (e.g. Claude) edit session todos —
+          // including todos a *different* session assigned to me (cross-session).
+          const evt = message as unknown as TodoUpdatedEvent;
 
           if (currentSession &&
-              project === currentSession.project &&
-              session === currentSession.name) {
-            api.getSessionTodos(project, session, true)
+              shouldRefetchTodos(evt, { project: currentSession.project, session: currentSession.name })) {
+            const me = currentSession.name;
+            // Always fetch MY list (server filters owner-OR-assignee), not the event's owner session.
+            const prevIds = new Set((useSessionStore.getState().sessionTodos ?? []).map((t) => t.id));
+            api.getSessionTodos(currentSession.project, me, true)
               .then((todos) => {
                 useSessionStore.getState().setSessionTodos(todos);
+                // Toast when a todo was newly assigned to me.
+                if (evt.assigneeSession === me) {
+                  const newlyAssigned = todos.filter((t) => t.assigneeSession === me && !prevIds.has(t.id));
+                  if (newlyAssigned.length > 0) {
+                    useNotificationStore.getState().addToast({
+                      type: 'info',
+                      title: newlyAssigned.length === 1 ? 'New todo assigned to you' : `${newlyAssigned.length} new todos assigned to you`,
+                      message: newlyAssigned.map((t) => t.title ?? t.text ?? '').filter(Boolean).join(', '),
+                      duration: 5000,
+                    });
+                  }
+                }
               })
               .catch((err) => {
                 console.error('Failed to refresh session todos after session_todos_updated:', err);
