@@ -16,6 +16,7 @@ import { useShallow } from 'zustand/react/shallow';
 import EmptyPane from './EmptyPane';
 import UnifiedEditor from '@/components/editors/UnifiedEditor';
 import DocumentView from '@/components/editors/DocumentView';
+import TodoDetailView from '@/components/editors/TodoDetailView';
 import { EmbedViewer } from '@/components/EmbedViewer';
 import { ImageViewer } from '@/components/ImageViewer';
 import { TaskGraphView } from '@/components/task-graph';
@@ -206,6 +207,10 @@ export const PaneContent: React.FC<PaneContentProps> = ({
           project={project}
         />
       );
+    }
+
+    case 'todo-detail': {
+      return <TodoDetailView todoId={tab.artifactId} />;
     }
 
     default:

@@ -9,8 +9,8 @@ import React, {
 } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useTabsStore } from '@/stores/tabsStore';
 import { api } from '@/lib/api';
-import { ManagerDashboard } from '@/components/todos/ManagerDashboard';
 import { ConfirmClearCompletedDialog } from '@/components/dialogs/ConfirmClearCompletedDialog';
 import { SessionTodo, TodoStatus } from '@/types/sessionTodo';
 import { SectionBranchRow } from './TreeBranchRow';
@@ -19,24 +19,6 @@ function shortSlug(blueprintId: string): string {
   const m = blueprintId.match(/^(?:Implementing|Archive)\/(?:[^/]+\/)?(.+)$/);
   return m ? m[1] : blueprintId;
 }
-
-const STATUS_ORDER: TodoStatus[] = ['backlog', 'todo', 'in_progress', 'blocked', 'done'];
-
-const STATUS_LABEL: Record<TodoStatus, string> = {
-  backlog: 'BL',
-  todo: 'TD',
-  in_progress: 'IP',
-  blocked: 'BK',
-  done: 'DN',
-};
-
-const STATUS_COLORS: Record<TodoStatus, string> = {
-  backlog: 'text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800',
-  todo: 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30',
-  in_progress: 'text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/30',
-  blocked: 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30',
-  done: 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/30',
-};
 
 const PRIORITY_LABEL: Record<number, string> = { 0: 'P0', 1: 'P1', 2: 'P2', 3: 'P3', 4: 'P4' };
 const PRIORITY_COLORS: Record<number, string> = {
@@ -83,45 +65,24 @@ function TodoRow({ todo, project, session, siblings }: TodoRowProps) {
   }, [todo, project, session, upsertSessionTodo]);
   const removeSessionTodoLocal = useSessionStore((s) => s.removeSessionTodoLocal);
   const selectDocument = useSessionStore((s) => s.selectDocument);
-  const [editing, setEditing] = useState(false);
-  const [draftText, setDraftText] = useState(todo.title ?? todo.text ?? '');
+  const openPreview = useTabsStore((s) => s.openPreview);
 
   const currentTitle = todo.title ?? todo.text ?? '';
+
+  // Open this todo in the preview pane (view + edit title/description there).
+  // Todos are no longer edited inline in the sidebar.
+  const openDetail = useCallback(() => {
+    openPreview({
+      id: `todo-detail:${todo.id}`,
+      kind: 'todo-detail',
+      artifactId: todo.id,
+      name: currentTitle || 'Todo',
+    });
+  }, [openPreview, todo.id, currentTitle]);
   // Tolerate legacy/old-backend todos that lack `status` (numeric-id era).
+  // Status is shown/changed in the detail pane now, not the sidebar; we keep
+  // this only to strike through completed rows.
   const status: TodoStatus = todo.status ?? (todo.completed ? 'done' : 'todo');
-
-  const handleStatusCycle = useCallback(async () => {
-    const idx = STATUS_ORDER.indexOf(status);
-    const next = STATUS_ORDER[(idx + 1) % STATUS_ORDER.length];
-    const optimistic: SessionTodo = { ...todo, status: next, completed: next === 'done' };
-    upsertSessionTodo(optimistic);
-    try {
-      const updated = await api.patchSessionTodo(project, session, todo.id, { status: next });
-      upsertSessionTodo(updated);
-    } catch (err) {
-      upsertSessionTodo(todo);
-      console.error('Failed to update todo status', err);
-    }
-  }, [todo, project, session, upsertSessionTodo]);
-
-  const commitEdit = useCallback(async () => {
-    const trimmed = draftText.trim();
-    setEditing(false);
-    if (!trimmed || trimmed === currentTitle) {
-      setDraftText(currentTitle);
-      return;
-    }
-    const optimistic: SessionTodo = { ...todo, title: trimmed };
-    upsertSessionTodo(optimistic);
-    try {
-      const updated = await api.patchSessionTodo(project, session, todo.id, { title: trimmed });
-      upsertSessionTodo(updated);
-    } catch (err) {
-      upsertSessionTodo(todo);
-      setDraftText(currentTitle);
-      console.error('Failed to update session todo', err);
-    }
-  }, [draftText, todo, currentTitle, project, session, upsertSessionTodo]);
 
   const handleDelete = useCallback(async () => {
     const snapshot = useSessionStore.getState().sessionTodos;
@@ -142,45 +103,18 @@ function TodoRow({ todo, project, session, siblings }: TodoRowProps) {
       data-testid={`session-todo-row-${todo.id}`}
     >
       <div className="group w-full text-left px-2 py-1 rounded text-xs flex items-start gap-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800">
-        <button
-          onClick={handleStatusCycle}
-          title={`Status: ${status} (click to advance)`}
-          className={`shrink-0 mt-0.5 inline-flex items-center justify-center rounded px-1 py-0.5 text-[10px] font-mono font-semibold cursor-pointer transition-colors ${STATUS_COLORS[status]}`}
-          aria-label={`Status: ${status}`}
-        >
-          {STATUS_LABEL[status]}
-        </button>
         <span className="shrink-0 tabular-nums mt-0.5 select-none text-gray-400 dark:text-gray-500">
           #{String(todo.id).slice(0, 6)}
         </span>
-        {editing ? (
-          <input
-            type="text"
-            value={draftText}
-            autoFocus
-            onChange={(e) => setDraftText(e.target.value)}
-            onBlur={commitEdit}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                commitEdit();
-              } else if (e.key === 'Escape') {
-                setDraftText(currentTitle);
-                setEditing(false);
-              }
-            }}
-            className="flex-1 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
-          />
-        ) : (
-          <span
-            className={`flex-1 min-w-0 cursor-text whitespace-normal break-words [overflow-wrap:anywhere] ${
-              isDone ? 'line-through text-gray-400 dark:text-gray-500' : ''
-            }`}
-            onClick={() => setEditing(true)}
-          >
-            {currentTitle}
-          </span>
-        )}
+        <span
+          className={`flex-1 min-w-0 cursor-pointer whitespace-normal break-words [overflow-wrap:anywhere] ${
+            isDone ? 'line-through text-gray-400 dark:text-gray-500' : ''
+          }`}
+          onClick={openDetail}
+          title="Open todo details"
+        >
+          {currentTitle}
+        </span>
         {/* Assignee picker — assign this todo to a sibling session (or unassign) */}
         <select
           value={todo.assigneeSession ?? ''}
@@ -254,18 +188,14 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
     const {
       currentSession,
       sessionTodos,
-      sessionTodosShowCompleted,
       upsertSessionTodo,
       setSessionTodos,
-      setSessionTodosShowCompleted,
     } = useSessionStore(
       useShallow((s) => ({
         currentSession: s.currentSession,
         sessionTodos: s.sessionTodos,
-        sessionTodosShowCompleted: s.sessionTodosShowCompleted,
         upsertSessionTodo: s.upsertSessionTodo,
         setSessionTodos: s.setSessionTodos,
-        setSessionTodosShowCompleted: s.setSessionTodosShowCompleted,
       })),
     );
 
@@ -280,8 +210,6 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
 
     // Filter state
     const [statusFilter, setStatusFilter] = useState<TodoStatus | 'all'>('all');
-    const [assignedToMe, setAssignedToMe] = useState(false);
-    const [managerView, setManagerView] = useState(false);
 
     useImperativeHandle(
       ref,
@@ -313,17 +241,13 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
       [sessionTodos],
     );
     const visibleTodos = useMemo(() => {
-      let list = sessionTodosShowCompleted
-        ? orderedTodos
-        : orderedTodos.filter((t) => !t.completed && t.status !== 'done');
-      if (statusFilter !== 'all') {
-        list = list.filter((t) => t.status === statusFilter);
-      }
-      if (assignedToMe && me) {
-        list = list.filter((t) => t.assigneeSession === me);
-      }
-      return list;
-    }, [orderedTodos, sessionTodosShowCompleted, statusFilter, assignedToMe, me]);
+      // The status filter replaces the old "show completed" toggle:
+      // - "all" → active todos only (hide done/completed)
+      // - a specific status (incl. "done") → just that status
+      return statusFilter === 'all'
+        ? orderedTodos.filter((t) => !t.completed && t.status !== 'done')
+        : orderedTodos.filter((t) => t.status === statusFilter);
+    }, [orderedTodos, statusFilter]);
 
     const completedCount = useMemo(
       () => sessionTodos.filter((t) => t.completed || t.status === 'done').length,
@@ -397,48 +321,11 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
                 <option value="blocked">Blocked</option>
                 <option value="done">Done</option>
               </select>
-              {me && (
-                <label className="flex items-center gap-1 cursor-pointer select-none whitespace-nowrap" title="Show only todos assigned to me">
-                  <input
-                    type="checkbox"
-                    checked={assignedToMe}
-                    onChange={(e) => setAssignedToMe(e.target.checked)}
-                    className="w-3 h-3"
-                  />
-                  Mine
-                </label>
-              )}
-              {me && (
-                <label className="flex items-center gap-1 cursor-pointer select-none whitespace-nowrap" title="Manager view: todos you own, grouped by assignee">
-                  <input
-                    type="checkbox"
-                    checked={managerView}
-                    onChange={(e) => setManagerView(e.target.checked)}
-                    className="w-3 h-3"
-                  />
-                  Manager
-                </label>
-              )}
-            </div>
-
-            <div
-              style={{ paddingLeft: '16px' }}
-              className="flex items-center justify-between px-2 py-1 text-xs text-gray-600 dark:text-gray-400"
-            >
-              <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={sessionTodosShowCompleted}
-                  onChange={(e) => setSessionTodosShowCompleted(e.target.checked)}
-                  className="w-3 h-3"
-                />
-                Show completed
-              </label>
               <button
                 onClick={() => setConfirmClearOpen(true)}
                 disabled={completedCount === 0}
-                className="hover:text-red-500 dark:hover:text-red-400 disabled:opacity-40 disabled:hover:text-gray-600"
-                title="Clear completed todos"
+                className="shrink-0 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-40 disabled:hover:text-gray-600"
+                title="Clear completed todos (select the Done filter to view them)"
               >
                 Clear
               </button>
@@ -464,11 +351,7 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
               </div>
             )}
 
-            {managerView && me ? (
-              <div style={{ paddingLeft: '16px' }}>
-                <ManagerDashboard todos={sessionTodos} me={me} />
-              </div>
-            ) : visibleTodos.length === 0 ? (
+            {visibleTodos.length === 0 ? (
               <div
                 style={{ paddingLeft: '16px' }}
                 className="px-2 py-1 text-xs text-gray-400 dark:text-gray-500 italic"
