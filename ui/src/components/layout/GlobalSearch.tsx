@@ -19,7 +19,7 @@ import { useGlobalSearch } from '@/stores/globalSearch';
 import { fetchCodeSearch, type CodeSearchResult } from '@/lib/code-search-api';
 import { linkFile } from '@/lib/link-file';
 import { LinkAndNavigateDialog } from '@/components/editors/LinkAndNavigateDialog';
-import type { SourceLinkCandidate } from '@/lib/pseudo-api';
+import type { SourceLinkCandidate } from '@/components/editors/LinkAndNavigateDialog';
 import type { Snippet } from '@/types';
 
 function basename(p: string): string {

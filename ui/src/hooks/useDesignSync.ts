@@ -156,7 +156,7 @@ export function useDesignSync(designId: string | null) {
     isLoadingRef.current = true
 
     api
-      .getDesign(currentSession.project, currentSession.name, designId)
+      .getDesign(currentSession.serverId, currentSession.project, currentSession.name, designId)
       .then((design) => {
         // Bail if designId changed while loading
         if (designIdRef.current !== designId) return

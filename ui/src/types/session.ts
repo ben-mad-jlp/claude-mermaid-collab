@@ -4,6 +4,7 @@
 
 export interface Session {
   project: string;
+  serverId: string; // owning server id
   name: string;
   displayName?: string;
   lastActivity?: string;

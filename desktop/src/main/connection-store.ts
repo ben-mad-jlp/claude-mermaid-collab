@@ -15,6 +15,10 @@ interface Instance {
   serverVersion: string;
 }
 
+export interface ServerCapabilities {
+  tmux: boolean;
+}
+
 export interface ServerEntry {
   id: string;
   label: string;
@@ -25,6 +29,29 @@ export interface ServerEntry {
   lastProject?: string;
   lastSession?: string;
   source: 'local' | 'manual';
+  /** Deterministic emoji icon assigned at add/discover time, persisted. */
+  icon: string;
+}
+
+/**
+ * Lucide icon-name pool for per-server icons. The store holds the NAME; the
+ * renderer maps name → lucide component (`ui/src/components/ServerIcon.tsx`).
+ * Names match `lucide-react`'s exported component names exactly.
+ */
+const ICON_POOL: readonly string[] = [
+  'Circle', 'Square', 'Triangle', 'Diamond', 'Hexagon',
+  'Star', 'Heart', 'Cloud', 'Sun', 'Moon',
+  'Zap', 'Flame', 'Leaf', 'Flag', 'Anchor',
+  'Box', 'Compass', 'Crown', 'Feather', 'Gem',
+  'Globe', 'Key', 'Lock', 'Mountain', 'Rocket',
+  'Shield', 'Snowflake', 'Sparkles', 'Target', 'Tent',
+];
+
+/** Pick an icon from the pool, preferring those not already taken. */
+function pickIcon(taken: Set<string>): string {
+  const available = ICON_POOL.filter((i) => !taken.has(i));
+  const pool = available.length > 0 ? available : ICON_POOL;
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 /** Minimal safeStorage surface so tests can supply a fake without Electron. */
@@ -50,7 +77,10 @@ interface PersistedEntry extends Omit<ServerEntry, 'token'> {
  */
 export class ConnectionStore {
   private entries = new Map<string, ServerEntry>();
-  private activeId: string | null = null;
+  // Runtime-learned server capabilities (e.g. tmux support). NOT persisted —
+  // re-detected on each app launch since features may be enabled/disabled
+  // server-side between sessions.
+  private capabilities = new Map<string, ServerCapabilities>();
   // host:port of local servers the user explicitly forgot, so refreshLocal
   // doesn't auto-re-add them while the instance is still alive.
   private forgotten = new Set<string>();
@@ -71,7 +101,8 @@ export class ConnectionStore {
     await mkdir(this.userDataDir, { recursive: true });
     try {
       const raw = await readFile(this.serversFile, 'utf-8');
-      const parsed = JSON.parse(raw) as { entries: PersistedEntry[]; activeId: string | null; forgotten?: string[] };
+      // `activeId` may be present in legacy persisted files — ignored on read.
+      const parsed = JSON.parse(raw) as { entries: PersistedEntry[]; forgotten?: string[] };
       this.entries.clear();
       this.forgotten = new Set(parsed.forgotten ?? []);
       for (const p of parsed.entries ?? []) {
@@ -86,10 +117,35 @@ export class ConnectionStore {
         }
         this.entries.set(entry.id, entry);
       }
-      this.activeId = parsed.activeId ?? null;
     } catch {
       // no file yet — empty store
     }
+    // Icon backfill / re-migration. Triggers when:
+    // - the entry has no icon (first-time backfill on legacy stores), OR
+    // - the entry's icon isn't in the current ICON_POOL (e.g. the previous
+    //   pool was emoji; we've since switched to lucide icon names).
+    // Compute `taken` incrementally so each new icon prefers unused ones,
+    // and persist once at the end iff anything changed.
+    let patched = false;
+    const poolSet = new Set(ICON_POOL);
+    const taken = new Set<string>();
+    for (const e of this.entries.values()) {
+      if (e.icon && poolSet.has(e.icon)) taken.add(e.icon);
+    }
+    for (const e of this.entries.values()) {
+      if (!e.icon || !poolSet.has(e.icon)) {
+        e.icon = pickIcon(taken);
+        taken.add(e.icon);
+        patched = true;
+      }
+    }
+    if (patched) await this.persist();
+  }
+
+  private takenIcons(): Set<string> {
+    const s = new Set<string>();
+    for (const e of this.entries.values()) if (e.icon) s.add(e.icon);
+    return s;
   }
 
   /** Renderer-facing list — never includes tokens. */
@@ -111,6 +167,7 @@ export class ConnectionStore {
       token: opts.token,
       status: 'offline',
       source: 'manual',
+      icon: pickIcon(this.takenIcons()),
     });
     void this.persist();
     return id;
@@ -122,19 +179,22 @@ export class ConnectionStore {
     // re-adds it from the live registry. Manual servers just delete (no rediscovery).
     if (e?.source === 'local') this.forgotten.add(`${e.host}:${e.port}`);
     this.entries.delete(id);
-    if (this.activeId === id) this.activeId = null;
+    this.capabilities.delete(id);
     void this.persist();
   }
 
-  setActive(id: string): void {
-    if (!this.entries.has(id)) throw new Error(`unknown server id: ${id}`);
-    this.activeId = id;
-    void this.persist();
+  getServerCapabilities(id: string): ServerCapabilities {
+    // Optimistic default: assume tmux is available until the server's
+    // create-terminal handler tells us otherwise via setServerCapabilities.
+    // Returning false here caused a deadlock — the client gates create-terminal
+    // on caps.tmux, so caps would never get learned.
+    return this.capabilities.get(id) ?? { tmux: true };
   }
 
-  getActive(): ServerEntry | null {
-    if (!this.activeId) return null;
-    return this.entries.get(this.activeId) ?? null;
+  setServerCapabilities(id: string, caps: Partial<ServerCapabilities>): void {
+    if (!this.entries.has(id)) return;
+    const current = this.capabilities.get(id) ?? { tmux: false };
+    this.capabilities.set(id, { ...current, ...caps });
   }
 
   /** Sync the `source:'local'` entries with the live instance registry. */
@@ -190,6 +250,7 @@ export class ConnectionStore {
           source: 'local',
           lastProject: inst.project,
           lastSession: inst.session,
+          icon: pickIcon(this.takenIcons()),
         });
       }
     }
@@ -202,7 +263,7 @@ export class ConnectionStore {
     for (const [id, e] of this.entries) {
       if (e.source === 'local' && !liveKeys.has(`${e.host}:${e.port}`)) {
         this.entries.delete(id);
-        if (this.activeId === id) this.activeId = null;
+        this.capabilities.delete(id);
       }
     }
   }
@@ -215,7 +276,7 @@ export class ConnectionStore {
       return p;
     });
     await mkdir(dirname(this.serversFile), { recursive: true });
-    await writeFile(this.serversFile, JSON.stringify({ entries, activeId: this.activeId, forgotten: [...this.forgotten] }, null, 2));
+    await writeFile(this.serversFile, JSON.stringify({ entries, forgotten: [...this.forgotten] }, null, 2));
   }
 }
 

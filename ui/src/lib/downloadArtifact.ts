@@ -1,14 +1,14 @@
 import { api } from './api';
 import { Item } from '@/types';
 
-export async function downloadArtifact(project: string, session: string, item: Item): Promise<void> {
+export async function downloadArtifact(serverId: string, project: string, session: string, item: Item): Promise<void> {
   let content: string;
   let filename: string;
   let mimeType: string;
 
   switch (item.type) {
     case 'diagram': {
-      const data = await api.getDiagram(project, session, item.id);
+      const data = await api.getDiagram(serverId, project, session, item.id);
       if (!data) return;
       content = data.content || '';
       filename = `${item.name}.mmd`;
@@ -16,7 +16,7 @@ export async function downloadArtifact(project: string, session: string, item: I
       break;
     }
     case 'document': {
-      const data = await api.getDocument(project, session, item.id);
+      const data = await api.getDocument(serverId, project, session, item.id);
       if (!data) return;
       content = data.content || '';
       filename = `${item.name}.md`;
@@ -24,7 +24,7 @@ export async function downloadArtifact(project: string, session: string, item: I
       break;
     }
     case 'design': {
-      const data = await api.getDesign(project, session, item.id);
+      const data = await api.getDesign(serverId, project, session, item.id);
       if (!data) return;
       content = JSON.stringify(data.content, null, 2);
       filename = `${item.name}.design.json`;
@@ -32,7 +32,7 @@ export async function downloadArtifact(project: string, session: string, item: I
       break;
     }
     case 'snippet': {
-      const data = await api.getSnippet(project, session, item.id);
+      const data = await api.getSnippet(serverId, project, session, item.id);
       if (!data) return;
       content = data.content || '';
       // Snippet names already include file extension
@@ -41,7 +41,7 @@ export async function downloadArtifact(project: string, session: string, item: I
       break;
     }
     case 'spreadsheet': {
-      const data = await api.getSpreadsheet(project, session, item.id);
+      const data = await api.getSpreadsheet(serverId, project, session, item.id);
       if (!data) return;
       content = JSON.stringify(data, null, 2);
       filename = `${item.name}.spreadsheet.json`;

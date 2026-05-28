@@ -34,7 +34,8 @@
     "extraResources": [
       { "from": "../ui/dist", "to": "ui/dist" },
       { "from": "../public", "to": "public" },
-      { "from": "resources/mc-server", "to": "mc-server" }
+      { "from": "resources/mc-server", "to": "mc-server" },
+      { "from": "build/icon.png", "to": "icon.png" }
     ],
     "mac": {
       "target": ["dmg", "zip"],

@@ -3,11 +3,18 @@
  *
  * Modal confirming "Link X and navigate to Y at line N?" before linking
  * an unlinked source file and jumping to the target location. Used by
- * Feature B (cross-file navigation) and GlobalSearch pseudo-kind results.
+ * Feature B (cross-file navigation) and GlobalSearch results.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import type { SourceLinkCandidate } from '@/lib/pseudo-api';
+
+export interface SourceLinkCandidate {
+  sourceFilePath: string;
+  sourceLine: number | null;
+  sourceLineEnd: number | null;
+  language: string | null;
+  isExported: boolean;
+}
 
 export interface LinkAndNavigateDialogProps {
   open: boolean;

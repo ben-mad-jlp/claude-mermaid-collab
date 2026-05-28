@@ -12,7 +12,7 @@ import { getTerminalWebSocketURL } from '@/lib/terminal-ws';
  * using addon-attach (which pipes raw bytes). The server defers its buffer
  * replay until the first resize, so we send an initial resize on open.
  */
-export function TerminalPane({ sessionId }: { sessionId: string }) {
+export function TerminalPane({ sessionId, serverId }: { sessionId: string; serverId: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -31,13 +31,20 @@ export function TerminalPane({ sessionId }: { sessionId: string }) {
     term.open(container);
     try { fit.fit(); } catch { /* container may be 0-size briefly */ }
 
-    const ws = new WebSocket(getTerminalWebSocketURL(sessionId));
+    const ws = new WebSocket(getTerminalWebSocketURL(serverId, sessionId));
     const send = (msg: unknown) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
     };
 
     ws.onopen = () => {
       send({ type: 'resize', cols: term.cols, rows: term.rows, isInitial: true });
+    };
+    ws.onerror = (e) => {
+      console.error('[TerminalPane] WS error', sessionId, e);
+    };
+    ws.onclose = (e) => {
+      // Keep only the close-with-error log; clean close is too noisy.
+      if (!e.wasClean) console.warn('[TerminalPane] WS unclean close', sessionId, { code: e.code, reason: e.reason });
     };
     ws.onmessage = (e) => {
       try {
@@ -65,7 +72,7 @@ export function TerminalPane({ sessionId }: { sessionId: string }) {
       try { ws.close(); } catch { /* ignore */ }
       term.dispose();
     };
-  }, [sessionId]);
+  }, [sessionId, serverId]);
 
   return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />;
 }

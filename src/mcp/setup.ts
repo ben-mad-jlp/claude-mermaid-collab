@@ -35,25 +35,14 @@ import {
   registerProjectSchema,
   unregisterProjectSchema,
 } from './tools/projects.js';
-import { getPseudoDb, initPseudoDbV6 } from '../services/pseudo-db.js';
-import type { ProseData } from '../services/pseudo-db.js';
-import { existsSync as _existsSyncPseudoMarker, unlinkSync as _unlinkSyncPseudoMarker } from 'node:fs';
-import { homedir as _homedirPseudoMarker } from 'node:os';
-import { join as _joinPseudoMarker } from 'node:path';
-
-// F1: SessionStart hook marker.
-// ~/.claude-mermaid-collab/pseudo-rescan-incremental.marker is written by the
-// Claude Code SessionStart hook to signal that this process should run an
-// incremental rescan at startup. We read it once inside setupMCPServer, call
-// retryScan() on the pseudo-db-v6 handle for the current cwd if present, then
-// unlink it so the marker is consumed exactly once. This is a minimal
-// consumer; a follow-up task may expand the semantics (per-project markers,
-// rescan scope hints, etc.).
-import { readdirSync } from 'fs';
-import { extname } from 'path';
 import { getWebSocketHandler } from '../services/ws-handler-manager.js';
 import { sessionRegistry } from '../services/session-registry.js';
 import { projectRegistry } from '../services/project-registry.js';
+import * as roadmapStore from '../services/roadmap-store.js';
+import * as supervisorStore from '../services/supervisor-store.js';
+import { getStatuses } from '../services/session-status-store.js';
+import { lastAssistantTurn } from '../services/transcript-reader.js';
+import { listTodos } from '../services/todo-store.js';
 import { updateTaskStatus, updateTasksStatus, getTaskGraph } from './workflow/task-status.js';
 import { syncTasksFromTaskGraph } from './workflow/task-sync.js';
 import {
@@ -71,6 +60,7 @@ import {
   clearCompletedSessionTodos,
   reorderSessionTodos,
   completeTodosForTask,
+  assignSessionTodo,
   listSessionTodosSchema,
   addSessionTodoSchema,
   updateSessionTodoSchema,
@@ -79,6 +69,7 @@ import {
   clearCompletedSessionTodosSchema,
   reorderSessionTodosSchema,
   completeLinkedTodosSchema,
+  assignSessionTodoSchema,
   type SessionTodoLink,
 } from './tools/session-todos.js';
 import {
@@ -191,28 +182,6 @@ import {
 } from './tools/snippet.js';
 import { createEmbedSchema, listEmbedsSchema, deleteEmbedSchema, handleCreateEmbed, handleListEmbeds, handleDeleteEmbed, createStorybookEmbedSchema, listStorybookStoriesSchema, handleCreateStorybookEmbed, handleListStorybookStories } from './tools/embed.js';
 import { createImageSchema, listImagesSchema, getImageSchema, deleteImageSchema, handleCreateImage, handleListImages, handleGetImage, handleDeleteImage } from './tools/image.js';
-
-// v6 pseudo-db tool modules (additive — coexist with v2 pseudo_* tools above)
-import { pseudo_db_status } from './tools/pseudo-status.js';
-import { pseudo_rescan, pseudo_rerank } from './tools/pseudo-rescan.js';
-import { pseudo_upsert_prose as pseudo_upsert_prose_v6 } from './tools/pseudo-upsert-prose.js';
-import { pseudo_reassign_prose, pseudo_reassign_prose_bulk } from './tools/pseudo-reassign.js';
-import { pseudo_search, pseudo_find_function as pseudo_find_function_v6 } from './tools/pseudo-search.js';
-import {
-  pseudo_import_graph,
-  pseudo_call_chain as pseudo_call_chain_v6,
-  pseudo_stats_delta,
-} from './tools/pseudo-graph.js';
-import {
-  pseudo_hot_files,
-  pseudo_list_heuristic_files,
-  pseudo_team_ownership,
-} from './tools/pseudo-ranking-tools.js';
-import {
-  pseudo_list_orphaned_prose,
-  pseudo_cleanup_orphaned_prose,
-} from './tools/pseudo-orphan-tools.js';
-import { pseudo_get_file_state as pseudo_get_file_state_v6 } from './tools/pseudo-get-file-state.js';
 
 // Configuration
 const API_PORT = parseInt(process.env.PORT || '9002', 10);
@@ -963,8 +932,11 @@ async function archiveByPrefix(
 
 // ============= Session Tools =============
 
-async function listSessions(): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/api/sessions`);
+async function listSessions(project?: string): Promise<string> {
+  const url = project
+    ? `${API_BASE_URL}/api/sessions?project=${encodeURIComponent(project)}`
+    : `${API_BASE_URL}/api/sessions`;
+  const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Failed to list sessions: ${response.statusText}`);
   }
@@ -1008,38 +980,6 @@ export function createElicitationRequest(
 // ============= Server Setup =============
 
 export async function setupMCPServer(): Promise<Server> {
-  // B1: Initialize the pseudo-db v6 handle for the current working directory
-  // at startup so the in-memory index begins warming/scanning immediately
-  // instead of lazily on first tool call. Fire-and-forget — tool handlers
-  // await handle.ready themselves via initPseudoDbV6() (idempotent).
-  try {
-    const cwd = process.cwd();
-    const pseudoHandle = initPseudoDbV6(cwd);
-
-    // F1: consume the SessionStart rescan marker if present.
-    try {
-      // Per-project marker: replace slashes in cwd with underscores to match
-      // the SessionStart hook's ${PWD//\//_} bash parameter expansion.
-      const markerName = `pseudo-rescan-${cwd.replaceAll('/', '_')}.marker`;
-      const markerPath = _joinPseudoMarker(
-        _homedirPseudoMarker(),
-        '.claude-mermaid-collab',
-        markerName,
-      );
-      if (_existsSyncPseudoMarker(markerPath)) {
-        // Unlink first so a crash mid-rescan does not loop forever.
-        try { _unlinkSyncPseudoMarker(markerPath); } catch {}
-        void pseudoHandle.retryScan().catch((err) => {
-          console.warn('[pseudo-db-v6] marker-triggered retryScan failed:', err);
-        });
-      }
-    } catch (err) {
-      console.warn('[pseudo-db-v6] marker check failed:', err);
-    }
-  } catch (err) {
-    console.warn('[pseudo-db-v6] startup init failed:', err);
-  }
-
   const server = new Server(
     { name: 'mermaid-diagram-server', version: SERVER_VERSION },
     { capabilities: { tools: {}, resources: {} } }
@@ -1077,8 +1017,8 @@ export async function setupMCPServer(): Promise<Server> {
       },
       {
         name: 'list_sessions',
-        description: 'List all registered collab sessions across all projects.',
-        inputSchema: { type: 'object', properties: {} },
+        description: 'List registered collab sessions. Pass `project` to list only sessions in that project (e.g. to pick an assignee for cross-session todos); omit for all projects.',
+        inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Absolute project path to filter sessions by (optional).' } } },
       },
       {
         name: 'list_projects',
@@ -1941,6 +1881,23 @@ IMPORTANT - Common pitfalls to avoid:
         description: 'Mark completed all session todos linked to a blueprint (and optional taskId). Used to sync linked todos when a Go task finishes.',
         inputSchema: completeLinkedTodosSchema,
       },
+      {
+        name: 'assign_session_todo',
+        description: 'Assign a session todo to a specific session (assigneeSession). Pass null to unassign.',
+        inputSchema: assignSessionTodoSchema,
+      },
+      { name: 'roadmap_list', description: 'List all roadmap items for a project.', inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Absolute path to project root' } }, required: ['project'] } },
+      { name: 'roadmap_add', description: 'Create a roadmap item.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, title: { type: 'string' }, description: { type: 'string' }, parentId: { type: 'string' }, dependsOn: { type: 'array', items: { type: 'string' } } }, required: ['project', 'title'] } },
+      { name: 'roadmap_update', description: 'Update a roadmap item (title, description, status, ord, parentId, dependsOn).', inputSchema: { type: 'object', properties: { project: { type: 'string' }, id: { type: 'string' }, title: { type: 'string' }, description: { type: 'string' }, status: { type: 'string', enum: ['planned','ready','in_progress','blocked','done','dropped'] }, ord: { type: 'number' }, parentId: { type: 'string' }, dependsOn: { type: 'array', items: { type: 'string' } } }, required: ['project', 'id'] } },
+      { name: 'roadmap_spawn_session', description: 'Spawn a collab session for a roadmap item: materializes the session via assigned todos, links them to the item, and registers the session as supervised.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, itemId: { type: 'string' }, session: { type: 'string' }, todos: { type: 'array', items: { type: 'string' }, description: 'Todo titles to create, assigned to the session' } }, required: ['project', 'itemId', 'session'] } },
+      { name: 'supervisor_list_supervised', description: 'List all supervised sessions across all projects.', inputSchema: { type: 'object', properties: {} } },
+      { name: 'supervisor_reconcile', description: 'For every watched project, return session status + open-todo counts and supervised/locked flags.', inputSchema: { type: 'object', properties: {} } },
+      { name: 'read_last_assistant_turn', description: 'Read the last completed assistant turn from a Claude Code session transcript.', inputSchema: { type: 'object', properties: { claudeSessionId: { type: 'string' } }, required: ['claudeSessionId'] } },
+      { name: 'escalation_list', description: 'List open escalations.', inputSchema: { type: 'object', properties: {} } },
+      { name: 'escalation_resolve', description: 'Resolve an escalation by id with a status.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, status: { type: 'string' } }, required: ['id', 'status'] } },
+      { name: 'escalation_create', description: 'Create (or dedupe) an open escalation for a session.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, kind: { type: 'string' }, questionText: { type: 'string' } }, required: ['project', 'session', 'kind', 'questionText'] } },
+      { name: 'attended_lock_set', description: 'Set an attended lock on a session (default TTL 30m).', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, reason: { type: 'string' }, ttlMs: { type: 'number' } }, required: ['project', 'session'] } },
+      { name: 'attended_lock_release', description: 'Release an attended lock on a session.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' } }, required: ['project', 'session'] } },
       // Spreadsheet tools
       {
         name: 'list_spreadsheets',
@@ -2207,400 +2164,6 @@ IMPORTANT - Common pitfalls to avoid:
           required: ['project', 'session', 'id'],
         },
       },
-      {
-        name: 'pseudo_impact_analysis',
-        description: 'Analyze what functions are affected if a given function changes. Returns direct and transitive callers from the pseudo call graph.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            function_name: { type: 'string', description: 'Function name to analyze' },
-            file_stem: { type: 'string', description: 'File stem (e.g., "http-transport")' },
-          },
-          required: ['project', 'function_name', 'file_stem'],
-        },
-      },
-      {
-        name: 'pseudo_find_function',
-        description: 'Full-text search across pseudocode functions and steps. Returns matching methods with snippets.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            query: { type: 'string', description: 'Search query' },
-          },
-          required: ['project', 'query'],
-        },
-      },
-      {
-        name: 'pseudo_get_module_summary',
-        description: 'Get a summary of all pseudocode files in a directory, including file list and exported functions.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            directory: { type: 'string', description: 'Directory path relative to project root' },
-          },
-          required: ['project', 'directory'],
-        },
-      },
-      {
-        name: 'pseudo_call_chain',
-        description: 'Find if a call chain path exists between two functions in the pseudo call graph.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            from_function: { type: 'string', description: 'Source function name' },
-            from_file: { type: 'string', description: 'Source file stem' },
-            to_function: { type: 'string', description: 'Target function name' },
-            to_file: { type: 'string', description: 'Target file stem' },
-          },
-          required: ['project', 'from_function', 'from_file', 'to_function', 'to_file'],
-        },
-      },
-      {
-        name: 'pseudo_stale_check',
-        description: 'Find pseudocode functions that may be stale (not updated recently).',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            file_path: { type: 'string', description: 'Optional: filter to specific file path' },
-            days_threshold: { type: 'number', description: 'Days threshold for staleness (default: 30)' },
-          },
-          required: ['project'],
-        },
-      },
-      {
-        name: 'pseudo_coverage_report',
-        description: 'Report how many source files have corresponding pseudocode coverage.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            directory: { type: 'string', description: 'Optional: scope to directory' },
-          },
-          required: ['project'],
-        },
-      },
-      {
-        name: 'pseudo_index_structural',
-        description: 'Run the Level 1 structural scan on a single source file and upsert results into the pseudo-db. Cheap, no LLM, good for ad-hoc re-indexing.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-            filePath: { type: 'string', description: 'Absolute path to the source file to index' },
-          },
-          required: ['project', 'filePath'],
-        },
-      },
-      {
-        name: 'pseudo_index_project',
-        description: 'Run Level 1 structural scan on every source file in the project. Used for initial indexing after schema migration. Slow — hundreds of files.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string', description: 'Absolute path to project root' },
-          },
-          required: ['project'],
-        },
-      },
-      {
-        name: 'pseudo_upsert_prose',
-        description: 'Level 2 — write prose (title, purpose, module_context, method steps, CALLS references) directly to the pseudo-db for a source file. Used by the /pseudocode skill.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string' },
-            filePath: { type: 'string', description: 'Absolute path to the source file' },
-            data: {
-              type: 'object',
-              properties: {
-                title: { type: 'string' },
-                purpose: { type: 'string' },
-                moduleContext: { type: 'string' },
-                methods: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      name: { type: 'string' },
-                      params: { type: 'string' },
-                      steps: {
-                        type: 'array',
-                        items: {
-                          type: 'object',
-                          properties: {
-                            content: { type: 'string' },
-                            depth: { type: 'number' },
-                          },
-                          required: ['content', 'depth'],
-                        },
-                      },
-                      calls: {
-                        type: 'array',
-                        items: {
-                          type: 'object',
-                          properties: {
-                            name: { type: 'string' },
-                            fileStem: { type: 'string' },
-                          },
-                          required: ['name', 'fileStem'],
-                        },
-                      },
-                    },
-                    required: ['name', 'steps', 'calls'],
-                  },
-                },
-              },
-              required: ['methods'],
-            },
-          },
-          required: ['project', 'filePath', 'data'],
-        },
-      },
-      {
-        name: 'pseudo_get_file_state',
-        description: 'Query the current db state for a source file — list of methods, prose status, last updated timestamp. Used by the /pseudocode skill to decide what to regenerate.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string' },
-            filePath: { type: 'string' },
-          },
-          required: ['project', 'filePath'],
-        },
-      },
-      // ====== v6 pseudo-db tools (additive) ======
-      {
-        name: 'pseudo_db_status',
-        description: 'v6: Report pseudo-db v6 status including schema version, indexer state, last scan run, and counts.',
-        inputSchema: {
-          type: 'object',
-          properties: { project: { type: 'string' } },
-          required: ['project'],
-        },
-      },
-      {
-        name: 'pseudo_rescan',
-        description: 'v6: Trigger a rescan of the pseudo-db. mode = full | incremental | drift_check. paths optional for incremental.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string' },
-            mode: { type: 'string', enum: ['full', 'incremental', 'drift_check'] },
-            paths: { type: 'array', items: { type: 'string' } },
-            cancel: { type: 'boolean' },
-          },
-          required: ['project'],
-        },
-      },
-      {
-        name: 'pseudo_rerank',
-        description: 'v6: Recompute file ranking heuristics (hotness, churn, importance).',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string' },
-            sinceDaysAgo: { type: 'number' },
-            cancel: { type: 'boolean' },
-          },
-          required: ['project'],
-        },
-      },
-      {
-        name: 'pseudo_upsert_prose_v6',
-        description: 'v6: Upsert prose for a file using the v6 prose-file format. Origin must be "manual" or "llm".',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string' },
-            input: {
-              type: 'object',
-              properties: {
-                file: { type: 'string' },
-                title: { type: 'string' },
-                purpose: { type: 'string' },
-                module_context: { type: 'string' },
-                origin: { type: 'string', enum: ['manual', 'llm'] },
-                methods: { type: 'array' },
-              },
-              required: ['file', 'origin', 'methods'],
-            },
-          },
-          required: ['project', 'input'],
-        },
-      },
-      {
-        name: 'pseudo_reassign_prose',
-        description: 'v6: Reassign a single prose entry to a renamed/moved method, preserving stable IDs.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string' },
-            mapping: {
-              type: 'object',
-              properties: {
-                file: { type: 'string' },
-                old: { type: 'object' },
-                new: { type: 'object' },
-              },
-              required: ['file', 'old', 'new'],
-            },
-          },
-          required: ['project', 'mapping'],
-        },
-      },
-      {
-        name: 'pseudo_reassign_prose_bulk',
-        description: 'v6: Bulk reassign prose entries. Requires confirm=true.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string' },
-            mappings: { type: 'array' },
-            confirm: { type: 'boolean' },
-          },
-          required: ['project', 'mappings', 'confirm'],
-        },
-      },
-      {
-        name: 'pseudo_search',
-        description: 'v6: Full-text search across pseudo-db (FTS). Returns enriched hits with file/method context.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string' },
-            query: { type: 'string' },
-            limit: { type: 'number' },
-            filterOrigin: { type: 'string' },
-          },
-          required: ['project', 'query'],
-        },
-      },
-      {
-        name: 'pseudo_find_function_v6',
-        description: 'v6: Find a function by name via FTS index.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string' },
-            name: { type: 'string' },
-            limit: { type: 'number' },
-          },
-          required: ['project', 'name'],
-        },
-      },
-      {
-        name: 'pseudo_import_graph',
-        description: 'v6: Get the import graph in/out edges for a file from file_imports.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string' },
-            file: { type: 'string' },
-          },
-          required: ['project', 'file'],
-        },
-      },
-      {
-        name: 'pseudo_call_chain_v6',
-        description: 'v6: BFS the call graph from a method id with bounded depth. direction = callers | callees (default: callees).',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string' },
-            methodId: { type: 'string' },
-            depth: { type: 'number' },
-            direction: { type: 'string', enum: ['callers', 'callees'] },
-          },
-          required: ['project', 'methodId'],
-        },
-      },
-      {
-        name: 'pseudo_stats_delta',
-        description: 'v6: Report deltas (errors, runs) since a given scan_run id.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string' },
-            sinceRunId: { type: 'number' },
-          },
-          required: ['project', 'sinceRunId'],
-        },
-      },
-      {
-        name: 'pseudo_hot_files',
-        description: 'v6: List the hottest files by ranking score.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string' },
-            limit: { type: 'number' },
-          },
-          required: ['project'],
-        },
-      },
-      {
-        name: 'pseudo_list_heuristic_files',
-        description: 'v6: List files filtered by heuristic ranking criteria.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string' },
-          },
-          required: ['project'],
-        },
-      },
-      {
-        name: 'pseudo_team_ownership',
-        description: 'v6: Aggregate team ownership stats from git blame data.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string' },
-          },
-          required: ['project'],
-        },
-      },
-      {
-        name: 'pseudo_list_orphaned_prose',
-        description: 'v6: List orphaned prose files (cross-branch and actual orphans).',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string' },
-          },
-          required: ['project'],
-        },
-      },
-      {
-        name: 'pseudo_cleanup_orphaned_prose',
-        description: 'v6: Cleanup orphaned prose entries. Requires confirm=true.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string' },
-            files: { type: 'array', items: { type: 'string' } },
-            confirm: { type: 'boolean' },
-          },
-          required: ['project', 'files', 'confirm'],
-        },
-      },
-      {
-        name: 'pseudo_get_file_state_v6',
-        description: 'v6: Query v6 file state including methods, origins, lines, stub status.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            project: { type: 'string' },
-            filePath: { type: 'string' },
-          },
-          required: ['project', 'filePath'],
-        },
-      },
     ],
   }));
 
@@ -2637,7 +2200,7 @@ IMPORTANT - Common pitfalls to avoid:
             return JSON.stringify({ name: generateSessionName() }, null, 2);
 
           case 'list_sessions':
-            return await listSessions();
+            return await listSessions((args as { project?: string })?.project);
 
           case 'list_projects': {
             const result = await handleListProjects();
@@ -3694,42 +3257,56 @@ IMPORTANT - Common pitfalls to avoid:
 
           // Session todos tools
           case 'list_session_todos': {
-            const { project, session, includeCompleted } = args as {
+            const { project, session, includeCompleted, assigneeSession, status } = args as {
               project: string;
               session: string;
               includeCompleted?: boolean;
+              assigneeSession?: string;
+              status?: import('../services/todo-store.js').TodoStatus;
             };
             if (!project || !session) throw new Error('Missing required: project, session');
-            const result = await listSessionTodos(project, session, { includeCompleted });
+            const result = await listSessionTodos(project, session, { includeCompleted, assigneeSession, status });
             return JSON.stringify(result, null, 2);
           }
 
           case 'add_session_todo': {
-            const { project, session, text, link } = args as {
+            const { project, session, text, title, link, assigneeSession, description, status, priority, dueDate } = args as {
               project: string;
               session: string;
-              text: string;
+              text?: string;
+              title?: string;
               link?: SessionTodoLink;
+              assigneeSession?: string;
+              description?: string;
+              status?: import('../services/todo-store.js').TodoStatus;
+              priority?: 0 | 1 | 2 | 3 | 4;
+              dueDate?: string;
             };
-            if (!project || !session || !text) throw new Error('Missing required: project, session, text');
-            const result = await addSessionTodo(project, session, text, link);
-            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
+            if (!project || !session || !(title ?? text)) throw new Error('Missing required: project, session, text');
+            const result = await addSessionTodo(project, session, title ?? text!, link, { assigneeSession, description, status, priority, dueDate });
+            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined });
             return JSON.stringify(result, null, 2);
           }
 
           case 'update_session_todo': {
-            const { project, session, id, text, completed, order, link } = args as {
+            const { project, session, id, text, title, completed, order, link, assigneeSession, description, status, priority, dueDate } = args as {
               project: string;
               session: string;
-              id: number;
+              id: string;
               text?: string;
+              title?: string;
               completed?: boolean;
               order?: number;
               link?: SessionTodoLink | null;
+              assigneeSession?: string;
+              description?: string;
+              status?: import('../services/todo-store.js').TodoStatus;
+              priority?: 0 | 1 | 2 | 3 | 4 | null;
+              dueDate?: string;
             };
             if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
-            const result = await updateSessionTodo(project, session, id, { text, completed, order, link });
-            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
+            const result = await updateSessionTodo(project, session, id, { text, title, completed, link, assigneeSession, description, status, priority, dueDate });
+            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined });
             return JSON.stringify(result, null, 2);
           }
 
@@ -3737,12 +3314,12 @@ IMPORTANT - Common pitfalls to avoid:
             const { project, session, id, completed } = args as {
               project: string;
               session: string;
-              id: number;
+              id: string;
               completed?: boolean;
             };
             if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
             const result = await toggleSessionTodo(project, session, id, completed);
-            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
+            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined });
             return JSON.stringify(result, null, 2);
           }
 
@@ -3750,11 +3327,11 @@ IMPORTANT - Common pitfalls to avoid:
             const { project, session, id } = args as {
               project: string;
               session: string;
-              id: number;
+              id: string;
             };
             if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
             const result = await removeSessionTodo(project, session, id);
-            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
+            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result?.ownerSession, assigneeSession: result?.assigneeSession ?? undefined });
             return JSON.stringify(result, null, 2);
           }
 
@@ -3770,12 +3347,104 @@ IMPORTANT - Common pitfalls to avoid:
             const { project, session, orderedIds } = args as {
               project: string;
               session: string;
-              orderedIds: number[];
+              orderedIds: string[];
             };
             if (!project || !session || !Array.isArray(orderedIds)) throw new Error('Missing required: project, session, orderedIds');
             const result = await reorderSessionTodos(project, session, orderedIds);
             getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
             return JSON.stringify(result, null, 2);
+          }
+
+          case 'assign_session_todo': {
+            const { project, session, id, assigneeSession } = args as {
+              project: string;
+              session: string;
+              id: string;
+              assigneeSession: string | null;
+            };
+            if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
+            const result = await assignSessionTodo(project, session, id, assigneeSession);
+            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined });
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'roadmap_list': {
+            const { project } = args as { project: string };
+            if (!project) throw new Error('Missing required: project');
+            return JSON.stringify(roadmapStore.listItems(project), null, 2);
+          }
+          case 'roadmap_add': {
+            const { project, title, description, parentId, dependsOn } = args as { project: string; title: string; description?: string; parentId?: string; dependsOn?: string[] };
+            if (!project || !title) throw new Error('Missing required: project, title');
+            const item = await roadmapStore.createItem(project, { title, description, parentId, dependsOn });
+            return JSON.stringify(item, null, 2);
+          }
+          case 'roadmap_update': {
+            const { project, id, ...patch } = args as { project: string; id: string; [k: string]: unknown };
+            if (!project || !id) throw new Error('Missing required: project, id');
+            const item = await roadmapStore.updateItem(project, id, patch as Parameters<typeof roadmapStore.updateItem>[2]);
+            return JSON.stringify(item, null, 2);
+          }
+          case 'roadmap_spawn_session': {
+            const { project, itemId, session, todos } = args as { project: string; itemId: string; session: string; todos?: string[] };
+            if (!project || !itemId || !session) throw new Error('Missing required: project, itemId, session');
+            const createdTodoIds: string[] = [];
+            for (const t of todos ?? []) {
+              const todo = await addSessionTodo(project, session, t, undefined, { assigneeSession: session });
+              createdTodoIds.push(todo.id);
+              await roadmapStore.linkTodo(project, itemId, todo.id);
+            }
+            await roadmapStore.setItemSession(project, itemId, session);
+            supervisorStore.addSupervised(project, session, 'roadmap');
+            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
+            return JSON.stringify({ session, createdTodoIds }, null, 2);
+          }
+          case 'supervisor_list_supervised': {
+            return JSON.stringify(supervisorStore.listSupervised(), null, 2);
+          }
+          case 'supervisor_reconcile': {
+            const out: Array<{ project: string; session: string; status: string | null; updatedAt: number | null; openTodos: number; supervised: boolean; locked: boolean }> = [];
+            for (const wp of supervisorStore.listWatchedProjects()) {
+              const statuses = getStatuses(wp.project);
+              for (const s of statuses) {
+                const supervised = supervisorStore.isSupervised(wp.project, s.session);
+                const openTodos = supervised ? listTodos(wp.project, { session: s.session, includeCompleted: false }).length : 0;
+                out.push({ project: wp.project, session: s.session, status: s.status, updatedAt: s.updatedAt, openTodos, supervised, locked: supervisorStore.isLocked(wp.project, s.session) });
+              }
+            }
+            return JSON.stringify(out, null, 2);
+          }
+          case 'read_last_assistant_turn': {
+            const { claudeSessionId } = args as { claudeSessionId: string };
+            if (!claudeSessionId) throw new Error('Missing required: claudeSessionId');
+            return JSON.stringify(await lastAssistantTurn(claudeSessionId), null, 2);
+          }
+          case 'escalation_list': {
+            return JSON.stringify(supervisorStore.listOpenEscalations(), null, 2);
+          }
+          case 'escalation_resolve': {
+            const { id, status } = args as { id: string; status: string };
+            if (!id || !status) throw new Error('Missing required: id, status');
+            supervisorStore.resolveEscalation(id, status);
+            return JSON.stringify({ success: true, id, status }, null, 2);
+          }
+          case 'escalation_create': {
+            const { project, session, kind, questionText } = args as { project: string; session: string; kind: string; questionText: string };
+            if (!project || !session || !kind || !questionText) throw new Error('Missing required: project, session, kind, questionText');
+            return JSON.stringify(supervisorStore.createEscalation({ project, session, kind, questionText }), null, 2);
+          }
+          case 'attended_lock_set': {
+            const { project, session, reason, ttlMs } = args as { project: string; session: string; reason?: string; ttlMs?: number };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            if (ttlMs === undefined) supervisorStore.setLock(project, session, reason ?? 'attended');
+            else supervisorStore.setLock(project, session, reason ?? 'attended', ttlMs);
+            return JSON.stringify({ success: true, lock: supervisorStore.getLock(project, session) }, null, 2);
+          }
+          case 'attended_lock_release': {
+            const { project, session } = args as { project: string; session: string };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            supervisorStore.releaseLock(project, session);
+            return JSON.stringify({ success: true }, null, 2);
           }
 
           case 'complete_linked_todos': {
@@ -4222,279 +3891,6 @@ IMPORTANT - Common pitfalls to avoid:
             });
             if (!response.ok) throw new Error(`Failed to set metadata: ${response.statusText}`);
             return JSON.stringify({ success: true, id, updates });
-          }
-
-          case 'pseudo_impact_analysis': {
-            const { project, function_name, file_stem } = args as { project: string; function_name: string; file_stem: string };
-            if (!project || !function_name || !file_stem) throw new Error('Missing required: project, function_name, file_stem');
-            const db = getPseudoDb(project);
-            const impactResult = db.getImpactAnalysis(function_name, file_stem);
-            return JSON.stringify(impactResult, null, 2);
-          }
-
-          case 'pseudo_find_function': {
-            const { project, query } = args as { project: string; query: string };
-            if (!project || !query) throw new Error('Missing required: project, query');
-            const db = getPseudoDb(project);
-            const searchResults = db.search(query);
-            return JSON.stringify(searchResults, null, 2);
-          }
-
-          case 'pseudo_get_module_summary': {
-            const { project, directory } = args as { project: string; directory: string };
-            if (!project || !directory) throw new Error('Missing required: project, directory');
-            const db = getPseudoDb(project);
-            const files = db.getFilesByDirectory(directory);
-            const allExports = db.getExports();
-            const dirExports = allExports.filter(e => e.filePath.startsWith(directory));
-            return JSON.stringify({ files, exports: dirExports }, null, 2);
-          }
-
-          case 'pseudo_call_chain': {
-            const { project, from_function, from_file, to_function, to_file } = args as { project: string; from_function: string; from_file: string; to_function: string; to_file: string };
-            if (!project || !from_function || !from_file || !to_function || !to_file) throw new Error('Missing required fields');
-            const db = getPseudoDb(project);
-            const graph = db.getCallGraph();
-            // BFS to find path
-            const sourceId = `${from_file}::${from_function}`;
-            const targetId = `${to_file}::${to_function}`;
-            const adjacency = new Map<string, string[]>();
-            for (const edge of graph.edges) {
-              if (!adjacency.has(edge.source)) adjacency.set(edge.source, []);
-              adjacency.get(edge.source)!.push(edge.target);
-            }
-            const visited = new Set<string>();
-            const queue: Array<{id: string, path: string[]}> = [{id: sourceId, path: [sourceId]}];
-            let foundPath: string[] | null = null;
-            while (queue.length > 0) {
-              const current = queue.shift()!;
-              if (current.id === targetId) { foundPath = current.path; break; }
-              if (visited.has(current.id)) continue;
-              visited.add(current.id);
-              for (const neighbor of adjacency.get(current.id) || []) {
-                queue.push({id: neighbor, path: [...current.path, neighbor]});
-              }
-            }
-            return JSON.stringify({ path: foundPath, exists: foundPath !== null }, null, 2);
-          }
-
-          case 'pseudo_stale_check': {
-            const { project, file_path } = args as { project: string; file_path?: string; days_threshold?: number };
-            if (!project) throw new Error('Missing required: project');
-            return JSON.stringify({
-              stale: [],
-              deprecated: true,
-              reason: 'pseudo_stale_check is not supported under pseudo-db v6 (no per-method timestamp column). Use pseudo_db_status or pseudo_coverage_report instead.',
-              file_path: file_path ?? null,
-            }, null, 2);
-          }
-
-          case 'pseudo_coverage_report': {
-            const { project, directory } = args as { project: string; directory?: string };
-            if (!project) throw new Error('Missing required: project');
-            const db = getPseudoDb(project);
-            const coverageResult = db.getCoverage(directory);
-            return JSON.stringify(coverageResult, null, 2);
-          }
-
-          case 'pseudo_index_structural': {
-            const { project, filePath } = args as { project: string; filePath: string };
-            if (!project || !filePath) throw new Error('Missing required: project, filePath');
-            try {
-              const handle = initPseudoDbV6(project);
-              await handle.indexer.runIncrementalScanForFile(filePath, { trigger: 'manual' });
-              return JSON.stringify({ success: true, filePath }, null, 2);
-            } catch (err) {
-              return JSON.stringify({ success: false, reason: err instanceof Error ? err.message : String(err) }, null, 2);
-            }
-          }
-
-          case 'pseudo_index_project': {
-            const { project } = args as { project: string };
-            if (!project) throw new Error('Missing required: project');
-            try {
-              const handle = initPseudoDbV6(project);
-              const run = await handle.indexer.runFullScan({ trigger: 'manual' });
-              return JSON.stringify({
-                success: run.status === 'done',
-                filesScanned: run.files_scanned,
-                errors: run.errors,
-                runId: run.id,
-                status: run.status,
-              }, null, 2);
-            } catch (err) {
-              return JSON.stringify({ success: false, filesScanned: 0, errors: 1, reason: err instanceof Error ? err.message : String(err) }, null, 2);
-            }
-          }
-
-          case 'pseudo_upsert_prose': {
-            const { project, filePath, data } = args as { project: string; filePath: string; data: ProseData };
-            if (!project || !filePath || !data) throw new Error('Missing required: project, filePath, data');
-            if (!Array.isArray(data.methods)) throw new Error('data.methods must be an array');
-            for (const m of data.methods) {
-              if (!Array.isArray(m.steps)) {
-                throw new Error(`data.methods[].steps must be an array (got ${typeof m.steps} for method '${m.name}')`);
-              }
-            }
-            const input = {
-              file: filePath,
-              title: data.title,
-              purpose: data.purpose,
-              module_context: data.moduleContext,
-              origin: 'llm' as const,
-              methods: data.methods.map((m) => ({
-                name: m.name,
-                enclosing_class: null,
-                normalized_params: m.params ?? '',
-                steps: m.steps.map((s, i) => ({ order: i + 1, content: s.content })),
-              })),
-            };
-            const res = await pseudo_upsert_prose_v6(project, input);
-            return JSON.stringify({ success: true, prose_file_path: res.prose_file_path, methods_written: res.methods_written, methods_preserved: res.methods_preserved }, null, 2);
-          }
-
-          case 'pseudo_get_file_state': {
-            const { project, filePath } = args as { project: string; filePath: string };
-            if (!project || !filePath) throw new Error('Missing required: project, filePath');
-            const state = getPseudoDb(project).getFileState(filePath);
-            return JSON.stringify(state, null, 2);
-          }
-
-          // ====== v6 pseudo-db tool handlers (additive) ======
-          case 'pseudo_db_status': {
-            const { project } = args as { project: string };
-            if (!project) throw new Error('Missing required: project');
-            const status = await pseudo_db_status(project);
-            return JSON.stringify(status, null, 2);
-          }
-
-          case 'pseudo_rescan': {
-            const { project, mode, paths, cancel } = args as {
-              project: string; mode?: 'full' | 'incremental' | 'drift_check'; paths?: string[]; cancel?: boolean;
-            };
-            if (!project) throw new Error('Missing required: project');
-            const res = await pseudo_rescan(project, { mode, paths, cancel });
-            return JSON.stringify(res, null, 2);
-          }
-
-          case 'pseudo_rerank': {
-            const { project, sinceDaysAgo, cancel } = args as {
-              project: string; sinceDaysAgo?: number; cancel?: boolean;
-            };
-            if (!project) throw new Error('Missing required: project');
-            const res = await pseudo_rerank(project, { sinceDaysAgo, cancel });
-            return JSON.stringify(res, null, 2);
-          }
-
-          case 'pseudo_upsert_prose_v6': {
-            const { project, input } = args as { project: string; input: any };
-            if (!project || !input) throw new Error('Missing required: project, input');
-            const res = await pseudo_upsert_prose_v6(project, input);
-            return JSON.stringify(res, null, 2);
-          }
-
-          case 'pseudo_reassign_prose': {
-            const { project, mapping } = args as { project: string; mapping: any };
-            if (!project || !mapping) throw new Error('Missing required: project, mapping');
-            const res = await pseudo_reassign_prose(project, mapping);
-            return JSON.stringify(res, null, 2);
-          }
-
-          case 'pseudo_reassign_prose_bulk': {
-            const { project, mappings, confirm } = args as {
-              project: string; mappings: any[]; confirm: boolean;
-            };
-            if (!project || !Array.isArray(mappings)) throw new Error('Missing required: project, mappings');
-            const res = await pseudo_reassign_prose_bulk(project, mappings, !!confirm);
-            return JSON.stringify(res, null, 2);
-          }
-
-          case 'pseudo_search': {
-            const { project, query, limit, filterOrigin } = args as {
-              project: string; query: string; limit?: number; filterOrigin?: 'heuristic' | 'manual' | 'llm' | 'mixed';
-            };
-            if (!project || !query) throw new Error('Missing required: project, query');
-            const res = await pseudo_search(project, query, { limit, filterOrigin });
-            return JSON.stringify(res, null, 2);
-          }
-
-          case 'pseudo_find_function_v6': {
-            const { project, name: fnName, limit } = args as {
-              project: string; name: string; limit?: number;
-            };
-            if (!project || !fnName) throw new Error('Missing required: project, name');
-            const res = await pseudo_find_function_v6(project, fnName, limit);
-            return JSON.stringify(res, null, 2);
-          }
-
-          case 'pseudo_import_graph': {
-            const { project, file } = args as { project: string; file: string };
-            if (!project || !file) throw new Error('Missing required: project, file');
-            const res = await pseudo_import_graph(project, file);
-            return JSON.stringify(res, null, 2);
-          }
-
-          case 'pseudo_call_chain_v6': {
-            const { project, methodId, depth, direction } = args as {
-              project: string; methodId: string; depth?: number; direction?: 'callers' | 'callees';
-            };
-            if (!project || !methodId) throw new Error('Missing required: project, methodId');
-            const res = await pseudo_call_chain_v6(project, methodId, {
-              direction: direction ?? 'callees',
-              depth,
-            });
-            return JSON.stringify(res, null, 2);
-          }
-
-          case 'pseudo_stats_delta': {
-            const { project, sinceRunId } = args as { project: string; sinceRunId: number };
-            if (!project || typeof sinceRunId !== 'number') throw new Error('Missing required: project, sinceRunId');
-            const res = await pseudo_stats_delta(project, sinceRunId);
-            return JSON.stringify(res, null, 2);
-          }
-
-          case 'pseudo_hot_files': {
-            const { project, limit } = args as { project: string; limit?: number };
-            if (!project) throw new Error('Missing required: project');
-            const res = await pseudo_hot_files(project, limit);
-            return JSON.stringify(res, null, 2);
-          }
-
-          case 'pseudo_list_heuristic_files': {
-            const { project } = args as { project: string };
-            if (!project) throw new Error('Missing required: project');
-            const res = await pseudo_list_heuristic_files(project);
-            return JSON.stringify(res, null, 2);
-          }
-
-          case 'pseudo_team_ownership': {
-            const { project } = args as { project: string };
-            if (!project) throw new Error('Missing required: project');
-            const res = await pseudo_team_ownership(project);
-            return JSON.stringify(res, null, 2);
-          }
-
-          case 'pseudo_list_orphaned_prose': {
-            const { project } = args as { project: string };
-            if (!project) throw new Error('Missing required: project');
-            const res = await pseudo_list_orphaned_prose(project);
-            return JSON.stringify(res, null, 2);
-          }
-
-          case 'pseudo_cleanup_orphaned_prose': {
-            const { project, files, confirm } = args as {
-              project: string; files: string[]; confirm: boolean;
-            };
-            if (!project || !Array.isArray(files)) throw new Error('Missing required: project, files');
-            const res = await pseudo_cleanup_orphaned_prose(project, files, !!confirm);
-            return JSON.stringify(res, null, 2);
-          }
-
-          case 'pseudo_get_file_state_v6': {
-            const { project, filePath } = args as { project: string; filePath: string };
-            if (!project || !filePath) throw new Error('Missing required: project, filePath');
-            const res = await pseudo_get_file_state_v6(project, filePath);
-            return JSON.stringify(res, null, 2);
           }
 
           case 'browser_open': {

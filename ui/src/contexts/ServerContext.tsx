@@ -1,9 +1,9 @@
 /**
- * Thin active-server context for the native app's server switcher.
+ * Thin multi-server context for the native app.
  *
- * The renderer always talks to a single origin (the Electron main-process proxy),
- * so switching servers is just: tell main to repoint the proxy, reset the WS
- * singleton, and remount the app subtree so it refetches against the new upstream.
+ * The renderer enumerates known servers and probes their reachability via the
+ * Electron main-process bridge. There is no single "active" server here —
+ * callers address servers by id (e.g. via invokeOnServer / listSessionsForServer).
  * All `window.mc` access is guarded — in a plain browser tab (no Electron) the
  * provider is a no-op pass-through with no servers.
  */
@@ -13,9 +13,10 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
-import { resetWebSocketClient } from '@/lib/websocket';
+import { useSessionStore } from '@/stores/sessionStore';
 
 export interface ServerInfo {
   id: string;
@@ -26,6 +27,7 @@ export interface ServerInfo {
   source: 'local' | 'manual';
   lastProject?: string;
   lastSession?: string;
+  icon?: string;
 }
 
 export interface WatchEvent {
@@ -42,13 +44,18 @@ export interface WatchEvent {
 
 export interface McBridge {
   listServers(): Promise<ServerInfo[]>;
-  getActiveServer(): Promise<string | null>;
-  switchServer(id: string): Promise<{ ok: boolean }>;
   addServer(opts: { label: string; host: string; port: number; token?: string }): Promise<string>;
   removeServer(id: string): Promise<void>;
   probeServer?(host: string, port: number): Promise<boolean>;
   setWatchedServers?(ids: string[]): Promise<void>;
   onWatchEvent?(cb: (e: WatchEvent) => void): () => void;
+  /** Fetch a server's session list directly from main (no proxy / no active-server switch). */
+  listSessionsForServer?(serverId: string): Promise<Array<{ project: string; name: string; displayName?: string }>>;
+  /** Invoke an HTTP endpoint on a specific server (token resolved in main). */
+  invokeOnServer?(
+    serverId: string,
+    opts: { path: string; method?: string; body?: unknown; query?: Record<string, string> }
+  ): Promise<{ ok: boolean; status: number; body: unknown }>;
 }
 
 declare global {
@@ -60,9 +67,7 @@ declare global {
 interface ServerContextValue {
   available: boolean; // true only in the Electron app (window.mc present)
   servers: ServerInfo[];
-  activeId: string | null;
   refresh: () => Promise<void>;
-  switchServer: (id: string) => Promise<void>;
   addServer: (opts: { label: string; host: string; port: number; token?: string }) => Promise<void>;
   removeServer: (id: string) => Promise<void>;
 }
@@ -73,17 +78,14 @@ export function ServerProvider({ children }: { children: React.ReactNode }) {
   const mc = typeof window !== 'undefined' ? window.mc : undefined;
   const available = !!mc;
   const [servers, setServers] = useState<ServerInfo[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [version, setVersion] = useState(0); // bump to remount the subtree
 
   // Probe each server's reachability (main-process fetch — the renderer can't
-  // cross-origin probe other servers) and update the status dots. The active
-  // server is online by definition (we're talking to it through the proxy).
+  // cross-origin probe other servers) and update the status dots.
   const probe = useCallback(
-    async (list: ServerInfo[], active: string | null) => {
+    async (list: ServerInfo[]) => {
       if (!mc?.probeServer) return;
       const results = await Promise.all(
-        list.map((s) => (s.id === active ? Promise.resolve(true) : mc.probeServer!(s.host, s.port).catch(() => false)))
+        list.map((s) => mc.probeServer!(s.host, s.port).catch(() => false))
       );
       setServers((prev) =>
         prev.map((s) => {
@@ -97,10 +99,9 @@ export function ServerProvider({ children }: { children: React.ReactNode }) {
 
   const refresh = useCallback(async () => {
     if (!mc) return;
-    const [list, active] = await Promise.all([mc.listServers(), mc.getActiveServer()]);
-    setServers(list.map((s) => ({ ...s, status: s.id === active ? 'online' : 'connecting' })));
-    setActiveId(active);
-    void probe(list, active);
+    const list = await mc.listServers();
+    setServers(list.map((s) => ({ ...s, status: 'connecting' })));
+    void probe(list);
   }, [mc, probe]);
 
   useEffect(() => {
@@ -111,17 +112,36 @@ export function ServerProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(t);
   }, [refresh, mc]);
 
-  const switchServer = useCallback(
-    async (id: string) => {
-      if (!mc) return;
-      const res = await mc.switchServer(id);
-      if (!res.ok) return;
-      resetWebSocketClient(); // next getWebSocketClient() reconnects through the repointed proxy
-      setActiveId(id);
-      setVersion((v) => v + 1); // remount so collab views refetch against the new upstream
-    },
-    [mc]
-  );
+  // Once the session store has rehydrated AND we've loaded the server list at
+  // least once, validate the persisted currentSession against the known servers.
+  // If its server is gone (or never existed), validateAgainstServers clears it
+  // and the normal empty-session UI takes over. We track the last validated
+  // snapshot by stringified ids so we don't re-run for identical lists.
+  const lastValidatedRef = useRef<string | null>(null);
+  const loadedOnceRef = useRef(false);
+  useEffect(() => {
+    if (servers.length > 0) loadedOnceRef.current = true;
+  }, [servers]);
+  useEffect(() => {
+    if (!loadedOnceRef.current) return;
+    const { hydrated, validateAgainstServers } = useSessionStore.getState();
+    if (!hydrated) return;
+    const key = servers.map((s) => `${s.id}:${s.status}`).sort().join('|');
+    if (lastValidatedRef.current === key) return;
+    lastValidatedRef.current = key;
+    validateAgainstServers(servers);
+  }, [servers]);
+  // Also re-check when hydration flips to true after the first server-list load.
+  useEffect(() => {
+    const unsub = useSessionStore.subscribe((state, prev) => {
+      if (state.hydrated && !prev.hydrated && loadedOnceRef.current) {
+        lastValidatedRef.current = null; // force re-validate on next servers tick
+        state.validateAgainstServers(servers);
+        lastValidatedRef.current = servers.map((s) => `${s.id}:${s.status}`).sort().join('|');
+      }
+    });
+    return unsub;
+  }, [servers]);
 
   const addServer = useCallback(
     async (opts: { label: string; host: string; port: number; token?: string }) => {
@@ -142,33 +162,26 @@ export function ServerProvider({ children }: { children: React.ReactNode }) {
   );
 
   const value = useMemo<ServerContextValue>(
-    () => ({ available, servers, activeId, refresh, switchServer, addServer, removeServer }),
-    [available, servers, activeId, refresh, switchServer, addServer, removeServer]
+    () => ({ available, servers, refresh, addServer, removeServer }),
+    [available, servers, refresh, addServer, removeServer]
   );
 
-  return (
-    <ServerContext.Provider value={value}>
-      <React.Fragment key={version}>{children}</React.Fragment>
-    </ServerContext.Provider>
-  );
+  return <ServerContext.Provider value={value}>{children}</ServerContext.Provider>;
 }
 
 const NO_PROVIDER: ServerContextValue = {
   available: false,
   servers: [],
-  activeId: null,
   refresh: async () => {},
-  switchServer: async () => {},
   addServer: async () => {},
   removeServer: async () => {},
 };
 
 /**
- * Returns the active-server context. Falls back to an inert "unavailable"
+ * Returns the servers context. Falls back to an inert "unavailable"
  * value when no provider is mounted (e.g. routes that render the shared Header
- * outside the collab app), so consumers like ServerSwitcher simply render
- * nothing rather than throwing.
+ * outside the collab app), so consumers simply render nothing rather than throwing.
  */
-export function useServer(): ServerContextValue {
+export function useServers(): ServerContextValue {
   return useContext(ServerContext) ?? NO_PROVIDER;
 }

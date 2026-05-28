@@ -10,15 +10,17 @@ export function usePrefetchWatchedSessions(): void {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     const entries = Object.values(subscriptions);
-    entries.forEach(({ project, session }, idx) => {
+    entries.forEach((sub, idx) => {
+      if (!sub.serverId) return;
+      const { project, session, serverId } = sub;
       const cached = getSessionItemsCache(project, session);
       if (!cached || isCacheStale(cached)) {
         setTimeout(() => {
           // Re-check subscription membership — session may have been unsubscribed during the stagger window
           const currentSubs = useSubscriptionStore.getState().subscriptions;
-          const key = `${project}:${session}`;
+          const key = `${serverId}:${project}:${session}`;
           if (!currentSubs[key]) return;
-          loadSessionItems(project, session);
+          loadSessionItems(serverId, project, session);
         }, idx * 200);
       }
     });

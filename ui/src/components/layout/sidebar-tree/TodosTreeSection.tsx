@@ -8,15 +8,19 @@ import React, {
 } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useTabsStore } from '@/stores/tabsStore';
 import { api } from '@/lib/api';
-import { ConfirmClearCompletedDialog } from '@/components/dialogs/ConfirmClearCompletedDialog';
-import { SessionTodo } from '@/types';
+import { SessionTodo, TodoStatus } from '@/types/sessionTodo';
 import { SectionBranchRow } from './TreeBranchRow';
 
-function shortSlug(blueprintId: string): string {
-  const m = blueprintId.match(/^(?:Implementing|Archive)\/(?:[^/]+\/)?(.+)$/);
-  return m ? m[1] : blueprintId;
-}
+const PRIORITY_LABEL: Record<number, string> = { 0: 'P0', 1: 'P1', 2: 'P2', 3: 'P3', 4: 'P4' };
+const PRIORITY_COLORS: Record<number, string> = {
+  0: 'text-red-600 dark:text-red-400',
+  1: 'text-orange-500 dark:text-orange-400',
+  2: 'text-yellow-600 dark:text-yellow-400',
+  3: 'text-blue-500 dark:text-blue-400',
+  4: 'text-gray-400 dark:text-gray-500',
+};
 
 export interface SessionTodosSectionHandle {
   revealAddInput: () => void;
@@ -36,46 +40,25 @@ interface TodoRowProps {
 }
 
 function TodoRow({ todo, project, session }: TodoRowProps) {
-  const upsertSessionTodo = useSessionStore((s) => s.upsertSessionTodo);
   const removeSessionTodoLocal = useSessionStore((s) => s.removeSessionTodoLocal);
-  const selectDocument = useSessionStore((s) => s.selectDocument);
-  const [editing, setEditing] = useState(false);
-  const [draftText, setDraftText] = useState(todo.text);
+  const openPreview = useTabsStore((s) => s.openPreview);
 
-  const handleToggle = useCallback(async () => {
-    const next = { ...todo, completed: !todo.completed };
-    upsertSessionTodo(next);
-    try {
-      const updated = await api.patchSessionTodo(project, session, todo.id, {
-        completed: !todo.completed,
-      });
-      upsertSessionTodo(updated);
-    } catch (err) {
-      upsertSessionTodo(todo);
-      console.error('Failed to toggle session todo', err);
-    }
-  }, [todo, project, session, upsertSessionTodo]);
+  const currentTitle = todo.title ?? todo.text ?? '';
 
-  const commitEdit = useCallback(async () => {
-    const trimmed = draftText.trim();
-    setEditing(false);
-    if (!trimmed || trimmed === todo.text) {
-      setDraftText(todo.text);
-      return;
-    }
-    const optimistic = { ...todo, text: trimmed };
-    upsertSessionTodo(optimistic);
-    try {
-      const updated = await api.patchSessionTodo(project, session, todo.id, {
-        text: trimmed,
-      });
-      upsertSessionTodo(updated);
-    } catch (err) {
-      upsertSessionTodo(todo);
-      setDraftText(todo.text);
-      console.error('Failed to update session todo', err);
-    }
-  }, [draftText, todo, project, session, upsertSessionTodo]);
+  // Open this todo in the preview pane (view + edit title/description there).
+  // Todos are no longer edited inline in the sidebar.
+  const openDetail = useCallback(() => {
+    openPreview({
+      id: `todo-detail:${todo.id}`,
+      kind: 'todo-detail',
+      artifactId: todo.id,
+      name: currentTitle || 'Todo',
+    });
+  }, [openPreview, todo.id, currentTitle]);
+  // Tolerate legacy/old-backend todos that lack `status` (numeric-id era).
+  // Status is shown/changed in the detail pane now, not the sidebar; we keep
+  // this only to strike through completed rows.
+  const status: TodoStatus = todo.status ?? (todo.completed ? 'done' : 'todo');
 
   const handleDelete = useCallback(async () => {
     const snapshot = useSessionStore.getState().sessionTodos;
@@ -88,74 +71,65 @@ function TodoRow({ todo, project, session }: TodoRowProps) {
     }
   }, [todo.id, project, session, removeSessionTodoLocal]);
 
+  const isDone = status === 'done' || todo.completed;
+
   return (
     <div
       style={{ paddingLeft: '16px' }}
       data-testid={`session-todo-row-${todo.id}`}
     >
-      <div className="group w-full text-left px-2 py-1 rounded text-xs flex items-start gap-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800">
-        <input
-          type="checkbox"
-          checked={todo.completed}
-          onChange={handleToggle}
-          className="w-3.5 h-3.5 shrink-0 cursor-pointer mt-0.5"
-          aria-label={`Toggle ${todo.text}`}
-        />
-        <span className="shrink-0 tabular-nums mt-0.5 select-none text-gray-400 dark:text-gray-500">
-          #{todo.id}
-        </span>
-        {editing ? (
-          <input
-            type="text"
-            value={draftText}
-            autoFocus
-            onChange={(e) => setDraftText(e.target.value)}
-            onBlur={commitEdit}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                commitEdit();
-              } else if (e.key === 'Escape') {
-                setDraftText(todo.text);
-                setEditing(false);
-              }
-            }}
-            className="flex-1 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
-          />
-        ) : (
+      <div className="group w-full text-left px-2 py-1.5 rounded flex flex-col gap-0.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800">
+        {/* Row 1 — title + (hover) delete */}
+        <div className="flex items-start gap-2">
           <span
-            className={`flex-1 min-w-0 cursor-text whitespace-normal break-words [overflow-wrap:anywhere] ${
-              todo.completed ? 'line-through text-gray-400 dark:text-gray-500' : ''
+            className="shrink-0 mt-0.5 tabular-nums text-[10px] text-gray-400 dark:text-gray-500 select-all"
+            title={todo.id}
+          >
+            #{String(todo.id).slice(-4)}
+          </span>
+          <span
+            className={`flex-1 min-w-0 cursor-pointer text-xs leading-snug whitespace-normal break-words [overflow-wrap:anywhere] ${
+              isDone ? 'line-through text-gray-400 dark:text-gray-500' : ''
             }`}
-            onClick={() => setEditing(true)}
+            onClick={openDetail}
+            title="Open todo details"
           >
-            {todo.text}
+            {currentTitle}
           </span>
-        )}
-        {todo.link && (
-          <span
-            data-testid="todo-link-chip"
-            onClick={(e) => { e.stopPropagation(); selectDocument(todo.link!.blueprintId); }}
-            title={todo.link.blueprintId + (todo.link.taskId ? ` · ${todo.link.taskId}` : '')}
-            className="shrink-0 mt-0.5 inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300"
+          <button
+            onClick={handleDelete}
+            className="shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-opacity"
+            title="Delete todo"
+            aria-label={`Delete ${currentTitle}`}
           >
-            ↳ {shortSlug(todo.link.blueprintId)}{todo.link.taskId ? ` · ${todo.link.taskId}` : ''}
-          </span>
-        )}
-        <button
-          onClick={handleDelete}
-          className="shrink-0 opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-opacity"
-          title="Delete todo"
-          aria-label={`Delete ${todo.text}`}
-        >
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-            />
-          </svg>
-        </button>
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+              />
+            </svg>
+          </button>
+        </div>
+        {/* Row 2 — meta: only priority + due date in the sidebar.
+            Assignee + attached artifact (link) live in the detail pane. */}
+        {(todo.priority !== null && todo.priority !== undefined) || todo.dueDate ? (
+          <div className="flex items-center gap-2 flex-wrap text-xs text-gray-400 dark:text-gray-500">
+            {todo.priority !== null && todo.priority !== undefined && (
+              <span
+                title={`Priority ${todo.priority}`}
+                className={`shrink-0 text-xs font-semibold ${PRIORITY_COLORS[todo.priority]}`}
+              >
+                {PRIORITY_LABEL[todo.priority]}
+              </span>
+            )}
+            {todo.dueDate && (
+              <span title={`Due: ${todo.dueDate}`} className="shrink-0 text-xs">
+                {todo.dueDate.slice(0, 10)}
+              </span>
+            )}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -166,18 +140,14 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
     const {
       currentSession,
       sessionTodos,
-      sessionTodosShowCompleted,
       upsertSessionTodo,
       setSessionTodos,
-      setSessionTodosShowCompleted,
     } = useSessionStore(
       useShallow((s) => ({
         currentSession: s.currentSession,
         sessionTodos: s.sessionTodos,
-        sessionTodosShowCompleted: s.sessionTodosShowCompleted,
         upsertSessionTodo: s.upsertSessionTodo,
         setSessionTodos: s.setSessionTodos,
-        setSessionTodosShowCompleted: s.setSessionTodosShowCompleted,
       })),
     );
 
@@ -186,9 +156,9 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
     const handleToggle = props.onToggle ?? (() => setInternalCollapsed((c) => !c));
 
     const [newTodoText, setNewTodoText] = useState('');
-    const [confirmClearOpen, setConfirmClearOpen] = useState(false);
     const [addInputVisible, setAddInputVisible] = useState(true);
     const addInputRef = useRef<HTMLInputElement>(null);
+
 
     useImperativeHandle(
       ref,
@@ -201,19 +171,21 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
       [],
     );
 
+
     const orderedTodos = useMemo(
       () => [...sessionTodos].sort((a, b) => a.order - b.order),
       [sessionTodos],
     );
+    // Sidebar shows active todos only; completed ones drop out of the list
+    // (they're still in the store — set via the detail pane's status dropdown,
+    // removed via Clear).
     const visibleTodos = useMemo(
-      () =>
-        sessionTodosShowCompleted
-          ? orderedTodos
-          : orderedTodos.filter((t) => !t.completed),
-      [orderedTodos, sessionTodosShowCompleted],
+      () => orderedTodos.filter((t) => !t.completed && t.status !== 'done'),
+      [orderedTodos],
     );
+
     const completedCount = useMemo(
-      () => sessionTodos.filter((t) => t.completed).length,
+      () => sessionTodos.filter((t) => t.completed || t.status === 'done').length,
       [sessionTodos],
     );
 
@@ -235,23 +207,6 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
       }
     }, [currentSession, newTodoText, upsertSessionTodo]);
 
-    const handleClearCompleted = useCallback(async () => {
-      if (!currentSession) return;
-      setConfirmClearOpen(false);
-      const snapshot = sessionTodos;
-      const remaining = sessionTodos.filter((t) => !t.completed);
-      setSessionTodos(remaining);
-      try {
-        await api.clearCompletedSessionTodos(
-          currentSession.project,
-          currentSession.name,
-        );
-      } catch (err) {
-        console.error('Failed to clear completed session todos', err);
-        setSessionTodos(snapshot);
-      }
-    }, [currentSession, sessionTodos, setSessionTodos]);
-
     if (!currentSession) return null;
 
     return (
@@ -266,29 +221,6 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
         />
         {!isCollapsed && (
           <>
-            <div
-              style={{ paddingLeft: '16px' }}
-              className="flex items-center justify-between px-2 py-1 text-xs text-gray-600 dark:text-gray-400"
-            >
-              <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={sessionTodosShowCompleted}
-                  onChange={(e) => setSessionTodosShowCompleted(e.target.checked)}
-                  className="w-3 h-3"
-                />
-                Show completed
-              </label>
-              <button
-                onClick={() => setConfirmClearOpen(true)}
-                disabled={completedCount === 0}
-                className="hover:text-red-500 dark:hover:text-red-400 disabled:opacity-40 disabled:hover:text-gray-600"
-                title="Clear completed todos"
-              >
-                Clear
-              </button>
-            </div>
-
             {addInputVisible && (
               <div style={{ paddingLeft: '16px' }} className="px-2 py-1">
                 <input
@@ -328,13 +260,6 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
             )}
           </>
         )}
-
-        <ConfirmClearCompletedDialog
-          isOpen={confirmClearOpen}
-          completedCount={completedCount}
-          onConfirm={handleClearCompleted}
-          onCancel={() => setConfirmClearOpen(false)}
-        />
       </div>
     );
   },

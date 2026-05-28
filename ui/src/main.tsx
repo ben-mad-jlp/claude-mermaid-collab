@@ -7,7 +7,7 @@
  * - Strict mode for development warnings
  * - Global styling initialization
  * - Theme detection from system preferences
- * - React Router for navigation between Collab, Onboarding, and Pseudo sections
+ * - React Router for navigation between Collab sections
  *
  * The #root element must exist in index.html
  */
@@ -17,15 +17,6 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import App from './App';
 import { ServerProvider } from './contexts/ServerContext';
-import { OnboardingLayout } from './pages/onboarding/OnboardingLayout';
-import { BrowseDashboard } from './pages/onboarding/BrowseDashboard';
-import { TopicDetail as OnboardingTopicDetail } from './pages/onboarding/TopicDetail';
-import { SearchResults } from './pages/onboarding/SearchResults';
-import { WelcomeScreen } from './pages/onboarding/WelcomeScreen';
-import { OnboardingDashboard } from './pages/onboarding/OnboardingDashboard';
-import { TopicGraph } from './pages/onboarding/TopicGraph';
-import { TeamDashboard } from './pages/onboarding/TeamDashboard';
-import PseudoPage from './pages/pseudo/PseudoPage';
 import { SidebarView } from './views/SidebarView';
 import './index.css';
 import './styles/diagram.css';
@@ -44,20 +35,6 @@ ReactDOM.createRoot(root).render(
   <React.StrictMode>
     <BrowserRouter>
       <Routes>
-        {/* Onboarding Routes */}
-        <Route path="/onboarding" element={<OnboardingLayout />}>
-          <Route index element={<BrowseDashboard />} />
-          <Route path="topic/:name" element={<OnboardingTopicDetail />} />
-          <Route path="search" element={<SearchResults />} />
-          <Route path="welcome" element={<WelcomeScreen />} />
-          <Route path="dashboard" element={<OnboardingDashboard />} />
-          <Route path="graph" element={<TopicGraph />} />
-          <Route path="team" element={<TeamDashboard />} />
-        </Route>
-
-        {/* Pseudo Viewer Routes */}
-        <Route path="/pseudo/*" element={<PseudoPage />} />
-
         {/* Sidebar View */}
         <Route path="/sidebar" element={<SidebarView />} />
 

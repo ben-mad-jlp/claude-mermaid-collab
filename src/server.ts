@@ -25,9 +25,7 @@ import { createGitOps } from './agent/git-ops';
 import { userInputBridge } from './agent/user-input-bridge';
 import { initializeAgentRegistry } from './agent/agent-registry-manager';
 import { handleAPI } from './routes/api';
-import { handlePseudoAPI } from './routes/pseudo-api';
 import { handleFileContentAPI } from './routes/file-content.js';
-import { handleOnboardingAPI } from './routes/onboarding-api';
 import { handleAttachments } from './routes/agent-attachments';
 import { handleEditorRoundtrip } from './routes/editor-roundtrip';
 import { handleAgentSessionsAPI } from './routes/agent-sessions';
@@ -35,6 +33,7 @@ import { handleWorktreeDiffAPI } from './routes/worktree-diff';
 import { handleWorktreeFilesAPI } from './routes/worktree-files';
 import { handleArtifactAPI } from './routes/artifact-api.js';
 import { handleIdeRoutes } from './routes/ide-routes.js';
+import { handleSupervisorRoutes } from './routes/supervisor-routes.js';
 import { handleBrowserRoutes } from './routes/browser-routes.js';
 import { sessionRegistry, SessionRegistryCorruptError } from './services/session-registry';
 import { statusManager } from './services/status-manager';
@@ -78,6 +77,16 @@ if (MC_BROWSER_TARGET === 'owned-chrome') {
     console.error(`mermaid-collab: owned-chrome start failed — ${err instanceof Error ? err.message : String(err)}`);
     chromeManager = null;
   }
+}
+
+// Migrate legacy per-session todo JSON files into the per-project todo-store
+// (idempotent — renames sources, so it's a no-op after the first run).
+try {
+  const { migrateProject } = await import('./services/todo-migration.js');
+  const { migrated } = await migrateProject(MERMAID_PROJECT);
+  if (migrated > 0) console.log(`📋 Migrated ${migrated} legacy todo(s) into the per-project store`);
+} catch (err) {
+  console.error(`mermaid-collab: todo migration failed — ${err instanceof Error ? err.message : String(err)}`);
 }
 
 // Register scratch session on startup.
@@ -256,19 +265,9 @@ const server = Bun.serve<WsData>({
       return handleMCPRequest(req);
     }
 
-    // Pseudo API routes
-    if (url.pathname.startsWith('/api/pseudo')) {
-      return handlePseudoAPI(req);
-    }
-
     // File content API routes
     if (url.pathname.startsWith('/api/files/content')) {
       return handleFileContentAPI(req);
-    }
-
-    // Onboarding API routes
-    if (url.pathname.startsWith('/api/onboarding')) {
-      return handleOnboardingAPI(req);
     }
 
     if (url.pathname.startsWith('/api/agent/attachments')) {
@@ -295,6 +294,11 @@ const server = Bun.serve<WsData>({
 
     if (url.pathname.startsWith('/api/ide')) {
       const res = await handleIdeRoutes(req, url, wsHandler);
+      if (res) return res;
+    }
+
+    if (url.pathname.startsWith('/api/supervisor')) {
+      const res = await handleSupervisorRoutes(req, url);
       if (res) return res;
     }
 

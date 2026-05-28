@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeImage } from 'electron';
 import { ServerSupervisor, getFreePort } from './server-supervisor';
 import { BrowserPaneManager } from './browser-pane';
 import { DesktopControl } from './desktop-control';
@@ -24,20 +24,11 @@ let aggregator: WatchAggregator | null = null;
 /** Register the `mc` IPC handlers backing the preload bridge. */
 function registerIpc(): void {
   ipcMain.handle('mc:listServers', () => store?.list() ?? []);
-  ipcMain.handle('mc:getActiveServer', () => store?.getActive()?.id ?? null);
   ipcMain.handle('mc:addServer', (_e, opts: { label: string; host: string; port: number; token?: string }) =>
     store?.add(opts) ?? null
   );
   ipcMain.handle('mc:removeServer', (_e, id: string) => {
     store?.remove(id);
-  });
-  ipcMain.handle('mc:switchServer', (_e, id: string) => {
-    if (!store || !proxy) return { ok: false };
-    const entry = store.get(id);
-    if (!entry) return { ok: false };
-    store.setActive(id);
-    proxy.setUpstream({ host: entry.host, port: entry.port, token: entry.token });
-    return { ok: true };
   });
   ipcMain.handle('mc:browser:listTabs', () => paneManager?.listTabs() ?? []);
   ipcMain.handle('mc:browser:openTab', (_e, opts) => paneManager?.openUserTab(opts ?? {}) ?? null);
@@ -64,6 +55,62 @@ function registerIpc(): void {
     const ups = (ids ?? []).map((id: string) => store!.get(id)).filter(Boolean).map((e: any) => ({ id: e.id, host: e.host, port: e.port, token: e.token }));
     aggregator.setWatched(ups);
   });
+  // Cross-server session listing: lets the renderer's subscribe modal show
+  // sessions from any registered server (not just the active one) without
+  // switching active. Returns [] on any error rather than throwing across IPC.
+  ipcMain.handle('mc:listSessionsForServer', async (_e, serverId: string) => {
+    if (!store) return [];
+    const entry = store.get(serverId);
+    if (!entry) return [];
+    try {
+      const headers: Record<string, string> = {};
+      if (entry.token) headers['Authorization'] = `Bearer ${entry.token}`;
+      const r = await fetch(`http://${entry.host}:${entry.port}/api/sessions`, {
+        headers,
+        signal: AbortSignal.timeout(4000),
+      });
+      if (!r.ok) return [];
+      const body = await r.json();
+      // Server responses vary; if it's an array, return it; else look for .sessions.
+      if (Array.isArray(body)) return body;
+      if (body && Array.isArray((body as any).sessions)) return (body as any).sessions;
+      return [];
+    } catch (err) {
+      console.warn(`[mc:listSessionsForServer] ${serverId} failed:`, err);
+      return [];
+    }
+  });
+  // Per-server invoke: lets the renderer route a row action (terminal,
+  // browser-focus, navigate) at the row's serverId instead of the active
+  // server's proxy. Tokens stay in main. Returns a structured envelope so the
+  // renderer can branch on ok/status without losing the body.
+  ipcMain.handle('mc:invokeOnServer', async (_e, serverId: string, opts: { path: string; method?: string; body?: unknown; query?: Record<string, string> }) => {
+    if (!store) return { ok: false, status: 0, body: 'no store' };
+    const entry = store.get(serverId);
+    if (!entry) return { ok: false, status: 0, body: 'unknown server' };
+    try {
+      const qs = opts.query ? `?${new URLSearchParams(opts.query).toString()}` : '';
+      const headers: Record<string, string> = { 'content-type': 'application/json' };
+      if (entry.token) headers['Authorization'] = `Bearer ${entry.token}`;
+      const r = await fetch(`http://${entry.host}:${entry.port}${opts.path}${qs}`, {
+        method: opts.method ?? 'GET',
+        headers,
+        body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+        signal: AbortSignal.timeout(8000),
+      });
+      const text = await r.text();
+      let parsed: unknown = text;
+      try { parsed = JSON.parse(text); } catch { /* keep text */ }
+      if (opts.path === '/api/ide/create-terminal' && r.ok && parsed && typeof parsed === 'object' && 'tmux' in (parsed as Record<string, unknown>)) {
+        store.setServerCapabilities(serverId, { tmux: Boolean((parsed as { tmux?: unknown }).tmux) });
+      }
+      return { ok: r.ok, status: r.status, body: parsed };
+    } catch (err) {
+      console.warn(`[mc:invokeOnServer] ${serverId} ${opts.path} failed:`, err);
+      return { ok: false, status: 0, body: String(err) };
+    }
+  });
+  ipcMain.handle('mc:getServerCapabilities', (_e, serverId: string) => store?.getServerCapabilities(serverId) ?? { tmux: false });
 }
 
 // Register the mermaid-collab:// deep-link scheme so links from browsers/Slack
@@ -71,18 +118,42 @@ function registerIpc(): void {
 app.setAsDefaultProtocolClient('mermaid-collab');
 
 let mainWindow: BrowserWindow | null = null;
+let pendingDeepLink: { project: string; session: string; srv: string | null } | null = null;
 
-/** Parse a mermaid-collab://<project>/<session> URL. Routing comes later. */
-function parseDeepLink(url: string): { project: string; session: string } | null {
+/** Parse a mermaid-collab://<project>/<session>?srv=<id> URL. */
+function parseDeepLink(url: string): { project: string; session: string; srv: string | null } | null {
   try {
     const u = new URL(url);
     const project = u.hostname;
     const session = u.pathname.replace(/^\//, '');
-    console.log(`[deeplink] project=${project} session=${session}`);
-    return { project, session };
+    const srv = u.searchParams.get('srv');
+    console.log(`[deeplink] project=${project} session=${session} srv=${srv}`);
+    return { project, session, srv };
   } catch {
     console.warn(`[deeplink] could not parse: ${url}`);
     return null;
+  }
+}
+
+function dispatchDeepLink(
+  parsed: { project: string; session: string; srv: string | null } | null,
+  retriesLeft = 60 /* 30s @ 500ms */,
+): void {
+  if (!parsed) return;
+  const srv = parsed.srv ?? (store?.list().find((e) => e.source === 'local')?.id ?? null);
+  if (srv == null) {
+    if (retriesLeft > 0) {
+      setTimeout(() => dispatchDeepLink(parsed, retriesLeft - 1), 500);
+    } else {
+      console.warn('[deeplink] no server resolved; dropping', parsed);
+    }
+    return;
+  }
+  const payload = { srv, project: parsed.project, session: parsed.session };
+  if (mainWindow && !mainWindow.webContents.isLoading()) {
+    mainWindow.webContents.send('mc:deeplink', payload);
+  } else {
+    pendingDeepLink = payload;
   }
 }
 
@@ -95,22 +166,43 @@ function focusMainWindow(): void {
 // Windows/Linux: a second launch forwards its argv here.
 app.on('second-instance', (_event, argv) => {
   const url = argv.find((a) => a.startsWith('mermaid-collab://'));
-  if (url) parseDeepLink(url);
+  if (url) dispatchDeepLink(parseDeepLink(url));
   focusMainWindow();
 });
 
 // macOS: deep links arrive via open-url, not argv.
 app.on('open-url', (event, url) => {
   event.preventDefault();
-  parseDeepLink(url);
+  dispatchDeepLink(parseDeepLink(url));
   focusMainWindow();
 });
 
+/**
+ * The collab brand icon (pixel whale). electron-builder bakes it into the
+ * packaged .icns/.ico via build/icon.png; this also sets it at runtime so the
+ * window + macOS dock show it when running unpackaged (e.g. `electron .` / debug).
+ * Packaged: copied to resourcesPath via `extraResources`. Dev: read from build/.
+ */
+function loadAppIcon(): Electron.NativeImage {
+  const iconPath = app.isPackaged
+    ? join(process.resourcesPath, 'icon.png')
+    : join(app.getAppPath(), 'build', 'icon.png');
+  return nativeImage.createFromPath(iconPath);
+}
+
 function createWindow(): void {
+  const appIcon = loadAppIcon();
+  // macOS shows the dock icon from the bundle, but unpackaged dev runs default
+  // to the Electron icon unless we set it explicitly.
+  if (process.platform === 'darwin' && app.dock && !appIcon.isEmpty()) {
+    app.dock.setIcon(appIcon);
+  }
+
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 800,
     show: true,
+    icon: appIcon,
     webPreferences: {
       contextIsolation: true,
       sandbox: true,
@@ -125,6 +217,13 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
   }
+
+  mainWindow.webContents.once('did-finish-load', () => {
+    if (pendingDeepLink && mainWindow) {
+      mainWindow.webContents.send('mc:deeplink', pendingDeepLink);
+      pendingDeepLink = null;
+    }
+  });
 
   mainWindow.on('closed', () => {
     // Release all browser pane tabs so they don't leak.
@@ -178,18 +277,24 @@ async function bootstrap(): Promise<void> {
   console.log(`[bootstrap] sidecar ${attached ? 'attached' : 'spawned'} on port ${port}; cdp on ${cdpPort}`);
   await fetch(`http://127.0.0.1:${port}/api/browser/electron-target`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cdpPort }) }).catch(() => {});
 
-  // Start the per-server proxy and point it at the local sidecar. The renderer
-  // talks only to the proxy (single origin → relative URLs keep working);
-  // switching servers later just repoints the proxy upstream.
-  proxy = new ServerProxy();
+  // Start the per-server proxy pinned to the local sidecar. The renderer talks
+  // only to the proxy (single origin → relative URLs keep working). The local
+  // upstream is immutable for the lifetime of the app; per-server requests are
+  // routed via the resolver below (and `mc:invokeOnServer`) instead.
+  proxy = new ServerProxy({ host: '127.0.0.1', port });
   const { port: proxyPort } = await proxy.start();
-  proxy.setUpstream({ host: '127.0.0.1', port }); // local sidecar, no token
   console.log(`[bootstrap] proxy on ${proxyPort} → sidecar ${port}`);
 
   // Connection store: persisted server list + auto-listed local instances.
   store = new ConnectionStore();
   await store.init();
   await store.refreshLocal();
+  // Resolver: live lookup keeps tokens in main and lets per-server WS bridges
+  // pick the right upstream regardless of which server is "active".
+  proxy.setResolver((id) => {
+    const e = store?.get(id);
+    return e ? { host: e.host, port: e.port, token: e.token } : null;
+  });
   registerIpc();
   aggregator = new WatchAggregator((e) => mainWindow?.webContents.send('mc:watch-event', e));
 

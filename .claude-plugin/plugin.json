@@ -1,7 +1,7 @@
 {
   "name": "mermaid-collab",
   "description": "Collaborative design workflows for Claude Code: mermaid diagrams, wireframes, and design-to-implementation pipelines with real-time preview",
-  "version": "5.73.1",
+  "version": "5.73.2",
   "author": {
     "name": "Ben Maderazo"
   },
@@ -24,10 +24,6 @@
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/session-start-hook.sh"
-          },
-          {
-            "type": "command",
-            "command": "mkdir -p \"${HOME}/.claude-mermaid-collab\" && touch \"${HOME}/.claude-mermaid-collab/pseudo-rescan-${PWD//\\//_}.marker\""
           }
         ]
       }

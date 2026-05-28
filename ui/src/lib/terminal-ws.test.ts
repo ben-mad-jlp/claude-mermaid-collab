@@ -3,14 +3,13 @@ import { getTerminalWebSocketURL } from './terminal-ws';
 import { useTerminalStore } from '@/stores/terminalStore';
 
 describe('getTerminalWebSocketURL', () => {
-  it('derives a ws:// URL from the document origin (rides the proxy)', () => {
-    // jsdom default location is http://localhost:3000
-    const url = getTerminalWebSocketURL('my-session');
-    expect(url).toBe(`ws://${window.location.host}/terminal/my-session`);
+  it('derives a per-server ws:// URL from the document origin (rides the proxy)', () => {
+    const url = getTerminalWebSocketURL('srv1', 'my-session');
+    expect(url).toBe(`ws://${window.location.host}/_per-server/srv1/terminal/my-session`);
   });
 
-  it('encodes the session id', () => {
-    expect(getTerminalWebSocketURL('a/b session')).toContain('/terminal/a%2Fb%20session');
+  it('encodes the server id and session id', () => {
+    expect(getTerminalWebSocketURL('a/b', 'c d')).toContain('/_per-server/a%2Fb/terminal/c%20d');
   });
 });
 

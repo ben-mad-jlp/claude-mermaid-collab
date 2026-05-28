@@ -5,24 +5,30 @@
  */
 
 import React, { useState } from 'react';
+import type { ServerInfo } from '../../contexts/ServerContext';
 
 interface CreateSessionDialogProps {
   suggestedName: string;
-  onConfirm: (name: string, useRenderUI: boolean) => void;
+  servers: ServerInfo[];
+  defaultServerId: string;
+  onConfirm: (name: string, useRenderUI: boolean, serverId: string) => void;
   onClose: () => void;
 }
 
 export const CreateSessionDialog: React.FC<CreateSessionDialogProps> = ({
   suggestedName,
+  servers,
+  defaultServerId,
   onConfirm,
   onClose,
 }) => {
   const [sessionName, setSessionName] = useState(suggestedName);
   const [useRenderUI, setUseRenderUI] = useState(true);
+  const [serverId, setServerId] = useState(defaultServerId);
 
   const handleConfirm = () => {
     if (sessionName.trim()) {
-      onConfirm(sessionName.trim(), useRenderUI);
+      onConfirm(sessionName.trim(), useRenderUI, serverId);
     }
   };
 
@@ -52,6 +58,36 @@ export const CreateSessionDialog: React.FC<CreateSessionDialogProps> = ({
 
         {/* Content */}
         <div className="p-4 space-y-4">
+          {/* Server Select */}
+          <div>
+            <label
+              htmlFor="create-session-server"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+            >
+              Server
+            </label>
+            <select
+              id="create-session-server"
+              value={serverId}
+              onChange={(e) => setServerId(e.target.value)}
+              className="
+                w-full px-3 py-2
+                border border-gray-300 dark:border-gray-600
+                rounded-lg
+                bg-white dark:bg-gray-700
+                text-gray-900 dark:text-white
+                focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                outline-none
+              "
+            >
+              {servers.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label} ({s.host}:{s.port})
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* Session Name Input */}
           <div>
             <label

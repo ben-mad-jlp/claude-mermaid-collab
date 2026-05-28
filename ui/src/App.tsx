@@ -37,6 +37,7 @@ import { useSessionPolling } from '@/hooks/useSessionPolling';
 import { useProposedEditWatcher } from '@/hooks/useProposedEditWatcher';
 import { usePrefetchWatchedSessions } from '@/hooks/usePrefetchWatchedSessions';
 import { useWatchEvents } from '@/hooks/useWatchEvents';
+import { useServers } from '@/contexts/ServerContext';
 import { getWebSocketClient } from '@/lib/websocket';
 import { useShallow } from 'zustand/react/shallow';
 import { api, generateSessionName, type CachedUIState } from '@/lib/api';
@@ -66,13 +67,14 @@ import type { MermaidPreviewRef } from '@/components/editors/MermaidPreview';
 import { ToastContainer } from '@/components/notifications';
 import { requestNotificationPermission, showUserInputNotification } from '@/services/notification-service';
 import { useNotificationStore } from '@/stores/notificationStore';
+import { shouldRefetchTodos, type TodoUpdatedEvent } from '@/lib/todoEvents';
 
 // Track which project:session pairs have already fired a context threshold notification
 // so we only fire once per threshold crossing (reset when context drops below 70)
 const notifiedContextThreshold = new Set<string>();
 
 // Import dialogs
-import { SessionCleanupDialog, type CleanupAction, CreateSessionDialog } from '@/components/dialogs';
+import { SessionCleanupDialog, type CleanupAction, CreateSessionDialog, AddProjectDialog } from '@/components/dialogs';
 
 /**
  * Error Boundary Component
@@ -281,6 +283,24 @@ const App: React.FC = () => {
   usePrefetchWatchedSessions();
   useWatchEvents();
 
+  // Cross-server watching wiring:
+  // 1) One-shot legacy-entry migration: tag pre-cross-server localStorage
+  //    entries (no serverId) with the boot-time active server's id.
+  // 2) Drive WatchAggregator from the union of subscription serverIds — the
+  //    aggregator opens a WS to every server represented in the watch list.
+  //    Replaces the deleted watchStore.watchedIds → mc.setWatchedServers path.
+  const { servers } = useServers();
+  const activeServerId = currentSession?.serverId ?? null;
+  const subscriptionsForWatch = useSubscriptionStore((s) => s.subscriptions);
+  useEffect(() => {
+    const mc = (window as any).mc;
+    if (!mc?.setWatchedServers) return;
+    const ids = Array.from(
+      new Set(Object.values(subscriptionsForWatch).map((s) => s.serverId).filter(Boolean))
+    ).sort();
+    void mc.setWatchedServers(ids);
+  }, [subscriptionsForWatch]);
+
   // Ref for MermaidPreview imperative methods
   const mermaidPreviewRef = useRef<MermaidPreviewRef>(null);
 
@@ -393,7 +413,11 @@ const App: React.FC = () => {
   const [createSessionDialog, setCreateSessionDialog] = useState<{
     project: string;
     suggestedName: string;
+    defaultServerId: string;
   } | null>(null);
+
+  // Add project dialog state
+  const [addProjectOpen, setAddProjectOpen] = useState(false);
 
   // Load registered projects from API
   const loadProjects = useCallback(async () => {
@@ -880,15 +904,30 @@ const App: React.FC = () => {
         }
 
         case 'session_todos_updated': {
-          // Keep UI in sync when MCP clients (e.g. Claude) edit session todos
-          const { project, session } = message as any;
+          // Keep UI in sync when MCP clients (e.g. Claude) edit session todos —
+          // including todos a *different* session assigned to me (cross-session).
+          const evt = message as unknown as TodoUpdatedEvent;
 
           if (currentSession &&
-              project === currentSession.project &&
-              session === currentSession.name) {
-            api.getSessionTodos(project, session, true)
+              shouldRefetchTodos(evt, { project: currentSession.project, session: currentSession.name })) {
+            const me = currentSession.name;
+            // Always fetch MY list (server filters owner-OR-assignee), not the event's owner session.
+            const prevIds = new Set((useSessionStore.getState().sessionTodos ?? []).map((t) => t.id));
+            api.getSessionTodos(currentSession.project, me, true)
               .then((todos) => {
                 useSessionStore.getState().setSessionTodos(todos);
+                // Toast when a todo was newly assigned to me.
+                if (evt.assigneeSession === me) {
+                  const newlyAssigned = todos.filter((t) => t.assigneeSession === me && !prevIds.has(t.id));
+                  if (newlyAssigned.length > 0) {
+                    useNotificationStore.getState().addToast({
+                      type: 'info',
+                      title: newlyAssigned.length === 1 ? 'New todo assigned to you' : `${newlyAssigned.length} new todos assigned to you`,
+                      message: newlyAssigned.map((t) => t.title ?? t.text ?? '').filter(Boolean).join(', '),
+                      duration: 5000,
+                    });
+                  }
+                }
               })
               .catch((err) => {
                 console.error('Failed to refresh session todos after session_todos_updated:', err);
@@ -916,15 +955,13 @@ const App: React.FC = () => {
         }
 
         case 'claude_session_registered': {
-          const { claudeSessionId, project, session, claudePid } = message as any;
-          useSubscriptionStore.getState().updateStatus(claudeSessionId, 'active', project, session, claudePid);
+          // No-op: aggregator handles subscription status updates.
           break;
         }
         case 'claude_session_status': {
           const { claudeSessionId, project, session, status } = message as any;
-          useSubscriptionStore.getState().updateStatus(claudeSessionId, status, project, session);
           if ((status === 'waiting' || status === 'permission') && document.hidden) {
-            const key = `${project}:${session}`;
+            const key = activeServerId ? `${activeServerId}:${project}:${session}` : `${project}:${session}`;
             if (useSubscriptionStore.getState().subscriptions[key]) {
               if (Notification.permission === 'granted') {
                 new Notification(status === 'permission' ? `Permission needed — ${session}` : `Claude is waiting — ${session}`, {
@@ -940,8 +977,7 @@ const App: React.FC = () => {
 
         case 'claude_context_update': {
           const { project, session, contextPercent } = message as any;
-          useSubscriptionStore.getState().updateContextPercent(project, session, contextPercent);
-          const key = `${project}:${session}`;
+          const key = activeServerId ? `${activeServerId}:${project}:${session}` : `${project}:${session}`;
           if (useSubscriptionStore.getState().subscriptions[key]) {
             const criticalKey = `${key}:critical`;
             if (contextPercent > 78) {
@@ -993,7 +1029,7 @@ const App: React.FC = () => {
     return () => {
       subscription.unsubscribe();
     };
-  }, [isConnected, currentSession, updateDiagram, updateDocument, updateDesign, updateSpreadsheet, addDiagram, addDocument, addDesign, addSpreadsheet, removeDiagram, removeDocument, removeDesign, removeSpreadsheet, addSnippet, updateSnippet, removeSnippet, addEmbed, removeEmbed, addImage, removeImage, setPendingDiff, setCollabState, receiveQuestion, restoreUIState]);
+  }, [isConnected, currentSession, activeServerId, updateDiagram, updateDocument, updateDesign, updateSpreadsheet, addDiagram, addDocument, addDesign, addSpreadsheet, removeDiagram, removeDocument, removeDesign, removeSpreadsheet, addSnippet, updateSnippet, removeSnippet, addEmbed, removeEmbed, addImage, removeImage, setPendingDiff, setCollabState, receiveQuestion, restoreUIState]);
 
   // Compute selected item from diagrams/documents/designs
   const selectedItem: Item | null = useMemo(() => {
@@ -1245,22 +1281,24 @@ const App: React.FC = () => {
   // only and `selectDocument` / `selectDiagram` etc. don't fetch content).
   useEffect(() => {
     if (!currentSession) return;
+    if (!currentSession.serverId) return;
     const project = currentSession.project || '';
     (async () => {
-      await loadSessionItems(project, currentSession.name);
+      await loadSessionItems(currentSession.serverId, project, currentSession.name);
       const entry = useTabsStore.getState().bySession[sessionKey(project, currentSession.name)];
       if (!entry?.activeTabId) return;
       const tab = entry.tabs.find((t) => t.id === entry.activeTabId);
       if (!tab || tab.kind !== 'artifact' || !tab.artifactType) return;
       switch (tab.artifactType) {
-        case 'document': selectDocumentWithContent(project, currentSession.name, tab.artifactId); break;
-        case 'diagram': selectDiagramWithContent(project, currentSession.name, tab.artifactId); break;
-        case 'design': selectDesignWithContent(project, currentSession.name, tab.artifactId); break;
-        case 'spreadsheet': selectSpreadsheetWithContent(project, currentSession.name, tab.artifactId); break;
+        case 'document': selectDocumentWithContent(currentSession.serverId, project, currentSession.name, tab.artifactId); break;
+        case 'diagram': selectDiagramWithContent(currentSession.serverId, project, currentSession.name, tab.artifactId); break;
+        case 'design': selectDesignWithContent(currentSession.serverId, project, currentSession.name, tab.artifactId); break;
+        case 'spreadsheet': selectSpreadsheetWithContent(currentSession.serverId, project, currentSession.name, tab.artifactId); break;
       }
     })();
   }, [
     currentSession,
+    currentSession?.serverId,
     loadSessionItems,
     selectDocumentWithContent,
     selectDiagramWithContent,
@@ -1291,15 +1329,16 @@ const App: React.FC = () => {
   // Handle creating a new session in a specific project
   const handleCreateSession = useCallback((project: string) => {
     const suggestedName = generateSessionName();
-    setCreateSessionDialog({ project, suggestedName });
-  }, []);
+    setCreateSessionDialog({ project, suggestedName, defaultServerId: activeServerId ?? 'local' });
+  }, [activeServerId]);
 
   // Handle create session dialog confirmation
-  const handleCreateSessionConfirm = useCallback(async (name: string, useRenderUI: boolean) => {
+  const handleCreateSessionConfirm = useCallback(async (name: string, useRenderUI: boolean, serverId: string) => {
+    if (!serverId) { console.warn('No server'); return; }
     if (!createSessionDialog) return;
 
     try {
-      const newSession = await api.createSession(createSessionDialog.project, name, useRenderUI);
+      const newSession = await api.createSession(createSessionDialog.project, name, serverId, useRenderUI);
       // Refresh sessions list and select the new session
       await loadSessions();
       setCurrentSession(newSession);
@@ -1315,30 +1354,34 @@ const App: React.FC = () => {
     setCreateSessionDialog(null);
   }, []);
 
-  // Handle adding a new project
-  const handleAddProject = useCallback(async () => {
-    const projectPath = window.prompt('Enter project path:', '/Users');
+  // Handle adding a new project — opens the picker dialog
+  const handleAddProject = useCallback(() => {
+    setAddProjectOpen(true);
+  }, []);
 
-    // User cancelled or entered empty path
-    if (!projectPath?.trim()) {
-      return;
-    }
-
+  // Submit handler — routes to the chosen server via mc bridge when available
+  const handleAddProjectSubmit = useCallback(async (serverId: string, path: string) => {
+    if (!serverId) { return; }
     try {
-      // Register the project via the projects API
-      const response = await fetch('/api/projects', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: projectPath.trim() }),
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        alert(data.error || 'Failed to add project');
-        return;
+      const mc = (window as any).mc;
+      if (mc?.invokeOnServer) {
+        const res = await mc.invokeOnServer(serverId, { path: '/api/projects', method: 'POST', body: { path } });
+        if (res && res.ok === false) {
+          alert(res.error || 'Failed to add project');
+          return;
+        }
+      } else {
+        const response = await fetch('/api/projects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path }),
+        });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          alert(data.error || 'Failed to add project');
+          return;
+        }
       }
-
-      // Refresh projects and sessions lists
       await loadProjects();
       await loadSessions();
     } catch (error) {
@@ -1379,11 +1422,11 @@ const App: React.FC = () => {
     await loadSessions();
 
     // Refresh current session items if a session is selected
-    if (currentSession) {
+    if (currentSession?.serverId) {
       const project = currentSession.project || '';
-      await loadSessionItems(project, currentSession.name);
+      await loadSessionItems(currentSession.serverId, project, currentSession.name);
     }
-  }, [loadProjects, loadSessions, loadSessionItems, currentSession]);
+  }, [loadProjects, loadSessions, loadSessionItems, currentSession, currentSession?.serverId]);
 
   // Handle deleting an embed
   const handleDeleteEmbed = useCallback(async (id: string) => {
@@ -1487,9 +1530,9 @@ const App: React.FC = () => {
           </svg>
         ),
         onClick: () => {
-          if (currentSession) {
+          if (currentSession?.serverId) {
             const project = currentSession.project || '';
-            loadSessionItems(project, currentSession.name);
+            loadSessionItems(currentSession.serverId, project, currentSession.name);
           }
         },
       },
@@ -1645,8 +1688,20 @@ const App: React.FC = () => {
         {createSessionDialog && (
           <CreateSessionDialog
             suggestedName={createSessionDialog.suggestedName}
+            servers={servers}
+            defaultServerId={createSessionDialog.defaultServerId}
             onConfirm={handleCreateSessionConfirm}
             onClose={handleCreateSessionClose}
+          />
+        )}
+
+        {/* Add Project Dialog */}
+        {addProjectOpen && (
+          <AddProjectDialog
+            servers={servers}
+            defaultServerId={servers.find((s) => s.id === 'local')?.id ?? activeServerId ?? servers[0]?.id ?? ''}
+            onSubmit={handleAddProjectSubmit}
+            onClose={() => setAddProjectOpen(false)}
           />
         )}
 
@@ -1726,8 +1781,20 @@ const App: React.FC = () => {
         {createSessionDialog && (
           <CreateSessionDialog
             suggestedName={createSessionDialog.suggestedName}
+            servers={servers}
+            defaultServerId={createSessionDialog.defaultServerId}
             onConfirm={handleCreateSessionConfirm}
             onClose={handleCreateSessionClose}
+          />
+        )}
+
+        {/* Add Project Dialog */}
+        {addProjectOpen && (
+          <AddProjectDialog
+            servers={servers}
+            defaultServerId={servers.find((s) => s.id === 'local')?.id ?? activeServerId ?? servers[0]?.id ?? ''}
+            onSubmit={handleAddProjectSubmit}
+            onClose={() => setAddProjectOpen(false)}
           />
         )}
 

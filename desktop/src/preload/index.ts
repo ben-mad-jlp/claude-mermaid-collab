@@ -5,14 +5,16 @@ import { contextBridge, ipcRenderer } from 'electron';
 // boundary (the store omits them; the proxy injects them in main).
 contextBridge.exposeInMainWorld('mc', {
   listServers: () => ipcRenderer.invoke('mc:listServers'),
-  getActiveServer: () => ipcRenderer.invoke('mc:getActiveServer'),
-  switchServer: (id: string) => ipcRenderer.invoke('mc:switchServer', id),
   addServer: (opts: { label: string; host: string; port: number; token?: string }) =>
     ipcRenderer.invoke('mc:addServer', opts),
   removeServer: (id: string) => ipcRenderer.invoke('mc:removeServer', id),
   setZoomFactor: (factor: number) => ipcRenderer.invoke('mc:setZoomFactor', factor),
   probeServer: (host: string, port: number) => ipcRenderer.invoke('mc:probeServer', { host, port }),
   setWatchedServers: (ids: string[]) => ipcRenderer.invoke('mc:setWatchedServers', ids),
+  listSessionsForServer: (serverId: string) => ipcRenderer.invoke('mc:listSessionsForServer', serverId),
+  getServerCapabilities: (serverId: string) => ipcRenderer.invoke('mc:getServerCapabilities', serverId),
+  invokeOnServer: (serverId: string, opts: { path: string; method?: string; body?: unknown; query?: Record<string, string> }) =>
+    ipcRenderer.invoke('mc:invokeOnServer', serverId, opts),
   onWatchEvent: (cb: (e: any) => void) => {
     const h = (_e: any, evt: any) => cb(evt);
     ipcRenderer.on('mc:watch-event', h);

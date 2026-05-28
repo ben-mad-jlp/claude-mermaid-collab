@@ -7,13 +7,14 @@ export interface DiagramEmbedViewProps {
   project: string | undefined;
   session: string | undefined;
   theme?: string;
+  serverId?: string;
   selected?: boolean;
   onOpen?: (kind: EmbedKind, refId: string) => void;
   onSelect?: () => void;
 }
 
 export function DiagramEmbedView(props: DiagramEmbedViewProps): React.ReactElement {
-  const { kind, refId, project, session, theme = 'dark', selected, onOpen, onSelect } = props;
+  const { kind, refId, project, session, theme = 'dark', serverId, selected, onOpen, onSelect } = props;
 
   if (!refId || refId.trim() === '') {
     return (
@@ -33,7 +34,7 @@ export function DiagramEmbedView(props: DiagramEmbedViewProps): React.ReactEleme
     );
   }
 
-  const src = resolveEmbedSrc(kind, refId, project, session, theme);
+  const src = resolveEmbedSrc(kind, refId, project, session, theme, serverId);
 
   return (
     <div
