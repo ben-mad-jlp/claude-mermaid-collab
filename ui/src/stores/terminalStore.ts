@@ -3,11 +3,16 @@ import { persist } from 'zustand/middleware';
 
 export interface TerminalTab {
   id: string;
+  /** Display label (defaults to the session name; may be overridden). */
   title: string;
+  /** The collab session name — stable identity for dedup, distinct from title. */
+  session: string;
   project: string;
   tmuxName: string;
   serverId: string;
   serverLabel: string;
+  /** Hide the per-server icon chip on this tab. */
+  hideServerIcon?: boolean;
 }
 
 interface TerminalState {
@@ -21,10 +26,12 @@ interface TerminalState {
   setWidth: (w: number) => void;
   setActive: (id: string) => void;
   closeTab: (id: string) => void;
+  /** Reorder tabs by moving the dragged tab to the dropped tab's position. */
+  moveTab: (dragId: string, dropId: string) => void;
   openFor: (
     project: string,
     session: string,
-    opts: { serverId: string; serverLabel?: string }
+    opts: { serverId: string; serverLabel?: string; title?: string; hideServerIcon?: boolean }
   ) => Promise<void>;
 }
 
@@ -58,6 +65,19 @@ export const useTerminalStore = create<TerminalState>()(persist((set, get) => ({
   setWidth: (w) => set({ width: w }),
 
   setActive: (id) => set({ activeTabId: id }),
+
+  moveTab: (dragId, dropId) => {
+    if (dragId === dropId) return;
+    set((s) => {
+      const from = s.tabs.findIndex((t) => t.id === dragId);
+      const to = s.tabs.findIndex((t) => t.id === dropId);
+      if (from === -1 || to === -1) return s;
+      const next = [...s.tabs];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return { tabs: next };
+    });
+  },
 
   closeTab: (id) => {
     const { tabs, activeTabId } = get();
@@ -95,9 +115,10 @@ export const useTerminalStore = create<TerminalState>()(persist((set, get) => ({
     const serverLabel = opts.serverLabel ?? '(unknown)';
     // Dedup against (serverId, project, session) — the same session NAME under
     // a different project (e.g. a supervised "supervisor" worker vs the actual
-    // supervisor session) or on a different server is a distinct tab.
+    // supervisor session) or on a different server is a distinct tab. Match on
+    // the stable session identity, not the (possibly overridden) display title.
     const existing = get().tabs.find(
-      (t) => t.title === session && t.serverId === serverId && t.project === project,
+      (t) => t.session === session && t.serverId === serverId && t.project === project,
     );
     if (existing) {
       set({ activeTabId: existing.id, open: true });
@@ -135,11 +156,13 @@ export const useTerminalStore = create<TerminalState>()(persist((set, get) => ({
       }
       const newTab: TerminalTab = {
         id: data.id,
-        title: session,
+        title: opts.title ?? session,
+        session,
         project,
         tmuxName: data.tmuxSession,
         serverId,
         serverLabel,
+        hideServerIcon: opts.hideServerIcon,
       };
       set((s) => ({
         tabs: [...s.tabs, newTab],

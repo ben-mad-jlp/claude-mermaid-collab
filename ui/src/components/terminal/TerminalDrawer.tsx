@@ -18,6 +18,9 @@ export function TerminalDrawer() {
   const setWidth = useTerminalStore((s) => s.setWidth);
   const setActive = useTerminalStore((s) => s.setActive);
   const closeTab = useTerminalStore((s) => s.closeTab);
+  const moveTab = useTerminalStore((s) => s.moveTab);
+  const [dragTabId, setDragTabId] = useState<string | null>(null);
+  const [dragOverTabId, setDragOverTabId] = useState<string | null>(null);
   const openFor = useTerminalStore((s) => s.openFor);
   const close = useTerminalStore((s) => s.close);
   const currentSession = useSessionStore((s) => s.currentSession);
@@ -106,17 +109,24 @@ export function TerminalDrawer() {
           return (
           <div
             key={tab.id}
+            draggable
+            onDragStart={(e) => { setDragTabId(tab.id); e.dataTransfer.effectAllowed = 'move'; }}
+            onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverTabId !== tab.id) setDragOverTabId(tab.id); }}
+            onDrop={(e) => { e.preventDefault(); if (dragTabId) moveTab(dragTabId, tab.id); setDragTabId(null); setDragOverTabId(null); }}
+            onDragEnd={() => { setDragTabId(null); setDragOverTabId(null); }}
             style={{
               display: 'flex', alignItems: 'center', gap: 4,
               padding: '4px 8px', cursor: 'pointer', fontSize: 12,
               borderBottom: tab.id === activeTabId ? '2px solid #58a6ff' : '2px solid transparent',
+              borderLeft: dragOverTabId === tab.id && dragTabId !== tab.id ? '2px solid #58a6ff' : '2px solid transparent',
+              opacity: dragTabId === tab.id ? 0.5 : 1,
               color: tab.id === activeTabId ? '#c9d1d9' : '#6e7681',
               whiteSpace: 'nowrap',
             }}
             onClick={() => setActive(tab.id)}
           >
             <span>{tab.title}</span>
-            <ServerIcon name={icon} size={14} title={`server: ${label}`} />
+            {!tab.hideServerIcon && <ServerIcon name={icon} size={14} title={`server: ${label}`} />}
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }}

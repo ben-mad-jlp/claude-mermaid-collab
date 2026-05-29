@@ -22,6 +22,7 @@ import {
 } from '@/stores/supervisorStore';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useTerminalStore } from '@/stores/terminalStore';
 import { useServers } from '@/contexts/ServerContext';
 import { ServerIcon } from '@/components/ServerIcon';
 import { SessionCard, activateSessionCard, type SessionCardData } from '@/components/layout/SessionCard';
@@ -101,9 +102,15 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
       const project = cfg.supervisorProject;
       const session = cfg.supervisorSession;
       if (!project || !session) return;
-      const sub: SessionCardData = { serverId, project, session, status: 'unknown', lastUpdate: Date.now() };
-      handleNavigate(sub);
-      await activateSessionCard(sub, serverLabelById.get(serverId));
+      // Open the supervisor's console as a distinct tab: a custom title
+      // ("collab-supervisor") disambiguates it from any supervised worker also
+      // named "supervisor", and the server icon is hidden on this tab.
+      await useTerminalStore.getState().openFor(project, session, {
+        serverId,
+        serverLabel: serverLabelById.get(serverId),
+        title: 'collab-supervisor',
+        hideServerIcon: true,
+      });
     } catch { /* best-effort */ }
   };
   // Persisted status source: map keyed `${serverId}:${project}:${session}` -> status.

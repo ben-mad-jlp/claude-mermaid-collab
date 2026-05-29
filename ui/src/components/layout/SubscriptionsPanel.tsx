@@ -13,6 +13,7 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useSupervisorStore } from '@/stores/supervisorStore';
 import { useServers } from '@/contexts/ServerContext';
 import { getWebSocketClient } from '@/lib/websocket';
 import { ServerIcon } from '@/components/ServerIcon';
@@ -20,10 +21,27 @@ import { SessionCard, capsCache, fetchCapabilities, type SessionCardData } from 
 
 type SubscribedSession = SessionCardData;
 
-function useSupervisedSessions(): { set: Set<string>; refresh: () => void } {
+function useSupervisedSessions(): {
+  set: Set<string>;
+  refresh: () => void;
+  setOptimistic: (project: string, session: string, supervised: boolean) => void;
+} {
   const [set, setSet] = useState<Set<string>>(new Set());
   const [tick, setTick] = useState(0);
   const refresh = useCallback(() => setTick((t) => t + 1), []);
+
+  // Apply a toggle to the local set immediately (before the server round-trips),
+  // so a supervised card moves groups instantly instead of vanishing until the
+  // next poll. The subsequent refresh() reconciles with server truth.
+  const setOptimistic = useCallback((project: string, session: string, supervised: boolean) => {
+    setSet((prev) => {
+      const key = `${project}:${session}`;
+      if (supervised === prev.has(key)) return prev;
+      const next = new Set(prev);
+      if (supervised) next.add(key); else next.delete(key);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -40,7 +58,7 @@ function useSupervisedSessions(): { set: Set<string>; refresh: () => void } {
     return () => { cancelled = true; clearInterval(id); };
   }, [tick]);
 
-  return { set, refresh };
+  return { set, refresh, setOptimistic };
 }
 
 
@@ -333,6 +351,15 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
         ? { project: sub.project, session: sub.session, source: 'manual' }
         : { project: sub.project, session: sub.session };
       const method = next ? 'POST' : 'DELETE';
+      // Optimistically move the card between the Watching and Supervisor groups
+      // so it doesn't blink out and wait for the next poll/reload. Both the
+      // Watching filter (local set) and the Supervisor panel (store) are updated
+      // up front, then reconciled with the server below.
+      supervised.setOptimistic(sub.project, sub.session, next);
+      useSupervisorStore.getState().setSupervisedLocal(
+        { project: sub.project, session: sub.session, source: 'manual', serverId: sub.serverId },
+        next,
+      );
       if (mc?.invokeOnServer) {
         await mc.invokeOnServer(sub.serverId, { path, method, body });
       } else {
@@ -342,7 +369,9 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
           body: JSON.stringify(body),
         }).catch(() => {});
       }
+      // Reconcile both views with server truth.
       supervised.refresh();
+      if (sub.serverId) void useSupervisorStore.getState().loadSupervised(sub.serverId);
     },
     [supervised],
   );
