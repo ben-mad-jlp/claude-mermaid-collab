@@ -22,6 +22,10 @@ import { getAgentRegistry } from '../agent/agent-registry-manager.js';
 import { updateUI, updateUISchema } from './tools/update-ui.js';
 import { renderUISchema } from './tools/render-ui.js';
 import { browserToolSchemas } from './tools/browser.js';
+import { ElectronDriver } from '../../packages/electron-agent-bridge/src/driver.js';
+import { createDesktopTools } from '../../packages/electron-agent-bridge/src/mcp-tools.js';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join as pathJoin } from 'node:path';
 import {
   getSessionState,
   updateSessionState,
@@ -182,6 +186,29 @@ import {
 } from './tools/snippet.js';
 import { createEmbedSchema, listEmbedsSchema, deleteEmbedSchema, handleCreateEmbed, handleListEmbeds, handleDeleteEmbed, createStorybookEmbedSchema, listStorybookStoriesSchema, handleCreateStorybookEmbed, handleListStorybookStories } from './tools/embed.js';
 import { createImageSchema, listImagesSchema, getImageSchema, deleteImageSchema, handleCreateImage, handleListImages, handleGetImage, handleDeleteImage } from './tools/image.js';
+
+// --- Desktop (Electron) MCP tools ---
+const desktopSelectTarget = (t: any) => t.type === 'page' && /Mermaid Collab/i.test(t.title || '');
+let _dd: ElectronDriver | null = null;
+async function getDesktopDriver(): Promise<ElectronDriver> {
+  if (!_dd) {
+    try {
+      _dd = await ElectronDriver.fromDiscovery({ appName: 'mermaid-collab', selectTarget: desktopSelectTarget });
+    } catch (e) {
+      _dd = null;
+      throw new Error('Desktop app not reachable (no discovery file / not running): ' + (e as Error).message);
+    }
+  }
+  return _dd;
+}
+const { defs: desktopDefs, handlers: desktopHandlers } = createDesktopTools(getDesktopDriver);
+// desktop_screenshot is overridden below to accept optional project/session for saving.
+const desktopDefsForList = desktopDefs.filter((d) => d.name !== 'desktop_screenshot');
+const desktopScreenshotDef = {
+  name: 'desktop_screenshot',
+  description: 'Screenshot the desktop app renderer. If project+session given, saves under that session images dir and returns the path; otherwise returns base64.',
+  inputSchema: { type: 'object' as const, properties: { format: { type: 'string', enum: ['png', 'jpeg'] }, project: { type: 'string' }, session: { type: 'string' } } },
+};
 
 // Configuration
 const API_PORT = parseInt(process.env.PORT || '9002', 10);
@@ -1750,7 +1777,10 @@ IMPORTANT - Common pitfalls to avoid:
       browserToolSchemas.browser_list_setups,
       browserToolSchemas.browser_run_setup,
       browserToolSchemas.browser_delete_setup,
-      // Task management tools
+      // Desktop (Electron) tools
+      ...desktopDefsForList,
+      desktopScreenshotDef,
+  // Task management tools
       {
         name: 'update_task_status',
         description: 'Update a task\'s status and regenerate the task graph. Broadcasts updates via WebSocket.',
@@ -4105,6 +4135,31 @@ IMPORTANT - Common pitfalls to avoid:
             if (!session) throw new Error('browser_delete_setup requires session');
             const { browserDeleteSetup } = await import('./tools/browser.js');
             return await browserDeleteSetup(session, project, name);
+          }
+
+          case 'desktop_screenshot': {
+            const a = (args ?? {}) as { project?: string; session?: string; format?: 'png' | 'jpeg' };
+            const d = await getDesktopDriver();
+            const { base64 } = await d.screenshot({ format: a.format });
+            if (a.project && a.session) {
+              const imagesDir = pathJoin(a.project, '.collab', 'sessions', a.session, 'images');
+              await mkdir(imagesDir, { recursive: true });
+              const filePath = pathJoin(imagesDir, `desktop-screenshot-${Date.now()}.png`);
+              await writeFile(filePath, Buffer.from(base64, 'base64'));
+              return JSON.stringify({ saved: filePath }, null, 2);
+            }
+            return JSON.stringify({ base64 });
+          }
+          case 'desktop_navigate':
+          case 'desktop_eval':
+          case 'desktop_click':
+          case 'desktop_fill':
+          case 'desktop_wait_for':
+          case 'desktop_snapshot':
+          case 'desktop_list_targets': {
+            const handler = desktopHandlers[name];
+            if (!handler) throw new Error(`Unknown desktop tool: ${name}`);
+            return await handler(args ?? {});
           }
 
           default:

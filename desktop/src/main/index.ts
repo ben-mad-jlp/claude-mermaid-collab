@@ -6,6 +6,7 @@ import { DesktopControl } from './desktop-control';
 import { ServerProxy } from './server-proxy';
 import { ConnectionStore } from './connection-store';
 import { WatchAggregator } from './watch-aggregator';
+import { enableCdp, publishDiscovery } from '../../../packages/electron-agent-bridge/src/electron-main';
 
 // Phase 0.1 — Electron shell skeleton.
 // Single-instance lock so a second launch focuses the first window.
@@ -243,9 +244,7 @@ async function bootstrap(): Promise<void> {
   // a known endpoint); otherwise a free port is chosen. MC_INSPECT exposes the
   // Node main process to the inspector (e.g. MC_INSPECT=9229). Both are opt-in —
   // normal launches are unaffected.
-  const cdpPort = process.env.MC_CDP_PORT ? Number(process.env.MC_CDP_PORT) : await getFreePort();
-  app.commandLine.appendSwitch('remote-debugging-port', String(cdpPort));
-  app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1');
+  const cdpPort = await enableCdp(app, { port: process.env.MC_CDP_PORT ? Number(process.env.MC_CDP_PORT) : undefined });
   if (process.env.MC_INSPECT) app.commandLine.appendSwitch('inspect', process.env.MC_INSPECT);
 
   await app.whenReady();
@@ -276,6 +275,7 @@ async function bootstrap(): Promise<void> {
   const { port, attached } = await supervisor.start();
   console.log(`[bootstrap] sidecar ${attached ? 'attached' : 'spawned'} on port ${port}; cdp on ${cdpPort}`);
   await fetch(`http://127.0.0.1:${port}/api/browser/electron-target`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cdpPort }) }).catch(() => {});
+  void publishDiscovery({ appName: 'mermaid-collab', port: cdpPort });
 
   // Start the per-server proxy pinned to the local sidecar. The renderer talks
   // only to the proxy (single origin → relative URLs keep working). The local
