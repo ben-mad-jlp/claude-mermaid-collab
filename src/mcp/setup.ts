@@ -4144,7 +4144,8 @@ IMPORTANT - Common pitfalls to avoid:
             if (a.project && a.session) {
               const imagesDir = pathJoin(a.project, '.collab', 'sessions', a.session, 'images');
               await mkdir(imagesDir, { recursive: true });
-              const filePath = pathJoin(imagesDir, `desktop-screenshot-${Date.now()}.png`);
+              const ext = a.format === 'jpeg' ? 'jpg' : 'png';
+              const filePath = pathJoin(imagesDir, `desktop-screenshot-${Date.now()}.${ext}`);
               await writeFile(filePath, Buffer.from(base64, 'base64'));
               return JSON.stringify({ saved: filePath }, null, 2);
             }

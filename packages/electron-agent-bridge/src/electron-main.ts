@@ -40,8 +40,15 @@ export async function enableCdp(
   app: ElectronAppLike,
   opts?: { port?: number; address?: string },
 ): Promise<number> {
+  // Prefer an explicit opts.port, then MC_CDP_PORT, else a free port. Guard
+  // against a malformed value (e.g. MC_CDP_PORT="abc" → NaN) silently passing
+  // through and producing a bogus "NaN" debug port; fall back to a free port.
+  const envPort = process.env.MC_CDP_PORT ? Number(process.env.MC_CDP_PORT) : undefined;
+  const candidate = opts?.port ?? envPort;
   const port =
-    opts?.port ?? (process.env.MC_CDP_PORT ? Number(process.env.MC_CDP_PORT) : await getFreePort());
+    candidate !== undefined && Number.isFinite(candidate) && candidate > 0
+      ? candidate
+      : await getFreePort();
   app.commandLine.appendSwitch('remote-debugging-port', String(port));
   app.commandLine.appendSwitch('remote-debugging-address', opts?.address ?? '127.0.0.1');
   return port;
