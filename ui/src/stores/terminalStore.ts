@@ -4,6 +4,7 @@ import { persist } from 'zustand/middleware';
 export interface TerminalTab {
   id: string;
   title: string;
+  project: string;
   tmuxName: string;
   serverId: string;
   serverLabel: string;
@@ -92,9 +93,12 @@ export const useTerminalStore = create<TerminalState>()(persist((set, get) => ({
   openFor: async (project, session, opts) => {
     const serverId = opts.serverId;
     const serverLabel = opts.serverLabel ?? '(unknown)';
-    // Dedup against (serverId, title) — same session name on a different
-    // server is a distinct tab.
-    const existing = get().tabs.find((t) => t.title === session && t.serverId === serverId);
+    // Dedup against (serverId, project, session) — the same session NAME under
+    // a different project (e.g. a supervised "supervisor" worker vs the actual
+    // supervisor session) or on a different server is a distinct tab.
+    const existing = get().tabs.find(
+      (t) => t.title === session && t.serverId === serverId && t.project === project,
+    );
     if (existing) {
       set({ activeTabId: existing.id, open: true });
       return;
@@ -132,6 +136,7 @@ export const useTerminalStore = create<TerminalState>()(persist((set, get) => ({
       const newTab: TerminalTab = {
         id: data.id,
         title: session,
+        project,
         tmuxName: data.tmuxSession,
         serverId,
         serverLabel,
