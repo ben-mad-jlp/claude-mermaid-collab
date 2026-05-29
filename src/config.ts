@@ -1,5 +1,7 @@
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { homedir } from 'os';
+import { mkdirSync } from 'fs';
 
 // Get the directory where this module lives (src/)
 // Go up one level to reach the project root where public/ is located
@@ -91,9 +93,19 @@ export const MERMAID_SESSION = process.env.MERMAID_SESSION ?? 'scratch';
 
 /**
  * Project the global supervisor session lives in. MUST be a trusted directory.
- * Defaults to MERMAID_PROJECT (this server instance's advertised project).
+ * Defaults to a dedicated, always-writable workspace at
+ * `~/.mermaid-collab/supervisor` — not MERMAID_PROJECT, which in the packaged
+ * desktop app is the read-only app bundle (Contents/Resources). The directory
+ * is created on first use so launchAndBind (which requires the cwd to exist)
+ * can spawn the supervisor there.
  */
-export const SUPERVISOR_PROJECT = process.env.MERMAID_SUPERVISOR_PROJECT ?? MERMAID_PROJECT;
+export const SUPERVISOR_PROJECT =
+  process.env.MERMAID_SUPERVISOR_PROJECT ?? join(homedir(), '.mermaid-collab', 'supervisor');
+try {
+  mkdirSync(SUPERVISOR_PROJECT, { recursive: true });
+} catch {
+  /* best-effort; launch will surface a clear error if the dir is unusable */
+}
 
 /** Session name reserved for the global supervisor. Defaults to 'supervisor'. */
 export const SUPERVISOR_SESSION = process.env.MERMAID_SUPERVISOR_SESSION ?? 'supervisor';

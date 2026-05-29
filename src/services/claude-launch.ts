@@ -37,12 +37,34 @@ export async function launchAndBind(opts: {
     const cmd = 'claude' + (opts.allowedTools ? ' --allowedTools "' + opts.allowedTools + '"' : '');
     await sendTmuxKeysRaw(tmux, cmd);
 
-    // Readiness: fixed 10s wait — simplest reliable approach.
-    // Future optimization: poll for the claude PID instead of a fixed sleep.
-    await sleep(10000);
+    // Readiness: a fixed sleep (and even the SessionStart-hook session-id file,
+    // which is written too early) sent /collab before the prompt was
+    // interactive, so the keystrokes were lost. Instead poll the pane until the
+    // status bar renders (Claude is interactive), then send /collab and VERIFY
+    // it registered — retrying a couple times — since cold-start/MCP timing
+    // varies.
+    const capture = (): string => {
+      try {
+        const p = Bun.spawnSync(['tmux', 'capture-pane', '-t', tmux, '-p'], { stdout: 'pipe', stderr: 'ignore' });
+        return p.stdout?.toString() ?? '';
+      } catch { return ''; }
+    };
+    // The status bar (e.g. "🧠 0% ctx |" / "← for agents") only renders once the
+    // TUI is interactive — a reliable "ready for input" marker. (The ❯ prompt and
+    // welcome box appear earlier, during load, so they're not used.)
+    const ready = (t: string) => /ctx\s*\||for agents/.test(t);
+    for (let i = 0; i < 60; i++) { // up to ~60s
+      await sleep(1000);
+      if (ready(capture())) break;
+    }
+    await sleep(1500); // settle
 
-    // Bind the collab session.
-    await sendTmuxKeysRaw(tmux, '/collab ' + opts.session);
+    // Bind the collab session; resend if it didn't take.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await sendTmuxKeysRaw(tmux, '/collab ' + opts.session);
+      await sleep(4000);
+      if (/collab|server health|Vibe|register/i.test(capture())) break;
+    }
 
     if (opts.invokeSkill) {
       await sleep(12000);

@@ -166,7 +166,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
       const supervisorProject = cfg.supervisorProject;
       const supervisorSession = cfg.supervisorSession;
       if (!supervisorProject || !supervisorSession) return;
-      const launchBody = { project: supervisorProject, session: supervisorSession, role: 'supervisor', invokeSkill: '/supervisor' };
+      const launchBody = { project: supervisorProject, session: supervisorSession, role: 'supervisor', invokeSkill: '/supervisor', allowedTools: 'Bash Edit Write Read mcp__plugin_mermaid-collab_mermaid' };
       if (mc?.invokeOnServer) await mc.invokeOnServer(serverId, { path: '/api/ide/launch-session', method: 'POST', body: launchBody });
       else await fetch('/api/ide/launch-session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(launchBody) });
     } catch { /* best-effort */ }

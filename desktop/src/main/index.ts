@@ -101,7 +101,15 @@ async function invokeOnServer(
   opts: { path: string; method?: string; body?: unknown; query?: Record<string, string> },
 ): Promise<{ ok: boolean; status: number; body: unknown }> {
   if (!store) return { ok: false, status: 0, body: 'no store' };
-  const entry = store.get(serverId);
+  // Resolve the sentinel 'local' (and empty/undefined) to the local server
+  // entry. Renderer code falls back to 'local' when a session has no serverId
+  // (e.g. the supervisor panel's `activeId ?? 'local'`); without this the call
+  // returned "unknown server" and the action silently no-op'd.
+  let entry = store.get(serverId);
+  if (!entry && (!serverId || serverId === 'local')) {
+    const localInfo = store.list().find((s) => s.source === 'local');
+    if (localInfo) entry = store.get(localInfo.id);
+  }
   if (!entry) return { ok: false, status: 0, body: 'unknown server' };
   try {
     const qs = opts.query ? `?${new URLSearchParams(opts.query).toString()}` : '';
