@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
 export interface BrowserTab {
   id: string;
@@ -40,7 +41,7 @@ function normalizeUrl(input: string): string {
   return `https://www.google.com/search?q=${encodeURIComponent(s)}`;
 }
 
-export const useBrowserStore = create<BrowserState>((set, get) => ({
+export const useBrowserStore = create<BrowserState>()(persist((set, get) => ({
   visible: false,
   tabs: [],
   activeId: null,
@@ -92,4 +93,9 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
     const t = get().tabs.find((x) => x.session === session);
     if (t) get().activateTab(t.id);
   },
+}), {
+  name: 'browser-pane',
+  // Persist only durable layout prefs; tabs are native views rebuilt via
+  // refresh() on mount, so persisting them would be stale.
+  partialize: (s) => ({ visible: s.visible, width: s.width }),
 }));

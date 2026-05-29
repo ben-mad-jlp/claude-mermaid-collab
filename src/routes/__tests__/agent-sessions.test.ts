@@ -46,7 +46,7 @@ describe('handleAgentSessionsAPI', () => {
 
   it('lists sessions with turnCount, model, firstUserMessage', async () => {
     const res = await handleAgentSessionsAPI(new Request('http://x/api/agent/sessions?project=' + project));
-    const body: any[] = await res.json();
+    const body = await res.json() as any[];
     expect(body.length).toBe(2);
     const a = body.find((s) => s.sessionId === 'session-a');
     const b = body.find((s) => s.sessionId === 'session-b');

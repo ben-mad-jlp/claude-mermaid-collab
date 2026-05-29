@@ -23,6 +23,12 @@ export interface UIState {
   setEditMode: (mode: boolean) => void;
   toggleEditMode: () => void;
 
+  // Artifact viewer (the main center editor) visibility. Hiding it lets the
+  // browser pane take the full width; selecting an artifact re-shows it.
+  viewerVisible: boolean;
+  setViewerVisible: (visible: boolean) => void;
+  toggleViewer: () => void;
+
   // Document inline edit toggle (guards against accidental edits during review).
   // When false: MilkdownEditor is read-only. When true: editable.
   documentEditable: boolean;
@@ -134,6 +140,11 @@ export const useUIStore = create<UIState>()(
         set({ editMode: !current });
       },
 
+      // Artifact viewer (main center editor) visibility
+      viewerVisible: true,
+      setViewerVisible: (visible: boolean) => set({ viewerVisible: visible }),
+      toggleViewer: () => set({ viewerVisible: !get().viewerVisible }),
+
       // Document inline edit — defaults to read-only (review mode)
       documentEditable: false,
       setDocumentEditable: (editable: boolean) => set({ documentEditable: editable }),
@@ -223,6 +234,7 @@ export const useUIStore = create<UIState>()(
           sidebarVisible: true,
           sessionPanelVisible: true,
           editMode: true,
+          viewerVisible: true,
           codeFirstView: true,
           agentChatVisible: true,
           seenMigrationBannerV5: false,

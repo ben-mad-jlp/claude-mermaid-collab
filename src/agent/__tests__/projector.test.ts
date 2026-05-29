@@ -12,6 +12,11 @@ function freshCtx(historical = false): ProjectionCtx {
     seenToolUseIds: new Set<string>(),
     completedToolUseIds: new Set<string>(),
     toolInputDeltas: {},
+    subAgentParentMap: new Map<string, string>(),
+    toolUseIdByBlockIndex: {},
+    toolProgressSeq: {},
+    thinkingDeltas: {},
+    turnIdByToolUseId: {},
   };
 }
 
@@ -59,7 +64,7 @@ describe('projectFrame', () => {
       { kind: 'assistant_delta', sessionId: 's1', ts: 0, turnId: '<id:0>', messageId: 'msg_1', index: 0, text: 'hi' },
       { kind: 'assistant_delta', sessionId: 's1', ts: 0, turnId: '<id:0>', messageId: 'msg_1', index: 1, text: '!' },
       { kind: 'assistant_message_complete', sessionId: 's1', ts: 0, turnId: '<id:0>', messageId: 'msg_1', text: 'hi!', historical: false },
-      { kind: 'turn_end', sessionId: 's1', ts: 0, turnId: '<id:0>', usage: { inputTokens: 3, outputTokens: 2, costUsd: 0.0001 }, stopReason: 'end_turn' },
+      { kind: 'turn_end', sessionId: 's1', ts: 0, turnId: '<id:0>', usage: { inputTokens: 3, outputTokens: 2, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, costUsd: 0.0001 }, stopReason: 'end_turn' },
     ]);
   });
 

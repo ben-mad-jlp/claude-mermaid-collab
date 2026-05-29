@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState } from 'react';
 import { useBrowserStore } from '@/stores/browserStore';
+import { useUIStore } from '@/stores/uiStore';
 import { ResizableColumn } from '@/components/layout/ResizableColumn';
 
 const bridge = () => (window as any).mc?.browser;
@@ -24,6 +25,9 @@ export function BrowserPanel() {
   const reload = useBrowserStore((s) => s.reload);
   const hide = useBrowserStore((s) => s.hide);
   const refresh = useBrowserStore((s) => s.refresh);
+  // When the artifact viewer is hidden, the browser fills the freed space
+  // (flex-1) instead of staying a fixed-width resizable column.
+  const viewerVisible = useUIStore((s) => s.viewerVisible);
 
   const activeTab = tabs.find((t) => t.id === activeId);
   const [addressValue, setAddressValue] = useState(activeTab?.url ?? '');
@@ -85,9 +89,8 @@ export function BrowserPanel() {
 
   if (!visible) return null;
 
-  return (
-    <ResizableColumn width={width} onResize={setWidth} min={360}>
-      <div className="flex flex-col flex-1 min-h-0 bg-white dark:bg-gray-900">
+  const body = (
+    <div className="flex flex-col flex-1 min-h-0 bg-white dark:bg-gray-900">
         {/* Tab strip */}
         <div className="flex items-center gap-0.5 px-1.5 min-h-[32px] overflow-x-auto bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
           {tabs.map((tab) => {
@@ -189,6 +192,16 @@ export function BrowserPanel() {
         {/* Viewport placeholder — native WebContentsView sits over this rect */}
         <div ref={viewportRef} className="flex-1" />
       </div>
+  );
+
+  // Viewer hidden → browser fills the freed space. Viewer shown → fixed-width
+  // resizable column beside the artifact editor.
+  if (!viewerVisible) {
+    return <div className="flex flex-1 min-h-0">{body}</div>;
+  }
+  return (
+    <ResizableColumn width={width} onResize={setWidth} min={360}>
+      {body}
     </ResizableColumn>
   );
 }

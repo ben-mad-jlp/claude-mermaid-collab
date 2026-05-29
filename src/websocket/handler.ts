@@ -91,6 +91,7 @@ export type WSMessage =
   | { type: 'ide_reattach'; claudePid: number; claudeSessionId: string; project: string; session: string; tmuxSession: string; boundAt: string }
   | { type: 'ide_disconnected'; reason?: string }
   | { type: 'browser_tab_update'; session: string; active: boolean }
+  | { type: 'pair_mode_changed'; pairMode: boolean; project: string; session: string }
   | { type: 'peer_registry'; peers: Array<{ serverId: string; baseUrl: string; token?: string }> };
 
 export class WebSocketHandler {

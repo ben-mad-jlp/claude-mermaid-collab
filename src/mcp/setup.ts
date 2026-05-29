@@ -45,6 +45,7 @@ import { projectRegistry } from '../services/project-registry.js';
 import * as roadmapStore from '../services/roadmap-store.js';
 import * as supervisorStore from '../services/supervisor-store.js';
 import { sendTmuxKeys } from '../services/tmux-send.js';
+import { launchAndBind } from '../services/claude-launch.js';
 import { getStatuses } from '../services/session-status-store.js';
 import { lastAssistantTurn } from '../services/transcript-reader.js';
 import { listTodos } from '../services/todo-store.js';
@@ -3441,7 +3442,15 @@ IMPORTANT - Common pitfalls to avoid:
             await roadmapStore.setItemSession(project, itemId, session);
             supervisorStore.addSupervised(project, session, 'roadmap');
             getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
-            return JSON.stringify({ session, createdTodoIds }, null, 2);
+            // Auto-launch a Claude worker into the spawned session (tmux -> claude
+            // -> /collab -> bind). Once it comes up idle with these todos, the
+            // supervisor push picks it up and nudges it to start working.
+            const launch = await launchAndBind({
+              project,
+              session,
+              allowedTools: 'Bash Edit Write Read mcp__plugin_mermaid-collab_mermaid',
+            });
+            return JSON.stringify({ session, createdTodoIds, launch }, null, 2);
           }
           case 'supervisor_list_supervised': {
             return JSON.stringify(supervisorStore.listSupervised(), null, 2);

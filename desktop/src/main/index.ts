@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { app, BrowserWindow, ipcMain, nativeImage } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeImage, Menu } from 'electron';
 import { ServerSupervisor, getFreePort } from './server-supervisor';
 import { BrowserPaneManager } from './browser-pane';
 import { DesktopControl } from './desktop-control';
@@ -69,7 +69,7 @@ function registerIpc(): void {
       if (entry.token) headers['Authorization'] = `Bearer ${entry.token}`;
       const r = await fetch(`http://${entry.host}:${entry.port}/api/sessions`, {
         headers,
-        signal: AbortSignal.timeout(4000),
+        signal: AbortSignal.timeout(1500),
       });
       if (!r.ok) return [];
       const body = await r.json();
@@ -279,6 +279,41 @@ function loadAppIcon(): Electron.NativeImage {
   return nativeImage.createFromPath(iconPath);
 }
 
+// Build the application menu. The default Electron menu's zoom items call
+// webContents.setZoomFactor() directly, which bypasses the renderer's uiStore
+// (so the header's % never updates). We replace the View zoom items with ones
+// that send `mc:zoom` to the renderer, making uiStore the single source of
+// truth — it applies the zoom AND drives the header. Everything else uses the
+// standard role-based submenus.
+function setupMenu(): void {
+  const isMac = process.platform === 'darwin';
+  const sendZoom = (dir: 'in' | 'out' | 'reset') => () => mainWindow?.webContents.send('mc:zoom', dir);
+  const template: Electron.MenuItemConstructorOptions[] = [
+    ...(isMac ? [{ role: 'appMenu' as const }] : []),
+    { role: 'fileMenu' },
+    { role: 'editMenu' },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { label: 'Actual Size', accelerator: 'CommandOrControl+0', click: sendZoom('reset') },
+        { label: 'Zoom In', accelerator: 'CommandOrControl+Plus', click: sendZoom('in') },
+        // Cmd+= (no shift) is what users actually press for zoom-in; register it
+        // as a hidden duplicate so the accelerator fires without a second item.
+        { label: 'Zoom In', accelerator: 'CommandOrControl+=', click: sendZoom('in'), visible: false },
+        { label: 'Zoom Out', accelerator: 'CommandOrControl+-', click: sendZoom('out') },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+      ],
+    },
+    { role: 'windowMenu' },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
 function createWindow(): void {
   const appIcon = loadAppIcon();
   // macOS shows the dock icon from the bundle, but unpackaged dev runs default
@@ -336,6 +371,7 @@ async function bootstrap(): Promise<void> {
   if (process.env.MC_INSPECT) app.commandLine.appendSwitch('inspect', process.env.MC_INSPECT);
 
   await app.whenReady();
+  setupMenu();
   createWindow();
 
   // Spawn (or attach to) the Bun sidecar, pointing its browser tools at our

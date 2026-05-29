@@ -47,7 +47,7 @@ describe('handleWorktreeDiffAPI', () => {
   it('returns M/??/D entries with patches', async () => {
     const handler = createWorktreeDiffHandler({ lookupWorktreePath: () => tmpRepo });
     const res = await handler(new Request('http://x/api/agent/worktree-diff?sessionId=s1'));
-    const body: any[] = await res.json();
+    const body = await res.json() as any[];
     const byPath = Object.fromEntries(body.map((e) => [e.path, e]));
     expect(byPath['a.txt'].status).toBe('M');
     expect(byPath['b.txt'].status).toBe('??');

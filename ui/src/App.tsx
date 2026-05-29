@@ -170,6 +170,7 @@ const App: React.FC = () => {
   );
 
   const setDocumentConflict = useUIStore((s) => s.setDocumentConflict);
+  const viewerVisible = useUIStore((s) => s.viewerVisible);
 
   // Design canvas zoom (from design editor store, separate from diagram zoom)
   const designZoom = useDesignEditorStore((s) => s.zoom);
@@ -1251,6 +1252,19 @@ const App: React.FC = () => {
     }
   }, [zoomLevel]);
 
+  // Keyboard zoom (Cmd/Ctrl +/-/0) comes from the app menu as `mc:zoom`. Route
+  // it through uiStore so the header % stays in sync and zoom is applied once
+  // via the effect above (no double-zoom from the native menu role).
+  useEffect(() => {
+    const onZoom = (window.mc as any)?.onZoom;
+    if (typeof onZoom !== 'function') return;
+    return onZoom((dir: 'in' | 'out' | 'reset') => {
+      if (dir === 'in') zoomIn();
+      else if (dir === 'out') zoomOut();
+      else setZoomLevel(100);
+    });
+  }, [zoomIn, zoomOut, setZoomLevel]);
+
   // Update page title with project and session name
   useEffect(() => {
     if (currentSession) {
@@ -1742,17 +1756,19 @@ const App: React.FC = () => {
           {/* Fixed-width Sidebar */}
           <Sidebar className="h-full" />
 
-          <main
-            className={`
-              flex-1
-              h-full
-              min-h-0
-              overflow-hidden
-              bg-white dark:bg-gray-800
-            `}
-          >
-            {renderMainContent()}
-          </main>
+          {viewerVisible && (
+            <main
+              className={`
+                flex-1
+                h-full
+                min-h-0
+                overflow-hidden
+                bg-white dark:bg-gray-800
+              `}
+            >
+              {renderMainContent()}
+            </main>
+          )}
 
           {/* Resizable right columns beside the artifact preview (toggled from
               the Header). Each renders nothing when closed. Browser first, then

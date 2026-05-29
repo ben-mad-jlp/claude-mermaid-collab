@@ -140,33 +140,6 @@ interface SubscribedSession {
   contextPercent?: number;
 }
 
-function tmuxBaseName(project: string, session: string): string {
-  const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24) || 'x';
-  const basename = project.split('/').filter(Boolean).pop() ?? 'project';
-  return `mc-${slug(basename)}-${slug(session)}`;
-}
-
-function useTmuxSessions(): Set<string> {
-  const [sessions, setSessions] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    let cancelled = false;
-    const poll = () => {
-      fetch('/api/ide/tmux-sessions')
-        .then(r => r.json())
-        .then((data: { sessions: string[] }) => {
-          if (!cancelled) setSessions(new Set(data.sessions));
-        })
-        .catch(() => {});
-    };
-    poll();
-    const id = setInterval(poll, 15_000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, []);
-
-  return sessions;
-}
-
 function useSupervisedSessions(): { set: Set<string>; refresh: () => void } {
   const [set, setSet] = useState<Set<string>>(new Set());
   const [tick, setTick] = useState(0);
@@ -203,10 +176,9 @@ const SubscriptionRow: React.FC<{
   onDragEnd: () => void;
   isDragOver: boolean;
   isSelected: boolean;
-  tmuxActive: boolean;
   supervised: boolean;
   onToggleSupervise: (sub: SubscribedSession, next: boolean) => void;
-}> = ({ subKey, sub, serverLabel, serverIcon, onNavigate, onUnsubscribe, onDragStart, onDragOver, onDragEnd, isDragOver, isSelected, tmuxActive, supervised, onToggleSupervise }) => {
+}> = ({ subKey, sub, serverLabel, serverIcon, onNavigate, onUnsubscribe, onDragStart, onDragOver, onDragEnd, isDragOver, isSelected, supervised, onToggleSupervise }) => {
   const elapsed = useElapsed(sub.lastUpdate, sub.status);
 
   const statusBg =
@@ -337,19 +309,6 @@ const SubscriptionRow: React.FC<{
       {/* Action buttons — outside the card, own bordered section, square columns */}
       <div className="flex items-center flex-shrink-0 gap-1 px-1">
         <button
-          onClick={async (e) => {
-            e.stopPropagation();
-            const mc = (window as any).mc;
-            const body = { project: sub.project, session: sub.session, allowedTools: 'Bash Edit Write Read mcp__plugin_mermaid-collab_mermaid' };
-            if (mc?.invokeOnServer) { void mc.invokeOnServer(sub.serverId, { path: '/api/ide/launch-session', method: 'POST', body }); }
-            else { fetch('/api/ide/launch-session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => {}); }
-          }}
-          className="flex items-center justify-center w-7 h-7 rounded-full transition-all hover:opacity-80 active:scale-90 active:brightness-75 bg-blue-300 text-blue-900"
-          title={`Start Claude in "${sub.session}"`}
-        >
-          <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path d="M6 4l10 6-10 6V4z" /></svg>
-        </button>
-        <button
           onClick={(e) => {
             e.stopPropagation();
             onToggleSupervise(sub, !supervised);
@@ -359,33 +318,6 @@ const SubscriptionRow: React.FC<{
         >
           <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M9.661 2.237a.531.531 0 01.678 0 11.947 11.947 0 007.078 2.749.5.5 0 01.479.425c.069.52.104 1.05.104 1.59 0 5.162-3.26 9.563-7.834 11.256a.48.48 0 01-.332 0C5.26 16.564 2 12.163 2 7c0-.538.035-1.069.104-1.589a.5.5 0 01.48-.425 11.947 11.947 0 007.077-2.75zM10 8a2 2 0 100-4 2 2 0 000 4zm0 1.5c-1.66 0-3 1.12-3 2.5v.5h6v-.5c0-1.38-1.34-2.5-3-2.5z" clipRule="evenodd" />
-          </svg>
-        </button>
-        <button
-          onClick={async (e) => {
-            e.stopPropagation();
-            const caps = await fetchCapabilities(sub.serverId);
-            if (!caps.tmux) return;
-            const mc = (window as any).mc;
-            if (mc?.invokeOnServer) {
-              void mc.invokeOnServer(sub.serverId, {
-                path: '/api/ide/create-terminal',
-                method: 'POST',
-                body: { session: sub.session, project: sub.project },
-              });
-            } else {
-              fetch('/api/ide/create-terminal', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ session: sub.session, project: sub.project }),
-              }).catch(() => {});
-            }
-          }}
-          className={`flex items-center justify-center w-7 h-7 rounded-full transition-all hover:opacity-80 active:scale-90 active:brightness-75 ${tmuxActive ? 'bg-green-300 text-green-900' : 'bg-red-300 text-red-900'}`}
-          title={tmuxActive ? `Replace tmux session "${sub.session}"` : `Create tmux session "${sub.session}"`}
-        >
-          <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm3.293 1.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L7.586 10 5.293 7.707a1 1 0 010-1.414zM11 12a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
           </svg>
         </button>
       </div>
@@ -412,7 +344,6 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
     for (const k of capsCache.keys()) if (!ids.has(k)) capsCache.delete(k);
   }, [servers]);
   const activeId = currentSession?.serverId ?? null;
-  const tmuxSessions = useTmuxSessions();
   const supervised = useSupervisedSessions();
   const [collapsed, setCollapsed] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -521,26 +452,32 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
     const mc = (window as any).mc;
     (async () => {
       if (mc?.listSessionsForServer && servers.length > 0) {
-        const results = await Promise.all(
-          servers.map(async (s) => {
-            const list = await mc.listSessionsForServer(s.id).catch(() => []);
-            return list
-              .filter((row: any) => row && row.project)
-              .map((row: any) => {
-                // The server's /api/sessions returns `{ project, session, lastAccess }`;
-                // the renderer's sessionStore uses `name`/`displayName`. Normalize.
-                const name = row.name ?? row.session ?? '';
-                return {
-                  serverId: s.id,
-                  serverLabel: s.label,
-                  project: String(row.project),
-                  name,
-                  displayName: row.displayName ?? name,
-                };
-              });
-          })
-        );
-        if (!cancelled) setCrossServerSessions(results.flat());
+        // Populate per-server as each resolves rather than awaiting them all —
+        // one offline/slow peer (whose fetch sits until its timeout) must not
+        // blank out the reachable servers. Each server's slice replaces only
+        // its own entries, keyed by serverId.
+        const activeIds = new Set(servers.map((s) => s.id));
+        // Drop stale entries for servers no longer present, then fill in fresh.
+        if (!cancelled) setCrossServerSessions((prev) => prev.filter((e) => activeIds.has(e.serverId)));
+        servers.forEach(async (s) => {
+          const list = await mc.listSessionsForServer(s.id).catch(() => []);
+          if (cancelled) return;
+          const slice = list
+            .filter((row: any) => row && row.project)
+            .map((row: any) => {
+              // The server's /api/sessions returns `{ project, session, lastAccess }`;
+              // the renderer's sessionStore uses `name`/`displayName`. Normalize.
+              const name = row.name ?? row.session ?? '';
+              return {
+                serverId: s.id,
+                serverLabel: s.label,
+                project: String(row.project),
+                name,
+                displayName: row.displayName ?? name,
+              };
+            });
+          setCrossServerSessions((prev) => [...prev.filter((e) => e.serverId !== s.id), ...slice]);
+        });
       } else {
         // Plain browser: only the active server's sessions are reachable; tag them.
         if (!cancelled) {
@@ -623,6 +560,14 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
     }
     // Auto-subscribe so the new session lands in Watching immediately.
     subscribe(serverId, project, name);
+    // Launch a Claude worker into the new session (tmux -> claude -> /collab).
+    // Creating a session is the "spin one up" action, so it owns the launch;
+    // subscribing to an already-running session does NOT (that's just watching).
+    void mc.invokeOnServer(serverId, {
+      path: '/api/ide/launch-session',
+      method: 'POST',
+      body: { project, session: name, allowedTools: 'Bash Edit Write Read mcp__plugin_mermaid-collab_mermaid' },
+    });
     // If this was a pending project, promote it: server now knows about it,
     // so drop from pendingProjects.
     setPendingProjects((p) => {
@@ -996,7 +941,6 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
                 currentSession.project === sub.project &&
                 currentSession.name === sub.session
               }
-              tmuxActive={tmuxSessions.has(tmuxBaseName(sub.project, sub.session))}
               supervised={supervised.set.has(`${sub.project}:${sub.session}`)}
               onToggleSupervise={handleToggleSupervise}
             />

@@ -68,6 +68,7 @@ interface ServerContextValue {
   available: boolean; // true only in the Electron app (window.mc present)
   servers: ServerInfo[];
   refresh: () => Promise<void>;
+  recheckServer: (id: string) => Promise<void>;
   addServer: (opts: { label: string; host: string; port: number; token?: string }) => Promise<void>;
   removeServer: (id: string) => Promise<void>;
 }
@@ -104,13 +105,28 @@ export function ServerProvider({ children }: { children: React.ReactNode }) {
     void probe(list);
   }, [mc, probe]);
 
+  // Re-probe a SINGLE server on demand (per-server "recheck" button). Updates
+  // only that server's dot in place — no global 'connecting' reset — so it can
+  // never deselect the session the user is currently browsing.
+  const recheckServer = useCallback(
+    async (id: string) => {
+      if (!mc?.probeServer) return;
+      const target = servers.find((s) => s.id === id);
+      if (!target) return;
+      setServers((prev) => prev.map((s) => (s.id === id ? { ...s, status: 'connecting' } : s)));
+      const ok = await mc.probeServer(target.host, target.port).catch(() => false);
+      setServers((prev) => prev.map((s) => (s.id === id ? { ...s, status: ok ? 'online' : 'offline' } : s)));
+    },
+    [mc, servers]
+  );
+
+  // Probe once on load only. We intentionally do NOT poll on an interval:
+  // a periodic re-probe flips a momentarily-unreachable server's dot to
+  // 'offline', which deselects the session being browsed. Use recheckServer.
   useEffect(() => {
     void refresh();
-    if (!mc?.probeServer) return;
-    // Re-probe periodically so the dots stay accurate as servers come and go.
-    const t = setInterval(() => void refresh(), 10_000);
-    return () => clearInterval(t);
-  }, [refresh, mc]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mc]);
 
   // Once the session store has rehydrated AND we've loaded the server list at
   // least once, validate the persisted currentSession against the known servers.
@@ -162,8 +178,8 @@ export function ServerProvider({ children }: { children: React.ReactNode }) {
   );
 
   const value = useMemo<ServerContextValue>(
-    () => ({ available, servers, refresh, addServer, removeServer }),
-    [available, servers, refresh, addServer, removeServer]
+    () => ({ available, servers, refresh, recheckServer, addServer, removeServer }),
+    [available, servers, refresh, recheckServer, addServer, removeServer]
   );
 
   return <ServerContext.Provider value={value}>{children}</ServerContext.Provider>;
@@ -173,6 +189,7 @@ const NO_PROVIDER: ServerContextValue = {
   available: false,
   servers: [],
   refresh: async () => {},
+  recheckServer: async () => {},
   addServer: async () => {},
   removeServer: async () => {},
 };

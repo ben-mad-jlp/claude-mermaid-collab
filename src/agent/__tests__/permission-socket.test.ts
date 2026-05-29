@@ -229,7 +229,7 @@ describe('permission-socket', () => {
   });
 
   it('10 concurrent clients each get their own verdict keyed off toolInput.i', async () => {
-    const handler: PermissionHandler = mock(async (req) => {
+    const handler: PermissionHandler = mock(async (req): Promise<PermissionResponse> => {
       const i = (req.toolInput as { i: number }).i;
       return {
         hookSpecificOutput: {
@@ -255,7 +255,7 @@ describe('permission-socket', () => {
   });
 
   it('slow handler for id=0 does not block id=1', async () => {
-    const handler: PermissionHandler = mock(async (req) => {
+    const handler: PermissionHandler = mock(async (req): Promise<PermissionResponse> => {
       const i = (req.toolInput as { i: number }).i;
       if (i === 0) {
         await new Promise((r) => setTimeout(r, 200));
@@ -313,7 +313,7 @@ describe('permission-socket', () => {
   });
 
   it('chunked request (two writes) is reassembled', async () => {
-    const handler: PermissionHandler = mock(async (req) => {
+    const handler: PermissionHandler = mock(async (req): Promise<PermissionResponse> => {
       const command = (req.toolInput as { command: string }).command;
       return {
         hookSpecificOutput: {

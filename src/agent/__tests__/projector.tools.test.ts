@@ -12,6 +12,11 @@ function freshCtx(historical = false): ProjectionCtx {
     seenToolUseIds: new Set<string>(),
     completedToolUseIds: new Set<string>(),
     toolInputDeltas: {},
+    subAgentParentMap: new Map<string, string>(),
+    toolUseIdByBlockIndex: {},
+    toolProgressSeq: {},
+    thinkingDeltas: {},
+    turnIdByToolUseId: {},
   };
 }
 

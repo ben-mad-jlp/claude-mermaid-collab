@@ -11,7 +11,7 @@ afterEach(async () => {
   await rm(baseDir, { recursive: true, force: true });
 });
 
-async function call(method: string, path: string, body?: BodyInit, headers?: Record<string, string>) {
+async function call(method: string, path: string, body?: RequestInit["body"], headers?: Record<string, string>) {
   const req = new Request('http://localhost' + path, { method, body, headers });
   const url = new URL(req.url);
   return handleAttachments(req, url);

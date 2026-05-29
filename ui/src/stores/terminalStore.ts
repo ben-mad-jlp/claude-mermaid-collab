@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
 export interface TerminalTab {
   id: string;
@@ -44,7 +45,7 @@ function getMc(): McBridge | null {
   return (window as unknown as { mc?: McBridge }).mc ?? null;
 }
 
-export const useTerminalStore = create<TerminalState>((set, get) => ({
+export const useTerminalStore = create<TerminalState>()(persist((set, get) => ({
   open: false,
   tabs: [],
   activeTabId: null,
@@ -149,4 +150,9 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       openingSessions.delete(key);
     }
   },
+}), {
+  name: 'terminal-pane',
+  // Persist only durable layout prefs; tabs are tmux-backed and rebuilt on
+  // demand, so persisting them would be stale after a reload.
+  partialize: (s) => ({ open: s.open, width: s.width }),
 }));

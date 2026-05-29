@@ -266,8 +266,6 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
-import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
-import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 export type AuthMethod = 'oauth-pkce' | 'api-key' | 'none';
 

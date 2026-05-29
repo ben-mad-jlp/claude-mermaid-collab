@@ -8,6 +8,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSessionStore } from '../../../stores/sessionStore';
 import { useSidebarTreeStore } from '../../../stores/sidebarTreeStore';
+import { useUIStore } from '../../../stores/uiStore';
 import {
   filterTreeBySearch,
   selectBlueprintNodes,
@@ -631,6 +632,9 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
       const d = toTabDescriptor(node);
       if (d) {
         openPreview(d);
+        // Re-show the artifact viewer if the user had hidden it to give the
+        // browser full width — selecting an artifact brings the viewer back.
+        useUIStore.getState().setViewerVisible(true);
       }
     },
     [toggleInSelection, extendSelectionTo, setSelection, visibleOrder, openPreview, openNode, vsCodeMode],

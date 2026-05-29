@@ -20,6 +20,11 @@ contextBridge.exposeInMainWorld('mc', {
     ipcRenderer.on('mc:watch-event', h);
     return () => ipcRenderer.removeListener('mc:watch-event', h);
   },
+  onZoom: (cb: (dir: 'in' | 'out' | 'reset') => void) => {
+    const h = (_e: any, dir: 'in' | 'out' | 'reset') => cb(dir);
+    ipcRenderer.on('mc:zoom', h);
+    return () => ipcRenderer.removeListener('mc:zoom', h);
+  },
   browser: {
     listTabs: () => ipcRenderer.invoke('mc:browser:listTabs'),
     openTab: (opts: { url?: string }) => ipcRenderer.invoke('mc:browser:openTab', opts),

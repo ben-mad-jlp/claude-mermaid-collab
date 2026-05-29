@@ -69,6 +69,20 @@ export const Header: React.FC<HeaderProps> = ({
   const zoomIn = useUIStore((s) => s.zoomIn);
   const zoomOut = useUIStore((s) => s.zoomOut);
 
+  // Reactive pane-visibility for highlighting the toggle buttons.
+  const terminalOpen = useTerminalStore((s) => s.open);
+  const browserVisible = useBrowserStore((s) => s.visible);
+  const viewerVisible = useUIStore((s) => s.viewerVisible);
+
+  // Shared style for a pane-toggle button; highlighted (accent) when its pane
+  // is showing, neutral otherwise.
+  const paneToggleClass = (active: boolean) =>
+    `p-2 rounded-lg transition-colors ${
+      active
+        ? 'bg-accent-100 dark:bg-accent-900/50 text-accent-700 dark:text-accent-300'
+        : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700'
+    }`;
+
   const handleThemeToggle = useCallback(() => {
     toggleTheme();
   }, [toggleTheme]);
@@ -118,24 +132,18 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right-side controls */}
         <div className="flex items-center gap-3">
-          {/* Terminal toggle */}
+          {/* Artifact viewer toggle */}
           <button
-            data-testid="toggle-terminal"
-            onClick={() => useTerminalStore.getState().toggle()}
-            aria-label="Toggle terminal"
-            title="Toggle terminal"
-            className="
-              p-2
-              text-gray-600 dark:text-gray-300
-              hover:text-gray-900 dark:hover:text-white
-              hover:bg-gray-100 dark:hover:bg-gray-700
-              rounded-lg
-              transition-colors
-            "
+            data-testid="toggle-viewer"
+            onClick={() => useUIStore.getState().toggleViewer()}
+            aria-label="Toggle artifact viewer"
+            title="Toggle artifact viewer"
+            className={paneToggleClass(viewerVisible)}
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="4 17 10 11 4 5" />
-              <line x1="12" y1="19" x2="20" y2="19" />
+              <rect x="3" y="4" width="18" height="16" rx="2" />
+              <line x1="3" y1="9" x2="21" y2="9" />
+              <line x1="9" y1="9" x2="9" y2="20" />
             </svg>
           </button>
 
@@ -145,19 +153,26 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={() => useBrowserStore.getState().toggle()}
             aria-label="Toggle browser"
             title="Browser"
-            className="
-              p-2
-              text-gray-600 dark:text-gray-300
-              hover:text-gray-900 dark:hover:text-white
-              hover:bg-gray-100 dark:hover:bg-gray-700
-              rounded-lg
-              transition-colors
-            "
+            className={paneToggleClass(browserVisible)}
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <circle cx="12" cy="12" r="9"/>
               <line x1="3" y1="12" x2="21" y2="12"/>
               <path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/>
+            </svg>
+          </button>
+
+          {/* Terminal toggle */}
+          <button
+            data-testid="toggle-terminal"
+            onClick={() => useTerminalStore.getState().toggle()}
+            aria-label="Toggle terminal"
+            title="Toggle terminal"
+            className={paneToggleClass(terminalOpen)}
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="4 17 10 11 4 5" />
+              <line x1="12" y1="19" x2="20" y2="19" />
             </svg>
           </button>
 
