@@ -16,6 +16,7 @@
     "spike:full": "electron spikes/extended.js"
   },
   "dependencies": {
+    "electron-agent-bridge": "file:../../electron-agent-bridge",
     "electron-updater": "^6.3.9",
     "ws": "^8.18.0"
   },

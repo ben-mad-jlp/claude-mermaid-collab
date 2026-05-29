@@ -22,8 +22,8 @@ import { getAgentRegistry } from '../agent/agent-registry-manager.js';
 import { updateUI, updateUISchema } from './tools/update-ui.js';
 import { renderUISchema } from './tools/render-ui.js';
 import { browserToolSchemas } from './tools/browser.js';
-import { ElectronDriver } from '../../packages/electron-agent-bridge/src/driver.js';
-import { createDesktopTools } from '../../packages/electron-agent-bridge/src/mcp-tools.js';
+import { ElectronDriver } from 'electron-agent-bridge/driver';
+import { createDesktopTools } from 'electron-agent-bridge/mcp-tools';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join as pathJoin } from 'node:path';
 import {

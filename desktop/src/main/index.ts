@@ -6,7 +6,7 @@ import { DesktopControl } from './desktop-control';
 import { ServerProxy } from './server-proxy';
 import { ConnectionStore } from './connection-store';
 import { WatchAggregator } from './watch-aggregator';
-import { enableCdp, publishDiscovery } from '../../../packages/electron-agent-bridge/src/electron-main';
+import { enableCdp, publishDiscovery } from 'electron-agent-bridge/electron-main';
 
 // Phase 0.1 — Electron shell skeleton.
 // Single-instance lock so a second launch focuses the first window.
