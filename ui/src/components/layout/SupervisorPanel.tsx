@@ -117,8 +117,8 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   // Polled from GET /api/session-status?project= per distinct (serverId, project).
   const [fetchedStatuses, setFetchedStatuses] = useState<Record<string, string>>({});
 
-  // Load supervised sessions / escalations / locks for the active routing
-  // server, and refresh on an interval so newly-supervised sessions appear.
+  // Load supervised sessions / escalations for the active routing server, and
+  // refresh on an interval so newly-supervised sessions appear.
   useEffect(() => {
     const refresh = () => {
       void loadSupervised(serverScope);

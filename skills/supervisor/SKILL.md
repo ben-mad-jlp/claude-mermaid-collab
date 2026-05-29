@@ -65,7 +65,7 @@ Once approved:
 Call `supervisor_reconcile` (no args). It returns a list of:
 
 ```
-{ project, session, status, updatedAt, openTodos, supervised, locked, serverId }
+{ project, session, status, updatedAt, openTodos, supervised, serverId }
 ```
 
 Rows now include a `serverId` field, and remote supervised sessions (on other machines) are included. Candidates can be on **any** server — the criteria are unchanged.
@@ -75,7 +75,6 @@ Rows now include a `serverId` field, and remote supervised sessions (on other ma
 - `supervised === true`
 - `status === 'waiting'`
 - `openTodos > 0`
-- `locked === false`
 - **fresh** — `updatedAt` within ~120s
 
 ## 6. Resolve claudeSessionId
@@ -137,12 +136,9 @@ Each turn and each wake:
 - `escalation_list` → surface all open escalations to the user (verbatim, with project/session).
 - `escalation_resolve { id, status }` once an escalation has been handled.
 
-## 11. Attended lock
+## 11. Stop supervising
 
-When the user goes to handle a session directly:
-
-- `attended_lock_set { project, session, reason }` — reconcile then skips it (it shows `locked`) until the session goes active and produces a **fresh** `end_turn`.
-- `attended_lock_release { project, session }` — clear the lock manually (default TTL ~30m).
+There is no attended-lock. If a session should not be driven by the supervisor — e.g. the user wants to handle it directly — **remove it from the supervised set** (the Supervisor panel's shield toggle, or `DELETE /api/supervisor/supervised`). An unsupervised session is never a candidate, so the supervisor leaves it alone. Re-supervise it to resume.
 
 ## 12. Debounce
 

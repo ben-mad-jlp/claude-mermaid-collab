@@ -1954,13 +1954,11 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'supervisor_list_supervised', description: 'List all supervised sessions across all projects.', inputSchema: { type: 'object', properties: {} } },
       { name: 'register_supervisor', description: "Register this collab session as THE supervisor, so the server pushes real-time reconcile notifications into its tmux when supervised workers change state.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, serverId: { type: 'string' } }, required: ['project', 'session'] } },
       { name: 'supervisor_nudge', description: 'Send text/keys into a supervised session tmux pane, routing to a peer server when serverId names a known peer.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, serverId: { type: 'string' }, text: { type: 'string' } }, required: ['project', 'session', 'text'] } },
-      { name: 'supervisor_reconcile', description: 'For every watched project, return session status + open-todo counts and supervised/locked flags.', inputSchema: { type: 'object', properties: {} } },
+      { name: 'supervisor_reconcile', description: 'For every watched project, return session status + open-todo counts and the supervised flag.', inputSchema: { type: 'object', properties: {} } },
       { name: 'read_last_assistant_turn', description: 'Read the last completed assistant turn from a Claude Code session transcript.', inputSchema: { type: 'object', properties: { claudeSessionId: { type: 'string' }, serverId: { type: 'string' } }, required: ['claudeSessionId'] } },
       { name: 'escalation_list', description: 'List open escalations.', inputSchema: { type: 'object', properties: {} } },
       { name: 'escalation_resolve', description: 'Resolve an escalation by id with a status.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, status: { type: 'string' } }, required: ['id', 'status'] } },
       { name: 'escalation_create', description: 'Create (or dedupe) an open escalation for a session.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, kind: { type: 'string' }, questionText: { type: 'string' } }, required: ['project', 'session', 'kind', 'questionText'] } },
-      { name: 'attended_lock_set', description: 'Set an attended lock on a session (default TTL 30m).', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, reason: { type: 'string' }, ttlMs: { type: 'number' } }, required: ['project', 'session'] } },
-      { name: 'attended_lock_release', description: 'Release an attended lock on a session.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' } }, required: ['project', 'session'] } },
       // Spreadsheet tools
       {
         name: 'list_spreadsheets',
@@ -3502,13 +3500,13 @@ IMPORTANT - Common pitfalls to avoid:
             return JSON.stringify(result, null, 2);
           }
           case 'supervisor_reconcile': {
-            const out: Array<{ project: string; session: string; status: string | null; updatedAt: number | null; openTodos: number; supervised: boolean; locked: boolean; serverId: string }> = [];
+            const out: Array<{ project: string; session: string; status: string | null; updatedAt: number | null; openTodos: number; supervised: boolean; serverId: string }> = [];
             for (const wp of supervisorStore.listWatchedProjects()) {
               const statuses = getStatuses(wp.project);
               for (const s of statuses) {
                 const supervised = supervisorStore.isSupervised(wp.project, s.session);
                 const openTodos = supervised ? listTodos(wp.project, { session: s.session, includeCompleted: false }).length : 0;
-                out.push({ project: wp.project, session: s.session, status: s.status, updatedAt: s.updatedAt, openTodos, supervised, locked: supervisorStore.isLocked(wp.project, s.session), serverId: '' });
+                out.push({ project: wp.project, session: s.session, status: s.status, updatedAt: s.updatedAt, openTodos, supervised, serverId: '' });
               }
             }
             // Remote supervised sessions: fetch each peer's session-status once per (serverId, project).
@@ -3523,10 +3521,10 @@ IMPORTANT - Common pitfalls to avoid:
                 for (const s of (resp.statuses ?? [])) {
                   if (!supervisedRemote.has(sid + '|' + proj + '|' + s.session)) continue;
                   // openTodos:0 for remote — todos not locally queryable.
-                  out.push({ project: proj, session: s.session, status: s.status, updatedAt: s.updatedAt, openTodos: 0, supervised: true, locked: supervisorStore.isLocked(proj, s.session), serverId: sid });
+                  out.push({ project: proj, session: s.session, status: s.status, updatedAt: s.updatedAt, openTodos: 0, supervised: true, serverId: sid });
                 }
               } catch {
-                out.push({ project: proj, session: '(peer unreachable)', status: 'unreachable', updatedAt: null, openTodos: 0, supervised: true, locked: false, serverId: sid });
+                out.push({ project: proj, session: '(peer unreachable)', status: 'unreachable', updatedAt: null, openTodos: 0, supervised: true, serverId: sid });
               }
             }
             return JSON.stringify(out, null, 2);
@@ -3553,20 +3551,6 @@ IMPORTANT - Common pitfalls to avoid:
             if (!project || !session || !kind || !questionText) throw new Error('Missing required: project, session, kind, questionText');
             return JSON.stringify(supervisorStore.createEscalation({ project, session, kind, questionText }), null, 2);
           }
-          case 'attended_lock_set': {
-            const { project, session, reason, ttlMs } = args as { project: string; session: string; reason?: string; ttlMs?: number };
-            if (!project || !session) throw new Error('Missing required: project, session');
-            if (ttlMs === undefined) supervisorStore.setLock(project, session, reason ?? 'attended');
-            else supervisorStore.setLock(project, session, reason ?? 'attended', ttlMs);
-            return JSON.stringify({ success: true, lock: supervisorStore.getLock(project, session) }, null, 2);
-          }
-          case 'attended_lock_release': {
-            const { project, session } = args as { project: string; session: string };
-            if (!project || !session) throw new Error('Missing required: project, session');
-            supervisorStore.releaseLock(project, session);
-            return JSON.stringify({ success: true }, null, 2);
-          }
-
           case 'complete_linked_todos': {
             const { project, session, blueprintId, taskId } = args as {
               project: string; session: string; blueprintId: string; taskId?: string;

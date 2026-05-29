@@ -5,9 +5,6 @@ import {
   addSupervised,
   removeSupervised,
   listSupervised,
-  setLock,
-  releaseLock,
-  listLocks,
   listOpenEscalations,
   resolveEscalation,
   getSupervisorIdentity,
@@ -147,39 +144,6 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
 
   if (url.pathname === '/api/supervisor/escalations' && req.method === 'GET') {
     return Response.json({ escalations: listOpenEscalations() });
-  }
-
-  // LOCKS
-  if (url.pathname === '/api/supervisor/locks' && req.method === 'GET') {
-    return Response.json({ locks: listLocks() });
-  }
-
-  if (url.pathname === '/api/supervisor/locks' && req.method === 'POST') {
-    try {
-      const { project, session, reason, ttlMs } = (await req.json()) as {
-        project?: string;
-        session?: string;
-        reason?: string;
-        ttlMs?: number;
-      };
-      if (!project || !session) return jsonError('project and session are required', 400);
-      if (ttlMs === undefined) setLock(project, session, reason ?? 'attended');
-      else setLock(project, session, reason ?? 'attended', ttlMs);
-      return Response.json({ locks: listLocks() });
-    } catch (err) {
-      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
-    }
-  }
-
-  if (url.pathname === '/api/supervisor/locks' && req.method === 'DELETE') {
-    try {
-      const { project, session } = (await req.json()) as { project?: string; session?: string };
-      if (!project || !session) return jsonError('project and session are required', 400);
-      releaseLock(project, session);
-      return Response.json({ locks: listLocks() });
-    } catch (err) {
-      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
-    }
   }
 
   if (url.pathname === '/api/supervisor/config' && req.method === 'GET') {

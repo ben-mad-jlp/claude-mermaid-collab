@@ -5,7 +5,7 @@ import { create } from 'zustand';
  *
  * In v2 the supervisor surface is global rather than scoped to a single
  * supervisor session. The app tracks a flat set of watched projects, a roadmap
- * keyed by project, a flat list of escalations, and a flat list of locks. All of
+ * keyed by project, and a flat list of escalations. All of
  * these live authoritatively on the server behind the `/api/supervisor/*` REST
  * surface; this store mirrors them into the renderer.
  *
@@ -52,14 +52,6 @@ export interface Escalation {
   resolvedAt?: number | null;
 }
 
-export interface Lock {
-  project: string;
-  session: string;
-  lockedAt: number;
-  reason?: string;
-  expiresAt?: number;
-}
-
 export interface SupervisedSession {
   project: string;
   session: string;
@@ -71,7 +63,6 @@ export interface SupervisedSession {
 const PROJECTS_KEY = 'supervisor-projects';
 const ROADMAP_KEY = 'supervisor-roadmap';
 const ESCALATIONS_KEY = 'supervisor-escalations';
-const LOCKS_KEY = 'supervisor-locks';
 const SUPERVISED_KEY = 'supervisor-supervised';
 
 interface InvokeResult {
@@ -117,7 +108,6 @@ interface SupervisorState {
   watchedProjects: WatchedProject[];
   roadmapByProject: Record<string, RoadmapItem[]>;
   escalations: Escalation[];
-  locks: Lock[];
   supervised: SupervisedSession[];
   loadSupervised: (serverId: string) => Promise<void>;
   setSupervisedLocal: (session: SupervisedSession, supervised: boolean) => void;
@@ -127,14 +117,12 @@ interface SupervisorState {
   loadRoadmap: (serverId: string, project: string) => Promise<void>;
   loadEscalations: (serverId: string) => Promise<void>;
   resolveEscalation: (serverId: string, id: string, status: string) => Promise<void>;
-  loadLocks: (serverId: string) => Promise<void>;
 }
 
 export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   watchedProjects: hydrate<WatchedProject[]>(PROJECTS_KEY, []),
   roadmapByProject: hydrate<Record<string, RoadmapItem[]>>(ROADMAP_KEY, {}),
   escalations: hydrate<Escalation[]>(ESCALATIONS_KEY, []),
-  locks: hydrate<Lock[]>(LOCKS_KEY, []),
   supervised: hydrate<SupervisedSession[]>(SUPERVISED_KEY, []),
 
   loadSupervised: async (serverId) => {
@@ -221,13 +209,5 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
       localStorage.setItem(ESCALATIONS_KEY, JSON.stringify(escalations));
       return { escalations };
     });
-  },
-
-  loadLocks: async (serverId) => {
-    const res = await invoke(serverId, '/api/supervisor/locks', 'GET');
-    if (!res?.ok) return; // keep prior (cached) state on failure
-    const locks: Lock[] = res.body?.locks ?? [];
-    localStorage.setItem(LOCKS_KEY, JSON.stringify(locks));
-    set({ locks });
   },
 }));

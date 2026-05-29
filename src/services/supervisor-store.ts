@@ -25,14 +25,6 @@ export interface SupervisedSession {
   serverId: string;
 }
 
-export interface AttendedLock {
-  project: string;
-  session: string;
-  lockedAt: number;
-  reason: string;
-  expiresAt: number;
-  serverId: string;
-}
 
 export interface Escalation {
   id: string;
@@ -56,15 +48,6 @@ CREATE TABLE IF NOT EXISTS supervised_session (
   session TEXT NOT NULL,
   source TEXT NOT NULL,
   addedAt INTEGER NOT NULL,
-  serverId TEXT NOT NULL DEFAULT '',
-  PRIMARY KEY (project, session)
-);
-CREATE TABLE IF NOT EXISTS attended_lock (
-  project TEXT NOT NULL,
-  session TEXT NOT NULL,
-  lockedAt INTEGER NOT NULL,
-  reason TEXT NOT NULL,
-  expiresAt INTEGER NOT NULL,
   serverId TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (project, session)
 );
@@ -106,7 +89,6 @@ function openDb(): Database {
   db.exec(DDL);
   // Idempotent migrations for existing DBs.
   addColumnIfMissing(db, 'supervised_session', 'serverId', "serverId TEXT NOT NULL DEFAULT ''");
-  addColumnIfMissing(db, 'attended_lock', 'serverId', "serverId TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, 'escalation', 'serverId', "serverId TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, 'supervisor_identity', 'serverId', "serverId TEXT NOT NULL DEFAULT ''");
   return db;
@@ -175,51 +157,6 @@ export function isSupervised(project: string, session: string): boolean {
   return !!row;
 }
 
-// --- Attended locks ---
-
-const DEFAULT_LOCK_TTL_MS = 30 * 60 * 1000;
-
-export function setLock(
-  project: string,
-  session: string,
-  reason: string,
-  ttlMs: number = DEFAULT_LOCK_TTL_MS,
-  serverId = ''
-): void {
-  const d = openDb();
-  const now = Date.now();
-  d.prepare(
-    'INSERT OR REPLACE INTO attended_lock (project, session, lockedAt, reason, expiresAt, serverId) VALUES (?,?,?,?,?,?)'
-  ).run(project, session, now, reason, now + ttlMs, serverId);
-}
-
-export function releaseLock(project: string, session: string): void {
-  const d = openDb();
-  d.prepare('DELETE FROM attended_lock WHERE project = ? AND session = ?').run(project, session);
-}
-
-export function getLock(project: string, session: string): AttendedLock | null {
-  const d = openDb();
-  const row = d
-    .query('SELECT * FROM attended_lock WHERE project = ? AND session = ?')
-    .get(project, session) as AttendedLock | null;
-  return row ?? null;
-}
-
-export function listLocks(): AttendedLock[] {
-  const d = openDb();
-  // Only return live (non-expired) locks so callers (GET /locks, the UI lock
-  // badge) don't show a 🔒 forever after a lock has logically expired. This
-  // matches isLocked()'s expiry semantics.
-  return d.query('SELECT * FROM attended_lock WHERE expiresAt > ?').all(Date.now()) as AttendedLock[];
-}
-
-export function isLocked(project: string, session: string): boolean {
-  const lock = getLock(project, session);
-  if (!lock) return false;
-  if (lock.expiresAt <= Date.now()) return false;
-  return true;
-}
 
 // --- Escalations ---
 
