@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import type { WebSocketHandler } from '../websocket/handler.ts';
 import { ideState } from '../services/ide-state.ts';
 import { tmuxBaseName } from '../services/tmux-naming.js';
+import { sendTmuxKeys } from '../services/tmux-send.ts';
 
 function jsonError(message: string, status: number): Response {
   return Response.json({ error: message }, { status });
@@ -103,18 +104,9 @@ export async function handleIdeRoutes(req: Request, url: URL, wsHandler: WebSock
       if (!text || typeof text !== 'string') {
         return jsonError('text is required', 400);
       }
-      const tmuxSession = tmuxBaseName(project, session);
-      try {
-        const check = Bun.spawn(['tmux', 'has-session', '-t', tmuxSession], { stdout: 'ignore', stderr: 'ignore' });
-        const code = await check.exited;
-        if (code !== 0) return jsonError('tmux session not found', 404);
-        const send = Bun.spawn(['tmux', 'send-keys', '-t', tmuxSession, text, 'Enter'], { stdout: 'ignore', stderr: 'ignore' });
-        await send.exited;
-      } catch (e: any) {
-        console.warn(`[ide/tmux-send-keys] tmux spawn failed (${e?.code ?? 'unknown'}): ${e?.message ?? String(e)} — treating as soft no-op`);
-        return Response.json({ success: true, tmux: false });
-      }
-      return Response.json({ success: true, tmux: true });
+      const result = await sendTmuxKeys(project, session, text);
+      if (result.reason === 'no-session') return jsonError('tmux session not found', 404);
+      return Response.json({ success: true, tmux: result.sent });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }

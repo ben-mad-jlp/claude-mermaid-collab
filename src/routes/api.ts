@@ -31,7 +31,9 @@ import {
   reorder,
   type TodoLink as SessionTodoLink,
 } from '../services/todo-store';
-import { recordStatus, getStatuses } from '../services/session-status-store';
+import { recordStatus, getStatuses, getStatus } from '../services/session-status-store';
+import { isSupervised, getSupervisorIdentity } from '../services/supervisor-store.ts';
+import { sendTmuxKeys } from '../services/tmux-send.ts';
 import {
   listDesignsHandler,
   createDesignHandler,
@@ -2415,6 +2417,12 @@ export async function handleAPI(
       return Response.json({ error: `Corrupt binding file: ${err?.message || String(err)}` }, { status: 500 });
     }
 
+    // Capture the prior status BEFORE overwriting, to detect transitions.
+    let prevStatus: string | null = null;
+    try {
+      prevStatus = getStatus(project, session)?.status ?? null;
+    } catch { /* ignore */ }
+
     try {
       recordStatus(project, session, status as 'active' | 'waiting' | 'permission');
     } catch (err: any) {
@@ -2429,6 +2437,29 @@ export async function handleAPI(
       status: status as 'active' | 'waiting' | 'permission',
       lastUpdate: Date.now(),
     });
+
+    // Real-time push to the supervisor: when a SUPERVISED worker transitions
+    // into a state that needs attention (waiting / permission), nudge the
+    // supervisor's own tmux to reconcile now — so it doesn't have to wait for
+    // its next turn / scheduled wake. Fire-and-forget; never push to self.
+    if ((status === 'waiting' || status === 'permission') && status !== prevStatus) {
+      void (async () => {
+        try {
+          if (!isSupervised(project, session)) return;
+          const sup = getSupervisorIdentity();
+          if (!sup) return;
+          if (sup.project === project && sup.session === session) return; // don't notify self
+          const base = project.split('/').filter(Boolean).pop() ?? project;
+          await sendTmuxKeys(
+            sup.project,
+            sup.session,
+            `[mc-supervisor] worker "${session}" (${base}) → ${status}. Run a supervisor reconcile and handle it.`,
+          );
+        } catch (err: any) {
+          console.warn(`[session-notify] supervisor push failed: ${err?.message || String(err)}`);
+        }
+      })();
+    }
 
     return Response.json({ success: true });
   }

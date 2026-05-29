@@ -74,6 +74,12 @@ CREATE TABLE IF NOT EXISTS escalation (
   resolvedAt INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_esc_open ON escalation(project, session, questionText, status);
+CREATE TABLE IF NOT EXISTS supervisor_identity (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  project TEXT NOT NULL,
+  session TEXT NOT NULL,
+  updatedAt INTEGER NOT NULL
+);
 `;
 
 let db: Database | null = null;
@@ -241,4 +247,28 @@ export function resolveEscalation(id: string, status: string): void {
     Date.now(),
     id
   );
+}
+
+// --- Supervisor identity (single global supervisor session) ---
+
+export interface SupervisorIdentity {
+  project: string;
+  session: string;
+  updatedAt: number;
+}
+
+/** Register which collab session IS the supervisor (singleton, id=1). */
+export function setSupervisorIdentity(project: string, session: string): void {
+  const d = openDb();
+  d.prepare(
+    'INSERT OR REPLACE INTO supervisor_identity (id, project, session, updatedAt) VALUES (1, ?, ?, ?)'
+  ).run(project, session, Date.now());
+}
+
+export function getSupervisorIdentity(): SupervisorIdentity | null {
+  const d = openDb();
+  const row = d.query('SELECT project, session, updatedAt FROM supervisor_identity WHERE id = 1').get() as
+    | SupervisorIdentity
+    | null;
+  return row ?? null;
 }

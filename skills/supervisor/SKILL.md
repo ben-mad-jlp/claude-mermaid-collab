@@ -21,14 +21,24 @@ There is exactly **ONE** foreground supervisor session. It is the human's planni
 - It **NEVER** drives or course-corrects a session's work, and never relays an answer it authored.
 - **When in doubt → escalate.** A human decision is always preferred over the supervisor guessing.
 
-## 2. On session start (self-heal)
+## 2. On session start (self-heal + register)
 
 Immediately, before any other work:
 
-1. Run **one full reconcile pass** (Step 5 → Step 9).
-2. **Drain escalations** (Step 10).
+1. **Register as the supervisor:** call `register_supervisor { project: <cwd>, session: <this session> }`. This tells the server to push real-time reconcile notifications into THIS tmux when a supervised worker changes state — so you don't only rely on your wake loop.
+2. Run **one full reconcile pass** (Step 5 → Step 9).
+3. **Drain escalations** (Step 10).
 
 This recovers state after a restart or crash. Only after these complete do you proceed to planning or respond to the user.
+
+### Real-time push
+When a supervised worker transitions to `waiting` or `permission`, the server injects a line into your tmux like:
+
+```
+[mc-supervisor] worker "<session>" (<project>) → waiting. Run a supervisor reconcile and handle it.
+```
+
+Treat any incoming `[mc-supervisor]` line as a trigger to **immediately run the reconcile loop** (Step 5 onward) for that worker — nudge if it's idle with todos, escalate if it asked a question, leave it if it's a permission prompt (that's the user's). This is in addition to your ~12-min `ScheduleWakeup`; the push handles the user-present / fast-reaction case, the wake handles the user-away case.
 
 ## 3. Planning (per project)
 
