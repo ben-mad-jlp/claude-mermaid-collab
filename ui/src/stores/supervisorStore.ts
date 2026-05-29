@@ -60,10 +60,19 @@ export interface Lock {
   expiresAt?: number;
 }
 
+export interface SupervisedSession {
+  project: string;
+  session: string;
+  source?: string;
+  addedAt?: number;
+  serverId?: string;
+}
+
 const PROJECTS_KEY = 'supervisor-projects';
 const ROADMAP_KEY = 'supervisor-roadmap';
 const ESCALATIONS_KEY = 'supervisor-escalations';
 const LOCKS_KEY = 'supervisor-locks';
+const SUPERVISED_KEY = 'supervisor-supervised';
 
 interface InvokeResult {
   ok: boolean;
@@ -109,6 +118,8 @@ interface SupervisorState {
   roadmapByProject: Record<string, RoadmapItem[]>;
   escalations: Escalation[];
   locks: Lock[];
+  supervised: SupervisedSession[];
+  loadSupervised: (serverId: string) => Promise<void>;
   loadProjects: (serverId: string) => Promise<void>;
   addProject: (serverId: string, project: string) => Promise<void>;
   removeProject: (serverId: string, project: string) => Promise<void>;
@@ -123,6 +134,15 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   roadmapByProject: hydrate<Record<string, RoadmapItem[]>>(ROADMAP_KEY, {}),
   escalations: hydrate<Escalation[]>(ESCALATIONS_KEY, []),
   locks: hydrate<Lock[]>(LOCKS_KEY, []),
+  supervised: hydrate<SupervisedSession[]>(SUPERVISED_KEY, []),
+
+  loadSupervised: async (serverId) => {
+    const res = await invoke(serverId, '/api/supervisor/supervised', 'GET');
+    if (!res?.ok) return; // keep prior (cached) state on failure
+    const supervised: SupervisedSession[] = res.body?.supervised ?? [];
+    localStorage.setItem(SUPERVISED_KEY, JSON.stringify(supervised));
+    set({ supervised });
+  },
 
   loadProjects: async (serverId) => {
     const res = await invoke(serverId, '/api/supervisor/projects', 'GET');

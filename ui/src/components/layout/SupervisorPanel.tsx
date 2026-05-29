@@ -1,19 +1,20 @@
 /**
  * SupervisorPanel — the "Supervisor" sidebar section.
  *
- * v2 model: the supervisor view is roadmap-centric. The active session's
- * serverId is the routing id used to load watched projects, their roadmap
- * items, escalations and locks from `useSupervisorStore`.
+ * Session-centric: lists the sessions the supervisor oversees (the supervised
+ * set from `/api/supervisor/supervised`), grouped by project, with each
+ * session's live status, locked flag, and an indicator if it has an open
+ * escalation. Below the list is the escalations inbox.
  *
- * Live status per roadmap-bound session is read from the Watching feed
- * (`useSubscriptionStore`, WS-fed), falling back to a polled persisted status.
+ * Live status per session is read from the Watching feed (`useSubscriptionStore`,
+ * WS-fed), falling back to a polled persisted status (`/api/session-status`).
  */
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   useSupervisorStore,
-  type RoadmapItem,
   type Escalation,
   type Lock,
+  type SupervisedSession,
 } from '@/stores/supervisorStore';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -108,21 +109,6 @@ function statusBg(status: string): string {
         : 'bg-gray-200 hover:bg-gray-300 border border-gray-300';
 }
 
-// Small inline pill class for a roadmap item's own status.
-function statusChipClass(status: string): string {
-  switch (status) {
-    case 'done':
-      return 'bg-green-100 text-green-700 border border-green-300 dark:bg-green-900/40 dark:text-green-300 dark:border-green-700';
-    case 'in_progress':
-    case 'in-progress':
-      return 'bg-amber-100 text-amber-700 border border-amber-300 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-700';
-    case 'blocked':
-      return 'bg-red-100 text-red-700 border border-red-300 dark:bg-red-900/40 dark:text-red-300 dark:border-red-700';
-    default:
-      return 'bg-gray-100 text-gray-600 border border-gray-300 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600';
-  }
-}
-
 export interface SupervisorPanelProps {
   currentProject?: string;
   currentSession?: string;
@@ -138,12 +124,10 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   const serverScope = activeId ?? 'local';
 
   const {
-    watchedProjects,
-    roadmapByProject,
+    supervised,
     escalations,
     locks,
-    loadProjects,
-    loadRoadmap,
+    loadSupervised,
     loadEscalations,
     resolveEscalation,
     loadLocks,
@@ -176,21 +160,18 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   // Polled from GET /api/session-status?project= per distinct (serverId, project).
   const [fetchedStatuses, setFetchedStatuses] = useState<Record<string, string>>({});
 
-  // Load projects / escalations / locks for the active routing server.
+  // Load supervised sessions / escalations / locks for the active routing
+  // server, and refresh on an interval so newly-supervised sessions appear.
   useEffect(() => {
-    void loadProjects(serverScope);
-    void loadEscalations(serverScope);
-    void loadLocks(serverScope);
-  }, [serverScope, loadProjects, loadEscalations, loadLocks]);
-
-  // Load roadmap for each watched project.
-  const watchedKey = watchedProjects.map((p) => p.project).join('|');
-  useEffect(() => {
-    for (const p of watchedProjects) {
-      void loadRoadmap(serverScope, p.project);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverScope, watchedKey, loadRoadmap]);
+    const refresh = () => {
+      void loadSupervised(serverScope);
+      void loadEscalations(serverScope);
+      void loadLocks(serverScope);
+    };
+    refresh();
+    const id = setInterval(refresh, 10_000);
+    return () => clearInterval(id);
+  }, [serverScope, loadSupervised, loadEscalations, loadLocks]);
 
   const serverIconById = useMemo(() => {
     const m = new Map<string, string>();
@@ -199,20 +180,33 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   }, [servers]);
   const activeServerIcon = activeId ? serverIconById.get(activeId) : undefined;
 
-  // Distinct (activeId, project) pairs derived from roadmap items that name a
-  // session — the unit of the per-project session-status API.
+  // Supervised sessions grouped by project (the session-centric view).
+  const byProject = useMemo(() => {
+    const m = new Map<string, SupervisedSession[]>();
+    for (const s of supervised) {
+      const arr = m.get(s.project) ?? [];
+      arr.push(s);
+      m.set(s.project, arr);
+    }
+    return Array.from(m.entries())
+      .map(([project, sessions]) => ({
+        project,
+        sessions: sessions.sort((a, b) => a.session.localeCompare(b.session)),
+      }))
+      .sort((a, b) => a.project.localeCompare(b.project));
+  }, [supervised]);
+
+  // Distinct (activeId, project) pairs from supervised sessions — the unit of
+  // the per-project session-status API.
   const distinctPairs = useMemo(() => {
-    if (!activeId) return [] as Array<{ serverId: string; project: string }>;
     const map = new Map<string, { serverId: string; project: string }>();
-    for (const [project, items] of Object.entries(roadmapByProject)) {
-      if (items.some((it) => it.sessionName)) {
-        map.set(`${activeId}|${project}`, { serverId: activeId, project });
-      }
+    for (const s of supervised) {
+      map.set(`${activeId}|${s.project}`, { serverId: activeId ?? '', project: s.project });
     }
     return Array.from(map.values()).sort((a, b) =>
       `${a.serverId}|${a.project}`.localeCompare(`${b.serverId}|${b.project}`),
     );
-  }, [activeId, roadmapByProject]);
+  }, [activeId, supervised]);
   // Stable primitive dependency so the poll effect re-runs only when the
   // actual set of (serverId, project) pairs changes, not on every render.
   const distinctPairsKey = useMemo(
@@ -265,7 +259,10 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
       pairs.forEach((p, i) => {
         for (const row of results[i]) {
           const stale = typeof row.updatedAt === 'number' && now - row.updatedAt > STALE_MS;
-          const key = `${p.serverId}:${row.project}:${row.session}`;
+          // Keyed by project:session (serverId-agnostic) so lookups don't depend
+          // on which server we routed through — supervised rows may carry a
+          // different/blank serverId than the active one.
+          const key = `${row.project}:${row.session}`;
           map[key] = stale ? 'unknown' : row.status;
         }
       });
@@ -280,10 +277,14 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
     };
   }, [distinctPairsKey]);
 
-  // Merged live status: WS status takes precedence, then persisted fetch, then 'unknown'.
+  // Merged live status: a live WS subscription (matched on project+session,
+  // regardless of which serverId it's keyed under) takes precedence, then the
+  // polled persisted status, then 'unknown'.
   const liveStatus = (project: string, session: string): string => {
-    const key = `${activeId}:${project}:${session}`;
-    return subscriptions[key]?.status ?? fetchedStatuses[key] ?? 'unknown';
+    for (const sub of Object.values(subscriptions)) {
+      if (sub.project === project && sub.session === session && sub.status) return sub.status;
+    }
+    return fetchedStatuses[`${project}:${session}`] ?? 'unknown';
   };
 
   // Set of locked `${project}:${session}` pairs.
@@ -294,6 +295,10 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
 
   const hasOpenEscalation = escalations.some((e) => e.status === 'open');
   const openEscalations = escalations.filter((e) => e.status === 'open');
+  const escalatedSet = useMemo(
+    () => new Set(openEscalations.map((e) => `${e.project}:${e.session}`)),
+    [openEscalations],
+  );
 
   return (
     <div className="border-b border-gray-200 dark:border-gray-700">
@@ -305,7 +310,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
         >
           <span>Supervisor</span>
           <span className="ml-1 text-gray-400 dark:text-gray-500 font-normal">
-            {watchedProjects.length}
+            {supervised.length}
           </span>
           {hasOpenEscalation && (
             <span
@@ -340,72 +345,56 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
       {/* Body */}
       {!collapsed && (
         <div className="px-2 pb-2 space-y-3">
-          {watchedProjects.length === 0 ? (
+          {supervised.length === 0 ? (
             <div className="px-2 py-4 text-xs text-gray-500 dark:text-gray-400 text-center">
-              No supervised projects
+              No supervised sessions
             </div>
           ) : (
-            watchedProjects.map((wp) => {
-              const items = [...(roadmapByProject[wp.project] ?? [])].sort((a, b) => a.ord - b.ord);
-              return (
-                <div key={wp.project} className="space-y-1">
-                  {/* Project sub-header */}
-                  <div className="flex items-center gap-1.5 px-1 py-0.5">
-                    <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate">
-                      {wp.project.split('/').pop()}
-                    </span>
-                    <ServerIcon
-                      name={activeServerIcon}
-                      size={14}
-                      className="flex-shrink-0 text-gray-500 dark:text-gray-400"
-                    />
-                  </div>
-
-                  {/* Roadmap items */}
-                  {items.map((item: RoadmapItem) => {
-                    const status = item.sessionName
-                      ? liveStatus(wp.project, item.sessionName)
-                      : 'unknown';
-                    const locked =
-                      item.sessionName && lockSet.has(`${wp.project}:${item.sessionName}`);
-                    return (
-                      <div key={item.id} className="flex items-center gap-1">
-                        <div
-                          className={`flex-1 flex items-center gap-2 pl-3 pr-2 py-1 rounded text-sm min-w-0 overflow-hidden ${
-                            item.sessionName
-                              ? statusBg(status)
-                              : 'bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700'
-                          }`}
-                        >
-                          <span
-                            className={`text-xs truncate flex-1 ${
-                              item.sessionName ? 'text-black' : 'text-gray-700 dark:text-gray-300'
-                            }`}
-                          >
-                            {item.title}
-                          </span>
-                          {locked && (
-                            <span
-                              className="flex-shrink-0 text-black"
-                              title="Locked by this session"
-                              aria-label="locked"
-                            >
-                              🔒
-                            </span>
-                          )}
-                          <span
-                            className={`flex-shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-medium ${statusChipClass(item.status)}`}
-                          >
-                            {item.status}
-                          </span>
-                        </div>
-                        {item.sessionName && <ClaudePixAvatar status={status} />}
-                      </div>
-                    );
-                  })}
+            byProject.map(({ project, sessions }) => (
+              <div key={project} className="space-y-1">
+                {/* Project sub-header */}
+                <div className="flex items-center gap-1.5 px-1 py-0.5">
+                  <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate">
+                    {project.split('/').pop()}
+                  </span>
+                  <ServerIcon
+                    name={activeServerIcon}
+                    size={14}
+                    className="flex-shrink-0 text-gray-500 dark:text-gray-400"
+                  />
                 </div>
-              );
-            })
+
+                {/* Supervised sessions */}
+                {sessions.map((s) => {
+                  const status = liveStatus(project, s.session);
+                  const locked = lockSet.has(`${project}:${s.session}`);
+                  const escalated = escalatedSet.has(`${project}:${s.session}`);
+                  return (
+                    <div key={s.session} className="flex items-center gap-1">
+                      <div
+                        className={`flex-1 flex items-center gap-2 pl-3 pr-2 py-1 rounded text-sm min-w-0 overflow-hidden ${statusBg(status)}`}
+                      >
+                        <span className="text-xs truncate flex-1 text-black">{s.session}</span>
+                        {locked && (
+                          <span className="flex-shrink-0 text-black" title="Locked by this session" aria-label="locked">
+                            🔒
+                          </span>
+                        )}
+                        {escalated && (
+                          <span className="flex-shrink-0" title="Escalation open" aria-label="escalation">
+                            ⚠️
+                          </span>
+                        )}
+                        <span className="flex-shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-white/50 text-black">
+                          {status}
+                        </span>
+                      </div>
+                      <ClaudePixAvatar status={status} />
+                    </div>
+                  );
+                })}
+              </div>
+            ))
           )}
 
           {/* Escalations inbox */}
