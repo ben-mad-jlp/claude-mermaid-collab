@@ -3459,6 +3459,9 @@ IMPORTANT - Common pitfalls to avoid:
             }
             await roadmapStore.setItemSession(project, itemId, session);
             supervisorStore.addSupervised(project, session, 'roadmap');
+            // supervisor_reconcile iterates watched projects; ensure this one is
+            // watched so the newly-supervised session is actually visible to it.
+            supervisorStore.addWatchedProject(project);
             getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
             // Auto-launch a Claude worker into the spawned session (tmux -> claude
             // -> /collab -> bind). Once it comes up idle with these todos, the

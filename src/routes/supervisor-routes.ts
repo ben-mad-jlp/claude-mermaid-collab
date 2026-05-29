@@ -61,6 +61,11 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       };
       if (!project || !session) return jsonError('project and session are required', 400);
       addSupervised(project, session, (source ?? 'manual') as 'roadmap' | 'manual');
+      // Ensure the supervisor actually monitors this session's project.
+      // supervisor_reconcile iterates watched projects to fetch session
+      // statuses; without this, supervising a session in an unwatched project
+      // leaves it invisible to reconcile (it'd be treated as not-supervised).
+      addWatchedProject(project);
       return Response.json({ supervised: listSupervised() });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
