@@ -337,6 +337,19 @@ const SubscriptionRow: React.FC<{
       {/* Action buttons — outside the card, own bordered section, square columns */}
       <div className="flex items-center flex-shrink-0 gap-1 px-1">
         <button
+          onClick={async (e) => {
+            e.stopPropagation();
+            const mc = (window as any).mc;
+            const body = { project: sub.project, session: sub.session, allowedTools: 'Bash Edit Write Read mcp__plugin_mermaid-collab_mermaid' };
+            if (mc?.invokeOnServer) { void mc.invokeOnServer(sub.serverId, { path: '/api/ide/launch-session', method: 'POST', body }); }
+            else { fetch('/api/ide/launch-session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => {}); }
+          }}
+          className="flex items-center justify-center w-7 h-7 rounded-full transition-all hover:opacity-80 active:scale-90 active:brightness-75 bg-blue-300 text-blue-900"
+          title={`Start Claude in "${sub.session}"`}
+        >
+          <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path d="M6 4l10 6-10 6V4z" /></svg>
+        </button>
+        <button
           onClick={(e) => {
             e.stopPropagation();
             onToggleSupervise(sub, !supervised);

@@ -11,7 +11,15 @@ export class WatchAggregator {
   private conns = new Map<string, ConnState>();
   private removed = new Set<string>();
 
-  constructor(private forward: (e: WatchEvent) => void) {}
+  constructor(private forward: (e: WatchEvent) => void, private onOpen?: (id: string) => void) {}
+
+  /** Broadcast a JSON message to every currently-open upstream ws. */
+  broadcast(msg: unknown): void {
+    const payload = JSON.stringify(msg);
+    for (const c of this.conns.values()) {
+      try { if (c.ws && c.ws.readyState === WebSocket.OPEN) c.ws.send(payload); } catch { /* ignore */ }
+    }
+  }
 
   setWatched(servers: WatchUpstream[]): void {
     const incoming = new Set(servers.map(s => s.id));
@@ -34,7 +42,7 @@ export class WatchAggregator {
     this.conns.set(s.id, { ws, attempt: prevAttempt, timer: null });
     // Reset backoff once a connection actually establishes, so a server that
     // blips repeatedly doesn't get stuck at the 15s cap forever.
-    ws.on('open', () => { const st = this.conns.get(s.id); if (st) st.attempt = 0; });
+    ws.on('open', () => { const st = this.conns.get(s.id); if (st) st.attempt = 0; this.onOpen?.(s.id); });
     ws.on('message', (data: any) => { try { const m = JSON.parse(data.toString()); if (m && WATCHED_TYPES.has(m.type)) this.forward({ ...m, serverId: s.id }); } catch { /* ignore non-JSON */ } });
     ws.on('close', () => this.scheduleReconnect(s));
     ws.on('error', () => this.scheduleReconnect(s));

@@ -25,7 +25,7 @@ There is exactly **ONE** foreground supervisor session. It is the human's planni
 
 Immediately, before any other work:
 
-1. **Register as the supervisor:** call `register_supervisor { project: <cwd>, session: <this session> }`. This tells the server to push real-time reconcile notifications into THIS tmux when a supervised worker changes state — so you don't only rely on your wake loop.
+1. **Register as the supervisor:** call `register_supervisor { project: <cwd>, session: <this session>, serverId: <own serverId if known, else ''> }` (pass the supervisor's own serverId if known, else `''` for local). This tells the server to push real-time reconcile notifications into THIS tmux when a supervised worker changes state — so you don't only rely on your wake loop. The desktop then pushes the peer registry + cross-machine notifications, so reconcile sees supervised sessions on other machines.
 2. Run **one full reconcile pass** (Step 5 → Step 9).
 3. **Drain escalations** (Step 10).
 
@@ -38,7 +38,7 @@ When a supervised worker transitions to `waiting` or `permission`, the server in
 [mc-supervisor] worker "<session>" (<project>) → waiting. Run a supervisor reconcile and handle it.
 ```
 
-Treat any incoming `[mc-supervisor]` line as a trigger to **immediately run the reconcile loop** (Step 5 onward) for that worker — nudge if it's idle with todos, escalate if it asked a question, leave it if it's a permission prompt (that's the user's). This is in addition to your ~12-min `ScheduleWakeup`; the push handles the user-present / fast-reaction case, the wake handles the user-away case.
+Treat any incoming `[mc-supervisor]` line as a trigger to **immediately run the reconcile loop** (Step 5 onward) for that worker — nudge if it's idle with todos, escalate if it asked a question, leave it if it's a permission prompt (that's the user's). The injected line may name a worker on **another machine**; handle it identically (reconcile + act), routing by the row's `serverId`. This is in addition to your ~12-min `ScheduleWakeup`; the push handles the user-present / fast-reaction case, the wake handles the user-away case.
 
 ## 3. Planning (per project)
 
@@ -65,8 +65,10 @@ Once approved:
 Call `supervisor_reconcile` (no args). It returns a list of:
 
 ```
-{ project, session, status, updatedAt, openTodos, supervised, locked }
+{ project, session, status, updatedAt, openTodos, supervised, locked, serverId }
 ```
+
+Rows now include a `serverId` field, and remote supervised sessions (on other machines) are included. Candidates can be on **any** server — the criteria are unchanged.
 
 **Candidate** for action when ALL of:
 
@@ -78,19 +80,23 @@ Call `supervisor_reconcile` (no args). It returns a list of:
 
 ## 6. Resolve claudeSessionId
 
-There is no MCP tool that exposes a session's `claudeSessionId`. Use **Bash** to read the binding directory:
+There is no MCP tool that exposes a session's `claudeSessionId`. Resolution splits by where the session lives:
+
+**LOCAL** (the row's `serverId` is `''` or your own): use **Bash** to read the binding directory:
 
 - Binding files: `/tmp/.mermaid-collab-binding-*.json`
 - Each contains `{ claudeSessionId, project, session, claudePid }`.
 
-Find the file whose `project` + `session` match the candidate (e.g. grep/jq over the files). 
+Find the file whose `project` + `session` match the candidate (e.g. grep/jq over the files).
 
 - If a match is found → use its `claudeSessionId` in Step 7.
 - If **no** file matches → the session is **not bound** (planned-but-unattached). Remind the user to run `/collab`, then **skip** this candidate.
 
+**REMOTE** (the row's `serverId` names a peer): you **cannot** read the peer's `/tmp` binding files locally, so `claudeSessionId` is unavailable. Flag this as a **known limitation** — you can still nudge remote sessions (Step 8 routes by serverId/project/session without a claudeSessionId), but the read+classify step (Step 7) is degraded. See the Cross-machine / federation section.
+
 ## 7. Read + classify (2 buckets)
 
-Call `read_last_assistant_turn {claudeSessionId}` → `{ text, stopReason, found }`.
+Call `read_last_assistant_turn { claudeSessionId, serverId }` → `{ text, stopReason, found }` (omit `serverId` for local; for remote it still needs `claudeSessionId` — the gap from Step 6). Remote classify **degrades gracefully**: when `claudeSessionId` can't be resolved for a remote peer, skip the read+classify and fall back to nudging (Step 8) per the remote policy.
 
 Classify:
 
@@ -102,12 +108,13 @@ Classify:
 
 ## 8. Nudge
 
-Send a directional nudge via Bash curl:
+Send a directional nudge via the MCP tool:
 
 ```
-POST http://localhost:9002/api/ide/tmux-send-keys
-{ "project": "<project>", "session": "<session>", "text": "You have N open todos — continue working on them." }
+supervisor_nudge { project: "<project>", session: "<session>", serverId: "<peer>", text: "You have N open todos — continue working on them." }
 ```
+
+Omit `serverId` for local. It routes by `(serverId, project, session)` and does **not** need `claudeSessionId`, so **remote nudging works** even when Step 6 couldn't resolve a claudeSessionId.
 
 - **404** (tmux session not found) → report as not-reachable; do **not** retry.
 - `{ success: true, tmux: false }` → report that tmux is absent on this host.
@@ -143,7 +150,17 @@ When the user goes to handle a session directly:
 - **Never re-nudge the same waiting state twice.** A state change is required before re-nudging.
 - **Never nudge the supervisor's own session.**
 
-## 13. Reschedule (LAST action)
+## 13. Cross-machine / federation
+
+The supervisor is **global across machines** via the desktop router. Each reconcile row and every routed tool carries a `serverId`; the desktop pushes the peer registry and cross-machine notifications, so one supervisor oversees workers on any connected machine.
+
+- **Routing:** always pass the row's `serverId` on routed tools (`read_last_assistant_turn`, `supervisor_nudge`). Omit it for local; set it for a peer.
+- **Recommended remote policy:**
+  - **Nudge** remote idle sessions with open todos — this works via `supervisor_nudge` keyed by `(serverId, project, session)`, no claudeSessionId required.
+  - **Escalate** remote questions **conservatively** — when in doubt, **escalate** rather than guess (the human decides).
+- **Known limitation:** remote **classify** is limited because `read_last_assistant_turn` needs a `claudeSessionId` the supervisor cannot derive for a remote peer (the supervisor can't read the peer's `/tmp` binding files). A future improvement: the peer exposes a `(project, session) → claudeSessionId` map so remote classify can work the same as local.
+
+## 14. Reschedule (LAST action)
 
 The final action of every turn/wake:
 

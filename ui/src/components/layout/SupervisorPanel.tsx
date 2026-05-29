@@ -152,6 +152,26 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   const subscriptions = useSubscriptionStore((s) => s.subscriptions);
   const { servers } = useServers();
   const [collapsed, setCollapsed] = useState(false);
+  const [startingSup, setStartingSup] = useState(false);
+
+  const handleStartSupervisor = async () => {
+    const serverId = serverScope;
+    setStartingSup(true);
+    try {
+      const mc = (window as any).mc;
+      const cfgRes = mc?.invokeOnServer
+        ? await mc.invokeOnServer(serverId, { path: '/api/supervisor/config', method: 'GET' })
+        : { ok: true, body: await (await fetch('/api/supervisor/config')).json() };
+      const cfg = cfgRes?.body ?? {};
+      const supervisorProject = cfg.supervisorProject;
+      const supervisorSession = cfg.supervisorSession;
+      if (!supervisorProject || !supervisorSession) return;
+      const launchBody = { project: supervisorProject, session: supervisorSession, role: 'supervisor', invokeSkill: '/supervisor' };
+      if (mc?.invokeOnServer) await mc.invokeOnServer(serverId, { path: '/api/ide/launch-session', method: 'POST', body: launchBody });
+      else await fetch('/api/ide/launch-session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(launchBody) });
+    } catch { /* best-effort */ }
+    finally { setStartingSup(false); }
+  };
   // Persisted status source: map keyed `${serverId}:${project}:${session}` -> status.
   // Polled from GET /api/session-status?project= per distinct (serverId, project).
   const [fetchedStatuses, setFetchedStatuses] = useState<Record<string, string>>({});
@@ -306,6 +326,14 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
               clipRule="evenodd"
             />
           </svg>
+        </button>
+        <button
+          onClick={handleStartSupervisor}
+          disabled={startingSup}
+          className="px-2 py-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors disabled:opacity-50"
+          title="Start supervisor (launch + /collab + /supervisor)"
+        >
+          <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path d="M6 4l10 6-10 6V4z" /></svg>
         </button>
       </div>
 

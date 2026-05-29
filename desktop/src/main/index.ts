@@ -55,6 +55,7 @@ function registerIpc(): void {
     if (!store || !aggregator) return;
     const ups = (ids ?? []).map((id: string) => store!.get(id)).filter(Boolean).map((e: any) => ({ id: e.id, host: e.host, port: e.port, token: e.token }));
     aggregator.setWatched(ups);
+    pushPeerRegistry();
   });
   // Cross-server session listing: lets the renderer's subscribe modal show
   // sessions from any registered server (not just the active one) without
@@ -85,33 +86,120 @@ function registerIpc(): void {
   // browser-focus, navigate) at the row's serverId instead of the active
   // server's proxy. Tokens stay in main. Returns a structured envelope so the
   // renderer can branch on ok/status without losing the body.
-  ipcMain.handle('mc:invokeOnServer', async (_e, serverId: string, opts: { path: string; method?: string; body?: unknown; query?: Record<string, string> }) => {
-    if (!store) return { ok: false, status: 0, body: 'no store' };
-    const entry = store.get(serverId);
-    if (!entry) return { ok: false, status: 0, body: 'unknown server' };
-    try {
-      const qs = opts.query ? `?${new URLSearchParams(opts.query).toString()}` : '';
-      const headers: Record<string, string> = { 'content-type': 'application/json' };
-      if (entry.token) headers['Authorization'] = `Bearer ${entry.token}`;
-      const r = await fetch(`http://${entry.host}:${entry.port}${opts.path}${qs}`, {
-        method: opts.method ?? 'GET',
-        headers,
-        body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-        signal: AbortSignal.timeout(8000),
-      });
-      const text = await r.text();
-      let parsed: unknown = text;
-      try { parsed = JSON.parse(text); } catch { /* keep text */ }
-      if (opts.path === '/api/ide/create-terminal' && r.ok && parsed && typeof parsed === 'object' && 'tmux' in (parsed as Record<string, unknown>)) {
-        store.setServerCapabilities(serverId, { tmux: Boolean((parsed as { tmux?: unknown }).tmux) });
-      }
-      return { ok: r.ok, status: r.status, body: parsed };
-    } catch (err) {
-      console.warn(`[mc:invokeOnServer] ${serverId} ${opts.path} failed:`, err);
-      return { ok: false, status: 0, body: String(err) };
-    }
-  });
+  ipcMain.handle('mc:invokeOnServer', (_e, serverId: string, opts: { path: string; method?: string; body?: unknown; query?: Record<string, string> }) =>
+    invokeOnServer(serverId, opts)
+  );
   ipcMain.handle('mc:getServerCapabilities', (_e, serverId: string) => store?.getServerCapabilities(serverId) ?? { tmux: false });
+}
+
+// Per-server invoke (module-scope so main-process logic can call it directly,
+// not just over IPC). Tokens stay in main. Returns a structured envelope so
+// callers can branch on ok/status without losing the body.
+async function invokeOnServer(
+  serverId: string,
+  opts: { path: string; method?: string; body?: unknown; query?: Record<string, string> },
+): Promise<{ ok: boolean; status: number; body: unknown }> {
+  if (!store) return { ok: false, status: 0, body: 'no store' };
+  const entry = store.get(serverId);
+  if (!entry) return { ok: false, status: 0, body: 'unknown server' };
+  try {
+    const qs = opts.query ? `?${new URLSearchParams(opts.query).toString()}` : '';
+    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    if (entry.token) headers['Authorization'] = `Bearer ${entry.token}`;
+    const r = await fetch(`http://${entry.host}:${entry.port}${opts.path}${qs}`, {
+      method: opts.method ?? 'GET',
+      headers,
+      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+      signal: AbortSignal.timeout(8000),
+    });
+    const text = await r.text();
+    let parsed: unknown = text;
+    try { parsed = JSON.parse(text); } catch { /* keep text */ }
+    if (opts.path === '/api/ide/create-terminal' && r.ok && parsed && typeof parsed === 'object' && 'tmux' in (parsed as Record<string, unknown>)) {
+      store.setServerCapabilities(serverId, { tmux: Boolean((parsed as { tmux?: unknown }).tmux) });
+    }
+    return { ok: r.ok, status: r.status, body: parsed };
+  } catch (err) {
+    console.warn(`[mc:invokeOnServer] ${serverId} ${opts.path} failed:`, err);
+    return { ok: false, status: 0, body: String(err) };
+  }
+}
+
+// Push the current server roster (with tokens) to all open upstream WS so each
+// collab server can reach its peers directly. Re-pushed on each fresh connect
+// (aggregator onOpen) and after the watched set or local roster changes.
+function pushPeerRegistry(): void {
+  if (!store || !aggregator) return;
+  const peers = store.list()
+    .map((s) => store!.get(s.id))
+    .filter(Boolean)
+    .map((e: any) => ({ serverId: e.id, baseUrl: `http://${e.host}:${e.port}`, token: e.token }));
+  aggregator.broadcast({ type: 'peer_registry', peers });
+}
+
+// --- Cross-machine supervisor notify (REMOTE-ONLY) ---------------------------
+// The collab server already nudges its supervisor for same-host sessions; here
+// we only handle REMOTE servers so we don't double-notify. We resolve the local
+// "home" server (the one whose supervisor identity is set) and, when a remote
+// session it supervises flips to waiting/permission, send a reconcile nudge.
+const supTransition = new Map<string, string>();           // `${serverId} ${project} ${session}` -> last status
+let homeCache: { homeServerId: string; identity: any } | null = null;
+let homeCacheAt = 0;
+async function resolveHome(): Promise<{ homeServerId: string; identity: any } | null> {
+  if (homeCache && Date.now() - homeCacheAt < 10000) return homeCache;
+  if (!store) return null;
+  for (const s of store.list()) {
+    try {
+      const r = await invokeOnServer(s.id, { path: '/api/supervisor/identity' });
+      if (r.ok && r.body && (r.body as any).project && (r.body as any).session) {
+        homeCache = { homeServerId: s.id, identity: r.body };
+        homeCacheAt = Date.now();
+        return homeCache;
+      }
+    } catch { /* ignore */ }
+  }
+  homeCache = null; homeCacheAt = Date.now(); return null;
+}
+let supervisedCache: Set<string> = new Set();              // `${project} ${session}`
+let supervisedAt = 0;
+async function isSupervisedOnHome(homeServerId: string, project: string, session: string): Promise<boolean> {
+  if (Date.now() - supervisedAt > 10000) {
+    try {
+      const r = await invokeOnServer(homeServerId, { path: '/api/supervisor/supervised' });
+      if (r.ok && Array.isArray((r.body as any)?.supervised)) {
+        supervisedCache = new Set((r.body as any).supervised.map((x: any) => `${x.project} ${x.session}`));
+      }
+    } catch { /* keep stale */ }
+    supervisedAt = Date.now();
+  }
+  return supervisedCache.has(`${project} ${session}`);
+}
+async function onWatchEvent(e: any): Promise<void> {
+  mainWindow?.webContents.send('mc:watch-event', e);
+  if (e.type !== 'claude_session_status') return;
+  const status = e.status as string | undefined;
+  const key = `${e.serverId} ${e.project} ${e.session}`;
+  const prev = supTransition.get(key);
+  if (status) supTransition.set(key, status);             // update gate for ALL statuses
+  if (status !== 'waiting' && status !== 'permission') return;
+  if (prev === status) return;                            // transition gate
+  const home = await resolveHome();
+  if (!home) return;
+  if (e.serverId === home.homeServerId) return;           // REMOTE-ONLY: same-host handled by server-side push
+  if (home.identity.project === e.project && home.identity.session === e.session) return; // not self
+  if (!(await isSupervisedOnHome(home.homeServerId, e.project, e.session))) return;
+  const base = (e.project || '').split('/').filter(Boolean).pop() || e.project;
+  try {
+    await invokeOnServer(home.homeServerId, {
+      path: '/api/ide/tmux-send-keys',
+      method: 'POST',
+      body: {
+        project: home.identity.project,
+        session: home.identity.session,
+        text: `[mc-supervisor] ${e.serverId}/${base}/${e.session} → ${status}. Reconcile.`,
+      },
+    });
+  } catch { /* best-effort */ }
 }
 
 // Register the mermaid-collab:// deep-link scheme so links from browsers/Slack
@@ -296,7 +384,9 @@ async function bootstrap(): Promise<void> {
     return e ? { host: e.host, port: e.port, token: e.token } : null;
   });
   registerIpc();
-  aggregator = new WatchAggregator((e) => mainWindow?.webContents.send('mc:watch-event', e));
+  aggregator = new WatchAggregator((e) => void onWatchEvent(e), () => pushPeerRegistry());
+  // refreshLocal() ran before the aggregator existed; push the initial roster now.
+  pushPeerRegistry();
 
   // Load the real collab UI through the proxy.
   if (mainWindow) mainWindow.loadURL(`http://127.0.0.1:${proxyPort}`);

@@ -44,6 +44,7 @@ import { sessionRegistry } from '../services/session-registry.js';
 import { projectRegistry } from '../services/project-registry.js';
 import * as roadmapStore from '../services/roadmap-store.js';
 import * as supervisorStore from '../services/supervisor-store.js';
+import { sendTmuxKeys } from '../services/tmux-send.js';
 import { getStatuses } from '../services/session-status-store.js';
 import { lastAssistantTurn } from '../services/transcript-reader.js';
 import { listTodos } from '../services/todo-store.js';
@@ -200,6 +201,17 @@ async function getDesktopDriver(): Promise<ElectronDriver> {
     }
   }
   return _dd;
+}
+async function peerFetch(serverId: string | undefined, path: string, init?: { method?: string; body?: any }): Promise<any> {
+  if (!serverId) throw new Error('peerFetch requires serverId');
+  const peer = supervisorStore.getPeer(serverId);
+  if (!peer) throw new Error('unknown peer ' + serverId);
+  const res = await fetch(peer.baseUrl + path, {
+    method: init?.method ?? 'GET',
+    headers: { 'Content-Type': 'application/json', ...(peer.token ? { Authorization: 'Bearer ' + peer.token } : {}) },
+    body: init?.body ? JSON.stringify(init.body) : undefined,
+  });
+  return await res.json();
 }
 const { defs: desktopDefs, handlers: desktopHandlers } = createDesktopTools(getDesktopDriver);
 // desktop_screenshot is overridden below to accept optional project/session for saving.
@@ -1921,9 +1933,10 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'roadmap_update', description: 'Update a roadmap item (title, description, status, ord, parentId, dependsOn).', inputSchema: { type: 'object', properties: { project: { type: 'string' }, id: { type: 'string' }, title: { type: 'string' }, description: { type: 'string' }, status: { type: 'string', enum: ['planned','ready','in_progress','blocked','done','dropped'] }, ord: { type: 'number' }, parentId: { type: 'string' }, dependsOn: { type: 'array', items: { type: 'string' } } }, required: ['project', 'id'] } },
       { name: 'roadmap_spawn_session', description: 'Spawn a collab session for a roadmap item: materializes the session via assigned todos, links them to the item, and registers the session as supervised.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, itemId: { type: 'string' }, session: { type: 'string' }, todos: { type: 'array', items: { type: 'string' }, description: 'Todo titles to create, assigned to the session' } }, required: ['project', 'itemId', 'session'] } },
       { name: 'supervisor_list_supervised', description: 'List all supervised sessions across all projects.', inputSchema: { type: 'object', properties: {} } },
-      { name: 'register_supervisor', description: "Register this collab session as THE supervisor, so the server pushes real-time reconcile notifications into its tmux when supervised workers change state.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' } }, required: ['project', 'session'] } },
+      { name: 'register_supervisor', description: "Register this collab session as THE supervisor, so the server pushes real-time reconcile notifications into its tmux when supervised workers change state.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, serverId: { type: 'string' } }, required: ['project', 'session'] } },
+      { name: 'supervisor_nudge', description: 'Send text/keys into a supervised session tmux pane, routing to a peer server when serverId names a known peer.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, serverId: { type: 'string' }, text: { type: 'string' } }, required: ['project', 'session', 'text'] } },
       { name: 'supervisor_reconcile', description: 'For every watched project, return session status + open-todo counts and supervised/locked flags.', inputSchema: { type: 'object', properties: {} } },
-      { name: 'read_last_assistant_turn', description: 'Read the last completed assistant turn from a Claude Code session transcript.', inputSchema: { type: 'object', properties: { claudeSessionId: { type: 'string' } }, required: ['claudeSessionId'] } },
+      { name: 'read_last_assistant_turn', description: 'Read the last completed assistant turn from a Claude Code session transcript.', inputSchema: { type: 'object', properties: { claudeSessionId: { type: 'string' }, serverId: { type: 'string' } }, required: ['claudeSessionId'] } },
       { name: 'escalation_list', description: 'List open escalations.', inputSchema: { type: 'object', properties: {} } },
       { name: 'escalation_resolve', description: 'Resolve an escalation by id with a status.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, status: { type: 'string' } }, required: ['id', 'status'] } },
       { name: 'escalation_create', description: 'Create (or dedupe) an open escalation for a session.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, kind: { type: 'string' }, questionText: { type: 'string' } }, required: ['project', 'session', 'kind', 'questionText'] } },
@@ -3434,26 +3447,55 @@ IMPORTANT - Common pitfalls to avoid:
             return JSON.stringify(supervisorStore.listSupervised(), null, 2);
           }
           case 'register_supervisor': {
-            const { project, session } = args as { project: string; session: string };
+            const { project, session, serverId } = args as { project: string; session: string; serverId?: string };
             if (!project || !session) throw new Error('Missing required: project, session');
-            supervisorStore.setSupervisorIdentity(project, session);
-            return JSON.stringify({ success: true, supervisor: { project, session } }, null, 2);
+            supervisorStore.setSupervisorIdentity(project, session, serverId);
+            return JSON.stringify({ success: true, supervisor: { project, session, serverId } }, null, 2);
+          }
+          case 'supervisor_nudge': {
+            const { project, session, serverId, text } = args as { project: string; session: string; serverId?: string; text: string };
+            if (!project || !session || !text) throw new Error('Missing required: project, session, text');
+            if (serverId && supervisorStore.getPeer(serverId)) {
+              return JSON.stringify(await peerFetch(serverId, '/api/ide/tmux-send-keys', { method: 'POST', body: { project, session, text } }), null, 2);
+            }
+            return JSON.stringify(await sendTmuxKeys(project, session, text), null, 2);
           }
           case 'supervisor_reconcile': {
-            const out: Array<{ project: string; session: string; status: string | null; updatedAt: number | null; openTodos: number; supervised: boolean; locked: boolean }> = [];
+            const out: Array<{ project: string; session: string; status: string | null; updatedAt: number | null; openTodos: number; supervised: boolean; locked: boolean; serverId: string }> = [];
             for (const wp of supervisorStore.listWatchedProjects()) {
               const statuses = getStatuses(wp.project);
               for (const s of statuses) {
                 const supervised = supervisorStore.isSupervised(wp.project, s.session);
                 const openTodos = supervised ? listTodos(wp.project, { session: s.session, includeCompleted: false }).length : 0;
-                out.push({ project: wp.project, session: s.session, status: s.status, updatedAt: s.updatedAt, openTodos, supervised, locked: supervisorStore.isLocked(wp.project, s.session) });
+                out.push({ project: wp.project, session: s.session, status: s.status, updatedAt: s.updatedAt, openTodos, supervised, locked: supervisorStore.isLocked(wp.project, s.session), serverId: '' });
+              }
+            }
+            // Remote supervised sessions: fetch each peer's session-status once per (serverId, project).
+            const remotePairs = new Map<string, { serverId: string; project: string }>();
+            for (const sup of supervisorStore.listSupervised()) {
+              if (sup.serverId && supervisorStore.getPeer(sup.serverId)) remotePairs.set(sup.serverId + '|' + sup.project, { serverId: sup.serverId, project: sup.project });
+            }
+            const supervisedRemote = new Set(supervisorStore.listSupervised().filter(s => s.serverId).map(s => s.serverId + '|' + s.project + '|' + s.session));
+            for (const { serverId: sid, project: proj } of remotePairs.values()) {
+              try {
+                const resp = await peerFetch(sid, '/api/session-status?project=' + encodeURIComponent(proj), { method: 'GET' });
+                for (const s of (resp.statuses ?? [])) {
+                  if (!supervisedRemote.has(sid + '|' + proj + '|' + s.session)) continue;
+                  // openTodos:0 for remote — todos not locally queryable.
+                  out.push({ project: proj, session: s.session, status: s.status, updatedAt: s.updatedAt, openTodos: 0, supervised: true, locked: supervisorStore.isLocked(proj, s.session), serverId: sid });
+                }
+              } catch {
+                out.push({ project: proj, session: '(peer unreachable)', status: 'unreachable', updatedAt: null, openTodos: 0, supervised: true, locked: false, serverId: sid });
               }
             }
             return JSON.stringify(out, null, 2);
           }
           case 'read_last_assistant_turn': {
-            const { claudeSessionId } = args as { claudeSessionId: string };
+            const { claudeSessionId, serverId } = args as { claudeSessionId: string; serverId?: string };
             if (!claudeSessionId) throw new Error('Missing required: claudeSessionId');
+            if (serverId && supervisorStore.getPeer(serverId)) {
+              return JSON.stringify(await peerFetch(serverId, '/api/transcript/last-turn?claudeSessionId=' + encodeURIComponent(claudeSessionId), { method: 'GET' }), null, 2);
+            }
             return JSON.stringify(await lastAssistantTurn(claudeSessionId), null, 2);
           }
           case 'escalation_list': {
