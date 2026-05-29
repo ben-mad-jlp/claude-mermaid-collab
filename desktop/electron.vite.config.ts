@@ -6,6 +6,18 @@ import { defineConfig } from 'electron-vite';
 // supervised Bun sidecar instead.
 export default defineConfig({
   main: {
+    resolve: {
+      // ws statically `require()`s its optional natives (bufferutil /
+      // utf-8-validate). The production build replaces them with empty stubs,
+      // but `electron-vite dev` errors with "Could not resolve" since they're
+      // not installed. Alias both to an empty stub so dev resolves them the
+      // same way prod does. The banner below forces ws's pure-JS path, so the
+      // stub is never executed at runtime.
+      alias: {
+        bufferutil: resolve(__dirname, 'src/main/ws-native-stub.js'),
+        'utf-8-validate': resolve(__dirname, 'src/main/ws-native-stub.js'),
+      },
+    },
     build: {
       lib: { entry: resolve(__dirname, 'src/main/index.ts') },
       rollupOptions: {
