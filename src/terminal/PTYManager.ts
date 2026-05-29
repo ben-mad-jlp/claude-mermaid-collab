@@ -30,7 +30,7 @@ export interface CreateOptions {
   cwd?: string;        // Default: process.cwd()
   cols?: number;       // Default: 80
   rows?: number;       // Default: 24
-  tmux?: { base: string; grouped: string };
+  tmux?: { base: string; grouped?: string };
 }
 
 /**
@@ -40,8 +40,21 @@ export interface CreateOptions {
  * it, so it is created first (with `;` so creation failure of an existing base
  * doesn't abort the chain). Exported for unit testing.
  */
-export function buildTmuxAttachCommand(base: string, grouped: string): string {
-  return `(tmux has-session -t '${base}' 2>/dev/null || tmux new-session -d -s '${base}') ; (tmux has-session -t '${grouped}' 2>/dev/null || tmux new-session -d -s '${grouped}' -t '${base}') && tmux attach-session -t '${grouped}'`;
+export function buildTmuxAttachCommand(base: string, grouped?: string): string {
+  // `-d` detaches any other client on the session: a tmux window has a single
+  // size, so co-attached clients of different sizes fight under
+  // `window-size latest` — every stream/redraw can snap the window to the other
+  // client's size and garble a full-screen TUI (e.g. Claude Code). One client
+  // owning the window keeps it stable.
+  const ensureBase = `(tmux has-session -t '${base}' 2>/dev/null || tmux new-session -d -s '${base}')`;
+  if (!grouped || grouped === base) {
+    // Attach directly to the base session — no shared/grouped view. (The old
+    // grouped 'vscode-collab-*' layer existed to share live terminals with the
+    // VSCode extension, which no longer hosts terminals.)
+    return `${ensureBase} && tmux attach-session -d -t '${base}'`;
+  }
+  const ensureGrouped = `(tmux has-session -t '${grouped}' 2>/dev/null || tmux new-session -d -s '${grouped}' -t '${base}')`;
+  return `${ensureBase} ; ${ensureGrouped} && tmux attach-session -d -t '${grouped}'`;
 }
 
 export interface AttachOptions {

@@ -3119,18 +3119,21 @@ export async function handleAPI(
       // Generate unique session ID
       const id = randomUUID();
 
-      // Derive tmux names from project/session
+      // Attach directly to the project/session's base tmux session. (We used to
+      // attach to a 'vscode-collab-*' grouped session to share the live terminal
+      // with the VSCode extension; that's deprecated — VSCode now only opens
+      // diffs — and sharing one tmux window between differently-sized clients
+      // garbled full-screen TUIs.)
       const base = tmuxBaseName(project, session);
-      const grouped = `vscode-collab-${base}`;
 
       // Create PTY session via ptyManager with project as cwd
-      await ptyManager.create(id, { cwd: project, tmux: { base, grouped } });
+      await ptyManager.create(id, { cwd: project, tmux: { base } });
 
       // Create session record for persistence
       const newSession = {
         id,
         name: displayName,
-        tmuxSession: grouped,
+        tmuxSession: base,
         created: new Date().toISOString(),
         order: state.sessions.length,
       };
@@ -3142,7 +3145,7 @@ export async function handleAPI(
       // Return session info with 201 Created status
       return Response.json({
         id,
-        tmuxSession: grouped,
+        tmuxSession: base,
         wsUrl: `ws://localhost:9002/terminal/${id}`,
       }, { status: 201 });
     } catch (error: any) {

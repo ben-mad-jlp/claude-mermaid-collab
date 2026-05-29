@@ -26,7 +26,23 @@ describe('buildTmuxAttachCommand', () => {
     expect(cmd.slice(baseClauseEnd, baseClauseEnd + 3)).toContain(';');
   });
 
-  it('attaches to the grouped session at the end', () => {
-    expect(cmd.trimEnd().endsWith(`tmux attach-session -t '${grouped}'`)).toBe(true);
+  it('attaches to the grouped session at the end (detaching other clients)', () => {
+    expect(cmd.trimEnd().endsWith(`tmux attach-session -d -t '${grouped}'`)).toBe(true);
+  });
+
+  describe('without a grouped session (direct base attach)', () => {
+    const direct = buildTmuxAttachCommand(base);
+
+    it('creates/reuses the base session and attaches directly to it with -d', () => {
+      expect(direct).toContain(`tmux has-session -t '${base}'`);
+      expect(direct).toContain(`new-session -d -s '${base}'`);
+      expect(direct.trimEnd().endsWith(`tmux attach-session -d -t '${base}'`)).toBe(true);
+    });
+
+    it('does not create or reference any grouped/vscode-collab session', () => {
+      expect(direct).not.toContain('vscode-collab');
+      // Only one new-session (the base) — no grouped `new-session ... -t base`.
+      expect((direct.match(/new-session/g) ?? []).length).toBe(1);
+    });
   });
 });
