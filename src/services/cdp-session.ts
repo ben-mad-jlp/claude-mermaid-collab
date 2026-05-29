@@ -1,9 +1,14 @@
 import { promises as fsp } from 'node:fs';
 import { writeFileSync, readFileSync, unlinkSync } from 'node:fs';
-import { createRequire } from 'node:module';
 
-const require = createRequire(import.meta.url);
-const CDP = require('chrome-remote-interface') as any;
+// Static import (not createRequire) so `bun build --compile` bundles
+// chrome-remote-interface into the packaged sidecar binary. A dynamic
+// createRequire isn't followed by the compiler and resolves against the real
+// filesystem at runtime — which has no node_modules inside the .app bundle,
+// so the binary crashed on startup with "Cannot find package".
+// @ts-ignore - chrome-remote-interface ships no type declarations
+import CDPImport from 'chrome-remote-interface';
+const CDP = CDPImport as any;
 
 import { CDP_PORT } from '../config.js';
 export { CDP_PORT };
