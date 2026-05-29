@@ -75,6 +75,27 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
     } catch { /* best-effort */ }
     finally { setStartingSup(false); }
   };
+
+  // Open the supervisor's own session console in a terminal tab. The supervisor
+  // isn't a supervised/watched card, so this is the only way to view it in-app.
+  // Resolve its project/session from /api/supervisor/config, then reuse the
+  // exact card-click side-effects (create terminal + focus + openFor).
+  const handleOpenConsole = async () => {
+    const serverId = serverScope;
+    try {
+      const mc = (window as any).mc;
+      const cfgRes = mc?.invokeOnServer
+        ? await mc.invokeOnServer(serverId, { path: '/api/supervisor/config', method: 'GET' })
+        : { ok: true, body: await (await fetch('/api/supervisor/config')).json() };
+      const cfg = cfgRes?.body ?? {};
+      const project = cfg.supervisorProject;
+      const session = cfg.supervisorSession;
+      if (!project || !session) return;
+      const sub: SessionCardData = { serverId, project, session, status: 'unknown', lastUpdate: Date.now() };
+      handleNavigate(sub);
+      await activateSessionCard(sub, serverLabelById.get(serverId));
+    } catch { /* best-effort */ }
+  };
   // Persisted status source: map keyed `${serverId}:${project}:${session}` -> status.
   // Polled from GET /api/session-status?project= per distinct (serverId, project).
   const [fetchedStatuses, setFetchedStatuses] = useState<Record<string, string>>({});
@@ -296,6 +317,16 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
               d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
               clipRule="evenodd"
             />
+          </svg>
+        </button>
+        <button
+          onClick={handleOpenConsole}
+          className="px-2 py-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+          title="Open supervisor console in a terminal tab"
+        >
+          <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={2}>
+            <rect x="2.5" y="3.5" width="15" height="13" rx="1.5" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5.5 8l2.5 2-2.5 2M10 13h4.5" />
           </svg>
         </button>
         <button
