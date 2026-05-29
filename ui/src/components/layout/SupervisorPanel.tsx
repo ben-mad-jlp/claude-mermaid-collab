@@ -81,7 +81,17 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   // Resolve its project/session from /api/supervisor/config, then reuse the
   // exact card-click side-effects (create terminal + focus + openFor).
   const handleOpenConsole = async () => {
-    const serverId = serverScope;
+    // Resolve a REAL server id for routing: the terminal WS goes through
+    // /_per-server/<serverId>/… which the proxy resolves against the registered
+    // server list, so 'local' (the routing fallback) won't connect and the tab
+    // opens blank. Prefer the active server if it's a known server, else the
+    // local sidecar, else the first server.
+    const localServer =
+      servers.find((s) => s.source === 'local') ??
+      servers.find((s) => s.host === '127.0.0.1' || s.host === 'localhost');
+    const serverId =
+      (activeId && servers.some((s) => s.id === activeId)) ? activeId
+      : localServer?.id ?? servers[0]?.id ?? serverScope;
     try {
       const mc = (window as any).mc;
       const cfgRes = mc?.invokeOnServer
