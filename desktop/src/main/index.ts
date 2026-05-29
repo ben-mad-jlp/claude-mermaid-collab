@@ -406,7 +406,10 @@ async function bootstrap(): Promise<void> {
   // upstream is immutable for the lifetime of the app; per-server requests are
   // routed via the resolver below (and `mc:invokeOnServer`) instead.
   proxy = new ServerProxy({ host: '127.0.0.1', port });
-  const { port: proxyPort } = await proxy.start();
+  // Fixed preferred port keeps the renderer origin stable across restarts so
+  // localStorage-backed prefs (subscriptions, theme, layout) survive. Falls back
+  // to a free port only if 9180 is already taken.
+  const { port: proxyPort } = await proxy.start(9180);
   console.log(`[bootstrap] proxy on ${proxyPort} → sidecar ${port}`);
 
   // Connection store: persisted server list + auto-listed local instances.
@@ -427,8 +430,10 @@ async function bootstrap(): Promise<void> {
   // Load the real collab UI through the proxy.
   if (mainWindow) mainWindow.loadURL(`http://127.0.0.1:${proxyPort}`);
 
-  // Ensure the app's own session tab exists so browser_* tools keep working.
-  await paneManager.ensureSessionTab(process.env.MC_SESSION ?? 'desktop');
+  // NOTE: we intentionally do NOT eagerly create a session tab here. The browser
+  // pane should start empty — the user adds tabs themselves. The desktop_* /
+  // browser automation provisions its session tab lazily via
+  // desktop-control.ensureSessionTab() when it actually needs one.
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

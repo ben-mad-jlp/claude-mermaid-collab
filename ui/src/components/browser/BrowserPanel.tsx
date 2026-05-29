@@ -62,19 +62,32 @@ export function BrowserPanel() {
     let last = '';
     const tick = () => {
       const el = viewportRef.current;
-      if (el) {
+      // A native WebContentsView is an OS overlay that paints ABOVE all DOM, so
+      // it would cover any modal/overlay (e.g. the subscribe modal). When a
+      // full-screen overlay is present, collapse the view to zero so the DOM
+      // modal shows through; restore on close.
+      const occluded = !!document.querySelector('.fixed.inset-0');
+      if (el && !occluded) {
         const r = el.getBoundingClientRect();
+        // getBoundingClientRect is in CSS px of the (zoomed) page, but the native
+        // WebContentsView's setBounds expects the window's unzoomed DIP space.
+        // When the app zoom factor != 1, scale the rect by it — otherwise the
+        // native view is mis-sized (e.g. at 90% it spills into the terminal pane).
+        const z = (window.mc as any)?.setZoomFactor ? useUIStore.getState().zoomLevel / 100 : 1;
         const rect = {
-          x: Math.round(r.x),
-          y: Math.round(r.y),
-          width: Math.round(r.width),
-          height: Math.round(r.height),
+          x: Math.round(r.x * z),
+          y: Math.round(r.y * z),
+          width: Math.round(r.width * z),
+          height: Math.round(r.height * z),
         };
         const key = `${rect.x},${rect.y},${rect.width},${rect.height}`;
         if (key !== last) {
           last = key;
           bridge()?.setBounds?.(rect);
         }
+      } else if (occluded && last !== 'occluded') {
+        last = 'occluded';
+        bridge()?.setBounds?.(zero);
       }
       raf = requestAnimationFrame(tick);
     };
@@ -94,28 +107,31 @@ export function BrowserPanel() {
         {/* Tab strip */}
         <div className="flex items-center gap-0.5 px-1.5 min-h-[32px] overflow-x-auto bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
           {tabs.map((tab) => {
+            // Blank/new tabs render over a marker page (data: URL, title
+            // "mc-browser-pane:…"); neither makes a sensible tab label.
+            const isPlaceholder = (s?: string) => !s || s === 'about:blank' || s.startsWith('data:') || s.startsWith('mc-browser-pane');
             const label =
               tab.kind === 'session'
                 ? (tab.session ?? 'Session')
-                : (tab.title || tab.url || 'New Tab');
+                : (!isPlaceholder(tab.title) ? tab.title : (!isPlaceholder(tab.url) ? tab.url : 'New Tab'));
             const isActive = tab.id === activeId;
 
             return (
               <div
                 key={tab.id}
                 onClick={() => activateTab(tab.id)}
-                className={`flex items-center gap-1 px-2 py-1 cursor-pointer text-xs whitespace-nowrap border-b-2 ${
+                className={`flex items-center gap-1 px-2 py-1 cursor-pointer text-xs border-b-2 flex-1 min-w-0 max-w-[160px] ${
                   isActive
                     ? 'border-blue-500 text-gray-900 dark:text-gray-100'
                     : 'border-transparent text-gray-500 dark:text-gray-400'
                 }`}
               >
-                <span className="truncate" style={{ maxWidth: 120 }} title={label}>{label}</span>
+                <span className="truncate min-w-0 flex-1" title={label}>{label}</span>
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }}
                   title="Close tab"
-                  className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 px-0.5 leading-none text-[11px]"
+                  className="flex-shrink-0 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 px-0.5 leading-none text-[11px]"
                 >
                   ×
                 </button>
@@ -128,7 +144,7 @@ export function BrowserPanel() {
             type="button"
             onClick={() => openUserTab()}
             title="New tab"
-            className="text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 px-2 py-1 text-base leading-none"
+            className="flex-shrink-0 text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 px-2 py-1 text-base leading-none"
           >
             +
           </button>

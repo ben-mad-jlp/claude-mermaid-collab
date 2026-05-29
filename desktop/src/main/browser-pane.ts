@@ -66,7 +66,9 @@ export class BrowserPaneManager {
     const view = new WebContentsView();
     this.win.contentView.addChildView(view);
     view.setBounds(this.zeroRect);
-    void view.webContents.loadURL(opts.url ?? markerPage(marker));
+    // A new user tab opens blank — no marker placeholder page (that text only
+    // exists to tag automation/session views by title; user tabs aren't targets).
+    void view.webContents.loadURL(opts.url ?? 'about:blank');
     this.tabs.set(id, { id, kind: 'user', view, marker });
     return { id };
   }

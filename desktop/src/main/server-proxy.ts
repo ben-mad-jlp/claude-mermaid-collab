@@ -30,12 +30,29 @@ export class ServerProxy {
     this.localUpstream = localUpstream;
   }
 
-  async start(): Promise<{ port: number }> {
-    const port = await getFreePort();
+  // `preferredPort` keeps the renderer origin (http://127.0.0.1:<port>) STABLE
+  // across restarts. localStorage is keyed by origin, so a random port each
+  // launch would orphan all persisted state (subscriptions, theme, layout). We
+  // try the preferred port first and only fall back to a free one if it's taken.
+  async start(preferredPort?: number): Promise<{ port: number }> {
     this.server = http.createServer((req, res) => this.handleRequest(req, res));
     this.wss = new WebSocketServer({ noServer: true });
     this.server.on('upgrade', (req, socket, head) => this.handleUpgrade(req, socket, head));
-    await new Promise<void>((resolve) => this.server!.listen(port, '127.0.0.1', resolve));
+
+    const tryListen = (p: number) =>
+      new Promise<boolean>((resolve) => {
+        const onError = (err: NodeJS.ErrnoException) => {
+          if (err.code === 'EADDRINUSE') { this.server!.removeListener('error', onError); resolve(false); }
+        };
+        this.server!.once('error', onError);
+        this.server!.listen(p, '127.0.0.1', () => { this.server!.removeListener('error', onError); resolve(true); });
+      });
+
+    let port = preferredPort ?? 0;
+    if (!preferredPort || !(await tryListen(preferredPort))) {
+      port = await getFreePort();
+      await new Promise<void>((resolve) => this.server!.listen(port, '127.0.0.1', resolve));
+    }
     this.port = port;
     return { port };
   }
