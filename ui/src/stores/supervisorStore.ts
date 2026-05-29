@@ -120,6 +120,7 @@ interface SupervisorState {
   locks: Lock[];
   supervised: SupervisedSession[];
   loadSupervised: (serverId: string) => Promise<void>;
+  setSupervisedLocal: (session: SupervisedSession, supervised: boolean) => void;
   loadProjects: (serverId: string) => Promise<void>;
   addProject: (serverId: string, project: string) => Promise<void>;
   removeProject: (serverId: string, project: string) => Promise<void>;
@@ -142,6 +143,21 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     const supervised: SupervisedSession[] = res.body?.supervised ?? [];
     localStorage.setItem(SUPERVISED_KEY, JSON.stringify(supervised));
     set({ supervised });
+  },
+
+  // Optimistically add/remove a supervised session so the Supervisor panel
+  // reflects a toggle immediately, instead of waiting for the next poll/reload.
+  // The caller still fires the REST mutation + loadSupervised() to reconcile.
+  setSupervisedLocal: (session, supervised) => {
+    set((state) => {
+      const key = `${session.project}:${session.session}`;
+      const without = state.supervised.filter((s) => `${s.project}:${s.session}` !== key);
+      const next = supervised
+        ? [...without, { ...session, addedAt: session.addedAt ?? Date.now() }]
+        : without;
+      localStorage.setItem(SUPERVISED_KEY, JSON.stringify(next));
+      return { supervised: next };
+    });
   },
 
   loadProjects: async (serverId) => {
