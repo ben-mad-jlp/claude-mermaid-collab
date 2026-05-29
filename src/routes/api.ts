@@ -2729,6 +2729,7 @@ export async function handleAPI(
       }
 
       const id = sessionTodosPatchMatch[1];
+      const prev = getTodo(project, id); // snapshot the prior assignee for broadcast targeting
       const todo = await updateTodo(project, id, { title, completed, status, assigneeSession, priority, dueDate, description, link });
 
       wsHandler.broadcast({
@@ -2737,6 +2738,8 @@ export async function handleAPI(
         session,
         ownerSession: todo.ownerSession,
         assigneeSession: todo.assigneeSession ?? undefined,
+        // The session a todo was moved AWAY from must also refresh its list.
+        previousAssigneeSession: prev?.assigneeSession ?? undefined,
       });
 
       return Response.json({ todo });

@@ -251,12 +251,15 @@ export async function updateSessionTodo(
     dueDate?: string | null;
     link?: SessionTodoLink | null;
   }
-): Promise<Todo> {
+): Promise<Todo & { previousAssigneeSession: string | null }> {
   const titleValue = updates.title ?? updates.text;
   if (titleValue !== undefined && !titleValue.trim()) {
     throw new Error('text must be non-empty');
   }
-  return updateTodo(project, String(id), {
+  // Snapshot the prior assignee so callers can notify the session a todo was
+  // moved AWAY from — otherwise its list never refreshes (the reassign bug).
+  const previousAssigneeSession = getTodo(project, String(id))?.assigneeSession ?? null;
+  const updated = await updateTodo(project, String(id), {
     title: titleValue?.trim(),
     completed: updates.completed,
     status: updates.status,
@@ -266,6 +269,7 @@ export async function updateSessionTodo(
     dueDate: updates.dueDate,
     link: updates.link,
   });
+  return Object.assign(updated, { previousAssigneeSession });
 }
 
 export async function toggleSessionTodo(
@@ -329,6 +333,8 @@ export async function assignSessionTodo(
   session: string,
   id: string | number,
   assigneeSession: string | null
-): Promise<Todo> {
-  return assignTodo(project, String(id), assigneeSession);
+): Promise<Todo & { previousAssigneeSession: string | null }> {
+  const previousAssigneeSession = getTodo(project, String(id))?.assigneeSession ?? null;
+  const updated = await assignTodo(project, String(id), assigneeSession);
+  return Object.assign(updated, { previousAssigneeSession });
 }

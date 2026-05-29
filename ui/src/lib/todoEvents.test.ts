@@ -14,6 +14,9 @@ describe('shouldRefetchTodos', () => {
   it('true when assigneeSession is mine (cross-session assignment)', () => {
     expect(shouldRefetchTodos({ ...base, assigneeSession: 'me' }, ctx)).toBe(true);
   });
+  it('true when previousAssigneeSession is mine (reassigned away from me)', () => {
+    expect(shouldRefetchTodos({ ...base, assigneeSession: 'someone-else', previousAssigneeSession: 'me' }, ctx)).toBe(true);
+  });
   it('false when project differs', () => {
     expect(shouldRefetchTodos({ ...base, project: '/other', session: 'me', ownerSession: 'me', assigneeSession: 'me' }, ctx)).toBe(false);
   });
