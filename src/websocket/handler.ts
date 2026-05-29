@@ -92,6 +92,7 @@ export type WSMessage =
   | { type: 'ide_disconnected'; reason?: string }
   | { type: 'browser_tab_update'; session: string; active: boolean }
   | { type: 'pair_mode_changed'; pairMode: boolean; project: string; session: string }
+  | { type: 'supervisor_nudge'; project: string; session: string; serverId: string; text: string; sent: boolean }
   | { type: 'peer_registry'; peers: Array<{ serverId: string; baseUrl: string; token?: string }> };
 
 export class WebSocketHandler {

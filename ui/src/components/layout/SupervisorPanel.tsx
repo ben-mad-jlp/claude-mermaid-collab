@@ -2,119 +2,37 @@
  * SupervisorPanel — the "Supervisor" sidebar section.
  *
  * Session-centric: lists the sessions the supervisor oversees (the supervised
- * set from `/api/supervisor/supervised`), grouped by project, with each
- * session's live status, locked flag, and an indicator if it has an open
- * escalation. Below the list is the escalations inbox.
+ * set from `/api/supervisor/supervised`), grouped by project. Each session is
+ * rendered with the SAME card the Watching panel uses (SessionCard), so a
+ * supervised card shows everything a watched one does (project, server icon,
+ * live status, context %, elapsed, avatar) and clicking it behaves identically
+ * (create terminal, focus browser tab, open the terminal). Supervisor-specific
+ * extras: a 🔒 lock indicator, a ⚠️ open-escalation indicator, and the shield
+ * toggle acts as "stop supervising" (DELETE from the supervised set).
  *
- * Live status per session is read from the Watching feed (`useSubscriptionStore`,
- * WS-fed), falling back to a polled persisted status (`/api/session-status`).
+ * Full card data (context %, elapsed, serverId) is merged from the Watching
+ * feed (`useSubscriptionStore`) when a matching subscription exists; otherwise
+ * we fall back to a polled persisted status (`/api/session-status`).
  */
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   useSupervisorStore,
   type Escalation,
-  type Lock,
   type SupervisedSession,
 } from '@/stores/supervisorStore';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useServers } from '@/contexts/ServerContext';
 import { ServerIcon } from '@/components/ServerIcon';
-
-// ---------------------------------------------------------------------------
-// Duplicated from SubscriptionsPanel.tsx (ClaudePixAvatar + its helpers are
-// module-private there). A future refactor could extract these to a shared
-// module (e.g. components/ClaudePixAvatar.tsx) and have both panels import it.
-// ---------------------------------------------------------------------------
-const CLAUDE_PIX_BASE = '/claudepix';
-
-const ANIMATIONS: Record<string, string[]> = {
-  active:     ['work_coding.html', 'dance_bounce_dj.html', 'dance_sway_dj.html', 'dance_djmix.html'],
-  waiting:    ['expression_wink.html', 'expression_sleep.html', 'idle_breathe.html', 'idle_blink.html', 'idle_look_around.html'],
-  permission: ['expression_surprise.html', 'dance_bounce.html'],
-  unknown:    ['idle_breathe.html', 'idle_blink.html', 'idle_look_around.html'],
-};
-
-function pickAnimation(status: string): string {
-  const pool = ANIMATIONS[status] ?? ANIMATIONS.unknown;
-  return `${CLAUDE_PIX_BASE}/${pool[Math.floor(Math.random() * pool.length)]}`;
-}
-
-const ClaudePixAvatar: React.FC<{ status: string }> = ({ status }) => {
-  const [src] = useState(() => pickAnimation(status));
-  const prevStatus = React.useRef(status);
-  const [currentSrc, setCurrentSrc] = useState(src);
-  const [expanded, setExpanded] = useState(false);
-
-  useEffect(() => {
-    if (prevStatus.current !== status) {
-      prevStatus.current = status;
-      setCurrentSrc(pickAnimation(status));
-    }
-  }, [status]);
-
-  return (
-    <>
-      <div
-        className="flex-shrink-0 cursor-pointer"
-        onClick={(e) => { e.stopPropagation(); setExpanded(true); }}
-        title="Click to expand"
-      >
-        <iframe
-          src={currentSrc}
-          title="Claude"
-          scrolling="no"
-          frameBorder="0"
-          sandbox="allow-scripts"
-          className="rounded-sm overflow-hidden pointer-events-none"
-          style={{ width: 44, height: 44, imageRendering: 'pixelated', background: 'transparent', display: 'block' }}
-        />
-      </div>
-
-      {expanded && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center"
-          onClick={() => setExpanded(false)}
-        >
-          <div className="relative" onClick={(e) => e.stopPropagation()}>
-            <iframe
-              src={currentSrc}
-              title="Claude (expanded)"
-              scrolling="no"
-              frameBorder="0"
-              sandbox="allow-scripts"
-              style={{ width: '80vmin', height: '80vmin', imageRendering: 'pixelated', background: 'transparent', display: 'block' }}
-            />
-            <button
-              onClick={() => setExpanded(false)}
-              className="absolute -top-4 -right-4 w-8 h-8 flex items-center justify-center rounded-full bg-white/90 dark:bg-gray-800/90 text-gray-700 dark:text-gray-200 shadow-lg hover:bg-white dark:hover:bg-gray-700 transition-colors text-sm font-bold"
-              title="Close"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      )}
-    </>
-  );
-};
-
-function statusBg(status: string): string {
-  return status === 'permission'
-    ? 'bg-red-300 hover:bg-red-400 border border-red-500'
-    : status === 'active'
-      ? 'card-pulse-amber border border-amber-400'
-      : status === 'waiting'
-        ? 'bg-green-300 hover:bg-green-400 border border-green-500'
-        : 'bg-gray-200 hover:bg-gray-300 border border-gray-300';
-}
+import { SessionCard, activateSessionCard, type SessionCardData } from '@/components/layout/SessionCard';
 
 export interface SupervisorPanelProps {
   currentProject?: string;
   currentSession?: string;
+  onNavigate?: (serverId: string, project: string, session: string) => void;
 }
 
-export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject, currentSession }) => {
+export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject, currentSession, onNavigate }) => {
   const activeId = useSessionStore((s) => s.currentSession)?.serverId ?? null;
   // Routing scope for supervisor API calls. The supervisor store is GLOBAL
   // (server-side), so its data is the same regardless of which server we route
@@ -126,14 +44,15 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   const {
     supervised,
     escalations,
-    locks,
     loadSupervised,
     loadEscalations,
     resolveEscalation,
-    loadLocks,
   } = useSupervisorStore();
 
   const subscriptions = useSubscriptionStore((s) => s.subscriptions);
+  const sessions = useSessionStore((s) => s.sessions);
+  const setCurrentSession = useSessionStore((s) => s.setCurrentSession);
+  const storeCurrentSession = useSessionStore((s) => s.currentSession);
   const { servers } = useServers();
   const [collapsed, setCollapsed] = useState(false);
   const [startingSup, setStartingSup] = useState(false);
@@ -166,16 +85,20 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
     const refresh = () => {
       void loadSupervised(serverScope);
       void loadEscalations(serverScope);
-      void loadLocks(serverScope);
     };
     refresh();
     const id = setInterval(refresh, 10_000);
     return () => clearInterval(id);
-  }, [serverScope, loadSupervised, loadEscalations, loadLocks]);
+  }, [serverScope, loadSupervised, loadEscalations]);
 
   const serverIconById = useMemo(() => {
     const m = new Map<string, string>();
     for (const s of servers) if (s.icon) m.set(s.id, s.icon);
+    return m;
+  }, [servers]);
+  const serverLabelById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const s of servers) m.set(s.id, s.label);
     return m;
   }, [servers]);
   const activeServerIcon = activeId ? serverIconById.get(activeId) : undefined;
@@ -277,27 +200,78 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
     };
   }, [distinctPairsKey]);
 
-  // Merged live status: a live WS subscription (matched on project+session,
-  // regardless of which serverId it's keyed under) takes precedence, then the
-  // polled persisted status, then 'unknown'.
-  const liveStatus = (project: string, session: string): string => {
-    for (const sub of Object.values(subscriptions)) {
-      if (sub.project === project && sub.session === session && sub.status) return sub.status;
-    }
-    return fetchedStatuses[`${project}:${session}`] ?? 'unknown';
-  };
-
-  // Set of locked `${project}:${session}` pairs.
-  const lockSet = useMemo(
-    () => new Set(locks.map((l: Lock) => `${l.project}:${l.session}`)),
-    [locks],
+  // Find the Watching-feed subscription that matches a project+session (any
+  // serverId). It carries the live status, context %, lastUpdate, and the
+  // serverId we should route per-server actions through.
+  const findSubscription = useCallback(
+    (project: string, session: string): SessionCardData | undefined => {
+      for (const sub of Object.values(subscriptions)) {
+        if (sub.project === project && sub.session === session) return sub as SessionCardData;
+      }
+      return undefined;
+    },
+    [subscriptions],
   );
 
-  const hasOpenEscalation = escalations.some((e) => e.status === 'open');
+  // Build full card data for a supervised session: prefer the live subscription
+  // entry, fall back to the polled persisted status. Resolve a serverId for
+  // per-server routing from the subscription, the supervised record, or active.
+  const cardDataFor = useCallback(
+    (s: SupervisedSession): SessionCardData => {
+      const matched = findSubscription(s.project, s.session);
+      const status = (matched?.status && matched.status !== 'unknown'
+        ? matched.status
+        : (fetchedStatuses[`${s.project}:${s.session}`] as SessionCardData['status'])) ?? 'unknown';
+      const serverId = matched?.serverId || s.serverId || activeId || 'local';
+      return {
+        serverId,
+        project: s.project,
+        session: s.session,
+        claudeSessionId: matched?.claudeSessionId,
+        status,
+        lastUpdate: matched?.lastUpdate ?? Date.now(),
+        contextPercent: matched?.contextPercent,
+      };
+    },
+    [findSubscription, fetchedStatuses, activeId],
+  );
+
   const openEscalations = escalations.filter((e) => e.status === 'open');
-  const escalatedSet = useMemo(
-    () => new Set(openEscalations.map((e) => `${e.project}:${e.session}`)),
-    [openEscalations],
+
+  // Navigate: mirror the Watching panel — update local session state for
+  // same-server rows (the card's click side-effects handle terminal/browser).
+  const handleNavigate = useCallback(
+    (sub: SessionCardData) => {
+      if (sub.serverId && activeId && sub.serverId !== activeId) return; // cross-server — don't switch active
+      const target = sessions.find((x) => x.project === sub.project && x.name === sub.session);
+      if (target) setCurrentSession(target);
+      onNavigate?.(sub.serverId ?? activeId ?? '', sub.project, sub.session);
+    },
+    [sessions, setCurrentSession, onNavigate, activeId],
+  );
+
+  // Stop supervising (or, defensively, start) — DELETE/POST the supervised set
+  // then refresh. In this panel every card is supervised, so this removes it.
+  const handleToggleSupervise = useCallback(
+    async (sub: SessionCardData, next: boolean) => {
+      const mc = (window as any).mc;
+      const path = '/api/supervisor/supervised';
+      const body = next
+        ? { project: sub.project, session: sub.session, source: 'manual' }
+        : { project: sub.project, session: sub.session };
+      const method = next ? 'POST' : 'DELETE';
+      if (mc?.invokeOnServer) {
+        await mc.invokeOnServer(serverScope, { path, method, body });
+      } else {
+        await fetch(path, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }).catch(() => {});
+      }
+      void loadSupervised(serverScope);
+    },
+    [serverScope, loadSupervised],
   );
 
   return (
@@ -312,14 +286,6 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
           <span className="ml-1 text-gray-400 dark:text-gray-500 font-normal">
             {supervised.length}
           </span>
-          {hasOpenEscalation && (
-            <span
-              className="flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold animate-pulse"
-              title="An escalation needs attention"
-            >
-              !
-            </span>
-          )}
           <svg
             className={`w-3 h-3 ml-auto text-gray-400 transition-transform ${collapsed ? '-rotate-90' : ''}`}
             viewBox="0 0 20 20"
@@ -344,53 +310,35 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
 
       {/* Body */}
       {!collapsed && (
-        <div className="px-2 pb-2 space-y-3">
+        <div className="px-2 pb-2">
           {supervised.length === 0 ? (
             <div className="px-2 py-4 text-xs text-gray-500 dark:text-gray-400 text-center">
               No supervised sessions
             </div>
           ) : (
-            byProject.map(({ project, sessions }) => (
-              <div key={project} className="space-y-1">
-                {/* Project sub-header */}
-                <div className="flex items-center gap-1.5 px-1 py-0.5">
-                  <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate">
-                    {project.split('/').pop()}
-                  </span>
-                  <ServerIcon
-                    name={activeServerIcon}
-                    size={14}
-                    className="flex-shrink-0 text-gray-500 dark:text-gray-400"
-                  />
-                </div>
-
-                {/* Supervised sessions */}
-                {sessions.map((s) => {
-                  const status = liveStatus(project, s.session);
-                  const locked = lockSet.has(`${project}:${s.session}`);
-                  const escalated = escalatedSet.has(`${project}:${s.session}`);
+            byProject.map(({ project, sessions: projSessions }, i) => (
+              <div
+                key={project}
+                className={`space-y-1 ${i > 0 ? 'mt-2 pt-2 border-t border-gray-200 dark:border-gray-700' : ''}`}
+              >
+                {/* Supervised sessions — same card as Watching */}
+                {projSessions.map((s) => {
+                  const card = cardDataFor(s);
+                  const isSelected =
+                    !!storeCurrentSession &&
+                    storeCurrentSession.project === s.project &&
+                    storeCurrentSession.name === s.session;
                   return (
-                    <div key={s.session} className="flex items-center gap-1">
-                      <div
-                        className={`flex-1 flex items-center gap-2 pl-3 pr-2 py-1 rounded text-sm min-w-0 overflow-hidden ${statusBg(status)}`}
-                      >
-                        <span className="text-xs truncate flex-1 text-black">{s.session}</span>
-                        {locked && (
-                          <span className="flex-shrink-0 text-black" title="Locked by this session" aria-label="locked">
-                            🔒
-                          </span>
-                        )}
-                        {escalated && (
-                          <span className="flex-shrink-0" title="Escalation open" aria-label="escalation">
-                            ⚠️
-                          </span>
-                        )}
-                        <span className="flex-shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-white/50 text-black">
-                          {status}
-                        </span>
-                      </div>
-                      <ClaudePixAvatar status={status} />
-                    </div>
+                    <SessionCard
+                      key={s.session}
+                      sub={card}
+                      serverLabel={serverLabelById.get(card.serverId) ?? undefined}
+                      serverIcon={serverIconById.get(card.serverId) ?? activeServerIcon}
+                      onNavigate={handleNavigate}
+                      isSelected={isSelected}
+                      supervised
+                      onToggleSupervise={handleToggleSupervise}
+                    />
                   );
                 })}
               </div>
@@ -399,45 +347,60 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
 
           {/* Escalations inbox */}
           {openEscalations.length > 0 && (
-            <div className="space-y-1 pt-2 border-t border-gray-200 dark:border-gray-700">
-              <div className="flex items-center gap-1.5 px-1 py-0.5">
-                <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+            <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+              <div className="flex items-center gap-1.5 px-1 pb-1.5">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
                   Escalations
                 </span>
-                <span className="text-xs text-red-500 font-normal">{openEscalations.length}</span>
+                <span className="text-gray-400 dark:text-gray-500 font-normal text-xs">
+                  {openEscalations.length}
+                </span>
               </div>
-              {openEscalations.map((e: Escalation) => (
-                <div
-                  key={e.id}
-                  className="px-2 py-1.5 rounded bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 space-y-1"
-                >
-                  <div className="text-xs text-gray-900 dark:text-gray-100 whitespace-pre-wrap break-words">
-                    {e.questionText}
+              <div className="space-y-1.5">
+                {openEscalations.map((e: Escalation) => (
+                  <div
+                    key={e.id}
+                    className="px-2 py-1.5 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 space-y-1"
+                  >
+                    <div className="text-[11px] font-medium text-gray-500 dark:text-gray-400 truncate">
+                      {`${e.project.split('/').pop()} / ${e.session}`}
+                    </div>
+                    <div className="text-xs text-gray-900 dark:text-gray-100 whitespace-pre-wrap break-words">
+                      {e.questionText}
+                    </div>
+                    <div className="flex items-center gap-1.5 pt-0.5">
+                      <button
+                        onClick={() => {
+                          const sub = findSubscription(e.project, e.session) ?? {
+                            serverId: activeId ?? 'local',
+                            project: e.project,
+                            session: e.session,
+                            status: 'unknown' as const,
+                            lastUpdate: Date.now(),
+                          };
+                          // Same as clicking a card: select the session AND fire
+                          // the per-server side-effects (terminal + browser focus).
+                          handleNavigate(sub);
+                          void activateSessionCard(sub, serverLabelById.get(sub.serverId));
+                        }}
+                        className="px-2 py-0.5 text-[11px] font-medium rounded bg-gray-200 text-gray-700 border border-gray-300 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-600 transition-colors"
+                        title="Jump to session"
+                      >
+                        Jump to session
+                      </button>
+                      <button
+                        onClick={() => {
+                          void resolveEscalation(serverScope, e.id, 'resolved');
+                        }}
+                        className="px-2 py-0.5 text-[11px] rounded text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                        title="Mark resolved and remove from inbox"
+                      >
+                        Resolve
+                      </button>
+                    </div>
                   </div>
-                  <div className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
-                    {`${e.project.split('/').pop()} / ${e.session}`}
-                  </div>
-                  <div className="flex items-center gap-2 pt-0.5">
-                    <button
-                      onClick={() => {
-                        void resolveEscalation(serverScope, e.id, 'resolved');
-                      }}
-                      className="px-2 py-0.5 text-[11px] rounded bg-green-100 text-green-700 border border-green-300 hover:bg-green-200 dark:bg-green-900/40 dark:text-green-300 dark:border-green-700 transition-colors"
-                    >
-                      Resolve
-                    </button>
-                    <button
-                      onClick={() => {
-                        /* TODO(v2): wire up navigation to the escalating session */
-                      }}
-                      className="px-2 py-0.5 text-[11px] rounded bg-gray-100 text-gray-700 border border-gray-300 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 transition-colors"
-                      title="Jump to session"
-                    >
-                      Jump to session
-                    </button>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           )}
         </div>

@@ -3482,10 +3482,21 @@ IMPORTANT - Common pitfalls to avoid:
           case 'supervisor_nudge': {
             const { project, session, serverId, text } = args as { project: string; session: string; serverId?: string; text: string };
             if (!project || !session || !text) throw new Error('Missing required: project, session, text');
+            let result: any;
+            let sent: boolean;
             if (serverId && supervisorStore.getPeer(serverId)) {
-              return JSON.stringify(await peerFetch(serverId, '/api/ide/tmux-send-keys', { method: 'POST', body: { project, session, text } }), null, 2);
+              result = await peerFetch(serverId, '/api/ide/tmux-send-keys', { method: 'POST', body: { project, session, text } });
+              sent = !!(result?.tmux ?? result?.success);
+            } else {
+              result = await sendTmuxKeys(project, session, text);
+              sent = !!result?.sent;
             }
-            return JSON.stringify(await sendTmuxKeys(project, session, text), null, 2);
+            // Surface the nudge in the UI: a toast lets the user SEE that the
+            // supervisor actually pushed a session to continue (and whether it
+            // landed in a live tmux pane). Broadcast on the supervisor's own
+            // server — that's where the user is watching.
+            getWebSocketHandler()?.broadcast({ type: 'supervisor_nudge', project, session, serverId: serverId ?? '', text, sent });
+            return JSON.stringify(result, null, 2);
           }
           case 'supervisor_reconcile': {
             const out: Array<{ project: string; session: string; status: string | null; updatedAt: number | null; openTodos: number; supervised: boolean; locked: boolean; serverId: string }> = [];

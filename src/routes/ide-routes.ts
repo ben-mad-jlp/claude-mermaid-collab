@@ -107,6 +107,11 @@ export async function handleIdeRoutes(req: Request, url: URL, wsHandler: WebSock
       }
       const result = await sendTmuxKeys(project, session, text);
       if (result.reason === 'no-session') return jsonError('tmux session not found', 404);
+      // This route is the nudge-delivery endpoint (the supervisor's remote
+      // nudge peerFetches it). Broadcast so a user watching THIS server sees a
+      // toast for nudges that land here, mirroring the local-nudge broadcast in
+      // the supervisor_nudge MCP handler.
+      wsHandler.broadcast({ type: 'supervisor_nudge', project, session, serverId: '', text, sent: result.sent });
       return Response.json({ success: true, tmux: result.sent });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);

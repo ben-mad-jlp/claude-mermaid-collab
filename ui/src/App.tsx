@@ -496,6 +496,19 @@ const App: React.FC = () => {
 
     // Handle incoming messages with incremental updates (Item 2 & 9)
     const subscription = client.onMessage((message) => {
+      // Supervisor nudge toast — fire regardless of which session is open so
+      // the user always sees when the supervisor pushes a session to continue.
+      if ((message as any).type === 'supervisor_nudge') {
+        const { session, text, sent } = message as any;
+        useNotificationStore.getState().addToast({
+          type: sent ? 'info' : 'warning',
+          title: sent ? `Supervisor nudged ${session}` : `Nudge to ${session} not delivered`,
+          message: sent ? text : 'No live tmux session received the nudge',
+          duration: 6000,
+        });
+        return;
+      }
+
       if (!currentSession) return;
 
       switch (message.type) {

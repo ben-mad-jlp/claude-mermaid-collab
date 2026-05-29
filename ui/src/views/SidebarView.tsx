@@ -68,7 +68,7 @@ export function SidebarView() {
       <SessionInfo project={currentSession?.project ?? project ?? ''} session={currentSession?.name ?? session ?? ''} connected={wsConnected} isConnecting={wsConnecting} />
       <VibeInstructions vsCodeMode={true} />
       <ServersTreeSection />
-      <SupervisorPanel currentProject={project ?? ''} currentSession={session ?? ''} />
+      <SupervisorPanel currentProject={project ?? ''} currentSession={session ?? ''} onNavigate={loadSessionItems} />
       <SubscriptionsPanel currentProject={project ?? ''} onNavigate={loadSessionItems} />
       <ArtifactTree vsCodeMode={true} className="flex-1 min-h-0 w-full" />
     </div>
