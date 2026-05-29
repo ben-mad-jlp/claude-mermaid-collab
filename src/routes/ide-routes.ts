@@ -3,6 +3,7 @@ import type { WebSocketHandler } from '../websocket/handler.ts';
 import { ideState } from '../services/ide-state.ts';
 import { tmuxBaseName } from '../services/tmux-naming.js';
 import { sendTmuxKeys } from '../services/tmux-send.ts';
+import { launchAndBind } from '../services/claude-launch.ts';
 
 function jsonError(message: string, status: number): Response {
   return Response.json({ error: message }, { status });
@@ -146,6 +147,18 @@ export async function handleIdeRoutes(req: Request, url: URL, wsHandler: WebSock
       return Response.json({ sessions });
     } catch {
       return Response.json({ sessions: [] });
+    }
+  }
+
+  if (url.pathname === '/api/ide/launch-session' && req.method === 'POST') {
+    try {
+      const { project, session, allowedTools, invokeSkill } = await req.json() as { project?: string; session?: string; role?: string; allowedTools?: string; invokeSkill?: string };
+      if (!project || typeof project !== 'string') return jsonError('project is required', 400);
+      if (!session || typeof session !== 'string') return jsonError('session is required', 400);
+      const result = await launchAndBind({ project, session, allowedTools, invokeSkill });
+      return Response.json(result);
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }
   }
 

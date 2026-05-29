@@ -34,6 +34,7 @@ import {
 import { recordStatus, getStatuses, getStatus } from '../services/session-status-store';
 import { isSupervised, getSupervisorIdentity } from '../services/supervisor-store.ts';
 import { sendTmuxKeys } from '../services/tmux-send.ts';
+import { lastAssistantTurn } from '../services/transcript-reader.ts';
 import {
   listDesignsHandler,
   createDesignHandler,
@@ -2471,6 +2472,19 @@ export async function handleAPI(
       return Response.json({ error: 'project required' }, { status: 400 });
     }
     return Response.json({ statuses: getStatuses(project) });
+  }
+
+  // GET /api/transcript/last-turn?claudeSessionId=  (peer-callable)
+  if (path === '/api/transcript/last-turn' && req.method === 'GET') {
+    const claudeSessionId = url.searchParams.get('claudeSessionId');
+    if (!claudeSessionId) {
+      return Response.json({ error: 'claudeSessionId required' }, { status: 400 });
+    }
+    try {
+      return Response.json(await lastAssistantTurn(claudeSessionId));
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
   }
 
   // POST /api/session/context-update

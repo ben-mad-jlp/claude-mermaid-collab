@@ -2,6 +2,7 @@ import type { ServerWebSocket } from 'bun';
 import type { AgentCommand, AgentEvent, EffortLevel } from '../agent/contracts.ts';
 import { ideState } from '../services/ide-state.ts';
 import { getStatuses } from '../services/session-status-store.ts';
+import { setPeerRegistry } from '../services/supervisor-store.ts';
 
 type AgentDispatcherLike = { handle(ws: ServerWebSocket<{ subscriptions: Set<string> }>, cmd: AgentCommand): Promise<void> };
 
@@ -89,7 +90,8 @@ export type WSMessage =
   | { type: 'ide_connected'; vscodeVersion: string; extensionVersion: string; workspaceFolders?: string[] }
   | { type: 'ide_reattach'; claudePid: number; claudeSessionId: string; project: string; session: string; tmuxSession: string; boundAt: string }
   | { type: 'ide_disconnected'; reason?: string }
-  | { type: 'browser_tab_update'; session: string; active: boolean };
+  | { type: 'browser_tab_update'; session: string; active: boolean }
+  | { type: 'peer_registry'; peers: Array<{ serverId: string; baseUrl: string; token?: string }> };
 
 export class WebSocketHandler {
   private connections: Set<ServerWebSocket<{ subscriptions: Set<string> }>> = new Set();
@@ -188,6 +190,8 @@ export class WebSocketHandler {
         ideState.ideConnected(ws, d.workspaceFolders ?? []).then(() => {
           this.broadcastToChannel('ide', { type: 'ide_status', connected: true } as unknown as WSMessage);
         });
+      } else if (data.type === 'peer_registry') {
+        setPeerRegistry(data.peers ?? []);
       }
     } catch (error) {
       console.error('Failed to parse WebSocket message:', error);

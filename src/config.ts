@@ -90,6 +90,15 @@ export const MERMAID_PROJECT = process.env.MERMAID_PROJECT ?? process.cwd();
 export const MERMAID_SESSION = process.env.MERMAID_SESSION ?? 'scratch';
 
 /**
+ * Project the global supervisor session lives in. MUST be a trusted directory.
+ * Defaults to MERMAID_PROJECT (this server instance's advertised project).
+ */
+export const SUPERVISOR_PROJECT = process.env.MERMAID_SUPERVISOR_PROJECT ?? MERMAID_PROJECT;
+
+/** Session name reserved for the global supervisor. Defaults to 'supervisor'. */
+export const SUPERVISOR_SESSION = process.env.MERMAID_SUPERVISOR_SESSION ?? 'supervisor';
+
+/**
  * CDP (Chrome DevTools Protocol) port the browser tools connect to.
  * Defaults to 9333. Settable via the CDP_PORT env var so the Electron-spawned
  * sidecar can point at the app's own --remote-debugging-port. Falls back to

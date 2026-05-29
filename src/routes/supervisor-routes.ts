@@ -10,8 +10,10 @@ import {
   listLocks,
   listOpenEscalations,
   resolveEscalation,
+  getSupervisorIdentity,
 } from '../services/supervisor-store.ts';
 import { createItem, listItems, updateItem, deleteItem } from '../services/roadmap-store.ts';
+import { SUPERVISOR_PROJECT, SUPERVISOR_SESSION } from '../config.ts';
 
 function jsonError(message: string, status: number): Response {
   return Response.json({ error: message }, { status });
@@ -173,6 +175,13 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }
+  }
+
+  if (url.pathname === '/api/supervisor/config' && req.method === 'GET') {
+    return Response.json({ supervisorProject: SUPERVISOR_PROJECT, supervisorSession: SUPERVISOR_SESSION });
+  }
+  if (url.pathname === '/api/supervisor/identity' && req.method === 'GET') {
+    return Response.json(getSupervisorIdentity());
   }
 
   return null;

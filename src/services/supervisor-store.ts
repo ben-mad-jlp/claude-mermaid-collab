@@ -22,6 +22,7 @@ export interface SupervisedSession {
   session: string;
   source: 'roadmap' | 'manual';
   addedAt: number;
+  serverId: string;
 }
 
 export interface AttendedLock {
@@ -30,6 +31,7 @@ export interface AttendedLock {
   lockedAt: number;
   reason: string;
   expiresAt: number;
+  serverId: string;
 }
 
 export interface Escalation {
@@ -41,6 +43,7 @@ export interface Escalation {
   status: string;
   createdAt: number;
   resolvedAt: number | null;
+  serverId: string;
 }
 
 const DDL = `
@@ -53,6 +56,7 @@ CREATE TABLE IF NOT EXISTS supervised_session (
   session TEXT NOT NULL,
   source TEXT NOT NULL,
   addedAt INTEGER NOT NULL,
+  serverId TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (project, session)
 );
 CREATE TABLE IF NOT EXISTS attended_lock (
@@ -61,6 +65,7 @@ CREATE TABLE IF NOT EXISTS attended_lock (
   lockedAt INTEGER NOT NULL,
   reason TEXT NOT NULL,
   expiresAt INTEGER NOT NULL,
+  serverId TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (project, session)
 );
 CREATE TABLE IF NOT EXISTS escalation (
@@ -71,18 +76,25 @@ CREATE TABLE IF NOT EXISTS escalation (
   questionText TEXT NOT NULL,
   status TEXT NOT NULL,
   createdAt INTEGER NOT NULL,
-  resolvedAt INTEGER
+  resolvedAt INTEGER,
+  serverId TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_esc_open ON escalation(project, session, questionText, status);
 CREATE TABLE IF NOT EXISTS supervisor_identity (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   project TEXT NOT NULL,
   session TEXT NOT NULL,
-  updatedAt INTEGER NOT NULL
+  updatedAt INTEGER NOT NULL,
+  serverId TEXT NOT NULL DEFAULT ''
 );
 `;
 
 let db: Database | null = null;
+
+function addColumnIfMissing(d: Database, table: string, col: string, ddl: string): void {
+  const cols = d.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === col)) d.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+}
 
 function openDb(): Database {
   if (db) return db;
@@ -92,6 +104,11 @@ function openDb(): Database {
   db = new Database(path);
   db.exec('PRAGMA journal_mode = WAL');
   db.exec(DDL);
+  // Idempotent migrations for existing DBs.
+  addColumnIfMissing(db, 'supervised_session', 'serverId', "serverId TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, 'attended_lock', 'serverId', "serverId TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, 'escalation', 'serverId', "serverId TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, 'supervisor_identity', 'serverId', "serverId TEXT NOT NULL DEFAULT ''");
   return db;
 }
 
@@ -128,12 +145,13 @@ export function listWatchedProjects(): WatchedProject[] {
 export function addSupervised(
   project: string,
   session: string,
-  source: 'roadmap' | 'manual'
+  source: 'roadmap' | 'manual',
+  serverId = ''
 ): void {
   const d = openDb();
   d.prepare(
-    'INSERT OR IGNORE INTO supervised_session (project, session, source, addedAt) VALUES (?,?,?,?)'
-  ).run(project, session, source, Date.now());
+    'INSERT OR IGNORE INTO supervised_session (project, session, source, addedAt, serverId) VALUES (?,?,?,?,?)'
+  ).run(project, session, source, Date.now(), serverId);
 }
 
 export function removeSupervised(project: string, session: string): void {
@@ -165,13 +183,14 @@ export function setLock(
   project: string,
   session: string,
   reason: string,
-  ttlMs: number = DEFAULT_LOCK_TTL_MS
+  ttlMs: number = DEFAULT_LOCK_TTL_MS,
+  serverId = ''
 ): void {
   const d = openDb();
   const now = Date.now();
   d.prepare(
-    'INSERT OR REPLACE INTO attended_lock (project, session, lockedAt, reason, expiresAt) VALUES (?,?,?,?,?)'
-  ).run(project, session, now, reason, now + ttlMs);
+    'INSERT OR REPLACE INTO attended_lock (project, session, lockedAt, reason, expiresAt, serverId) VALUES (?,?,?,?,?,?)'
+  ).run(project, session, now, reason, now + ttlMs, serverId);
 }
 
 export function releaseLock(project: string, session: string): void {
@@ -209,6 +228,7 @@ export function createEscalation(input: {
   session: string;
   kind: string;
   questionText: string;
+  serverId?: string;
 }): Escalation {
   const d = openDb();
   const existing = d
@@ -218,9 +238,10 @@ export function createEscalation(input: {
 
   const id = crypto.randomUUID();
   const createdAt = Date.now();
+  const serverId = input.serverId ?? '';
   d.prepare(
-    'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, resolvedAt) VALUES (?,?,?,?,?,?,?,?)'
-  ).run(id, input.project, input.session, input.kind, input.questionText, 'open', createdAt, null);
+    'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, resolvedAt, serverId) VALUES (?,?,?,?,?,?,?,?,?)'
+  ).run(id, input.project, input.session, input.kind, input.questionText, 'open', createdAt, null, serverId);
   return {
     id,
     project: input.project,
@@ -230,6 +251,7 @@ export function createEscalation(input: {
     status: 'open',
     createdAt,
     resolvedAt: null,
+    serverId,
   };
 }
 
@@ -255,20 +277,29 @@ export interface SupervisorIdentity {
   project: string;
   session: string;
   updatedAt: number;
+  serverId: string;
 }
 
 /** Register which collab session IS the supervisor (singleton, id=1). */
-export function setSupervisorIdentity(project: string, session: string): void {
+export function setSupervisorIdentity(project: string, session: string, serverId = ''): void {
   const d = openDb();
   d.prepare(
-    'INSERT OR REPLACE INTO supervisor_identity (id, project, session, updatedAt) VALUES (1, ?, ?, ?)'
-  ).run(project, session, Date.now());
+    'INSERT OR REPLACE INTO supervisor_identity (id, project, session, updatedAt, serverId) VALUES (1, ?, ?, ?, ?)'
+  ).run(project, session, Date.now(), serverId);
 }
 
 export function getSupervisorIdentity(): SupervisorIdentity | null {
   const d = openDb();
-  const row = d.query('SELECT project, session, updatedAt FROM supervisor_identity WHERE id = 1').get() as
+  const row = d.query('SELECT project, session, updatedAt, serverId FROM supervisor_identity WHERE id = 1').get() as
     | SupervisorIdentity
     | null;
   return row ?? null;
 }
+
+// --- Peer registry (in-memory cache of known peer servers) ---
+
+export interface PeerInfo { serverId: string; baseUrl: string; token?: string }
+let peerRegistry: PeerInfo[] = [];
+export function setPeerRegistry(peers: PeerInfo[]): void { peerRegistry = peers; }
+export function getPeer(serverId: string): PeerInfo | undefined { return peerRegistry.find((p) => p.serverId === serverId); }
+export function listPeers(): PeerInfo[] { return peerRegistry; }
