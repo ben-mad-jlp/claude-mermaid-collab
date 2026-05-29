@@ -1,7 +1,7 @@
 {
   "name": "mermaid-collab-desktop",
   "private": true,
-  "version": "5.74.1",
+  "version": "5.74.2",
   "description": "mermaid-collab native desktop app (Electron)",
   "main": "out/main/index.js",
   "scripts": {
@@ -46,7 +46,10 @@
       {
         "from": "resources",
         "to": ".",
-        "filter": ["mc-server", "mc-server.exe"]
+        "filter": [
+          "mc-server",
+          "mc-server.exe"
+        ]
       },
       {
         "from": "build/icon.png",
