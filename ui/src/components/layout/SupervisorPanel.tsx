@@ -365,7 +365,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                     <div className="text-[11px] font-medium text-gray-500 dark:text-gray-400 truncate">
                       {`${e.project.split('/').pop()} / ${e.session}`}
                     </div>
-                    <div className="text-xs text-gray-900 dark:text-gray-100 whitespace-pre-wrap break-words">
+                    <div className="text-xs font-mono leading-relaxed text-gray-900 dark:text-gray-100 whitespace-pre-wrap break-words">
                       {e.questionText}
                     </div>
                     <div className="flex items-center gap-1.5 pt-0.5">
