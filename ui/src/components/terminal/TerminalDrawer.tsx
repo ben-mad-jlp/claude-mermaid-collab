@@ -205,18 +205,33 @@ export function TerminalDrawer() {
         </button>
       </div>
 
-      {/* Active pane */}
-      <div style={{ flex: 1, minHeight: 0, padding: 6 }}>
-        {activeTabId && tabs.find((t) => t.id === activeTabId) ? (
-          (() => {
-            const tab = tabs.find((t) => t.id === activeTabId)!;
-            return <TerminalPane key={tab.id} sessionId={tab.id} serverId={tab.serverId} />;
-          })()
-        ) : (
+      {/* Panes — keep ALL tabs mounted and stacked; only toggle visibility.
+          Unmounting on tab switch tore down the xterm + WebSocket and forced the
+          server to replay a full-screen TUI's raw buffer at the wrong size
+          (jumbled / stale dimensions). With keep-alive, switching is instant,
+          the terminal keeps its rendered screen, and inactive panes retain their
+          layout size (visibility:hidden ≠ display:none) so they stay correctly
+          sized and resize in sync with the pane. */}
+      <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+        {tabs.length === 0 && (
           <div style={{ color: '#6e7681', fontSize: 12, padding: 8 }}>
             No terminal open — click + to start one
           </div>
         )}
+        {tabs.map((tab) => (
+          <div
+            key={tab.id}
+            style={{
+              position: 'absolute',
+              inset: 0,
+              padding: 6,
+              visibility: tab.id === activeTabId ? 'visible' : 'hidden',
+              zIndex: tab.id === activeTabId ? 1 : 0,
+            }}
+          >
+            <TerminalPane sessionId={tab.id} serverId={tab.serverId} />
+          </div>
+        ))}
       </div>
       </div>
     </ResizableColumn>

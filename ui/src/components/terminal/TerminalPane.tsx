@@ -36,8 +36,30 @@ export function TerminalPane({ sessionId, serverId }: { sessionId: string; serve
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
     };
 
+    // The server defers its buffer replay until the FIRST resize, so that first
+    // resize must carry the real container-fitted size — not xterm's 80x24
+    // default. On (re)mount (e.g. switching terminal tabs) the container is
+    // often 0x0 for a frame; sending 80x24 then makes Claude Code's full-screen
+    // TUI replay at the wrong width and render jumbled. So we hold the initial
+    // resize until the container has been measured at a non-zero size.
+    let wsOpen = false;
+    let sentInitial = false;
+    const hasSize = () => {
+      const el = containerRef.current;
+      return !!el && el.clientWidth > 0 && el.clientHeight > 0;
+    };
+    const trySendInitial = () => {
+      if (sentInitial || !wsOpen || !hasSize()) return;
+      try { fit.fit(); } catch { return; }
+      if (term.cols > 0 && term.rows > 0) {
+        send({ type: 'resize', cols: term.cols, rows: term.rows, isInitial: true });
+        sentInitial = true;
+      }
+    };
+
     ws.onopen = () => {
-      send({ type: 'resize', cols: term.cols, rows: term.rows, isInitial: true });
+      wsOpen = true;
+      trySendInitial();
     };
     ws.onerror = (e) => {
       console.error('[TerminalPane] WS error', sessionId, e);
@@ -58,6 +80,11 @@ export function TerminalPane({ sessionId, serverId }: { sessionId: string; serve
     const onData = term.onData((data) => send({ type: 'input', data }));
 
     const doFit = () => {
+      // Skip while hidden/zero-sized (e.g. a tab being torn down) — fitting at
+      // 0x0 clamps the terminal to a tiny size and would resize the backing
+      // tmux pane, corrupting the TUI.
+      if (!hasSize()) return;
+      if (!sentInitial) { trySendInitial(); return; }
       try {
         fit.fit();
         send({ type: 'resize', cols: term.cols, rows: term.rows });
