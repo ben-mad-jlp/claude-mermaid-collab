@@ -23,6 +23,7 @@ export function BrowserPanel() {
   const goBack = useBrowserStore((s) => s.goBack);
   const goForward = useBrowserStore((s) => s.goForward);
   const reload = useBrowserStore((s) => s.reload);
+  const toggleDevTools = useBrowserStore((s) => s.toggleDevTools);
   const hide = useBrowserStore((s) => s.hide);
   const refresh = useBrowserStore((s) => s.refresh);
   // When the artifact viewer is hidden, the browser fills the freed space
@@ -203,6 +204,19 @@ export function BrowserPanel() {
             placeholder="Enter URL or search…"
             className="flex-1 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-300 dark:border-gray-600 rounded px-2 py-0.5 text-xs outline-none"
           />
+          <button
+            type="button"
+            onClick={() => activeId && toggleDevTools(activeId)}
+            disabled={!activeId}
+            title="Toggle DevTools for this tab"
+            aria-label="Toggle DevTools"
+            className="flex-shrink-0 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-30 px-1 leading-none"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="16 18 22 12 16 6" />
+              <polyline points="8 6 2 12 8 18" />
+            </svg>
+          </button>
         </div>
 
         {/* Viewport placeholder — native WebContentsView sits over this rect */}

@@ -26,6 +26,7 @@ interface BrowserState {
   goBack: (id: string) => Promise<void>;
   goForward: (id: string) => Promise<void>;
   reload: (id: string) => Promise<void>;
+  toggleDevTools: (id: string) => void;
   activateSession: (session: string) => Promise<void>;
 }
 
@@ -86,6 +87,7 @@ export const useBrowserStore = create<BrowserState>()(persist((set, get) => ({
   goBack: async (id) => { if (!bridge()) return; await bridge()?.goBack?.(id); await get().refresh(); },
   goForward: async (id) => { if (!bridge()) return; await bridge()?.goForward?.(id); await get().refresh(); },
   reload: async (id) => { if (!bridge()) return; await bridge()?.reload?.(id); },
+  toggleDevTools: (id) => { bridge()?.devtools?.(id); },
 
   activateSession: async (session) => {
     if (!bridge()) return;

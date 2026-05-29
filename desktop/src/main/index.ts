@@ -39,6 +39,7 @@ function registerIpc(): void {
   ipcMain.handle('mc:browser:goBack', (_e, id: string) => { paneManager?.goBack(id); });
   ipcMain.handle('mc:browser:goForward', (_e, id: string) => { paneManager?.goForward(id); });
   ipcMain.handle('mc:browser:reload', (_e, id: string) => { paneManager?.reload(id); });
+  ipcMain.handle('mc:browser:devtools', (_e, id: string) => { paneManager?.toggleDevTools(id); });
   ipcMain.handle('mc:browser:setBounds', (_e, rect) => { paneManager?.setBounds(rect); });
   ipcMain.handle('mc:setZoomFactor', (_e, factor: number) => { mainWindow?.webContents.setZoomFactor(factor); });
   // Probe a server's reachability from the main process (the renderer can't

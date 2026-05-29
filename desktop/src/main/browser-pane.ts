@@ -126,6 +126,16 @@ export class BrowserPaneManager {
     this.tabs.get(id)?.view.webContents.reload();
   }
 
+  // Open/close Chrome DevTools for a tab's web contents. A WebContentsView can't
+  // dock DevTools inside the app window, so this opens the standard detached
+  // DevTools window for the page the user is inspecting.
+  toggleDevTools(id: string): void {
+    const wc = this.tabs.get(id)?.view.webContents;
+    if (!wc) return;
+    if (wc.isDevToolsOpened()) wc.closeDevTools();
+    else wc.openDevTools({ mode: 'detach' });
+  }
+
   listTabs(): TabInfo[] {
     return Array.from(this.tabs.values()).map(tab => ({
       id: tab.id,
