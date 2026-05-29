@@ -214,7 +214,9 @@ export function createTodo(project: string, input: CreateTodoInput): Promise<Tod
         dueDate, parentId, dependsOn, ord, link, createdAt, updatedAt, completedAt, asanaGid)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
-      id, input.ownerSession, input.assigneeSession ?? null, input.title, input.description ?? null,
+      // A todo added in a session defaults to being assigned to that session
+      // (its ownerSession). Pass an explicit assigneeSession to assign elsewhere.
+      id, input.ownerSession, input.assigneeSession ?? input.ownerSession ?? null, input.title, input.description ?? null,
       status, input.priority ?? null, input.dueDate ?? null, input.parentId ?? null,
       JSON.stringify(input.dependsOn ?? []), ord, input.link ? JSON.stringify(input.link) : null,
       ts, ts, status === 'done' ? ts : null, null

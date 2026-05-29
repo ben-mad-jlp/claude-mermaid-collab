@@ -28,17 +28,28 @@ describe('todo-store', () => {
     expect(t.dependsOn).toEqual([]);
   });
 
-  test('listTodos filters by session (owner OR assignee) and excludes done by default', async () => {
+  test('listTodos session scope is owner-only; assigneeSession filter is separate; excludes done by default', async () => {
     await createTodo(project, { ownerSession: 's1', title: 'a' });
     await createTodo(project, { ownerSession: 's1', assigneeSession: 's2', title: 'b' });
     await createTodo(project, { ownerSession: 's3', title: 'c' });
-    expect(listTodos(project, { session: 's2' }).map((t) => t.title)).toEqual(['b']);
+    // `session` scopes by OWNER only — 'b' is owned by s1 (assigned to s2), so s2 owns nothing.
+    expect(listTodos(project, { session: 's2' }).map((t) => t.title)).toEqual([]);
     expect(listTodos(project, { session: 's1' }).map((t) => t.title).sort()).toEqual(['a', 'b']);
+    // assignee filter surfaces work assigned to a session regardless of owner.
+    expect(listTodos(project, { assigneeSession: 's2' }).map((t) => t.title)).toEqual(['b']);
 
     const done = await createTodo(project, { ownerSession: 's1', title: 'd' });
     await updateTodo(project, done.id, { status: 'done' });
     expect(listTodos(project, { session: 's1' }).some((t) => t.title === 'd')).toBe(false);
     expect(listTodos(project, { session: 's1', includeCompleted: true }).some((t) => t.title === 'd')).toBe(true);
+  });
+
+  test('createTodo defaults assigneeSession to the owner session (assigned to the session it was added in)', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'a' });
+    expect(t.assigneeSession).toBe('s1');
+    // explicit assignee still wins
+    const u = await createTodo(project, { ownerSession: 's1', assigneeSession: 's2', title: 'b' });
+    expect(u.assigneeSession).toBe('s2');
   });
 
   test('getTodo returns null for a missing id', () => {
