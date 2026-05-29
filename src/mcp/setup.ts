@@ -22,8 +22,6 @@ import { getAgentRegistry } from '../agent/agent-registry-manager.js';
 import { updateUI, updateUISchema } from './tools/update-ui.js';
 import { renderUISchema } from './tools/render-ui.js';
 import { browserToolSchemas } from './tools/browser.js';
-import { ElectronDriver } from 'electron-agent-bridge/driver';
-import { createDesktopTools } from 'electron-agent-bridge/mcp-tools';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join as pathJoin } from 'node:path';
 import {
@@ -190,18 +188,35 @@ import { createEmbedSchema, listEmbedsSchema, deleteEmbedSchema, handleCreateEmb
 import { createImageSchema, listImagesSchema, getImageSchema, deleteImageSchema, handleCreateImage, handleListImages, handleGetImage, handleDeleteImage } from './tools/image.js';
 
 // --- Desktop (Electron) MCP tools ---
+// electron-agent-bridge is an OPTIONAL dependency: it drives the Electron
+// desktop app over CDP and is only meaningful where that app runs. On headless
+// / remote servers the package may be absent, so we load it lazily and degrade
+// gracefully (desktop_* tools simply disappear) rather than crashing on boot.
+type ElectronDriverT = import('electron-agent-bridge/driver').ElectronDriver;
+let _bridge: { ElectronDriver: any; createDesktopTools: any } | null = null;
+try {
+  const [driverMod, toolsMod] = await Promise.all([
+    import('electron-agent-bridge/driver'),
+    import('electron-agent-bridge/mcp-tools'),
+  ]);
+  _bridge = { ElectronDriver: driverMod.ElectronDriver, createDesktopTools: toolsMod.createDesktopTools };
+} catch (e) {
+  console.warn('[mcp] electron-agent-bridge unavailable — desktop_* tools disabled:', (e as Error).message);
+}
+
 const desktopSelectTarget = (t: any) => t.type === 'page' && /Mermaid Collab/i.test(t.title || '');
-let _dd: ElectronDriver | null = null;
-async function getDesktopDriver(): Promise<ElectronDriver> {
+let _dd: ElectronDriverT | null = null;
+async function getDesktopDriver(): Promise<ElectronDriverT> {
+  if (!_bridge) throw new Error('Desktop bridge not installed (electron-agent-bridge missing on this host)');
   if (!_dd) {
     try {
-      _dd = await ElectronDriver.fromDiscovery({ appName: 'mermaid-collab', selectTarget: desktopSelectTarget });
+      _dd = await _bridge.ElectronDriver.fromDiscovery({ appName: 'mermaid-collab', selectTarget: desktopSelectTarget });
     } catch (e) {
       _dd = null;
       throw new Error('Desktop app not reachable (no discovery file / not running): ' + (e as Error).message);
     }
   }
-  return _dd;
+  return _dd!;
 }
 async function peerFetch(serverId: string | undefined, path: string, init?: { method?: string; body?: any }): Promise<any> {
   if (!serverId) throw new Error('peerFetch requires serverId');
@@ -214,7 +229,8 @@ async function peerFetch(serverId: string | undefined, path: string, init?: { me
   });
   return await res.json();
 }
-const { defs: desktopDefs, handlers: desktopHandlers } = createDesktopTools(getDesktopDriver);
+const { defs: desktopDefs, handlers: desktopHandlers }: { defs: any[]; handlers: Record<string, (args: any) => Promise<any>> } =
+  _bridge ? _bridge.createDesktopTools(getDesktopDriver) : { defs: [], handlers: {} };
 // desktop_screenshot is overridden below to accept optional project/session for saving.
 const desktopDefsForList = desktopDefs.filter((d) => d.name !== 'desktop_screenshot');
 const desktopScreenshotDef = {
@@ -222,6 +238,9 @@ const desktopScreenshotDef = {
   description: 'Screenshot the desktop app renderer. If project+session given, saves under that session images dir and returns the path; otherwise returns base64.',
   inputSchema: { type: 'object' as const, properties: { format: { type: 'string', enum: ['png', 'jpeg'] }, project: { type: 'string' }, session: { type: 'string' } } },
 };
+// When the bridge is absent, advertise no desktop_* tools at all (including the
+// overridden desktop_screenshot) so clients don't see tools that always error.
+const desktopToolDefs = _bridge ? [...desktopDefsForList, desktopScreenshotDef] : [];
 
 // Configuration
 const API_PORT = parseInt(process.env.PORT || '9002', 10);
@@ -1790,9 +1809,8 @@ IMPORTANT - Common pitfalls to avoid:
       browserToolSchemas.browser_list_setups,
       browserToolSchemas.browser_run_setup,
       browserToolSchemas.browser_delete_setup,
-      // Desktop (Electron) tools
-      ...desktopDefsForList,
-      desktopScreenshotDef,
+      // Desktop (Electron) tools — empty when electron-agent-bridge is absent
+      ...desktopToolDefs,
   // Task management tools
       {
         name: 'update_task_status',
