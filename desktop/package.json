@@ -1,7 +1,7 @@
 {
   "name": "mermaid-collab-desktop",
   "private": true,
-  "version": "0.0.0",
+  "version": "5.74.1",
   "description": "mermaid-collab native desktop app (Electron)",
   "main": "out/main/index.js",
   "scripts": {
@@ -31,15 +31,32 @@
   "build": {
     "appId": "com.mermaid-collab.desktop",
     "productName": "Mermaid Collab",
-    "files": ["out/**/*"],
+    "files": [
+      "out/**/*"
+    ],
     "extraResources": [
-      { "from": "../ui/dist", "to": "ui/dist" },
-      { "from": "../public", "to": "public" },
-      { "from": "resources/mc-server", "to": "mc-server" },
-      { "from": "build/icon.png", "to": "icon.png" }
+      {
+        "from": "../ui/dist",
+        "to": "ui/dist"
+      },
+      {
+        "from": "../public",
+        "to": "public"
+      },
+      {
+        "from": "resources/mc-server",
+        "to": "mc-server"
+      },
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      }
     ],
     "mac": {
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "category": "public.app-category.developer-tools",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
@@ -49,11 +66,16 @@
       "icon": "build/icon.png"
     },
     "win": {
-      "target": ["nsis"],
+      "target": [
+        "nsis"
+      ],
       "icon": "build/icon.png"
     },
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "category": "Development",
       "icon": "build/icon.png"
     },
