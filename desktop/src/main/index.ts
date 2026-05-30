@@ -91,6 +91,9 @@ function registerIpc(): void {
     invokeOnServer(serverId, opts)
   );
   ipcMain.handle('mc:getServerCapabilities', (_e, serverId: string) => store?.getServerCapabilities(serverId) ?? { tmux: false });
+  // The loading screen calls this when the user clicks Retry after a failed
+  // sidecar startup. Re-runs the bring-up using the opts captured in bootstrap.
+  ipcMain.handle('mc:retry-bootstrap', () => { void startServicesGuarded(); });
 }
 
 // Per-server invoke (module-scope so main-process logic can call it directly,
@@ -368,6 +371,11 @@ function createWindow(): void {
   });
 }
 
+// Captured once in bootstrap() so the retryable startServices() (and the
+// mc:retry-bootstrap IPC handler) can re-run the sidecar bring-up without
+// re-doing the one-time window/control setup.
+let serviceOpts: { cdpPort: number; controlUrl: string; controlToken: string } | null = null;
+
 async function bootstrap(): Promise<void> {
   // The CDP switch MUST be set before the app reaches 'ready'. getFreePort is
   // fast, so awaiting it here is safe (spike lesson: a long await before this
@@ -382,7 +390,52 @@ async function bootstrap(): Promise<void> {
   await app.whenReady();
   setupMenu();
   createWindow();
+  // Register IPC up front (handlers use lazy `store?.`/`paneManager?.` refs, so
+  // they're safe before those are assigned) — this also wires mc:retry-bootstrap.
+  registerIpc();
 
+  paneManager = new BrowserPaneManager(mainWindow!, { x: 0, y: 0, width: 0, height: 0 });
+  control = new DesktopControl(paneManager);
+  const { url: controlUrl, token: controlToken } = await control.start();
+  serviceOpts = { cdpPort, controlUrl, controlToken };
+
+  await startServicesGuarded();
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+
+  // Auto-update (packaged builds only; inert without a publish feed + signing).
+  if (app.isPackaged) {
+    import('electron-updater')
+      .then(({ autoUpdater }) => autoUpdater.checkForUpdatesAndNotify())
+      .catch(() => { /* no update feed / unsigned — ignore */ });
+  }
+}
+
+/**
+ * Spawn the sidecar, wire the proxy/store/aggregator, and swap the window from
+ * the loading screen to the real UI. On failure, surface the reason to the
+ * loading screen (mc:bootstrap-error) instead of leaving the window hung — the
+ * renderer's Retry button calls back in via mc:retry-bootstrap.
+ */
+async function startServicesGuarded(): Promise<void> {
+  if (!serviceOpts) return;
+  try {
+    await startServices(serviceOpts);
+  } catch (err) {
+    const e = err as Error & { detail?: string; logPath?: string };
+    console.error('[bootstrap] service startup failed:', err);
+    mainWindow?.webContents.send('mc:bootstrap-error', {
+      message: e?.message ?? String(err),
+      detail: e?.detail,
+      logPath: e?.logPath,
+    });
+  }
+}
+
+async function startServices(opts: { cdpPort: number; controlUrl: string; controlToken: string }): Promise<void> {
+  const { cdpPort, controlUrl, controlToken } = opts;
   // Spawn (or attach to) the Bun sidecar, pointing its browser tools at our
   // own embedded view via CDP_PORT + MC_BROWSER_TARGET (set inside the supervisor).
   const repoRoot = process.env.MC_REPO_ROOT ?? join(app.getAppPath(), '..');
@@ -391,9 +444,6 @@ async function bootstrap(): Promise<void> {
   const prodBinary = app.isPackaged
     ? join(process.resourcesPath, process.platform === 'win32' ? 'mc-server.exe' : 'mc-server')
     : undefined;
-  paneManager = new BrowserPaneManager(mainWindow!, { x: 0, y: 0, width: 0, height: 0 });
-  control = new DesktopControl(paneManager);
-  const { url: controlUrl, token: controlToken } = await control.start();
   supervisor = new ServerSupervisor({
     repoRoot,
     project: repoRoot,
@@ -404,6 +454,9 @@ async function bootstrap(): Promise<void> {
     controlToken,
     serverBinaryPath: prodBinary,
     resourcesPath: app.isPackaged ? process.resourcesPath : undefined,
+    // Tee sidecar stdout/stderr here so a failed Windows/packaged startup is
+    // diagnosable; the path is also shown on the error screen.
+    logFilePath: join(app.getPath('logs'), 'sidecar.log'),
   });
   const { port, attached } = await supervisor.start();
   console.log(`[bootstrap] sidecar ${attached ? 'attached' : 'spawned'} on port ${port}; cdp on ${cdpPort}`);
@@ -431,29 +484,17 @@ async function bootstrap(): Promise<void> {
     const e = store?.get(id);
     return e ? { host: e.host, port: e.port, token: e.token } : null;
   });
-  registerIpc();
   aggregator = new WatchAggregator((e) => void onWatchEvent(e), () => pushPeerRegistry());
   // refreshLocal() ran before the aggregator existed; push the initial roster now.
   pushPeerRegistry();
 
-  // Load the real collab UI through the proxy.
+  // Load the real collab UI through the proxy (replaces the loading screen).
   if (mainWindow) mainWindow.loadURL(`http://127.0.0.1:${proxyPort}`);
 
   // NOTE: we intentionally do NOT eagerly create a session tab here. The browser
   // pane should start empty — the user adds tabs themselves. The desktop_* /
   // browser automation provisions its session tab lazily via
   // desktop-control.ensureSessionTab() when it actually needs one.
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
-
-  // Auto-update (packaged builds only; inert without a publish feed + signing).
-  if (app.isPackaged) {
-    import('electron-updater')
-      .then(({ autoUpdater }) => autoUpdater.checkForUpdatesAndNotify())
-      .catch(() => { /* no update feed / unsigned — ignore */ });
-  }
 }
 
 // Only the primary instance boots the app and owns the sidecar. A second

@@ -64,7 +64,7 @@ describe('ServerSupervisor', () => {
       ...baseOpts, port: 9999, spawnImpl, fetchImpl: failFetch,
       healthTimeoutMs: 40, healthPollMs: 5,
     });
-    await expect(sup.start()).rejects.toThrow('server health timeout');
+    await expect(sup.start()).rejects.toThrow('did not respond');
     expect(child.kill).toHaveBeenCalledWith('SIGTERM');
   });
 

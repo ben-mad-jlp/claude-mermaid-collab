@@ -1,4 +1,5 @@
 import net from 'node:net';
+import fs from 'node:fs';
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 
 export interface SupervisorOpts {
@@ -24,6 +25,8 @@ export interface SupervisorOpts {
   controlUrl?: string;
   /** Desktop control server auth token passed to the sidecar as MC_DESKTOP_CONTROL_TOKEN. */
   controlToken?: string;
+  /** Prod: file to append sidecar stdout/stderr to, so startup failures are diagnosable. */
+  logFilePath?: string;
 }
 
 const HEALTH_TIMEOUT_MS = 25_000;
@@ -55,6 +58,9 @@ export class ServerSupervisor {
   private child: ChildProcess | null = null;
   private port: number | null = null;
   private attached = false;
+  /** Ring buffer of the most recent stderr lines, surfaced in the health-timeout error. */
+  private stderrTail: string[] = [];
+  private logStream: fs.WriteStream | null = null;
 
   constructor(opts: SupervisorOpts) {
     this.opts = opts;
@@ -108,8 +114,30 @@ export class ServerSupervisor {
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
-    this.child.stdout?.on('data', () => {});
-    this.child.stderr?.on('data', () => {});
+
+    // Tee sidecar output to a log file (best-effort) so a failed startup is
+    // diagnosable on machines with no console — and keep a tail of stderr to
+    // fold into the health-timeout error.
+    if (this.opts.logFilePath) {
+      try {
+        this.logStream = fs.createWriteStream(this.opts.logFilePath, { flags: 'a' });
+        this.logStream.write(`\n--- sidecar start ${new Date().toISOString()} (${cmd}) ---\n`);
+      } catch { this.logStream = null; }
+    }
+    this.child.stdout?.on('data', (d: Buffer) => { this.logStream?.write(d); });
+    this.child.stderr?.on('data', (d: Buffer) => {
+      this.logStream?.write(d);
+      for (const line of d.toString().split('\n')) {
+        if (!line.trim()) continue;
+        this.stderrTail.push(line);
+        if (this.stderrTail.length > 40) this.stderrTail.shift();
+      }
+    });
+    // If the process dies before health comes up, record the exit reason.
+    this.child.on('exit', (code, signal) => {
+      this.stderrTail.push(`[sidecar exited code=${code} signal=${signal}]`);
+      if (this.stderrTail.length > 40) this.stderrTail.shift();
+    });
 
     await this.waitForHealth(port);
 
@@ -137,7 +165,14 @@ export class ServerSupervisor {
     } catch {
       // ignore
     }
-    throw new Error('server health timeout');
+    const tail = this.stderrTail.join('\n').trim();
+    const where = this.opts.logFilePath ? ` See ${this.opts.logFilePath}.` : '';
+    const err = new Error(
+      `The collaboration server did not respond within ${Math.round(timeoutMs / 1000)}s.${where}`,
+    ) as Error & { detail?: string; logPath?: string };
+    if (tail) err.detail = tail;
+    if (this.opts.logFilePath) err.logPath = this.opts.logFilePath;
+    throw err;
   }
 
   async stop(): Promise<void> {
@@ -158,6 +193,8 @@ export class ServerSupervisor {
       }
     }
     this.child = null;
+    try { this.logStream?.end(); } catch { /* ignore */ }
+    this.logStream = null;
   }
 
   async isHealthy(): Promise<boolean> {

@@ -25,6 +25,14 @@ contextBridge.exposeInMainWorld('mc', {
     ipcRenderer.on('mc:zoom', h);
     return () => ipcRenderer.removeListener('mc:zoom', h);
   },
+  // Startup failure surface for the loading screen: main sends mc:bootstrap-error
+  // when the sidecar never becomes healthy; retryBootstrap re-runs the spawn.
+  onBootstrapError: (cb: (info: { message: string; detail?: string; logPath?: string }) => void) => {
+    const h = (_e: any, info: any) => cb(info);
+    ipcRenderer.on('mc:bootstrap-error', h);
+    return () => ipcRenderer.removeListener('mc:bootstrap-error', h);
+  },
+  retryBootstrap: () => ipcRenderer.invoke('mc:retry-bootstrap'),
   browser: {
     listTabs: () => ipcRenderer.invoke('mc:browser:listTabs'),
     openTab: (opts: { url?: string }) => ipcRenderer.invoke('mc:browser:openTab', opts),
