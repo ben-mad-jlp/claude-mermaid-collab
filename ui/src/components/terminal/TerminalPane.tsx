@@ -20,7 +20,11 @@ export function TerminalPane({ sessionId, serverId }: { sessionId: string; serve
     if (!container) return;
 
     const term = new Terminal({
-      convertEol: true,
+      // NB: do NOT set convertEol — the PTY/tmux already emits explicit \r\n.
+      // convertEol rewrites bare \n into \r\n, which forces the cursor to
+      // column 0 when a full-screen TUI (Claude Code's input box) only meant
+      // to move down a row, smearing the box's left border (`│ `) into the
+      // indent of each new line.
       fontSize: 13,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, monospace',
       theme: { background: '#0d1117', foreground: '#c9d1d9' },

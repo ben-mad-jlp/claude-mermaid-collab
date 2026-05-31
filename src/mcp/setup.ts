@@ -218,6 +218,36 @@ async function getDesktopDriver(): Promise<ElectronDriverT> {
   }
   return _dd!;
 }
+
+/** Drop the memoized driver so the next getDesktopDriver() re-reads discovery. */
+function resetDesktopDriver(): void { _dd = null; }
+
+/**
+ * True for errors that mean the cached CDP endpoint is dead — typically because
+ * the desktop app relaunched on a new free debugging port, leaving the memoized
+ * ElectronDriver dialing the old (now closed) port.
+ */
+function isDesktopConnError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return /ECONNREFUSED|ECONNRESET|ETIMEDOUT|EPIPE|socket hang up|WebSocket|not reachable|connect/i.test(msg);
+}
+
+/**
+ * Run a desktop-driver operation with one self-healing retry. The driver is
+ * connect-per-op, so a stale CDP port only surfaces when the op actually dials.
+ * On a connection-style failure we drop the memo (forcing fresh discovery) and
+ * retry once — so an app restart no longer strands the driver for the life of
+ * the MCP sidecar.
+ */
+async function withDesktopRetry<T>(op: () => Promise<T>): Promise<T> {
+  try {
+    return await op();
+  } catch (e) {
+    if (!isDesktopConnError(e)) throw e;
+    resetDesktopDriver();
+    return await op();
+  }
+}
 async function peerFetch(serverId: string | undefined, path: string, init?: { method?: string; body?: any }): Promise<any> {
   if (!serverId) throw new Error('peerFetch requires serverId');
   const peer = supervisorStore.getPeer(serverId);
@@ -3549,7 +3579,14 @@ IMPORTANT - Common pitfalls to avoid:
           case 'escalation_create': {
             const { project, session, kind, questionText } = args as { project: string; session: string; kind: string; questionText: string };
             if (!project || !session || !kind || !questionText) throw new Error('Missing required: project, session, kind, questionText');
-            return JSON.stringify(supervisorStore.createEscalation({ project, session, kind, questionText }), null, 2);
+            const isDedup = supervisorStore.listOpenEscalations().some(
+              (e) => e.project === project && e.session === session && e.questionText === questionText
+            );
+            const esc = supervisorStore.createEscalation({ project, session, kind, questionText });
+            if (!isDedup) {
+              getWebSocketHandler()?.broadcast({ type: 'escalation_created', project, session, kind, id: esc.id });
+            }
+            return JSON.stringify(esc, null, 2);
           }
           case 'complete_linked_todos': {
             const { project, session, blueprintId, taskId } = args as {
@@ -4213,8 +4250,10 @@ IMPORTANT - Common pitfalls to avoid:
 
           case 'desktop_screenshot': {
             const a = (args ?? {}) as { project?: string; session?: string; format?: 'png' | 'jpeg' };
-            const d = await getDesktopDriver();
-            const { base64 } = await d.screenshot({ format: a.format });
+            const { base64 } = await withDesktopRetry(async () => {
+              const d = await getDesktopDriver();
+              return d.screenshot({ format: a.format });
+            });
             if (a.project && a.session) {
               const imagesDir = pathJoin(a.project, '.collab', 'sessions', a.session, 'images');
               await mkdir(imagesDir, { recursive: true });
@@ -4234,7 +4273,7 @@ IMPORTANT - Common pitfalls to avoid:
           case 'desktop_list_targets': {
             const handler = desktopHandlers[name];
             if (!handler) throw new Error(`Unknown desktop tool: ${name}`);
-            return await handler(args ?? {});
+            return await withDesktopRetry(() => handler(args ?? {}));
           }
 
           default:
