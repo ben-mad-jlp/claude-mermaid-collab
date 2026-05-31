@@ -9,6 +9,8 @@ function makeFetch(delay = 0) {
       setTimeout(
         () =>
           resolve({
+            ok: true,
+            status: 201,
             json: async () => FETCH_DATA,
           } as unknown as Response),
         delay

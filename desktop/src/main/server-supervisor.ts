@@ -1,6 +1,8 @@
 import net from 'node:net';
 import fs from 'node:fs';
-import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
+import os from 'node:os';
+import path from 'node:path';
+import { spawn, execFileSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
 
 export interface SupervisorOpts {
   repoRoot: string;
@@ -31,6 +33,81 @@ export interface SupervisorOpts {
 
 const HEALTH_TIMEOUT_MS = 25_000;
 const HEALTH_POLL_MS = 300;
+
+/** Common user bin dirs that a GUI-launched PATH typically omits. */
+function commonBinDirs(homeDir: string): string[] {
+  return [
+    '/opt/homebrew/bin',
+    '/opt/homebrew/sbin',
+    '/usr/local/bin',
+    path.join(homeDir, '.bun', 'bin'),
+    path.join(homeDir, '.local', 'bin'),
+  ];
+}
+
+/** Prepend any of `dirs` not already present to the colon-joined `base` PATH. */
+function prependDirs(base: string, dirs: string[]): string {
+  const existing = base.split(':').filter(Boolean);
+  const have = new Set(existing);
+  return [...dirs.filter((d) => !have.has(d)), ...existing].join(':');
+}
+
+const PATH_SENTINEL = '__MC_LOGIN_PATH__';
+
+/**
+ * GUI-launched macOS apps (Finder, Dock, login items) inherit a minimal PATH —
+ * `/usr/bin:/bin:/usr/sbin:/sbin` — with no Homebrew/nvm/asdf/bun dirs. The
+ * sidecar then can't find user-installed tools, so e.g. `tmux` (Homebrew-only at
+ * `/opt/homebrew/bin/tmux`) is missing and clicking a session opens a dead
+ * terminal. Resolve the real login-shell PATH the way VS Code / the `shell-env`
+ * package do — run the user's login+interactive shell so rc files that export
+ * PATH are sourced — then merge in the common dirs as a backstop. Exported for
+ * testing. On Windows, PATH semantics differ and the GUI inherits a full PATH,
+ * so this is a no-op.
+ */
+export function resolveLoginPath(opts?: {
+  currentPath?: string;
+  platform?: NodeJS.Platform;
+  shell?: string;
+  homeDir?: string;
+  execImpl?: (cmd: string, args: string[], options: { timeout: number; encoding: 'utf8' }) => string;
+}): string {
+  const currentPath = opts?.currentPath ?? process.env.PATH ?? '';
+  const platform = opts?.platform ?? process.platform;
+  const homeDir = opts?.homeDir ?? os.homedir();
+  if (platform === 'win32') return currentPath;
+
+  const dirs = commonBinDirs(homeDir);
+  const shell = opts?.shell ?? process.env.SHELL ?? '/bin/zsh';
+  const exec =
+    opts?.execImpl ??
+    ((cmd, args, options) =>
+      execFileSync(cmd, args, { ...options, stdio: ['ignore', 'pipe', 'ignore'] }).toString());
+
+  try {
+    // -i -l -c: interactive login shell so ~/.zprofile, ~/.zshrc, nvm, asdf, etc.
+    // all run. Bracket PATH with a sentinel so rc-file chatter on stdout can't be
+    // mistaken for the value.
+    const script = `printf '%s' '${PATH_SENTINEL}'; printf '%s' "$PATH"; printf '%s' '${PATH_SENTINEL}'`;
+    const out = exec(shell, ['-ilc', script], { timeout: 5_000, encoding: 'utf8' });
+    const start = out.indexOf(PATH_SENTINEL);
+    const end = out.indexOf(PATH_SENTINEL, start + PATH_SENTINEL.length);
+    if (start !== -1 && end !== -1) {
+      const resolved = out.slice(start + PATH_SENTINEL.length, end).trim();
+      if (resolved.includes('/')) return prependDirs(resolved, dirs);
+    }
+  } catch {
+    // Shell missing/slow/erroring — fall through to the static backstop.
+  }
+  return prependDirs(currentPath, dirs);
+}
+
+/** Memoized so we only pay the login-shell spawn once per app run. */
+let cachedLoginPath: string | null = null;
+function augmentedPath(): string {
+  if (cachedLoginPath == null) cachedLoginPath = resolveLoginPath();
+  return cachedLoginPath;
+}
 
 /** Resolve a free loopback port (lifted from the verified spike). */
 export function getFreePort(): Promise<number> {
@@ -80,6 +157,11 @@ export class ServerSupervisor {
 
     const env: NodeJS.ProcessEnv = {
       ...process.env,
+      // Repair the minimal PATH a GUI/login-item launch inherits, so the sidecar
+      // and its children (tmux, the PTY shells, git, claude) can find
+      // user-installed tools. Without this, tmux is missing after a restart and
+      // session terminals open dead.
+      PATH: augmentedPath(),
       PORT: String(port),
       HOST: this.opts.host,
       MERMAID_PROJECT: this.opts.project,

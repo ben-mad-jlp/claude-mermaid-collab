@@ -65,21 +65,22 @@ export async function handleIdeRoutes(req: Request, url: URL, wsHandler: WebSock
         return jsonError('project is required', 400);
       }
       const tmuxSession = tmuxBaseName(project, session);
-      let tmuxAvailable = true;
-      try {
-        const proc = Bun.spawn(
-          ['tmux', 'new-session', '-d', '-s', tmuxSession],
-          { stdout: 'ignore', stderr: 'ignore' }
-        );
-        await proc.exited; // ok if it fails (session already exists)
-      } catch (e: any) {
-        // tmux not installed on this host (ENOENT) or otherwise unspawnable —
-        // degrade gracefully: still broadcast the WS event so any IDE-side
-        // listener can react, and return 200 so the client doesn't see a 500.
-        tmuxAvailable = false;
-        console.warn(
-          `[ide/create-terminal] tmux spawn failed (${e?.code ?? 'unknown'}): ${e?.message ?? String(e)} — treating as soft no-op`
-        );
+      const { isTmuxAvailable } = await import('../services/tmux-availability.js');
+      const tmuxAvailable = await isTmuxAvailable();
+      if (tmuxAvailable) {
+        try {
+          const proc = Bun.spawn(
+            ['tmux', 'new-session', '-d', '-s', tmuxSession],
+            { stdout: 'ignore', stderr: 'ignore' }
+          );
+          await proc.exited; // ok if it fails (session already exists)
+        } catch (e: any) {
+          // tmux vanished between the probe and here — degrade gracefully: still
+          // broadcast the WS event so any IDE-side listener can react.
+          console.warn(
+            `[ide/create-terminal] tmux spawn failed (${e?.code ?? 'unknown'}): ${e?.message ?? String(e)} — treating as soft no-op`
+          );
+        }
       }
       wsHandler.broadcastToChannel('ide', {
         type: 'ide_open_terminal',

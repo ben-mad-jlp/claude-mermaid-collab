@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { useNotificationStore } from './notificationStore';
 
 export interface TerminalTab {
   id: string;
@@ -132,19 +133,16 @@ export const useTerminalStore = create<TerminalState>()(persist((set, get) => ({
     openingSessions.add(key);
     try {
       const mc = getMc();
-      let data: { id: string; tmuxSession: string };
+      let data: { id?: string; tmuxSession?: string; error?: string; code?: string };
+      let ok: boolean;
       if (mc?.invokeOnServer) {
         const env = await mc.invokeOnServer(serverId, {
           path: '/api/terminal/sessions',
           method: 'POST',
           body: { project, session },
         });
-        if (!env.ok || !env.body) {
-          throw new Error(
-            typeof env.body === 'string' ? env.body : JSON.stringify(env.body ?? { status: env.status })
-          );
-        }
-        data = env.body as { id: string; tmuxSession: string };
+        ok = !!env.ok;
+        data = (typeof env.body === 'object' && env.body ? env.body : { error: String(env.body ?? env.status) }) as typeof data;
       } else {
         // Plain-browser fallback (dev / tests): legacy relative URL.
         const res = await fetch('/api/terminal/sessions', {
@@ -152,14 +150,28 @@ export const useTerminalStore = create<TerminalState>()(persist((set, get) => ({
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ project, session }),
         });
-        data = await res.json();
+        ok = res.ok;
+        data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      }
+      if (!ok || !data.id) {
+        // Surface server-side failures (notably tmux-unavailable) instead of
+        // opening a dead pane. The terminal needs tmux on the server; a missing
+        // binary used to fail silently and leave the user staring at nothing.
+        const isTmux = data.code === 'tmux-unavailable';
+        useNotificationStore.getState().addToast({
+          type: 'error',
+          title: isTmux ? 'Terminal unavailable' : 'Could not open terminal',
+          message: data.error ?? 'The server could not start a terminal session.',
+          duration: isTmux ? 10000 : 6000,
+        });
+        return;
       }
       const newTab: TerminalTab = {
         id: data.id,
         title: opts.title ?? session,
         session,
         project,
-        tmuxName: data.tmuxSession,
+        tmuxName: data.tmuxSession ?? '',
         serverId,
         serverLabel,
         hideServerIcon: opts.hideServerIcon,

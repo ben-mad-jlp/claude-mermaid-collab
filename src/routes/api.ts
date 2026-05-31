@@ -3105,6 +3105,18 @@ export async function handleAPI(
       // Expand ~ to home directory
       const project = expandPath(rawProject);
 
+      // tmux hosts every terminal session; if it's missing on the server PATH the
+      // PTY shell exits instantly and the pane opens dead. Fail loudly so the UI
+      // can tell the user instead of silently presenting a broken terminal. (Most
+      // common after a GUI/login-item app relaunch with a Homebrew-less PATH.)
+      const { isTmuxAvailable, TMUX_UNAVAILABLE_MESSAGE } = await import('../services/tmux-availability.js');
+      if (!(await isTmuxAvailable())) {
+        return Response.json(
+          { error: TMUX_UNAVAILABLE_MESSAGE, code: 'tmux-unavailable' },
+          { status: 503 },
+        );
+      }
+
       // Import managers
       const { terminalManager } = await import('../services/terminal-manager.js');
       const { ptyManager } = await import('../terminal/index.js');
