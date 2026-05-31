@@ -227,3 +227,29 @@ export function listItemTodos(project: string, itemId: string): string[] {
   const rows = db.query('SELECT todoId FROM roadmap_item_todo WHERE itemId = ?').all(itemId) as { todoId: string }[];
   return rows.map((r) => r.todoId);
 }
+
+export function computeWaves(items: RoadmapItem[]): RoadmapItem[][] {
+  if (items.length === 0) return [];
+  const byId = new Map<string, RoadmapItem>();
+  for (const it of items) byId.set(it.id, it);
+  // Remaining items keyed by id; deps that aren't in the set are ignored.
+  const remaining = new Map<string, RoadmapItem>(byId);
+  const placed = new Set<string>();
+  const waves: RoadmapItem[][] = [];
+  while (remaining.size > 0) {
+    const wave: RoadmapItem[] = [];
+    for (const it of remaining.values()) {
+      const deps = (it.dependsOn ?? []).filter((d) => byId.has(d)); // ignore unknown/dropped deps
+      const ready = deps.every((d) => placed.has(d));
+      if (ready) wave.push(it);
+    }
+    if (wave.length === 0) {
+      // Dependency cycle (or self-dependency) — emit the rest as a final wave to avoid an infinite loop.
+      waves.push(Array.from(remaining.values()));
+      break;
+    }
+    for (const it of wave) { remaining.delete(it.id); placed.add(it.id); }
+    waves.push(wave);
+  }
+  return waves;
+}

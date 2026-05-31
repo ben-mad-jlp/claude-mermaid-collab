@@ -55,6 +55,11 @@ export interface UIState {
   proposedEditObserveMode: boolean;
   setProposedEditObserveMode: (on: boolean) => void;
 
+  // Supervisor full-page view
+  supervisorViewOpen: boolean;
+  setSupervisorViewOpen: (open: boolean) => void;
+  toggleSupervisorView: () => void;
+
   // Diff view preference: side-by-side (true) or unified (false)
   diffSideBySide: boolean;
   setDiffSideBySide: (on: boolean) => void;
@@ -178,6 +183,10 @@ export const useUIStore = create<UIState>()(
       togglePairMode: () => { const current = get().pairMode; set({ pairMode: !current }); },
       proposedEditObserveMode: false,
       setProposedEditObserveMode: (on: boolean) => set({ proposedEditObserveMode: on }),
+
+      supervisorViewOpen: false,
+      setSupervisorViewOpen: (open: boolean) => set({ supervisorViewOpen: open }),
+      toggleSupervisorView: () => set({ supervisorViewOpen: !get().supervisorViewOpen }),
 
       diffSideBySide: true,
       setDiffSideBySide: (on: boolean) => set({ diffSideBySide: on }),

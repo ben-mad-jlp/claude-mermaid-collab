@@ -1,79 +1,57 @@
 ---
 name: vibe-checkpoint
-description: Save current vibe state before a /clear — updates the .vibeinstructions snippet with what we're doing so we can resume after compact
+description: Checkpoint the in-progress session todo before a /clear — writes "where we are" into the active todo's description so the next session can resume from it
 user-invocable: true
 allowed-tools: mcp__plugin_mermaid-collab_mermaid__*, Read, Glob, Grep, Bash
 ---
 
 # Vibe Checkpoint
 
-Save the current state of the vibe before clearing context. Updates the `.vibeinstructions` snippet with what we're currently working on so the next session can pick up immediately.
+Save the current state of the vibe before clearing context.
+
+The checkpoint lives **on the todo currently being worked on**, not in the `.vibeinstructions` snippet. Session todos are already persisted server-side, so they survive `/clear` for free. The only thing worth saving is the fine-grained "where am I" detail for the active task — and that belongs in that task's todo.
+
+Model:
+- **`vibe.vibeinstructions`** → stable high-level orientation only (Goal, Context). Not touched here.
+- **Session todos** → the live work list. Already durable.
+- **The `in_progress` todo's `description`** → the checkpoint. This is what resume reads to pick up mid-task.
 
 ## Steps
 
-### Step 1 — Find the vibeinstructions document
+### Step 1 — Find the active todo
 
-Call `mcp__plugin_mermaid-collab_mermaid__list_documents` with the current project and session.
+Call `mcp__plugin_mermaid-collab_mermaid__list_session_todos` for the current project and session with `includeCompleted: false`.
 
-Look for a document whose `name` ends with `vibeinstructions`.
+Find the todo with `status: "in_progress"`.
 
-### Step 2 — Read current instructions
+- **Exactly one `in_progress`:** that is the todo to checkpoint. Continue to Step 2.
+- **None `in_progress`:** infer which todo the recent conversation was actually working on. Tell the user which one you picked and set its `status` to `in_progress` via `update_session_todo` before continuing. If no todo matches the current work, add one with `add_session_todo` (status `in_progress`), then continue.
+- **More than one `in_progress`:** pick the one the recent conversation was actually advancing, checkpoint that one, and mention the others to the user.
 
-If found, call `mcp__plugin_mermaid-collab_mermaid__get_document` to read the full content.
+### Step 2 — Write the checkpoint into the todo description
 
-If not found, the content template is:
-```
-# Vibe: [session name]
-
-## Goal
-[Not yet defined]
-
-## Context
-[No context recorded]
-
-## Currently Doing
-[Nothing recorded yet]
-```
-
-### Step 3 — Fetch open session todos
-
-Call `mcp__plugin_mermaid-collab_mermaid__list_session_todos` for the current project and session with `includeCompleted: false` (or filter to incomplete todos only).
-
-If there are incomplete todos, format up to 10 as a list:
-```
-#{id} {text}
-```
-If a todo has a `link` field, append ` ↳ {link.blueprintId}` on the same line, and if `link.taskId` is also present append ` · {link.taskId}` after it.
-
-Keep this list for use in Step 4. If there are no incomplete todos, skip the list.
-
-### Step 4 — Write the checkpoint summary
-
-Based on the recent conversation context, write a concise "Currently Doing" summary (3–8 bullet points) covering:
-- What task/feature/problem we're in the middle of
-- What files or components are relevant
+Based on the recent conversation, write a concise checkpoint (3–8 bullet points) into the active todo's `description`, covering:
+- What has been done so far on this task
 - What the next concrete step is
-- Any important decisions or blockers
-- If there are open todos from Step 3, append them at the end as a sub-list under a `**Open todos:**` label. Do NOT include completed todos.
+- Relevant files / components / artifacts
+- Any decisions made or blockers hit
 
-### Step 5 — Update the instructions
+Call `mcp__plugin_mermaid-collab_mermaid__update_session_todo` with the todo `id` and the new `description`. Do not change `text`/`title` unless the task itself was redefined.
 
-Find the `## Currently Doing` heading line number in the snippet. Replace only the lines *after* the heading (the bullet points) — do not include the `## Currently Doing` heading in `newContent`.
+### Step 3 — Reconcile the rest of the list
 
-For example, if `## Currently Doing` is on line 11 and the file ends at line 14, patch startLine=12, endLine=14 with just the bullet points.
+Quickly make the todo list match reality so resume is trustworthy:
+- Mark any todo finished this session as `done` (or `completed: true`).
+- Add todos for concrete work that surfaced but isn't captured yet.
+- Leave priorities/order as they are unless something is clearly mis-ranked.
 
-If the document exists: call `mcp__plugin_mermaid-collab_mermaid__patch_document` with the updated content.
-
-If it does not exist: call `mcp__plugin_mermaid-collab_mermaid__create_document` with:
-- `name`: `vibe.vibeinstructions`
-- `content`: the full template with the checkpoint filled in
-
-### Step 6 — Confirm and prompt
+### Step 4 — Confirm
 
 Tell the user:
 ```
-Checkpoint saved to vibe.vibeinstructions.
+Checkpoint saved to the in-progress todo: "{todo title}".
 
-Currently Doing section updated. You can now run /clear to compact the context.
-When you return, the vibe-active skill will restore this context automatically.
+Your todos are the checkpoint — they persist across /clear. You can clear now.
+When you return, vibe-active restores Goal/Context + open todos, and this todo's
+description tells us exactly where we left off.
 ```

@@ -368,15 +368,11 @@ Args: {
 Wave [N] complete.
 ```
 
-**Auto-checkpoint:** Update the vibe instructions "Currently Doing" section:
-1. Find and read the `vibeinstructions` document
-2. Replace everything after `## Currently Doing` with:
-   ```
-   - Executing blueprint: [blueprint name]
-   - Wave [N]/[total] complete — [completed tasks] done, [remaining tasks] remaining
-   - Next step: wave [N+1] or /vibe-review if all waves done
-   ```
-3. Write back with `update_document`
+**Auto-checkpoint:** Fine-grained progress lives in session todos, NOT the vibeinstructions snippet. Update the `in_progress` todo that tracks this Go run (or add one if none exists) with the current state in its `description`:
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__update_session_todo
+Args: { "project": "<cwd>", "session": "<session>", "id": "<go-run todo id>", "status": "in_progress", "description": "Executing blueprint [name]. Wave [N]/[total] complete — [done] done, [remaining] remaining. Next: wave [N+1] or /vibe-review if all waves done. Resume via get_task_graph pending list." }
+```
 
 **Immediately proceed to next wave. Do NOT ask the user.**
 
@@ -384,11 +380,34 @@ Wave [N] complete.
 
 When all waves finish:
 
-```
-All tasks complete across [M] waves.
+### 5.1 Capture deferred follow-ups as session todos (DEFAULT — always do this)
 
-Run /vibe-review to check for bugs and verify completeness.
+Review the wave summaries and the work just done for any **deferred follow-ups** — things that were intentionally NOT finished this run. These include: items labelled "deferred"/"follow-up"/"out of scope", `// TODO` comments the agents left, stubbed/neutral placeholders, specced-but-unwritten tests, known limitations (e.g. TOCTOU, non-durable state), and any "open question" still unresolved.
+
+For EACH one, add a session todo so it isn't lost:
 ```
+Tool: mcp__plugin_mermaid-collab_mermaid__add_session_todo
+Args: { "project": "<cwd>", "session": "<session>", "text": "<short title>", "status": "backlog" | "todo", "priority": <0-4>, "description": "Follow-up from /vibe-go. <what + where (file) + why deferred>" }
+```
+Use `status: 'todo'` for follow-ups that should be done soon (e.g. missing tests), `backlog` for nice-to-haves. This is not optional — surfacing deferred work as tracked todos is default behavior, so nothing silently disappears.
+
+### 5.2 Queue review (DEFAULT — always)
+
+Code review after a Go run is default behavior, not an optional suggestion.
+
+- **If this Go run is being driven by a supervisor / autonomous context** (no interactive human to prompt): add a `/vibe-review` follow-up as a session todo and, where the supervisor assigns work, assign it — do NOT just print a suggestion the supervisor can't act on:
+  ```
+  Tool: mcp__plugin_mermaid-collab_mermaid__add_session_todo
+  Args: { "project": "<cwd>", "session": "<session>", "text": "Run /vibe-review on the executed blueprint", "status": "todo", "priority": 0, "description": "Default post-/vibe-go step: bug + completeness review of all waves." }
+  ```
+  Then proceed to run `/vibe-review` (invoke the `vibe-review` skill) as the next step.
+- **If a human is present:** tell them review is the default next step and offer to run it now:
+  ```
+  All tasks complete across [M] waves.
+
+  Deferred follow-ups captured as todos: [N].
+  Next (default): /vibe-review to check for bugs and verify completeness — want me to run it now?
+  ```
 
 ## Agent Design Principles
 

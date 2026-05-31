@@ -31,9 +31,11 @@ export interface SupervisorPanelProps {
   currentProject?: string;
   currentSession?: string;
   onNavigate?: (serverId: string, project: string, session: string) => void;
+  /** Called when the user clicks "Open Supervisor" to deep-link into the full SupervisorView. */
+  onOpenSupervisorView?: () => void;
 }
 
-export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject, currentSession, onNavigate }) => {
+export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject, currentSession, onNavigate, onOpenSupervisorView }) => {
   const activeId = useSessionStore((s) => s.currentSession)?.serverId ?? null;
   // Routing scope for supervisor API calls. The supervisor store is GLOBAL
   // (server-side), so its data is the same regardless of which server we route
@@ -336,6 +338,17 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
             />
           </svg>
         </button>
+        {onOpenSupervisorView && (
+          <button
+            onClick={onOpenSupervisorView}
+            className="px-2 py-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+            title="Open Supervisor view"
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v6a2 2 0 002 2h6a2 2 0 002-2v-4M14 4h4m0 0v4m0-4L10 10" />
+            </svg>
+          </button>
+        )}
         <button
           onClick={handleOpenConsole}
           className="px-2 py-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
@@ -350,7 +363,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
           onClick={handleStartSupervisor}
           disabled={startingSup}
           className="px-2 py-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors disabled:opacity-50"
-          title="Start supervisor (launch + /collab + /supervisor)"
+          title="Start supervising — launches the supervisor session with /collab + /supervisor"
         >
           <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path d="M6 4l10 6-10 6V4z" /></svg>
         </button>

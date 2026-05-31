@@ -18,9 +18,15 @@ Call `mcp__plugin_mermaid-collab_mermaid__list_documents` with the current proje
 
 Look for a document whose `name` ends with `vibeinstructions`.
 
-**If found:** Call `mcp__plugin_mermaid-collab_mermaid__get_document` to read the full content. Display it to the user verbatim so they can reorient, then say:
+**If found:** Call `mcp__plugin_mermaid-collab_mermaid__get_document` to read the full content (Goal / Context — the stable high-level orientation). Display it to the user verbatim so they can reorient.
+
+Then load the live state from session todos — this is where in-flight work lives, not the snippet:
+- Call `mcp__plugin_mermaid-collab_mermaid__list_session_todos` with `includeCompleted: false`.
+- Display the open todos. Call out the `in_progress` todo and show its `description` — that description is the checkpoint of exactly where we left off mid-task.
+
+Then say:
 ```
-Vibe session resumed. Continuing from checkpoint above.
+Vibe session resumed. Goal/Context above, and the in-progress todo has our checkpoint.
 ```
 Then read the `## Pair Mode` section from the vibeinstructions content. If its value is `Enabled`, immediately invoke the `pair` skill via the Skill tool to load it into context.
 
@@ -39,14 +45,12 @@ Then read the `## Pair Mode` section from the vibeinstructions content. If its v
      [Any relevant context from the conversation so far]
 
      ## Pair Mode
-     Enabled
+     Disabled
 
      ## Agent Mode
      Enabled
-
-     ## Currently Doing
-     [Nothing yet — just started]
      ```
+     (Fine-grained, in-flight work is tracked in session todos — not in this snippet.)
 3. Then display the entry message below.
 
 ### Entry Message (new vibes only)
@@ -70,6 +74,18 @@ When you're done, use /collab-cleanup to archive or delete the session.
 
 Show actual agent mode status in the bracket.
 Show actual pair mode status in the bracket.
+
+## Consult Grok on significant design decisions (default practice)
+
+When the work involves a **non-trivial design or architecture decision** — a new system/feature design, a structural tradeoff, choosing between approaches, or hardening a plan — **consult Grok as part of the process**, don't treat it as optional. Grok is an independent model with different failure modes; it catches things a single perspective misses.
+
+How:
+- Call `mcp__plugin_mermaid-collab_mermaid__consult_grok { prompt, system?, model? }` with a **skeptical-reviewer** `system` framing ("be critical, prioritize flaws and simpler alternatives over validation, rank the risks"). Give it the real context (the design + the specific decisions you want challenged).
+- Bring it in at the points that matter: after drafting a design, before locking a decision, and when grounding/agent investigation has produced options to choose between.
+- **Weigh, don't obey.** Synthesize Grok's critique against this product's actual context (local-first, often single-user) — explicitly ACCEPT / TEMPER / DISCOUNT each point (Grok tends to over-rotate to multi-tenant SaaS scale). Record the consult + your synthesis as a session document so the reasoning survives a /clear.
+- For deeper investigation that should ground the consult, spawn research agents first (see Agent Dispatch), then feed their findings to Grok.
+
+This is standing guidance for design work in a vibe session — not something to ask permission for each time.
 
 ## Available Actions
 

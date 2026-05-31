@@ -38,6 +38,9 @@ export interface Escalation {
   serverId: string;
 }
 
+export const ESCALATION_KINDS = ['question', 'decision', 'blocker', 'approval'] as const;
+export type EscalationKind = typeof ESCALATION_KINDS[number];
+
 const DDL = `
 CREATE TABLE IF NOT EXISTS watched_project (
   project TEXT PRIMARY KEY,
@@ -69,6 +72,12 @@ CREATE TABLE IF NOT EXISTS supervisor_identity (
   session TEXT NOT NULL,
   updatedAt INTEGER NOT NULL,
   serverId TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS supervisor_config (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  supervisorProject TEXT NOT NULL,
+  supervisorSession TEXT NOT NULL,
+  updatedAt INTEGER NOT NULL
 );
 `;
 
@@ -192,6 +201,14 @@ export function createEscalation(input: {
   };
 }
 
+export function listEscalations(status?: string): Escalation[] {
+  const d = openDb();
+  if (status !== undefined) {
+    return d.query("SELECT * FROM escalation WHERE status = ? ORDER BY createdAt DESC").all(status) as Escalation[];
+  }
+  return d.query("SELECT * FROM escalation ORDER BY createdAt DESC").all() as Escalation[];
+}
+
 export function listOpenEscalations(): Escalation[] {
   const d = openDb();
   return d
@@ -209,6 +226,12 @@ export function resolveEscalation(id: string, status: string): void {
 }
 
 // --- Supervisor identity (single global supervisor session) ---
+
+export interface SupervisorConfig {
+  supervisorProject: string;
+  supervisorSession: string;
+  updatedAt: number;
+}
 
 export interface SupervisorIdentity {
   project: string;
@@ -231,6 +254,23 @@ export function getSupervisorIdentity(): SupervisorIdentity | null {
     | SupervisorIdentity
     | null;
   return row ?? null;
+}
+
+export function getSupervisorConfig(): SupervisorConfig | null {
+  const d = openDb();
+  const row = d.query('SELECT supervisorProject, supervisorSession, updatedAt FROM supervisor_config WHERE id = 1').get() as
+    | SupervisorConfig
+    | null;
+  return row ?? null;
+}
+
+export function setSupervisorConfig(supervisorProject: string, supervisorSession: string): SupervisorConfig {
+  const d = openDb();
+  const updatedAt = Date.now();
+  d.prepare(
+    'INSERT OR REPLACE INTO supervisor_config (id, supervisorProject, supervisorSession, updatedAt) VALUES (1, ?, ?, ?)'
+  ).run(supervisorProject, supervisorSession, updatedAt);
+  return { supervisorProject, supervisorSession, updatedAt };
 }
 
 // --- Peer registry (in-memory cache of known peer servers) ---

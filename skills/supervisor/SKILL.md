@@ -15,8 +15,8 @@ allowed-tools:
 
 There is exactly **ONE** foreground supervisor session. It is the human's planning and oversight cockpit.
 
-- It **never spawns processes** and never launches `claude`.
-- It drives supervised sessions **only** via nudges (`tmux send-keys`) and escalations.
+- It spawns workers **only** through `roadmap_spawn_session`, and **only after explicit user approval** (see §4). It never launches `claude` by any other means.
+- It drives already-running supervised sessions **only** via nudges (`tmux send-keys`) and escalations.
 - It **NEVER** answers permission prompts. It **NEVER** answers decisions or questions on behalf of a session.
 - It **NEVER** drives or course-corrects a session's work, and never relays an answer it authored.
 - **When in doubt → escalate.** A human decision is always preferred over the supervisor guessing.
@@ -56,9 +56,9 @@ Work is only spawned **after EXPLICIT user approval**. Ask in plain text (or via
 
 Once approved:
 
-1. Call `roadmap_spawn_session {project, itemId, session, todos:[...]}` to register the session and seed its todos.
-2. Instruct the **user** to open a Claude Code window in `<project>` and run `/collab <session>` to bind it. The supervisor does **NOT** launch Claude.
-3. Track **planned-but-unattached** sessions — spawned but with no binding yet — and remind the user to bind them.
+1. Call `roadmap_spawn_session {project, itemId, session, todos:[...]}`. This seeds the session's todos, links them to the roadmap item, marks the session supervised, watches the project, **and auto-launches a Claude worker into the session** (tmux → `claude` → `/collab` → bind). For a cross-machine spawn it routes the launch to that row's `serverId`.
+2. The worker comes up idle with its seeded todos; the next reconcile/push picks it up and nudges it to start. **You do not ask the user to open a window or bind manually** — the spawn handles binding.
+3. After spawning, confirm to the user which session was launched and for which roadmap item, so the auto-launch is never silent.
 
 ## 5. Reconcile loop (start of every turn + on wake)
 

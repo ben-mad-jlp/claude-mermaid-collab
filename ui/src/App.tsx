@@ -76,6 +76,9 @@ const notifiedContextThreshold = new Set<string>();
 // Import dialogs
 import { SessionCleanupDialog, type CleanupAction, CreateSessionDialog, AddProjectDialog } from '@/components/dialogs';
 
+// Import supervisor view
+import { SupervisorView } from '@/components/supervisor/SupervisorView';
+
 /**
  * Error Boundary Component
  * Catches errors in child components and displays fallback UI
@@ -171,6 +174,7 @@ const App: React.FC = () => {
 
   const setDocumentConflict = useUIStore((s) => s.setDocumentConflict);
   const viewerVisible = useUIStore((s) => s.viewerVisible);
+  const supervisorViewOpen = useUIStore((s) => s.supervisorViewOpen);
 
   // Design canvas zoom (from design editor store, separate from diagram zoom)
   const designZoom = useDesignEditorStore((s) => s.zoom);
@@ -505,6 +509,20 @@ const App: React.FC = () => {
           title: sent ? `Supervisor nudged ${session}` : `Nudge to ${session} not delivered`,
           message: sent ? text : 'No live tmux session received the nudge',
           duration: 6000,
+        });
+        return;
+      }
+
+      // Escalation created — fire regardless of active session so the user is
+      // always notified when a supervised session needs a decision.
+      if ((message as any).type === 'escalation_created') {
+        const { project: escProject, session: escSession, kind: escKind } = message as any;
+        const projectLabel = typeof escProject === 'string' ? escProject.split('/').pop() : escProject;
+        useNotificationStore.getState().addToast({
+          type: 'warning',
+          title: 'New escalation',
+          message: `${projectLabel} / ${escSession}${escKind ? ` — ${escKind}` : ''}`,
+          duration: 8000,
         });
         return;
       }
@@ -1769,7 +1787,13 @@ const App: React.FC = () => {
           {/* Fixed-width Sidebar */}
           <Sidebar className="h-full" />
 
-          {viewerVisible && (
+          {supervisorViewOpen && (
+            <main className="flex-1 h-full min-h-0 overflow-hidden bg-white dark:bg-gray-800">
+              <SupervisorView />
+            </main>
+          )}
+
+          {!supervisorViewOpen && viewerVisible && (
             <main
               className={`
                 flex-1

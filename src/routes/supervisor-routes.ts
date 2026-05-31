@@ -6,11 +6,17 @@ import {
   removeSupervised,
   listSupervised,
   listOpenEscalations,
+  listEscalations,
   resolveEscalation,
   getSupervisorIdentity,
+  getPeer,
+  getSupervisorConfig,
+  setSupervisorConfig,
 } from '../services/supervisor-store.ts';
 import { createItem, listItems, updateItem, deleteItem } from '../services/roadmap-store.ts';
 import { SUPERVISOR_PROJECT, SUPERVISOR_SESSION } from '../config.ts';
+import { sendTmuxKeys } from '../services/tmux-send.ts';
+import { getWebSocketHandler } from '../services/ws-handler-manager.ts';
 
 function jsonError(message: string, status: number): Response {
   return Response.json({ error: message }, { status });
@@ -143,12 +149,66 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
   }
 
   if (url.pathname === '/api/supervisor/escalations' && req.method === 'GET') {
+    const status = url.searchParams.get('status');
+    if (status) {
+      return Response.json({ escalations: listEscalations(status) });
+    }
     return Response.json({ escalations: listOpenEscalations() });
   }
 
   if (url.pathname === '/api/supervisor/config' && req.method === 'GET') {
+    const stored = getSupervisorConfig();
+    if (stored) {
+      return Response.json({ supervisorProject: stored.supervisorProject, supervisorSession: stored.supervisorSession });
+    }
     return Response.json({ supervisorProject: SUPERVISOR_PROJECT, supervisorSession: SUPERVISOR_SESSION });
   }
+
+  if (url.pathname === '/api/supervisor/config' && req.method === 'POST') {
+    try {
+      const { supervisorProject, supervisorSession } = (await req.json()) as {
+        supervisorProject?: string;
+        supervisorSession?: string;
+      };
+      if (!supervisorProject || !supervisorSession) return jsonError('supervisorProject and supervisorSession are required', 400);
+      const config = setSupervisorConfig(supervisorProject, supervisorSession);
+      return Response.json({ supervisorProject: config.supervisorProject, supervisorSession: config.supervisorSession });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  if (url.pathname === '/api/supervisor/nudge' && req.method === 'POST') {
+    try {
+      const { project, session, serverId, text } = (await req.json()) as {
+        project?: string;
+        session?: string;
+        serverId?: string;
+        text?: string;
+      };
+      if (!project || !session || !text) return jsonError('project, session, and text are required', 400);
+      let result: any;
+      let sent: boolean;
+      if (serverId && getPeer(serverId)) {
+        const peer = getPeer(serverId)!;
+        const res = await fetch(peer.baseUrl + '/api/ide/tmux-send-keys', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...(peer.token ? { Authorization: 'Bearer ' + peer.token } : {}) },
+          body: JSON.stringify({ project, session, text }),
+        });
+        result = await res.json();
+        sent = !!(result?.sent ?? result?.tmux ?? result?.success);
+      } else {
+        result = await sendTmuxKeys(project, session, text);
+        sent = !!result?.sent;
+      }
+      getWebSocketHandler()?.broadcast({ type: 'supervisor_nudge', project, session, serverId: serverId ?? '', text, sent });
+      return Response.json(result);
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
   if (url.pathname === '/api/supervisor/identity' && req.method === 'GET') {
     return Response.json(getSupervisorIdentity());
   }

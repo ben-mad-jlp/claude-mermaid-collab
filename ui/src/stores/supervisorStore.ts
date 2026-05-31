@@ -64,6 +64,12 @@ const PROJECTS_KEY = 'supervisor-projects';
 const ROADMAP_KEY = 'supervisor-roadmap';
 const ESCALATIONS_KEY = 'supervisor-escalations';
 const SUPERVISED_KEY = 'supervisor-supervised';
+const SUPERVISOR_CONFIG_KEY = 'supervisor-config';
+
+export interface SupervisorConfig {
+  supervisorProject: string;
+  supervisorSession: string;
+}
 
 interface InvokeResult {
   ok: boolean;
@@ -109,14 +115,18 @@ interface SupervisorState {
   roadmapByProject: Record<string, RoadmapItem[]>;
   escalations: Escalation[];
   supervised: SupervisedSession[];
+  config: SupervisorConfig | null;
   loadSupervised: (serverId: string) => Promise<void>;
   setSupervisedLocal: (session: SupervisedSession, supervised: boolean) => void;
   loadProjects: (serverId: string) => Promise<void>;
   addProject: (serverId: string, project: string) => Promise<void>;
   removeProject: (serverId: string, project: string) => Promise<void>;
   loadRoadmap: (serverId: string, project: string) => Promise<void>;
-  loadEscalations: (serverId: string) => Promise<void>;
+  loadEscalations: (serverId: string, status?: string) => Promise<void>;
   resolveEscalation: (serverId: string, id: string, status: string) => Promise<void>;
+  nudge: (serverId: string, project: string, session: string, text: string) => Promise<boolean>;
+  loadConfig: (serverId: string) => Promise<void>;
+  saveConfig: (serverId: string, supervisorProject: string, supervisorSession: string) => Promise<void>;
 }
 
 export const useSupervisorStore = create<SupervisorState>((set, get) => ({
@@ -124,6 +134,7 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   roadmapByProject: hydrate<Record<string, RoadmapItem[]>>(ROADMAP_KEY, {}),
   escalations: hydrate<Escalation[]>(ESCALATIONS_KEY, []),
   supervised: hydrate<SupervisedSession[]>(SUPERVISED_KEY, []),
+  config: hydrate<SupervisorConfig | null>(SUPERVISOR_CONFIG_KEY, null),
 
   loadSupervised: async (serverId) => {
     const res = await invoke(serverId, '/api/supervisor/supervised', 'GET');
@@ -191,12 +202,41 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     });
   },
 
-  loadEscalations: async (serverId) => {
-    const res = await invoke(serverId, '/api/supervisor/escalations', 'GET');
+  loadEscalations: async (serverId, status?) => {
+    const path = status
+      ? `/api/supervisor/escalations?status=${encodeURIComponent(status)}`
+      : '/api/supervisor/escalations';
+    const res = await invoke(serverId, path, 'GET');
     if (!res?.ok) return; // keep prior (cached) state on failure
     const escalations: Escalation[] = res.body?.escalations ?? [];
     localStorage.setItem(ESCALATIONS_KEY, JSON.stringify(escalations));
     set({ escalations });
+  },
+
+  nudge: async (serverId, project, session, text) => {
+    const res = await invoke(serverId, '/api/supervisor/nudge', 'POST', { project, session, text });
+    return !!res?.ok;
+  },
+
+  loadConfig: async (serverId) => {
+    const res = await invoke(serverId, '/api/supervisor/config', 'GET');
+    if (!res?.ok) return; // keep prior (cached) state on failure
+    const config: SupervisorConfig = {
+      supervisorProject: res.body?.supervisorProject,
+      supervisorSession: res.body?.supervisorSession,
+    };
+    localStorage.setItem(SUPERVISOR_CONFIG_KEY, JSON.stringify(config));
+    set({ config });
+  },
+
+  saveConfig: async (serverId, supervisorProject, supervisorSession) => {
+    const res = await invoke(serverId, '/api/supervisor/config', 'POST', { supervisorProject, supervisorSession });
+    if (!res?.ok) return; // leave state unchanged on failure
+    const config: SupervisorConfig = res.body?.supervisorProject
+      ? { supervisorProject: res.body.supervisorProject, supervisorSession: res.body.supervisorSession }
+      : { supervisorProject, supervisorSession };
+    localStorage.setItem(SUPERVISOR_CONFIG_KEY, JSON.stringify(config));
+    set({ config });
   },
 
   resolveEscalation: async (serverId, id, status) => {
