@@ -27,6 +27,32 @@ const STATUS_LABEL: Record<TodoStatus, string> = {
   done: 'Done',
 };
 
+// Subtle dot color per status — gives the header a professional status cue
+// without turning the pane into a chromatic Jira card.
+const STATUS_DOT: Record<TodoStatus, string> = {
+  backlog: 'bg-gray-400',
+  todo: 'bg-blue-500',
+  in_progress: 'bg-amber-500',
+  blocked: 'bg-red-500',
+  done: 'bg-emerald-500',
+};
+
+const PRIORITY_LABEL: Record<number, string> = { 0: 'P0', 1: 'P1', 2: 'P2', 3: 'P3', 4: 'P4' };
+const PRIORITY_COLORS: Record<number, string> = {
+  0: 'text-red-600 dark:text-red-400',
+  1: 'text-orange-500 dark:text-orange-400',
+  2: 'text-yellow-600 dark:text-yellow-400',
+  3: 'text-blue-500 dark:text-blue-400',
+  4: 'text-gray-400 dark:text-gray-500',
+};
+
+function formatDate(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
 export interface TodoDetailViewProps {
   todoId: string;
 }
@@ -165,6 +191,10 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
         >
           #{String(todo.id).slice(-4)}
         </span>
+        <span
+          className={`shrink-0 w-2 h-2 rounded-full ${STATUS_DOT[status]}`}
+          aria-hidden="true"
+        />
         <select
           value={status}
           onChange={(e) => changeStatus(e.target.value as TodoStatus)}
@@ -239,7 +269,7 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
       {/* Body */}
       <div className="flex-1 overflow-auto">
         {editing ? (
-          <div className="px-4 py-3 flex flex-col gap-3 h-full">
+          <div className="px-6 py-5 max-w-3xl mx-auto w-full flex flex-col gap-3 h-full">
             <input
               type="text"
               value={draftTitle}
@@ -256,17 +286,57 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
             />
           </div>
         ) : (
-          <div className="px-4 py-3">
-            <h1 className="text-base font-medium text-gray-900 dark:text-gray-100 mb-3 break-words [overflow-wrap:anywhere]">
+          <div className="px-6 py-5 max-w-3xl mx-auto">
+            <h1 className="text-xl font-semibold tracking-tight text-gray-900 dark:text-gray-100 break-words [overflow-wrap:anywhere]">
               {currentTitle}
             </h1>
-            {currentDesc.trim() ? (
-              <div className="text-sm">
-                <MarkdownPreview content={currentDesc} />
-              </div>
-            ) : (
-              <p className="text-sm text-gray-400 dark:text-gray-500 italic">
-                No description. Press <span className="font-medium">Edit</span> to add one.
+
+            {/* Metadata bar — status, priority, due, assignee at a glance */}
+            <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-gray-500 dark:text-gray-400">
+              <span className="inline-flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full ${STATUS_DOT[status]}`} aria-hidden="true" />
+                <span className="font-medium text-gray-700 dark:text-gray-300">{STATUS_LABEL[status]}</span>
+              </span>
+              {todo.priority !== null && todo.priority !== undefined && (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="text-gray-400 dark:text-gray-500">Priority</span>
+                  <span className={`font-semibold ${PRIORITY_COLORS[todo.priority]}`}>
+                    {PRIORITY_LABEL[todo.priority]}
+                  </span>
+                </span>
+              )}
+              {formatDate(todo.dueDate) && (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="text-gray-400 dark:text-gray-500">Due</span>
+                  <span className="font-medium text-gray-700 dark:text-gray-300">{formatDate(todo.dueDate)}</span>
+                </span>
+              )}
+              {todo.assigneeSession && (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="text-gray-400 dark:text-gray-500">Assignee</span>
+                  <span className="font-medium text-gray-700 dark:text-gray-300 truncate max-w-[180px]">
+                    {todo.assigneeSession}{todo.assigneeSession === currentSession?.name ? ' (me)' : ''}
+                  </span>
+                </span>
+              )}
+            </div>
+
+            <div className="mt-5 border-t border-gray-100 dark:border-gray-800 pt-5">
+              {currentDesc.trim() ? (
+                <div className="text-sm leading-relaxed">
+                  <MarkdownPreview content={currentDesc} />
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400 dark:text-gray-500 italic">
+                  No description. Press <span className="font-medium">Edit</span> to add one.
+                </p>
+              )}
+            </div>
+
+            {formatDate(todo.updatedAt) && (
+              <p className="mt-8 text-[11px] text-gray-400 dark:text-gray-500">
+                Updated {formatDate(todo.updatedAt)}
+                {formatDate(todo.createdAt) ? ` · Created ${formatDate(todo.createdAt)}` : ''}
               </p>
             )}
           </div>

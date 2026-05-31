@@ -249,14 +249,16 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
                 {sessionTodos.length === 0 ? 'No todos yet.' : 'No matching todos.'}
               </div>
             ) : (
-              visibleTodos.map((todo) => (
-                <TodoRow
-                  key={todo.id}
-                  todo={todo}
-                  project={currentSession.project}
-                  session={currentSession.name}
-                />
-              ))
+              <div className="max-h-64 overflow-y-auto">
+                {visibleTodos.map((todo) => (
+                  <TodoRow
+                    key={todo.id}
+                    todo={todo}
+                    project={currentSession.project}
+                    session={currentSession.name}
+                  />
+                ))}
+              </div>
             )}
           </>
         )}
