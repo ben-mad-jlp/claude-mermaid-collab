@@ -45,4 +45,20 @@ describe('buildTmuxAttachCommand', () => {
       expect((direct.match(/new-session/g) ?? []).length).toBe(1);
     });
   });
+
+  describe('with a cwd (session starts in the project directory)', () => {
+    it('passes -c <cwd> to the base new-session so panes start there', () => {
+      const withCwd = buildTmuxAttachCommand(base, undefined, '/Users/me/proj');
+      expect(withCwd).toContain(`new-session -d -s '${base}' -c '/Users/me/proj'`);
+    });
+
+    it('omits -c entirely when no cwd is given', () => {
+      expect(buildTmuxAttachCommand(base)).not.toContain(' -c ');
+    });
+
+    it('single-quote-escapes the cwd to survive odd directory names', () => {
+      const withCwd = buildTmuxAttachCommand(base, undefined, "/tmp/a'b");
+      expect(withCwd).toContain(`-c '/tmp/a'\\''b'`);
+    });
+  });
 });

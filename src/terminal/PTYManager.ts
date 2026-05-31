@@ -39,14 +39,21 @@ export interface CreateOptions {
  * sessions). The base session must exist before the grouped session can target
  * it, so it is created first (with `;` so creation failure of an existing base
  * doesn't abort the chain). Exported for unit testing.
+ *
+ * `cwd` (when given) is passed to `new-session -c` so the session's panes start
+ * in the project directory — otherwise tmux inherits the *server* process's cwd
+ * (e.g. the app's Resources dir), and `claude`/`git` would run against the wrong
+ * folder. It only affects session *creation*; attaching to an existing session
+ * keeps that session's directory.
  */
-export function buildTmuxAttachCommand(base: string, grouped?: string): string {
+export function buildTmuxAttachCommand(base: string, grouped?: string, cwd?: string): string {
   // `-d` detaches any other client on the session: a tmux window has a single
   // size, so co-attached clients of different sizes fight under
   // `window-size latest` — every stream/redraw can snap the window to the other
   // client's size and garble a full-screen TUI (e.g. Claude Code). One client
   // owning the window keeps it stable.
-  const ensureBase = `(tmux has-session -t '${base}' 2>/dev/null || tmux new-session -d -s '${base}')`;
+  const dirFlag = cwd ? ` -c '${cwd.replace(/'/g, `'\\''`)}'` : '';
+  const ensureBase = `(tmux has-session -t '${base}' 2>/dev/null || tmux new-session -d -s '${base}'${dirFlag})`;
   if (!grouped || grouped === base) {
     // Attach directly to the base session — no shared/grouped view. (The old
     // grouped 'vscode-collab-*' layer existed to share live terminals with the
@@ -139,7 +146,7 @@ export class PTYManager {
       if (options?.tmux) {
         // Spawn via tmux grouping
         const { base, grouped } = options.tmux;
-        const tmuxCmd = buildTmuxAttachCommand(base, grouped);
+        const tmuxCmd = buildTmuxAttachCommand(base, grouped, cwd);
         session.shell = '/bin/sh';
         proc = Bun.spawn(['/bin/sh', '-c', tmuxCmd], {
           cwd,

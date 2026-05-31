@@ -69,8 +69,14 @@ export async function handleIdeRoutes(req: Request, url: URL, wsHandler: WebSock
       const tmuxAvailable = await isTmuxAvailable();
       if (tmuxAvailable) {
         try {
+          // `-c project` so the session's panes start in the project directory.
+          // This handler usually wins the race against POST /api/terminal/sessions
+          // (which also sets cwd), so without `-c` the session would be created in
+          // the *server* process's cwd (e.g. the app Resources dir) and `claude`/
+          // `git` would run against the wrong folder. `-c` is ignored by tmux if
+          // the session already exists, which is the desired no-op.
           const proc = Bun.spawn(
-            ['tmux', 'new-session', '-d', '-s', tmuxSession],
+            ['tmux', 'new-session', '-d', '-s', tmuxSession, '-c', project],
             { stdout: 'ignore', stderr: 'ignore' }
           );
           await proc.exited; // ok if it fails (session already exists)
