@@ -57,7 +57,7 @@ export const listSessionTodosSchema = {
     },
     status: {
       type: 'string',
-      enum: ['backlog', 'todo', 'in_progress', 'blocked', 'done'],
+      enum: ['backlog', 'planned', 'todo', 'ready', 'in_progress', 'blocked', 'done', 'dropped'],
       description: 'Filter todos by status',
     },
   },
@@ -75,7 +75,7 @@ export const addSessionTodoSchema = {
     description: { type: 'string', description: 'Optional longer description' },
     status: {
       type: 'string',
-      enum: ['backlog', 'todo', 'in_progress', 'blocked', 'done'],
+      enum: ['backlog', 'planned', 'todo', 'ready', 'in_progress', 'blocked', 'done', 'dropped'],
       description: 'Initial status (default: todo)',
     },
     priority: { type: 'number', description: 'Priority 0-4 (0=highest)' },
@@ -89,6 +89,13 @@ export const addSessionTodoSchema = {
       },
       required: ['blueprintId'],
     },
+    dependsOn: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'List of todo ids this todo depends on',
+    },
+    parentId: { type: 'string', description: 'Parent todo id (for subtasks)' },
+    sessionName: { type: 'string', description: 'Session name to associate with this todo' },
   },
   required: ['project', 'session', 'text'],
 };
@@ -104,7 +111,7 @@ export const updateSessionTodoSchema = {
     completed: { type: 'boolean', description: 'New completed state (optional)' },
     status: {
       type: 'string',
-      enum: ['backlog', 'todo', 'in_progress', 'blocked', 'done'],
+      enum: ['backlog', 'planned', 'todo', 'ready', 'in_progress', 'blocked', 'done', 'dropped'],
       description: 'New status (optional)',
     },
     assigneeSession: { type: 'string', description: 'Reassign to this session (optional)' },
@@ -120,6 +127,13 @@ export const updateSessionTodoSchema = {
       },
       required: ['blueprintId'],
     },
+    dependsOn: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'List of todo ids this todo depends on',
+    },
+    parentId: { type: 'string', description: 'Parent todo id (for subtasks)' },
+    sessionName: { type: 'string', description: 'Session name to associate with this todo' },
   },
   required: ['project', 'session', 'id'],
 };
@@ -223,6 +237,9 @@ export async function addSessionTodo(
     status?: TodoStatus;
     priority?: 0 | 1 | 2 | 3 | 4;
     dueDate?: string;
+    dependsOn?: string[];
+    parentId?: string | null;
+    sessionName?: string | null;
   },
 ): Promise<Todo> {
   const { title: _extrasTitle, ...extrasRest } = extras ?? {};
@@ -250,6 +267,9 @@ export async function updateSessionTodo(
     priority?: 0 | 1 | 2 | 3 | 4 | null;
     dueDate?: string | null;
     link?: SessionTodoLink | null;
+    dependsOn?: string[];
+    parentId?: string | null;
+    sessionName?: string | null;
   }
 ): Promise<Todo & { previousAssigneeSession: string | null }> {
   const titleValue = updates.title ?? updates.text;
@@ -268,6 +288,9 @@ export async function updateSessionTodo(
     priority: updates.priority,
     dueDate: updates.dueDate,
     link: updates.link,
+    dependsOn: updates.dependsOn,
+    parentId: updates.parentId,
+    sessionName: updates.sessionName,
   });
   return Object.assign(updated, { previousAssigneeSession });
 }

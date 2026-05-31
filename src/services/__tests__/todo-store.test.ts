@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   createTodo, listTodos, getTodo, updateTodo, assignTodo, removeTodo, clearCompleted, reorder, _closeProject,
+  claimTodo, releaseExpiredClaims, listReadyTodos, computeWaves,
 } from '../todo-store';
 
 let project: string;
@@ -100,5 +101,165 @@ describe('todo-store', () => {
   test('link round-trips as JSON', async () => {
     const t = await createTodo(project, { ownerSession: 's1', title: 'x', link: { blueprintId: 'bp', taskId: 'tk' } });
     expect(getTodo(project, t.id)!.link).toEqual({ blueprintId: 'bp', taskId: 'tk' });
+  });
+});
+
+describe('todo-store new fields and functions', () => {
+  test('createTodo threads sessionName + blueprintId; claim fields default null; retryCount 0; acceptanceStatus null', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'x', sessionName: 'my-session', blueprintId: 'bp1' });
+    expect(t.sessionName).toBe('my-session');
+    expect(t.blueprintId).toBe('bp1');
+    expect(t.claimedBy).toBeNull();
+    expect(t.claimToken).toBeNull();
+    expect(t.claimedAt).toBeNull();
+    expect(t.claimLeaseMs).toBeNull();
+    expect(t.retryCount).toBe(0);
+    expect(t.acceptanceStatus).toBeNull();
+  });
+
+  test('updateTodo patches sessionName, blueprintId, acceptanceStatus', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'x' });
+    const u = await updateTodo(project, t.id, { sessionName: 'new-session', blueprintId: 'bp2', acceptanceStatus: 'accepted' });
+    expect(u.sessionName).toBe('new-session');
+    expect(u.blueprintId).toBe('bp2');
+    expect(u.acceptanceStatus).toBe('accepted');
+  });
+
+  test('claimTodo: claim a ready todo → not null, status in_progress, claimedBy set, claimToken is string, claimLeaseMs set', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
+    const claimed = await claimTodo(project, t.id, 'agent-1', 60000);
+    expect(claimed).not.toBeNull();
+    expect(claimed!.status).toBe('in_progress');
+    expect(claimed!.claimedBy).toBe('agent-1');
+    expect(typeof claimed!.claimToken).toBe('string');
+    expect(claimed!.claimLeaseMs).toBe(60000);
+  });
+
+  test('claimTodo: re-claim already-claimed → null', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
+    await claimTodo(project, t.id, 'agent-1', 60000);
+    const second = await claimTodo(project, t.id, 'agent-2', 60000);
+    expect(second).toBeNull();
+  });
+
+  test('claimTodo: claiming status planned → null', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'planned' });
+    const claimed = await claimTodo(project, t.id, 'agent-1', 60000);
+    expect(claimed).toBeNull();
+  });
+
+  test('claimTodo: claiming status blocked → null', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'blocked' });
+    const claimed = await claimTodo(project, t.id, 'agent-1', 60000);
+    expect(claimed).toBeNull();
+  });
+
+  test('claimTodo: claiming a non-ready (todo) status returns null', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'x' });
+    expect(t.status).toBe('todo');
+    expect(await claimTodo(project, t.id, 'agent-1', 30000)).toBeNull();
+  });
+
+  test('releaseExpiredClaims: claim with 1000ms lease, release with now+2000ms → released, back to ready, retryCount 1', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
+    await claimTodo(project, t.id, 'agent-1', 1000);
+    const future = new Date(Date.now() + 2000).toISOString();
+    const released = await releaseExpiredClaims(project, future);
+    expect(released).toContain(t.id);
+    const after = getTodo(project, t.id)!;
+    expect(after.status).toBe('ready');
+    expect(after.claimedBy).toBeNull();
+    expect(after.claimToken).toBeNull();
+    expect(after.retryCount).toBe(1);
+  });
+
+  test('releaseExpiredClaims: claim with 60000ms lease, release with now+100ms → not released, still in_progress', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
+    await claimTodo(project, t.id, 'agent-1', 60000);
+    const nearFuture = new Date(Date.now() + 100).toISOString();
+    const released = await releaseExpiredClaims(project, nearFuture);
+    expect(released).not.toContain(t.id);
+    const after = getTodo(project, t.id)!;
+    expect(after.status).toBe('in_progress');
+  });
+
+  test('listReadyTodos: ready w/ no deps included; ready w/ all-done deps included; ready w/ pending dep excluded; unknown dep id included', async () => {
+    const a = await createTodo(project, { ownerSession: 's1', title: 'a', status: 'ready' });
+    const b = await createTodo(project, { ownerSession: 's1', title: 'b', status: 'done' });
+    const c = await createTodo(project, { ownerSession: 's1', title: 'c', status: 'ready', dependsOn: [b.id] });
+    const d = await createTodo(project, { ownerSession: 's1', title: 'd', status: 'ready', dependsOn: [a.id] });
+    const e = await createTodo(project, { ownerSession: 's1', title: 'e', status: 'ready', dependsOn: ['unknown-id-xyz'] });
+    const ready = listReadyTodos(project);
+    const ids = ready.map((t) => t.id);
+    expect(ids).toContain(a.id); // ready, no deps
+    expect(ids).toContain(c.id); // ready, dep is done
+    expect(ids).not.toContain(d.id); // dep a is ready (not done)
+    expect(ids).toContain(e.id); // unknown dep treated as satisfied
+  });
+
+  test('computeWaves: [] → []', () => {
+    expect(computeWaves([])).toEqual([]);
+  });
+
+  test('computeWaves: linear A→B→C → [[A],[B],[C]]', async () => {
+    const a = await createTodo(project, { ownerSession: 's1', title: 'A' });
+    const b = await createTodo(project, { ownerSession: 's1', title: 'B', dependsOn: [a.id] });
+    const c = await createTodo(project, { ownerSession: 's1', title: 'C', dependsOn: [b.id] });
+    const waves = computeWaves([a, b, c]);
+    expect(waves).toHaveLength(3);
+    expect(waves[0].map((t) => t.id)).toEqual([a.id]);
+    expect(waves[1].map((t) => t.id)).toEqual([b.id]);
+    expect(waves[2].map((t) => t.id)).toEqual([c.id]);
+  });
+
+  test('computeWaves: diamond A; B,C→A; D→B,C → wave0=[A], wave1={B,C}, wave2=[D]', async () => {
+    const a = await createTodo(project, { ownerSession: 's1', title: 'A' });
+    const b = await createTodo(project, { ownerSession: 's1', title: 'B', dependsOn: [a.id] });
+    const c = await createTodo(project, { ownerSession: 's1', title: 'C', dependsOn: [a.id] });
+    const d = await createTodo(project, { ownerSession: 's1', title: 'D', dependsOn: [b.id, c.id] });
+    const waves = computeWaves([a, b, c, d]);
+    expect(waves).toHaveLength(3);
+    expect(waves[0].map((t) => t.id)).toEqual([a.id]);
+    expect(waves[1].map((t) => t.id).sort()).toEqual([b.id, c.id].sort());
+    expect(waves[2].map((t) => t.id)).toEqual([d.id]);
+  });
+
+  test('computeWaves: two orphans → single wave of both', async () => {
+    const a = await createTodo(project, { ownerSession: 's1', title: 'A' });
+    const b = await createTodo(project, { ownerSession: 's1', title: 'B' });
+    const waves = computeWaves([a, b]);
+    expect(waves).toHaveLength(1);
+    expect(waves[0].map((t) => t.id).sort()).toEqual([a.id, b.id].sort());
+  });
+
+  test('computeWaves: unknown dep → single wave', async () => {
+    const a = await createTodo(project, { ownerSession: 's1', title: 'A', dependsOn: ['unknown-xyz'] });
+    const waves = computeWaves([a]);
+    expect(waves).toHaveLength(1);
+    expect(waves[0][0].id).toBe(a.id);
+  });
+
+  test('computeWaves: cycle A↔B → terminates, both ids appear once across flattened waves', async () => {
+    const a = await createTodo(project, { ownerSession: 's1', title: 'A' });
+    const b = await createTodo(project, { ownerSession: 's1', title: 'B', dependsOn: [a.id] });
+    await updateTodo(project, a.id, { dependsOn: [b.id] });
+    const aFresh = getTodo(project, a.id)!;
+    const bFresh = getTodo(project, b.id)!;
+    const waves = computeWaves([aFresh, bFresh]);
+    const flat = waves.flat().map((t) => t.id);
+    expect(flat.sort()).toEqual([a.id, b.id].sort());
+    // Each id appears exactly once
+    expect(flat.filter((id) => id === a.id)).toHaveLength(1);
+    expect(flat.filter((id) => id === b.id)).toHaveLength(1);
+  });
+
+  test('computeWaves: self-dep → terminates, one item', async () => {
+    const a = await createTodo(project, { ownerSession: 's1', title: 'A' });
+    await updateTodo(project, a.id, { dependsOn: [a.id] });
+    const aFresh = getTodo(project, a.id)!;
+    const waves = computeWaves([aFresh]);
+    const flat = waves.flat();
+    expect(flat).toHaveLength(1);
+    expect(flat[0].id).toBe(a.id);
   });
 });

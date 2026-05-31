@@ -89,6 +89,15 @@ try {
   console.error(`mermaid-collab: todo migration failed — ${err instanceof Error ? err.message : String(err)}`);
 }
 
+// Migrate roadmap.db items into todos.db (idempotent — sentinel row prevents re-run).
+try {
+  const { migrateRoadmapToTodos } = await import('./services/roadmap-migration.js');
+  const { migrated, skipped } = await migrateRoadmapToTodos(MERMAID_PROJECT);
+  if (!skipped) console.log(`📋 Roadmap migration: ${migrated} item(s) backfilled`);
+} catch (err) {
+  console.error(`mermaid-collab: roadmap migration failed — ${err instanceof Error ? err.message : String(err)}`);
+}
+
 // Register scratch session on startup.
 // This MUST be idempotent and non-fatal on corrupt registry — otherwise
 // the very first thing every boot does is a destructive read-modify-write
