@@ -68,6 +68,9 @@ export async function handleIdeRoutes(req: Request, url: URL, wsHandler: WebSock
       const { isTmuxAvailable } = await import('../services/tmux-availability.js');
       const tmuxAvailable = await isTmuxAvailable();
       if (tmuxAvailable) {
+        // Self-heal a pre-fix session parked in the wrong dir before (re)creating.
+        const { healStaleTmuxSession } = await import('../services/tmux-session.js');
+        await healStaleTmuxSession(tmuxSession, project);
         try {
           // `-c project` so the session's panes start in the project directory.
           // This handler usually wins the race against POST /api/terminal/sessions

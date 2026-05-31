@@ -6,6 +6,7 @@
  */
 import { tmuxBaseName } from './tmux-naming.js';
 import { sendTmuxKeysRaw } from './tmux-send.ts';
+import { healStaleTmuxSession } from './tmux-session.ts';
 import { existsSync } from 'node:fs';
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -20,6 +21,10 @@ export async function launchAndBind(opts: {
     if (!existsSync(opts.project)) return { started: false, reason: 'no-project-dir' };
 
     const tmux = tmuxBaseName(opts.project, opts.session);
+
+    // Self-heal: a pre-fix session parked in the wrong dir would otherwise be
+    // reused, launching claude against the wrong folder.
+    await healStaleTmuxSession(tmux, opts.project);
 
     // Ensure the tmux session exists (map any spawn failure → no-tmux).
     try {

@@ -3141,6 +3141,11 @@ export async function handleAPI(
       // garbled full-screen TUIs.)
       const base = tmuxBaseName(project, session);
 
+      // Self-heal: if a pre-fix session is parked in the wrong dir, kill it so
+      // the attach below recreates it in the project dir.
+      const { healStaleTmuxSession } = await import('../services/tmux-session.js');
+      await healStaleTmuxSession(base, project);
+
       // Create PTY session via ptyManager with project as cwd
       await ptyManager.create(id, { cwd: project, tmux: { base } });
 
