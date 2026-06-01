@@ -226,6 +226,11 @@ try {
   const listed = payload(await send('tools/call', { name: 'list_decision_records', arguments: { project, kind: 'constraint' } }));
   check('list filters by kind', (listed?.records ?? []).every((r: any) => r.kind === 'constraint') && (listed?.records?.length ?? 0) >= 1);
 
+  // 14b. graph-drift check dispatchable (no blueprints in scratch project → 0 tasks, no findings)
+  check('check_graph_drift listed', names.includes('check_graph_drift'));
+  const drift = payload(await send('tools/call', { name: 'check_graph_drift', arguments: { project, session: 'wf-sess' } }));
+  check('check_graph_drift returns findings+tasksScanned', Array.isArray(drift?.findings) && typeof drift?.tasksScanned === 'number', JSON.stringify(drift));
+
   // 15. emergency pause/override gates the driving actions
   const paused = payload(await send('tools/call', { name: 'supervisor_pause', arguments: { scope: project } }));
   check('supervisor_pause sets paused', paused?.paused === true && paused?.scope === project, JSON.stringify(paused));

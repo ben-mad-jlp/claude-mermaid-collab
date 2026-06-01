@@ -401,15 +401,11 @@ async function assignProfileTypes(project: string, session: string, tasks: TaskG
   }
 }
 
-export async function syncTasksFromTaskGraph(
-  project: string,
-  session: string
-): Promise<TaskBatch[]> {
-  let allTasks: TaskGraphTask[] = [];
+/** Gather de-duplicated tasks from a session's active (non-deprecated) blueprints. */
+export async function getTaskGraphTasks(project: string, session: string): Promise<TaskGraphTask[]> {
+  const allTasks: TaskGraphTask[] = [];
   const documentsPath = getDocumentsPath(project, session);
   const sessionDir = join(project, '.collab', 'sessions', session);
-
-  // Use metadata to find active (non-deprecated) blueprint documents
   const metadataManager = new MetadataManager(sessionDir);
   await metadataManager.initialize();
 
@@ -426,30 +422,33 @@ export async function syncTasksFromTaskGraph(
     // Documents directory may not exist
   }
 
-  if (blueprintFiles.length > 0) {
-    // Read each active blueprint and extract tasks
-    for (const blueprintFile of blueprintFiles) {
-      const blueprintPath = join(documentsPath, blueprintFile);
-      try {
-        const content = await readFile(blueprintPath, 'utf-8');
-        const taskGraph = parseTaskGraph(content);
-        for (const task of taskGraph.tasks) {
-          if (!allTasks.some((t) => t.id === task.id)) {
-            allTasks.push(task);
-          }
-        }
-      } catch {
-        // Blueprint may not have a valid YAML block, skip it
+  for (const blueprintFile of blueprintFiles) {
+    const blueprintPath = join(documentsPath, blueprintFile);
+    try {
+      const content = await readFile(blueprintPath, 'utf-8');
+      const taskGraph = parseTaskGraph(content);
+      for (const task of taskGraph.tasks) {
+        if (!allTasks.some((t) => t.id === task.id)) allTasks.push(task);
       }
+    } catch {
+      // Blueprint may not have a valid YAML block, skip it
     }
+  }
+  return allTasks;
+}
 
-    if (allTasks.length > 0) {
-      // Create/update consolidated task-graph document
-      await createConsolidatedTaskGraph(project, session, allTasks);
-      // Assign each linked todo an agent-profile `type` inferred from its task's
-      // files (open-problem #8). Idempotent: only fills todos that don't have one.
-      await assignProfileTypes(project, session, allTasks);
-    }
+export async function syncTasksFromTaskGraph(
+  project: string,
+  session: string
+): Promise<TaskBatch[]> {
+  const allTasks: TaskGraphTask[] = await getTaskGraphTasks(project, session);
+
+  if (allTasks.length > 0) {
+    // Create/update consolidated task-graph document
+    await createConsolidatedTaskGraph(project, session, allTasks);
+    // Assign each linked todo an agent-profile `type` inferred from its task's
+    // files (open-problem #8). Idempotent: only fills todos that don't have one.
+    await assignProfileTypes(project, session, allTasks);
   }
 
   // No tasks found
