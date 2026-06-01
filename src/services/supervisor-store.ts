@@ -93,7 +93,14 @@ CREATE TABLE IF NOT EXISTS supervisor_audit (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON supervisor_audit(ts);
 CREATE INDEX IF NOT EXISTS idx_audit_project ON supervisor_audit(project, ts);
+CREATE TABLE IF NOT EXISTS supervisor_pause (
+  scope TEXT PRIMARY KEY,
+  pausedAt INTEGER NOT NULL
+);
 `;
+
+/** Scope for an emergency pause: the literal 'global' or a project path. */
+export const GLOBAL_PAUSE_SCOPE = 'global';
 
 let db: Database | null = null;
 
@@ -314,6 +321,34 @@ export function listSupervisorAudit(filter?: { project?: string; kind?: string; 
   return d.query(
     `SELECT * FROM supervisor_audit ${clause} ORDER BY ts DESC LIMIT ?`,
   ).all(...params, limit) as SupervisorAuditEntry[];
+}
+
+// --- Emergency pause / override (supervisor SPOF safety) ---
+
+/** Pause ('global' or a project path) or resume supervisor driving-actions. */
+export function setSupervisorPause(scope: string, paused: boolean): void {
+  const d = openDb();
+  if (paused) {
+    d.prepare('INSERT INTO supervisor_pause (scope, pausedAt) VALUES (?,?) ON CONFLICT(scope) DO UPDATE SET pausedAt = excluded.pausedAt')
+      .run(scope, Date.now());
+  } else {
+    d.prepare('DELETE FROM supervisor_pause WHERE scope = ?').run(scope);
+  }
+}
+
+/** True if supervisor actions are paused globally, or for this specific project. */
+export function isSupervisorPaused(project?: string): boolean {
+  const d = openDb();
+  const scopes = project ? [GLOBAL_PAUSE_SCOPE, project] : [GLOBAL_PAUSE_SCOPE];
+  const placeholders = scopes.map(() => '?').join(',');
+  const row = d.query(`SELECT 1 FROM supervisor_pause WHERE scope IN (${placeholders}) LIMIT 1`).get(...scopes);
+  return !!row;
+}
+
+/** All active pauses (for UI/visibility). */
+export function listSupervisorPauses(): Array<{ scope: string; pausedAt: number }> {
+  const d = openDb();
+  return d.query('SELECT scope, pausedAt FROM supervisor_pause ORDER BY pausedAt').all() as Array<{ scope: string; pausedAt: number }>;
 }
 
 // --- Supervisor identity (single global supervisor session) ---

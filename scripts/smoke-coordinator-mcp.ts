@@ -223,6 +223,17 @@ try {
   check('decision auto-active', dec?.status === 'active');
   const listed = payload(await send('tools/call', { name: 'list_decision_records', arguments: { project, kind: 'constraint' } }));
   check('list filters by kind', (listed?.records ?? []).every((r: any) => r.kind === 'constraint') && (listed?.records?.length ?? 0) >= 1);
+
+  // 15. emergency pause/override gates the driving actions
+  const paused = payload(await send('tools/call', { name: 'supervisor_pause', arguments: { scope: project } }));
+  check('supervisor_pause sets paused', paused?.paused === true && paused?.scope === project, JSON.stringify(paused));
+  const pausedScan = payload(await send('tools/call', { name: 'supervisor_watchdog_scan', arguments: { project } }));
+  check('watchdog scan no-ops while paused', pausedScan?.paused === true && (pausedScan?.actions ?? []).length === 0, JSON.stringify(pausedScan));
+  const pausedNudge = payload(await send('tools/call', { name: 'supervisor_nudge', arguments: { project, session: 'x', text: 'go' } }));
+  check('nudge skipped while paused', pausedNudge?.skipped === 'paused', JSON.stringify(pausedNudge));
+  await send('tools/call', { name: 'supervisor_resume', arguments: { scope: project } });
+  const resumedScan = payload(await send('tools/call', { name: 'supervisor_watchdog_scan', arguments: { project } }));
+  check('watchdog scan active after resume', resumedScan?.paused === undefined, JSON.stringify(resumedScan?.paused));
 } catch (e) {
   fail++;
   log(`  ❌ exception — ${e instanceof Error ? e.message : String(e)}`);

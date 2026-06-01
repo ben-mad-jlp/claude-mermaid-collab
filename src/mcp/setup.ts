@@ -2017,6 +2017,9 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'approve_decision_record', description: 'Approve a proposed constraint (human gate) → active.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, id: { type: 'string' }, approvedBy: { type: 'string' } }, required: ['project', 'id', 'approvedBy'] } },
       { name: 'supersede_decision_record', description: 'Mark a decision record superseded by another (the superseding record should already exist).', inputSchema: { type: 'object', properties: { project: { type: 'string' }, id: { type: 'string' }, bySupersedingId: { type: 'string' } }, required: ['project', 'id', 'bySupersedingId'] } },
       { name: 'get_active_constraints', description: 'Active constraints in scope for an epic (epic-level + project-level) — the decision-record half of /focus. Omit epicId for all active constraints.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, epicId: { type: 'string' } }, required: ['project'] } },
+      { name: 'supervisor_pause', description: 'EMERGENCY OVERRIDE: pause supervisor driving-actions (nudge/clear/watchdog) — globally or for one project. Use when the supervisor is misbehaving. Resume with supervisor_resume.', inputSchema: { type: 'object', properties: { scope: { type: 'string', description: "'global' (default) or a project path." } } } },
+      { name: 'supervisor_resume', description: 'Lift a supervisor pause (the scope you paused: "global" or a project path).', inputSchema: { type: 'object', properties: { scope: { type: 'string', description: "'global' (default) or a project path." } } } },
+      { name: 'supervisor_pause_status', description: 'List active supervisor pauses.', inputSchema: { type: 'object', properties: {} } },
       { name: 'supervisor_audit_list', description: 'List the supervisor\'s durable decision/action audit trail (nudge/escalate/checkpoint/clear/…), most-recent-first. Survives restart; feeds observability + the System Map. Optional project/kind filters.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, kind: { type: 'string' }, limit: { type: 'number', description: 'Max entries (default 100, max 1000).' } } } },
       { name: 'set_watchdog_threshold', description: 'Set (or clear, with null) a project\'s context-watchdog trigger threshold (%). Overrides the 80% default for supervisor_watchdog_scan on that project. Pass null to revert to the default.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, thresholdPercent: { type: ['number', 'null'], description: 'Percent (1-100) or null to clear.' } }, required: ['project', 'thresholdPercent'] } },
       { name: 'supervisor_watchdog_scan', description: 'Context-watchdog control loop: scan a project\'s session statuses and return the per-session actions to take this tick — "checkpoint" (over the context threshold on a safe/idle boundary → nudge the session to run /vibe-checkpoint) or "clear" (a checkpoint is persisted → call supervisor_clear_session). Deterministic; the supervisor calls this each tick.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, thresholdPercent: { type: 'number', description: 'Context % that triggers a clear cycle (default 80).' } }, required: ['project'] } },
@@ -3552,6 +3555,7 @@ IMPORTANT - Common pitfalls to avoid:
           case 'supervisor_nudge': {
             const { project, session, serverId, text } = args as { project: string; session: string; serverId?: string; text: string };
             if (!project || !session || !text) throw new Error('Missing required: project, session, text');
+            if (supervisorStore.isSupervisorPaused(project)) return JSON.stringify({ sent: false, skipped: 'paused' }, null, 2);
             let result: any;
             let sent: boolean;
             if (serverId && supervisorStore.getPeer(serverId)) {
@@ -4385,6 +4389,7 @@ IMPORTANT - Common pitfalls to avoid:
           case 'supervisor_clear_session': {
             const { project, session, serverId, maxAgeMs } = args as { project: string; session: string; serverId?: string; maxAgeMs?: number };
             if (!project || !session) throw new Error('Missing required: project, session');
+            if (supervisorStore.isSupervisorPaused(project)) return JSON.stringify({ cleared: false, reason: 'paused' }, null, 2);
             // Gate: only clear if a recent persisted checkpoint exists. For a peer
             // session the marker lives on its home server, so check there.
             let ready: boolean;
@@ -4457,6 +4462,23 @@ IMPORTANT - Common pitfalls to avoid:
             if (!project) throw new Error('Missing required: project');
             return JSON.stringify({ constraints: getActiveConstraints(project, epicId) }, null, 2);
           }
+          case 'supervisor_pause': {
+            const { scope } = args as { scope?: string };
+            const s = scope || supervisorStore.GLOBAL_PAUSE_SCOPE;
+            supervisorStore.setSupervisorPause(s, true);
+            recordSupervisorDecision('override', s, '', JSON.stringify({ action: 'pause' }));
+            return JSON.stringify({ paused: true, scope: s }, null, 2);
+          }
+          case 'supervisor_resume': {
+            const { scope } = args as { scope?: string };
+            const s = scope || supervisorStore.GLOBAL_PAUSE_SCOPE;
+            supervisorStore.setSupervisorPause(s, false);
+            recordSupervisorDecision('override', s, '', JSON.stringify({ action: 'resume' }));
+            return JSON.stringify({ paused: false, scope: s }, null, 2);
+          }
+          case 'supervisor_pause_status': {
+            return JSON.stringify({ pauses: supervisorStore.listSupervisorPauses() }, null, 2);
+          }
           case 'supervisor_audit_list': {
             const { project, kind, limit } = args as { project?: string; kind?: string; limit?: number };
             const entries = supervisorStore.listSupervisorAudit({ project, kind, limit });
@@ -4474,6 +4496,7 @@ IMPORTANT - Common pitfalls to avoid:
           case 'supervisor_watchdog_scan': {
             const { project, thresholdPercent, checkpointCooldownMs } = args as { project: string; thresholdPercent?: number; checkpointCooldownMs?: number };
             if (!project) throw new Error('Missing required: project');
+            if (supervisorStore.isSupervisorPaused(project)) return JSON.stringify({ actions: [], suppressed: 0, paused: true }, null, 2);
             // Precedence: explicit arg → per-project config → built-in default.
             const effectiveThreshold = thresholdPercent ?? supervisorStore.getWatchdogThreshold(project) ?? DEFAULT_WATCHDOG_CONFIG.thresholdPercent;
             const cfg = { ...DEFAULT_WATCHDOG_CONFIG, thresholdPercent: effectiveThreshold };

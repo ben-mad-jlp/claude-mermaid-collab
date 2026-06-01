@@ -7,7 +7,7 @@ import { join } from 'node:path';
 const dir = mkdtempSync(join(tmpdir(), 'sup-store-'));
 process.env.MERMAID_SUPERVISOR_DIR = dir;
 
-import { addWatchedProject, getWatchdogThreshold, setWatchdogThreshold, listWatchedProjects, recordSupervisorAudit, listSupervisorAudit, _closeDb } from '../supervisor-store';
+import { addWatchedProject, getWatchdogThreshold, setWatchdogThreshold, listWatchedProjects, recordSupervisorAudit, listSupervisorAudit, setSupervisorPause, isSupervisorPaused, listSupervisorPauses, GLOBAL_PAUSE_SCOPE, _closeDb } from '../supervisor-store';
 
 beforeAll(() => { _closeDb(); });
 afterAll(() => { _closeDb(); rmSync(dir, { recursive: true, force: true }); delete process.env.MERMAID_SUPERVISOR_DIR; });
@@ -74,5 +74,31 @@ describe('supervisor audit log', () => {
   it('respects the limit', () => {
     for (let i = 0; i < 5; i++) recordSupervisorAudit({ kind: 'nudge', project: '/d', session: 's', ts: i });
     expect(listSupervisorAudit({ project: '/d', limit: 3 }).length).toBe(3);
+  });
+});
+
+describe('supervisor pause / override', () => {
+  it('not paused by default', () => {
+    expect(isSupervisorPaused('/pp')).toBe(false);
+  });
+  it('project pause affects only that project', () => {
+    setSupervisorPause('/pp', true);
+    expect(isSupervisorPaused('/pp')).toBe(true);
+    expect(isSupervisorPaused('/other')).toBe(false);
+    setSupervisorPause('/pp', false);
+    expect(isSupervisorPaused('/pp')).toBe(false);
+  });
+  it('global pause affects every project', () => {
+    setSupervisorPause(GLOBAL_PAUSE_SCOPE, true);
+    expect(isSupervisorPaused('/anything')).toBe(true);
+    expect(isSupervisorPaused()).toBe(true);
+    setSupervisorPause(GLOBAL_PAUSE_SCOPE, false);
+    expect(isSupervisorPaused('/anything')).toBe(false);
+  });
+  it('listSupervisorPauses reflects active pauses', () => {
+    setSupervisorPause('/x', true);
+    expect(listSupervisorPauses().some((p) => p.scope === '/x')).toBe(true);
+    setSupervisorPause('/x', false);
+    expect(listSupervisorPauses().some((p) => p.scope === '/x')).toBe(false);
   });
 });
