@@ -31,7 +31,7 @@ import {
   reorder,
   type TodoLink as SessionTodoLink,
 } from '../services/todo-store';
-import { recordStatus, getStatuses, getStatus } from '../services/session-status-store';
+import { recordStatus, getStatuses, getStatus, recordContextPercent, type ClaudeStatus } from '../services/session-status-store';
 import { isSupervised, getSupervisorIdentity } from '../services/supervisor-store.ts';
 import { sendTmuxKeys } from '../services/tmux-send.ts';
 import { lastAssistantTurn } from '../services/transcript-reader.ts';
@@ -2385,9 +2385,9 @@ export async function handleAPI(
       status?: string;
     };
 
-    const ALLOWED_STATUS = new Set(['active', 'waiting', 'permission']);
+    const ALLOWED_STATUS = new Set(['active', 'waiting', 'permission', 'checkpoint_ready']);
     if (!claudeSessionId || !project || !session || !status || !ALLOWED_STATUS.has(status)) {
-      return Response.json({ error: 'claudeSessionId, project, session, and valid status (active|waiting|permission) required' }, { status: 400 });
+      return Response.json({ error: 'claudeSessionId, project, session, and valid status (active|waiting|permission|checkpoint_ready) required' }, { status: 400 });
     }
 
     // Validate claudeSessionId is a strict UUID before using it as a filename component.
@@ -2425,7 +2425,7 @@ export async function handleAPI(
     } catch { /* ignore */ }
 
     try {
-      recordStatus(project, session, status as 'active' | 'waiting' | 'permission');
+      recordStatus(project, session, status as ClaudeStatus);
     } catch (err: any) {
       console.error(`[session-notify] Failed to persist status for ${project}/${session}: ${err?.message || String(err)}`);
     }
@@ -2435,7 +2435,7 @@ export async function handleAPI(
       claudeSessionId,
       project,
       session,
-      status: status as 'active' | 'waiting' | 'permission',
+      status: status as ClaudeStatus,
       lastUpdate: Date.now(),
     });
 
@@ -2518,6 +2518,9 @@ export async function handleAPI(
       return Response.json({ error: 'Binding not found' }, { status: 404 });
     }
 
+    // Persist server-side so the supervisor/context-watchdog can read it via
+    // HTTP (GET /api/session-status), not just transient WS broadcast.
+    recordContextPercent(project, session, contextPercent);
     wsHandler.broadcast({ type: 'claude_context_update', project, session, contextPercent });
 
     return Response.json({ success: true });

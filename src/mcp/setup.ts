@@ -44,9 +44,10 @@ import * as roadmapStore from '../services/roadmap-store.js';
 import * as supervisorStore from '../services/supervisor-store.js';
 import { sendTmuxKeys } from '../services/tmux-send.js';
 import { launchAndBind } from '../services/claude-launch.js';
-import { getStatuses } from '../services/session-status-store.js';
+import { getStatuses, recordCheckpointReady, clearCheckpointReady, isCheckpointReady } from '../services/session-status-store.js';
+import { selectWatchdogActions, DEFAULT_WATCHDOG_CONFIG } from '../services/context-watchdog.js';
 import { lastAssistantTurn } from '../services/transcript-reader.js';
-import { listTodos } from '../services/todo-store.js';
+import { listTodos, getTodo } from '../services/todo-store.js';
 import { getConfig } from '../services/config-service.js';
 import { handleWorkerComplete } from '../services/coordinator-daemon.js';
 import { makeCoordinatorDeps, startCoordinator, stopCoordinator } from '../services/coordinator-live.js';
@@ -1992,9 +1993,13 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'escalation_list', description: 'List open escalations.', inputSchema: { type: 'object', properties: {} } },
       { name: 'escalation_resolve', description: 'Resolve an escalation by id with a status.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, status: { type: 'string' } }, required: ['id', 'status'] } },
       { name: 'escalation_create', description: 'Create (or dedupe) an open escalation for a session.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, kind: { type: 'string' }, questionText: { type: 'string' } }, required: ['project', 'session', 'kind', 'questionText'] } },
+      { name: 'get_todo', description: 'Read a single project work-graph todo by id (title, description/spec, status, dependsOn, sessionName). Used by a worker to read its claimed todo.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' } }, required: ['project','todoId'] } },
       { name: 'complete_todo', description: 'Worker completion report: mark a project todo accepted or rejected (marks done + unblocks dependents).', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, acceptance: { type: 'string', enum: ['accepted','rejected'] } }, required: ['project','todoId','acceptance'] } },
       { name: 'start_coordinator', description: 'Start the per-project Coordinator daemon (claims ready todos and spawns workers on a tick). Explicit-start.', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'] } },
       { name: 'stop_coordinator', description: 'Stop the per-project Coordinator daemon.', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'] } },
+      { name: 'checkpoint_ready', description: 'Context-watchdog: a session reports that its checkpoint is persisted. The server VERIFIES the named artifact was JUST written (recency gate) before recording checkpoint_ready — so a /clear can safely follow. Provide checkpointTodoId (vibe-checkpoint writes into the in_progress todo) OR checkpointDocId (a doc, e.g. vibe.vibeinstructions). Call this at the END of your checkpoint.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, checkpointTodoId: { type: 'string', description: 'Todo id the checkpoint updated (preferred — vibe-checkpoint writes the checkpoint into the in_progress todo description).' }, checkpointDocId: { type: 'string', description: 'Document id the checkpoint wrote (alternative to checkpointTodoId).' }, maxWriteAgeMs: { type: 'number', description: 'How recent the write must be to count as a fresh checkpoint (default 120000).' } }, required: ['project', 'session'] } },
+      { name: 'supervisor_clear_session', description: 'Context-watchdog HARD GATE: send /clear to a watched session ONLY if it has a recent persisted checkpoint (checkpoint_ready). Refuses otherwise. Consumes the checkpoint marker on success.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, serverId: { type: 'string', description: 'Optional peer server id for a remote session.' }, maxAgeMs: { type: 'number', description: 'Max age of the checkpoint marker to still allow clearing (default 600000).' } }, required: ['project', 'session'] } },
+      { name: 'supervisor_watchdog_scan', description: 'Context-watchdog control loop: scan a project\'s session statuses and return the per-session actions to take this tick — "checkpoint" (over the context threshold on a safe/idle boundary → nudge the session to run /vibe-checkpoint) or "clear" (a checkpoint is persisted → call supervisor_clear_session). Deterministic; the supervisor calls this each tick.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, thresholdPercent: { type: 'number', description: 'Context % that triggers a clear cycle (default 80).' } }, required: ['project'] } },
       // Spreadsheet tools
       {
         name: 'list_spreadsheets',
@@ -4288,6 +4293,13 @@ IMPORTANT - Common pitfalls to avoid:
             return await withDesktopRetry(() => handler(args ?? {}));
           }
 
+          case 'get_todo': {
+            const { project, todoId } = args as { project: string; todoId: string };
+            if (!project || !todoId) throw new Error('Missing required: project, todoId');
+            const todo = getTodo(project, todoId);
+            if (!todo) throw new Error(`todo not found: ${todoId}`);
+            return JSON.stringify(todo, null, 2);
+          }
           case 'complete_todo': {
             const { project, todoId, acceptance } = args as { project: string; todoId: string; acceptance: 'accepted' | 'rejected' };
             if (!project || !todoId || !acceptance) throw new Error('Missing required: project, todoId, acceptance');
@@ -4306,6 +4318,86 @@ IMPORTANT - Common pitfalls to avoid:
             if (!project) throw new Error('Missing required: project');
             const stopped = stopCoordinator(project);
             return JSON.stringify({ stopped }, null, 2);
+          }
+          case 'checkpoint_ready': {
+            const { project, session, checkpointTodoId, checkpointDocId, maxWriteAgeMs } = args as { project: string; session: string; checkpointTodoId?: string; checkpointDocId?: string; maxWriteAgeMs?: number };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            if (!checkpointTodoId && !checkpointDocId) throw new Error('Provide checkpointTodoId or checkpointDocId');
+            const maxAge = maxWriteAgeMs ?? 120_000;
+            // HARD GATE: verify the artifact was ACTUALLY just written — a
+            // self-report alone is not trusted (clear-before-persist = data loss).
+            let writtenAtMs: number | undefined;
+            let artifact: string;
+            if (checkpointTodoId) {
+              artifact = `todo:${checkpointTodoId}`;
+              const todo = getTodo(project, checkpointTodoId);
+              if (!todo) return JSON.stringify({ persisted: false, reason: 'checkpoint-todo-not-found', checkpointTodoId }, null, 2);
+              writtenAtMs = new Date(todo.updatedAt).getTime();
+            } else {
+              artifact = `doc:${checkpointDocId}`;
+              let lastModified: unknown;
+              try {
+                lastModified = JSON.parse(await getDocument(project, session, checkpointDocId!))?.lastModified;
+              } catch {
+                return JSON.stringify({ persisted: false, reason: 'checkpoint-doc-not-found', checkpointDocId }, null, 2);
+              }
+              if (typeof lastModified !== 'number') {
+                return JSON.stringify({ persisted: false, reason: 'no-lastModified', checkpointDocId }, null, 2);
+              }
+              writtenAtMs = lastModified;
+            }
+            if (writtenAtMs === undefined || Number.isNaN(writtenAtMs)) {
+              return JSON.stringify({ persisted: false, reason: 'no-write-timestamp', artifact }, null, 2);
+            }
+            const ageMs = Date.now() - writtenAtMs;
+            if (ageMs > maxAge) {
+              return JSON.stringify({ persisted: false, reason: 'checkpoint-stale', ageMs, maxWriteAgeMs: maxAge, artifact }, null, 2);
+            }
+            recordCheckpointReady(project, session);
+            getWebSocketHandler()?.broadcast({ type: 'claude_session_checkpoint_ready', project, session, persistedAt: Date.now() });
+            return JSON.stringify({ persisted: true, artifact, ageMs }, null, 2);
+          }
+          case 'supervisor_clear_session': {
+            const { project, session, serverId, maxAgeMs } = args as { project: string; session: string; serverId?: string; maxAgeMs?: number };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            // Gate: only clear if a recent persisted checkpoint exists. For a peer
+            // session the marker lives on its home server, so check there.
+            let ready: boolean;
+            const isPeer = !!(serverId && supervisorStore.getPeer(serverId));
+            if (isPeer) {
+              const maxAge = maxAgeMs ?? 600_000;
+              try {
+                const peer = await peerFetch(serverId!, `/api/session-status?project=${encodeURIComponent(project)}`, { method: 'GET' });
+                const row = (peer?.statuses ?? []).find((s: any) => s.session === session);
+                ready = !!(row?.checkpointReadyAt && Date.now() - row.checkpointReadyAt <= maxAge);
+              } catch {
+                return JSON.stringify({ cleared: false, reason: 'peer-status-unreachable' }, null, 2);
+              }
+            } else {
+              ready = isCheckpointReady(project, session, maxAgeMs);
+            }
+            if (!ready) {
+              return JSON.stringify({ cleared: false, reason: 'checkpoint-not-ready' }, null, 2);
+            }
+            let result: any;
+            let sent: boolean;
+            if (isPeer) {
+              result = await peerFetch(serverId!, '/api/ide/tmux-send-keys', { method: 'POST', body: { project, session, text: '/clear' } });
+              sent = !!(result?.tmux ?? result?.success);
+            } else {
+              result = await sendTmuxKeys(project, session, '/clear');
+              sent = !!result?.sent;
+            }
+            if (sent && !isPeer) clearCheckpointReady(project, session);
+            getWebSocketHandler()?.broadcast({ type: 'supervisor_session_cleared', project, session });
+            return JSON.stringify({ cleared: sent, reason: sent ? undefined : (result?.reason ?? 'send-failed') }, null, 2);
+          }
+          case 'supervisor_watchdog_scan': {
+            const { project, thresholdPercent } = args as { project: string; thresholdPercent?: number };
+            if (!project) throw new Error('Missing required: project');
+            const cfg = thresholdPercent != null ? { ...DEFAULT_WATCHDOG_CONFIG, thresholdPercent } : DEFAULT_WATCHDOG_CONFIG;
+            const actions = selectWatchdogActions(getStatuses(project), Date.now(), cfg);
+            return JSON.stringify({ actions }, null, 2);
           }
 
           default:

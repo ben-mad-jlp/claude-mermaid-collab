@@ -45,7 +45,21 @@ Quickly make the todo list match reality so resume is trustworthy:
 - Add todos for concrete work that surfaced but isn't captured yet.
 - Leave priorities/order as they are unless something is clearly mis-ranked.
 
-### Step 4 — Confirm
+### Step 4 — Signal the context-watchdog (persisted-checkpoint gate)
+
+After the checkpoint is written and the list is reconciled, tell the server the
+checkpoint is durably persisted so a supervisor's context-watchdog may safely
+`/clear` this session. The server re-verifies the todo was just written before
+recording readiness (the HARD GATE — it never trusts a self-report):
+
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__checkpoint_ready
+Args: { "project": "<cwd>", "session": "<session>", "checkpointTodoId": "<the in_progress todo id from Step 1>" }
+```
+
+If it returns `persisted: false` (e.g. `checkpoint-stale` / `checkpoint-todo-not-found`), the checkpoint did NOT take — fix it (re-run Step 2) rather than clearing. This step is a no-op for unsupervised sessions beyond recording the marker.
+
+### Step 5 — Confirm
 
 Tell the user:
 ```

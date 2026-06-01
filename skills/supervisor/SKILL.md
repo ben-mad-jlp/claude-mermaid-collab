@@ -26,7 +26,7 @@ There is exactly **ONE** foreground supervisor session. It is the human's planni
 Immediately, before any other work:
 
 1. **Register as the supervisor:** call `register_supervisor { project: <cwd>, session: <this session>, serverId: <own serverId if known, else ''> }` (pass the supervisor's own serverId if known, else `''` for local). This tells the server to push real-time reconcile notifications into THIS tmux when a supervised worker changes state — so you don't only rely on your wake loop. The desktop then pushes the peer registry + cross-machine notifications, so reconcile sees supervised sessions on other machines.
-2. Run **one full reconcile pass** (Step 5 → Step 9).
+2. Run **one full reconcile pass** (Step 5 → Step 9), then the **context-watchdog pass** (Step 10b).
 3. **Drain escalations** (Step 10).
 
 This recovers state after a restart or crash. Only after these complete do you proceed to planning or respond to the user.
@@ -135,6 +135,31 @@ Each turn and each wake:
 
 - `escalation_list` → surface all open escalations to the user (verbatim, with project/session).
 - `escalation_resolve { id, status }` once an escalation has been handled.
+
+## 10b. Context-watchdog pass (never auto-compact)
+
+Each turn/wake, for every supervised **project** (dedupe the reconcile rows by `project`), run the watchdog so no watched session is ever left to auto-compact:
+
+```
+supervisor_watchdog_scan { project }
+```
+
+It returns `{ actions: [{ session, action, contextPercent, reason }] }`. Act on each:
+
+- **`action: "checkpoint"`** (a session is over the context threshold on a safe/idle boundary) — nudge it to checkpoint:
+  ```
+  supervisor_nudge { project, session, serverId?, text: "Context is high — run /vibe-checkpoint now, then stop." }
+  ```
+  Do NOT clear yet. The session writes its checkpoint and calls `checkpoint_ready` itself (the server verifies it persisted). Next scan will surface it as `clear`.
+- **`action: "clear"`** (a persisted checkpoint exists — the HARD GATE is satisfied) — issue the gated clear:
+  ```
+  supervisor_clear_session { project, session, serverId? }
+  ```
+  This sends `/clear` only because the checkpoint is verified persisted; it refuses (`checkpoint-not-ready`) otherwise. After clearing, the session re-runs `/collab <session>` on resume.
+
+**Resume confirmation:** a re-setup session re-registers, which broadcasts `claude_session_registered` for `(project, session)`. Treat that event (or the session reappearing `active`/`waiting` in the next reconcile) as confirmation the clear+resume completed. If a cleared session does not re-register within a tick or two, escalate (Step 9) — a resume that loses the thread is exactly what the persisted-checkpoint gate exists to prevent.
+
+**Debounce:** track `(project, session, action)` like Step 12 — don't re-nudge the same `checkpoint` state, and don't re-issue `clear` for a session you already cleared this cycle (the marker is consumed on success, so the next scan won't repeat it).
 
 ## 11. Stop supervising
 

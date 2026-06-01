@@ -1,0 +1,176 @@
+/**
+ * Live MCP-wire smoke test — PCS Phase 2c coordinator MCP tools.
+ *
+ * Spawns a FRESH stdio MCP server (src/mcp/server.ts) and drives the three new
+ * tools over JSON-RPC: start_coordinator, stop_coordinator, complete_todo.
+ * Does NOT touch the long-running server's MCP connection or other sessions.
+ *
+ * start→immediate stop means the 30s tick never fires, so no real worker spawns.
+ *
+ * Requires the HTTP API server running on :9002 (server.ts checks /api/health).
+ * Run:  bun run scripts/smoke-coordinator-mcp.ts
+ */
+import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createTodo, getTodo } from '../src/services/todo-store';
+import { recordStatus, recordContextPercent, recordCheckpointReady } from '../src/services/session-status-store';
+
+const log = (s: string) => console.log(s);
+let pass = 0, fail = 0;
+function check(name: string, ok: boolean, detail = '') {
+  (ok ? pass++ : fail++);
+  log(`  ${ok ? '✅' : '❌'} ${name}${detail ? ` — ${detail}` : ''}`);
+}
+
+const project = mkdtempSync(join(tmpdir(), 'pcs-mcp-'));
+log(`\n🔬 PCS Phase 2c MCP-wire smoke test\n   project: ${project}\n`);
+
+// Seed: ready root + blocked dependent (so complete_todo can promote).
+const root = await createTodo(project, { ownerSession: 'mcp-smoke', title: 'mcp root', status: 'ready' });
+const dep = await createTodo(project, { ownerSession: 'mcp-smoke', title: 'mcp dependent', status: 'blocked', dependsOn: [root.id] });
+
+// --- Spawn the stdio MCP server ---
+const proc = Bun.spawn(['bun', 'src/mcp/server.ts'], {
+  cwd: import.meta.dir + '/..',
+  stdin: 'pipe', stdout: 'pipe', stderr: 'pipe',
+});
+
+const decoder = new TextDecoder();
+let buf = '';
+const pending = new Map<number, (msg: any) => void>();
+let nextId = 1;
+
+(async () => {
+  for await (const chunk of proc.stdout) {
+    buf += decoder.decode(chunk);
+    let nl: number;
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line) continue;
+      try {
+        const msg = JSON.parse(line);
+        if (msg.id != null && pending.has(msg.id)) { pending.get(msg.id)!(msg); pending.delete(msg.id); }
+      } catch { /* non-JSON log line */ }
+    }
+  }
+})();
+
+function send(method: string, params?: any): Promise<any> {
+  const id = nextId++;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { pending.delete(id); reject(new Error(`timeout: ${method}`)); }, 30_000);
+    pending.set(id, (msg) => { clearTimeout(timer); resolve(msg); });
+    proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
+    proc.stdin.flush?.();
+  });
+}
+function notify(method: string, params?: any) {
+  proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', method, params }) + '\n');
+  proc.stdin.flush?.();
+}
+// MCP tool calls return { result: { content: [{ type:'text', text }] } }; parse the text payload.
+const payload = (resp: any) => {
+  const text = resp?.result?.content?.[0]?.text;
+  try { return JSON.parse(text); } catch { return text; }
+};
+
+try {
+  // 1. Handshake
+  const init = await send('initialize', {
+    protocolVersion: '2024-11-05',
+    capabilities: {},
+    clientInfo: { name: 'smoke', version: '0' },
+  });
+  check('initialize handshake', !!init?.result?.serverInfo, `server=${init?.result?.serverInfo?.name}`);
+  notify('notifications/initialized');
+
+  // 2. tools/list includes the new tools
+  const tools = await send('tools/list', {});
+  const names: string[] = (tools?.result?.tools ?? []).map((t: any) => t.name);
+  check('start_coordinator listed', names.includes('start_coordinator'));
+  check('stop_coordinator listed', names.includes('stop_coordinator'));
+  check('complete_todo listed', names.includes('complete_todo'));
+  check('get_todo listed', names.includes('get_todo'));
+
+  // get_todo reads the claimed todo's spec (worker uses this)
+  const got = payload(await send('tools/call', { name: 'get_todo', arguments: { project, todoId: root.id } }));
+  check('get_todo returns the todo', got?.id === root.id && got?.title === 'mcp root', JSON.stringify(got?.id));
+
+  // 3. start_coordinator → {started:true, running:true}
+  const started = payload(await send('tools/call', { name: 'start_coordinator', arguments: { project } }));
+  check('start_coordinator started', started?.started === true && started?.running === true, JSON.stringify(started));
+
+  // 4. stop_coordinator IMMEDIATELY (before the 30s tick) → {stopped:true}
+  const stopped = payload(await send('tools/call', { name: 'stop_coordinator', arguments: { project } }));
+  check('stop_coordinator stopped', stopped?.stopped === true, JSON.stringify(stopped));
+
+  // 5. start again then stop is idempotent-safe (second start true, third stop true)
+  const s2 = payload(await send('tools/call', { name: 'start_coordinator', arguments: { project } }));
+  check('start_coordinator re-start', s2?.started === true);
+  await send('tools/call', { name: 'stop_coordinator', arguments: { project } });
+
+  // 6. complete_todo → root done, dependent promoted
+  const completed = payload(await send('tools/call', { name: 'complete_todo', arguments: { project, todoId: root.id, acceptance: 'accepted' } }));
+  check('complete_todo promoted dependent', Array.isArray(completed?.promoted) && completed.promoted.includes(dep.id), JSON.stringify(completed));
+  check('root persisted done', getTodo(project, root.id)?.status === 'done');
+  check('dependent persisted ready', getTodo(project, dep.id)?.status === 'ready');
+
+  // 7. error path: complete_todo missing arg → JSON-RPC error
+  const bad = await send('tools/call', { name: 'complete_todo', arguments: { project } });
+  check('missing-arg → error', !!bad?.error || /Missing required/.test(bad?.result?.content?.[0]?.text ?? ''), JSON.stringify(bad?.error ?? bad?.result));
+
+  // 8. context-watchdog handshake
+  check('checkpoint_ready listed', names.includes('checkpoint_ready'));
+  check('supervisor_clear_session listed', names.includes('supervisor_clear_session'));
+
+  // 8a. gate refuses before any checkpoint
+  const preClear = payload(await send('tools/call', { name: 'supervisor_clear_session', arguments: { project, session: 'wf-sess' } }));
+  check('clear refused pre-checkpoint', preClear?.cleared === false && preClear?.reason === 'checkpoint-not-ready', JSON.stringify(preClear));
+
+  // 8b. write a real checkpoint doc, then checkpoint_ready verifies its recency
+  const made = payload(await send('tools/call', { name: 'create_document', arguments: { project, session: 'wf-sess', name: 'vibe.vibeinstructions', content: '# checkpoint\nstate saved' } }));
+  const docId = made?.id;
+  check('checkpoint doc created', !!docId, JSON.stringify(docId));
+  const ckpt = payload(await send('tools/call', { name: 'checkpoint_ready', arguments: { project, session: 'wf-sess', checkpointDocId: docId } }));
+  check('checkpoint_ready verified persisted', ckpt?.persisted === true, JSON.stringify(ckpt));
+
+  // 8c. gate now PASSES the readiness check (clear attempt no longer blocked on readiness;
+  //     it fails only because there's no live tmux session — proving the gate let it through)
+  const postClear = payload(await send('tools/call', { name: 'supervisor_clear_session', arguments: { project, session: 'wf-sess' } }));
+  check('gate passes after checkpoint', postClear?.cleared === false && postClear?.reason !== 'checkpoint-not-ready', JSON.stringify(postClear));
+
+  // 8d. checkpoint_ready rejects a missing doc (no false persisted)
+  const bogus = payload(await send('tools/call', { name: 'checkpoint_ready', arguments: { project, session: 'wf-sess', checkpointDocId: 'does-not-exist' } }));
+  check('checkpoint_ready rejects missing doc', bogus?.persisted === false && bogus?.reason === 'checkpoint-doc-not-found', JSON.stringify(bogus));
+
+  // 8e. todo-based checkpoint (the primary vibe-checkpoint path): dependent todo
+  //     `dep` was just promoted (updatedAt fresh) → verifies as persisted.
+  const ckptTodo = payload(await send('tools/call', { name: 'checkpoint_ready', arguments: { project, session: 'wf-sess', checkpointTodoId: dep.id } }));
+  check('checkpoint_ready verifies a todo', ckptTodo?.persisted === true && ckptTodo?.artifact === `todo:${dep.id}`, JSON.stringify(ckptTodo));
+  const ckptBadTodo = payload(await send('tools/call', { name: 'checkpoint_ready', arguments: { project, session: 'wf-sess', checkpointTodoId: 'nope' } }));
+  check('checkpoint_ready rejects missing todo', ckptBadTodo?.persisted === false && ckptBadTodo?.reason === 'checkpoint-todo-not-found', JSON.stringify(ckptBadTodo));
+
+  // 9. watchdog control-loop scan: seed an idle-hot session + a ready session.
+  check('supervisor_watchdog_scan listed', names.includes('supervisor_watchdog_scan'));
+  recordContextPercent(project, 'hot', 85);     // seeds status, fresh reading
+  recordStatus(project, 'hot', 'waiting');        // idle boundary (preserves percent)
+  recordCheckpointReady(project, 'ready-sess');   // already persisted → clear
+  recordContextPercent(project, 'cold', 20);
+  recordStatus(project, 'cold', 'waiting');
+  const scan = payload(await send('tools/call', { name: 'supervisor_watchdog_scan', arguments: { project } }));
+  const bySession = new Map((scan?.actions ?? []).map((x: any) => [x.session, x.action]));
+  check('scan → checkpoint for idle-hot', bySession.get('hot') === 'checkpoint', JSON.stringify(scan?.actions));
+  check('scan → clear for ready session', bySession.get('ready-sess') === 'clear');
+  check('scan ignores cold session', !bySession.has('cold'));
+} catch (e) {
+  fail++;
+  log(`  ❌ exception — ${e instanceof Error ? e.message : String(e)}`);
+} finally {
+  proc.kill();
+  if (existsSync(project)) { rmSync(project, { recursive: true, force: true }); log(`\nCleanup\n  🧹 removed temp project`); }
+}
+
+log(`\n${fail === 0 ? '✅ ALL PASS' : '❌ FAILURES'} — ${pass} passed, ${fail} failed\n`);
+process.exit(fail === 0 ? 0 : 1);

@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from 'bun:test';
-import { makeCoordinatorDeps, startCoordinator, stopCoordinator, isCoordinatorRunning } from '../coordinator-live';
+import { makeCoordinatorDeps, startCoordinator, stopCoordinator, isCoordinatorRunning, resolveWorkerProfile } from '../coordinator-live';
+import type { Todo } from '../todo-store';
 
 describe('makeCoordinatorDeps', () => {
   it('returns an object with all required function properties', () => {
@@ -9,6 +10,15 @@ describe('makeCoordinatorDeps', () => {
     expect(typeof deps.releaseExpiredClaims).toBe('function');
     expect(typeof deps.completeTodo).toBe('function');
     expect(typeof deps.launchWorker).toBe('function');
+  });
+});
+
+describe('resolveWorkerProfile', () => {
+  it('makes the worker autonomous: invokeSkill targets the worker skill with the todo id', () => {
+    const todo = { id: 'abc12345-dead-beef-0000-000000000000' } as Todo;
+    const profile = resolveWorkerProfile(todo);
+    expect(profile.invokeSkill).toBe(`/mermaid-collab:worker ${todo.id}`);
+    expect(profile.allowedTools).toContain('mcp__plugin_mermaid-collab_mermaid');
   });
 });
 
