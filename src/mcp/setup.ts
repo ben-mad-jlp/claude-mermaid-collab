@@ -47,6 +47,7 @@ import { launchAndBind } from '../services/claude-launch.js';
 import { getStatuses, recordCheckpointReady, clearCheckpointReady, isCheckpointReady, tryEmitWatchdogAction, resetWatchdogDebounce } from '../services/session-status-store.js';
 import { selectWatchdogActions, DEFAULT_WATCHDOG_CONFIG } from '../services/context-watchdog.js';
 import { resolveReconcile } from '../services/planner-reconcile-live.js';
+import { SERVER_VERSION } from './server.js';
 import { lastAssistantTurn } from '../services/transcript-reader.js';
 import { listTodos, getTodo } from '../services/todo-store.js';
 import { getConfig } from '../services/config-service.js';
@@ -282,8 +283,8 @@ const API_PORT = parseInt(process.env.PORT || '9002', 10);
 const API_HOST = process.env.HOST || 'localhost';
 const API_BASE_URL = `http://${API_HOST}:${API_PORT}`;
 
-// Version is synced with package.json via npm version command
-const SERVER_VERSION = '5.26.0';
+// SERVER_VERSION is imported from server.ts (single source of truth, synced by
+// the `npm version` hook) — see the import near the top of this file.
 
 // Word lists for session name generation
 const ADJECTIVES = [
