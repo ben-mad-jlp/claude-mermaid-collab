@@ -17,6 +17,7 @@ import { activateSessionCard } from '@/components/layout/SessionCard';
 import { EscalationInbox } from './EscalationInbox';
 import { RoadmapPanel } from './RoadmapPanel';
 import { SystemMapPanel } from './SystemMapPanel';
+import { TracePanel } from './TracePanel';
 import { SupervisedSessions } from './SupervisedSessions';
 import { SupervisorOnboarding } from './SupervisorOnboarding';
 import { supervisorLiveness } from './systemNodes';
@@ -26,8 +27,8 @@ export interface SupervisorViewProps {
   onNavigate?: (serverId: string, project: string, session: string) => void;
 }
 
-type Tab = 'escalations' | 'roadmap' | 'systemmap' | 'sessions';
-type RightView = 'roadmap' | 'systemmap';
+type Tab = 'escalations' | 'roadmap' | 'systemmap' | 'trace' | 'sessions';
+type RightView = 'roadmap' | 'systemmap' | 'trace';
 
 export const SupervisorView: React.FC<SupervisorViewProps> = ({
   currentProject,
@@ -97,6 +98,7 @@ export const SupervisorView: React.FC<SupervisorViewProps> = ({
     { id: 'escalations', label: `Escalations${openEscalationCount > 0 ? ` (${openEscalationCount})` : ''}` },
     { id: 'roadmap', label: 'Roadmap' },
     { id: 'systemmap', label: 'System Map' },
+    { id: 'trace', label: 'Trace' },
     { id: 'sessions', label: `Sessions (${supervised.length})` },
   ];
 
@@ -162,6 +164,11 @@ export const SupervisorView: React.FC<SupervisorViewProps> = ({
               <SystemMapPanel serverId={serverScope} project={activeProject} onJump={onJump} />
             </div>
           )}
+          {tab === 'trace' && (
+            <div className="h-full min-h-[300px]">
+              <TracePanel serverId={serverScope} project={activeProject} />
+            </div>
+          )}
           {tab === 'sessions' && (
             <SupervisedSessions serverId={serverScope} onJump={onJump} />
           )}
@@ -178,7 +185,7 @@ export const SupervisorView: React.FC<SupervisorViewProps> = ({
         {/* Right: Roadmap / System Map (top) + Supervised Sessions (bottom) */}
         <div className="flex flex-col overflow-hidden">
           <div className="shrink-0 flex items-center gap-0.5 px-3 pt-2">
-            {(['roadmap', 'systemmap'] as RightView[]).map((v) => (
+            {(['roadmap', 'systemmap', 'trace'] as RightView[]).map((v) => (
               <button
                 key={v}
                 type="button"
@@ -189,15 +196,17 @@ export const SupervisorView: React.FC<SupervisorViewProps> = ({
                     : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
                 }`}
               >
-                {v === 'roadmap' ? 'Roadmap' : 'System Map'}
+                {v === 'roadmap' ? 'Roadmap' : v === 'systemmap' ? 'System Map' : 'Trace'}
               </button>
             ))}
           </div>
           <div className="flex-1 overflow-hidden min-h-0 p-3">
             {rightView === 'roadmap' ? (
               <RoadmapPanel serverId={serverScope} project={activeProject} />
-            ) : (
+            ) : rightView === 'systemmap' ? (
               <SystemMapPanel serverId={serverScope} project={activeProject} onJump={onJump} />
+            ) : (
+              <TracePanel serverId={serverScope} project={activeProject} />
             )}
           </div>
           <div className="shrink-0 max-h-64 overflow-auto border-t border-gray-200 dark:border-gray-700 p-3">

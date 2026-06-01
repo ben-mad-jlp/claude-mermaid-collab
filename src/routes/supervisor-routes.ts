@@ -12,6 +12,7 @@ import {
   getPeer,
   getSupervisorConfig,
   setSupervisorConfig,
+  listSupervisorAudit,
 } from '../services/supervisor-store.ts';
 import { createItem, listItems, updateItem, deleteItem } from '../services/roadmap-store.ts';
 import { SUPERVISOR_PROJECT, SUPERVISOR_SESSION } from '../config.ts';
@@ -91,6 +92,15 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     const project = url.searchParams.get('project');
     if (!project) return jsonError('project is required', 400);
     return Response.json({ items: listItems(project) });
+  }
+
+  // AUDIT TRACE (observability) — unified orchestration trace from the supervisor audit log.
+  if (url.pathname === '/api/supervisor/audit' && req.method === 'GET') {
+    const project = url.searchParams.get('project') ?? undefined;
+    const kind = url.searchParams.get('kind') ?? undefined;
+    const limitRaw = url.searchParams.get('limit');
+    const limit = limitRaw ? Number(limitRaw) : undefined;
+    return Response.json({ entries: listSupervisorAudit({ project, kind, limit }) });
   }
 
   if (url.pathname === '/api/supervisor/roadmap' && req.method === 'POST') {

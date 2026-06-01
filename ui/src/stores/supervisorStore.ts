@@ -41,6 +41,16 @@ export interface RoadmapItem {
   updatedAt: number;
 }
 
+export interface AuditEntry {
+  id: string;
+  ts: number;
+  kind: string;
+  project: string;
+  session: string;
+  detail: string | null;
+  serverId: string;
+}
+
 export interface Escalation {
   id: string;
   project: string;
@@ -116,6 +126,8 @@ interface SupervisorState {
   escalations: Escalation[];
   supervised: SupervisedSession[];
   config: SupervisorConfig | null;
+  auditByProject: Record<string, AuditEntry[]>;
+  loadAudit: (serverId: string, project: string, kind?: string) => Promise<void>;
   loadSupervised: (serverId: string) => Promise<void>;
   setSupervisedLocal: (session: SupervisedSession, supervised: boolean) => void;
   loadProjects: (serverId: string) => Promise<void>;
@@ -135,6 +147,15 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   escalations: hydrate<Escalation[]>(ESCALATIONS_KEY, []),
   supervised: hydrate<SupervisedSession[]>(SUPERVISED_KEY, []),
   config: hydrate<SupervisorConfig | null>(SUPERVISOR_CONFIG_KEY, null),
+  auditByProject: {},
+
+  loadAudit: async (serverId, project, kind?) => {
+    const qs = new URLSearchParams({ project });
+    if (kind) qs.set('kind', kind);
+    const res = await invoke(serverId, `/api/supervisor/audit?${qs.toString()}`, 'GET');
+    if (!res?.ok) return; // keep prior (cached) state on failure
+    set((state) => ({ auditByProject: { ...state.auditByProject, [project]: res.body?.entries ?? [] } }));
+  },
 
   loadSupervised: async (serverId) => {
     const res = await invoke(serverId, '/api/supervisor/supervised', 'GET');
