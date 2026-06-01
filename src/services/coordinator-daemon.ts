@@ -11,23 +11,29 @@ export const DEFAULT_LEASE_MS = 15 * 60 * 1000;
 export interface CoordinatorDeps {
   listReadyTodos: (project: string) => Todo[];
   claimTodo: (project: string, id: string, claimedBy: string, leaseMs: number) => Promise<Todo | null>;
-  releaseExpiredClaims: (project: string, now?: string) => Promise<string[]>;
+  releaseExpiredClaims: (project: string, now?: string) => Promise<{ released: string[]; exhausted: string[] }>;
   completeTodo: (project: string, id: string, acceptance?: 'pending' | 'accepted' | 'rejected') => Promise<{ completed: Todo; promoted: string[] }>;
   launchWorker: (project: string, todo: Todo) => Promise<boolean>;
+  /** Escalate a todo that exhausted its retry budget (parked 'blocked'). Optional. */
+  escalateExhausted?: (project: string, todoId: string) => Promise<void>;
 }
 
-export interface TickResult { released: string[]; claimed: string[]; spawned: string[]; }
+export interface TickResult { released: string[]; exhausted: string[]; claimed: string[]; spawned: string[]; }
 
-/** One coordination tick: reclaim expired leases, then claim each ready todo and
- *  spawn a worker for it. A failed/false launchWorker leaves the todo in_progress
- *  with a lease — a future tick's releaseExpiredClaims reclaims + retries it. */
+/** One coordination tick: reclaim expired leases (retry, or park+escalate if the
+ *  retry cap is exceeded), then claim each ready todo and spawn a worker. A
+ *  failed/false launchWorker leaves the todo in_progress with a lease — a future
+ *  tick reclaims + retries it until the cap, then escalates. */
 export async function runTick(
   deps: CoordinatorDeps,
   project: string,
   now: string = new Date().toISOString(),
   leaseMs: number = DEFAULT_LEASE_MS,
 ): Promise<TickResult> {
-  const released = await deps.releaseExpiredClaims(project, now);
+  const { released, exhausted } = await deps.releaseExpiredClaims(project, now);
+  for (const id of exhausted) {
+    try { await deps.escalateExhausted?.(project, id); } catch { /* escalation must not abort the tick */ }
+  }
   const ready = deps.listReadyTodos(project);
   const claimed: string[] = [];
   const spawned: string[] = [];
@@ -42,7 +48,7 @@ export async function runTick(
       // one bad todo must not abort the whole tick; the lease handles recovery
     }
   }
-  return { released, claimed, spawned };
+  return { released, exhausted, claimed, spawned };
 }
 
 /** Route a worker's completion to the store (mark done + unblock dependents).

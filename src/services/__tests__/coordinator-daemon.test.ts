@@ -72,7 +72,7 @@ function makeDeps(overrides: Partial<CoordinatorDeps> = {}): CoordinatorDeps & {
 
   return {
     listReadyTodos: (_project: string) => [],
-    releaseExpiredClaims: async (_project, _now) => [],
+    releaseExpiredClaims: async (_project, _now) => ({ released: [], exhausted: [] }),
     ...overrides,
     claimTodo,
     launchWorker,
@@ -137,9 +137,9 @@ describe('runTick', () => {
     expect(result.spawned).toContain('b');
   });
 
-  test('releaseExpiredClaims returns ["x"] → result.released === ["x"]', async () => {
+  test('releaseExpiredClaims released ["x"] → result.released === ["x"]', async () => {
     const deps = makeDeps({
-      releaseExpiredClaims: async () => ['x'],
+      releaseExpiredClaims: async () => ({ released: ['x'], exhausted: [] }),
     });
     const result = await runTick(deps, 'proj');
     expect(result.released).toEqual(['x']);
@@ -148,12 +148,24 @@ describe('runTick', () => {
   test('no ready todos → claimed/spawned empty, released surfaced', async () => {
     const deps = makeDeps({
       listReadyTodos: () => [],
-      releaseExpiredClaims: async () => ['stale'],
+      releaseExpiredClaims: async () => ({ released: ['stale'], exhausted: [] }),
     });
     const result = await runTick(deps, 'proj');
     expect(result.claimed).toEqual([]);
     expect(result.spawned).toEqual([]);
     expect(result.released).toEqual(['stale']);
+  });
+
+  test('exhausted claims are surfaced and escalated', async () => {
+    const escalated: string[] = [];
+    const deps = makeDeps({
+      listReadyTodos: () => [],
+      releaseExpiredClaims: async () => ({ released: [], exhausted: ['dead'] }),
+      escalateExhausted: async (_p, id) => { escalated.push(id); },
+    });
+    const result = await runTick(deps, 'proj');
+    expect(result.exhausted).toEqual(['dead']);
+    expect(escalated).toEqual(['dead']);
   });
 
   test('claimTodo is called with COORDINATOR_ID and leaseMs', async () => {

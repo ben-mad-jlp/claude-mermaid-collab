@@ -1,5 +1,6 @@
 import type { Todo } from './todo-store';
-import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo } from './todo-store';
+import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo } from './todo-store';
+import { createEscalation } from './supervisor-store';
 import { launchAndBind } from './claude-launch';
 import { runTick, type CoordinatorDeps } from './coordinator-daemon';
 import { resolveProfile, type AgentProfile } from '../config/agent-profiles';
@@ -30,6 +31,15 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         try { await updateTodo(project, todo.id, { sessionName: session }); } catch { /* spawn already succeeded; lease covers any inconsistency */ }
       }
       return !!r.started;
+    },
+    escalateExhausted: async (project: string, todoId: string): Promise<void> => {
+      const todo = getTodo(project, todoId);
+      createEscalation({
+        project,
+        session: todo?.sessionName ?? `worker-${todoId.slice(0, 8)}`,
+        kind: 'blocker',
+        questionText: `Todo "${todo?.title ?? todoId}" exhausted its retry budget (worker repeatedly failed to complete it). Parked as blocked — needs a human decision.`,
+      });
     },
   };
 }

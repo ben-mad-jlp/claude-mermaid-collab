@@ -346,22 +346,49 @@ export function claimTodo(project: string, id: string, claimedBy: string, leaseM
   });
 }
 
-export function releaseExpiredClaims(project: string, now: string = nowIso()): Promise<string[]> {
+/** Max lease-expiry retries before a todo is parked as 'blocked' for a human (design #2). */
+export const MAX_CLAIM_RETRIES = 2;
+
+export interface ReleaseResult {
+  /** Reclaimed to 'ready' for another attempt. */
+  released: string[];
+  /** Retry cap exceeded → parked 'blocked'; the coordinator escalates these (kind:blocker). */
+  exhausted: string[];
+}
+
+/**
+ * Reclaim expired claims. A claim whose lease elapsed is returned to 'ready'
+ * and its retryCount bumped — UNLESS that pushes it past MAX_CLAIM_RETRIES, in
+ * which case it is parked 'blocked' (a stuck/failing worker shouldn't be
+ * respawned forever) so the coordinator can escalate it for a human.
+ */
+export function releaseExpiredClaims(project: string, now: string = nowIso()): Promise<ReleaseResult> {
   return withLock(project, () => {
     const db = openDb(project);
     const nowMs = new Date(now).getTime();
     const rows = db.query(
-      `SELECT id, claimedAt, claimLeaseMs FROM todos WHERE status='in_progress' AND claimToken IS NOT NULL AND claimLeaseMs IS NOT NULL`
-    ).all() as Array<{ id: string; claimedAt: string; claimLeaseMs: number }>;
+      `SELECT id, claimedAt, claimLeaseMs, retryCount FROM todos WHERE status='in_progress' AND claimToken IS NOT NULL AND claimLeaseMs IS NOT NULL`
+    ).all() as Array<{ id: string; claimedAt: string; claimLeaseMs: number; retryCount: number }>;
     const expired = rows.filter((r) => new Date(r.claimedAt).getTime() + r.claimLeaseMs < nowMs);
-    if (expired.length === 0) return [];
+    if (expired.length === 0) return { released: [], exhausted: [] };
     const ts = nowIso();
-    const stmt = db.prepare(
+    const toReady = db.prepare(
       `UPDATE todos SET status='ready', claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL,
        retryCount=retryCount+1, updatedAt=? WHERE id=?`
     );
-    db.transaction(() => { for (const r of expired) stmt.run(ts, r.id); })();
-    return expired.map((r) => r.id);
+    const toBlocked = db.prepare(
+      `UPDATE todos SET status='blocked', claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL,
+       retryCount=retryCount+1, updatedAt=? WHERE id=?`
+    );
+    const released: string[] = [];
+    const exhausted: string[] = [];
+    db.transaction(() => {
+      for (const r of expired) {
+        if ((r.retryCount ?? 0) + 1 > MAX_CLAIM_RETRIES) { toBlocked.run(ts, r.id); exhausted.push(r.id); }
+        else { toReady.run(ts, r.id); released.push(r.id); }
+      }
+    })();
+    return { released, exhausted };
   });
 }
 

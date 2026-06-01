@@ -164,7 +164,7 @@ describe('todo-store new fields and functions', () => {
     const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
     await claimTodo(project, t.id, 'agent-1', 1000);
     const future = new Date(Date.now() + 2000).toISOString();
-    const released = await releaseExpiredClaims(project, future);
+    const { released } = await releaseExpiredClaims(project, future);
     expect(released).toContain(t.id);
     const after = getTodo(project, t.id)!;
     expect(after.status).toBe('ready');
@@ -177,10 +177,26 @@ describe('todo-store new fields and functions', () => {
     const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
     await claimTodo(project, t.id, 'agent-1', 60000);
     const nearFuture = new Date(Date.now() + 100).toISOString();
-    const released = await releaseExpiredClaims(project, nearFuture);
+    const { released } = await releaseExpiredClaims(project, nearFuture);
     expect(released).not.toContain(t.id);
     const after = getTodo(project, t.id)!;
     expect(after.status).toBe('in_progress');
+  });
+
+  test('releaseExpiredClaims: retry cap exceeded → parked blocked + surfaced as exhausted', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
+    // Re-claim + expire repeatedly. MAX_CLAIM_RETRIES=2 → 3rd expiry parks it blocked.
+    let lastExhausted: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      await claimTodo(project, t.id, 'agent-1', 1000);
+      const future = new Date(Date.now() + (i + 1) * 10000).toISOString();
+      const res = await releaseExpiredClaims(project, future);
+      lastExhausted = res.exhausted;
+    }
+    expect(lastExhausted).toContain(t.id);
+    const after = getTodo(project, t.id)!;
+    expect(after.status).toBe('blocked');
+    expect(after.retryCount).toBe(3);
   });
 
   test('listReadyTodos: ready w/ no deps included; ready w/ all-done deps included; ready w/ pending dep excluded; unknown dep id included', async () => {
