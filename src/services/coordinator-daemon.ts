@@ -16,6 +16,9 @@ export interface CoordinatorDeps {
   launchWorker: (project: string, todo: Todo) => Promise<boolean>;
   /** Escalate a todo that exhausted its retry budget (parked 'blocked'). Optional. */
   escalateExhausted?: (project: string, todoId: string) => Promise<void>;
+  /** Reclaim claims whose worker is hard-dead (tmux gone), without waiting for
+   *  the lease. Returns reclaimed-to-ready + retry-exhausted (parked blocked) ids. Optional. */
+  reapDeadClaims?: (project: string) => Promise<{ reclaimed: string[]; exhausted: string[] }>;
 }
 
 export interface TickResult { released: string[]; exhausted: string[]; claimed: string[]; spawned: string[]; }
@@ -31,6 +34,14 @@ export async function runTick(
   leaseMs: number = DEFAULT_LEASE_MS,
 ): Promise<TickResult> {
   const { released, exhausted } = await deps.releaseExpiredClaims(project, now);
+  // Hard-crash reap: a dead worker's claim is reclaimed now, not at lease end.
+  if (deps.reapDeadClaims) {
+    try {
+      const dead = await deps.reapDeadClaims(project);
+      released.push(...dead.reclaimed);
+      exhausted.push(...dead.exhausted);
+    } catch { /* reaping must not abort the tick */ }
+  }
   for (const id of exhausted) {
     try { await deps.escalateExhausted?.(project, id); } catch { /* escalation must not abort the tick */ }
   }

@@ -392,6 +392,30 @@ export function releaseExpiredClaims(project: string, now: string = nowIso()): P
   });
 }
 
+/**
+ * Force-reclaim a specific in_progress claim REGARDLESS of lease — for a worker
+ * detected hard-dead (its tmux session is gone), so we don't wait out the full
+ * lease. Same retry-cap semantics as releaseExpiredClaims: → 'ready', or
+ * 'blocked' once MAX_CLAIM_RETRIES is exceeded. Returns the new status, or null
+ * if the todo wasn't a live claim.
+ */
+export function reclaimClaim(project: string, id: string): Promise<'ready' | 'blocked' | null> {
+  return withLock(project, () => {
+    assertProjectLocal(project);
+    const db = openDb(project);
+    const row = db.query(
+      `SELECT retryCount FROM todos WHERE id=? AND status='in_progress' AND claimToken IS NOT NULL`
+    ).get(id) as { retryCount: number } | undefined;
+    if (!row) return null;
+    const next: 'ready' | 'blocked' = (row.retryCount ?? 0) + 1 > MAX_CLAIM_RETRIES ? 'blocked' : 'ready';
+    db.prepare(
+      `UPDATE todos SET status=?, claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL,
+       retryCount=retryCount+1, updatedAt=? WHERE id=?`
+    ).run(next, nowIso(), id);
+    return next;
+  });
+}
+
 export function listReadyTodos(project: string): Todo[] {
   const all = listTodos(project, { includeCompleted: true });
   const byId = new Map(all.map((t) => [t.id, t]));

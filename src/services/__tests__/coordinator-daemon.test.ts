@@ -168,6 +168,20 @@ describe('runTick', () => {
     expect(escalated).toEqual(['dead']);
   });
 
+  test('reapDeadClaims merges into released/exhausted and escalates dead-exhausted', async () => {
+    const escalated: string[] = [];
+    const deps = makeDeps({
+      listReadyTodos: () => [],
+      releaseExpiredClaims: async () => ({ released: ['lease-x'], exhausted: [] }),
+      reapDeadClaims: async () => ({ reclaimed: ['dead-ready'], exhausted: ['dead-blocked'] }),
+      escalateExhausted: async (_p, id) => { escalated.push(id); },
+    });
+    const result = await runTick(deps, 'proj');
+    expect(result.released.sort()).toEqual(['dead-ready', 'lease-x']);
+    expect(result.exhausted).toEqual(['dead-blocked']);
+    expect(escalated).toEqual(['dead-blocked']);
+  });
+
   test('claimTodo is called with COORDINATOR_ID and leaseMs', async () => {
     const todos = [makeTodo('t1')];
     const deps = makeDeps({ listReadyTodos: () => todos });

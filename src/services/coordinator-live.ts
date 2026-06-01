@@ -1,9 +1,20 @@
 import type { Todo } from './todo-store';
-import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo } from './todo-store';
+import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim } from './todo-store';
 import { createEscalation } from './supervisor-store';
+import { tmuxBaseName } from './tmux-naming';
 import { launchAndBind } from './claude-launch';
 import { runTick, type CoordinatorDeps } from './coordinator-daemon';
 import { resolveProfile, type AgentProfile } from '../config/agent-profiles';
+
+/** True if a tmux session with this base name exists (worker still alive). */
+function isTmuxAlive(tmux: string): boolean {
+  try {
+    return Bun.spawnSync(['tmux', 'has-session', '-t', tmux], { stdout: 'ignore', stderr: 'ignore' }).exitCode === 0;
+  } catch {
+    // can't check → assume alive (don't reclaim on uncertainty; the lease still backstops).
+    return true;
+  }
+}
 
 /** Per-todo agent profile → launch params (PCS Phase 3). The todo's `type`
  *  (when present; assigned at sync time per #8) resolves to a registry profile
@@ -31,6 +42,18 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         try { await updateTodo(project, todo.id, { sessionName: session }); } catch { /* spawn already succeeded; lease covers any inconsistency */ }
       }
       return !!r.started;
+    },
+    reapDeadClaims: async (project: string): Promise<{ reclaimed: string[]; exhausted: string[] }> => {
+      const reclaimed: string[] = [];
+      const exhausted: string[] = [];
+      for (const t of listTodos(project, { status: 'in_progress' })) {
+        const session = t.sessionName ?? `worker-${t.id.slice(0, 8)}`;
+        if (isTmuxAlive(tmuxBaseName(project, session))) continue; // worker still running
+        const next = await reclaimClaim(project, t.id);
+        if (next === 'ready') reclaimed.push(t.id);
+        else if (next === 'blocked') exhausted.push(t.id);
+      }
+      return { reclaimed, exhausted };
     },
     escalateExhausted: async (project: string, todoId: string): Promise<void> => {
       const todo = getTodo(project, todoId);

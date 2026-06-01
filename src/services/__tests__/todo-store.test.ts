@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   createTodo, listTodos, getTodo, updateTodo, assignTodo, removeTodo, clearCompleted, reorder, _closeProject,
-  claimTodo, releaseExpiredClaims, listReadyTodos, computeWaves, completeTodo,
+  claimTodo, releaseExpiredClaims, reclaimClaim, listReadyTodos, computeWaves, completeTodo,
 } from '../todo-store';
 
 let project: string;
@@ -197,6 +197,17 @@ describe('todo-store new fields and functions', () => {
     const after = getTodo(project, t.id)!;
     expect(after.status).toBe('blocked');
     expect(after.retryCount).toBe(3);
+  });
+
+  test('reclaimClaim: force-reclaims a live claim to ready regardless of lease; null for non-claims', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
+    await claimTodo(project, t.id, 'agent-1', 60_000); // long lease, NOT expired
+    const next = await reclaimClaim(project, t.id);
+    expect(next).toBe('ready');
+    expect(getTodo(project, t.id)!.status).toBe('ready');
+    expect(getTodo(project, t.id)!.retryCount).toBe(1);
+    // not in_progress anymore → null
+    expect(await reclaimClaim(project, t.id)).toBeNull();
   });
 
   test('listReadyTodos: ready w/ no deps included; ready w/ all-done deps included; ready w/ pending dep excluded; unknown dep id included', async () => {
