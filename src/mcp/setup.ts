@@ -47,6 +47,7 @@ import { launchAndBind } from '../services/claude-launch.js';
 import { getStatuses } from '../services/session-status-store.js';
 import { lastAssistantTurn } from '../services/transcript-reader.js';
 import { listTodos } from '../services/todo-store.js';
+import { getConfig } from '../services/config-service.js';
 import { updateTaskStatus, updateTasksStatus, getTaskGraph } from './workflow/task-status.js';
 import { syncTasksFromTaskGraph } from './workflow/task-sync.js';
 import {
@@ -3222,8 +3223,8 @@ IMPORTANT - Common pitfalls to avoid:
             const { prompt, system, model = 'grok-4.20-reasoning' } = args as { prompt: string; system?: string; model?: string };
             if (!prompt) throw new Error('Missing required: prompt');
 
-            const apiKey = process.env.XAI_API_KEY;
-            if (!apiKey) throw new Error('XAI_API_KEY environment variable is not set');
+            const apiKey = getConfig('XAI_API_KEY');
+            if (!apiKey) throw new Error('XAI_API_KEY is not set (env or ~/.mermaid-collab/config.json)');
 
             const messages: Array<{ role: string; content: string }> = [];
             if (system) messages.push({ role: 'system', content: system });
