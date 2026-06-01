@@ -1,5 +1,5 @@
 import Database from 'bun:sqlite';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 
 /**
@@ -318,8 +318,23 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
   });
 }
 
+/**
+ * Single-writer invariant (PCS open-problem #7): orchestration WRITES (claim /
+ * complete) must happen on the project's home server — i.e. the project must
+ * exist locally. Guards against a peer fabricating a `.collab` DB for a project
+ * that isn't on this machine (openDb mkdir's the path), which would split-brain
+ * the work-graph. Cross-machine writes route to the home server; a full
+ * home-server registry + failover is deferred (federation is still vaporware).
+ */
+function assertProjectLocal(project: string): void {
+  if (!existsSync(project)) {
+    throw new Error(`project not local: claim/complete writes must run on the project's home server — ${project}`);
+  }
+}
+
 export function claimTodo(project: string, id: string, claimedBy: string, leaseMs: number): Promise<Todo | null> {
   return withLock(project, () => {
+    assertProjectLocal(project);
     const db = openDb(project);
     const token = crypto.randomUUID();
     const now = nowIso();
@@ -403,6 +418,7 @@ function depSatisfied(dep: Pick<Todo, 'status' | 'acceptanceStatus'> | undefined
  */
 export function completeTodo(project: string, id: string, acceptanceStatus?: 'pending' | 'accepted' | 'rejected'): Promise<CompleteTodoResult> {
   return withLock(project, () => {
+    assertProjectLocal(project);
     const db = openDb(project);
     const existing = getTodo(project, id);
     if (!existing) throw new Error(`todo not found: ${id}`);

@@ -340,3 +340,21 @@ describe('completeTodo', () => {
     expect(listReadyTodos(project).some((t) => t.id === dependent.id)).toBe(false);
   });
 });
+
+describe('single-writer invariant (project-is-local)', () => {
+  test('claimTodo throws for a non-local project path', async () => {
+    await expect(claimTodo('/no/such/project/xyz', 'id', 'coordinator', 1000)).rejects.toThrow('project not local');
+  });
+
+  test('completeTodo throws for a non-local project path', async () => {
+    await expect(completeTodo('/no/such/project/xyz', 'id', 'accepted')).rejects.toThrow('project not local');
+  });
+
+  test('claim/complete work normally for a local (existing) project', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
+    const claimed = await claimTodo(project, t.id, 'coordinator', 60_000);
+    expect(claimed?.status).toBe('in_progress');
+    const { completed } = await completeTodo(project, t.id, 'accepted');
+    expect(completed.status).toBe('done');
+  });
+});
