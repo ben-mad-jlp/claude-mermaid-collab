@@ -472,6 +472,15 @@ async function listDocuments(project: string, session: string): Promise<string> 
   return JSON.stringify(data, null, 2);
 }
 
+/** Append a supervisor decision/action to the durable audit log AND broadcast a
+ *  supervisor_decision WS event (for live UI + the System Map / observability). */
+function recordSupervisorDecision(kind: string, project: string, session: string, detail?: string | null, serverId?: string): void {
+  try {
+    const entry = supervisorStore.recordSupervisorAudit({ kind, project, session, detail, serverId });
+    getWebSocketHandler()?.broadcast({ type: 'supervisor_decision', project, session, kind, detail: entry.detail, ts: entry.ts });
+  } catch { /* audit must never break the action it records */ }
+}
+
 async function getDocument(project: string, session: string, id: string): Promise<string> {
   const response = await fetch(buildUrl(`/api/document/${id}`, project, session));
   if (!response.ok) {
@@ -1999,6 +2008,7 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'stop_coordinator', description: 'Stop the per-project Coordinator daemon.', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'] } },
       { name: 'checkpoint_ready', description: 'Context-watchdog: a session reports that its checkpoint is persisted. The server VERIFIES the named artifact was JUST written (recency gate) before recording checkpoint_ready — so a /clear can safely follow. Provide checkpointTodoId (vibe-checkpoint writes into the in_progress todo) OR checkpointDocId (a doc, e.g. vibe.vibeinstructions). Call this at the END of your checkpoint.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, checkpointTodoId: { type: 'string', description: 'Todo id the checkpoint updated (preferred — vibe-checkpoint writes the checkpoint into the in_progress todo description).' }, checkpointDocId: { type: 'string', description: 'Document id the checkpoint wrote (alternative to checkpointTodoId).' }, maxWriteAgeMs: { type: 'number', description: 'How recent the write must be to count as a fresh checkpoint (default 120000).' } }, required: ['project', 'session'] } },
       { name: 'supervisor_clear_session', description: 'Context-watchdog HARD GATE: send /clear to a watched session ONLY if it has a recent persisted checkpoint (checkpoint_ready). Refuses otherwise. Consumes the checkpoint marker on success.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, serverId: { type: 'string', description: 'Optional peer server id for a remote session.' }, maxAgeMs: { type: 'number', description: 'Max age of the checkpoint marker to still allow clearing (default 600000).' } }, required: ['project', 'session'] } },
+      { name: 'supervisor_audit_list', description: 'List the supervisor\'s durable decision/action audit trail (nudge/escalate/checkpoint/clear/…), most-recent-first. Survives restart; feeds observability + the System Map. Optional project/kind filters.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, kind: { type: 'string' }, limit: { type: 'number', description: 'Max entries (default 100, max 1000).' } } } },
       { name: 'set_watchdog_threshold', description: 'Set (or clear, with null) a project\'s context-watchdog trigger threshold (%). Overrides the 80% default for supervisor_watchdog_scan on that project. Pass null to revert to the default.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, thresholdPercent: { type: ['number', 'null'], description: 'Percent (1-100) or null to clear.' } }, required: ['project', 'thresholdPercent'] } },
       { name: 'supervisor_watchdog_scan', description: 'Context-watchdog control loop: scan a project\'s session statuses and return the per-session actions to take this tick — "checkpoint" (over the context threshold on a safe/idle boundary → nudge the session to run /vibe-checkpoint) or "clear" (a checkpoint is persisted → call supervisor_clear_session). Deterministic; the supervisor calls this each tick.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, thresholdPercent: { type: 'number', description: 'Context % that triggers a clear cycle (default 80).' } }, required: ['project'] } },
       // Spreadsheet tools
@@ -3545,6 +3555,7 @@ IMPORTANT - Common pitfalls to avoid:
             // landed in a live tmux pane). Broadcast on the supervisor's own
             // server — that's where the user is watching.
             getWebSocketHandler()?.broadcast({ type: 'supervisor_nudge', project, session, serverId: serverId ?? '', text, sent });
+            recordSupervisorDecision('nudge', project, session, JSON.stringify({ text, sent }), serverId);
             return JSON.stringify(result, null, 2);
           }
           case 'supervisor_reconcile': {
@@ -3603,6 +3614,7 @@ IMPORTANT - Common pitfalls to avoid:
             const esc = supervisorStore.createEscalation({ project, session, kind, questionText });
             if (!isDedup) {
               getWebSocketHandler()?.broadcast({ type: 'escalation_created', project, session, kind, id: esc.id });
+              recordSupervisorDecision('escalate', project, session, JSON.stringify({ kind, escalationId: esc.id }));
             }
             return JSON.stringify(esc, null, 2);
           }
@@ -4356,6 +4368,7 @@ IMPORTANT - Common pitfalls to avoid:
             }
             recordCheckpointReady(project, session);
             getWebSocketHandler()?.broadcast({ type: 'claude_session_checkpoint_ready', project, session, persistedAt: Date.now() });
+            recordSupervisorDecision('checkpoint', project, session, JSON.stringify({ artifact, ageMs }));
             return JSON.stringify({ persisted: true, artifact, ageMs }, null, 2);
           }
           case 'supervisor_clear_session': {
@@ -4391,7 +4404,13 @@ IMPORTANT - Common pitfalls to avoid:
             }
             if (sent && !isPeer) { clearCheckpointReady(project, session); resetWatchdogDebounce(project, session); }
             getWebSocketHandler()?.broadcast({ type: 'supervisor_session_cleared', project, session });
+            recordSupervisorDecision('clear', project, session, JSON.stringify({ sent, isPeer }), serverId);
             return JSON.stringify({ cleared: sent, reason: sent ? undefined : (result?.reason ?? 'send-failed') }, null, 2);
+          }
+          case 'supervisor_audit_list': {
+            const { project, kind, limit } = args as { project?: string; kind?: string; limit?: number };
+            const entries = supervisorStore.listSupervisorAudit({ project, kind, limit });
+            return JSON.stringify({ entries }, null, 2);
           }
           case 'set_watchdog_threshold': {
             const { project, thresholdPercent } = args as { project: string; thresholdPercent: number | null };

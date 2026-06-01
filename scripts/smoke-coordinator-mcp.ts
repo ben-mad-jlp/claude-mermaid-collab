@@ -189,6 +189,14 @@ try {
   check('lowered threshold checkpoints 55% session', byLow.get('mid') === 'checkpoint' && lowScan?.thresholdPercent === 50, JSON.stringify(lowScan));
   const badThresh = await send('tools/call', { name: 'set_watchdog_threshold', arguments: { project, thresholdPercent: 150 } });
   check('rejects out-of-range threshold', !!badThresh?.error || /1-100/.test(badThresh?.result?.content?.[0]?.text ?? ''), JSON.stringify(badThresh?.error ?? badThresh?.result));
+
+  // 11. supervisor audit log: a clear + checkpoint earlier should be recorded durably.
+  check('supervisor_audit_list listed', names.includes('supervisor_audit_list'));
+  const audit = payload(await send('tools/call', { name: 'supervisor_audit_list', arguments: { project } }));
+  const kinds = new Set((audit?.entries ?? []).map((e: any) => e.kind));
+  check('audit recorded checkpoint + clear', kinds.has('checkpoint') && kinds.has('clear'), JSON.stringify([...kinds]));
+  const cleared = payload(await send('tools/call', { name: 'supervisor_audit_list', arguments: { project, kind: 'clear' } }));
+  check('audit filters by kind', (cleared?.entries ?? []).every((e: any) => e.kind === 'clear') && (cleared?.entries?.length ?? 0) >= 1, JSON.stringify(cleared?.entries?.length));
 } catch (e) {
   fail++;
   log(`  ❌ exception — ${e instanceof Error ? e.message : String(e)}`);

@@ -82,6 +82,17 @@ CREATE TABLE IF NOT EXISTS supervisor_config (
   supervisorSession TEXT NOT NULL,
   updatedAt INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS supervisor_audit (
+  id TEXT PRIMARY KEY,
+  ts INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  project TEXT NOT NULL,
+  session TEXT NOT NULL,
+  detail TEXT,
+  serverId TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_audit_ts ON supervisor_audit(ts);
+CREATE INDEX IF NOT EXISTS idx_audit_project ON supervisor_audit(project, ts);
 `;
 
 let db: Database | null = null;
@@ -245,6 +256,64 @@ export function resolveEscalation(id: string, status: string): void {
     Date.now(),
     id
   );
+}
+
+// --- Supervisor audit log (durable decision/action trail) ---
+
+/** Action/decision kinds the supervisor records. Free-form, but these are canonical. */
+export const SUPERVISOR_AUDIT_KINDS = ['nudge', 'escalate', 'checkpoint', 'clear', 'classify', 'reconcile', 'override'] as const;
+
+export interface SupervisorAuditEntry {
+  id: string;
+  ts: number;
+  kind: string;
+  project: string;
+  session: string;
+  detail: string | null;
+  serverId: string;
+}
+
+/**
+ * Append a supervisor decision/action to the durable audit trail. Survives
+ * restart (addresses the supervisor SPOF: no audit log surviving restart) and
+ * feeds the System Map + observability. `detail` is free text or JSON.
+ */
+export function recordSupervisorAudit(input: {
+  kind: string;
+  project: string;
+  session: string;
+  detail?: string | null;
+  serverId?: string;
+  ts?: number;
+}): SupervisorAuditEntry {
+  const d = openDb();
+  const entry: SupervisorAuditEntry = {
+    id: crypto.randomUUID(),
+    ts: input.ts ?? Date.now(),
+    kind: input.kind,
+    project: input.project,
+    session: input.session,
+    detail: input.detail ?? null,
+    serverId: input.serverId ?? '',
+  };
+  d.prepare(
+    'INSERT INTO supervisor_audit (id, ts, kind, project, session, detail, serverId) VALUES (?,?,?,?,?,?,?)'
+  ).run(entry.id, entry.ts, entry.kind, entry.project, entry.session, entry.detail, entry.serverId);
+  return entry;
+}
+
+/** Most-recent-first audit entries, optionally filtered by project and/or kind. */
+export function listSupervisorAudit(filter?: { project?: string; kind?: string; limit?: number }): SupervisorAuditEntry[] {
+  const d = openDb();
+  const where: string[] = [];
+  const params: Array<string | number> = [];
+  if (filter?.project) { where.push('project = ?'); params.push(filter.project); }
+  if (filter?.kind) { where.push('kind = ?'); params.push(filter.kind); }
+  const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const limit = Math.min(Math.max(filter?.limit ?? 100, 1), 1000);
+  return d.query(
+    `SELECT * FROM supervisor_audit ${clause} ORDER BY ts DESC LIMIT ?`,
+  ).all(...params, limit) as SupervisorAuditEntry[];
 }
 
 // --- Supervisor identity (single global supervisor session) ---

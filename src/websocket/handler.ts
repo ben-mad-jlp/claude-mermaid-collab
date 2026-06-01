@@ -59,6 +59,7 @@ export type WSMessage =
   | { type: 'claude_context_update'; project: string; session: string; contextPercent: number }
   | { type: 'claude_session_checkpoint_ready'; project: string; session: string; persistedAt: number; [k: string]: unknown }
   | { type: 'supervisor_session_cleared'; project: string; session: string; [k: string]: unknown }
+  | { type: 'supervisor_decision'; project: string; session: string; kind: string; detail?: string | null; ts: number; [k: string]: unknown }
   | { type: 'lesson_added'; project: string; session: string; [k: string]: unknown }
   | { type: 'notification'; data: NotificationData }
   | { type: 'status_changed'; status: 'working' | 'waiting' | 'idle'; message?: string; lastActivity: string }

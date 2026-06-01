@@ -7,7 +7,7 @@ import { join } from 'node:path';
 const dir = mkdtempSync(join(tmpdir(), 'sup-store-'));
 process.env.MERMAID_SUPERVISOR_DIR = dir;
 
-import { addWatchedProject, getWatchdogThreshold, setWatchdogThreshold, listWatchedProjects, _closeDb } from '../supervisor-store';
+import { addWatchedProject, getWatchdogThreshold, setWatchdogThreshold, listWatchedProjects, recordSupervisorAudit, listSupervisorAudit, _closeDb } from '../supervisor-store';
 
 beforeAll(() => { _closeDb(); });
 afterAll(() => { _closeDb(); rmSync(dir, { recursive: true, force: true }); delete process.env.MERMAID_SUPERVISOR_DIR; });
@@ -43,5 +43,36 @@ describe('per-project watchdog threshold', () => {
     setWatchdogThreshold('/proj/e', 55);
     const row = listWatchedProjects().find((p) => p.project === '/proj/e');
     expect(row?.watchdogThresholdPercent).toBe(55);
+  });
+});
+
+describe('supervisor audit log', () => {
+  it('records and returns an entry', () => {
+    const e = recordSupervisorAudit({ kind: 'nudge', project: '/a', session: 's1', detail: 'go' });
+    expect(e.id).toBeTruthy();
+    expect(e.kind).toBe('nudge');
+    const got = listSupervisorAudit({ project: '/a' });
+    expect(got.some((x) => x.id === e.id && x.detail === 'go')).toBe(true);
+  });
+
+  it('returns most-recent-first', () => {
+    recordSupervisorAudit({ kind: 'clear', project: '/b', session: 's', ts: 1000 });
+    recordSupervisorAudit({ kind: 'escalate', project: '/b', session: 's', ts: 2000 });
+    const got = listSupervisorAudit({ project: '/b' });
+    expect(got[0].ts).toBeGreaterThanOrEqual(got[1].ts);
+    expect(got[0].kind).toBe('escalate');
+  });
+
+  it('filters by kind', () => {
+    recordSupervisorAudit({ kind: 'nudge', project: '/c', session: 's' });
+    recordSupervisorAudit({ kind: 'checkpoint', project: '/c', session: 's' });
+    const only = listSupervisorAudit({ project: '/c', kind: 'checkpoint' });
+    expect(only.every((x) => x.kind === 'checkpoint')).toBe(true);
+    expect(only.length).toBe(1);
+  });
+
+  it('respects the limit', () => {
+    for (let i = 0; i < 5; i++) recordSupervisorAudit({ kind: 'nudge', project: '/d', session: 's', ts: i });
+    expect(listSupervisorAudit({ project: '/d', limit: 3 }).length).toBe(3);
   });
 });
