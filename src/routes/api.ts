@@ -342,6 +342,17 @@ export async function handleAPI(
       // Register the project
       await projectRegistry.register(projectPath);
 
+      // Migrate any legacy roadmap.db → unified todo work-graph for THIS project.
+      // Idempotent (sentinel todo), so safe to run lazily on every register — the
+      // boot-time pass only covers MERMAID_PROJECT, leaving other projects unmigrated.
+      try {
+        const { migrateRoadmapToTodos } = await import('../services/roadmap-migration.js');
+        const { migrated } = await migrateRoadmapToTodos(projectPath);
+        if (migrated > 0) console.log(`[projects] migrated ${migrated} roadmap item(s) → todos for ${projectPath}`);
+      } catch (err: any) {
+        console.warn(`[projects] roadmap→todos migration skipped for ${projectPath}: ${err?.message || String(err)}`);
+      }
+
       // Auto-register any existing sessions found on disk
       const sessionsDir = join(projectPath, '.collab', 'sessions');
       if (existsSync(sessionsDir)) {
