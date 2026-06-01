@@ -7,7 +7,7 @@ import { join } from 'node:path';
 const dir = mkdtempSync(join(tmpdir(), 'sup-store-'));
 process.env.MERMAID_SUPERVISOR_DIR = dir;
 
-import { addWatchedProject, getWatchdogThreshold, setWatchdogThreshold, listWatchedProjects, recordSupervisorAudit, listSupervisorAudit, setSupervisorPause, isSupervisorPaused, listSupervisorPauses, GLOBAL_PAUSE_SCOPE, _closeDb } from '../supervisor-store';
+import { addWatchedProject, getWatchdogThreshold, setWatchdogThreshold, listWatchedProjects, recordSupervisorAudit, listSupervisorAudit, setSupervisorPause, isSupervisorPaused, listSupervisorPauses, GLOBAL_PAUSE_SCOPE, createEscalation, listOpenEscalations, _closeDb } from '../supervisor-store';
 
 beforeAll(() => { _closeDb(); });
 afterAll(() => { _closeDb(); rmSync(dir, { recursive: true, force: true }); delete process.env.MERMAID_SUPERVISOR_DIR; });
@@ -100,5 +100,20 @@ describe('supervisor pause / override', () => {
     expect(listSupervisorPauses().some((p) => p.scope === '/x')).toBe(true);
     setSupervisorPause('/x', false);
     expect(listSupervisorPauses().some((p) => p.scope === '/x')).toBe(false);
+  });
+});
+
+describe('createEscalation dedup signal (TOCTOU fix)', () => {
+  it('first create isNew=true; identical create isNew=false (same row)', () => {
+    const a = createEscalation({ project: '/e', session: 's', kind: 'blocker', questionText: 'stuck?' });
+    expect(a.isNew).toBe(true);
+    const b = createEscalation({ project: '/e', session: 's', kind: 'blocker', questionText: 'stuck?' });
+    expect(b.isNew).toBe(false);
+    expect(b.escalation.id).toBe(a.escalation.id);
+    expect(listOpenEscalations().filter((e) => e.project === '/e').length).toBe(1);
+  });
+  it('different questionText → new', () => {
+    createEscalation({ project: '/e2', session: 's', kind: 'blocker', questionText: 'q1' });
+    expect(createEscalation({ project: '/e2', session: 's', kind: 'blocker', questionText: 'q2' }).isNew).toBe(true);
   });
 });

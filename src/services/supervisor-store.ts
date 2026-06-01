@@ -209,18 +209,24 @@ export function isSupervised(project: string, session: string): boolean {
 
 // --- Escalations ---
 
+/**
+ * Create an open escalation, deduping on (project, session, questionText). Returns
+ * the escalation AND whether it was newly created — so callers broadcast/notify
+ * only for genuinely-new escalations WITHOUT a separate pre-check (closes the
+ * read-then-create TOCTOU; the check+insert here is one synchronous step).
+ */
 export function createEscalation(input: {
   project: string;
   session: string;
   kind: string;
   questionText: string;
   serverId?: string;
-}): Escalation {
+}): { escalation: Escalation; isNew: boolean } {
   const d = openDb();
   const existing = d
     .query("SELECT * FROM escalation WHERE project = ? AND session = ? AND questionText = ? AND status = 'open'")
     .get(input.project, input.session, input.questionText) as Escalation | null;
-  if (existing) return existing;
+  if (existing) return { escalation: existing, isNew: false };
 
   const id = crypto.randomUUID();
   const createdAt = Date.now();
@@ -229,15 +235,18 @@ export function createEscalation(input: {
     'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, resolvedAt, serverId) VALUES (?,?,?,?,?,?,?,?,?)'
   ).run(id, input.project, input.session, input.kind, input.questionText, 'open', createdAt, null, serverId);
   return {
-    id,
-    project: input.project,
-    session: input.session,
-    kind: input.kind,
-    questionText: input.questionText,
-    status: 'open',
-    createdAt,
-    resolvedAt: null,
-    serverId,
+    escalation: {
+      id,
+      project: input.project,
+      session: input.session,
+      kind: input.kind,
+      questionText: input.questionText,
+      status: 'open',
+      createdAt,
+      resolvedAt: null,
+      serverId,
+    },
+    isNew: true,
   };
 }
 

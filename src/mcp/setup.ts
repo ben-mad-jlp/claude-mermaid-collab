@@ -3623,11 +3623,10 @@ IMPORTANT - Common pitfalls to avoid:
           case 'escalation_create': {
             const { project, session, kind, questionText } = args as { project: string; session: string; kind: string; questionText: string };
             if (!project || !session || !kind || !questionText) throw new Error('Missing required: project, session, kind, questionText');
-            const isDedup = supervisorStore.listOpenEscalations().some(
-              (e) => e.project === project && e.session === session && e.questionText === questionText
-            );
-            const esc = supervisorStore.createEscalation({ project, session, kind, questionText });
-            if (!isDedup) {
+            // Use the store's authoritative new-vs-dedup signal (no separate
+            // pre-check → no TOCTOU): broadcast/record only for new escalations.
+            const { escalation: esc, isNew } = supervisorStore.createEscalation({ project, session, kind, questionText });
+            if (isNew) {
               getWebSocketHandler()?.broadcast({ type: 'escalation_created', project, session, kind, id: esc.id });
               recordSupervisorDecision('escalate', project, session, JSON.stringify({ kind, escalationId: esc.id }));
             }
