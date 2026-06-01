@@ -164,6 +164,13 @@ try {
   check('scan → checkpoint for idle-hot', bySession.get('hot') === 'checkpoint', JSON.stringify(scan?.actions));
   check('scan → clear for ready session', bySession.get('ready-sess') === 'clear');
   check('scan ignores cold session', !bySession.has('cold'));
+
+  // 9a. durable debounce: a second scan suppresses the repeat 'checkpoint' nudge
+  //     (but 'clear' still passes through — marker-driven, not debounced).
+  const scan2 = payload(await send('tools/call', { name: 'supervisor_watchdog_scan', arguments: { project } }));
+  const by2 = new Map((scan2?.actions ?? []).map((x: any) => [x.session, x.action]));
+  check('2nd scan suppresses repeat checkpoint', !by2.has('hot') && (scan2?.suppressed ?? 0) >= 1, JSON.stringify(scan2));
+  check('2nd scan still emits clear', by2.get('ready-sess') === 'clear');
 } catch (e) {
   fail++;
   log(`  ❌ exception — ${e instanceof Error ? e.message : String(e)}`);

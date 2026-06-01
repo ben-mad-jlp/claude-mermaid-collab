@@ -2,7 +2,7 @@ import { describe, it, expect, afterAll } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { recordStatus, recordContextPercent, getStatus, getStatuses, recordCheckpointReady, clearCheckpointReady, isCheckpointReady } from '../session-status-store';
+import { recordStatus, recordContextPercent, getStatus, getStatuses, recordCheckpointReady, clearCheckpointReady, isCheckpointReady, tryEmitWatchdogAction, resetWatchdogDebounce } from '../session-status-store';
 
 const projects: string[] = [];
 function tmpProject(): string {
@@ -100,5 +100,34 @@ describe('checkpoint-ready gate (context-watchdog)', () => {
     clearCheckpointReady(project, 'w');
     recordStatus(project, 'w', 'active'); // resume
     expect(isCheckpointReady(project, 'w')).toBe(false);
+  });
+});
+
+describe('watchdog debounce', () => {
+  const NOW = 2_000_000_000_000;
+  it('first emit allowed, immediate repeat within cooldown suppressed', () => {
+    const project = tmpProject();
+    expect(tryEmitWatchdogAction(project, 's', 'checkpoint', 600_000, NOW)).toBe(true);
+    expect(tryEmitWatchdogAction(project, 's', 'checkpoint', 600_000, NOW + 1000)).toBe(false);
+  });
+
+  it('re-allowed once the cooldown elapses', () => {
+    const project = tmpProject();
+    tryEmitWatchdogAction(project, 's', 'checkpoint', 600_000, NOW);
+    expect(tryEmitWatchdogAction(project, 's', 'checkpoint', 600_000, NOW + 600_001)).toBe(true);
+  });
+
+  it('debounce is per (session, action)', () => {
+    const project = tmpProject();
+    tryEmitWatchdogAction(project, 's', 'checkpoint', 600_000, NOW);
+    expect(tryEmitWatchdogAction(project, 'other', 'checkpoint', 600_000, NOW)).toBe(true);
+    expect(tryEmitWatchdogAction(project, 's', 'clear', 600_000, NOW)).toBe(true);
+  });
+
+  it('reset clears the debounce so a new cycle may emit immediately', () => {
+    const project = tmpProject();
+    tryEmitWatchdogAction(project, 's', 'checkpoint', 600_000, NOW);
+    resetWatchdogDebounce(project, 's');
+    expect(tryEmitWatchdogAction(project, 's', 'checkpoint', 600_000, NOW + 1000)).toBe(true);
   });
 });

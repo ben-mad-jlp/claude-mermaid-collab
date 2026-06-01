@@ -44,7 +44,7 @@ import * as roadmapStore from '../services/roadmap-store.js';
 import * as supervisorStore from '../services/supervisor-store.js';
 import { sendTmuxKeys } from '../services/tmux-send.js';
 import { launchAndBind } from '../services/claude-launch.js';
-import { getStatuses, recordCheckpointReady, clearCheckpointReady, isCheckpointReady } from '../services/session-status-store.js';
+import { getStatuses, recordCheckpointReady, clearCheckpointReady, isCheckpointReady, tryEmitWatchdogAction, resetWatchdogDebounce } from '../services/session-status-store.js';
 import { selectWatchdogActions, DEFAULT_WATCHDOG_CONFIG } from '../services/context-watchdog.js';
 import { lastAssistantTurn } from '../services/transcript-reader.js';
 import { listTodos, getTodo } from '../services/todo-store.js';
@@ -4388,16 +4388,24 @@ IMPORTANT - Common pitfalls to avoid:
               result = await sendTmuxKeys(project, session, '/clear');
               sent = !!result?.sent;
             }
-            if (sent && !isPeer) clearCheckpointReady(project, session);
+            if (sent && !isPeer) { clearCheckpointReady(project, session); resetWatchdogDebounce(project, session); }
             getWebSocketHandler()?.broadcast({ type: 'supervisor_session_cleared', project, session });
             return JSON.stringify({ cleared: sent, reason: sent ? undefined : (result?.reason ?? 'send-failed') }, null, 2);
           }
           case 'supervisor_watchdog_scan': {
-            const { project, thresholdPercent } = args as { project: string; thresholdPercent?: number };
+            const { project, thresholdPercent, checkpointCooldownMs } = args as { project: string; thresholdPercent?: number; checkpointCooldownMs?: number };
             if (!project) throw new Error('Missing required: project');
             const cfg = thresholdPercent != null ? { ...DEFAULT_WATCHDOG_CONFIG, thresholdPercent } : DEFAULT_WATCHDOG_CONFIG;
-            const actions = selectWatchdogActions(getStatuses(project), Date.now(), cfg);
-            return JSON.stringify({ actions }, null, 2);
+            const now = Date.now();
+            const cooldown = checkpointCooldownMs ?? 10 * 60 * 1000;
+            const all = selectWatchdogActions(getStatuses(project), now, cfg);
+            // Durable debounce on the repeatable 'checkpoint' nudge only. 'clear' is
+            // self-limiting: its marker is consumed on a successful clear, and a
+            // failed clear SHOULD retry — so it passes through every tick.
+            const actions = all.filter((a) =>
+              a.action !== 'checkpoint' || tryEmitWatchdogAction(project, a.session, 'checkpoint', cooldown, now),
+            );
+            return JSON.stringify({ actions, suppressed: all.length - actions.length }, null, 2);
           }
 
           default:

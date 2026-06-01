@@ -38,6 +38,13 @@ CREATE TABLE IF NOT EXISTS session_status (
   checkpointReadyAt INTEGER,
   PRIMARY KEY (project, session)
 );
+CREATE TABLE IF NOT EXISTS watchdog_debounce (
+  project TEXT NOT NULL,
+  session TEXT NOT NULL,
+  action TEXT NOT NULL,
+  emittedAt INTEGER NOT NULL,
+  PRIMARY KEY (project, session, action)
+);
 `;
 
 const dbCache = new Map<string, Database>();
@@ -130,6 +137,38 @@ export function isCheckpointReady(
   const row = getStatus(project, session);
   if (!row || row.checkpointReadyAt == null) return false;
   return Date.now() - row.checkpointReadyAt <= maxAgeMs;
+}
+
+/**
+ * Durable watchdog debounce. Returns true if `action` for this session was NOT
+ * emitted within `cooldownMs` (i.e. it's OK to emit now) AND records the
+ * emission. Survives a supervisor restart, so a repeatable nudge (e.g.
+ * 'checkpoint') isn't re-sent every tick while we wait for the session to act.
+ */
+export function tryEmitWatchdogAction(
+  project: string,
+  session: string,
+  action: string,
+  cooldownMs: number,
+  now: number = Date.now(),
+): boolean {
+  const db = openDb(project);
+  const row = db.query(
+    `SELECT emittedAt FROM watchdog_debounce WHERE project = ? AND session = ? AND action = ?`,
+  ).get(project, session, action) as { emittedAt: number } | undefined;
+  if (row && now - row.emittedAt < cooldownMs) return false;
+  db.query(
+    `INSERT INTO watchdog_debounce (project, session, action, emittedAt)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(project, session, action) DO UPDATE SET emittedAt = excluded.emittedAt`,
+  ).run(project, session, action, now);
+  return true;
+}
+
+/** Forget a session's debounce records (e.g. after it resumes from a clear). */
+export function resetWatchdogDebounce(project: string, session: string): void {
+  const db = openDb(project);
+  db.query(`DELETE FROM watchdog_debounce WHERE project = ? AND session = ?`).run(project, session);
 }
 
 export function getStatuses(project: string): SessionStatusRow[] {
