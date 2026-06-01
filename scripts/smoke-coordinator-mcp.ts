@@ -211,6 +211,18 @@ try {
   check('infers ui type', payload(await send('tools/call', { name: 'get_todo', arguments: { project, todoId: uiTodo?.id } }))?.type === 'ui');
   const explicitTodo = payload(await send('tools/call', { name: 'add_session_todo', arguments: { project, session: 'wf-sess', text: 'x', type: 'backend', files: ['ui/x.tsx'] } }));
   check('explicit type overrides inference', payload(await send('tools/call', { name: 'get_todo', arguments: { project, todoId: explicitTodo?.id } }))?.type === 'backend');
+
+  // 14. decision_record MCP tools (#9): constraint needs approval; decision auto-active
+  const con = payload(await send('tools/call', { name: 'create_decision_record', arguments: { project, kind: 'constraint', title: 'no cross-epic imports', epicId: 'E1' } }));
+  check('create constraint → proposed', con?.status === 'proposed', JSON.stringify(con?.status));
+  check('proposed constraint NOT in active set', (payload(await send('tools/call', { name: 'get_active_constraints', arguments: { project, epicId: 'E1' } }))?.constraints ?? []).length === 0);
+  const appr = payload(await send('tools/call', { name: 'approve_decision_record', arguments: { project, id: con?.id, approvedBy: 'human' } }));
+  check('approve → active', appr?.status === 'active' && appr?.approvedBy === 'human', JSON.stringify(appr?.status));
+  check('approved constraint now in active set', (payload(await send('tools/call', { name: 'get_active_constraints', arguments: { project, epicId: 'E1' } }))?.constraints ?? []).some((c: any) => c.id === con?.id));
+  const dec = payload(await send('tools/call', { name: 'create_decision_record', arguments: { project, kind: 'decision', title: 'use bun:sqlite' } }));
+  check('decision auto-active', dec?.status === 'active');
+  const listed = payload(await send('tools/call', { name: 'list_decision_records', arguments: { project, kind: 'constraint' } }));
+  check('list filters by kind', (listed?.records ?? []).every((r: any) => r.kind === 'constraint') && (listed?.records?.length ?? 0) >= 1);
 } catch (e) {
   fail++;
   log(`  ❌ exception — ${e instanceof Error ? e.message : String(e)}`);

@@ -48,6 +48,7 @@ import { getStatuses, recordCheckpointReady, clearCheckpointReady, isCheckpointR
 import { selectWatchdogActions, DEFAULT_WATCHDOG_CONFIG } from '../services/context-watchdog.js';
 import { resolveReconcile } from '../services/planner-reconcile-live.js';
 import { SERVER_VERSION } from './server.js';
+import { createDecisionRecord, listDecisionRecords, approveDecisionRecord, supersedeDecisionRecord, getActiveConstraints, type DecisionKind } from '../services/decision-record-store.js';
 import { lastAssistantTurn } from '../services/transcript-reader.js';
 import { listTodos, getTodo } from '../services/todo-store.js';
 import { getConfig } from '../services/config-service.js';
@@ -2011,6 +2012,11 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'checkpoint_ready', description: 'Context-watchdog: a session reports that its checkpoint is persisted. The server VERIFIES the named artifact was JUST written (recency gate) before recording checkpoint_ready — so a /clear can safely follow. Provide checkpointTodoId (vibe-checkpoint writes into the in_progress todo) OR checkpointDocId (a doc, e.g. vibe.vibeinstructions). Call this at the END of your checkpoint.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, checkpointTodoId: { type: 'string', description: 'Todo id the checkpoint updated (preferred — vibe-checkpoint writes the checkpoint into the in_progress todo description).' }, checkpointDocId: { type: 'string', description: 'Document id the checkpoint wrote (alternative to checkpointTodoId).' }, maxWriteAgeMs: { type: 'number', description: 'How recent the write must be to count as a fresh checkpoint (default 120000).' } }, required: ['project', 'session'] } },
       { name: 'supervisor_clear_session', description: 'Context-watchdog HARD GATE: send /clear to a watched session ONLY if it has a recent persisted checkpoint (checkpoint_ready). Refuses otherwise. Consumes the checkpoint marker on success.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, serverId: { type: 'string', description: 'Optional peer server id for a remote session.' }, maxAgeMs: { type: 'number', description: 'Max age of the checkpoint marker to still allow clearing (default 600000).' } }, required: ['project', 'session'] } },
       { name: 'submit_reconcile_result', description: 'A reconcile session reports its merged plan graph back to the waiting reconciliation request. Call this at the END of the reconcile skill with the id you were given.', inputSchema: { type: 'object', properties: { reconcileId: { type: 'string' }, mergedGraph: { type: 'array', description: 'The merged PlanNode[] ({id, dependsOn[], parentId?, title?}).', items: { type: 'object' } }, newConstraints: { type: 'array', description: 'Optional new constraints surfaced by the merge ({title, rationale?}).', items: { type: 'object' } } }, required: ['reconcileId', 'mergedGraph'] } },
+      { name: 'create_decision_record', description: 'Record a planning decision/constraint/assumption (PCS #9). decisions/assumptions are auto-active; constraints start "proposed" and need approval. epicId null = project-level.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, kind: { type: 'string', enum: ['decision', 'constraint', 'assumption'] }, title: { type: 'string' }, rationale: { type: 'string' }, alternatives: { type: 'array', items: { type: 'string' } }, linkedTodos: { type: 'array', items: { type: 'string' } }, epicId: { type: 'string', description: 'Epic id, or omit for project-level.' }, authorSession: { type: 'string' } }, required: ['project', 'kind', 'title'] } },
+      { name: 'list_decision_records', description: 'List decision records for a project, filterable by epicId / kind / status.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, epicId: { type: 'string' }, kind: { type: 'string', enum: ['decision', 'constraint', 'assumption'] }, status: { type: 'string', enum: ['proposed', 'approved', 'active', 'superseded'] } }, required: ['project'] } },
+      { name: 'approve_decision_record', description: 'Approve a proposed constraint (human gate) → active.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, id: { type: 'string' }, approvedBy: { type: 'string' } }, required: ['project', 'id', 'approvedBy'] } },
+      { name: 'supersede_decision_record', description: 'Mark a decision record superseded by another (the superseding record should already exist).', inputSchema: { type: 'object', properties: { project: { type: 'string' }, id: { type: 'string' }, bySupersedingId: { type: 'string' } }, required: ['project', 'id', 'bySupersedingId'] } },
+      { name: 'get_active_constraints', description: 'Active constraints in scope for an epic (epic-level + project-level) — the decision-record half of /focus. Omit epicId for all active constraints.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, epicId: { type: 'string' } }, required: ['project'] } },
       { name: 'supervisor_audit_list', description: 'List the supervisor\'s durable decision/action audit trail (nudge/escalate/checkpoint/clear/…), most-recent-first. Survives restart; feeds observability + the System Map. Optional project/kind filters.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, kind: { type: 'string' }, limit: { type: 'number', description: 'Max entries (default 100, max 1000).' } } } },
       { name: 'set_watchdog_threshold', description: 'Set (or clear, with null) a project\'s context-watchdog trigger threshold (%). Overrides the 80% default for supervisor_watchdog_scan on that project. Pass null to revert to the default.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, thresholdPercent: { type: ['number', 'null'], description: 'Percent (1-100) or null to clear.' } }, required: ['project', 'thresholdPercent'] } },
       { name: 'supervisor_watchdog_scan', description: 'Context-watchdog control loop: scan a project\'s session statuses and return the per-session actions to take this tick — "checkpoint" (over the context threshold on a safe/idle boundary → nudge the session to run /vibe-checkpoint) or "clear" (a checkpoint is persisted → call supervisor_clear_session). Deterministic; the supervisor calls this each tick.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, thresholdPercent: { type: 'number', description: 'Context % that triggers a clear cycle (default 80).' } }, required: ['project'] } },
@@ -4417,6 +4423,39 @@ IMPORTANT - Common pitfalls to avoid:
             if (!reconcileId || !Array.isArray(mergedGraph)) throw new Error('Missing required: reconcileId, mergedGraph');
             const accepted = resolveReconcile(reconcileId, { mergedGraph: mergedGraph as any, newConstraints: newConstraints as any });
             return JSON.stringify({ accepted, reason: accepted ? undefined : 'no-pending-request (timed out or unknown id)' }, null, 2);
+          }
+          case 'create_decision_record': {
+            const { project, kind, title, rationale, alternatives, linkedTodos, epicId, authorSession } = args as { project: string; kind: DecisionKind; title: string; rationale?: string; alternatives?: string[]; linkedTodos?: string[]; epicId?: string; authorSession?: string };
+            if (!project || !kind || !title) throw new Error('Missing required: project, kind, title');
+            return JSON.stringify(createDecisionRecord(project, { kind, title, rationale, alternatives, linkedTodos, epicId: epicId ?? null, authorSession }), null, 2);
+          }
+          case 'list_decision_records': {
+            const { project, epicId, kind, status } = args as { project: string; epicId?: string; kind?: DecisionKind; status?: 'proposed' | 'approved' | 'active' | 'superseded' };
+            if (!project) throw new Error('Missing required: project');
+            const filter: { epicId?: string; kind?: DecisionKind; status?: 'proposed' | 'approved' | 'active' | 'superseded' } = {};
+            if (epicId !== undefined) filter.epicId = epicId;
+            if (kind) filter.kind = kind;
+            if (status) filter.status = status;
+            return JSON.stringify({ records: listDecisionRecords(project, filter) }, null, 2);
+          }
+          case 'approve_decision_record': {
+            const { project, id, approvedBy } = args as { project: string; id: string; approvedBy: string };
+            if (!project || !id || !approvedBy) throw new Error('Missing required: project, id, approvedBy');
+            const rec = approveDecisionRecord(project, id, approvedBy);
+            if (!rec) throw new Error(`decision record not found: ${id}`);
+            return JSON.stringify(rec, null, 2);
+          }
+          case 'supersede_decision_record': {
+            const { project, id, bySupersedingId } = args as { project: string; id: string; bySupersedingId: string };
+            if (!project || !id || !bySupersedingId) throw new Error('Missing required: project, id, bySupersedingId');
+            const rec = supersedeDecisionRecord(project, id, bySupersedingId);
+            if (!rec) throw new Error(`decision record not found: ${id}`);
+            return JSON.stringify(rec, null, 2);
+          }
+          case 'get_active_constraints': {
+            const { project, epicId } = args as { project: string; epicId?: string };
+            if (!project) throw new Error('Missing required: project');
+            return JSON.stringify({ constraints: getActiveConstraints(project, epicId) }, null, 2);
           }
           case 'supervisor_audit_list': {
             const { project, kind, limit } = args as { project?: string; kind?: string; limit?: number };
