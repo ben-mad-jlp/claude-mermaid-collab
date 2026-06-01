@@ -197,6 +197,11 @@ try {
   check('audit recorded checkpoint + clear', kinds.has('checkpoint') && kinds.has('clear'), JSON.stringify([...kinds]));
   const cleared = payload(await send('tools/call', { name: 'supervisor_audit_list', arguments: { project, kind: 'clear' } }));
   check('audit filters by kind', (cleared?.entries ?? []).every((e: any) => e.kind === 'clear') && (cleared?.entries?.length ?? 0) >= 1, JSON.stringify(cleared?.entries?.length));
+
+  // 12. reconcile result submission is dispatchable; unknown id → accepted:false
+  check('submit_reconcile_result listed', names.includes('submit_reconcile_result'));
+  const noPending = payload(await send('tools/call', { name: 'submit_reconcile_result', arguments: { reconcileId: 'nope', mergedGraph: [] } }));
+  check('submit unknown id → accepted:false', noPending?.accepted === false, JSON.stringify(noPending));
 } catch (e) {
   fail++;
   log(`  ❌ exception — ${e instanceof Error ? e.message : String(e)}`);
