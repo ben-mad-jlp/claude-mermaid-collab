@@ -19,6 +19,8 @@ export interface CoordinatorDeps {
   /** Reclaim claims whose worker is hard-dead (tmux gone), without waiting for
    *  the lease. Returns reclaimed-to-ready + retry-exhausted (parked blocked) ids. Optional. */
   reapDeadClaims?: (project: string) => Promise<{ reclaimed: string[]; exhausted: string[] }>;
+  /** Escalate a todo a worker REJECTED (mechanical gate failed). Optional. */
+  escalateRejected?: (project: string, todoId: string) => Promise<void>;
 }
 
 export interface TickResult { released: string[]; exhausted: string[]; claimed: string[]; spawned: string[]; }
@@ -62,14 +64,22 @@ export async function runTick(
   return { released, exhausted, claimed, spawned };
 }
 
-/** Route a worker's completion to the store (mark done + unblock dependents).
- *  The caller (Phase 2c worker, after its mechanical acceptance gate) decides accepted/rejected. */
+/** Route a worker's completion to the store. ACCEPTED → done + unblock dependents.
+ *  REJECTED (mechanical gate failed) → recorded done-but-rejected (the acceptance
+ *  gate keeps it from unblocking dependents) AND escalated as a blocker for a human
+ *  to re-open/split/drop — we do NOT auto-retry (re-running the same spec re-fails,
+ *  and routing through 'blocked' would get auto-promoted). The caller (the worker,
+ *  after its tsc+tests gate) decides accepted/rejected. */
 export async function handleWorkerComplete(
   deps: CoordinatorDeps,
   project: string,
   todoId: string,
   acceptance: 'accepted' | 'rejected',
-): Promise<{ promoted: string[] }> {
+): Promise<{ promoted: string[]; escalated: boolean }> {
   const { promoted } = await deps.completeTodo(project, todoId, acceptance);
-  return { promoted };
+  let escalated = false;
+  if (acceptance === 'rejected' && deps.escalateRejected) {
+    try { await deps.escalateRejected(project, todoId); escalated = true; } catch { /* never block the report */ }
+  }
+  return { promoted, escalated };
 }

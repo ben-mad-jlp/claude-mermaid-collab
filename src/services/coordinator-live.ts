@@ -75,6 +75,15 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         questionText: `Todo "${todo?.title ?? todoId}" exhausted its retry budget (worker repeatedly failed to complete it). Parked as blocked — needs a human decision.`,
       });
     },
+    escalateRejected: async (project: string, todoId: string): Promise<void> => {
+      const todo = getTodo(project, todoId);
+      createEscalation({
+        project,
+        session: todo?.sessionName ?? `worker-${todoId.slice(0, 8)}`,
+        kind: 'blocker',
+        questionText: `Worker REJECTED todo "${todo?.title ?? todoId}" — its mechanical acceptance gate (tsc + tests) failed and it couldn't fix it in scope. Not auto-retried. Re-open with guidance, split, or drop it.`,
+      });
+    },
   };
 }
 

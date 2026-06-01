@@ -214,4 +214,19 @@ describe('handleWorkerComplete', () => {
     expect(result.promoted).toEqual([]);
     expect(deps._completeCalls[0]).toEqual(['proj', 't2', 'rejected']);
   });
+
+  test('rejected → escalateRejected is called (escalated=true); accepted does NOT escalate', async () => {
+    const escalated: string[] = [];
+    const deps = makeDeps({
+      completeTodo: async (_p, _id, _a) => ({ completed: makeTodo('t3'), promoted: [] }),
+      escalateRejected: async (_p, id) => { escalated.push(id); },
+    });
+    const rej = await handleWorkerComplete(deps, 'proj', 't3', 'rejected');
+    expect(rej.escalated).toBe(true);
+    expect(escalated).toEqual(['t3']);
+
+    const acc = await handleWorkerComplete(deps, 'proj', 't4', 'accepted');
+    expect(acc.escalated).toBe(false);
+    expect(escalated).toEqual(['t3']); // unchanged
+  });
 });
