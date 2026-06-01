@@ -382,6 +382,44 @@ export function computeWaves(todos: Todo[]): Todo[][] {
   return waves;
 }
 
+export interface CompleteTodoResult { completed: Todo; promoted: string[]; }
+
+/**
+ * Mark a todo done and unblock its dependents.
+ * Status semantics: planned=proposed-not-yet-approved; ready=approved & deps-done (claimable);
+ * blocked=approved but deps pending; in_progress=claimed; done; dropped=abandoned.
+ * Only the planner moves planned→ready/blocked (approval). This (the coordinator core)
+ * only promotes blocked→ready when the last dep completes — it never touches 'planned'.
+ */
+export function completeTodo(project: string, id: string, acceptanceStatus?: 'pending' | 'accepted' | 'rejected'): Promise<CompleteTodoResult> {
+  return withLock(project, () => {
+    const db = openDb(project);
+    const existing = getTodo(project, id);
+    if (!existing) throw new Error(`todo not found: ${id}`);
+    const ts = nowIso();
+    const accept = acceptanceStatus !== undefined ? acceptanceStatus : existing.acceptanceStatus;
+    db.prepare(
+      `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), acceptanceStatus=?, updatedAt=? WHERE id=?`
+    ).run(ts, accept, ts, id);
+    // Unblock pass: any 'blocked' todo whose every (known) dep is now 'done' → 'ready'.
+    const all = listTodos(project, { includeCompleted: true });
+    const statusById = new Map(all.map((t) => [t.id, t.status]));
+    const promoted: string[] = [];
+    for (const t of all) {
+      if (t.status !== 'blocked') continue;
+      const depsDone = (t.dependsOn ?? []).every((d) => {
+        const s = statusById.get(d);
+        return s === undefined || s === 'done';
+      });
+      if (depsDone) {
+        db.prepare(`UPDATE todos SET status='ready', updatedAt=? WHERE id=?`).run(nowIso(), t.id);
+        promoted.push(t.id);
+      }
+    }
+    return { completed: getTodo(project, id)!, promoted };
+  });
+}
+
 export function assignTodo(project: string, id: string, assigneeSession: string | null): Promise<Todo> {
   return updateTodo(project, id, { assigneeSession });
 }

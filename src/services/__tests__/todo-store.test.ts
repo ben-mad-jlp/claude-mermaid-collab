@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   createTodo, listTodos, getTodo, updateTodo, assignTodo, removeTodo, clearCompleted, reorder, _closeProject,
-  claimTodo, releaseExpiredClaims, listReadyTodos, computeWaves,
+  claimTodo, releaseExpiredClaims, listReadyTodos, computeWaves, completeTodo,
 } from '../todo-store';
 
 let project: string;
@@ -261,5 +261,49 @@ describe('todo-store new fields and functions', () => {
     const flat = waves.flat();
     expect(flat).toHaveLength(1);
     expect(flat[0].id).toBe(a.id);
+  });
+});
+
+describe('completeTodo', () => {
+  test('sets status done + completedAt + acceptanceStatus when given', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'in_progress' });
+    const { completed } = await completeTodo(project, t.id, 'accepted');
+    expect(completed.status).toBe('done');
+    expect(completed.completed).toBe(true);
+    expect(completed.completedAt).not.toBeNull();
+    expect(completed.acceptanceStatus).toBe('accepted');
+  });
+
+  test('promotes a blocked dependent whose only dep is this todo to ready', async () => {
+    const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', status: 'in_progress' });
+    const blocker = await createTodo(project, { ownerSession: 's1', title: 'blocker', status: 'blocked', dependsOn: [dep.id] });
+    const { completed, promoted } = await completeTodo(project, dep.id);
+    expect(completed.status).toBe('done');
+    expect(promoted).toContain(blocker.id);
+    const after = getTodo(project, blocker.id)!;
+    expect(after.status).toBe('ready');
+  });
+
+  test('does NOT promote a blocked dependent that has another still-pending dep', async () => {
+    const dep1 = await createTodo(project, { ownerSession: 's1', title: 'dep1', status: 'in_progress' });
+    const dep2 = await createTodo(project, { ownerSession: 's1', title: 'dep2', status: 'in_progress' });
+    const blocker = await createTodo(project, { ownerSession: 's1', title: 'blocker', status: 'blocked', dependsOn: [dep1.id, dep2.id] });
+    const { promoted } = await completeTodo(project, dep1.id);
+    expect(promoted).not.toContain(blocker.id);
+    const after = getTodo(project, blocker.id)!;
+    expect(after.status).toBe('blocked');
+  });
+
+  test('does NOT promote a planned todo even if its deps are done', async () => {
+    const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', status: 'in_progress' });
+    const planned = await createTodo(project, { ownerSession: 's1', title: 'planned', status: 'planned', dependsOn: [dep.id] });
+    const { promoted } = await completeTodo(project, dep.id);
+    expect(promoted).not.toContain(planned.id);
+    const after = getTodo(project, planned.id)!;
+    expect(after.status).toBe('planned');
+  });
+
+  test('throws on missing id', async () => {
+    await expect(completeTodo(project, 'no-such-id')).rejects.toThrow('todo not found');
   });
 });
