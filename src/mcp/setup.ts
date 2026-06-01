@@ -48,6 +48,8 @@ import { getStatuses } from '../services/session-status-store.js';
 import { lastAssistantTurn } from '../services/transcript-reader.js';
 import { listTodos } from '../services/todo-store.js';
 import { getConfig } from '../services/config-service.js';
+import { handleWorkerComplete } from '../services/coordinator-daemon.js';
+import { makeCoordinatorDeps, startCoordinator, stopCoordinator } from '../services/coordinator-live.js';
 import { updateTaskStatus, updateTasksStatus, getTaskGraph } from './workflow/task-status.js';
 import { syncTasksFromTaskGraph } from './workflow/task-sync.js';
 import {
@@ -1990,6 +1992,9 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'escalation_list', description: 'List open escalations.', inputSchema: { type: 'object', properties: {} } },
       { name: 'escalation_resolve', description: 'Resolve an escalation by id with a status.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, status: { type: 'string' } }, required: ['id', 'status'] } },
       { name: 'escalation_create', description: 'Create (or dedupe) an open escalation for a session.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, kind: { type: 'string' }, questionText: { type: 'string' } }, required: ['project', 'session', 'kind', 'questionText'] } },
+      { name: 'complete_todo', description: 'Worker completion report: mark a project todo accepted or rejected (marks done + unblocks dependents).', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, acceptance: { type: 'string', enum: ['accepted','rejected'] } }, required: ['project','todoId','acceptance'] } },
+      { name: 'start_coordinator', description: 'Start the per-project Coordinator daemon (claims ready todos and spawns workers on a tick). Explicit-start.', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'] } },
+      { name: 'stop_coordinator', description: 'Stop the per-project Coordinator daemon.', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'] } },
       // Spreadsheet tools
       {
         name: 'list_spreadsheets',
@@ -4281,6 +4286,26 @@ IMPORTANT - Common pitfalls to avoid:
             const handler = desktopHandlers[name];
             if (!handler) throw new Error(`Unknown desktop tool: ${name}`);
             return await withDesktopRetry(() => handler(args ?? {}));
+          }
+
+          case 'complete_todo': {
+            const { project, todoId, acceptance } = args as { project: string; todoId: string; acceptance: 'accepted' | 'rejected' };
+            if (!project || !todoId || !acceptance) throw new Error('Missing required: project, todoId, acceptance');
+            const result = await handleWorkerComplete(makeCoordinatorDeps(), project, todoId, acceptance);
+            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
+            return JSON.stringify(result, null, 2);
+          }
+          case 'start_coordinator': {
+            const { project } = args as { project: string };
+            if (!project) throw new Error('Missing required: project');
+            const started = startCoordinator(project);
+            return JSON.stringify({ started, running: true }, null, 2);
+          }
+          case 'stop_coordinator': {
+            const { project } = args as { project: string };
+            if (!project) throw new Error('Missing required: project');
+            const stopped = stopCoordinator(project);
+            return JSON.stringify({ stopped }, null, 2);
           }
 
           default:
