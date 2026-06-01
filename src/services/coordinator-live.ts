@@ -1,6 +1,6 @@
 import type { Todo } from './todo-store';
 import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim } from './todo-store';
-import { createEscalation } from './supervisor-store';
+import { createEscalation, recordSupervisorAudit } from './supervisor-store';
 import { tmuxBaseName } from './tmux-naming';
 import { launchAndBind } from './claude-launch';
 import { runTick, type CoordinatorDeps } from './coordinator-daemon';
@@ -31,9 +31,19 @@ export function resolveWorkerProfile(todo: Todo): AgentProfile & { invokeSkill: 
 export function makeCoordinatorDeps(): CoordinatorDeps {
   return {
     listReadyTodos,
-    claimTodo,
+    // Wrapped to record coordinator lifecycle events into the supervisor audit
+    // log → it doubles as the unified orchestration trace (open-problem #10/obs).
+    claimTodo: async (project, id, claimedBy, leaseMs) => {
+      const c = await claimTodo(project, id, claimedBy, leaseMs);
+      if (c) recordSupervisorAudit({ kind: 'claim', project, session: c.sessionName ?? '', detail: JSON.stringify({ todoId: id, claimedBy }) });
+      return c;
+    },
     releaseExpiredClaims,
-    completeTodo,
+    completeTodo: async (project, id, acceptance) => {
+      const r = await completeTodo(project, id, acceptance);
+      recordSupervisorAudit({ kind: 'complete', project, session: r.completed.sessionName ?? '', detail: JSON.stringify({ todoId: id, acceptance: acceptance ?? r.completed.acceptanceStatus, promoted: r.promoted }) });
+      return r;
+    },
     launchWorker: async (project: string, todo: Todo): Promise<boolean> => {
       const session = `worker-${todo.id.slice(0, 8)}`;
       const { allowedTools, invokeSkill, model, runtimeMode } = resolveWorkerProfile(todo);
@@ -41,6 +51,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       if (r.started) {
         try { await updateTodo(project, todo.id, { sessionName: session }); } catch { /* spawn already succeeded; lease covers any inconsistency */ }
       }
+      recordSupervisorAudit({ kind: 'spawn', project, session, detail: JSON.stringify({ todoId: todo.id, type: todo.type ?? 'default', started: !!r.started, reason: r.reason }) });
       return !!r.started;
     },
     reapDeadClaims: async (project: string): Promise<{ reclaimed: string[]; exhausted: string[] }> => {

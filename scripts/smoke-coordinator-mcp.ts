@@ -195,6 +195,8 @@ try {
   const audit = payload(await send('tools/call', { name: 'supervisor_audit_list', arguments: { project } }));
   const kinds = new Set((audit?.entries ?? []).map((e: any) => e.kind));
   check('audit recorded checkpoint + clear', kinds.has('checkpoint') && kinds.has('clear'), JSON.stringify([...kinds]));
+  // coordinator lifecycle is traced too: complete_todo earlier recorded a 'complete' entry
+  check('audit traces coordinator complete', kinds.has('complete'), JSON.stringify([...kinds]));
   const cleared = payload(await send('tools/call', { name: 'supervisor_audit_list', arguments: { project, kind: 'clear' } }));
   check('audit filters by kind', (cleared?.entries ?? []).every((e: any) => e.kind === 'clear') && (cleared?.entries?.length ?? 0) >= 1, JSON.stringify(cleared?.entries?.length));
 

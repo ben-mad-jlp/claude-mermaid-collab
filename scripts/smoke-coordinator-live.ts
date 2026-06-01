@@ -13,6 +13,9 @@
 import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { mkdtempSync as _mk } from 'node:fs';
+// Isolate the global supervisor.db so coordinator audit writes don't pollute it.
+process.env.MERMAID_SUPERVISOR_DIR = _mk(join(tmpdir(), 'pcs-smoke-sup-'));
 import { createTodo, getTodo, listReadyTodos } from '../src/services/todo-store';
 import { makeCoordinatorDeps, startCoordinator, stopCoordinator, isCoordinatorRunning } from '../src/services/coordinator-live';
 import { handleWorkerComplete } from '../src/services/coordinator-daemon';
