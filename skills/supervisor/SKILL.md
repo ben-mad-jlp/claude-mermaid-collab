@@ -11,6 +11,17 @@ allowed-tools:
 
 # Supervisor (v2)
 
+> **Keep this skill thin — it is the JUDGMENT layer only.** The mechanics live in
+> server tools: `supervisor_reconcile` (cross-session/peer status), `supervisor_watchdog_scan`
+> (context-watchdog actions), `supervisor_nudge` / `supervisor_clear_session` (act, with
+> built-in pause + checkpoint gates), `supervisor_pause`/`_resume`/`_status` (emergency
+> override), `supervisor_audit_list` (durable decision/orchestration trace), and the
+> escalation tools. Your only irreducible job is the LLM JUDGMENT the server can't do:
+> classify an idle session (asked-a-question → escalate vs just-idle → nudge) and decide
+> when to escalate. Lean on the tools for everything mechanical; don't reimplement them here.
+> (Per locked decision #4 the supervisor stays a Claude session — the judgment is yours, not
+> server code; the once-planned "retire the skill into a deterministic core" was superseded.)
+
 ## 1. Core model
 
 There is exactly **ONE** foreground supervisor session. It is the human's planning and oversight cockpit.
@@ -62,7 +73,9 @@ Once approved:
 
 ## 5. Reconcile loop (start of every turn + on wake)
 
-Call `supervisor_reconcile` (no args). It returns a list of:
+**First, respect an emergency pause.** Call `supervisor_pause_status`. If a pause covers a project (its path) or `global`, take NO driving actions for that scope this turn — do not nudge, clear, or spawn; just surface state and reschedule. (The server also hard-refuses paused actions, but don't churn against them.) A human lifts it with `supervisor_resume`.
+
+Then call `supervisor_reconcile` (no args). It returns a list of:
 
 ```
 { project, session, status, updatedAt, openTodos, supervised, serverId }
