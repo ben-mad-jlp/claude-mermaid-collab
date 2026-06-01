@@ -355,10 +355,7 @@ export function listReadyTodos(project: string): Todo[] {
   const byId = new Map(all.map((t) => [t.id, t]));
   return all.filter((t) => {
     if (t.status !== 'ready') return false;
-    return (t.dependsOn ?? []).every((depId) => {
-      const dep = byId.get(depId);
-      return dep === undefined || dep.status === 'done';
-    });
+    return (t.dependsOn ?? []).every((depId) => depSatisfied(byId.get(depId)));
   });
 }
 
@@ -385,6 +382,19 @@ export function computeWaves(todos: Todo[]): Todo[][] {
 export interface CompleteTodoResult { completed: Todo; promoted: string[]; }
 
 /**
+ * Whether a dependency satisfies its dependents (PCS design #1: unblock only on
+ * done-AND-accepted). A dep counts as satisfied when it is 'done' and NOT
+ * explicitly 'rejected' — so a rejected completion never propagates to
+ * dependents (they stay blocked), while null/pending/accepted completions
+ * propagate as before (backward-compatible). An unknown dep id is treated as
+ * external/satisfied, preserving prior behavior.
+ */
+function depSatisfied(dep: Pick<Todo, 'status' | 'acceptanceStatus'> | undefined): boolean {
+  if (dep === undefined) return true;
+  return dep.status === 'done' && dep.acceptanceStatus !== 'rejected';
+}
+
+/**
  * Mark a todo done and unblock its dependents.
  * Status semantics: planned=proposed-not-yet-approved; ready=approved & deps-done (claimable);
  * blocked=approved but deps pending; in_progress=claimed; done; dropped=abandoned.
@@ -401,16 +411,14 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
     db.prepare(
       `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), acceptanceStatus=?, updatedAt=? WHERE id=?`
     ).run(ts, accept, ts, id);
-    // Unblock pass: any 'blocked' todo whose every (known) dep is now 'done' → 'ready'.
+    // Unblock pass: any 'blocked' todo whose every (known) dep is satisfied
+    // (done AND not rejected) → 'ready'. A rejected dep does NOT unblock.
     const all = listTodos(project, { includeCompleted: true });
-    const statusById = new Map(all.map((t) => [t.id, t.status]));
+    const byId = new Map(all.map((t) => [t.id, t]));
     const promoted: string[] = [];
     for (const t of all) {
       if (t.status !== 'blocked') continue;
-      const depsDone = (t.dependsOn ?? []).every((d) => {
-        const s = statusById.get(d);
-        return s === undefined || s === 'done';
-      });
+      const depsDone = (t.dependsOn ?? []).every((d) => depSatisfied(byId.get(d)));
       if (depsDone) {
         db.prepare(`UPDATE todos SET status='ready', updatedAt=? WHERE id=?`).run(nowIso(), t.id);
         promoted.push(t.id);

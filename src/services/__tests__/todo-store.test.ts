@@ -306,4 +306,37 @@ describe('completeTodo', () => {
   test('throws on missing id', async () => {
     await expect(completeTodo(project, 'no-such-id')).rejects.toThrow('todo not found');
   });
+
+  test('acceptance gate: a REJECTED dep does NOT unblock dependents', async () => {
+    const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', status: 'in_progress' });
+    const blocker = await createTodo(project, { ownerSession: 's1', title: 'blocker', status: 'blocked', dependsOn: [dep.id] });
+    const { completed, promoted } = await completeTodo(project, dep.id, 'rejected');
+    expect(completed.status).toBe('done');
+    expect(completed.acceptanceStatus).toBe('rejected');
+    expect(promoted).not.toContain(blocker.id);
+    expect(getTodo(project, blocker.id)!.status).toBe('blocked');
+  });
+
+  test('acceptance gate: an ACCEPTED dep unblocks dependents', async () => {
+    const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', status: 'in_progress' });
+    const blocker = await createTodo(project, { ownerSession: 's1', title: 'blocker', status: 'blocked', dependsOn: [dep.id] });
+    const { promoted } = await completeTodo(project, dep.id, 'accepted');
+    expect(promoted).toContain(blocker.id);
+    expect(getTodo(project, blocker.id)!.status).toBe('ready');
+  });
+
+  test('acceptance gate: a null/unspecified-acceptance done dep still unblocks (backward-compatible)', async () => {
+    const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', status: 'in_progress' });
+    const blocker = await createTodo(project, { ownerSession: 's1', title: 'blocker', status: 'blocked', dependsOn: [dep.id] });
+    const { promoted } = await completeTodo(project, dep.id); // no acceptance arg
+    expect(promoted).toContain(blocker.id);
+  });
+
+  test('acceptance gate: listReadyTodos excludes a ready todo whose dep was rejected', async () => {
+    const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', status: 'in_progress' });
+    // dependent left in 'ready' to isolate the listReadyTodos dep-check from the unblock pass
+    const dependent = await createTodo(project, { ownerSession: 's1', title: 'dependent', status: 'ready', dependsOn: [dep.id] });
+    await completeTodo(project, dep.id, 'rejected');
+    expect(listReadyTodos(project).some((t) => t.id === dependent.id)).toBe(false);
+  });
 });
