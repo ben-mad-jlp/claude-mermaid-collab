@@ -5,6 +5,8 @@
 import type { TaskBatch, BatchTask } from './types.js';
 import { getSessionState, updateSessionState } from '../tools/collab-state.js';
 import { MetadataManager } from '../../services/metadata-manager.js';
+import { listTodos, updateTodo } from '../../services/todo-store.js';
+import { inferProfileType } from '../../config/agent-profiles.js';
 import { readFile, writeFile, readdir, access } from 'fs/promises';
 import { join } from 'path';
 
@@ -379,6 +381,26 @@ ${batches.map((batch, index) => {
  * Sync tasks from task-graph.md or blueprint documents to collab-state.json
  * Preserves existing completedTasks and calculates pendingTasks as the difference
  */
+/**
+ * Backfill an agent-profile `type` onto session todos linked to blueprint tasks,
+ * inferred from each task's `files` (open-problem #8). Runs at sync time; only
+ * fills todos whose `type` is still null (idempotent, never overrides an explicit
+ * choice). Matches todos to tasks by `link.taskId`.
+ */
+async function assignProfileTypes(project: string, session: string, tasks: TaskGraphTask[]): Promise<void> {
+  const filesByTaskId = new Map(tasks.map((t) => [t.id, t.files]));
+  const todos = listTodos(project, { includeCompleted: true }).filter(
+    (t) => t.ownerSession === session || t.assigneeSession === session,
+  );
+  for (const todo of todos) {
+    if (todo.type) continue; // respect an explicit assignment
+    const taskId = todo.link?.taskId;
+    if (!taskId || !filesByTaskId.has(taskId)) continue;
+    const inferred = inferProfileType(filesByTaskId.get(taskId));
+    try { await updateTodo(project, todo.id, { type: inferred }); } catch { /* best-effort */ }
+  }
+}
+
 export async function syncTasksFromTaskGraph(
   project: string,
   session: string
@@ -424,6 +446,9 @@ export async function syncTasksFromTaskGraph(
     if (allTasks.length > 0) {
       // Create/update consolidated task-graph document
       await createConsolidatedTaskGraph(project, session, allTasks);
+      // Assign each linked todo an agent-profile `type` inferred from its task's
+      // files (open-problem #8). Idempotent: only fills todos that don't have one.
+      await assignProfileTypes(project, session, allTasks);
     }
   }
 

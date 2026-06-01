@@ -36,6 +36,8 @@ export interface Todo {
   asanaGid: string | null;
   sessionName: string | null;
   blueprintId: string | null;
+  /** Agent-profile type (frontend/backend/api/ui/library/…), or null = default. Drives worker launch params. */
+  type: string | null;
   acceptanceStatus: 'pending' | 'accepted' | 'rejected' | null;
   claimedBy: string | null;
   claimToken: string | null;
@@ -65,6 +67,7 @@ export interface CreateTodoInput {
   link?: TodoLink | null;
   sessionName?: string | null;
   blueprintId?: string | null;
+  type?: string | null;
 }
 
 export type UpdateTodoPatch = Partial<{
@@ -81,6 +84,7 @@ export type UpdateTodoPatch = Partial<{
   asanaGid: string | null;
   sessionName: string | null;
   blueprintId: string | null;
+  type: string | null;
   acceptanceStatus: 'pending' | 'accepted' | 'rejected' | null;
 }>;
 
@@ -103,6 +107,7 @@ interface TodoRow {
   asanaGid: string | null;
   sessionName: string | null;
   blueprintId: string | null;
+  type: string | null;
   acceptanceStatus: string | null;
   claimedBy: string | null;
   claimToken: string | null;
@@ -131,6 +136,7 @@ CREATE TABLE IF NOT EXISTS todos (
   asanaGid TEXT,
   sessionName TEXT,
   blueprintId TEXT,
+  type TEXT,
   acceptanceStatus TEXT,
   claimedBy TEXT,
   claimToken TEXT,
@@ -160,6 +166,7 @@ function openDb(project: string): Database {
   db.exec(DDL);
   addColumnIfMissing(db, 'todos', 'sessionName', 'sessionName TEXT');
   addColumnIfMissing(db, 'todos', 'blueprintId', 'blueprintId TEXT');
+  addColumnIfMissing(db, 'todos', 'type', 'type TEXT');
   addColumnIfMissing(db, 'todos', 'acceptanceStatus', 'acceptanceStatus TEXT');
   addColumnIfMissing(db, 'todos', 'claimedBy', 'claimedBy TEXT');
   addColumnIfMissing(db, 'todos', 'claimToken', 'claimToken TEXT');
@@ -215,6 +222,7 @@ function rowToTodo(row: TodoRow): Todo {
     asanaGid: row.asanaGid,
     sessionName: row.sessionName ?? null,
     blueprintId: row.blueprintId ?? null,
+    type: row.type ?? null,
     acceptanceStatus: (row.acceptanceStatus as Todo['acceptanceStatus']) ?? null,
     claimedBy: row.claimedBy ?? null,
     claimToken: row.claimToken ?? null,
@@ -262,8 +270,8 @@ export function createTodo(project: string, input: CreateTodoInput): Promise<Tod
     db.prepare(
       `INSERT INTO todos (id, ownerSession, assigneeSession, title, description, status, priority,
         dueDate, parentId, dependsOn, ord, link, createdAt, updatedAt, completedAt, asanaGid,
-        sessionName, blueprintId, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        sessionName, blueprintId, type, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       // A todo added in a session defaults to being assigned to that session
       // (its ownerSession). Pass an explicit assigneeSession to assign elsewhere.
@@ -271,7 +279,7 @@ export function createTodo(project: string, input: CreateTodoInput): Promise<Tod
       status, input.priority ?? null, input.dueDate ?? null, input.parentId ?? null,
       JSON.stringify(input.dependsOn ?? []), ord, input.link ? JSON.stringify(input.link) : null,
       ts, ts, status === 'done' ? ts : null, null,
-      input.sessionName ?? null, input.blueprintId ?? null, null, null, null, null, null, 0
+      input.sessionName ?? null, input.blueprintId ?? null, input.type ?? null, null, null, null, null, null, 0
     );
     return getTodo(project, id)!;
   });
@@ -301,17 +309,18 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
       asanaGid: patch.asanaGid !== undefined ? patch.asanaGid : existing.asanaGid,
       sessionName: patch.sessionName !== undefined ? patch.sessionName : existing.sessionName,
       blueprintId: patch.blueprintId !== undefined ? patch.blueprintId : existing.blueprintId,
+      type: patch.type !== undefined ? patch.type : existing.type,
       acceptanceStatus: patch.acceptanceStatus !== undefined ? patch.acceptanceStatus : existing.acceptanceStatus,
     };
     const db = openDb(project);
     db.prepare(
       `UPDATE todos SET title=?, description=?, status=?, priority=?, dueDate=?, parentId=?,
-        dependsOn=?, assigneeSession=?, link=?, asanaGid=?, sessionName=?, blueprintId=?, acceptanceStatus=?,
+        dependsOn=?, assigneeSession=?, link=?, asanaGid=?, sessionName=?, blueprintId=?, type=?, acceptanceStatus=?,
         completedAt=?, updatedAt=? WHERE id=?`
     ).run(
       next.title, next.description, next.status, next.priority, next.dueDate, next.parentId,
       JSON.stringify(next.dependsOn), next.assigneeSession, next.link ? JSON.stringify(next.link) : null,
-      next.asanaGid, next.sessionName, next.blueprintId, next.acceptanceStatus,
+      next.asanaGid, next.sessionName, next.blueprintId, next.type, next.acceptanceStatus,
       completedAt, nowIso(), id
     );
     return getTodo(project, id)!;
@@ -539,6 +548,7 @@ export interface ImportTodoInput {
   order?: number;
   sessionName?: string | null;
   blueprintId?: string | null;
+  type?: string | null;
 }
 
 export function importTodo(project: string, input: ImportTodoInput): void {
@@ -551,12 +561,12 @@ export function importTodo(project: string, input: ImportTodoInput): void {
     `INSERT OR IGNORE INTO todos
       (id, ownerSession, assigneeSession, title, description, status, priority, dueDate, parentId,
        dependsOn, ord, link, createdAt, updatedAt, completedAt, asanaGid,
-       sessionName, blueprintId, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+       sessionName, blueprintId, type, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).run(
     input.id, input.ownerSession, input.ownerSession, input.title, input.description ?? null, status,
     null, null, input.parentId ?? null, JSON.stringify(input.dependsOn ?? []), ord, null, ts, ts,
     status === 'done' ? ts : null, null,
-    input.sessionName ?? null, input.blueprintId ?? null, null, null, null, null, null, 0
+    input.sessionName ?? null, input.blueprintId ?? null, input.type ?? null, null, null, null, null, null, 0
   );
 }

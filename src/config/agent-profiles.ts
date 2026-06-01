@@ -47,3 +47,28 @@ export function resolveProfile(type?: string | null): AgentProfile {
   if (type && type in AGENT_PROFILES) return AGENT_PROFILES[type as AgentProfileType];
   return AGENT_PROFILES[DEFAULT_PROFILE_TYPE];
 }
+
+/**
+ * Path-rules: infer a profile type from a task's touched files (open-problem #8).
+ * Ordered, first-match-wins per file. If the files map to MORE THAN ONE domain,
+ * the task spans domains → `default` (full). No files / no match → `default`.
+ */
+const PATH_RULES: Array<{ type: AgentProfileType; test: RegExp }> = [
+  { type: 'ui', test: /\.(tsx|jsx|css|scss)$|(^|\/)(ui|components|views|pages)\// },
+  { type: 'frontend', test: /(^|\/)(ui|web|client|frontend)\// },
+  { type: 'api', test: /(^|\/)(routes|api|controllers|endpoints)\/|\.route\.|\bapi\b/ },
+  { type: 'backend', test: /(^|\/)(services|server|backend|db|models|migrations)\//i },
+  { type: 'library', test: /(^|\/)(lib|libs|packages|shared|utils|common)\// },
+];
+
+export function inferProfileType(files: string[] | undefined | null): AgentProfileType {
+  if (!files || files.length === 0) return DEFAULT_PROFILE_TYPE;
+  const matched = new Set<AgentProfileType>();
+  for (const f of files) {
+    for (const rule of PATH_RULES) {
+      if (rule.test.test(f)) { matched.add(rule.type); break; } // first-match-wins per file
+    }
+  }
+  if (matched.size === 1) return [...matched][0];
+  return DEFAULT_PROFILE_TYPE; // multi-domain or unmatched → full
+}

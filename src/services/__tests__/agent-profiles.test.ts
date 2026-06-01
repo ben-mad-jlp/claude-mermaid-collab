@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { resolveProfile, AGENT_PROFILES, DEFAULT_PROFILE_TYPE } from '../../config/agent-profiles';
+import { resolveProfile, inferProfileType, AGENT_PROFILES, DEFAULT_PROFILE_TYPE } from '../../config/agent-profiles';
 
 describe('agent-profiles registry', () => {
   it('resolves a known type to its profile', () => {
@@ -19,5 +19,24 @@ describe('agent-profiles registry', () => {
       expect(p.allowedTools, type).toContain('Edit');
       expect(p.runtimeMode, type).toBeDefined();
     }
+  });
+});
+
+describe('inferProfileType (path rules, #8)', () => {
+  it('no/empty files → default', () => {
+    expect(inferProfileType(undefined)).toBe('default');
+    expect(inferProfileType([])).toBe('default');
+  });
+  it('single-domain files map to that domain', () => {
+    expect(inferProfileType(['ui/src/components/Button.tsx'])).toBe('ui');
+    expect(inferProfileType(['src/routes/api.ts'])).toBe('api');
+    expect(inferProfileType(['src/services/todo-store.ts'])).toBe('backend');
+    expect(inferProfileType(['packages/shared/util.ts'])).toBe('library');
+  });
+  it('multi-domain → default (full)', () => {
+    expect(inferProfileType(['ui/src/App.tsx', 'src/services/foo.ts'])).toBe('default');
+  });
+  it('unmatched files → default', () => {
+    expect(inferProfileType(['README.md', 'notes.txt'])).toBe('default');
   });
 });

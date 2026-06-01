@@ -23,7 +23,7 @@ function isTmuxAlive(tmux: string): boolean {
  *  (by id), works it, runs the mechanical acceptance gate, and reports via
  *  `complete_todo`. Unknown/missing type → the `default` profile. */
 export function resolveWorkerProfile(todo: Todo): AgentProfile & { invokeSkill: string } {
-  const profile = resolveProfile((todo as { type?: string }).type);
+  const profile = resolveProfile(todo.type);
   return { ...profile, invokeSkill: `/mermaid-collab:worker ${todo.id}` };
 }
 

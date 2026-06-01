@@ -19,6 +19,7 @@ import {
   type TodoStatus,
   type TodoLink,
 } from '../../services/todo-store.js';
+import { inferProfileType } from '../../config/agent-profiles.js';
 
 // ============= Type Re-exports =============
 
@@ -96,6 +97,8 @@ export const addSessionTodoSchema = {
     },
     parentId: { type: 'string', description: 'Parent todo id (for subtasks)' },
     sessionName: { type: 'string', description: 'Session name to associate with this todo' },
+    type: { type: 'string', description: 'Agent-profile type (frontend/backend/api/ui/library). Overrides inference from files.' },
+    files: { type: 'array', items: { type: 'string' }, description: 'Touched files — used to infer the agent-profile type when `type` is omitted.' },
   },
   required: ['project', 'session', 'text'],
 };
@@ -240,16 +243,22 @@ export async function addSessionTodo(
     dependsOn?: string[];
     parentId?: string | null;
     sessionName?: string | null;
+    type?: string | null;
+    /** Touched files — used to INFER the agent-profile type when `type` is absent. */
+    files?: string[];
   },
 ): Promise<Todo> {
-  const { title: _extrasTitle, ...extrasRest } = extras ?? {};
+  const { title: _extrasTitle, files, type, ...extrasRest } = extras ?? {};
   const trimmed = (extras?.title ?? text).trim();
   if (!trimmed) throw new Error('text must be non-empty');
+  // Explicit type wins; otherwise infer from the touched files (open-problem #8).
+  const resolvedType = type ?? (files && files.length ? inferProfileType(files) : null);
   return createTodo(project, {
     ownerSession: session,
     ...extrasRest,
     title: trimmed, // after the spread so the trimmed value always wins
     link: link ?? null,
+    type: resolvedType,
   });
 }
 

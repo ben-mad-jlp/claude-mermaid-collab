@@ -3385,7 +3385,7 @@ IMPORTANT - Common pitfalls to avoid:
           }
 
           case 'add_session_todo': {
-            const { project, session, text, title, link, assigneeSession, description, status, priority, dueDate, dependsOn, parentId, sessionName } = args as {
+            const { project, session, text, title, link, assigneeSession, description, status, priority, dueDate, dependsOn, parentId, sessionName, type, files } = args as {
               project: string;
               session: string;
               text?: string;
@@ -3399,9 +3399,11 @@ IMPORTANT - Common pitfalls to avoid:
               dependsOn?: string[];
               parentId?: string | null;
               sessionName?: string | null;
+              type?: string | null;
+              files?: string[];
             };
             if (!project || !session || !(title ?? text)) throw new Error('Missing required: project, session, text');
-            const result = await addSessionTodo(project, session, title ?? text!, link, { assigneeSession, description, status, priority, dueDate, dependsOn, parentId, sessionName });
+            const result = await addSessionTodo(project, session, title ?? text!, link, { assigneeSession, description, status, priority, dueDate, dependsOn, parentId, sessionName, type, files });
             getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined });
             return JSON.stringify(result, null, 2);
           }

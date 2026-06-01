@@ -202,6 +202,15 @@ try {
   check('submit_reconcile_result listed', names.includes('submit_reconcile_result'));
   const noPending = payload(await send('tools/call', { name: 'submit_reconcile_result', arguments: { reconcileId: 'nope', mergedGraph: [] } }));
   check('submit unknown id → accepted:false', noPending?.accepted === false, JSON.stringify(noPending));
+
+  // 13. agent-profile type assignment: add_session_todo infers `type` from files
+  const apiTodo = payload(await send('tools/call', { name: 'add_session_todo', arguments: { project, session: 'wf-sess', text: 'add route', files: ['src/routes/api.ts'] } }));
+  const apiGot = payload(await send('tools/call', { name: 'get_todo', arguments: { project, todoId: apiTodo?.id } }));
+  check('add_session_todo infers type from files', apiGot?.type === 'api', JSON.stringify(apiGot?.type));
+  const uiTodo = payload(await send('tools/call', { name: 'add_session_todo', arguments: { project, session: 'wf-sess', text: 'button', files: ['ui/src/components/Btn.tsx'] } }));
+  check('infers ui type', payload(await send('tools/call', { name: 'get_todo', arguments: { project, todoId: uiTodo?.id } }))?.type === 'ui');
+  const explicitTodo = payload(await send('tools/call', { name: 'add_session_todo', arguments: { project, session: 'wf-sess', text: 'x', type: 'backend', files: ['ui/x.tsx'] } }));
+  check('explicit type overrides inference', payload(await send('tools/call', { name: 'get_todo', arguments: { project, todoId: explicitTodo?.id } }))?.type === 'backend');
 } catch (e) {
   fail++;
   log(`  ❌ exception — ${e instanceof Error ? e.message : String(e)}`);
