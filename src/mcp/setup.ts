@@ -1999,6 +1999,7 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'stop_coordinator', description: 'Stop the per-project Coordinator daemon.', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'] } },
       { name: 'checkpoint_ready', description: 'Context-watchdog: a session reports that its checkpoint is persisted. The server VERIFIES the named artifact was JUST written (recency gate) before recording checkpoint_ready — so a /clear can safely follow. Provide checkpointTodoId (vibe-checkpoint writes into the in_progress todo) OR checkpointDocId (a doc, e.g. vibe.vibeinstructions). Call this at the END of your checkpoint.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, checkpointTodoId: { type: 'string', description: 'Todo id the checkpoint updated (preferred — vibe-checkpoint writes the checkpoint into the in_progress todo description).' }, checkpointDocId: { type: 'string', description: 'Document id the checkpoint wrote (alternative to checkpointTodoId).' }, maxWriteAgeMs: { type: 'number', description: 'How recent the write must be to count as a fresh checkpoint (default 120000).' } }, required: ['project', 'session'] } },
       { name: 'supervisor_clear_session', description: 'Context-watchdog HARD GATE: send /clear to a watched session ONLY if it has a recent persisted checkpoint (checkpoint_ready). Refuses otherwise. Consumes the checkpoint marker on success.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, serverId: { type: 'string', description: 'Optional peer server id for a remote session.' }, maxAgeMs: { type: 'number', description: 'Max age of the checkpoint marker to still allow clearing (default 600000).' } }, required: ['project', 'session'] } },
+      { name: 'set_watchdog_threshold', description: 'Set (or clear, with null) a project\'s context-watchdog trigger threshold (%). Overrides the 80% default for supervisor_watchdog_scan on that project. Pass null to revert to the default.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, thresholdPercent: { type: ['number', 'null'], description: 'Percent (1-100) or null to clear.' } }, required: ['project', 'thresholdPercent'] } },
       { name: 'supervisor_watchdog_scan', description: 'Context-watchdog control loop: scan a project\'s session statuses and return the per-session actions to take this tick — "checkpoint" (over the context threshold on a safe/idle boundary → nudge the session to run /vibe-checkpoint) or "clear" (a checkpoint is persisted → call supervisor_clear_session). Deterministic; the supervisor calls this each tick.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, thresholdPercent: { type: 'number', description: 'Context % that triggers a clear cycle (default 80).' } }, required: ['project'] } },
       // Spreadsheet tools
       {
@@ -4392,10 +4393,21 @@ IMPORTANT - Common pitfalls to avoid:
             getWebSocketHandler()?.broadcast({ type: 'supervisor_session_cleared', project, session });
             return JSON.stringify({ cleared: sent, reason: sent ? undefined : (result?.reason ?? 'send-failed') }, null, 2);
           }
+          case 'set_watchdog_threshold': {
+            const { project, thresholdPercent } = args as { project: string; thresholdPercent: number | null };
+            if (!project) throw new Error('Missing required: project');
+            if (thresholdPercent !== null && (typeof thresholdPercent !== 'number' || thresholdPercent < 1 || thresholdPercent > 100)) {
+              throw new Error('thresholdPercent must be a number 1-100, or null to clear');
+            }
+            supervisorStore.setWatchdogThreshold(project, thresholdPercent);
+            return JSON.stringify({ project, thresholdPercent }, null, 2);
+          }
           case 'supervisor_watchdog_scan': {
             const { project, thresholdPercent, checkpointCooldownMs } = args as { project: string; thresholdPercent?: number; checkpointCooldownMs?: number };
             if (!project) throw new Error('Missing required: project');
-            const cfg = thresholdPercent != null ? { ...DEFAULT_WATCHDOG_CONFIG, thresholdPercent } : DEFAULT_WATCHDOG_CONFIG;
+            // Precedence: explicit arg → per-project config → built-in default.
+            const effectiveThreshold = thresholdPercent ?? supervisorStore.getWatchdogThreshold(project) ?? DEFAULT_WATCHDOG_CONFIG.thresholdPercent;
+            const cfg = { ...DEFAULT_WATCHDOG_CONFIG, thresholdPercent: effectiveThreshold };
             const now = Date.now();
             const cooldown = checkpointCooldownMs ?? 10 * 60 * 1000;
             const all = selectWatchdogActions(getStatuses(project), now, cfg);
@@ -4405,7 +4417,7 @@ IMPORTANT - Common pitfalls to avoid:
             const actions = all.filter((a) =>
               a.action !== 'checkpoint' || tryEmitWatchdogAction(project, a.session, 'checkpoint', cooldown, now),
             );
-            return JSON.stringify({ actions, suppressed: all.length - actions.length }, null, 2);
+            return JSON.stringify({ actions, suppressed: all.length - actions.length, thresholdPercent: effectiveThreshold }, null, 2);
           }
 
           default:

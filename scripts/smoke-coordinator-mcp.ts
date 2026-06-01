@@ -24,6 +24,8 @@ function check(name: string, ok: boolean, detail = '') {
 }
 
 const project = mkdtempSync(join(tmpdir(), 'pcs-mcp-'));
+// Isolate the global supervisor.db so the smoke never touches the real one.
+const supervisorDir = mkdtempSync(join(tmpdir(), 'pcs-mcp-sup-'));
 log(`\n🔬 PCS Phase 2c MCP-wire smoke test\n   project: ${project}\n`);
 
 // Seed: ready root + blocked dependent (so complete_todo can promote).
@@ -33,6 +35,7 @@ const dep = await createTodo(project, { ownerSession: 'mcp-smoke', title: 'mcp d
 // --- Spawn the stdio MCP server ---
 const proc = Bun.spawn(['bun', 'src/mcp/server.ts'], {
   cwd: import.meta.dir + '/..',
+  env: { ...process.env, MERMAID_SUPERVISOR_DIR: supervisorDir },
   stdin: 'pipe', stdout: 'pipe', stderr: 'pipe',
 });
 
@@ -171,12 +174,28 @@ try {
   const by2 = new Map((scan2?.actions ?? []).map((x: any) => [x.session, x.action]));
   check('2nd scan suppresses repeat checkpoint', !by2.has('hot') && (scan2?.suppressed ?? 0) >= 1, JSON.stringify(scan2));
   check('2nd scan still emits clear', by2.get('ready-sess') === 'clear');
+
+  // 10. per-project threshold config: a 55%-idle session is under the 80% default,
+  //     but lowering the project threshold to 50 makes it a checkpoint candidate.
+  check('set_watchdog_threshold listed', names.includes('set_watchdog_threshold'));
+  recordContextPercent(project, 'mid', 55);
+  recordStatus(project, 'mid', 'waiting');
+  const defScan = payload(await send('tools/call', { name: 'supervisor_watchdog_scan', arguments: { project } }));
+  check('default threshold ignores 55% session', !new Map((defScan?.actions ?? []).map((x: any) => [x.session, x.action])).has('mid') && defScan?.thresholdPercent === 80, JSON.stringify(defScan?.thresholdPercent));
+  const setRes = payload(await send('tools/call', { name: 'set_watchdog_threshold', arguments: { project, thresholdPercent: 50 } }));
+  check('threshold set to 50', setRes?.thresholdPercent === 50, JSON.stringify(setRes));
+  const lowScan = payload(await send('tools/call', { name: 'supervisor_watchdog_scan', arguments: { project } }));
+  const byLow = new Map((lowScan?.actions ?? []).map((x: any) => [x.session, x.action]));
+  check('lowered threshold checkpoints 55% session', byLow.get('mid') === 'checkpoint' && lowScan?.thresholdPercent === 50, JSON.stringify(lowScan));
+  const badThresh = await send('tools/call', { name: 'set_watchdog_threshold', arguments: { project, thresholdPercent: 150 } });
+  check('rejects out-of-range threshold', !!badThresh?.error || /1-100/.test(badThresh?.result?.content?.[0]?.text ?? ''), JSON.stringify(badThresh?.error ?? badThresh?.result));
 } catch (e) {
   fail++;
   log(`  ❌ exception — ${e instanceof Error ? e.message : String(e)}`);
 } finally {
   proc.kill();
   if (existsSync(project)) { rmSync(project, { recursive: true, force: true }); log(`\nCleanup\n  🧹 removed temp project`); }
+  if (existsSync(supervisorDir)) { rmSync(supervisorDir, { recursive: true, force: true }); log(`  🧹 removed temp supervisor dir`); }
 }
 
 log(`\n${fail === 0 ? '✅ ALL PASS' : '❌ FAILURES'} — ${pass} passed, ${fail} failed\n`);

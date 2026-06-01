@@ -144,7 +144,7 @@ Each turn/wake, for every supervised **project** (dedupe the reconcile rows by `
 supervisor_watchdog_scan { project }
 ```
 
-It returns `{ actions: [{ session, action, contextPercent, reason }] }`. Act on each:
+It returns `{ actions: [{ session, action, contextPercent, reason }], suppressed, thresholdPercent }`. The trigger threshold defaults to 80% but is **per-project configurable** — `set_watchdog_threshold { project, thresholdPercent }` (or `null` to revert); the scan applies it automatically. Act on each action:
 
 - **`action: "checkpoint"`** (a session is over the context threshold on a safe/idle boundary) — nudge it to checkpoint:
   ```

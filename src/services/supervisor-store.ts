@@ -15,6 +15,8 @@ import { homedir } from 'node:os';
 export interface WatchedProject {
   project: string;
   addedAt: number;
+  /** Per-project context-watchdog trigger threshold (%), or null to use the default. */
+  watchdogThresholdPercent: number | null;
 }
 
 export interface SupervisedSession {
@@ -44,7 +46,8 @@ export type EscalationKind = typeof ESCALATION_KINDS[number];
 const DDL = `
 CREATE TABLE IF NOT EXISTS watched_project (
   project TEXT PRIMARY KEY,
-  addedAt INTEGER NOT NULL
+  addedAt INTEGER NOT NULL,
+  watchdogThresholdPercent INTEGER
 );
 CREATE TABLE IF NOT EXISTS supervised_session (
   project TEXT NOT NULL,
@@ -90,7 +93,8 @@ function addColumnIfMissing(d: Database, table: string, col: string, ddl: string
 
 function openDb(): Database {
   if (db) return db;
-  const dir = join(homedir(), '.mermaid-collab');
+  // MERMAID_SUPERVISOR_DIR lets tests isolate the global supervisor.db.
+  const dir = process.env.MERMAID_SUPERVISOR_DIR ?? join(homedir(), '.mermaid-collab');
   mkdirSync(dir, { recursive: true });
   const path = join(dir, 'supervisor.db');
   db = new Database(path);
@@ -100,6 +104,7 @@ function openDb(): Database {
   addColumnIfMissing(db, 'supervised_session', 'serverId', "serverId TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, 'escalation', 'serverId', "serverId TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, 'supervisor_identity', 'serverId', "serverId TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, 'watched_project', 'watchdogThresholdPercent', 'watchdogThresholdPercent INTEGER');
   return db;
 }
 
@@ -129,6 +134,23 @@ export function removeWatchedProject(project: string): void {
 export function listWatchedProjects(): WatchedProject[] {
   const d = openDb();
   return d.query('SELECT * FROM watched_project ORDER BY addedAt').all() as WatchedProject[];
+}
+
+/** Per-project context-watchdog threshold (%), or null if unset (use default). */
+export function getWatchdogThreshold(project: string): number | null {
+  const d = openDb();
+  const row = d.query('SELECT watchdogThresholdPercent FROM watched_project WHERE project = ?')
+    .get(project) as { watchdogThresholdPercent: number | null } | undefined;
+  return row?.watchdogThresholdPercent ?? null;
+}
+
+/** Set (or clear, with null) a project's watchdog threshold. Upserts the watched_project row. */
+export function setWatchdogThreshold(project: string, percent: number | null): void {
+  const d = openDb();
+  d.prepare(
+    `INSERT INTO watched_project (project, addedAt, watchdogThresholdPercent) VALUES (?, ?, ?)
+     ON CONFLICT(project) DO UPDATE SET watchdogThresholdPercent = excluded.watchdogThresholdPercent`,
+  ).run(project, Date.now(), percent);
 }
 
 // --- Supervised sessions ---
