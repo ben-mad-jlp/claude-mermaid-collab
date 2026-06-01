@@ -11,11 +11,24 @@ import { existsSync } from 'node:fs';
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/** Runtime-permission-mode → extra `claude` CLI flags. Mirrors
+ *  child-manager.ts's runtimeModeToFlags (kept local so this lean spawn helper
+ *  doesn't depend on the headless child-process manager). */
+function runtimeModeFlags(mode?: 'read-only' | 'edit' | 'bypass'): string {
+  switch (mode) {
+    case 'read-only': return ' --disallowedTools "Edit,Write,MultiEdit,NotebookEdit,Bash"';
+    case 'bypass': return ' --dangerously-skip-permissions';
+    default: return '';
+  }
+}
+
 export async function launchAndBind(opts: {
   project: string;
   session: string;
   allowedTools?: string;
   invokeSkill?: string;
+  model?: string;
+  runtimeMode?: 'read-only' | 'edit' | 'bypass';
 }): Promise<{ started: boolean; tmux?: string; bind?: 'pending'; reason?: string }> {
   try {
     if (!existsSync(opts.project)) return { started: false, reason: 'no-project-dir' };
@@ -39,7 +52,10 @@ export async function launchAndBind(opts: {
     }
 
     // Launch Claude.
-    const cmd = 'claude' + (opts.allowedTools ? ' --allowedTools "' + opts.allowedTools + '"' : '');
+    const cmd = 'claude'
+      + (opts.allowedTools ? ' --allowedTools "' + opts.allowedTools + '"' : '')
+      + (opts.model ? ' --model ' + opts.model : '')
+      + runtimeModeFlags(opts.runtimeMode);
     await sendTmuxKeysRaw(tmux, cmd);
 
     // Readiness: a fixed sleep (and even the SessionStart-hook session-id file,
