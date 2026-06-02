@@ -368,6 +368,72 @@ describe('completeTodo', () => {
   });
 });
 
+describe('completeTodo epic roll-up', () => {
+  test('auto-completes a parent when its last child completes', async () => {
+    const epic = await createTodo(project, { ownerSession: 's1', title: 'epic', status: 'planned' });
+    const c1 = await createTodo(project, { ownerSession: 's1', title: 'c1', status: 'in_progress', parentId: epic.id });
+    const c2 = await createTodo(project, { ownerSession: 's1', title: 'c2', status: 'in_progress', parentId: epic.id });
+
+    const r1 = await completeTodo(project, c1.id, 'accepted');
+    expect(r1.rolledUp).toEqual([]);
+    expect(getTodo(project, epic.id)!.status).toBe('planned'); // one child still open
+
+    const r2 = await completeTodo(project, c2.id, 'accepted');
+    expect(r2.rolledUp).toContain(epic.id);
+    const parent = getTodo(project, epic.id)!;
+    expect(parent.status).toBe('done');
+    expect(parent.acceptanceStatus).toBe('accepted');
+    expect(parent.completedAt).not.toBeNull();
+  });
+
+  test('partial completion leaves the parent open', async () => {
+    const epic = await createTodo(project, { ownerSession: 's1', title: 'epic', status: 'planned' });
+    const c1 = await createTodo(project, { ownerSession: 's1', title: 'c1', status: 'in_progress', parentId: epic.id });
+    await createTodo(project, { ownerSession: 's1', title: 'c2', status: 'in_progress', parentId: epic.id });
+    const { rolledUp } = await completeTodo(project, c1.id, 'accepted');
+    expect(rolledUp).toEqual([]);
+    expect(getTodo(project, epic.id)!.status).toBe('planned');
+  });
+
+  test('a REJECTED child blocks roll-up', async () => {
+    const epic = await createTodo(project, { ownerSession: 's1', title: 'epic', status: 'planned' });
+    const c1 = await createTodo(project, { ownerSession: 's1', title: 'c1', status: 'in_progress', parentId: epic.id });
+    const c2 = await createTodo(project, { ownerSession: 's1', title: 'c2', status: 'in_progress', parentId: epic.id });
+    await completeTodo(project, c1.id, 'rejected');
+    const { rolledUp } = await completeTodo(project, c2.id, 'accepted');
+    expect(rolledUp).toEqual([]);
+    expect(getTodo(project, epic.id)!.status).toBe('planned');
+  });
+
+  test('a DROPPED child is ignored — roll-up fires when all non-dropped children are done', async () => {
+    const epic = await createTodo(project, { ownerSession: 's1', title: 'epic', status: 'planned' });
+    const c1 = await createTodo(project, { ownerSession: 's1', title: 'c1', status: 'in_progress', parentId: epic.id });
+    await createTodo(project, { ownerSession: 's1', title: 'c2-dropped', status: 'dropped', parentId: epic.id });
+    const { rolledUp } = await completeTodo(project, c1.id, 'accepted');
+    expect(rolledUp).toContain(epic.id);
+    expect(getTodo(project, epic.id)!.status).toBe('done');
+  });
+
+  test('recurses upward: completing the last leaf closes the whole chain', async () => {
+    const grand = await createTodo(project, { ownerSession: 's1', title: 'grand', status: 'planned' });
+    const mid = await createTodo(project, { ownerSession: 's1', title: 'mid', status: 'planned', parentId: grand.id });
+    const leaf = await createTodo(project, { ownerSession: 's1', title: 'leaf', status: 'in_progress', parentId: mid.id });
+    const { rolledUp } = await completeTodo(project, leaf.id, 'accepted');
+    expect(rolledUp).toEqual([mid.id, grand.id]); // deepest-first
+    expect(getTodo(project, mid.id)!.status).toBe('done');
+    expect(getTodo(project, grand.id)!.status).toBe('done');
+  });
+
+  test('does not roll up an epic with zero (non-dropped) children', async () => {
+    const epic = await createTodo(project, { ownerSession: 's1', title: 'epic', status: 'planned' });
+    // a standalone child of NO epic — completing it must not touch the empty epic
+    const solo = await createTodo(project, { ownerSession: 's1', title: 'solo', status: 'in_progress' });
+    const { rolledUp } = await completeTodo(project, solo.id, 'accepted');
+    expect(rolledUp).toEqual([]);
+    expect(getTodo(project, epic.id)!.status).toBe('planned');
+  });
+});
+
 describe('single-writer invariant (project-is-local)', () => {
   test('claimTodo throws for a non-local project path', async () => {
     await expect(claimTodo('/no/such/project/xyz', 'id', 'coordinator', 1000)).rejects.toThrow('project not local');

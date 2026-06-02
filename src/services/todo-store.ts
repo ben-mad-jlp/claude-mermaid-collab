@@ -454,7 +454,14 @@ export function computeWaves(todos: Todo[]): Todo[][] {
   return waves;
 }
 
-export interface CompleteTodoResult { completed: Todo; promoted: string[]; }
+export interface CompleteTodoResult {
+  completed: Todo;
+  promoted: string[];
+  /** Parent epic ids auto-closed by this completion's roll-up (deepest-first),
+   *  when the completed todo was the last outstanding child. Empty when nothing
+   *  rolled up. */
+  rolledUp: string[];
+}
 
 /**
  * Whether a dependency satisfies its dependents (PCS design #1: unblock only on
@@ -500,7 +507,26 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
         promoted.push(t.id);
       }
     }
-    return { completed: getTodo(project, id)!, promoted };
+    // Epic roll-up: when this completion leaves a parent epic with every
+    // (non-dropped) child done, close the parent too — and recurse upward, since
+    // a parent may itself be a child. A rejected or still-open child blocks the
+    // roll-up; an epic with zero non-dropped children is never auto-closed.
+    const rolledUp: string[] = [];
+    let parentId = existing.parentId;
+    while (parentId) {
+      const parent = getTodo(project, parentId);
+      if (!parent || parent.status === 'done' || parent.status === 'dropped') break;
+      const children = listTodos(project, { includeCompleted: true }).filter((t) => t.parentId === parentId && t.status !== 'dropped');
+      if (children.length === 0) break;
+      const allChildrenDone = children.every((c) => c.status === 'done' && c.acceptanceStatus !== 'rejected');
+      if (!allChildrenDone) break;
+      db.prepare(
+        `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), acceptanceStatus=?, updatedAt=? WHERE id=?`
+      ).run(ts, 'accepted', nowIso(), parentId);
+      rolledUp.push(parentId);
+      parentId = parent.parentId;
+    }
+    return { completed: getTodo(project, id)!, promoted, rolledUp };
   });
 }
 
