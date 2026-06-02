@@ -92,6 +92,15 @@ export const MERMAID_PROJECT = process.env.MERMAID_PROJECT ?? process.cwd();
 export const MERMAID_SESSION = process.env.MERMAID_SESSION ?? 'scratch';
 
 /**
+ * Whether the per-project Coordinator daemon auto-starts (and self-respawns) on
+ * app launch for the local home project. Safe by design: the daemon only claims
+ * todos already in `ready` (set only by the Planner post-approval), so an empty
+ * ready-queue idles. Set `MERMAID_AUTO_START_COORDINATOR=0` to disable.
+ */
+export const MERMAID_AUTO_START_COORDINATOR =
+  (process.env.MERMAID_AUTO_START_COORDINATOR ?? '1') !== '0';
+
+/**
  * Project the global supervisor session lives in. MUST be a trusted directory.
  * Defaults to a dedicated, always-writable workspace at
  * `~/.mermaid-collab/supervisor` — not MERMAID_PROJECT, which in the packaged

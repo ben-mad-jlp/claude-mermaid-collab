@@ -24,7 +24,12 @@ export interface AgentProfile {
 
 export type AgentProfileType = 'default' | 'frontend' | 'backend' | 'api' | 'ui' | 'library';
 
-const MCP = 'mcp__plugin_mermaid-collab_mermaid';
+// Allow ALL mermaid MCP tools without per-tool prompts. The server is registered
+// as `mermaid` in the project .mcp.json (tools are mcp__mermaid__*), so the
+// server-level `mcp__mermaid` token is what actually matches a spawned worker's
+// tool calls (get_todo/complete_todo/etc.). The plugin-namespaced form is kept as
+// a belt-and-suspenders match for contexts where the server is namespaced.
+const MCP = 'mcp__mermaid mcp__plugin_mermaid-collab_mermaid';
 
 /**
  * The registry. `default` (≈ "full") is the fallback. Domain profiles narrow the

@@ -7,7 +7,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { existsSync } from 'fs';
 import { config } from './config';
-import { PORT_REQUEST, MERMAID_PROJECT, MERMAID_SESSION, MC_BROWSER_TARGET, MERMAID_CHROME_PATH, MERMAID_BROWSER_HEADLESS, MERMAID_IDLE_SHUTDOWN_MS } from './config';
+import { PORT_REQUEST, MERMAID_PROJECT, MERMAID_SESSION, MC_BROWSER_TARGET, MERMAID_CHROME_PATH, MERMAID_BROWSER_HEADLESS, MERMAID_IDLE_SHUTDOWN_MS, MERMAID_AUTO_START_COORDINATOR } from './config';
 import { checkAuth } from './auth';
 import { writeInstance, removeInstance, deriveSessionId, installSignalHandlers } from './services/instance-discovery';
 import { SERVER_VERSION } from './mcp/server';
@@ -118,6 +118,22 @@ try {
     console.error('');
   } else {
     console.error('Failed to register scratch session on startup:', error);
+  }
+}
+
+// Auto-start the per-project Coordinator daemon for the local home project, and
+// keep it always-on (a watchdog self-respawns it if its loop dies). No manual
+// Start click required. Safe by design: the daemon only claims todos already in
+// `ready` (set only by the Planner post-approval), so an empty ready-queue
+// idles. Gated by the local single-writer guard (project dir must exist here)
+// and MERMAID_AUTO_START_COORDINATOR.
+if (MERMAID_AUTO_START_COORDINATOR && existsSync(MERMAID_PROJECT)) {
+  try {
+    const { autoStartCoordinator } = await import('./services/coordinator-live.js');
+    autoStartCoordinator(MERMAID_PROJECT);
+    console.log(`🤖 Coordinator daemon auto-started (always-on) for ${MERMAID_PROJECT}`);
+  } catch (err) {
+    console.error(`mermaid-collab: coordinator auto-start failed — ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
