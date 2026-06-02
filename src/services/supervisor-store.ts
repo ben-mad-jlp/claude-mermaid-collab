@@ -22,7 +22,7 @@ export interface WatchedProject {
 export interface SupervisedSession {
   project: string;
   session: string;
-  source: 'roadmap' | 'manual';
+  source: 'roadmap' | 'manual' | 'spawn';
   addedAt: number;
   serverId: string;
 }
@@ -176,7 +176,7 @@ export function setWatchdogThreshold(project: string, percent: number | null): v
 export function addSupervised(
   project: string,
   session: string,
-  source: 'roadmap' | 'manual',
+  source: 'roadmap' | 'manual' | 'spawn',
   serverId = ''
 ): void {
   const d = openDb();

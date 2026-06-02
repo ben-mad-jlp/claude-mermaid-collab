@@ -22,16 +22,36 @@ function runtimeModeFlags(mode?: 'read-only' | 'edit' | 'bypass'): string {
   }
 }
 
-export async function launchAndBind(opts: {
+/** Capture the tmux pane text for `tmux`; '' on any failure. */
+function capturePane(tmux: string): string {
+  try {
+    const p = Bun.spawnSync(['tmux', 'capture-pane', '-t', tmux, '-p'], { stdout: 'pipe', stderr: 'ignore' });
+    return p.stdout?.toString() ?? '';
+  } catch { return ''; }
+}
+
+// The status bar (e.g. "🧠 0% ctx |" / "← for agents") only renders once the
+// TUI is interactive — a reliable "ready for input" marker. (The ❯ prompt and
+// welcome box appear earlier, during load, so they're not used.)
+const isTuiReady = (t: string) => /ctx\s*\||for agents/.test(t);
+// Markers that `/collab` registered (capture-pane shows the collab/Vibe banner).
+const isCollabBound = (t: string) => /collab|server health|Vibe|register/i.test(t);
+
+/**
+ * Idempotently ensure a tmux session exists with `claude` launched AND bound to
+ * the collab session via `/collab`. If the session is ALREADY up, interactive,
+ * and collab-bound, it is REUSED as-is (no relaunch, no double `/collab`).
+ * This is everything EXCEPT sending the worker skill — see runTodoInSession.
+ */
+export async function ensureSession(opts: {
   project: string;
   session: string;
   allowedTools?: string;
-  invokeSkill?: string;
   model?: string;
   runtimeMode?: 'read-only' | 'edit' | 'bypass';
-}): Promise<{ started: boolean; tmux?: string; bind?: 'pending'; reason?: string }> {
+}): Promise<{ ready: boolean; tmux?: string; reason?: string }> {
   try {
-    if (!existsSync(opts.project)) return { started: false, reason: 'no-project-dir' };
+    if (!existsSync(opts.project)) return { ready: false, reason: 'no-project-dir' };
 
     const tmux = tmuxBaseName(opts.project, opts.session);
 
@@ -39,16 +59,27 @@ export async function launchAndBind(opts: {
     // reused, launching claude against the wrong folder.
     await healStaleTmuxSession(tmux, opts.project);
 
-    // Ensure the tmux session exists (map any spawn failure → no-tmux).
+    // Ensure the tmux session exists (map any spawn failure → no-tmux). If it
+    // already exists AND claude is interactive + collab-bound, reuse it.
+    let alreadyExisted = false;
     try {
       const check = Bun.spawn(['tmux', 'has-session', '-t', tmux], { stdout: 'ignore', stderr: 'ignore' });
-      const exists = (await check.exited) === 0;
-      if (!exists) {
+      alreadyExisted = (await check.exited) === 0;
+      if (!alreadyExisted) {
         const create = Bun.spawn(['tmux', 'new-session', '-d', '-s', tmux, '-c', opts.project], { stdout: 'ignore', stderr: 'ignore' });
         await create.exited;
       }
     } catch (e: any) {
-      return { started: false, reason: 'no-tmux' };
+      return { ready: false, reason: 'no-tmux' };
+    }
+
+    // Fast path: a warm pool session that's already interactive AND bound — do
+    // NOT relaunch claude or re-send /collab (which would inject stray text).
+    if (alreadyExisted) {
+      const pane = capturePane(tmux);
+      if (isTuiReady(pane) && isCollabBound(pane)) {
+        return { ready: true, tmux };
+      }
     }
 
     // Launch Claude.
@@ -64,19 +95,9 @@ export async function launchAndBind(opts: {
     // status bar renders (Claude is interactive), then send /collab and VERIFY
     // it registered — retrying a couple times — since cold-start/MCP timing
     // varies.
-    const capture = (): string => {
-      try {
-        const p = Bun.spawnSync(['tmux', 'capture-pane', '-t', tmux, '-p'], { stdout: 'pipe', stderr: 'ignore' });
-        return p.stdout?.toString() ?? '';
-      } catch { return ''; }
-    };
-    // The status bar (e.g. "🧠 0% ctx |" / "← for agents") only renders once the
-    // TUI is interactive — a reliable "ready for input" marker. (The ❯ prompt and
-    // welcome box appear earlier, during load, so they're not used.)
-    const ready = (t: string) => /ctx\s*\||for agents/.test(t);
     for (let i = 0; i < 60; i++) { // up to ~60s
       await sleep(1000);
-      if (ready(capture())) break;
+      if (isTuiReady(capturePane(tmux))) break;
     }
     await sleep(1500); // settle
 
@@ -84,16 +105,67 @@ export async function launchAndBind(opts: {
     for (let attempt = 0; attempt < 3; attempt++) {
       await sendTmuxKeysRaw(tmux, '/collab ' + opts.session);
       await sleep(4000);
-      if (/collab|server health|Vibe|register/i.test(capture())) break;
+      if (isCollabBound(capturePane(tmux))) break;
     }
 
-    if (opts.invokeSkill) {
-      await sleep(12000);
-      await sendTmuxKeysRaw(tmux, opts.invokeSkill);
-    }
-
-    return { started: true, tmux, bind: 'pending' };
+    return { ready: true, tmux };
   } catch (e) {
-    return { started: false, reason: e instanceof Error ? e.message : String(e) };
+    return { ready: false, reason: e instanceof Error ? e.message : String(e) };
   }
+}
+
+/**
+ * Send `invokeSkill` (e.g. `/mermaid-collab:worker <id>`) into an EXISTING
+ * collab-bound tmux session. Assumes ensureSession already ran for this session
+ * — this is the "run a todo in a warm session" primitive that lets a pool
+ * session take a second todo without re-spawning.
+ */
+export async function runTodoInSession(opts: {
+  session: string;
+  invokeSkill: string;
+  /** Optional explicit tmux name; defaults to deriving from project+session is
+   *  not possible here (no project), so callers should pass the tmux returned
+   *  by ensureSession. Falls back to opts.session if it's already a tmux name. */
+  tmux?: string;
+}): Promise<{ sent: boolean; reason?: string }> {
+  try {
+    const tmux = opts.tmux ?? opts.session;
+    const check = Bun.spawn(['tmux', 'has-session', '-t', tmux], { stdout: 'ignore', stderr: 'ignore' });
+    if ((await check.exited) !== 0) return { sent: false, reason: 'no-tmux' };
+
+    await sleep(12000);
+    await sendTmuxKeysRaw(tmux, opts.invokeSkill);
+    return { sent: true };
+  } catch (e) {
+    return { sent: false, reason: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
+ * Back-compat composer: ensureSession(...) then (if invokeSkill) run it.
+ * Preserves the original `{ started, tmux?, bind?, reason? }` return shape so
+ * existing callers are untouched.
+ */
+export async function launchAndBind(opts: {
+  project: string;
+  session: string;
+  allowedTools?: string;
+  invokeSkill?: string;
+  model?: string;
+  runtimeMode?: 'read-only' | 'edit' | 'bypass';
+}): Promise<{ started: boolean; tmux?: string; bind?: 'pending'; reason?: string }> {
+  const ensured = await ensureSession({
+    project: opts.project,
+    session: opts.session,
+    allowedTools: opts.allowedTools,
+    model: opts.model,
+    runtimeMode: opts.runtimeMode,
+  });
+  if (!ensured.ready) return { started: false, reason: ensured.reason };
+
+  if (opts.invokeSkill) {
+    await runTodoInSession({ session: opts.session, invokeSkill: opts.invokeSkill, tmux: ensured.tmux });
+  }
+
+  return { started: true, tmux: ensured.tmux, bind: 'pending' };
 }
