@@ -74,7 +74,7 @@ export const DocumentView: React.FC<DocumentViewProps> = ({ document, onContentC
           title={documentEditable ? 'Reviewing — click to lock' : 'Click to edit'}
           className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors shadow-sm ${
             documentEditable
-              ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
+              ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
               : 'bg-white/90 dark:bg-gray-800/90 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
           }`}
         >

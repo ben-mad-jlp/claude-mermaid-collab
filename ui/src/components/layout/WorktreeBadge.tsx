@@ -17,7 +17,7 @@ export const WorktreeBadge: React.FC<WorktreeBadgeProps> = ({ sessionId, classNa
 
   return (
     <span
-      className={`inline-flex items-center gap-1 text-[10px] font-mono text-gray-600 dark:text-gray-400 ${className}`}
+      className={`inline-flex items-center gap-1 text-3xs font-mono text-gray-600 dark:text-gray-400 ${className}`}
       title={dirty ? `${branch} (uncommitted changes)` : branch}
     >
       <code className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 truncate max-w-[10rem]">
@@ -26,7 +26,7 @@ export const WorktreeBadge: React.FC<WorktreeBadgeProps> = ({ sessionId, classNa
       {dirty && (
         <span
           aria-label="dirty"
-          className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500"
+          className="inline-block w-1.5 h-1.5 rounded-full bg-warning-500"
         />
       )}
     </span>

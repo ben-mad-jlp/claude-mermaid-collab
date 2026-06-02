@@ -123,11 +123,11 @@ export const Header: React.FC<HeaderProps> = ({
               text-xs font-medium
               rounded-full
               ${isVscodeConnected
-                ? 'bg-green-300 text-black'
+                ? 'bg-success-300 text-black'
                 : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}
             `}
           >
-            <span className={`w-2 h-2 rounded-full ${isVscodeConnected ? 'bg-green-500' : 'bg-gray-400'}`} />
+            <span className={`w-2 h-2 rounded-full ${isVscodeConnected ? 'bg-success-500' : 'bg-gray-400'}`} />
             <span>VSCode {isVscodeConnected ? 'Connected' : 'Disconnected'}</span>
           </div>
 
@@ -148,7 +148,7 @@ export const Header: React.FC<HeaderProps> = ({
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
             </svg>
             {openEscalationCount > 0 && (
-              <span className="absolute -top-1 -right-1 flex items-center justify-center w-4 h-4 text-[10px] font-bold rounded-full bg-red-500 text-white leading-none">
+              <span className="absolute -top-1 -right-1 flex items-center justify-center w-4 h-4 text-3xs font-bold rounded-full bg-danger-500 text-white leading-none">
                 {openEscalationCount > 9 ? '9+' : openEscalationCount}
               </span>
             )}

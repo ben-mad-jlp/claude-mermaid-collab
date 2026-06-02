@@ -100,7 +100,7 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({ onClose }) => {
   return (
     <div className="flex flex-col h-full bg-white dark:bg-gray-900">
       <div className="shrink-0 px-3 py-2 flex items-center justify-between border-b border-gray-200 dark:border-gray-700">
-        <span className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500">Layers</span>
+        <span className="text-2xs uppercase tracking-wider text-gray-400 dark:text-gray-500">Layers</span>
         {onClose && (
           <button onClick={onClose} className="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Close layers">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M4 4l6 6M10 4l-6 6" /></svg>
@@ -122,7 +122,7 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({ onClose }) => {
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick(item.id, e as unknown as React.MouseEvent) } }}
             className={`group flex w-full items-center gap-1 rounded py-1 text-left text-xs cursor-pointer ${
               selectedIds.has(item.id)
-                ? 'bg-blue-500 text-white'
+                ? 'bg-info-500 text-white'
                 : 'bg-transparent text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
             } ${!item.visible ? 'opacity-50' : ''}`}
             style={{ paddingLeft: `${8 + item.depth * 16}px` }}
@@ -145,7 +145,7 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({ onClose }) => {
             )}
 
             {/* Type indicator */}
-            <span className={`text-[10px] font-mono w-4 shrink-0 text-center ${
+            <span className={`text-3xs font-mono w-4 shrink-0 text-center ${
               ['COMPONENT', 'COMPONENT_SET', 'INSTANCE'].includes(item.type)
                 ? 'text-purple-500'
                 : selectedIds.has(item.id) ? 'text-white/70' : 'text-gray-400'

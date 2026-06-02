@@ -42,13 +42,13 @@ const ErrorFallback: React.FC<{ error: Error; componentName: string }> = ({
   componentName,
 }) => (
   <div
-    className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900 rounded-lg"
+    className="p-4 bg-danger-50 dark:bg-danger-900/20 border border-danger-200 dark:border-danger-900 rounded-lg"
     role="alert"
   >
-    <h4 className="font-semibold text-red-900 dark:text-red-200 mb-2">
+    <h4 className="font-semibold text-danger-900 dark:text-danger-200 mb-2">
       Error rendering component: {componentName}
     </h4>
-    <p className="text-sm text-red-700 dark:text-red-300">{error.message}</p>
+    <p className="text-sm text-danger-700 dark:text-danger-300">{error.message}</p>
   </div>
 );
 
@@ -57,10 +57,10 @@ const ErrorFallback: React.FC<{ error: Error; componentName: string }> = ({
  */
 const UnknownComponentFallback: React.FC<{ type: string }> = ({ type }) => (
   <div
-    className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900 rounded-lg"
+    className="p-4 bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-900 rounded-lg"
     role="alert"
   >
-    <p className="text-sm text-amber-700 dark:text-amber-300">
+    <p className="text-sm text-warning-700 dark:text-warning-300">
       Unknown component type: <code className="font-mono">{type}</code>
     </p>
   </div>
@@ -209,7 +209,7 @@ export const AIUIRenderer: React.FC<RendererProps> = ({
               px-4 py-2 rounded-lg font-medium text-sm transition-colors
               disabled:opacity-50 disabled:cursor-not-allowed
               ${action.primary
-                ? 'bg-blue-600 hover:bg-blue-700 text-white disabled:hover:bg-blue-600'
+                ? 'bg-info-600 hover:bg-info-700 text-white disabled:hover:bg-info-600'
                 : 'bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-white disabled:hover:bg-gray-200 dark:disabled:hover:bg-gray-700'
               }
             `}

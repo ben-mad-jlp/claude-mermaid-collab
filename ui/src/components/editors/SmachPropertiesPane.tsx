@@ -182,14 +182,14 @@ export const SmachPropertiesPane: React.FC<SmachPropertiesPaneProps> = ({
               <span>{transition.target}</span>
               <button
                 onClick={() => onRemoveTransition(i)}
-                className="ml-auto text-red-500"
+                className="ml-auto text-danger-500"
               >
                 ✕
               </button>
             </li>
           ))}
         </ul>
-        <button onClick={onAddTransition} className="mt-2 text-blue-500">
+        <button onClick={onAddTransition} className="mt-2 text-info-500">
           + Add Transition
         </button>
       </section>

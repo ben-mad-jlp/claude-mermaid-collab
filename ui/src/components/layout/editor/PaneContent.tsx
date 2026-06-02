@@ -218,7 +218,7 @@ export const PaneContent: React.FC<PaneContentProps> = ({
   } })();
 
   return (
-    <div className={`h-full w-full${pairMode ? ' ring-2 ring-inset ring-amber-400/50' : ''}`}>
+    <div className={`h-full w-full${pairMode ? ' ring-2 ring-inset ring-warning-400/50' : ''}`}>
       {paneContent}
     </div>
   );

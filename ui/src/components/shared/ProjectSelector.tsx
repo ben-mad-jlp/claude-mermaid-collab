@@ -194,10 +194,10 @@ export const ProjectSelector: React.FC<ProjectSelectorProps> = ({ className = ''
         <div
           className={`
             mt-2 p-2
-            text-sm text-red-700 dark:text-red-300
-            bg-red-100 dark:bg-red-900/30
+            text-sm text-danger-700 dark:text-danger-300
+            bg-danger-100 dark:bg-danger-900/30
             rounded
-            border border-red-300 dark:border-red-700
+            border border-danger-300 dark:border-danger-700
           `}
         >
           {projectsError}
@@ -263,8 +263,8 @@ export const ProjectSelector: React.FC<ProjectSelectorProps> = ({ className = ''
                       onClick={(e) => handleRemoveClick(e, project.path)}
                       className={`
                         p-2 mr-2
-                        text-gray-400 hover:text-red-500
-                        dark:text-gray-500 dark:hover:text-red-400
+                        text-gray-400 hover:text-danger-500
+                        dark:text-gray-500 dark:hover:text-danger-400
                         transition-colors
                       `}
                       aria-label={`Remove project ${project.name}`}
@@ -291,7 +291,7 @@ export const ProjectSelector: React.FC<ProjectSelectorProps> = ({ className = ''
                 className="
                   w-full px-4 py-2.5
                   text-left text-sm
-                  text-blue-600 dark:text-blue-400
+                  text-info-600 dark:text-info-400
                   hover:bg-gray-100 dark:hover:bg-gray-700
                   transition-colors
                   flex items-center gap-2
@@ -361,7 +361,7 @@ export const ProjectSelector: React.FC<ProjectSelectorProps> = ({ className = ''
                   px-4 py-2
                   text-sm font-medium
                   text-white
-                  bg-red-500 hover:bg-red-600
+                  bg-danger-500 hover:bg-danger-600
                   rounded
                   transition-colors
                 `}

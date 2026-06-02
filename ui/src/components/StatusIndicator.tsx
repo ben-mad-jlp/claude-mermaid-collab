@@ -47,9 +47,9 @@ export const StatusIndicator: React.FC<StatusIndicatorProps> = ({
   // Status-specific styling
   const statusStyles = {
     working: {
-      bg: 'bg-blue-50 dark:bg-blue-900/20',
-      text: 'text-blue-700 dark:text-blue-300',
-      border: 'border-blue-200 dark:border-blue-800',
+      bg: 'bg-info-50 dark:bg-info-900/20',
+      text: 'text-info-700 dark:text-info-300',
+      border: 'border-info-200 dark:border-info-800',
     },
     waiting: {
       bg: 'bg-yellow-50 dark:bg-yellow-900/20',

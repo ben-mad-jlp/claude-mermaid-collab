@@ -75,9 +75,9 @@ export const Checkbox: React.FC<CheckboxProps> = ({
                 aria-label={option.label}
                 className="
                   w-4 h-4 border-gray-300 rounded
-                  bg-white text-blue-600
-                  dark:bg-gray-800 dark:border-gray-600 dark:text-blue-400
-                  focus:ring-2 focus:ring-blue-500
+                  bg-white text-info-600
+                  dark:bg-gray-800 dark:border-gray-600 dark:text-info-400
+                  focus:ring-2 focus:ring-info-500
                   disabled:opacity-50 disabled:cursor-not-allowed
                   cursor-pointer transition-colors duration-200
                 "

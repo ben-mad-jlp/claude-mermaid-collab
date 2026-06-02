@@ -35,20 +35,20 @@ const STATUS_LABEL: Record<TodoStatus, string> = {
 const STATUS_DOT: Record<TodoStatus, string> = {
   backlog: 'bg-gray-400',
   planned: 'bg-gray-300',
-  todo: 'bg-blue-500',
+  todo: 'bg-info-500',
   ready: 'bg-indigo-500',
-  in_progress: 'bg-amber-500',
-  blocked: 'bg-red-500',
+  in_progress: 'bg-warning-500',
+  blocked: 'bg-danger-500',
   done: 'bg-emerald-500',
   dropped: 'bg-gray-300',
 };
 
 const PRIORITY_LABEL: Record<number, string> = { 0: 'P0', 1: 'P1', 2: 'P2', 3: 'P3', 4: 'P4' };
 const PRIORITY_COLORS: Record<number, string> = {
-  0: 'text-red-600 dark:text-red-400',
+  0: 'text-danger-600 dark:text-danger-400',
   1: 'text-orange-500 dark:text-orange-400',
   2: 'text-yellow-600 dark:text-yellow-400',
-  3: 'text-blue-500 dark:text-blue-400',
+  3: 'text-info-500 dark:text-info-400',
   4: 'text-gray-400 dark:text-gray-500',
 };
 
@@ -267,7 +267,7 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
       </div>
 
       {error && (
-        <div className="px-4 py-1.5 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800">
+        <div className="px-4 py-1.5 text-sm text-danger-600 dark:text-danger-400 bg-danger-50 dark:bg-danger-900/20 border-b border-danger-200 dark:border-danger-800">
           {error}
         </div>
       )}
@@ -340,7 +340,7 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
             </div>
 
             {formatDate(todo.updatedAt) && (
-              <p className="mt-8 text-[11px] text-gray-400 dark:text-gray-500">
+              <p className="mt-8 text-2xs text-gray-400 dark:text-gray-500">
                 Updated {formatDate(todo.updatedAt)}
                 {formatDate(todo.createdAt) ? ` · Created ${formatDate(todo.createdAt)}` : ''}
               </p>

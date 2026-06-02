@@ -55,7 +55,7 @@ describe('ChatToggle Component', () => {
       const { container } = render(
         <ChatToggle {...defaultProps} unreadCount={0} />
       );
-      const badges = container.querySelectorAll('.bg-red-500');
+      const badges = container.querySelectorAll('.bg-danger-500');
       expect(badges.length).toBe(0);
     });
 
@@ -63,7 +63,7 @@ describe('ChatToggle Component', () => {
       const { container } = render(
         <ChatToggle {...defaultProps} unreadCount={5} />
       );
-      const badge = container.querySelector('.bg-red-500');
+      const badge = container.querySelector('.bg-danger-500');
       expect(badge).toBeInTheDocument();
     });
 
@@ -95,7 +95,7 @@ describe('ChatToggle Component', () => {
       const { container } = render(
         <ChatToggle {...defaultProps} unreadCount={5} />
       );
-      const badge = container.querySelector('.bg-red-500');
+      const badge = container.querySelector('.bg-danger-500');
       expect(badge).toHaveClass('absolute', 'top-0', 'right-0', 'w-5', 'h-5', 'rounded-full');
     });
 
@@ -103,7 +103,7 @@ describe('ChatToggle Component', () => {
       const { container } = render(
         <ChatToggle {...defaultProps} unreadCount={5} />
       );
-      const badge = container.querySelector('.bg-red-500');
+      const badge = container.querySelector('.bg-danger-500');
       expect(badge).toHaveClass('transform', 'translate-x-1/3', '-translate-y-1/3');
     });
   });
@@ -112,7 +112,7 @@ describe('ChatToggle Component', () => {
     it('should have blue background when open', () => {
       const { container } = render(<ChatToggle {...defaultProps} isOpen={true} />);
       const button = container.querySelector('button');
-      expect(button).toHaveClass('bg-blue-600');
+      expect(button).toHaveClass('bg-info-600');
     });
 
     it('should have gray background when closed', () => {
@@ -215,7 +215,7 @@ describe('ChatToggle Component', () => {
       rerender(<ChatToggle {...defaultProps} isOpen={true} />);
 
       button = container.querySelector('button');
-      expect(button).toHaveClass('bg-blue-600');
+      expect(button).toHaveClass('bg-info-600');
     });
 
     it('should update onClick handler', async () => {
@@ -270,7 +270,7 @@ describe('ChatToggle Component', () => {
       const { container } = render(
         <ChatToggle {...defaultProps} unreadCount={5} />
       );
-      const badge = container.querySelector('.bg-red-500');
+      const badge = container.querySelector('.bg-danger-500');
       const badgeText = badge?.querySelector('span');
       expect(badgeText).toHaveClass('text-white');
     });
@@ -279,7 +279,7 @@ describe('ChatToggle Component', () => {
       const { container } = render(
         <ChatToggle {...defaultProps} unreadCount={5} />
       );
-      const badge = container.querySelector('.bg-red-500');
+      const badge = container.querySelector('.bg-danger-500');
       const badgeText = badge?.querySelector('span');
       expect(badgeText).toHaveClass('font-bold');
     });

@@ -22,10 +22,10 @@ const LANES: { key: string; label: string; match: (t: SessionTodo) => boolean; t
     key: 'inflight',
     label: 'In-flight',
     match: (t) => t.status === 'in_progress' || !!t.claimedBy,
-    tint: 'text-blue-600 dark:text-blue-400',
+    tint: 'text-info-600 dark:text-info-400',
   },
   { key: 'blocked', label: 'Blocked', match: (t) => t.status === 'blocked', tint: 'text-yellow-600 dark:text-yellow-400' },
-  { key: 'done', label: 'Done', match: (t) => t.status === 'done', tint: 'text-green-600 dark:text-green-400' },
+  { key: 'done', label: 'Done', match: (t) => t.status === 'done', tint: 'text-success-600 dark:text-success-400' },
 ];
 
 function TodoChip({ todo }: { todo: SessionTodo }) {
@@ -33,12 +33,12 @@ function TodoChip({ todo }: { todo: SessionTodo }) {
     <div className="flex items-start gap-2 py-1 px-2 rounded border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900">
       <span className="flex-1 text-xs text-gray-800 dark:text-gray-200 leading-tight">{todo.title}</span>
       {todo.claimedBy && (
-        <span className="shrink-0 text-[10px] font-mono text-blue-500 dark:text-blue-400" title={`claimed by ${todo.claimedBy}`}>
+        <span className="shrink-0 text-3xs font-mono text-info-500 dark:text-info-400" title={`claimed by ${todo.claimedBy}`}>
           ⚑{todo.claimedBy.slice(0, 8)}
         </span>
       )}
       {todo.assigneeSession && (
-        <span className="shrink-0 text-xs bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-1.5 py-0.5 rounded">
+        <span className="shrink-0 text-3xs bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-1.5 py-0.5 rounded">
           {todo.assigneeSession}
         </span>
       )}
@@ -96,7 +96,7 @@ export const CoordinatorView: React.FC = () => {
           {projectBasename(project)}
         </span>
         <span
-          className={`w-1.5 h-1.5 rounded-full shrink-0 ${running ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+          className={`w-1.5 h-1.5 rounded-full shrink-0 ${running ? 'bg-success-500' : 'bg-gray-300 dark:bg-gray-600'}`}
           title={running ? 'Daemon running' : 'Daemon stopped'}
         />
         <span className="text-xs text-gray-500 dark:text-gray-400">{running ? 'running' : 'stopped'}</span>

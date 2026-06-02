@@ -410,11 +410,11 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
       {historyDiff && (
         <div
           data-testid="history-viewing-banner"
-          className="flex items-center justify-between gap-2 px-3 py-1.5 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800"
+          className="flex items-center justify-between gap-2 px-3 py-1.5 bg-warning-50 dark:bg-warning-900/20 border-b border-warning-200 dark:border-warning-800"
         >
           <div className="flex items-center gap-2">
             <svg
-              className="w-4 h-4 text-amber-600 dark:text-amber-400"
+              className="w-4 h-4 text-warning-600 dark:text-warning-400"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -426,7 +426,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                 d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
               />
             </svg>
-            <span className="text-sm text-amber-800 dark:text-amber-200">
+            <span className="text-sm text-warning-800 dark:text-warning-200">
               Viewing version from {formatRelativeTime(historyDiff.timestamp)}
             </span>
           </div>

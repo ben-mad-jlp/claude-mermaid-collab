@@ -24,15 +24,15 @@ export const SkillTransition: React.FC<SkillTransitionProps> = ({
   return (
     <div
       className={`
-        flex items-center gap-3 p-4 bg-blue-50 dark:bg-blue-900/30
-        border-l-4 border-blue-500 dark:border-blue-400
+        flex items-center gap-3 p-4 bg-info-50 dark:bg-info-900/30
+        border-l-4 border-info-500 dark:border-info-400
         rounded-r-lg
         ${className}
       `}
       aria-label="skill-transition"
     >
       {/* Arrow indicator */}
-      <div className="flex-shrink-0 text-blue-500 dark:text-blue-400 text-xl">
+      <div className="flex-shrink-0 text-info-500 dark:text-info-400 text-xl">
         →
       </div>
 

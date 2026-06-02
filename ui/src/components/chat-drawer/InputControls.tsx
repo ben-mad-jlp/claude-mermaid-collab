@@ -103,7 +103,7 @@ export const InputControls: React.FC<InputControlsProps> = ({
           bg-white dark:bg-gray-700
           text-gray-900 dark:text-white
           placeholder-gray-400 dark:placeholder-gray-500
-          focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+          focus:outline-none focus:ring-2 focus:ring-info-500 focus:border-transparent
           disabled:opacity-50 disabled:cursor-not-allowed
           resize-none overflow-hidden
         "
@@ -117,7 +117,7 @@ export const InputControls: React.FC<InputControlsProps> = ({
         className="
           flex-shrink-0
           px-4 py-2 text-sm font-medium
-          bg-blue-600 hover:bg-blue-700 text-white
+          bg-info-600 hover:bg-info-700 text-white
           rounded-lg transition-colors
           disabled:opacity-50 disabled:cursor-not-allowed
         "

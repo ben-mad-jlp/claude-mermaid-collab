@@ -90,7 +90,7 @@ export const NumberInput: React.FC<NumberInputProps> = ({
             rounded-l-md
             text-gray-900 dark:text-white
             hover:bg-gray-200 dark:hover:bg-gray-600
-            focus:outline-none focus:ring-2 focus:ring-blue-500
+            focus:outline-none focus:ring-2 focus:ring-info-500
             disabled:opacity-50 disabled:cursor-not-allowed
             transition-colors
           `}
@@ -117,7 +117,7 @@ export const NumberInput: React.FC<NumberInputProps> = ({
             border border-gray-300 dark:border-gray-600
             bg-white dark:bg-gray-800
             text-gray-900 dark:text-white
-            focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+            focus:outline-none focus:ring-2 focus:ring-info-500 focus:border-transparent
             disabled:opacity-50 disabled:cursor-not-allowed
             [appearance:textfield]
             [&::-webkit-outer-spin-button]:appearance-none
@@ -137,7 +137,7 @@ export const NumberInput: React.FC<NumberInputProps> = ({
             rounded-r-md
             text-gray-900 dark:text-white
             hover:bg-gray-200 dark:hover:bg-gray-600
-            focus:outline-none focus:ring-2 focus:ring-blue-500
+            focus:outline-none focus:ring-2 focus:ring-info-500
             disabled:opacity-50 disabled:cursor-not-allowed
             transition-colors
           `}

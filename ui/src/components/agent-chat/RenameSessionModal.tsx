@@ -54,7 +54,7 @@ export function RenameSessionModal({ sessionId, currentName, isOpen, onClose }: 
           className="w-full rounded border bg-input px-2 py-1 text-sm"
           data-testid="rename-session-input"
         />
-        <div className="mt-1 text-[11px] text-muted-foreground">{trimmed.length}/128</div>
+        <div className="mt-1 text-2xs text-muted-foreground">{trimmed.length}/128</div>
         <div className="mt-4 flex justify-end gap-2">
           <button type="button" onClick={onClose} className="px-3 py-1 text-sm rounded hover:bg-accent">Cancel</button>
           <button type="submit" disabled={!valid} data-testid="rename-session-submit" className="px-3 py-1 text-sm rounded bg-primary text-primary-foreground disabled:opacity-50">

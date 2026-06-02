@@ -5,11 +5,11 @@ import { groupByAssignee, statusCounts } from '@/lib/todoGrouping';
 const STATUS_DOT: Record<TodoStatus, string> = {
   backlog: 'bg-gray-400',
   planned: 'bg-gray-300',
-  todo: 'bg-blue-400',
+  todo: 'bg-info-400',
   ready: 'bg-indigo-400',
   in_progress: 'bg-yellow-400',
-  blocked: 'bg-red-400',
-  done: 'bg-green-400',
+  blocked: 'bg-danger-400',
+  done: 'bg-success-400',
   dropped: 'bg-gray-300',
 };
 

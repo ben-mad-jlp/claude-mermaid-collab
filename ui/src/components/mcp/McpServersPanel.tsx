@@ -3,9 +3,9 @@ import { useMcpServers, type McpServer } from '../../hooks/useMcpServers';
 
 function StatusChip({ status }: { status: string }) {
   const styles: Record<string, string> = {
-    ok:           'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
-    unreachable:  'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
-    unauthorized: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300',
+    ok:           'bg-success-100 text-success-700 dark:bg-success-900 dark:text-success-300',
+    unreachable:  'bg-danger-100 text-danger-700 dark:bg-danger-900 dark:text-danger-300',
+    unauthorized: 'bg-warning-100 text-warning-700 dark:bg-warning-900 dark:text-warning-300',
     configured:   'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
   };
   const labels: Record<string, string> = {
@@ -62,7 +62,7 @@ export function McpServersPanel({ onAdd }: { onAdd?: () => void }) {
           <button
             type="button"
             onClick={onAdd}
-            className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+            className="text-sm text-info-600 dark:text-info-400 hover:underline"
           >
             + Add server
           </button>
@@ -70,7 +70,7 @@ export function McpServersPanel({ onAdd }: { onAdd?: () => void }) {
       </div>
 
       {actionError && (
-        <p role="alert" className="text-xs text-red-600 dark:text-red-400">{actionError}</p>
+        <p role="alert" className="text-xs text-danger-600 dark:text-danger-400">{actionError}</p>
       )}
 
       {loading && (
@@ -80,7 +80,7 @@ export function McpServersPanel({ onAdd }: { onAdd?: () => void }) {
       )}
 
       {error && (
-        <p className="text-sm text-red-600 dark:text-red-400">Failed to load: {error.message}</p>
+        <p className="text-sm text-danger-600 dark:text-danger-400">Failed to load: {error.message}</p>
       )}
 
       {!loading && !error && servers.length === 0 && (
@@ -133,7 +133,7 @@ export function McpServersPanel({ onAdd }: { onAdd?: () => void }) {
                             <button
                               type="button"
                               onClick={() => handleRemove(server)}
-                              className="w-full text-left text-sm px-3 py-2 text-red-600 dark:text-red-400 hover:bg-gray-50 dark:hover:bg-gray-700"
+                              className="w-full text-left text-sm px-3 py-2 text-danger-600 dark:text-danger-400 hover:bg-gray-50 dark:hover:bg-gray-700"
                             >
                               Remove
                             </button>

@@ -112,7 +112,7 @@ export const SidebarNodeContextMenu: React.FC<SidebarNodeContextMenuProps> = (
       {titleText !== null && (
         <div
           data-testid="sidebar-node-context-menu-title"
-          className="px-3 py-1 text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700"
+          className="px-3 py-1 text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700"
         >
           {titleText}
         </div>
@@ -145,7 +145,7 @@ export const SidebarNodeContextMenu: React.FC<SidebarNodeContextMenuProps> = (
                 ? 'opacity-50 cursor-not-allowed '
                 : 'cursor-pointer ') +
               (action.destructive
-                ? 'hover:bg-red-50 dark:hover:bg-red-900 text-red-700 dark:text-red-400'
+                ? 'hover:bg-danger-50 dark:hover:bg-danger-900 text-danger-700 dark:text-danger-400'
                 : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-100')
             }
           >

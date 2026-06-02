@@ -7,7 +7,7 @@ export interface McpElicitationDialogProps {
   onDismiss: () => void;
 }
 
-const inputClass = 'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none';
+const inputClass = 'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-info-500 focus:border-transparent outline-none';
 
 function FieldInput({
   field,
@@ -25,7 +25,7 @@ function FieldInput({
     <div className="space-y-1">
       <label htmlFor={id} className="block text-sm font-medium text-gray-700 dark:text-gray-300">
         {label}
-        {field.required && <span className="text-red-500 ml-1" aria-hidden>*</span>}
+        {field.required && <span className="text-danger-500 ml-1" aria-hidden>*</span>}
       </label>
       {field.type === 'boolean' ? (
         <input
@@ -33,7 +33,7 @@ function FieldInput({
           type="checkbox"
           checked={Boolean(value)}
           onChange={e => onChange(e.target.checked)}
-          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          className="h-4 w-4 rounded border-gray-300 text-info-600 focus:ring-info-500"
         />
       ) : field.type === 'enum' ? (
         <select
@@ -154,7 +154,7 @@ export function McpElicitationDialog({ request, onSubmit, onDismiss }: McpElicit
             <button
               type="button"
               onClick={handleSubmit}
-              className="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+              className="px-4 py-2 text-sm font-medium rounded-lg bg-info-600 text-white hover:bg-info-700"
             >
               Submit
             </button>

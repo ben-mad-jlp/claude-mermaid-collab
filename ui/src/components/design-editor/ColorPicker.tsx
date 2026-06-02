@@ -186,7 +186,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({ color, onChange, onCom
 
           {/* Hex + alpha input */}
           <div className="mt-2 flex items-center gap-1">
-            <span className="text-[11px] text-gray-400">#</span>
+            <span className="text-2xs text-gray-400">#</span>
             <input
               type="text"
               value={hexValue}
@@ -206,7 +206,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({ color, onChange, onCom
               }}
               className="w-10 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-1 py-0.5 text-right text-xs text-gray-800 dark:text-gray-200"
             />
-            <span className="text-[11px] text-gray-400">%</span>
+            <span className="text-2xs text-gray-400">%</span>
           </div>
         </div>
       )}

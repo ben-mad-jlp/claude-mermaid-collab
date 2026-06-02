@@ -107,7 +107,7 @@ export const SupervisedSessions: React.FC<SupervisedSessionsProps> = ({
                 className={`flex flex-col gap-1 ${gi > 0 ? 'pt-2 border-t border-gray-200 dark:border-gray-700' : ''}`}
               >
                 {/* Project header */}
-                <div className="px-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 truncate">
+                <div className="px-1 text-2xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 truncate">
                   {projectBasename}
                 </div>
 
@@ -128,7 +128,7 @@ export const SupervisedSessions: React.FC<SupervisedSessionsProps> = ({
                           {s.session}
                         </span>
                         {s.source && (
-                          <span className="text-[10px] text-gray-400 dark:text-gray-500 border border-gray-200 dark:border-gray-600 rounded px-1 shrink-0">
+                          <span className="text-3xs text-gray-400 dark:text-gray-500 border border-gray-200 dark:border-gray-600 rounded px-1 shrink-0">
                             {s.source}
                           </span>
                         )}
@@ -136,7 +136,7 @@ export const SupervisedSessions: React.FC<SupervisedSessionsProps> = ({
 
                       {/* Roadmap link */}
                       {linkedItem && (
-                        <div className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
+                        <div className="text-2xs text-gray-500 dark:text-gray-400 truncate">
                           roadmap: {linkedItem.title}
                         </div>
                       )}
@@ -145,21 +145,21 @@ export const SupervisedSessions: React.FC<SupervisedSessionsProps> = ({
                       <div className="flex items-center gap-1 pt-0.5">
                         <button
                           onClick={() => void handleNudge(s)}
-                          className="px-2 py-0.5 text-[11px] rounded text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-600"
+                          className="px-2 py-0.5 text-2xs rounded text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-600"
                           title="Nudge session to continue"
                         >
                           Nudge
                         </button>
                         <button
                           onClick={() => onJump?.(s.project, s.session)}
-                          className="px-2 py-0.5 text-[11px] rounded text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-600"
+                          className="px-2 py-0.5 text-2xs rounded text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-600"
                           title="Open session"
                         >
                           Open
                         </button>
                         <button
                           onClick={() => void handleStop(s)}
-                          className="px-2 py-0.5 text-[11px] rounded text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors border border-red-200 dark:border-red-800"
+                          className="px-2 py-0.5 text-2xs rounded text-danger-600 dark:text-danger-400 hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-colors border border-danger-200 dark:border-danger-800"
                           title="Stop supervising this session"
                         >
                           Stop

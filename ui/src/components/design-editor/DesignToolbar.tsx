@@ -95,7 +95,7 @@ export const DesignToolbar: React.FC = () => {
             title={`${label} (${shortcut})`}
             className={`px-2 py-1 text-xs rounded transition-colors ${
               activeTool === tool
-                ? 'bg-blue-500 text-white'
+                ? 'bg-info-500 text-white'
                 : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
             }`}
           >

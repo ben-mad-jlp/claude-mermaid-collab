@@ -23,7 +23,7 @@ export const Spinner: React.FC<SpinnerProps> = ({
       className={`flex items-center justify-center gap-3 ${className}`}
     >
       <svg
-        className={`animate-spin text-blue-600 dark:text-blue-400 ${sizeClasses[size]}`}
+        className={`animate-spin text-info-600 dark:text-info-400 ${sizeClasses[size]}`}
         xmlns="http://www.w3.org/2000/svg"
         fill="none"
         viewBox="0 0 24 24"

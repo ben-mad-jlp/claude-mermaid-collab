@@ -58,7 +58,7 @@ export const MultipleChoice: React.FC<MultipleChoiceProps> = ({
           block w-full px-3 py-2 border border-gray-300 rounded-md
           bg-white text-gray-900
           dark:bg-gray-800 dark:text-white dark:border-gray-600
-          focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+          focus:outline-none focus:ring-2 focus:ring-info-500 focus:border-transparent
           disabled:opacity-50 disabled:cursor-not-allowed
           transition-colors duration-200
         "

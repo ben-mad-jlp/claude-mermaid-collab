@@ -63,11 +63,11 @@ export const ArtifactLink: React.FC<ArtifactLinkProps> = ({
       className="
         inline
         px-1 py-0.5
-        text-blue-600 dark:text-blue-400
+        text-info-600 dark:text-info-400
         hover:underline
         focus:outline-none
         focus:ring-2
-        focus:ring-blue-500
+        focus:ring-info-500
         focus:ring-offset-1
         dark:focus:ring-offset-gray-900
         rounded

@@ -88,15 +88,15 @@ export const Tabs: React.FC<TabsProps> = ({
           const isActive = tab.id === active;
           const isDisabled = tab.disabled;
 
-          let tabClass = 'px-4 py-3 font-medium transition-all focus:outline-none focus:ring-2 focus:ring-blue-500';
+          let tabClass = 'px-4 py-3 font-medium transition-all focus:outline-none focus:ring-2 focus:ring-info-500';
 
           if (variant === 'pills') {
             tabClass = `
               px-4 py-2 rounded-md font-medium transition-all
-              focus:outline-none focus:ring-2 focus:ring-blue-500
+              focus:outline-none focus:ring-2 focus:ring-info-500
               ${
                 isActive
-                  ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm'
+                  ? 'bg-white dark:bg-gray-700 text-info-600 dark:text-info-400 shadow-sm'
                   : isDisabled
                   ? 'text-gray-400 dark:text-gray-600 cursor-not-allowed'
                   : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
@@ -105,10 +105,10 @@ export const Tabs: React.FC<TabsProps> = ({
           } else if (variant === 'underline') {
             tabClass = `
               px-4 py-3 font-medium border-b-2 transition-all
-              focus:outline-none focus:ring-2 focus:ring-blue-500
+              focus:outline-none focus:ring-2 focus:ring-info-500
               ${
                 isActive
-                  ? 'border-blue-600 dark:border-blue-500 text-blue-600 dark:text-blue-400'
+                  ? 'border-info-600 dark:border-info-500 text-info-600 dark:text-info-400'
                   : isDisabled
                   ? 'border-transparent text-gray-400 dark:text-gray-600 cursor-not-allowed'
                   : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600'
@@ -118,10 +118,10 @@ export const Tabs: React.FC<TabsProps> = ({
             // default variant
             tabClass = `
               px-4 py-3 font-medium border-b-2 transition-all
-              focus:outline-none focus:ring-2 focus:ring-blue-500
+              focus:outline-none focus:ring-2 focus:ring-info-500
               ${
                 isActive
-                  ? 'border-blue-600 dark:border-blue-500 text-gray-900 dark:text-white'
+                  ? 'border-info-600 dark:border-info-500 text-gray-900 dark:text-white'
                   : isDisabled
                   ? 'border-transparent text-gray-400 dark:text-gray-600 cursor-not-allowed'
                   : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'

@@ -66,14 +66,14 @@ export const TaskView: React.FC<TaskViewProps> = ({ item }) => {
       {promptExcerpt ? (
         <pre
           data-testid="task-prompt"
-          className="mt-2 p-2 bg-muted rounded text-[11px] leading-4 font-mono whitespace-pre-wrap break-words overflow-x-auto max-h-40 overflow-y-auto"
+          className="mt-2 p-2 bg-muted rounded text-2xs leading-4 font-mono whitespace-pre-wrap break-words overflow-x-auto max-h-40 overflow-y-auto"
         >
           {promptExcerpt}
         </pre>
       ) : null}
 
       <div className="mt-3 border-l-2 border-border pl-3">
-        <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">
+        <div className="text-2xs uppercase tracking-wide text-muted-foreground mb-1">
           Sub-agent{input.subagent_type ? `: ${input.subagent_type}` : ''}
         </div>
         {nestedEntries.length === 0 ? (
@@ -95,7 +95,7 @@ export const TaskView: React.FC<TaskViewProps> = ({ item }) => {
                     className="text-xs flex items-center gap-2"
                   >
                     <span className="font-mono text-foreground">{entry.name}</span>
-                    <span className="text-[10px] text-muted-foreground">{entry.status}</span>
+                    <span className="text-3xs text-muted-foreground">{entry.status}</span>
                   </li>
                 );
               }
@@ -106,7 +106,7 @@ export const TaskView: React.FC<TaskViewProps> = ({ item }) => {
                     data-testid="task-nested-entry"
                     className="text-xs text-foreground truncate"
                   >
-                    <span className="text-[10px] text-muted-foreground mr-1">{entry.role}:</span>
+                    <span className="text-3xs text-muted-foreground mr-1">{entry.role}:</span>
                     {entry.text}
                   </li>
                 );
@@ -117,7 +117,7 @@ export const TaskView: React.FC<TaskViewProps> = ({ item }) => {
                   data-testid="task-nested-entry"
                   className="text-xs text-foreground"
                 >
-                  <span className="text-[10px] text-muted-foreground mr-1">permission:</span>
+                  <span className="text-3xs text-muted-foreground mr-1">permission:</span>
                   {entry.name}
                 </li>
               );

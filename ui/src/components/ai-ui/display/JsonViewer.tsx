@@ -37,9 +37,9 @@ const JsonNode: React.FC<NodeProps> = ({ value, path, depth, maxDepth, expandDep
         <span
           className={
             typeof value === 'string'
-              ? 'text-green-600 dark:text-green-400'
+              ? 'text-success-600 dark:text-success-400'
               : typeof value === 'number'
-                ? 'text-blue-600 dark:text-blue-400'
+                ? 'text-info-600 dark:text-info-400'
                 : value === null
                   ? 'text-gray-500'
                   : value === true || value === false

@@ -6,7 +6,7 @@ export interface JsonFallbackProps {
 }
 
 const PRE_CLASS =
-  'font-mono text-[11px] bg-muted text-foreground p-2 rounded overflow-x-auto max-h-64 overflow-y-auto whitespace-pre-wrap break-all';
+  'font-mono text-2xs bg-muted text-foreground p-2 rounded overflow-x-auto max-h-64 overflow-y-auto whitespace-pre-wrap break-all';
 
 export const JsonFallback: React.FC<JsonFallbackProps> = ({ item }) => {
   const hasOutput = item.output !== undefined && item.output !== null;
@@ -22,13 +22,13 @@ export const JsonFallback: React.FC<JsonFallbackProps> = ({ item }) => {
       <pre className={PRE_CLASS}>{JSON.stringify(item.input ?? {}, null, 2)}</pre>
       {hasOutput && (
         <div className="space-y-1">
-          <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+          <div className="text-2xs font-semibold text-muted-foreground uppercase tracking-wide">
             Output
           </div>
           <pre className={PRE_CLASS}>{outputText}</pre>
         </div>
       )}
-      {item.error && <div className="text-[11px] text-destructive font-mono">{item.error}</div>}
+      {item.error && <div className="text-2xs text-destructive font-mono">{item.error}</div>}
     </div>
   );
 };

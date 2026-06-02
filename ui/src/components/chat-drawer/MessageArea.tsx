@@ -72,12 +72,12 @@ export const MessageArea: React.FC<MessageAreaProps> = ({ messages, onAction }) 
             <div className="flex items-center gap-2 mb-2 text-xs text-gray-500 dark:text-gray-400">
               <span>{new Date(message.timestamp).toLocaleTimeString()}</span>
               {message.blocking && (
-                <span className="px-1.5 py-0.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded font-medium">
+                <span className="px-1.5 py-0.5 bg-danger-100 dark:bg-danger-900/30 text-danger-700 dark:text-danger-300 rounded font-medium">
                   Blocking
                 </span>
               )}
               {message.responded && (
-                <span className="px-1.5 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded font-medium">
+                <span className="px-1.5 py-0.5 bg-success-100 dark:bg-success-900/30 text-success-700 dark:text-success-300 rounded font-medium">
                   Responded
                 </span>
               )}

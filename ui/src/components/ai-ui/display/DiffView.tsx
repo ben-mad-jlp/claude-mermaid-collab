@@ -116,11 +116,11 @@ export const DiffView: React.FC<DiffViewProps> = ({
       <div className="px-4 py-2 bg-gray-50 dark:bg-gray-800 border-t border-gray-300 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-400">
         <div className="flex items-center gap-4">
           <span className="flex items-center gap-1">
-            <span className="w-3 h-3 bg-green-500 rounded"></span>
+            <span className="w-3 h-3 bg-success-500 rounded"></span>
             Additions
           </span>
           <span className="flex items-center gap-1">
-            <span className="w-3 h-3 bg-red-500 rounded"></span>
+            <span className="w-3 h-3 bg-danger-500 rounded"></span>
             Removals
           </span>
         </div>

@@ -37,7 +37,7 @@ export const TaskGraphView: React.FC<TaskGraphViewProps> = ({ project, session }
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-info-600 mx-auto mb-4"></div>
           <p className="text-gray-600 dark:text-gray-400">Loading task graph...</p>
         </div>
       </div>
@@ -47,16 +47,16 @@ export const TaskGraphView: React.FC<TaskGraphViewProps> = ({ project, session }
   if (error) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="bg-red-50 dark:bg-red-900 p-6 rounded-lg max-w-md text-center">
-          <h3 className="text-red-900 dark:text-red-100 font-semibold mb-2">
+        <div className="bg-danger-50 dark:bg-danger-900 p-6 rounded-lg max-w-md text-center">
+          <h3 className="text-danger-900 dark:text-danger-100 font-semibold mb-2">
             Error loading task graph
           </h3>
-          <p className="text-red-700 dark:text-red-200 text-sm mb-4">
+          <p className="text-danger-700 dark:text-danger-200 text-sm mb-4">
             {error.message}
           </p>
           <button
             onClick={refresh}
-            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+            className="px-4 py-2 bg-danger-600 text-white rounded-lg hover:bg-danger-700 transition-colors"
           >
             Retry
           </button>

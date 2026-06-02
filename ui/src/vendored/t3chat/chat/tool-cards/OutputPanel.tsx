@@ -57,7 +57,7 @@ export const OutputPanel: React.FC<OutputPanelProps> = (props) => {
         data-testid="output-panel"
         data-tool-use-id={toolUseId}
         className={cn(
-          'text-[11px] font-mono rounded border border-destructive/40 bg-destructive/10 text-destructive p-2 whitespace-pre-wrap break-all max-h-64 overflow-auto',
+          'text-2xs font-mono rounded border border-destructive/40 bg-destructive/10 text-destructive p-2 whitespace-pre-wrap break-all max-h-64 overflow-auto',
           className,
         )}
       >
@@ -82,13 +82,13 @@ export const OutputPanel: React.FC<OutputPanelProps> = (props) => {
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="text-[11px] text-muted-foreground hover:text-foreground mb-1"
+          className="text-2xs text-muted-foreground hover:text-foreground mb-1"
         >
           {expanded ? 'Hide output' : `Show output (${lineCount} line${lineCount === 1 ? '' : 's'})`}
         </button>
       )}
       {expanded && (
-        <pre className="font-mono text-[11px] rounded bg-muted text-foreground/90 p-2 max-h-64 overflow-auto whitespace-pre">
+        <pre className="font-mono text-2xs rounded bg-muted text-foreground/90 p-2 max-h-64 overflow-auto whitespace-pre">
           {body}
         </pre>
       )}

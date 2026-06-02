@@ -15,7 +15,7 @@ interface NotebookEditInput {
 }
 
 const EDIT_MODE_STYLES: Record<string, string> = {
-  replace: 'bg-amber-500/20 text-amber-700 dark:text-amber-300',
+  replace: 'bg-warning-500/20 text-warning-700 dark:text-warning-300',
   insert: 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300',
   delete: 'bg-destructive/20 text-destructive',
 };
@@ -47,22 +47,22 @@ export const NotebookEditView: React.FC<NotebookEditViewProps> = ({ item }) => {
           </span>
         )}
         {cell_id && (
-          <span className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded">
+          <span className="text-3xs font-mono bg-muted px-1.5 py-0.5 rounded">
             cell: {cell_id}
           </span>
         )}
         <span
-          className={`text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded ${EDIT_MODE_STYLES[mode] ?? EDIT_MODE_STYLES.replace}`}
+          className={`text-3xs uppercase tracking-wide px-1.5 py-0.5 rounded ${EDIT_MODE_STYLES[mode] ?? EDIT_MODE_STYLES.replace}`}
         >
           {mode}
         </span>
         {cell_type && (
-          <span className="text-[10px] uppercase tracking-wide bg-muted px-1.5 py-0.5 rounded">
+          <span className="text-3xs uppercase tracking-wide bg-muted px-1.5 py-0.5 rounded">
             {cell_type}
           </span>
         )}
       </div>
-      <pre className="font-mono text-[11px] leading-4 rounded bg-muted p-2 overflow-x-auto max-h-80 overflow-y-auto">
+      <pre className="font-mono text-2xs leading-4 rounded bg-muted p-2 overflow-x-auto max-h-80 overflow-y-auto">
         {diff.map((line, idx) => {
           if (line.kind === 'add') {
             return (

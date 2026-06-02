@@ -19,7 +19,7 @@ import { getEditorRefs } from '@/stores/designEditorRefs'
 /* ── Tiny reusable bits ────────────────────────────────────── */
 
 const Label: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <span className="text-[11px] text-gray-400 dark:text-gray-500 w-4 shrink-0 text-right select-none">
+  <span className="text-2xs text-gray-400 dark:text-gray-500 w-4 shrink-0 text-right select-none">
     {children}
   </span>
 )
@@ -63,7 +63,7 @@ function NumericInput({
 }
 
 const SectionTitle: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 select-none">
+  <div className="px-3 py-1.5 text-3xs uppercase tracking-wider text-gray-400 dark:text-gray-500 select-none">
     {children}
   </div>
 )
@@ -91,7 +91,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ onClose }) => 
     return (
       <div className="flex flex-col h-full bg-white dark:bg-gray-900">
         <div className="shrink-0 px-3 py-2 flex items-center justify-between border-b border-gray-200 dark:border-gray-700">
-          <span className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500">Properties</span>
+          <span className="text-2xs uppercase tracking-wider text-gray-400 dark:text-gray-500">Properties</span>
           {closeButton}
         </div>
         <div className="flex-1 flex items-center justify-center px-4">
@@ -109,7 +109,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ onClose }) => 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-gray-900">
       <div className="shrink-0 px-3 py-2 flex items-center justify-between border-b border-gray-200 dark:border-gray-700">
-        <span className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500">
+        <span className="text-2xs uppercase tracking-wider text-gray-400 dark:text-gray-500">
           {nodes.length > 1 ? `${nodes.length} layers` : node?.name ?? 'Properties'}
         </span>
         {closeButton}
@@ -127,7 +127,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ onClose }) => 
                     key={dir}
                     onClick={() => useDesignEditorStore.getState().alignNodes(dir)}
                     title={`Align ${dir}`}
-                    className="flex-1 px-1 py-1 text-[10px] text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
+                    className="flex-1 px-1 py-1 text-3xs text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
                   >
                     {dir === 'left' ? 'L' : dir === 'centerH' ? 'CH' : dir === 'right' ? 'R' : dir === 'top' ? 'T' : dir === 'centerV' ? 'CV' : 'B'}
                   </button>
@@ -138,14 +138,14 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ onClose }) => 
                   <button
                     onClick={() => useDesignEditorStore.getState().distributeNodes('horizontal')}
                     title="Distribute horizontally"
-                    className="flex-1 px-1 py-1 text-[10px] text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
+                    className="flex-1 px-1 py-1 text-3xs text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
                   >
                     Distribute H
                   </button>
                   <button
                     onClick={() => useDesignEditorStore.getState().distributeNodes('vertical')}
                     title="Distribute vertically"
-                    className="flex-1 px-1 py-1 text-[10px] text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
+                    className="flex-1 px-1 py-1 text-3xs text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
                   >
                     Distribute V
                   </button>
@@ -311,14 +311,14 @@ function FillsSection({ fills, nodeId }: { fills: Fill[]; nodeId: string }) {
               <span className="text-xs text-gray-600 dark:text-gray-400 truncate flex-1">
                 Solid
               </span>
-              <span className="text-[10px] text-gray-400 tabular-nums">
+              <span className="text-3xs text-gray-400 tabular-nums">
                 {Math.round(fill.opacity * 100)}%
               </span>
             </div>
           )
         ))}
         {fills.length === 0 && (
-          <p className="text-[11px] text-gray-400 dark:text-gray-500 py-1">No fills</p>
+          <p className="text-2xs text-gray-400 dark:text-gray-500 py-1">No fills</p>
         )}
       </div>
       <Divider />
@@ -394,13 +394,13 @@ function StrokesSection({ strokes, nodeId }: { strokes: Stroke[]; nodeId: string
             <span className="text-xs text-gray-600 dark:text-gray-400 truncate flex-1">
               {stroke.weight}px
             </span>
-            <span className="text-[10px] text-gray-400">
+            <span className="text-3xs text-gray-400">
               {stroke.align.toLowerCase()}
             </span>
           </div>
         ))}
         {strokes.length === 0 && (
-          <p className="text-[11px] text-gray-400 dark:text-gray-500 py-1">No strokes</p>
+          <p className="text-2xs text-gray-400 dark:text-gray-500 py-1">No strokes</p>
         )}
       </div>
       <Divider />
@@ -442,9 +442,9 @@ function TextSection({
               <button
                 key={align}
                 onClick={() => updateNodeWithUndo('textAlignHorizontal', align, 'Change text align')}
-                className={`flex-1 px-1 py-0.5 text-[10px] rounded ${
+                className={`flex-1 px-1 py-0.5 text-3xs rounded ${
                   node.textAlignHorizontal === align
-                    ? 'bg-blue-500 text-white'
+                    ? 'bg-info-500 text-white'
                     : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
                 }`}
               >
@@ -494,9 +494,9 @@ function AutoLayoutSection({
               <button
                 key={mode}
                 onClick={() => updateNodeWithUndo('layoutMode', mode, 'Change layout direction')}
-                className={`flex-1 px-1 py-0.5 text-[10px] rounded ${
+                className={`flex-1 px-1 py-0.5 text-3xs rounded ${
                   node.layoutMode === mode
-                    ? 'bg-blue-500 text-white'
+                    ? 'bg-info-500 text-white'
                     : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
                 }`}
               >

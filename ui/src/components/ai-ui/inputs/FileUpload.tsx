@@ -114,15 +114,15 @@ export const FileUpload: React.FC<FileUploadProps> = ({
           border-2 border-dashed rounded-lg
           transition-colors cursor-pointer
           ${dragActive
-            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+            ? 'border-info-500 bg-info-50 dark:bg-info-900/20'
             : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800'
           }
-          ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:border-blue-400 hover:bg-gray-100 dark:hover:bg-gray-700'}
+          ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:border-info-400 hover:bg-gray-100 dark:hover:bg-gray-700'}
         `}
       >
         {/* Upload icon */}
         <svg
-          className={`w-10 h-10 mb-3 ${dragActive ? 'text-blue-500' : 'text-gray-400'}`}
+          className={`w-10 h-10 mb-3 ${dragActive ? 'text-info-500' : 'text-gray-400'}`}
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -153,7 +153,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
         ) : (
           <div className="text-center">
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              <span className="font-medium text-blue-600 dark:text-blue-400">
+              <span className="font-medium text-info-600 dark:text-info-400">
                 Click to upload
               </span>
               {' '}or drag and drop
@@ -188,7 +188,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
 
       {/* Error message */}
       {error && (
-        <p className="text-sm text-red-600 dark:text-red-400">
+        <p className="text-sm text-danger-600 dark:text-danger-400">
           {error}
         </p>
       )}

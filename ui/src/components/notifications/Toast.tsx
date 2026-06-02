@@ -107,32 +107,32 @@ export const Toast: React.FC<ToastProps> = ({ toast, onDismiss }) => {
     switch (toast.type) {
       case 'success':
         return {
-          container: 'bg-green-50 dark:bg-green-900/20 border-l-4 border-green-500',
-          icon: 'text-green-500',
-          title: 'text-green-900 dark:text-green-100',
-          message: 'text-green-700 dark:text-green-200',
+          container: 'bg-success-50 dark:bg-success-900/20 border-l-4 border-success-500',
+          icon: 'text-success-500',
+          title: 'text-success-900 dark:text-success-100',
+          message: 'text-success-700 dark:text-success-200',
         };
       case 'warning':
         return {
-          container: 'bg-amber-50 dark:bg-amber-900/20 border-l-4 border-amber-500',
-          icon: 'text-amber-500',
-          title: 'text-amber-900 dark:text-amber-100',
-          message: 'text-amber-700 dark:text-amber-200',
+          container: 'bg-warning-50 dark:bg-warning-900/20 border-l-4 border-warning-500',
+          icon: 'text-warning-500',
+          title: 'text-warning-900 dark:text-warning-100',
+          message: 'text-warning-700 dark:text-warning-200',
         };
       case 'error':
         return {
-          container: 'bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500',
-          icon: 'text-red-500',
-          title: 'text-red-900 dark:text-red-100',
-          message: 'text-red-700 dark:text-red-200',
+          container: 'bg-danger-50 dark:bg-danger-900/20 border-l-4 border-danger-500',
+          icon: 'text-danger-500',
+          title: 'text-danger-900 dark:text-danger-100',
+          message: 'text-danger-700 dark:text-danger-200',
         };
       case 'info':
       default:
         return {
-          container: 'bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500',
-          icon: 'text-blue-500',
-          title: 'text-blue-900 dark:text-blue-100',
-          message: 'text-blue-700 dark:text-blue-200',
+          container: 'bg-info-50 dark:bg-info-900/20 border-l-4 border-info-500',
+          icon: 'text-info-500',
+          title: 'text-info-900 dark:text-info-100',
+          message: 'text-info-700 dark:text-info-200',
         };
     }
   };

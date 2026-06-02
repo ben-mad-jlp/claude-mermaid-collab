@@ -72,7 +72,7 @@ export const TextArea: React.FC<TextAreaProps> = ({
           className="block text-sm font-medium text-gray-900 dark:text-white"
         >
           {label}
-          {required && <span className="text-red-600 dark:text-red-400 ml-1">*</span>}
+          {required && <span className="text-danger-600 dark:text-danger-400 ml-1">*</span>}
         </label>
       )}
       <textarea
@@ -98,13 +98,13 @@ export const TextArea: React.FC<TextAreaProps> = ({
           transition-colors duration-200 resize-none
           ${
             error
-              ? 'border-red-500 dark:border-red-400 focus:ring-red-500'
-              : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500'
+              ? 'border-danger-500 dark:border-danger-400 focus:ring-danger-500'
+              : 'border-gray-300 dark:border-gray-600 focus:ring-info-500'
           }
         `}
       />
       {error && (
-        <span id={errorId} className="text-sm text-red-600 dark:text-red-400">
+        <span id={errorId} className="text-sm text-danger-600 dark:text-danger-400">
           {error}
         </span>
       )}

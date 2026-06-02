@@ -109,7 +109,7 @@ export const SessionCleanupDialog: React.FC<SessionCleanupDialogProps> = ({
               className={`
                 w-full flex items-center gap-4 p-4 rounded-lg border-2 transition-colors
                 ${selectedAction === action.id
-                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                  ? 'border-info-500 bg-info-50 dark:bg-info-900/20'
                   : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
                 }
                 ${isProcessing ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
@@ -118,7 +118,7 @@ export const SessionCleanupDialog: React.FC<SessionCleanupDialogProps> = ({
               <div className={`
                 p-2 rounded-lg
                 ${selectedAction === action.id
-                  ? 'bg-blue-100 dark:bg-blue-800 text-blue-600 dark:text-blue-400'
+                  ? 'bg-info-100 dark:bg-info-800 text-info-600 dark:text-info-400'
                   : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
                 }
               `}>
@@ -128,7 +128,7 @@ export const SessionCleanupDialog: React.FC<SessionCleanupDialogProps> = ({
                 <div className={`
                   font-medium
                   ${selectedAction === action.id
-                    ? 'text-blue-700 dark:text-blue-300'
+                    ? 'text-info-700 dark:text-info-300'
                     : 'text-gray-900 dark:text-white'
                   }
                 `}>
@@ -139,7 +139,7 @@ export const SessionCleanupDialog: React.FC<SessionCleanupDialogProps> = ({
                 </div>
               </div>
               {selectedAction === action.id && (
-                <svg className="w-5 h-5 text-blue-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg className="w-5 h-5 text-info-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
               )}
@@ -162,7 +162,7 @@ export const SessionCleanupDialog: React.FC<SessionCleanupDialogProps> = ({
             className={`
               px-4 py-2 text-sm font-medium rounded-lg transition-colors
               ${selectedAction && !isProcessing
-                ? 'bg-blue-600 text-white hover:bg-blue-700'
+                ? 'bg-info-600 text-white hover:bg-info-700'
                 : 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
               }
             `}

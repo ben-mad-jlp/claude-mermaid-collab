@@ -25,7 +25,7 @@ function sourceLabel(source: string): string {
 }
 
 const sourceBadgeClass: Record<string, string> = {
-  global:  'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
+  global:  'bg-info-100 text-info-700 dark:bg-info-900 dark:text-info-300',
   project: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300',
   local:   'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300',
   managed: 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300',
@@ -112,14 +112,14 @@ export function PermissionRulesEditor() {
   }
 
   if (error) {
-    return <p className="text-sm text-red-600 dark:text-red-400">Failed to load settings: {error.message}</p>;
+    return <p className="text-sm text-danger-600 dark:text-danger-400">Failed to load settings: {error.message}</p>;
   }
 
   return (
     <div className="space-y-4" data-testid="permission-rules-editor">
       <h3 className="text-base font-semibold text-gray-900 dark:text-white">Permission Rules</h3>
 
-      {saveError && <p role="alert" className="text-xs text-red-600 dark:text-red-400">{saveError}</p>}
+      {saveError && <p role="alert" className="text-xs text-danger-600 dark:text-danger-400">{saveError}</p>}
 
       {/* Rules table */}
       <div className="overflow-x-auto">
@@ -150,8 +150,8 @@ export function PermissionRulesEditor() {
                 <td className="py-2 pr-3">
                   <span className={`inline-block text-xs px-2 py-0.5 rounded font-medium ${
                     row.verb === 'allow'
-                      ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-                      : 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
+                      ? 'bg-success-100 text-success-700 dark:bg-success-900 dark:text-success-300'
+                      : 'bg-danger-100 text-danger-700 dark:bg-danger-900 dark:text-danger-300'
                   }`}>
                     {row.verb}
                   </span>
@@ -173,7 +173,7 @@ export function PermissionRulesEditor() {
                       onClick={() => handleRemove(row)}
                       disabled={saving}
                       aria-label={`Remove ${row.verb} rule: ${row.matcher}`}
-                      className="text-gray-400 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-50"
+                      className="text-gray-400 hover:text-danger-500 dark:hover:text-danger-400 disabled:opacity-50"
                     >
                       <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
                         <path d="M11 3L3 11M3 3l8 8" />
@@ -195,7 +195,7 @@ export function PermissionRulesEditor() {
             value={draftVerb}
             onChange={e => setDraftVerb(e.target.value as 'allow' | 'deny')}
             aria-label="Rule verb"
-            className="px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
+            className="px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-info-500 outline-none"
           >
             <option value="allow">allow</option>
             <option value="deny">deny</option>
@@ -204,7 +204,7 @@ export function PermissionRulesEditor() {
             value={draftSource}
             onChange={e => setDraftSource(e.target.value as 'global' | 'project' | 'local')}
             aria-label="Settings source"
-            className="px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
+            className="px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-info-500 outline-none"
           >
             <option value="global">User (~/.claude)</option>
             <option value="project">Project</option>
@@ -217,7 +217,7 @@ export function PermissionRulesEditor() {
             type="button"
             onClick={handleAdd}
             disabled={saving || !draftMatcher.trim()}
-            className="px-3 py-1 text-sm font-medium rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+            className="px-3 py-1 text-sm font-medium rounded bg-info-600 text-white hover:bg-info-700 disabled:opacity-50"
           >
             Add
           </button>

@@ -56,7 +56,7 @@ describe('StatusIndicator', () => {
     it('should have blue color for working status', () => {
       const { container } = render(<StatusIndicator status="working" />);
       const indicator = container.querySelector('[data-testid="status-indicator"]');
-      expect(indicator?.className).toMatch(/blue|accent/i);
+      expect(indicator?.className).toMatch(/blue|info|accent/i);
     });
 
     it('should not show spinner for other statuses', () => {
@@ -132,7 +132,7 @@ describe('StatusIndicator', () => {
       );
       const indicator = container.querySelector('[data-testid="status-indicator"]');
       expect(indicator?.className).toContain('custom-class');
-      expect(indicator?.className).toMatch(/blue|accent|working/i);
+      expect(indicator?.className).toMatch(/blue|info|accent|working/i);
     });
 
     it('should support dark mode classes', () => {

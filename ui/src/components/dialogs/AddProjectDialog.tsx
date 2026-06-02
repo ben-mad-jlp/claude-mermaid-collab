@@ -93,7 +93,7 @@ export const AddProjectDialog: React.FC<AddProjectDialogProps> = ({
                 rounded-lg
                 bg-white dark:bg-gray-700
                 text-gray-900 dark:text-white
-                focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                focus:ring-2 focus:ring-info-500 focus:border-transparent
                 outline-none
               "
             >
@@ -126,7 +126,7 @@ export const AddProjectDialog: React.FC<AddProjectDialogProps> = ({
                 rounded-lg
                 bg-white dark:bg-gray-700
                 text-gray-900 dark:text-white
-                focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                focus:ring-2 focus:ring-info-500 focus:border-transparent
                 outline-none
                 font-mono text-sm
               "
@@ -136,7 +136,7 @@ export const AddProjectDialog: React.FC<AddProjectDialogProps> = ({
 
           {/* Error */}
           {error && (
-            <div className="text-sm text-red-600 dark:text-red-400">
+            <div className="text-sm text-danger-600 dark:text-danger-400">
               {error}
             </div>
           )}
@@ -157,7 +157,7 @@ export const AddProjectDialog: React.FC<AddProjectDialogProps> = ({
             className={`
               px-4 py-2 text-sm font-medium rounded-lg transition-colors
               ${canSubmit
-                ? 'bg-blue-600 text-white hover:bg-blue-700'
+                ? 'bg-info-600 text-white hover:bg-info-700'
                 : 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
               }
             `}

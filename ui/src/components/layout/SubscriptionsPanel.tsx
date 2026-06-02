@@ -550,7 +550,7 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
                         )}
                       </div>
                       {addProjectOpenFor === serverId && addProjectError && (
-                        <div className="px-4 pb-1 text-xs text-red-500">{addProjectError}</div>
+                        <div className="px-4 pb-1 text-xs text-danger-500">{addProjectError}</div>
                       )}
                       {(() => {
                         // Union of distinct projects: real items + pending.
@@ -658,7 +658,7 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
                                 )}
                               </div>
                               {sessionOpen && addSessionError && (
-                                <div className="px-4 pb-1 text-xs text-red-500">{addSessionError}</div>
+                                <div className="px-4 pb-1 text-xs text-danger-500">{addSessionError}</div>
                               )}
                             </details>
                           );

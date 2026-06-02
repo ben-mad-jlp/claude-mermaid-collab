@@ -15,10 +15,10 @@ import { SectionBranchRow } from './TreeBranchRow';
 
 const PRIORITY_LABEL: Record<number, string> = { 0: 'P0', 1: 'P1', 2: 'P2', 3: 'P3', 4: 'P4' };
 const PRIORITY_COLORS: Record<number, string> = {
-  0: 'text-red-600 dark:text-red-400',
+  0: 'text-danger-600 dark:text-danger-400',
   1: 'text-orange-500 dark:text-orange-400',
   2: 'text-yellow-600 dark:text-yellow-400',
-  3: 'text-blue-500 dark:text-blue-400',
+  3: 'text-info-500 dark:text-info-400',
   4: 'text-gray-400 dark:text-gray-500',
 };
 
@@ -82,7 +82,7 @@ function TodoRow({ todo, project, session }: TodoRowProps) {
         {/* Row 1 — title + (hover) delete */}
         <div className="flex items-start gap-2">
           <span
-            className="shrink-0 mt-0.5 tabular-nums text-[10px] text-gray-400 dark:text-gray-500 select-all"
+            className="shrink-0 mt-0.5 tabular-nums text-3xs text-gray-400 dark:text-gray-500 select-all"
             title={todo.id}
           >
             #{String(todo.id).slice(-4)}
@@ -98,7 +98,7 @@ function TodoRow({ todo, project, session }: TodoRowProps) {
           </span>
           <button
             onClick={handleDelete}
-            className="shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-opacity"
+            className="shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-danger-500 dark:hover:text-danger-400 transition-opacity"
             title="Delete todo"
             aria-label={`Delete ${currentTitle}`}
           >
@@ -235,7 +235,7 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
                     }
                   }}
                   placeholder="Add a todo..."
-                  className="w-full bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  className="w-full bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-info-400"
                   aria-label="Add a new todo"
                 />
               </div>

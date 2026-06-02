@@ -145,7 +145,7 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); void recheckServer(s.id); }}
-                      className={`opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 ${s.status === 'connecting' ? 'animate-spin opacity-100' : ''}`}
+                      className={`opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-400 hover:text-info-500 dark:hover:text-info-400 ${s.status === 'connecting' ? 'animate-spin opacity-100' : ''}`}
                       title="Recheck availability"
                       aria-label={`Recheck ${s.label}`}
                     >
@@ -157,7 +157,7 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); void handleRemove(s.id); }}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-400 hover:text-red-500 dark:hover:text-red-400"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-400 hover:text-danger-500 dark:hover:text-danger-400"
                         title="Remove server"
                         aria-label={`Remove ${s.label}`}
                       >
@@ -177,28 +177,28 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
                     placeholder="Label"
                     value={form.label}
                     onChange={(e) => setForm({ ...form, label: e.target.value })}
-                    className="w-full bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                    className="w-full bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-info-400"
                   />
                   <input
                     placeholder="Host (e.g. 192.168.1.20)"
                     value={form.host}
                     onChange={(e) => setForm({ ...form, host: e.target.value })}
-                    className="w-full bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                    className="w-full bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-info-400"
                   />
                   <input
                     placeholder="Port"
                     value={form.port}
                     onChange={(e) => setForm({ ...form, port: e.target.value })}
-                    className="w-full bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                    className="w-full bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-info-400"
                   />
                   <input
                     placeholder="Token (optional)"
                     type="password"
                     value={form.token}
                     onChange={(e) => setForm({ ...form, token: e.target.value })}
-                    className="w-full bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                    className="w-full bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-info-400"
                   />
-                  {error && <span className="text-xs text-red-500 dark:text-red-400">{error}</span>}
+                  {error && <span className="text-xs text-danger-500 dark:text-danger-400">{error}</span>}
                   <div className="flex gap-1.5 justify-end">
                     <button
                       type="button"
@@ -209,7 +209,7 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
                     </button>
                     <button
                       type="submit"
-                      className="px-2 py-0.5 text-xs bg-blue-500 text-white rounded hover:bg-blue-600"
+                      className="px-2 py-0.5 text-xs bg-info-500 text-white rounded hover:bg-info-600"
                     >
                       Save &amp; Connect
                     </button>

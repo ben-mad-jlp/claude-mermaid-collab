@@ -79,9 +79,9 @@ export const RadioGroup: React.FC<RadioGroupProps> = ({
                 onChange={() => handleChange(option.value)}
                 className={`
                   w-4 h-4
-                  text-blue-600 dark:text-blue-500
+                  text-info-600 dark:text-info-500
                   border-gray-300 dark:border-gray-600
-                  focus:ring-2 focus:ring-blue-500
+                  focus:ring-2 focus:ring-info-500
                   disabled:opacity-50 disabled:cursor-not-allowed
                 `}
               />

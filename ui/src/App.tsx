@@ -107,7 +107,7 @@ class ErrorBoundary extends React.Component<
       return (
         <div className="flex items-center justify-center min-h-screen bg-white dark:bg-gray-900">
           <div className="text-center px-4">
-            <h1 className="text-3xl font-bold text-red-600 mb-4">
+            <h1 className="text-3xl font-bold text-danger-600 mb-4">
               Something went wrong
             </h1>
             <p className="text-gray-600 dark:text-gray-400 mb-6">
@@ -115,7 +115,7 @@ class ErrorBoundary extends React.Component<
             </p>
             <button
               onClick={() => window.location.reload()}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              className="px-6 py-2 bg-info-600 text-white rounded-lg hover:bg-info-700 transition-colors"
             >
               Reload Application
             </button>
@@ -139,7 +139,7 @@ const LoadingOverlay: React.FC<{ show: boolean }> = ({ show }) => {
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white dark:bg-gray-800 rounded-lg p-8">
         <div className="flex flex-col items-center gap-4">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-info-600"></div>
           <p className="text-gray-900 dark:text-white">Loading...</p>
         </div>
       </div>
@@ -1630,7 +1630,7 @@ const App: React.FC = () => {
       return (
         <div className="flex items-center justify-center h-full">
           <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-info-600 mx-auto mb-4"></div>
             <p className="text-gray-600 dark:text-gray-400">Loading...</p>
           </div>
         </div>
@@ -1640,11 +1640,11 @@ const App: React.FC = () => {
     if (dataError) {
       return (
         <div className="flex items-center justify-center h-full">
-          <div className="bg-red-50 dark:bg-red-900 p-6 rounded-lg max-w-md">
-            <h3 className="text-red-900 dark:text-red-100 font-semibold mb-2">
+          <div className="bg-danger-50 dark:bg-danger-900 p-6 rounded-lg max-w-md">
+            <h3 className="text-danger-900 dark:text-danger-100 font-semibold mb-2">
               Error
             </h3>
-            <p className="text-red-700 dark:text-red-200 text-sm">
+            <p className="text-danger-700 dark:text-danger-200 text-sm">
               {dataError}
             </p>
           </div>

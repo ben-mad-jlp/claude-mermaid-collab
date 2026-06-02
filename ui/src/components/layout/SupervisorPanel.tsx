@@ -410,7 +410,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
           {openEscalations.length > 0 && (
             <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
               <div className="flex items-center gap-1.5 px-1 pb-1.5">
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                <span className="text-2xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
                   Escalations
                 </span>
                 <span className="text-gray-400 dark:text-gray-500 font-normal text-xs">
@@ -423,7 +423,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                     key={e.id}
                     className="px-2 py-1.5 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 space-y-1"
                   >
-                    <div className="text-[11px] font-medium text-gray-500 dark:text-gray-400 truncate">
+                    <div className="text-2xs font-medium text-gray-500 dark:text-gray-400 truncate">
                       {`${e.project.split('/').pop()} / ${e.session}`}
                     </div>
                     <div className="text-xs font-mono leading-relaxed text-gray-900 dark:text-gray-100 whitespace-pre-wrap break-words">
@@ -444,7 +444,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                           handleNavigate(sub);
                           void activateSessionCard(sub, serverLabelById.get(sub.serverId));
                         }}
-                        className="px-2 py-0.5 text-[11px] font-medium rounded bg-gray-200 text-gray-700 border border-gray-300 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-600 transition-colors"
+                        className="px-2 py-0.5 text-2xs font-medium rounded bg-gray-200 text-gray-700 border border-gray-300 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-600 transition-colors"
                         title="Jump to session"
                       >
                         Jump to session
@@ -453,7 +453,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                         onClick={() => {
                           void resolveEscalation(serverScope, e.id, 'resolved');
                         }}
-                        className="px-2 py-0.5 text-[11px] rounded text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                        className="px-2 py-0.5 text-2xs rounded text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
                         title="Mark resolved and remove from inbox"
                       >
                         Resolve

@@ -131,7 +131,7 @@ export const EdgeContextMenu: React.FC<EdgeContextMenuProps> = ({
 
       <MenuItem
         onClick={handleDelete}
-        className="text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900"
+        className="text-danger-600 dark:text-danger-400 hover:bg-danger-50 dark:hover:bg-danger-900"
       >
         Delete
       </MenuItem>

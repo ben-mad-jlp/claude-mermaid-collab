@@ -137,7 +137,7 @@ export const Checklist: React.FC<ChecklistProps> = ({
 
           <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden mb-3">
             <div
-              className="h-full bg-green-500 dark:bg-green-600 transition-all duration-300"
+              className="h-full bg-success-500 dark:bg-success-600 transition-all duration-300"
               style={{ width: `${completionPercentage}%` }}
               role="progressbar"
               aria-valuenow={Math.round(completionPercentage)}
@@ -149,7 +149,7 @@ export const Checklist: React.FC<ChecklistProps> = ({
           {requiredItems.length > 0 && (
             <p className="text-xs text-gray-600 dark:text-gray-400">
               Required items:{' '}
-              <span className={allRequiredComplete ? 'text-green-600 dark:text-green-500' : 'text-orange-600 dark:text-orange-500'}>
+              <span className={allRequiredComplete ? 'text-success-600 dark:text-success-500' : 'text-orange-600 dark:text-orange-500'}>
                 {completedRequiredItems}/{requiredItems.length}
               </span>
             </p>
@@ -171,7 +171,7 @@ export const Checklist: React.FC<ChecklistProps> = ({
               <div
                 className={`flex items-center gap-3 p-3 rounded-lg border transition-all ${
                   isCompleted
-                    ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+                    ? 'bg-success-50 dark:bg-success-900/20 border-success-200 dark:border-success-800'
                     : isRequired
                     ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800'
                     : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
@@ -204,7 +204,7 @@ export const Checklist: React.FC<ChecklistProps> = ({
                     onClick={() => toggleItem(item.id)}
                     className={`flex-shrink-0 w-5 h-5 rounded border-2 transition-all flex items-center justify-center ${
                       isCompleted
-                        ? 'bg-green-500 dark:bg-green-600 border-green-500 dark:border-green-600'
+                        ? 'bg-success-500 dark:bg-success-600 border-success-500 dark:border-success-600'
                         : isRequired
                         ? 'bg-orange-100 dark:bg-orange-900 border-orange-300 dark:border-orange-700 hover:border-orange-400 dark:hover:border-orange-600'
                         : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
@@ -247,7 +247,7 @@ export const Checklist: React.FC<ChecklistProps> = ({
                         key={subItem.id}
                         className={`flex items-center gap-3 p-2 rounded-lg border transition-all ${
                           isSubCompleted
-                            ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+                            ? 'bg-success-50 dark:bg-success-900/20 border-success-200 dark:border-success-800'
                             : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
                         }`}
                       >
@@ -257,7 +257,7 @@ export const Checklist: React.FC<ChecklistProps> = ({
                             onClick={() => toggleSubItem(item.id, subItem.id)}
                             className={`flex-shrink-0 w-4 h-4 rounded border-2 transition-all flex items-center justify-center ${
                               isSubCompleted
-                                ? 'bg-green-500 dark:bg-green-600 border-green-500 dark:border-green-600'
+                                ? 'bg-success-500 dark:bg-success-600 border-success-500 dark:border-success-600'
                                 : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
                             }`}
                             aria-label={`Toggle ${subItem.label}`}

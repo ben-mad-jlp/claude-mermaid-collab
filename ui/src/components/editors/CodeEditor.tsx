@@ -210,7 +210,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ filePath, project, onToo
           className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
             !dirty
               ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600 cursor-not-allowed'
-              : 'bg-blue-500 text-white hover:bg-blue-600'
+              : 'bg-info-500 text-white hover:bg-info-600'
           }`}
         >
           Save
@@ -231,12 +231,12 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({ filePath, project, onToo
         {/* Function jump dropdown */}
         <FunctionJumpDropdown functions={functions} onJump={jumpToLine} />
         {/* Dirty indicator */}
-        <span className={`text-xs font-medium ${dirty ? 'text-amber-600 dark:text-amber-400' : 'text-green-600 dark:text-green-400'}`}>
+        <span className={`text-xs font-medium ${dirty ? 'text-warning-600 dark:text-warning-400' : 'text-success-600 dark:text-success-400'}`}>
           {dirty ? 'Modified' : 'Clean'}
         </span>
         {/* Flash message */}
         {flashMessage && (
-          <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">{flashMessage}</span>
+          <span className="text-xs text-info-600 dark:text-info-400 font-medium">{flashMessage}</span>
         )}
         {/* Separator */}
         <div className="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1" />

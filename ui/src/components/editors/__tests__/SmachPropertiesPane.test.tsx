@@ -178,7 +178,7 @@ describe('SmachPropertiesPane', () => {
       // Get all remove buttons (the ones with ✕ that are NOT the close button)
       const allButtons = screen.getAllByRole('button');
       const removeButtons = allButtons.filter(
-        (btn) => btn.textContent === '✕' && btn.classList.contains('text-red-500')
+        (btn) => btn.textContent === '✕' && btn.classList.contains('text-danger-500')
       );
       expect(removeButtons.length).toBe(2);
 

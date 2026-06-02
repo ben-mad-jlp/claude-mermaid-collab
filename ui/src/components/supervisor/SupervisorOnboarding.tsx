@@ -95,7 +95,7 @@ export const SupervisorOnboarding: React.FC<SupervisorOnboardingProps> = ({
 
             {/* Will / won't list */}
             <div className="rounded border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/40 px-3 py-2 space-y-1">
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 pb-0.5">
+              <div className="text-2xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 pb-0.5">
                 Will
               </div>
               {[
@@ -104,11 +104,11 @@ export const SupervisorOnboarding: React.FC<SupervisorOnboardingProps> = ({
                 'Escalate decisions to you',
               ].map((item) => (
                 <div key={item} className="flex items-start gap-1.5 text-xs text-gray-700 dark:text-gray-300">
-                  <span className="text-green-500 mt-px">✓</span>
+                  <span className="text-success-500 mt-px">✓</span>
                   <span>{item}</span>
                 </div>
               ))}
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 pt-1.5 pb-0.5">
+              <div className="text-2xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 pt-1.5 pb-0.5">
                 Won&apos;t
               </div>
               {[
@@ -116,7 +116,7 @@ export const SupervisorOnboarding: React.FC<SupervisorOnboardingProps> = ({
                 'Make decisions for you',
               ].map((item) => (
                 <div key={item} className="flex items-start gap-1.5 text-xs text-gray-500 dark:text-gray-400">
-                  <span className="text-red-400 mt-px">✗</span>
+                  <span className="text-danger-400 mt-px">✗</span>
                   <span>{item}</span>
                 </div>
               ))}
@@ -125,7 +125,7 @@ export const SupervisorOnboarding: React.FC<SupervisorOnboardingProps> = ({
             {/* Inputs */}
             <div className="space-y-2">
               <div>
-                <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                <label className="block text-2xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                   Supervisor session
                 </label>
                 <input
@@ -133,11 +133,11 @@ export const SupervisorOnboarding: React.FC<SupervisorOnboardingProps> = ({
                   value={supervisorSession}
                   onChange={(e) => setSupervisorSession(e.target.value)}
                   placeholder="e.g. supervisor"
-                  className="w-full text-xs rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-500 placeholder-gray-400 dark:placeholder-gray-600"
+                  className="w-full text-xs rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-info-400 dark:focus:ring-info-500 placeholder-gray-400 dark:placeholder-gray-600"
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                <label className="block text-2xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                   Project scope
                 </label>
                 <input
@@ -145,7 +145,7 @@ export const SupervisorOnboarding: React.FC<SupervisorOnboardingProps> = ({
                   value={supervisorProject}
                   onChange={(e) => setSupervisorProject(e.target.value)}
                   placeholder="e.g. /path/to/project"
-                  className="w-full text-xs rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-500 placeholder-gray-400 dark:placeholder-gray-600"
+                  className="w-full text-xs rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-info-400 dark:focus:ring-info-500 placeholder-gray-400 dark:placeholder-gray-600"
                 />
               </div>
             </div>
@@ -154,7 +154,7 @@ export const SupervisorOnboarding: React.FC<SupervisorOnboardingProps> = ({
             <button
               onClick={() => void handleLaunch()}
               disabled={starting || !supervisorProject || !supervisorSession}
-              className="w-full py-2 px-4 text-xs font-semibold rounded bg-blue-600 hover:bg-blue-700 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full py-2 px-4 text-xs font-semibold rounded bg-info-600 hover:bg-info-700 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {starting ? 'Starting…' : 'Start supervising'}
             </button>
@@ -170,7 +170,7 @@ export const SupervisorOnboarding: React.FC<SupervisorOnboardingProps> = ({
 
             <div className="space-y-2">
               <div>
-                <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                <label className="block text-2xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                   Supervisor session
                 </label>
                 <input
@@ -178,11 +178,11 @@ export const SupervisorOnboarding: React.FC<SupervisorOnboardingProps> = ({
                   value={supervisorSession}
                   onChange={(e) => setSupervisorSession(e.target.value)}
                   placeholder="e.g. supervisor"
-                  className="w-full text-xs rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-500 placeholder-gray-400 dark:placeholder-gray-600"
+                  className="w-full text-xs rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-info-400 dark:focus:ring-info-500 placeholder-gray-400 dark:placeholder-gray-600"
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                <label className="block text-2xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                   Project scope
                 </label>
                 <input
@@ -190,7 +190,7 @@ export const SupervisorOnboarding: React.FC<SupervisorOnboardingProps> = ({
                   value={supervisorProject}
                   onChange={(e) => setSupervisorProject(e.target.value)}
                   placeholder="e.g. /path/to/project"
-                  className="w-full text-xs rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-500 placeholder-gray-400 dark:placeholder-gray-600"
+                  className="w-full text-xs rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-info-400 dark:focus:ring-info-500 placeholder-gray-400 dark:placeholder-gray-600"
                 />
               </div>
             </div>
@@ -199,7 +199,7 @@ export const SupervisorOnboarding: React.FC<SupervisorOnboardingProps> = ({
               <button
                 onClick={() => void handleLaunch()}
                 disabled={starting || !supervisorProject || !supervisorSession}
-                className="flex-1 py-2 px-3 text-xs font-semibold rounded bg-blue-600 hover:bg-blue-700 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 py-2 px-3 text-xs font-semibold rounded bg-info-600 hover:bg-info-700 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {starting ? 'Restarting…' : 'Restart supervisor'}
               </button>

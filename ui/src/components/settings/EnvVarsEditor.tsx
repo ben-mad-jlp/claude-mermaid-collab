@@ -83,12 +83,12 @@ export function EnvVarsEditor({ project }: EnvVarsEditorProps) {
         <h3 className="text-base font-semibold text-gray-900 dark:text-white">Environment Variables</h3>
       </div>
 
-      <p role="note" className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded px-3 py-2">
+      <p role="note" className="text-xs text-warning-700 dark:text-warning-300 bg-warning-50 dark:bg-warning-950/40 border border-warning-200 dark:border-warning-800 rounded px-3 py-2">
         Changes take effect after restarting your Claude Code session.
       </p>
 
       {error && (
-        <p role="alert" className="text-xs text-red-600 dark:text-red-400">{error}</p>
+        <p role="alert" className="text-xs text-danger-600 dark:text-danger-400">{error}</p>
       )}
 
       <div className="space-y-2">
@@ -105,7 +105,7 @@ export function EnvVarsEditor({ project }: EnvVarsEditorProps) {
               value={key}
               onChange={e => updateRow(id, 'key', e.target.value)}
               placeholder="CLAUDE_CODE_..."
-              className="px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
+              className="px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-info-500 outline-none"
             />
             <input
               type="text"
@@ -113,13 +113,13 @@ export function EnvVarsEditor({ project }: EnvVarsEditorProps) {
               value={value}
               onChange={e => updateRow(id, 'value', e.target.value)}
               placeholder="value"
-              className="px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
+              className="px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-info-500 outline-none"
             />
             <button
               type="button"
               onClick={() => removeRow(id)}
               aria-label="Remove variable"
-              className="p-1 text-gray-400 hover:text-red-500 dark:hover:text-red-400"
+              className="p-1 text-gray-400 hover:text-danger-500 dark:hover:text-danger-400"
             >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
                 <path d="M12 4L4 12M4 4l8 8" />
@@ -133,17 +133,17 @@ export function EnvVarsEditor({ project }: EnvVarsEditorProps) {
         <button
           type="button"
           onClick={addRow}
-          className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+          className="text-sm text-info-600 dark:text-info-400 hover:underline"
         >
           + Add variable
         </button>
         <div className="flex items-center gap-3">
-          {saved && <span className="text-xs text-green-600 dark:text-green-400">Saved</span>}
+          {saved && <span className="text-xs text-success-600 dark:text-success-400">Saved</span>}
           <button
             type="button"
             onClick={handleSave}
             disabled={saving}
-            className="px-4 py-1.5 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+            className="px-4 py-1.5 text-sm font-medium rounded-lg bg-info-600 text-white hover:bg-info-700 disabled:opacity-50"
           >
             {saving ? 'Saving…' : 'Save'}
           </button>

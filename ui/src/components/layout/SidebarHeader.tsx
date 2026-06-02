@@ -7,21 +7,21 @@ export interface SidebarHeaderProps {
 
 export const SidebarHeader: React.FC<SidebarHeaderProps> = ({ connected, isConnecting }) => {
   const pillClass = isConnecting
-    ? 'bg-yellow-100 text-yellow-700'
+    ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300'
     : connected
-    ? 'bg-green-100 text-green-700'
-    : 'bg-red-100 text-red-700';
+    ? 'bg-success-100 text-success-700 dark:bg-success-900/30 dark:text-success-300'
+    : 'bg-danger-100 text-danger-700 dark:bg-danger-900/30 dark:text-danger-300';
 
   const dotClass = isConnecting
     ? 'bg-yellow-500 animate-pulse'
     : connected
-    ? 'bg-green-500'
-    : 'bg-red-500';
+    ? 'bg-success-500'
+    : 'bg-danger-500';
 
   const label = isConnecting ? 'Connecting' : connected ? 'Connected' : 'Disconnected';
 
   return (
-    <div className="flex items-center gap-2 px-3 py-2 border-b">
+    <div className="flex items-center gap-2 px-3 py-2 border-b dark:border-gray-700">
       {/* CollabLogo inline SVG ~16px */}
       <svg
         width="16"

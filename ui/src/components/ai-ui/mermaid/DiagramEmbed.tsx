@@ -176,13 +176,13 @@ export const DiagramEmbed: React.FC<DiagramEmbedProps> = (props) => {
       {/* Error message */}
       {state.error && (
         <div
-          className="p-3 bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-lg h-full flex flex-col justify-center"
+          className="p-3 bg-danger-50 dark:bg-danger-900 border border-danger-200 dark:border-danger-700 rounded-lg h-full flex flex-col justify-center"
           data-testid="diagram-embed-error"
         >
-          <p className="text-red-700 dark:text-red-200 text-xs font-medium">
+          <p className="text-danger-700 dark:text-danger-200 text-xs font-medium">
             Error rendering diagram
           </p>
-          <p className="text-red-600 dark:text-red-300 text-xs mt-1 font-mono truncate">
+          <p className="text-danger-600 dark:text-danger-300 text-xs mt-1 font-mono truncate">
             {state.error}
           </p>
         </div>

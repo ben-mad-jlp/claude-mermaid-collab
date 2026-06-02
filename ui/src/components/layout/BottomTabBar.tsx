@@ -68,7 +68,7 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({
           onClick={() => onTabChange(tab.id)}
           className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 px-1 min-h-[44px] transition-colors ${
             activeTab === tab.id
-              ? 'text-blue-600 dark:text-blue-400 font-semibold'
+              ? 'text-info-600 dark:text-info-400 font-semibold'
               : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
           }`}
           title={tab.label}

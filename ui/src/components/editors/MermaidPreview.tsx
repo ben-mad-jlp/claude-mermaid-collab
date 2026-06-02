@@ -461,7 +461,7 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
         title={splitEditMode ? 'Hide code editor' : 'Show code editor'}
         className={`absolute top-2 right-14 z-10 flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
           splitEditMode
-            ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/70'
+            ? 'bg-info-100 dark:bg-info-900/50 text-info-700 dark:text-info-300 hover:bg-info-200 dark:hover:bg-info-900/70'
             : 'bg-white/80 dark:bg-gray-800/80 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
         }`}
       >
@@ -484,13 +484,13 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
       {/* Error message */}
       {state.error && (
         <div
-          className="p-4 bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-lg"
+          className="p-4 bg-danger-50 dark:bg-danger-900 border border-danger-200 dark:border-danger-700 rounded-lg"
           data-testid="mermaid-error"
         >
-          <p className="text-red-700 dark:text-red-200 text-sm font-medium">
+          <p className="text-danger-700 dark:text-danger-200 text-sm font-medium">
             Error rendering diagram
           </p>
-          <p className="text-red-600 dark:text-red-300 text-xs mt-1 font-mono">
+          <p className="text-danger-600 dark:text-danger-300 text-xs mt-1 font-mono">
             {state.error}
           </p>
         </div>

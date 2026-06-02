@@ -278,7 +278,7 @@ export const DocumentEditorWysiwyg: React.FC<DocumentEditorProps> = ({
     >
       {error && (
         <div
-          className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-200 px-4 py-2 rounded-t-lg"
+          className="bg-danger-50 dark:bg-danger-900/20 border border-danger-200 dark:border-danger-800 text-danger-800 dark:text-danger-200 px-4 py-2 rounded-t-lg"
           data-testid="document-editor-error"
           role="alert"
         >

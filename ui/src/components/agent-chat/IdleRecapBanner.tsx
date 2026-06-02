@@ -56,9 +56,9 @@ export function IdleRecapBanner({ sessionId: _sessionId }: IdleRecapBannerProps)
       role="status"
       aria-live="polite"
       className="flex items-start gap-2 px-3 py-2 text-xs
-        bg-amber-50 dark:bg-amber-950/40
-        text-amber-900 dark:text-amber-100
-        border-b border-amber-200 dark:border-amber-900"
+        bg-warning-50 dark:bg-warning-950/40
+        text-warning-900 dark:text-warning-100
+        border-b border-warning-200 dark:border-warning-900"
     >
       <div className="flex-1 leading-snug">
         <span className="font-medium">Back already?</span>
@@ -69,9 +69,9 @@ export function IdleRecapBanner({ sessionId: _sessionId }: IdleRecapBannerProps)
         onClick={() => setVisible(false)}
         aria-label="Resume session"
         className="shrink-0 px-2 py-0.5 rounded text-xs font-medium
-          bg-amber-200 dark:bg-amber-800
-          text-amber-900 dark:text-amber-100
-          hover:bg-amber-300 dark:hover:bg-amber-700"
+          bg-warning-200 dark:bg-warning-800
+          text-warning-900 dark:text-warning-100
+          hover:bg-warning-300 dark:hover:bg-warning-700"
       >
         Resume
       </button>
@@ -80,8 +80,8 @@ export function IdleRecapBanner({ sessionId: _sessionId }: IdleRecapBannerProps)
         onClick={() => setVisible(false)}
         aria-label="Dismiss idle recap"
         className="shrink-0 px-1.5 py-0.5 rounded
-          text-amber-700 dark:text-amber-200
-          hover:bg-amber-100 dark:hover:bg-amber-900/60"
+          text-warning-700 dark:text-warning-200
+          hover:bg-warning-100 dark:hover:bg-warning-900/60"
       >
         &times;
       </button>

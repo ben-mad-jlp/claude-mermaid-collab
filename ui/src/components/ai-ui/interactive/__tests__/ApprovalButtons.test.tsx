@@ -40,14 +40,14 @@ describe('ApprovalButtons Component', () => {
     const { container } = render(<ApprovalButtons actions={mockActions} />);
 
     const approveButton = screen.getByRole('button', { name: 'Approve' });
-    expect(approveButton).toHaveClass('bg-blue-600');
+    expect(approveButton).toHaveClass('bg-info-600');
   });
 
   it('should apply destructive button styling', () => {
     const { container } = render(<ApprovalButtons actions={mockActions} />);
 
     const rejectButton = screen.getByRole('button', { name: 'Reject' });
-    expect(rejectButton).toHaveClass('bg-red-600');
+    expect(rejectButton).toHaveClass('bg-danger-600');
   });
 
   it('should apply left alignment', () => {

@@ -33,7 +33,7 @@ export const ModelPill: React.FC<ModelPillProps> = ({ model, className, onOpenMe
     >
       <Badge
         variant="outline"
-        className={cn('text-[10px] font-mono', className)}
+        className={cn('text-3xs font-mono', className)}
       >
         {model}
       </Badge>

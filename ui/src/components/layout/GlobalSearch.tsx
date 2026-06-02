@@ -59,7 +59,7 @@ function findLinkedSnippetForFile(
 }
 
 const KindIconCode: React.FC = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-blue-500 shrink-0">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-info-500 shrink-0">
     <polyline points="16 18 22 12 16 6" />
     <polyline points="8 6 2 12 8 18" />
   </svg>
@@ -292,7 +292,7 @@ export const GlobalSearch: React.FC = () => {
               className="flex-1 bg-transparent text-sm text-gray-900 dark:text-white placeholder-gray-400 outline-none"
               data-testid="global-search-input"
             />
-            <kbd className="text-[10px] font-mono text-gray-400 border border-gray-300 dark:border-gray-600 rounded px-1">Esc</kbd>
+            <kbd className="text-3xs font-mono text-gray-400 border border-gray-300 dark:border-gray-600 rounded px-1">Esc</kbd>
           </div>
 
           <div
@@ -304,7 +304,7 @@ export const GlobalSearch: React.FC = () => {
               <div className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">Searching…</div>
             )}
             {error && !loading && (
-              <div className="px-4 py-3 text-xs text-red-600 dark:text-red-400">{error}</div>
+              <div className="px-4 py-3 text-xs text-danger-600 dark:text-danger-400">{error}</div>
             )}
             {!loading && !error && query.trim() && results.length === 0 && (
               <div className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">No results</div>
@@ -322,7 +322,7 @@ export const GlobalSearch: React.FC = () => {
                   onClick={() => handleResultClick(r)}
                   className={`w-full text-left px-4 py-2 flex items-start gap-3 border-b border-gray-100 dark:border-gray-700/50 ${
                     isSelected
-                      ? 'bg-blue-50 dark:bg-blue-900/30'
+                      ? 'bg-info-50 dark:bg-info-900/30'
                       : 'hover:bg-gray-50 dark:hover:bg-gray-700/40'
                   }`}
                 >
@@ -335,19 +335,19 @@ export const GlobalSearch: React.FC = () => {
                         {basename(r.filePath)}
                       </span>
                       {r.methodName && (
-                        <span className="text-xs font-mono text-green-600 dark:text-green-400 truncate">
+                        <span className="text-xs font-mono text-success-600 dark:text-success-400 truncate">
                           {r.methodName}
                         </span>
                       )}
                       {r.line != null && (
-                        <span className="text-[10px] text-gray-400">:{r.line}</span>
+                        <span className="text-3xs text-gray-400">:{r.line}</span>
                       )}
                     </div>
                     <div
                       className="text-xs font-mono text-gray-600 dark:text-gray-300 truncate mt-0.5"
                       dangerouslySetInnerHTML={{ __html: r.snippet }}
                     />
-                    <div className="text-[10px] text-gray-400 truncate mt-0.5">
+                    <div className="text-3xs text-gray-400 truncate mt-0.5">
                       {r.filePath}
                     </div>
                   </div>
@@ -356,7 +356,7 @@ export const GlobalSearch: React.FC = () => {
             })}
           </div>
 
-          <div className="px-4 py-2 border-t border-gray-200 dark:border-gray-700 flex items-center gap-3 text-[10px] text-gray-400">
+          <div className="px-4 py-2 border-t border-gray-200 dark:border-gray-700 flex items-center gap-3 text-3xs text-gray-400">
             <span><kbd className="font-mono">↑↓</kbd> Navigate</span>
             <span><kbd className="font-mono">Enter</kbd> Open</span>
             <span><kbd className="font-mono">Esc</kbd> Close</span>

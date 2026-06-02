@@ -28,8 +28,8 @@ const STATUS_GLYPH: Record<string, string> = {
   dropped: '⌀',
 };
 const STATUS_COLOR: Record<string, string> = {
-  done: 'text-green-600 dark:text-green-400',
-  in_progress: 'text-blue-600 dark:text-blue-400',
+  done: 'text-success-600 dark:text-success-400',
+  in_progress: 'text-info-600 dark:text-info-400',
   blocked: 'text-yellow-600 dark:text-yellow-400',
   ready: 'text-indigo-500 dark:text-indigo-400',
   todo: 'text-gray-500 dark:text-gray-400',
@@ -208,17 +208,17 @@ export const ProjectScopeSection: React.FC = () => {
     <div className="border-b border-gray-200 dark:border-gray-700">
       {/* SYSTEM (global) strip */}
       <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100/60 dark:bg-gray-800/40">
-        <span className="text-[11px] font-semibold tracking-wide text-gray-500 dark:text-gray-400">SYSTEM</span>
+        <span className="text-2xs font-semibold tracking-wide text-gray-500 dark:text-gray-400">SYSTEM</span>
         {openEscalations.length > 0 && (
           <span
-            className="text-[11px] px-1.5 rounded-full bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300"
+            className="text-2xs px-1.5 rounded-full bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300"
             title={`${openEscalations.length} open escalation(s) across all projects — ${scopedEscalations.length} in this project`}
           >
             ⚠ {openEscalations.length}
           </span>
         )}
         <span
-          className={`text-[11px] ${maxContext >= 80 ? 'text-amber-600 dark:text-amber-400 font-medium' : 'text-gray-400 dark:text-gray-500'}`}
+          className={`text-2xs ${maxContext >= 80 ? 'text-warning-600 dark:text-warning-400 font-medium' : 'text-gray-400 dark:text-gray-500'}`}
           title="Context watchdog: max context% across this project's sessions"
         >
           ◷ {maxContext > 0 ? `${Math.round(maxContext)}%` : 'all clear'}
@@ -227,7 +227,7 @@ export const ProjectScopeSection: React.FC = () => {
           type="button"
           onClick={openSystemMap}
           title="Open System Map (Supervisor view)"
-          className="ml-auto text-[11px] px-1.5 py-0.5 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+          className="ml-auto text-2xs px-1.5 py-0.5 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
         >
           ⤢ Map
         </button>
@@ -261,7 +261,7 @@ export const ProjectScopeSection: React.FC = () => {
                 ? `Switch current session to ${syncTargetSession.name} (in ${basename(project)})`
                 : `No open session for ${basename(project)} to sync to`
             }
-            className="shrink-0 text-[11px] px-1.5 py-1 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="shrink-0 text-2xs px-1.5 py-1 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             ⇄ Sync
           </button>
@@ -275,16 +275,16 @@ export const ProjectScopeSection: React.FC = () => {
           onClick={() => setPlanOpen((v) => !v)}
           className="w-full flex items-center gap-1.5 px-2 py-1 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded transition-colors"
         >
-          <span className="text-gray-400">{planOpen ? '▾' : '▸'}</span>
+          <span className="text-gray-400 dark:text-gray-500 select-none">{planOpen ? '▾' : '▸'}</span>
           Plan
           <span className="text-gray-400 dark:text-gray-500 font-normal">{planRows.length}</span>
         </button>
         {planOpen && (
           <div className="mt-0.5">
             {!project ? (
-              <p className="px-3 py-1 text-[11px] text-gray-400 dark:text-gray-500">No project in scope.</p>
+              <p className="px-3 py-1 text-2xs text-gray-400 dark:text-gray-500">No project in scope.</p>
             ) : planRows.length === 0 ? (
-              <p className="px-3 py-1 text-[11px] text-gray-400 dark:text-gray-500">No open plan items.</p>
+              <p className="px-3 py-1 text-2xs text-gray-400 dark:text-gray-500">No open plan items.</p>
             ) : (
               planRows.map(({ todo, depth }) => {
                 const glyph = STATUS_GLYPH[todo.status] ?? '○';
@@ -299,14 +299,14 @@ export const ProjectScopeSection: React.FC = () => {
                     className="w-full flex items-start gap-1.5 py-0.5 pr-2 rounded text-left hover:bg-gray-100 dark:hover:bg-gray-800/50"
                     style={{ paddingLeft: `${0.75 + depth * 0.85}rem` }}
                   >
-                    <span className={`mt-0.5 text-[11px] font-mono select-none ${color}`} title={todo.status}>
+                    <span className={`mt-0.5 text-2xs font-mono select-none ${color}`} title={todo.status}>
                       {glyph}
                     </span>
-                    <span className="flex-1 text-[11px] text-gray-700 dark:text-gray-300 leading-tight truncate">
+                    <span className="flex-1 text-2xs text-gray-700 dark:text-gray-300 leading-tight truncate">
                       {todo.title}
                     </span>
                     {depCount > 0 && (
-                      <span className="shrink-0 text-[10px] text-gray-400 dark:text-gray-500 font-mono" title={`${depCount} deps`}>
+                      <span className="shrink-0 text-3xs text-gray-400 dark:text-gray-500 font-mono" title={`${depCount} deps`}>
                         ⊸{depCount}
                       </span>
                     )}
@@ -326,7 +326,7 @@ export const ProjectScopeSection: React.FC = () => {
           onClick={() => setSessionsOpen((v) => !v)}
           className="w-full flex items-center gap-1.5 px-2 py-1 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded transition-colors"
         >
-          <span className="text-gray-400">{sessionsOpen ? '▾' : '▸'}</span>
+          <span className="text-gray-400 dark:text-gray-500 select-none">{sessionsOpen ? '▾' : '▸'}</span>
           Sessions
           <span className="text-gray-400 dark:text-gray-500 font-normal">{projectSessions.length}</span>
         </button>
@@ -335,17 +335,17 @@ export const ProjectScopeSection: React.FC = () => {
             {/* Coordinator status row */}
             <div className="flex items-center gap-1.5 px-3 py-1">
               <span
-                className={`w-1.5 h-1.5 rounded-full shrink-0 ${coordinatorRunning ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                className={`w-1.5 h-1.5 rounded-full shrink-0 ${coordinatorRunning ? 'bg-success-500' : 'bg-gray-300 dark:bg-gray-600'}`}
                 title={coordinatorRunning ? 'Coordinator daemon running' : 'Coordinator daemon stopped'}
               />
-              <span className="flex-1 text-[11px] text-gray-600 dark:text-gray-400">
+              <span className="flex-1 text-2xs text-gray-600 dark:text-gray-400">
                 Coordinator <span className="text-gray-400 dark:text-gray-500">· {coordinatorRunning ? 'running' : 'stopped'}</span>
               </span>
               {project && (
                 <button
                   type="button"
                   onClick={() => void setCoordinator(serverScope, project, coordinatorRunning ? 'stop' : 'start')}
-                  className="shrink-0 text-[10px] px-1.5 py-0.5 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                  className="shrink-0 text-3xs px-1.5 py-0.5 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
                   title={coordinatorRunning ? 'Stop the Coordinator daemon' : 'Start the Coordinator daemon'}
                 >
                   {coordinatorRunning ? 'Stop' : 'Start'}
@@ -353,9 +353,9 @@ export const ProjectScopeSection: React.FC = () => {
               )}
             </div>
             {!project ? (
-              <p className="px-3 py-1 text-[11px] text-gray-400 dark:text-gray-500">No project in scope.</p>
+              <p className="px-3 py-1 text-2xs text-gray-400 dark:text-gray-500">No project in scope.</p>
             ) : projectSessions.length === 0 ? (
-              <p className="px-3 py-1 text-[11px] text-gray-400 dark:text-gray-500">No sessions for this project.</p>
+              <p className="px-3 py-1 text-2xs text-gray-400 dark:text-gray-500">No sessions for this project.</p>
             ) : (
               projectSessions.map((s) => {
                 const isCurrent = sessionMatchesProject && currentSession?.name === s.session;
@@ -370,21 +370,21 @@ export const ProjectScopeSection: React.FC = () => {
                     className={`w-full flex items-center gap-1.5 py-0.5 pl-3 pr-2 rounded text-left hover:bg-gray-100 dark:hover:bg-gray-800/50 disabled:cursor-default ${isCurrent ? 'bg-accent-50 dark:bg-accent-900/30' : ''}`}
                   >
                     {s.supervised && (
-                      <span className="shrink-0 text-[10px]" title="Supervised">🔒</span>
+                      <span className="shrink-0 text-3xs" title="Supervised">🔒</span>
                     )}
-                    <span className="flex-1 text-[11px] text-gray-700 dark:text-gray-300 leading-tight truncate">
+                    <span className="flex-1 text-2xs text-gray-700 dark:text-gray-300 leading-tight truncate">
                       {s.session}
                     </span>
                     {typeof s.contextPercent === 'number' && (
                       <span
-                        className={`shrink-0 text-[10px] font-mono ${s.contextPercent >= 80 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-400 dark:text-gray-500'}`}
+                        className={`shrink-0 text-3xs font-mono ${s.contextPercent >= 80 ? 'text-warning-600 dark:text-warning-400' : 'text-gray-400 dark:text-gray-500'}`}
                         title="Context %"
                       >
                         {Math.round(s.contextPercent)}%
                       </span>
                     )}
                     {s.status && s.status !== 'unknown' && (
-                      <span className="shrink-0 text-[10px] text-gray-400 dark:text-gray-500" title={`status: ${s.status}`}>
+                      <span className="shrink-0 text-3xs text-gray-400 dark:text-gray-500" title={`status: ${s.status}`}>
                         {s.status === 'active' || s.status === 'running' ? '●' : '○'}
                       </span>
                     )}
@@ -405,7 +405,7 @@ export const ProjectScopeSection: React.FC = () => {
             onClick={() => setEscOpen((v) => !v)}
             className="w-full flex items-center gap-1.5 px-2 py-1 text-xs font-semibold text-yellow-700 dark:text-yellow-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded transition-colors"
           >
-            <span className="text-gray-400">{escOpen ? '▾' : '▸'}</span>
+            <span className="text-gray-400 dark:text-gray-500 select-none">{escOpen ? '▾' : '▸'}</span>
             Escalations
             <span className="text-gray-400 dark:text-gray-500 font-normal">{scopedEscalations.length}</span>
           </button>
@@ -416,10 +416,10 @@ export const ProjectScopeSection: React.FC = () => {
                   key={e.id}
                   className="px-2 py-1.5 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 space-y-1"
                 >
-                  <div className="text-[10px] font-medium text-gray-500 dark:text-gray-400 truncate" title={`${e.project} / ${e.session}`}>
+                  <div className="text-3xs font-medium text-gray-500 dark:text-gray-400 truncate" title={`${e.project} / ${e.session}`}>
                     {e.session}
                   </div>
-                  <div className="text-[11px] leading-snug text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words">
+                  <div className="text-2xs leading-snug text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words">
                     {e.questionText}
                   </div>
                   <div className="flex items-center gap-1.5 pt-0.5">
@@ -429,7 +429,7 @@ export const ProjectScopeSection: React.FC = () => {
                         const target = sessions.find((x) => x.project === e.project && x.name === e.session);
                         if (target) setCurrentSession(target);
                       }}
-                      className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 transition-colors"
+                      className="px-1.5 py-0.5 text-3xs font-medium rounded bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 transition-colors"
                       title="Jump to session"
                     >
                       Jump
@@ -437,7 +437,7 @@ export const ProjectScopeSection: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => void resolveEscalation(serverScope, e.id, 'resolved')}
-                      className="px-1.5 py-0.5 text-[10px] rounded text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                      className="px-1.5 py-0.5 text-3xs rounded text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
                       title="Mark resolved"
                     >
                       Resolve

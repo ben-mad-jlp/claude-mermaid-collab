@@ -133,7 +133,7 @@ export const ReferencesPopover: React.FC<ReferencesPopoverProps> = ({
               <div className="font-mono text-xs text-stone-900 dark:text-gray-100">
                 {ref.callerMethod}
               </div>
-              <div className="font-mono text-[10px] text-stone-500 dark:text-gray-400 truncate">
+              <div className="font-mono text-3xs text-stone-500 dark:text-gray-400 truncate">
                 {ref.file}{ref.sourceLine != null ? `:${ref.sourceLine}` : ''}
               </div>
             </>

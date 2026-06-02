@@ -68,7 +68,7 @@ function makeRenderItem(streamingMessageId: string | null, sessionId: string) {
                       alt={att.mimeType}
                       className="w-12 h-12 object-cover rounded"
                     />
-                    <span className="text-[10px] text-white/60 max-w-[48px] truncate">
+                    <span className="text-3xs text-white/60 max-w-[48px] truncate">
                       {att.mimeType.split('/')[1] ?? att.mimeType}
                     </span>
                   </a>

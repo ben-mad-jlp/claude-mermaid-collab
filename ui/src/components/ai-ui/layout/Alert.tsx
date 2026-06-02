@@ -27,11 +27,11 @@ export interface AlertComponentProps extends AlertProps {
 function getAlertStyles(alertType: string) {
   const styles = {
     success: {
-      container: 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800',
-      icon: 'text-green-600 dark:text-green-400',
-      title: 'text-green-900 dark:text-green-100',
-      message: 'text-green-700 dark:text-green-200',
-      button: 'text-green-700 dark:text-green-200 hover:text-green-900 dark:hover:text-green-100',
+      container: 'bg-success-50 dark:bg-success-900/20 border-success-200 dark:border-success-800',
+      icon: 'text-success-600 dark:text-success-400',
+      title: 'text-success-900 dark:text-success-100',
+      message: 'text-success-700 dark:text-success-200',
+      button: 'text-success-700 dark:text-success-200 hover:text-success-900 dark:hover:text-success-100',
     },
     warning: {
       container:
@@ -43,18 +43,18 @@ function getAlertStyles(alertType: string) {
         'text-yellow-700 dark:text-yellow-200 hover:text-yellow-900 dark:hover:text-yellow-100',
     },
     error: {
-      container: 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800',
-      icon: 'text-red-600 dark:text-red-400',
-      title: 'text-red-900 dark:text-red-100',
-      message: 'text-red-700 dark:text-red-200',
-      button: 'text-red-700 dark:text-red-200 hover:text-red-900 dark:hover:text-red-100',
+      container: 'bg-danger-50 dark:bg-danger-900/20 border-danger-200 dark:border-danger-800',
+      icon: 'text-danger-600 dark:text-danger-400',
+      title: 'text-danger-900 dark:text-danger-100',
+      message: 'text-danger-700 dark:text-danger-200',
+      button: 'text-danger-700 dark:text-danger-200 hover:text-danger-900 dark:hover:text-danger-100',
     },
     info: {
-      container: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800',
-      icon: 'text-blue-600 dark:text-blue-400',
-      title: 'text-blue-900 dark:text-blue-100',
-      message: 'text-blue-700 dark:text-blue-200',
-      button: 'text-blue-700 dark:text-blue-200 hover:text-blue-900 dark:hover:text-blue-100',
+      container: 'bg-info-50 dark:bg-info-900/20 border-info-200 dark:border-info-800',
+      icon: 'text-info-600 dark:text-info-400',
+      title: 'text-info-900 dark:text-info-100',
+      message: 'text-info-700 dark:text-info-200',
+      button: 'text-info-700 dark:text-info-200 hover:text-info-900 dark:hover:text-info-100',
     },
   };
 

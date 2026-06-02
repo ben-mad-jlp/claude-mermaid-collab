@@ -141,7 +141,7 @@ export const DiffAgainstDiskModal: React.FC<DiffAgainstDiskModalProps> = ({
         {/* Header */}
         <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
-            Review changes to <code className="font-mono text-blue-600 dark:text-blue-400">{basename(filePath)}</code>
+            Review changes to <code className="font-mono text-info-600 dark:text-info-400">{basename(filePath)}</code>
           </h3>
           <div className="flex items-center gap-2 bg-gray-200 dark:bg-gray-700 rounded-md p-1">
             <button
@@ -177,7 +177,7 @@ export const DiffAgainstDiskModal: React.FC<DiffAgainstDiskModalProps> = ({
             </div>
           )}
           {error && !loading && (
-            <div className="flex items-center justify-center py-12 text-sm text-red-600 dark:text-red-400">
+            <div className="flex items-center justify-center py-12 text-sm text-danger-600 dark:text-danger-400">
               {error}
             </div>
           )}
@@ -215,7 +215,7 @@ export const DiffAgainstDiskModal: React.FC<DiffAgainstDiskModalProps> = ({
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
                 loading || error || oldValue === newValue
                   ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
-                  : 'bg-blue-600 text-white hover:bg-blue-700'
+                  : 'bg-info-600 text-white hover:bg-info-700'
               }`}
             >
               {confirmLabel ?? 'Confirm'}

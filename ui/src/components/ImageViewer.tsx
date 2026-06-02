@@ -72,7 +72,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({ imageId, project, sess
           <a
             href={apiUrl}
             download={image.name}
-            className="ml-2 px-3 py-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+            className="ml-2 px-3 py-1.5 text-xs font-medium text-info-600 dark:text-info-400 hover:bg-info-50 dark:hover:bg-info-900/20 rounded transition-colors"
             title="Download image"
           >
             Download

@@ -117,7 +117,7 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({ isOpen, onClose }) => {
                     p-3 rounded-lg
                     ${
                       message.type === 'ui_render'
-                        ? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-900'
+                        ? 'bg-info-50 dark:bg-info-900/20 border border-info-100 dark:border-info-900'
                         : 'bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700'
                     }
                   `}
@@ -131,12 +131,12 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({ isOpen, onClose }) => {
                       {message.type}
                     </span>
                     {message.blocking && (
-                      <span className="text-xs px-2 py-0.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded font-medium">
+                      <span className="text-xs px-2 py-0.5 bg-danger-100 dark:bg-danger-900/30 text-danger-700 dark:text-danger-300 rounded font-medium">
                         Blocking
                       </span>
                     )}
                     {message.responded && (
-                      <span className="text-xs px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded font-medium">
+                      <span className="text-xs px-2 py-0.5 bg-success-100 dark:bg-success-900/30 text-success-700 dark:text-success-300 rounded font-medium">
                         Responded
                       </span>
                     )}

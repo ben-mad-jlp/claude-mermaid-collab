@@ -444,7 +444,7 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
         disabled={!currentSelection}
         className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
           currentSelection
-            ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-900/50'
+            ? 'bg-warning-100 dark:bg-warning-900/30 text-warning-700 dark:text-warning-400 hover:bg-warning-200 dark:hover:bg-warning-900/50'
             : 'text-gray-400 dark:text-gray-600 cursor-default'
         }`}
         title={currentSelection ? `Add comment to lines ${currentSelection.startLine}–${currentSelection.endLine}` : 'Select lines to add a comment'}
@@ -454,7 +454,7 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
       {annotations.length > 0 && (
         <button
           onClick={handleClearAnnotations}
-          className="px-2 py-0.5 rounded text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+          className="px-2 py-0.5 rounded text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-danger-500 dark:hover:text-danger-400 hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-colors"
           title="Clear all comments"
         >
           Clear
@@ -497,7 +497,7 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
           <button
             onClick={handleSave}
             disabled={isSaving}
-            className="px-2 py-0.5 rounded text-xs font-medium bg-green-500 text-white hover:bg-green-600 disabled:opacity-50 transition-colors"
+            className="px-2 py-0.5 rounded text-xs font-medium bg-success-500 text-white hover:bg-success-600 disabled:opacity-50 transition-colors"
           >
             {isSaving ? 'Saving...' : 'Save'}
           </button>
@@ -533,7 +533,7 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
           {tags.map((tag, i) => (
             <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
               <span className="opacity-60">{tag.type === 'file' ? '📄' : tag.type === 'symbol' ? '#' : tag.type === 'layer' ? '◈' : '⬡'}</span>
-              {tag.type === 'file' && <span className={`w-1.5 h-1.5 rounded-full ${fileExistsMap[tag.value] === null || fileExistsMap[tag.value] === undefined ? 'bg-gray-400' : fileExistsMap[tag.value] ? 'bg-green-500' : 'bg-amber-400'}`} />}
+              {tag.type === 'file' && <span className={`w-1.5 h-1.5 rounded-full ${fileExistsMap[tag.value] === null || fileExistsMap[tag.value] === undefined ? 'bg-gray-400' : fileExistsMap[tag.value] ? 'bg-success-500' : 'bg-warning-400'}`} />}
               <span className="font-mono truncate max-w-[160px]">{tag.value}</span>
               <button onClick={() => removeTag(i)} className="ml-0.5 opacity-50 hover:opacity-100 text-xs">×</button>
             </span>
@@ -545,7 +545,7 @@ export const SnippetEditor: React.FC<SnippetEditorProps> = ({
                 <option value="file">file</option><option value="symbol">symbol</option><option value="layer">layer</option><option value="domain">domain</option>
               </select>
               <input value={newTagValue} onChange={e => setNewTagValue(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addTag(); if (e.key === 'Escape') setShowTagComposer(false); }} placeholder="value" autoFocus className="text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 px-1.5 py-0.5 w-40 font-mono" />
-              <button onClick={addTag} className="text-xs px-1.5 py-0.5 rounded bg-blue-500 text-white hover:bg-blue-600">Add</button>
+              <button onClick={addTag} className="text-xs px-1.5 py-0.5 rounded bg-info-500 text-white hover:bg-info-600">Add</button>
               <button onClick={() => setShowTagComposer(false)} className="text-xs text-gray-400 hover:text-gray-600">✕</button>
             </span>
           )}

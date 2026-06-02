@@ -139,8 +139,8 @@ describe('ArtifactLink Component', () => {
         />
       );
       const button = screen.getByRole('button');
-      // Should have blue color class
-      expect(button.className).toMatch(/blue|text-blue/i);
+      // Should have the info/blue hyperlink color (blue→info token migration, T3)
+      expect(button.className).toMatch(/blue|info/i);
     });
 
     it('should have underline on hover styling', () => {

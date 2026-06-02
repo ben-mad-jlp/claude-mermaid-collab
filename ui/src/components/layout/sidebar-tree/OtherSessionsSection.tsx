@@ -125,34 +125,34 @@ const SessionNode: React.FC<{
         type="button"
         onClick={toggle}
         title={session.name}
-        className="w-full flex items-center gap-1.5 px-2 py-0.5 text-[11px] text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded text-left"
+        className="w-full flex items-center gap-1.5 px-2 py-0.5 text-2xs text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded text-left"
       >
-        <span className="text-gray-400 select-none">{open ? '▾' : '▸'}</span>
+        <span className="text-gray-400 dark:text-gray-500 select-none">{open ? '▾' : '▸'}</span>
         <span className="flex-1 truncate">{session.name}</span>
         {entry?.status === 'loaded' && (
-          <span className="shrink-0 text-[10px] text-gray-400 dark:text-gray-500 font-mono">
+          <span className="shrink-0 text-3xs text-gray-400 dark:text-gray-500 font-mono">
             {entry.artifacts.length}
           </span>
         )}
         {entry?.status === 'loading' && (
-          <span className="shrink-0 text-[10px] text-gray-400 dark:text-gray-500">…</span>
+          <span className="shrink-0 text-3xs text-gray-400 dark:text-gray-500">…</span>
         )}
         {entry?.status === 'error' && (
-          <span className="shrink-0 text-[10px] text-red-500" title={entry.error}>⚠</span>
+          <span className="shrink-0 text-3xs text-danger-500" title={entry.error}>⚠</span>
         )}
       </button>
       {open && (
         <div className="ml-3 border-l border-gray-200 dark:border-gray-700">
           {entry?.status === 'loading' && (
-            <p className="px-3 py-0.5 text-[10px] text-gray-400 dark:text-gray-500">Loading…</p>
+            <p className="px-3 py-0.5 text-3xs text-gray-400 dark:text-gray-500">Loading…</p>
           )}
           {entry?.status === 'error' && (
-            <p className="px-3 py-0.5 text-[10px] text-red-500" title={entry.error}>
+            <p className="px-3 py-0.5 text-3xs text-danger-500" title={entry.error}>
               {entry.error}
             </p>
           )}
           {entry?.status === 'loaded' && entry.artifacts.length === 0 && (
-            <p className="px-3 py-0.5 text-[10px] text-gray-400 dark:text-gray-500">No items.</p>
+            <p className="px-3 py-0.5 text-3xs text-gray-400 dark:text-gray-500">No items.</p>
           )}
           {entry?.status === 'loaded' &&
             entry.artifacts.map((art) => (
@@ -162,9 +162,9 @@ const SessionNode: React.FC<{
                 type="button"
                 onClick={() => onSelectArtifact(session, art)}
                 title={`${art.name} — switch to ${session.name} and open`}
-                className={`w-full flex items-center gap-1.5 pl-3 pr-2 py-0.5 text-[11px] text-left rounded hover:bg-gray-100 dark:hover:bg-gray-800 ${art.deprecated ? 'text-gray-400 dark:text-gray-600 line-through' : 'text-gray-700 dark:text-gray-300'}`}
+                className={`w-full flex items-center gap-1.5 pl-3 pr-2 py-0.5 text-2xs text-left rounded hover:bg-gray-100 dark:hover:bg-gray-800 ${art.deprecated ? 'text-gray-400 dark:text-gray-600 line-through' : 'text-gray-700 dark:text-gray-300'}`}
               >
-                <span className="shrink-0 text-[10px] text-gray-400 dark:text-gray-500 select-none">
+                <span className="shrink-0 text-3xs text-gray-400 dark:text-gray-500 select-none">
                   {KIND_GLYPH[art.kind]}
                 </span>
                 <span className="flex-1 truncate">
@@ -240,7 +240,7 @@ export const OtherSessionsSection: React.FC = () => {
         className="w-full flex items-center gap-1.5 px-2 py-1 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded transition-colors"
         data-testid="other-sessions-toggle"
       >
-        <span className="text-gray-400">{open ? '▾' : '▸'}</span>
+        <span className="text-gray-400 dark:text-gray-500 select-none">{open ? '▾' : '▸'}</span>
         Other sessions
         <span className="text-gray-400 dark:text-gray-500 font-normal">{otherSessions.length}</span>
       </button>

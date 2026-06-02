@@ -73,7 +73,7 @@ function ArtifactTreeNodeImpl({
       <span className="truncate flex-1">{displayName ?? node.name}</span>
       {typeof node.lastModified === 'number' && (
         <span
-          className="ml-auto text-[10px] tabular-nums text-gray-400 dark:text-gray-500 flex-shrink-0"
+          className="ml-auto text-3xs tabular-nums text-gray-400 dark:text-gray-500 flex-shrink-0"
           title={new Date(node.lastModified).toLocaleString()}
         >
           {formatAgo(node.lastModified)}

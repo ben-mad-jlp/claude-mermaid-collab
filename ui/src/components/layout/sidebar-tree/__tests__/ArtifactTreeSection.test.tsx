@@ -107,13 +107,13 @@ describe('ArtifactTreeSection', () => {
     );
     const root = container.firstChild as HTMLElement;
     fireEvent.dragOver(root, { dataTransfer: { types: ['Files'], files: [] } });
-    expect(root.className).toContain('ring-blue-400');
+    expect(root.className).toContain('ring-info-400');
 
     fireEvent.dragLeave(root, { dataTransfer: { types: ['Files'], files: [] } });
-    expect(root.className).not.toContain('ring-blue-400');
+    expect(root.className).not.toContain('ring-info-400');
   });
 
-  it('dropHint valid shows ring-blue-400; invalid shows ring-red-400', () => {
+  it('dropHint valid shows ring-info-400; invalid shows ring-danger-400', () => {
     const { container, rerender } = render(
       <ArtifactTreeSection {...defaultProps()} dropHint="valid">
         <div>c</div>
@@ -121,7 +121,7 @@ describe('ArtifactTreeSection', () => {
     );
     let root = container.firstChild as HTMLElement;
     expect(root.getAttribute('data-drop-valid')).toBe('true');
-    expect(root.className).toContain('ring-blue-400');
+    expect(root.className).toContain('ring-info-400');
 
     rerender(
       <ArtifactTreeSection {...defaultProps()} dropHint="invalid">
@@ -130,7 +130,7 @@ describe('ArtifactTreeSection', () => {
     );
     root = container.firstChild as HTMLElement;
     expect(root.getAttribute('data-drop-invalid')).toBe('true');
-    expect(root.className).toContain('ring-red-400');
+    expect(root.className).toContain('ring-danger-400');
   });
 
   it('onDrop is called with files', async () => {
@@ -164,7 +164,7 @@ describe('ArtifactTreeSection', () => {
     expect(() =>
       fireEvent.drop(root, { dataTransfer: { types: ['Files'], files: [file] } }),
     ).not.toThrow();
-    expect(root.className).not.toContain('ring-blue-400');
-    expect(root.className).not.toContain('ring-red-400');
+    expect(root.className).not.toContain('ring-info-400');
+    expect(root.className).not.toContain('ring-danger-400');
   });
 });

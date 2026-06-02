@@ -271,7 +271,7 @@ describe('Confirmation', () => {
     const confirmButton = screen.getByRole('button', { name: 'Yes' });
     const cancelButton = screen.getByRole('button', { name: 'No' });
 
-    expect(confirmButton.className).toContain('bg-blue-600');
+    expect(confirmButton.className).toContain('bg-info-600');
     expect(confirmButton.className).toContain('text-white');
     expect(cancelButton.className).toContain('border');
   });

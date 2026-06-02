@@ -138,7 +138,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
           <button
             role="menuitem"
             onClick={() => handleMenuItemClick(onDelete)}
-            className="w-full text-left px-4 py-2 hover:bg-red-50 dark:hover:bg-red-900 text-sm text-red-700 dark:text-red-400 transition-colors"
+            className="w-full text-left px-4 py-2 hover:bg-danger-50 dark:hover:bg-danger-900 text-sm text-danger-700 dark:text-danger-400 transition-colors"
             data-testid="menu-delete-node"
           >
             Delete Node
@@ -183,7 +183,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
           <button
             role="menuitem"
             onClick={() => handleMenuItemClick(onDelete)}
-            className="w-full text-left px-4 py-2 hover:bg-red-50 dark:hover:bg-red-900 text-sm text-red-700 dark:text-red-400 transition-colors"
+            className="w-full text-left px-4 py-2 hover:bg-danger-50 dark:hover:bg-danger-900 text-sm text-danger-700 dark:text-danger-400 transition-colors"
             data-testid="menu-delete-arrow"
           >
             Delete Arrow

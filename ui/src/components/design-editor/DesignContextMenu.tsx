@@ -136,7 +136,7 @@ export const DesignContextMenu: React.FC = () => {
           >
             <span className="text-gray-700 dark:text-gray-300">{item.label}</span>
             {item.shortcut && (
-              <span className="text-[10px] text-gray-400 dark:text-gray-500 ml-4">{item.shortcut}</span>
+              <span className="text-3xs text-gray-400 dark:text-gray-500 ml-4">{item.shortcut}</span>
             )}
           </button>
         )

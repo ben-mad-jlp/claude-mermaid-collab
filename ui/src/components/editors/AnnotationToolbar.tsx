@@ -149,8 +149,8 @@ const ToolbarButton: React.FC<ToolbarButtonProps> = ({
     yellow:
       'bg-yellow-100 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:hover:bg-yellow-900/50 text-yellow-700 dark:text-yellow-400',
     green:
-      'bg-green-100 hover:bg-green-200 dark:bg-green-900/30 dark:hover:bg-green-900/50 text-green-700 dark:text-green-400',
-    red: 'bg-red-100 hover:bg-red-200 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-700 dark:text-red-400',
+      'bg-success-100 hover:bg-success-200 dark:bg-success-900/30 dark:hover:bg-success-900/50 text-success-700 dark:text-success-400',
+    red: 'bg-danger-100 hover:bg-danger-200 dark:bg-danger-900/30 dark:hover:bg-danger-900/50 text-danger-700 dark:text-danger-400',
   };
 
   return (

@@ -162,8 +162,8 @@ describe('TextInput', () => {
     fireEvent.blur(input);
 
     await waitFor(() => {
-      expect(input.className).toContain('border-red-500');
-      expect(input.className).toContain('focus:ring-red-500');
+      expect(input.className).toContain('border-danger-500');
+      expect(input.className).toContain('focus:ring-danger-500');
     });
   });
 

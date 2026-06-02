@@ -148,7 +148,7 @@ describe('MultipleChoice', () => {
 
     const select = screen.getByRole('combobox');
     expect(select.className).toContain('focus:ring-2');
-    expect(select.className).toContain('focus:ring-blue-500');
+    expect(select.className).toContain('focus:ring-info-500');
   });
 
   it('has accessible label association', () => {

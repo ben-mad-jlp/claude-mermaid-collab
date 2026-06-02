@@ -12,7 +12,7 @@ export interface ContextWindowMeterProps {
 export const ContextWindowMeter: React.FC<ContextWindowMeterProps> = ({ used, total, className, costUsd, onCostClick }) => {
   const pct = total > 0 ? Math.max(0, Math.min(100, (used / total) * 100)) : 0;
   const color =
-    pct < 60 ? 'bg-primary' : pct < 85 ? 'bg-amber-500' : 'bg-destructive';
+    pct < 60 ? 'bg-primary' : pct < 85 ? 'bg-warning-500' : 'bg-destructive';
   return (
     <div className={cn('flex items-center gap-2 text-xs text-muted-foreground', className)} role="status" aria-label={`Context ${pct.toFixed(0)}% used`}>
       <div className="h-1.5 w-24 rounded-full bg-muted overflow-hidden">
@@ -24,7 +24,7 @@ export const ContextWindowMeter: React.FC<ContextWindowMeterProps> = ({ used, to
           type="button"
           onClick={onCostClick}
           aria-label="View session cost details"
-          className="tabular-nums rounded-full px-2 py-0.5 bg-muted hover:bg-muted/70 text-[10px] font-medium"
+          className="tabular-nums rounded-full px-2 py-0.5 bg-muted hover:bg-muted/70 text-3xs font-medium"
           data-testid="cost-badge"
         >
           ${costUsd.toFixed(4)}

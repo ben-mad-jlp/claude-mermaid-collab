@@ -11,7 +11,7 @@ interface ToolPreview {
   description?: string;
 }
 
-const inputClass = 'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none';
+const inputClass = 'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-info-500 focus:border-transparent outline-none';
 const labelClass = 'block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1';
 
 export function AddMcpServerDialog({ open, onClose, onSuccess }: AddMcpServerDialogProps) {
@@ -159,7 +159,7 @@ export function AddMcpServerDialog({ open, onClose, onSuccess }: AddMcpServerDia
             >
               {discovering ? 'Discovering…' : 'Discover tools'}
             </button>
-            {discoverError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{discoverError}</p>}
+            {discoverError && <p className="mt-2 text-xs text-danger-600 dark:text-danger-400">{discoverError}</p>}
             {tools !== null && (
               <div data-testid="add-mcp-tools-preview" className="mt-2 max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg p-2 space-y-1">
                 {tools.length === 0
@@ -176,7 +176,7 @@ export function AddMcpServerDialog({ open, onClose, onSuccess }: AddMcpServerDia
           </div>
 
           {/* Footer */}
-          {submitError && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{submitError}</p>}
+          {submitError && <p className="mt-3 text-xs text-danger-600 dark:text-danger-400">{submitError}</p>}
           <div className="mt-5 flex justify-end gap-3 border-t border-gray-200 dark:border-gray-700 pt-4">
             <button
               type="button"
@@ -191,7 +191,7 @@ export function AddMcpServerDialog({ open, onClose, onSuccess }: AddMcpServerDia
               data-testid="add-mcp-submit"
               onClick={handleSubmit}
               disabled={!canSubmit}
-              className="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+              className="px-4 py-2 text-sm font-medium rounded-lg bg-info-600 text-white hover:bg-info-700 disabled:opacity-50"
             >
               {submitting ? 'Adding…' : 'Add Server'}
             </button>

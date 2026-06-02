@@ -9,13 +9,13 @@ export interface TracePanelProps {
 
 // Visual treatment per audit kind (the unified orchestration trace).
 const KIND_META: Record<string, { glyph: string; cls: string }> = {
-  claim: { glyph: '◎', cls: 'text-blue-600 dark:text-blue-400' },
+  claim: { glyph: '◎', cls: 'text-info-600 dark:text-info-400' },
   spawn: { glyph: '✦', cls: 'text-indigo-600 dark:text-indigo-400' },
-  complete: { glyph: '●', cls: 'text-green-600 dark:text-green-400' },
+  complete: { glyph: '●', cls: 'text-success-600 dark:text-success-400' },
   nudge: { glyph: '➤', cls: 'text-gray-500 dark:text-gray-400' },
   checkpoint: { glyph: '⚑', cls: 'text-cyan-600 dark:text-cyan-400' },
-  clear: { glyph: '⟳', cls: 'text-amber-600 dark:text-amber-400' },
-  escalate: { glyph: '⚠', cls: 'text-red-600 dark:text-red-400' },
+  clear: { glyph: '⟳', cls: 'text-warning-600 dark:text-warning-400' },
+  escalate: { glyph: '⚠', cls: 'text-danger-600 dark:text-danger-400' },
   override: { glyph: '⏻', cls: 'text-purple-600 dark:text-purple-400' },
 };
 

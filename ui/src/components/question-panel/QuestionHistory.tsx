@@ -121,7 +121,7 @@ const HistoryItem: React.FC<{
           {onSelect && (
             <button
               onClick={() => onSelect(question)}
-              className="inline-block text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
+              className="inline-block text-xs font-medium text-info-600 dark:text-info-400 hover:underline"
             >
               View in panel →
             </button>

@@ -47,7 +47,7 @@ const SimpleTextQuestion: React.FC<{
           onChange={(e) => setResponse(e.target.value)}
           placeholder="Type your response here..."
           disabled={isLoading}
-          className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-info-500 dark:focus:ring-info-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           rows={4}
         />
 
@@ -58,7 +58,7 @@ const SimpleTextQuestion: React.FC<{
             }
           }}
           disabled={!response.trim() || isLoading}
-          className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white font-medium rounded-lg transition-colors disabled:cursor-not-allowed"
+          className="w-full px-4 py-2 bg-info-600 hover:bg-info-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white font-medium rounded-lg transition-colors disabled:cursor-not-allowed"
         >
           {isLoading ? 'Submitting...' : 'Submit'}
         </button>

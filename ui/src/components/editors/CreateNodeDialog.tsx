@@ -239,7 +239,7 @@ export const CreateNodeDialog: React.FC<CreateNodeDialogProps> = ({
                   onChange={(e) => setLabel(e.target.value)}
                   placeholder="Enter node label"
                   autoFocus
-                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-info-500 focus:border-transparent transition-colors"
                 />
               </div>
 
@@ -264,7 +264,7 @@ export const CreateNodeDialog: React.FC<CreateNodeDialogProps> = ({
                         value={option.value}
                         checked={type === option.value}
                         onChange={() => setType(option.value)}
-                        className="w-4 h-4 text-blue-600 dark:text-blue-500 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500"
+                        className="w-4 h-4 text-info-600 dark:text-info-500 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-info-500"
                       />
                       <span className="text-sm text-gray-900 dark:text-white">
                         {option.label}
@@ -290,14 +290,14 @@ export const CreateNodeDialog: React.FC<CreateNodeDialogProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 text-sm font-medium border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:focus:ring-offset-gray-900 transition-colors"
+                className="px-4 py-2 text-sm font-medium border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-info-500 dark:focus:ring-offset-gray-900 transition-colors"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={!label.trim()}
-                className="px-4 py-2 text-sm font-medium border border-transparent rounded-md bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:focus:ring-offset-gray-900 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="px-4 py-2 text-sm font-medium border border-transparent rounded-md bg-info-600 text-white hover:bg-info-700 dark:bg-info-700 dark:hover:bg-info-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-info-500 dark:focus:ring-offset-gray-900 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 Create
               </button>

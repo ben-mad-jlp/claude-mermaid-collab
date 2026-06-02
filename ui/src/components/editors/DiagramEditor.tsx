@@ -678,20 +678,20 @@ export const DiagramEditor: React.FC<DiagramEditorProps> = ({
             <span className="inline-block w-2 h-2 rounded-full bg-orange-400" title="Unsaved changes" />
           )}
           {editorState.lastSavedAt && (
-            <span className="text-xs text-green-600 dark:text-green-400">Saved</span>
+            <span className="text-xs text-success-600 dark:text-success-400">Saved</span>
           )}
         </div>
 
         <div className="flex items-center gap-3">
           {selectionMode && (
-            <div className="text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900 px-2 py-1 rounded">
+            <div className="text-xs text-info-600 dark:text-info-400 bg-info-50 dark:bg-info-900 px-2 py-1 rounded">
               {selectionMode === 'add-transition' && 'Click a node to add transition'}
               {selectionMode === 'change-origin' && 'Click a node to set as new origin'}
               {selectionMode === 'change-destination' && 'Click a node to set as new destination'}
             </div>
           )}
           {editorState.error && (
-            <div className="text-xs text-red-600 dark:text-red-400">
+            <div className="text-xs text-danger-600 dark:text-danger-400">
               {editorState.error}
             </div>
           )}
@@ -747,25 +747,25 @@ export const DiagramEditor: React.FC<DiagramEditorProps> = ({
 
               {/* Validation status bar */}
               {editorState.isValidating && (
-                <div className="px-4 py-2 bg-blue-50 dark:bg-blue-900 border-t border-blue-200 dark:border-blue-700 text-xs text-blue-700 dark:text-blue-200">
+                <div className="px-4 py-2 bg-info-50 dark:bg-info-900 border-t border-info-200 dark:border-info-700 text-xs text-info-700 dark:text-info-200">
                   Validating...
                 </div>
               )}
 
               {editorState.validation && !editorState.validation.valid && (
-                <div className="px-4 py-3 bg-red-50 dark:bg-red-900 border-t border-red-200 dark:border-red-700">
-                  <p className="text-xs font-medium text-red-700 dark:text-red-200">
+                <div className="px-4 py-3 bg-danger-50 dark:bg-danger-900 border-t border-danger-200 dark:border-danger-700">
+                  <p className="text-xs font-medium text-danger-700 dark:text-danger-200">
                     Validation Error
                     {editorState.validation.line && ` (Line ${editorState.validation.line})`}
                   </p>
-                  <p className="text-xs text-red-600 dark:text-red-300 mt-1 font-mono">
+                  <p className="text-xs text-danger-600 dark:text-danger-300 mt-1 font-mono">
                     {editorState.validation.error}
                   </p>
                 </div>
               )}
 
               {editorState.validation?.valid && editorContent?.trim() && (
-                <div className="px-4 py-2 bg-green-50 dark:bg-green-900 border-t border-green-200 dark:border-green-700 text-xs text-green-700 dark:text-green-200">
+                <div className="px-4 py-2 bg-success-50 dark:bg-success-900 border-t border-success-200 dark:border-success-700 text-xs text-success-700 dark:text-success-200">
                   Valid diagram syntax
                 </div>
               )}

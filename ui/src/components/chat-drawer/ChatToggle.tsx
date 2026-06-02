@@ -39,7 +39,7 @@ export const ChatToggle: React.FC<ChatToggleProps> = ({
           transition-all duration-200
           ${
             isOpen
-              ? 'bg-blue-600 text-white shadow-lg'
+              ? 'bg-info-600 text-white shadow-lg'
               : 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-600'
           }
         `}
@@ -80,7 +80,7 @@ export const ChatToggle: React.FC<ChatToggleProps> = ({
 
         {/* Badge - Show when there are unread messages */}
         {unreadCount > 0 && (
-          <div className="absolute top-0 right-0 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center transform translate-x-1/3 -translate-y-1/3">
+          <div className="absolute top-0 right-0 w-5 h-5 bg-danger-500 rounded-full flex items-center justify-center transform translate-x-1/3 -translate-y-1/3">
             <span className="text-white text-xs font-bold">
               {unreadCount > 99 ? '99+' : unreadCount}
             </span>

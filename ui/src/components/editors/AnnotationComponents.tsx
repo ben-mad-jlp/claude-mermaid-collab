@@ -33,18 +33,18 @@ export const CommentAnnotation: React.FC<AnnotationProps> = ({ text, children })
     // Inline comment - highlight with tooltip
     return (
       <span
-        className="bg-blue-100 dark:bg-blue-900/30 border-b-2 border-blue-400"
+        className="bg-info-100 dark:bg-info-900/30 border-b-2 border-info-400"
         title={text}
       >
         {children}
-        <span className="text-blue-500 text-xs ml-1">[comment]</span>
+        <span className="text-info-500 text-xs ml-1">[comment]</span>
       </span>
     );
   } else {
     // Block comment - show as note
     return (
-      <div className="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-400 p-3 my-2">
-        <span className="text-blue-600 dark:text-blue-300 text-sm">
+      <div className="bg-info-50 dark:bg-info-900/20 border-l-4 border-info-400 p-3 my-2">
+        <span className="text-info-600 dark:text-info-300 text-sm">
           {'\u{1F4AC}'} {text}
         </span>
       </div>
@@ -75,8 +75,8 @@ export const ProposeAnnotation: React.FC<AnnotationProps> = ({ children }) => {
  * Renders approved content with green styling and "APPROVED" label.
  */
 export const ApproveAnnotation: React.FC<AnnotationProps> = ({ children }) => {
-  const wrapperClasses = 'bg-green-50 dark:bg-green-900/20 border-l-4 border-green-400';
-  const labelClasses = 'text-green-600 dark:text-green-400 text-xs font-semibold';
+  const wrapperClasses = 'bg-success-50 dark:bg-success-900/20 border-l-4 border-success-400';
+  const labelClasses = 'text-success-600 dark:text-success-400 text-xs font-semibold';
 
   return (
     <div className={`${wrapperClasses} p-3 my-2`}>
@@ -93,13 +93,13 @@ export const ApproveAnnotation: React.FC<AnnotationProps> = ({ children }) => {
  * optional rejection reason, and strikethrough content.
  */
 export const RejectAnnotation: React.FC<AnnotationProps> = ({ text, children }) => {
-  const wrapperClasses = 'bg-red-50 dark:bg-red-900/20 border-l-4 border-red-400';
-  const labelClasses = 'text-red-600 dark:text-red-400 text-xs font-semibold';
+  const wrapperClasses = 'bg-danger-50 dark:bg-danger-900/20 border-l-4 border-danger-400';
+  const labelClasses = 'text-danger-600 dark:text-danger-400 text-xs font-semibold';
 
   return (
     <div className={`${wrapperClasses} p-3 my-2`}>
       <span className={labelClasses}>REJECTED</span>
-      {text && <span className="text-red-500 text-sm ml-2">({text})</span>}
+      {text && <span className="text-danger-500 text-sm ml-2">({text})</span>}
       <div className="mt-1 line-through opacity-60">{children}</div>
     </div>
   );

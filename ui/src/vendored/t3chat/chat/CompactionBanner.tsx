@@ -24,7 +24,7 @@ export const CompactionBanner: React.FC<CompactionBannerProps> = ({
       data-testid="compaction-banner"
       data-ts={ts}
       className={cn(
-        'my-3 flex items-center gap-2 text-[11px] italic text-muted-foreground',
+        'my-3 flex items-center gap-2 text-2xs italic text-muted-foreground',
         className
       )}
     >

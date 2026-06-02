@@ -164,7 +164,7 @@ export const NodeContextMenu: React.FC<NodeContextMenuProps> = ({
 
       <Divider />
 
-      <MenuItem onClick={handleDelete} className="text-red-600 dark:text-red-400">
+      <MenuItem onClick={handleDelete} className="text-danger-600 dark:text-danger-400">
         Delete
       </MenuItem>
     </div>

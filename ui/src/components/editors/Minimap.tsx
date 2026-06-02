@@ -35,13 +35,13 @@ export interface MinimapProps {
 function getMarkerColor(type: MinimapMarker['type']): string {
   switch (type) {
     case 'comment':
-      return 'bg-blue-400';
+      return 'bg-info-400';
     case 'propose':
       return 'bg-yellow-400';
     case 'approve':
-      return 'bg-green-400';
+      return 'bg-success-400';
     case 'reject':
-      return 'bg-red-400';
+      return 'bg-danger-400';
   }
 }
 
@@ -127,7 +127,7 @@ export const Minimap: React.FC<MinimapProps> = ({
 
       {/* Viewport indicator */}
       <div
-        className="absolute left-0 right-0 bg-blue-500/30 border border-blue-500"
+        className="absolute left-0 right-0 bg-info-500/30 border border-info-500"
         style={{ top: viewportTop, height: viewportHeight }}
       />
     </div>

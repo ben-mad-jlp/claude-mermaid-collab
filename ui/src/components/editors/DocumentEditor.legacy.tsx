@@ -361,7 +361,7 @@ export const DocumentEditorLegacy: React.FC<DocumentEditorProps> = ({
       {/* Error message */}
       {error && (
         <div
-          className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-200 px-4 py-2 rounded-t-lg"
+          className="bg-danger-50 dark:bg-danger-900/20 border border-danger-200 dark:border-danger-800 text-danger-800 dark:text-danger-200 px-4 py-2 rounded-t-lg"
           data-testid="document-editor-error"
           role="alert"
         >
@@ -421,7 +421,7 @@ export const DocumentEditorLegacy: React.FC<DocumentEditorProps> = ({
                 onClick={toggleSync}
                 className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
                   isSynced
-                    ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'
+                    ? 'bg-info-100 dark:bg-info-900/30 text-info-700 dark:text-info-400'
                     : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
                 }`}
                 data-testid="document-editor-sync-btn"

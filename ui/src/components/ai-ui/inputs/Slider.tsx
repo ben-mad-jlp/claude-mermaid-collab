@@ -85,14 +85,14 @@ export const Slider: React.FC<SliderProps> = ({
             w-full h-2 rounded-lg appearance-none cursor-pointer
             bg-gray-200 dark:bg-gray-700
             disabled:opacity-50 disabled:cursor-not-allowed
-            focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
+            focus:outline-none focus:ring-2 focus:ring-info-500 focus:ring-offset-2
 
             [&::-webkit-slider-thumb]:appearance-none
             [&::-webkit-slider-thumb]:w-4
             [&::-webkit-slider-thumb]:h-4
             [&::-webkit-slider-thumb]:rounded-full
-            [&::-webkit-slider-thumb]:bg-blue-600
-            [&::-webkit-slider-thumb]:dark:bg-blue-500
+            [&::-webkit-slider-thumb]:bg-info-600
+            [&::-webkit-slider-thumb]:dark:bg-info-500
             [&::-webkit-slider-thumb]:cursor-pointer
             [&::-webkit-slider-thumb]:transition-transform
             [&::-webkit-slider-thumb]:hover:scale-110
@@ -101,8 +101,8 @@ export const Slider: React.FC<SliderProps> = ({
             [&::-moz-range-thumb]:w-4
             [&::-moz-range-thumb]:h-4
             [&::-moz-range-thumb]:rounded-full
-            [&::-moz-range-thumb]:bg-blue-600
-            [&::-moz-range-thumb]:dark:bg-blue-500
+            [&::-moz-range-thumb]:bg-info-600
+            [&::-moz-range-thumb]:dark:bg-info-500
             [&::-moz-range-thumb]:border-0
             [&::-moz-range-thumb]:cursor-pointer
             [&::-moz-range-thumb]:transition-transform

@@ -168,9 +168,9 @@ export const QuestionPanel: React.FC = () => {
         {/* Content area - scrollable */}
         <div className="flex-1 overflow-y-auto p-6">
           {submitState.error && (
-            <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900 rounded-lg flex items-start gap-3">
+            <div className="mb-4 p-4 bg-danger-50 dark:bg-danger-900/20 border border-danger-200 dark:border-danger-900 rounded-lg flex items-start gap-3">
               <svg
-                className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5"
+                className="w-5 h-5 text-danger-600 dark:text-danger-400 flex-shrink-0 mt-0.5"
                 viewBox="0 0 20 20"
                 fill="currentColor"
               >
@@ -181,10 +181,10 @@ export const QuestionPanel: React.FC = () => {
                 />
               </svg>
               <div>
-                <h3 className="font-medium text-red-900 dark:text-red-200">
+                <h3 className="font-medium text-danger-900 dark:text-danger-200">
                   Error
                 </h3>
-                <p className="text-sm text-red-700 dark:text-red-300 mt-1">
+                <p className="text-sm text-danger-700 dark:text-danger-300 mt-1">
                   {submitState.error}
                 </p>
               </div>
@@ -192,8 +192,8 @@ export const QuestionPanel: React.FC = () => {
           )}
 
           {submitState.success ? (
-            <div className="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-900 rounded-lg">
-              <p className="text-sm font-medium text-green-900 dark:text-green-200">
+            <div className="p-4 bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-900 rounded-lg">
+              <p className="text-sm font-medium text-success-900 dark:text-success-200">
                 Response submitted successfully
               </p>
             </div>
@@ -217,7 +217,7 @@ export const QuestionPanel: React.FC = () => {
                 // In a real implementation, this would show instructions
                 // for answering in the terminal
               }}
-              className="text-blue-600 dark:text-blue-400 hover:underline"
+              className="text-info-600 dark:text-info-400 hover:underline"
             >
               Answer in terminal →
             </a>

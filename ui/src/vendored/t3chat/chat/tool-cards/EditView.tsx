@@ -33,14 +33,14 @@ export const EditView: React.FC<EditViewProps> = ({ item }) => {
           </span>
         )}
         {replace_all && (
-          <span className="text-[10px] uppercase tracking-wide rounded bg-amber-500/20 text-amber-700 dark:text-amber-300 px-1.5 py-0.5">
+          <span className="text-3xs uppercase tracking-wide rounded bg-warning-500/20 text-warning-700 dark:text-warning-300 px-1.5 py-0.5">
             replace_all
           </span>
         )}
       </div>
       <pre
         data-testid="edit-diff"
-        className="font-mono text-[11px] leading-4 rounded bg-muted p-2 overflow-x-auto max-h-80 overflow-y-auto"
+        className="font-mono text-2xs leading-4 rounded bg-muted p-2 overflow-x-auto max-h-80 overflow-y-auto"
       >
         {diff.map((line, idx) => {
           if (line.kind === 'add') {

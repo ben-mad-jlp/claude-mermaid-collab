@@ -334,7 +334,7 @@ export const HistoryToolbar: React.FC<HistoryToolbarProps> = ({
             onClick={() => handleDropdownSelect(-1)}
             className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 ${
               currentIndex === -1
-                ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium'
+                ? 'bg-info-50 dark:bg-info-900/30 text-info-700 dark:text-info-300 font-medium'
                 : 'text-gray-700 dark:text-gray-300'
             }`}
           >
@@ -363,7 +363,7 @@ export const HistoryToolbar: React.FC<HistoryToolbarProps> = ({
                     disabled={loadingVersion === change.timestamp}
                     className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 ${
                       currentIndex === idx + 1
-                        ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium'
+                        ? 'bg-info-50 dark:bg-info-900/30 text-info-700 dark:text-info-300 font-medium'
                         : 'text-gray-700 dark:text-gray-300'
                     }`}
                   >

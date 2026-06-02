@@ -85,7 +85,7 @@ export function EmbedViewer({ embed }: EmbedViewerProps) {
       }}
       className={`w-8 h-8 rounded flex items-center justify-center transition-colors ${
         viewport === mode
-          ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-400'
+          ? 'bg-info-100 text-info-600 dark:bg-info-900 dark:text-info-400'
           : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500'
       }`}
       title={title}
@@ -145,13 +145,13 @@ export function EmbedViewer({ embed }: EmbedViewerProps) {
       </div>
 
       {storyValid === false && (
-        <div className="flex items-start gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-950 border-b border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200">
+        <div className="flex items-start gap-2 px-3 py-2 bg-warning-50 dark:bg-warning-950 border-b border-warning-200 dark:border-warning-800 text-warning-800 dark:text-warning-200">
           <svg className="w-4 h-4 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path d="M12 9v2m0 4h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
           <div className="text-xs">
-            <p className="font-medium">Story not found: <code className="bg-amber-100 dark:bg-amber-900 px-1 rounded">{embed.storybook?.storyId}</code></p>
-            <p className="mt-0.5 text-amber-600 dark:text-amber-400">{storyError}. Try restarting Storybook or check that the story file still exists.</p>
+            <p className="font-medium">Story not found: <code className="bg-warning-100 dark:bg-warning-900 px-1 rounded">{embed.storybook?.storyId}</code></p>
+            <p className="mt-0.5 text-warning-600 dark:text-warning-400">{storyError}. Try restarting Storybook or check that the story file still exists.</p>
           </div>
         </div>
       )}
@@ -184,7 +184,7 @@ export function EmbedViewer({ embed }: EmbedViewerProps) {
             <p className="text-sm mb-2">Failed to load embed</p>
             <button
               onClick={handleRefresh}
-              className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+              className="px-3 py-1 text-sm bg-info-500 text-white rounded hover:bg-info-600 transition-colors"
             >
               Retry
             </button>
@@ -193,7 +193,7 @@ export function EmbedViewer({ embed }: EmbedViewerProps) {
 
         {loading && !error ? (
           <div className="absolute inset-0 flex items-center justify-center bg-white/50 dark:bg-gray-900/50 z-10">
-            <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            <div className="w-6 h-6 border-2 border-info-500 border-t-transparent rounded-full animate-spin" />
           </div>
         ) : null}
 

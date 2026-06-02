@@ -81,7 +81,7 @@ export function RuleMatcherInput({ value, onChange, disabled, className }: RuleM
   }, [style, toolName, param]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const derived = buildMatcher(style, toolName, param);
-  const inputBase = 'px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-50';
+  const inputBase = 'px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-info-500 outline-none disabled:opacity-50';
 
   return (
     <div className={`space-y-2 ${className ?? ''}`}>

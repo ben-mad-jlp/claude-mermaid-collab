@@ -218,11 +218,11 @@ export const SessionCard: React.FC<{
 
   const statusBg =
     sub.status === 'permission'
-      ? 'bg-red-300 hover:bg-red-400 border border-red-500'
+      ? 'bg-danger-300 hover:bg-danger-400 border border-danger-500'
       : sub.status === 'active'
-        ? 'card-pulse-amber border border-amber-400'
+        ? 'card-pulse-amber border border-warning-400'
         : sub.status === 'waiting'
-          ? 'bg-green-300 hover:bg-green-400 border border-green-500'
+          ? 'bg-success-300 hover:bg-success-400 border border-success-500'
           : 'bg-gray-200 hover:bg-gray-300 border border-gray-300';
 
   const ctx = sub.contextPercent;
@@ -230,10 +230,10 @@ export const SessionCard: React.FC<{
   const ctxWarn = ctx !== undefined && ctx > 68 && ctx <= 78;
 
   return (
-    <div className={`flex items-center gap-1 ${isDragOver ? 'border-t-2 border-t-blue-400' : ''}`}>
+    <div className={`flex items-center gap-1 ${isDragOver ? 'border-t-2 border-t-info-400' : ''}`}>
       {/* Colored status card */}
       <div
-        className={`relative group flex-1 flex items-stretch gap-2 pl-3 pr-2 py-1 rounded text-sm cursor-pointer transition-colors min-w-0 overflow-hidden ${statusBg} ${ctxHigh ? 'ring-2 ring-red-500 ring-inset' : ''}`}
+        className={`relative group flex-1 flex items-stretch gap-2 pl-3 pr-2 py-1 rounded text-sm cursor-pointer transition-colors min-w-0 overflow-hidden ${statusBg} ${ctxHigh ? 'ring-2 ring-danger-500 ring-inset' : ''}`}
         draggable={draggable}
         onDragStart={draggable && subKey ? (e) => onDragStart?.(e, subKey) : undefined}
         onDragOver={draggable && subKey ? (e) => onDragOver?.(e, subKey) : undefined}
@@ -285,12 +285,12 @@ export const SessionCard: React.FC<{
           <div className="flex items-center gap-1">
             <span className="text-xs text-black truncate">{sub.session}</span>
             {(ctxHigh || ctxWarn) && (
-              <span className={`flex-shrink-0 text-[10px] font-bold tabular-nums px-1 py-0.5 rounded leading-none ${ctxHigh ? 'bg-red-500 text-white' : 'bg-yellow-400 text-yellow-900'}`}>
+              <span className={`flex-shrink-0 text-3xs font-bold tabular-nums px-1 py-0.5 rounded leading-none ${ctxHigh ? 'bg-danger-500 text-white' : 'bg-yellow-400 text-yellow-900'}`}>
                 {ctx}%
               </span>
             )}
             {elapsed && (
-              <span className="text-[10px] text-black tabular-nums flex-shrink-0 ml-auto">
+              <span className="text-3xs text-black tabular-nums flex-shrink-0 ml-auto">
                 {elapsed}
               </span>
             )}
@@ -301,7 +301,7 @@ export const SessionCard: React.FC<{
           <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/10">
             <div
               className={`h-full transition-all ${
-                ctxHigh ? 'bg-red-500 animate-pulse' : ctxWarn ? 'bg-yellow-500' : 'bg-green-400/60'
+                ctxHigh ? 'bg-danger-500 animate-pulse' : ctxWarn ? 'bg-yellow-500' : 'bg-success-400/60'
               }`}
               style={{ width: `${Math.min(ctx, 100)}%` }}
             />
@@ -315,7 +315,7 @@ export const SessionCard: React.FC<{
             e.stopPropagation();
             onToggleSupervise(sub, !supervised);
           }}
-          className={`flex items-center justify-center w-7 h-7 rounded-full transition-all hover:opacity-80 active:scale-90 active:brightness-75 ${supervised ? 'bg-green-300 text-green-900' : 'bg-gray-200 text-gray-500'}`}
+          className={`flex items-center justify-center w-7 h-7 rounded-full transition-all hover:opacity-80 active:scale-90 active:brightness-75 ${supervised ? 'bg-success-300 text-success-900' : 'bg-gray-200 text-gray-500'}`}
           title={supervised ? 'Stop supervising' : 'Supervise this session'}
         >
           <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">

@@ -33,7 +33,7 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({
           <span className="font-medium text-foreground/80">Thinking…</span>
         </div>
         {text ? (
-          <div className="px-3 pb-2 text-[11px] italic text-muted-foreground whitespace-pre-wrap break-words">
+          <div className="px-3 pb-2 text-2xs italic text-muted-foreground whitespace-pre-wrap break-words">
             {text}
           </div>
         ) : null}
@@ -67,7 +67,7 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({
       </CollapsibleTrigger>
       <CollapsibleContent
         data-testid="thinking-content"
-        className="px-3 pb-3 text-[11px] italic text-muted-foreground whitespace-pre-wrap break-words"
+        className="px-3 pb-3 text-2xs italic text-muted-foreground whitespace-pre-wrap break-words"
       >
         {text}
       </CollapsibleContent>

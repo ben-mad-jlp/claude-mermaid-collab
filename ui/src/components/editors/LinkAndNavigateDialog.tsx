@@ -98,15 +98,15 @@ export const LinkAndNavigateDialog: React.FC<LinkAndNavigateDialogProps> = ({
         {/* Body */}
         <div className="px-4 py-4 text-sm text-gray-700 dark:text-gray-300">
           <p className="mb-2">
-            Link <code className="font-mono text-blue-600 dark:text-blue-400">{fileName}</code> and navigate to{' '}
-            <code className="font-mono text-green-600 dark:text-green-400">{symbolName}</code>
+            Link <code className="font-mono text-info-600 dark:text-info-400">{fileName}</code> and navigate to{' '}
+            <code className="font-mono text-success-600 dark:text-success-400">{symbolName}</code>
             {lineSuffix}?
           </p>
           <p className="text-xs text-gray-500 dark:text-gray-400 font-mono truncate" title={candidate.sourceFilePath}>
             {candidate.sourceFilePath}
           </p>
           {error && (
-            <p className="mt-3 text-xs text-red-600 dark:text-red-400">{error}</p>
+            <p className="mt-3 text-xs text-danger-600 dark:text-danger-400">{error}</p>
           )}
         </div>
 
@@ -127,7 +127,7 @@ export const LinkAndNavigateDialog: React.FC<LinkAndNavigateDialogProps> = ({
             className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
               isProcessing
                 ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
-                : 'bg-blue-600 text-white hover:bg-blue-700'
+                : 'bg-info-600 text-white hover:bg-info-700'
             }`}
           >
             {isProcessing ? 'Linking…' : 'Link and Navigate'}

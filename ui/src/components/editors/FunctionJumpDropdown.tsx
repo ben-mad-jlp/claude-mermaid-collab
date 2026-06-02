@@ -182,7 +182,7 @@ export const FunctionJumpDropdown: React.FC<FunctionJumpDropdownProps> = ({
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Search functions…"
-              className="w-full px-2 py-1 text-sm bg-transparent border border-gray-300 dark:border-gray-600 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 text-gray-900 dark:text-gray-100"
+              className="w-full px-2 py-1 text-sm bg-transparent border border-gray-300 dark:border-gray-600 rounded focus:outline-none focus:ring-1 focus:ring-info-500 text-gray-900 dark:text-gray-100"
             />
           </div>
           <ul
@@ -210,12 +210,12 @@ export const FunctionJumpDropdown: React.FC<FunctionJumpDropdownProps> = ({
                   onClick={() => !disabled && handleSelect(fn)}
                   className={[
                     'px-3 py-1.5 flex items-center gap-2 text-sm cursor-pointer',
-                    highlighted ? 'bg-blue-50 dark:bg-blue-900/30' : '',
+                    highlighted ? 'bg-info-50 dark:bg-info-900/30' : '',
                     disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-100 dark:hover:bg-gray-700',
                   ].join(' ')}
                 >
                   <span
-                    className={`w-2 h-2 rounded-full flex-shrink-0 ${fn.isExported ? 'bg-green-500' : 'bg-transparent border border-gray-300 dark:border-gray-600'}`}
+                    className={`w-2 h-2 rounded-full flex-shrink-0 ${fn.isExported ? 'bg-success-500' : 'bg-transparent border border-gray-300 dark:border-gray-600'}`}
                     aria-label={fn.isExported ? 'exported' : 'internal'}
                     title={fn.isExported ? 'exported' : 'internal'}
                   />

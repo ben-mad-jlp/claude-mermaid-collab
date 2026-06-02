@@ -27,8 +27,8 @@ const STATUS_GLYPH: Record<string, string> = {
 };
 
 const STATUS_COLOR: Record<string, string> = {
-  done: 'text-green-600 dark:text-green-400',
-  in_progress: 'text-blue-600 dark:text-blue-400',
+  done: 'text-success-600 dark:text-success-400',
+  in_progress: 'text-info-600 dark:text-info-400',
   blocked: 'text-yellow-600 dark:text-yellow-400',
   todo: 'text-gray-500 dark:text-gray-400',
   backlog: 'text-gray-400 dark:text-gray-500',
@@ -64,9 +64,12 @@ function PlanRow({ todo, depth }: { todo: SessionTodo; depth: number }) {
   const glyph = STATUS_GLYPH[todo.status] ?? '○';
   const colorCls = STATUS_COLOR[todo.status] ?? 'text-gray-500';
   const depCount = todo.dependsOn?.length ?? 0;
+  const isInProgress = todo.status === 'in_progress';
   return (
     <div
-      className="flex items-start gap-2 py-1 px-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50"
+      className={`flex items-start gap-2 py-1 px-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 ${
+        isInProgress ? 'bg-info-50 dark:bg-info-900/20' : ''
+      }`}
       style={{ paddingLeft: `${0.5 + depth * 1}rem` }}
     >
       <span className={`mt-0.5 text-xs font-mono select-none ${colorCls}`} title={todo.status}>
@@ -77,14 +80,14 @@ function PlanRow({ todo, depth }: { todo: SessionTodo; depth: number }) {
       </span>
       {depCount > 0 && (
         <span
-          className="shrink-0 text-[10px] text-gray-400 dark:text-gray-500 font-mono"
+          className="shrink-0 text-3xs text-gray-400 dark:text-gray-500 font-mono"
           title={`${depCount} dependenc${depCount === 1 ? 'y' : 'ies'}`}
         >
           ⊸{depCount}
         </span>
       )}
       {todo.assigneeSession && (
-        <span className="shrink-0 text-xs bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-1.5 py-0.5 rounded">
+        <span className="shrink-0 text-3xs bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-1.5 py-0.5 rounded">
           {todo.assigneeSession}
         </span>
       )}

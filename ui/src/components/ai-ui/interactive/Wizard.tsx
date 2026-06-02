@@ -82,7 +82,7 @@ export const Wizard: React.FC<WizardProps> = ({
           {/* Progress Bar */}
           <div className="h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden mb-4">
             <div
-              className="h-full bg-blue-600 dark:bg-blue-500 transition-all duration-300"
+              className="h-full bg-info-600 dark:bg-info-500 transition-all duration-300"
               style={{ width: `${completionPercentage}%` }}
               role="progressbar"
               aria-valuenow={completionPercentage}
@@ -101,7 +101,7 @@ export const Wizard: React.FC<WizardProps> = ({
                 <div
                   className={`flex items-center justify-center w-8 h-8 rounded-full font-semibold text-sm transition-all ${
                     index <= activeStep
-                      ? 'bg-blue-600 dark:bg-blue-500 text-white'
+                      ? 'bg-info-600 dark:bg-info-500 text-white'
                       : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
                   }`}
                 >
@@ -113,7 +113,7 @@ export const Wizard: React.FC<WizardProps> = ({
                   <div
                     className={`flex-1 h-1 mx-2 ${
                       index < activeStep
-                        ? 'bg-blue-600 dark:bg-blue-500'
+                        ? 'bg-info-600 dark:bg-info-500'
                         : 'bg-gray-200 dark:bg-gray-700'
                     }`}
                   />
@@ -175,7 +175,7 @@ export const Wizard: React.FC<WizardProps> = ({
 
           <button
             onClick={handleNext}
-            className="inline-flex items-center gap-2 px-6 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white transition-colors font-medium"
+            className="inline-flex items-center gap-2 px-6 py-2 rounded-lg bg-info-600 hover:bg-info-700 dark:bg-info-500 dark:hover:bg-info-600 text-white transition-colors font-medium"
             aria-label={isLastStep ? 'Complete wizard' : 'Go to next step'}
           >
             {isLastStep ? 'Complete' : 'Next'}

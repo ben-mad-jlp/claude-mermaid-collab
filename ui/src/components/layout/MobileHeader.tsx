@@ -24,16 +24,16 @@ import { Session } from '@/types';
 function getPhaseColor(state: string | undefined, displayName: string | undefined): string {
   if (state) {
     if (state.startsWith('brainstorm')) {
-      return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300';
+      return 'bg-info-100 dark:bg-info-900/30 text-info-700 dark:text-info-300';
     }
     if (state.startsWith('rough-draft') || state === 'build-task-graph') {
-      return 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300';
+      return 'bg-warning-100 dark:bg-warning-900/30 text-warning-700 dark:text-warning-300';
     }
     if (state === 'execute-batch' || state === 'ready-to-implement') {
-      return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300';
+      return 'bg-success-100 dark:bg-success-900/30 text-success-700 dark:text-success-300';
     }
     if (state === 'systematic-debugging') {
-      return 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300';
+      return 'bg-danger-100 dark:bg-danger-900/30 text-danger-700 dark:text-danger-300';
     }
     if (state.startsWith('clear-') || state.endsWith('-router')) {
       return 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300';
@@ -46,16 +46,16 @@ function getPhaseColor(state: string | undefined, displayName: string | undefine
   if (displayName) {
     const lower = displayName.toLowerCase();
     if (lower.includes('exploring') || lower.includes('clarifying') || lower.includes('designing') || lower.includes('validating')) {
-      return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300';
+      return 'bg-info-100 dark:bg-info-900/30 text-info-700 dark:text-info-300';
     }
     if (lower.includes('interface') || lower.includes('pseudocode') || lower.includes('skeleton') || lower.includes('task')) {
-      return 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300';
+      return 'bg-warning-100 dark:bg-warning-900/30 text-warning-700 dark:text-warning-300';
     }
     if (lower.includes('executing') || lower.includes('ready')) {
-      return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300';
+      return 'bg-success-100 dark:bg-success-900/30 text-success-700 dark:text-success-300';
     }
     if (lower.includes('investigating')) {
-      return 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300';
+      return 'bg-danger-100 dark:bg-danger-900/30 text-danger-700 dark:text-danger-300';
     }
   }
 
@@ -334,8 +334,8 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
                           onClick={(e) => handleRemoveProject(e, project)}
                           className="
                             p-1 mr-1 flex-shrink-0
-                            text-gray-400 hover:text-red-500
-                            dark:text-gray-500 dark:hover:text-red-400
+                            text-gray-400 hover:text-danger-500
+                            dark:text-gray-500 dark:hover:text-danger-400
                             transition-colors
                           "
                           aria-label={`Remove project ${getProjectDisplayName(project)}`}
@@ -357,7 +357,7 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
                     className="
                       w-full px-3 py-2
                       text-left text-xs
-                      text-blue-600 dark:text-blue-400
+                      text-info-600 dark:text-info-400
                       hover:bg-gray-100 dark:hover:bg-gray-700
                       transition-colors
                       flex items-center gap-2
@@ -452,8 +452,8 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
                             onClick={(e) => handleDeleteSession(e, session)}
                             className="
                               p-1 mr-1 flex-shrink-0
-                              text-gray-400 hover:text-red-500
-                              dark:text-gray-500 dark:hover:text-red-400
+                              text-gray-400 hover:text-danger-500
+                              dark:text-gray-500 dark:hover:text-danger-400
                               transition-colors
                             "
                             aria-label={`Delete session ${session.name}`}
@@ -476,7 +476,7 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
                     className="
                       w-full px-3 py-2
                       text-left text-xs
-                      text-blue-600 dark:text-blue-400
+                      text-info-600 dark:text-info-400
                       hover:bg-gray-100 dark:hover:bg-gray-700
                       transition-colors
                       flex items-center gap-2
@@ -573,7 +573,7 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
             data-testid="mobile-status-badge"
             className={`
               ml-auto px-1.5 py-0.5
-              text-[10px] font-medium
+              text-3xs font-medium
               rounded
               whitespace-nowrap
               ${getPhaseColor(collabState.state, collabState.displayName)}
@@ -595,10 +595,10 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
               block w-2 h-2 rounded-full
               ${
                 isConnected
-                  ? 'bg-green-500'
+                  ? 'bg-success-500'
                   : isConnecting
                   ? 'bg-yellow-500 animate-pulse'
-                  : 'bg-red-500'
+                  : 'bg-danger-500'
               }
             `}
           />

@@ -118,9 +118,9 @@ export const SupervisorView: React.FC<SupervisorViewProps> = ({
         {(() => {
           const liveness = supervisorLiveness(config, Object.values(subscriptions), Date.now());
           const dot = liveness === 'running'
-            ? { cls: 'bg-green-500', title: 'Running — recent activity' }
+            ? { cls: 'bg-success-500', title: 'Running — recent activity' }
             : liveness === 'crashed'
-              ? { cls: 'bg-amber-500', title: 'No recent signal — may be stopped' }
+              ? { cls: 'bg-warning-500', title: 'No recent signal — may be stopped' }
               : { cls: 'bg-gray-300 dark:bg-gray-600', title: 'Status unknown' };
           return <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot.cls}`} title={dot.title} />;
         })()}
@@ -145,7 +145,7 @@ export const SupervisorView: React.FC<SupervisorViewProps> = ({
               onClick={() => setTab(id)}
               className={`flex-1 py-2 text-xs font-medium transition-colors ${
                 tab === id
-                  ? 'border-b-2 border-blue-500 text-blue-600 dark:text-blue-400'
+                  ? 'border-b-2 border-info-500 text-info-600 dark:text-info-400'
                   : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
               }`}
             >

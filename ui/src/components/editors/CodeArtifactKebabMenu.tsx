@@ -104,7 +104,7 @@ export const CodeArtifactKebabMenu: React.FC<CodeArtifactKebabMenuProps> = ({
   return (
     <div className="relative inline-flex items-center" ref={containerRef}>
       {flashMessage && (
-        <span className="mr-2 text-xs text-blue-600 dark:text-blue-400 font-medium">
+        <span className="mr-2 text-xs text-info-600 dark:text-info-400 font-medium">
           {flashMessage}
         </span>
       )}
@@ -175,7 +175,7 @@ export const CodeArtifactKebabMenu: React.FC<CodeArtifactKebabMenuProps> = ({
                 role="menuitem"
                 data-testid="kebab-unlink"
                 onClick={handleUnlink}
-                className="w-full px-3 py-2 flex items-center gap-2 text-left text-sm text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
+                className="w-full px-3 py-2 flex items-center gap-2 text-left text-sm text-danger-700 dark:text-danger-400 hover:bg-danger-50 dark:hover:bg-danger-900/30 transition-colors"
               >
                 <span>Unlink</span>
               </button>

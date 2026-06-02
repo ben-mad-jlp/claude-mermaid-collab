@@ -23,10 +23,10 @@ const STATUS_GLYPH: Record<string, string> = {
 };
 
 const STATUS_COLOR: Record<string, string> = {
-  done: 'text-green-600 dark:text-green-400',
-  completed: 'text-green-600 dark:text-green-400',
-  in_progress: 'text-blue-600 dark:text-blue-400',
-  inprogress: 'text-blue-600 dark:text-blue-400',
+  done: 'text-success-600 dark:text-success-400',
+  completed: 'text-success-600 dark:text-success-400',
+  in_progress: 'text-info-600 dark:text-info-400',
+  inprogress: 'text-info-600 dark:text-info-400',
   ready: 'text-gray-500 dark:text-gray-400',
   planned: 'text-gray-400 dark:text-gray-500',
   blocked: 'text-yellow-600 dark:text-yellow-400',

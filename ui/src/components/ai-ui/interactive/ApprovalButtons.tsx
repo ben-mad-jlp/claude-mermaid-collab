@@ -78,10 +78,10 @@ export const ApprovalButtons: React.FC<ApprovalButtonsProps> = ({
 
         if (isPrimary) {
           buttonClass =
-            'bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white';
+            'bg-info-600 hover:bg-info-700 dark:bg-info-500 dark:hover:bg-info-600 text-white';
         } else if (isDestructive) {
           buttonClass =
-            'bg-red-600 hover:bg-red-700 dark:bg-red-500 dark:hover:bg-red-600 text-white';
+            'bg-danger-600 hover:bg-danger-700 dark:bg-danger-500 dark:hover:bg-danger-600 text-white';
         } else {
           buttonClass =
             'bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-white';
@@ -99,7 +99,7 @@ export const ApprovalButtons: React.FC<ApprovalButtonsProps> = ({
               ${fullWidth ? 'flex-1 min-w-[120px]' : 'min-w-[120px]'}
               ${buttonClass}
               ${disabledClass}
-              focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500
+              focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-info-500
               dark:focus:ring-offset-gray-900
               active:scale-95
             `}

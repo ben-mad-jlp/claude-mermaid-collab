@@ -53,7 +53,7 @@ export function ResizableColumn({
       {/* Drag handle on the left edge */}
       <div
         onMouseDown={onMouseDown}
-        className="absolute top-0 bottom-0 left-0 w-1 -ml-0.5 cursor-col-resize hover:bg-blue-500/50 z-10"
+        className="absolute top-0 bottom-0 left-0 w-1 -ml-0.5 cursor-col-resize hover:bg-info-500/50 z-10"
       />
       {children}
     </div>

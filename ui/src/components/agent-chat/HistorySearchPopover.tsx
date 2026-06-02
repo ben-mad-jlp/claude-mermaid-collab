@@ -108,7 +108,7 @@ export function HistorySearchPopover({ open, onClose, sessionId, onSelect }: His
             onClick={() => handleSelect(entry)}
             onMouseEnter={() => setActiveIndex(i)}
             className={`w-full text-left px-4 py-2.5 border-b border-stone-100 dark:border-gray-700/50 last:border-0 flex flex-col gap-0.5 hover:bg-stone-100 dark:hover:bg-gray-700 ${
-              i === activeIndex ? 'bg-blue-50 dark:bg-blue-900/30' : ''
+              i === activeIndex ? 'bg-info-50 dark:bg-info-900/30' : ''
             }`}
           >
             <span className="text-sm text-gray-800 dark:text-gray-200 truncate">

@@ -175,7 +175,7 @@ export const MessagesTimeline: React.FC<MessagesTimelineProps> = ({
                             <button
                               type="button"
                               onClick={() => { onRewindToMessage(it.id); setRewindConfirmId(null); }}
-                              className="text-xs px-2 py-0.5 rounded bg-red-500/90 text-white hover:bg-red-600"
+                              className="text-xs px-2 py-0.5 rounded bg-danger-500/90 text-white hover:bg-danger-600"
                             >
                               Confirm rewind?
                             </button>

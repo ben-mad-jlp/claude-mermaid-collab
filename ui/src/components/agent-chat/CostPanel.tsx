@@ -59,7 +59,7 @@ export function CostPanel({ sessionId, open, onClose }: CostPanelProps) {
         </header>
         <div className="flex-1 overflow-y-auto p-3 space-y-3">
           {loading && <div className="text-sm text-muted-foreground">Loading…</div>}
-          {error && <div className="text-sm text-red-500">Error: {error.message}</div>}
+          {error && <div className="text-sm text-danger-500 dark:text-danger-400">Error: {error.message}</div>}
           <div className="text-3xl font-semibold tabular-nums">${totalCostUsd.toFixed(4)}</div>
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
             <dt className="text-muted-foreground">Input tokens</dt><dd className="tabular-nums">{inputTokens.toLocaleString()}</dd>

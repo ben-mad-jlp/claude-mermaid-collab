@@ -222,14 +222,14 @@ export const UnifiedEditor: React.FC<UnifiedEditorProps> = ({
     if (designHistoryPreview && onDesignRevert && onClearDesignHistoryPreview) {
       return (
         <div className="flex-1 flex flex-col h-full bg-white dark:bg-gray-900">
-          <div className="flex items-center gap-3 px-4 py-3 bg-amber-50 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-800">
-            <span className="text-sm text-amber-800 dark:text-amber-200">
+          <div className="flex items-center gap-3 px-4 py-3 bg-warning-50 dark:bg-warning-900/30 border-b border-warning-200 dark:border-warning-800">
+            <span className="text-sm text-warning-800 dark:text-warning-200">
               Viewing version from {new Date(designHistoryPreview.timestamp).toLocaleString()}
             </span>
             <div className="flex gap-2 ml-auto">
               <button
                 onClick={onDesignRevert}
-                className="px-3 py-1 text-sm bg-amber-600 text-white rounded hover:bg-amber-700"
+                className="px-3 py-1 text-sm bg-warning-600 text-white rounded hover:bg-warning-700"
               >
                 Revert to this version
               </button>

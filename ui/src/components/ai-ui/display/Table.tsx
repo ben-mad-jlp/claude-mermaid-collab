@@ -207,7 +207,7 @@ export const Table: React.FC<TableProps> = ({
                     border-b border-gray-300 dark:border-gray-600
                     transition-colors duration-200
                     ${striped && index % 2 === 1 ? 'bg-gray-50 dark:bg-gray-700/50' : ''}
-                    ${isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : 'hover:bg-gray-100 dark:hover:bg-gray-700/50'}
+                    ${isSelected ? 'bg-info-50 dark:bg-info-900/20' : 'hover:bg-gray-100 dark:hover:bg-gray-700/50'}
                   `}
                 >
                   {selectable && (

@@ -162,7 +162,7 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, components, 
                 checked={checked}
                 disabled={!absoluteLine}
                 onChange={() => absoluteLine && onCheckboxToggle(absoluteLine)}
-                className="mr-2 cursor-pointer accent-blue-600"
+                className="mr-2 cursor-pointer accent-info-600"
               />
             );
           }
@@ -259,7 +259,7 @@ export const CollapsibleMarkdown: React.FC<CollapsibleMarkdownProps> = ({
           href={href}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-blue-600 dark:text-blue-400 hover:underline"
+          className="text-info-600 dark:text-info-400 hover:underline"
         >
           {children}
         </a>

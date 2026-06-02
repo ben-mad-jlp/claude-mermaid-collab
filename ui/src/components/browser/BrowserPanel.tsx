@@ -123,7 +123,7 @@ export function BrowserPanel() {
                 onClick={() => activateTab(tab.id)}
                 className={`flex items-center gap-1 px-2 py-1 cursor-pointer text-xs border-b-2 flex-1 min-w-0 max-w-[160px] ${
                   isActive
-                    ? 'border-blue-500 text-gray-900 dark:text-gray-100'
+                    ? 'border-info-500 text-gray-900 dark:text-gray-100'
                     : 'border-transparent text-gray-500 dark:text-gray-400'
                 }`}
               >
@@ -132,7 +132,7 @@ export function BrowserPanel() {
                   type="button"
                   onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }}
                   title="Close tab"
-                  className="flex-shrink-0 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 px-0.5 leading-none text-[11px]"
+                  className="flex-shrink-0 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 px-0.5 leading-none text-2xs"
                 >
                   ×
                 </button>

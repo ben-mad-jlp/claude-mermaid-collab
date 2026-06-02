@@ -560,7 +560,7 @@ export const SpreadsheetEditor: React.FC<SpreadsheetEditorProps> = ({ spreadshee
                         : ''}
                     </span>
                   </div>
-                  <div className="text-[10px] font-normal text-gray-400 dark:text-gray-500">
+                  <div className="text-3xs font-normal text-gray-400 dark:text-gray-500">
                     {col.type}
                   </div>
                 </th>
@@ -575,7 +575,7 @@ export const SpreadsheetEditor: React.FC<SpreadsheetEditorProps> = ({ spreadshee
                   key={row.id}
                   className={`transition-colors ${
                     isSelected
-                      ? 'bg-blue-50 dark:bg-blue-900/30'
+                      ? 'bg-info-50 dark:bg-info-900/30'
                       : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
                   }`}
                 >
@@ -589,7 +589,7 @@ export const SpreadsheetEditor: React.FC<SpreadsheetEditorProps> = ({ spreadshee
                     onContextMenu={(e) => handleContextMenu(e, 'row', row.id)}
                     className={`w-10 min-w-[40px] px-1 py-1.5 text-center text-xs border border-gray-200 dark:border-gray-700 cursor-pointer select-none ${
                       isSelected
-                        ? 'bg-blue-100 dark:bg-blue-800/50 text-blue-700 dark:text-blue-300 font-medium'
+                        ? 'bg-info-100 dark:bg-info-800/50 text-info-700 dark:text-info-300 font-medium'
                         : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'
                     }`}
                   >
@@ -726,7 +726,7 @@ export const SpreadsheetEditor: React.FC<SpreadsheetEditorProps> = ({ spreadshee
               <button
                 onClick={handleAddColumn}
                 disabled={!newColumnName.trim()}
-                className="p-1 text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300 disabled:opacity-30 disabled:cursor-not-allowed"
+                className="p-1 text-success-600 dark:text-success-400 hover:text-success-800 dark:hover:text-success-300 disabled:opacity-30 disabled:cursor-not-allowed"
                 title="Confirm"
               >
                 <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
@@ -793,7 +793,7 @@ export const SpreadsheetEditor: React.FC<SpreadsheetEditorProps> = ({ spreadshee
               </button>
               <button
                 onClick={() => handleDeleteRow(contextMenu.targetId)}
-                className="w-full px-3 py-1.5 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                className="w-full px-3 py-1.5 text-left text-sm text-danger-600 dark:text-danger-400 hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-colors"
               >
                 Delete Row
               </button>
@@ -822,7 +822,7 @@ export const SpreadsheetEditor: React.FC<SpreadsheetEditorProps> = ({ spreadshee
               </button>
               <button
                 onClick={() => handleDeleteColumn(contextMenu.targetId)}
-                className="w-full px-3 py-1.5 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                className="w-full px-3 py-1.5 text-left text-sm text-danger-600 dark:text-danger-400 hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-colors"
               >
                 Delete Column
               </button>

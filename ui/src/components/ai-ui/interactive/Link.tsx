@@ -11,8 +11,8 @@ export interface LinkProps {
 }
 
 const variantClasses = {
-  default: 'text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300',
-  primary: 'text-blue-600 hover:underline font-medium dark:text-blue-400',
+  default: 'text-info-600 hover:text-info-800 dark:text-info-400 dark:hover:text-info-300',
+  primary: 'text-info-600 hover:underline font-medium dark:text-info-400',
   subtle: 'text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200',
 };
 

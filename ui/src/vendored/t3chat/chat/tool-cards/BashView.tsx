@@ -32,7 +32,7 @@ export const BashView: React.FC<BashViewProps> = ({ item }) => {
 
   return (
     <div className="space-y-2" data-testid="bash-view">
-      <pre className="font-mono text-[11px] bg-muted text-foreground p-2 rounded whitespace-pre-wrap break-all">
+      <pre className="font-mono text-2xs bg-muted text-foreground p-2 rounded whitespace-pre-wrap break-all">
         <span className="text-emerald-600 dark:text-emerald-400">$ </span>
         {command}
       </pre>

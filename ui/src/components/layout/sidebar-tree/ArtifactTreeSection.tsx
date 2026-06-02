@@ -61,11 +61,11 @@ function ArtifactTreeSection(props: ArtifactTreeSectionProps) {
 
   let ringClass = '';
   if (dropHint === 'valid') {
-    ringClass = 'ring-2 ring-inset ring-blue-400';
+    ringClass = 'ring-2 ring-inset ring-info-400';
   } else if (dropHint === 'invalid') {
-    ringClass = 'ring-2 ring-inset ring-red-400';
+    ringClass = 'ring-2 ring-inset ring-danger-400';
   } else if (isDragOver && onDrop) {
-    ringClass = 'ring-2 ring-inset ring-blue-400';
+    ringClass = 'ring-2 ring-inset ring-info-400';
   }
 
   return (

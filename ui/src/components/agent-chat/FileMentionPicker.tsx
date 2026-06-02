@@ -144,7 +144,7 @@ export function FileMentionPicker({
           onMouseEnter={() => setActiveIndex(i)}
           className={`block w-full truncate px-3 py-1.5 text-left text-sm ${
             i === activeIndex
-              ? 'bg-blue-100 text-blue-900 dark:bg-blue-900 dark:text-blue-100'
+              ? 'bg-info-100 text-info-900 dark:bg-info-900 dark:text-info-100'
               : 'text-gray-800 dark:text-gray-200'
           }`}
         >

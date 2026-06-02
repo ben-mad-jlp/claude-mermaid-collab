@@ -135,8 +135,8 @@ describe('TextArea', () => {
     fireEvent.blur(textarea);
 
     await waitFor(() => {
-      expect(textarea.className).toContain('border-red-500');
-      expect(textarea.className).toContain('focus:ring-red-500');
+      expect(textarea.className).toContain('border-danger-500');
+      expect(textarea.className).toContain('focus:ring-danger-500');
     });
   });
 

@@ -175,7 +175,7 @@ export const Markdown: React.FC<MarkdownProps> = ({
 
       return inline ? (
         <code
-          className="px-2 py-1 bg-gray-200 dark:bg-gray-800 text-red-600 dark:text-red-400 rounded text-sm font-mono"
+          className="px-2 py-1 bg-gray-200 dark:bg-gray-800 text-danger-600 dark:text-danger-400 rounded text-sm font-mono"
           {...props}
         >
           {children}
@@ -188,7 +188,7 @@ export const Markdown: React.FC<MarkdownProps> = ({
     },
     a: ({ node, ...props }: any) => (
       <a
-        className="text-blue-600 dark:text-blue-400 hover:underline hover:text-blue-700 dark:hover:text-blue-300"
+        className="text-info-600 dark:text-info-400 hover:underline hover:text-info-700 dark:hover:text-info-300"
         target="_blank"
         rel="noopener noreferrer"
         {...props}

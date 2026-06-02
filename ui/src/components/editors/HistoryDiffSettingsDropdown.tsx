@@ -68,7 +68,7 @@ export const HistoryDiffSettingsDropdown: React.FC<HistoryDiffSettingsDropdownPr
       {/* Settings Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-1.5 px-2 py-1 text-sm font-medium bg-amber-100 dark:bg-amber-800/40 hover:bg-amber-200 dark:hover:bg-amber-700/50 text-amber-800 dark:text-amber-200 rounded transition-colors"
+        className="flex items-center gap-1.5 px-2 py-1 text-sm font-medium bg-warning-100 dark:bg-warning-800/40 hover:bg-warning-200 dark:hover:bg-warning-700/50 text-warning-800 dark:text-warning-200 rounded transition-colors"
         aria-expanded={isOpen}
         aria-haspopup="menu"
         data-testid="history-diff-settings-btn"
@@ -125,7 +125,7 @@ export const HistoryDiffSettingsDropdown: React.FC<HistoryDiffSettingsDropdownPr
                 onClick={() => handleViewModeChange('inline')}
                 className={`w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded transition-colors ${
                   viewMode === 'inline'
-                    ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                    ? 'bg-info-50 dark:bg-info-900/30 text-info-700 dark:text-info-300'
                     : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
                 }`}
                 role="menuitemradio"
@@ -146,7 +146,7 @@ export const HistoryDiffSettingsDropdown: React.FC<HistoryDiffSettingsDropdownPr
                 onClick={() => handleViewModeChange('side-by-side')}
                 className={`w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded transition-colors ${
                   viewMode === 'side-by-side'
-                    ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                    ? 'bg-info-50 dark:bg-info-900/30 text-info-700 dark:text-info-300'
                     : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
                 }`}
                 role="menuitemradio"
@@ -176,7 +176,7 @@ export const HistoryDiffSettingsDropdown: React.FC<HistoryDiffSettingsDropdownPr
                 onClick={() => handleCompareModeChange('vs-current')}
                 className={`w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded transition-colors ${
                   compareMode === 'vs-current'
-                    ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                    ? 'bg-info-50 dark:bg-info-900/30 text-info-700 dark:text-info-300'
                     : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
                 }`}
                 role="menuitemradio"
@@ -197,7 +197,7 @@ export const HistoryDiffSettingsDropdown: React.FC<HistoryDiffSettingsDropdownPr
                   !hasPreviousVersion
                     ? 'text-gray-400 dark:text-gray-600 cursor-not-allowed'
                     : compareMode === 'vs-previous'
-                    ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                    ? 'bg-info-50 dark:bg-info-900/30 text-info-700 dark:text-info-300'
                     : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
                 }`}
                 role="menuitemradio"

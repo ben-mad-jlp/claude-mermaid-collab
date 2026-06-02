@@ -135,6 +135,6 @@ describe('SidebarNodeContextMenu', () => {
       />,
     );
     const btn = screen.getByRole('menuitem');
-    expect(btn.className).toContain('text-red-700');
+    expect(btn.className).toContain('text-danger-700');
   });
 });

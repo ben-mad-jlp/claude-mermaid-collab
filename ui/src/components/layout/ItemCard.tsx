@@ -348,7 +348,7 @@ export const ItemCard: React.FC<ItemCardProps> = ({
           <div className="flex items-center justify-between mt-1">
             <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
               {item.deprecated
-                ? <span className="text-amber-600 dark:text-amber-400">deprecated</span>
+                ? <span className="text-warning-600 dark:text-warning-400">deprecated</span>
                 : relativeTime
               }
             </p>
@@ -359,7 +359,7 @@ export const ItemCard: React.FC<ItemCardProps> = ({
                 {onDownload && (
                   <button
                     onClick={(e) => { e.stopPropagation(); onDownload(); }}
-                    className="p-1 text-gray-400 hover:text-blue-500 dark:text-gray-500 dark:hover:text-blue-400 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                    className="p-1 text-gray-400 hover:text-info-500 dark:text-gray-500 dark:hover:text-info-400 rounded hover:bg-info-50 dark:hover:bg-info-900/20 transition-colors"
                     aria-label={`Download ${item.name}`}
                     title="Download"
                   >
@@ -371,7 +371,7 @@ export const ItemCard: React.FC<ItemCardProps> = ({
                 {onEmail && (
                   <button
                     onClick={(e) => { e.stopPropagation(); onEmail(); }}
-                    className="p-1 text-gray-400 hover:text-blue-500 dark:text-gray-500 dark:hover:text-blue-400 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                    className="p-1 text-gray-400 hover:text-info-500 dark:text-gray-500 dark:hover:text-info-400 rounded hover:bg-info-50 dark:hover:bg-info-900/20 transition-colors"
                     aria-label={`Email ${item.name}`}
                     title="Email"
                   >
@@ -384,7 +384,7 @@ export const ItemCard: React.FC<ItemCardProps> = ({
                 {onDeprecate && (
                   <button
                     onClick={(e) => { e.stopPropagation(); onDeprecate(); }}
-                    className="p-1 text-gray-400 hover:text-amber-500 dark:text-gray-500 dark:hover:text-amber-400 rounded hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
+                    className="p-1 text-gray-400 hover:text-warning-500 dark:text-gray-500 dark:hover:text-warning-400 rounded hover:bg-warning-50 dark:hover:bg-warning-900/20 transition-colors"
                     aria-label={item.deprecated ? `Restore ${item.name}` : `Deprecate ${item.name}`}
                     title={item.deprecated ? 'Restore' : 'Deprecate'}
                   >
@@ -403,7 +403,7 @@ export const ItemCard: React.FC<ItemCardProps> = ({
                 {onDelete && (
                   <button
                     onClick={(e) => { e.stopPropagation(); onDelete(); }}
-                    className="p-1 text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                    className="p-1 text-gray-400 hover:text-danger-500 dark:text-gray-500 dark:hover:text-danger-400 rounded hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-colors"
                     aria-label={`Delete ${item.name}`}
                     title="Delete"
                   >

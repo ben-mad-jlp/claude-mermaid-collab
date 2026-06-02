@@ -127,7 +127,7 @@ export const ItemGrid: React.FC<ItemGridProps> = ({
       >
         <div className="text-center p-6">
           <svg
-            className="w-12 h-12 mx-auto text-red-500 mb-3"
+            className="w-12 h-12 mx-auto text-danger-500 mb-3"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"

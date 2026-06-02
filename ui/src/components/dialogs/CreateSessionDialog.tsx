@@ -76,7 +76,7 @@ export const CreateSessionDialog: React.FC<CreateSessionDialogProps> = ({
                 rounded-lg
                 bg-white dark:bg-gray-700
                 text-gray-900 dark:text-white
-                focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                focus:ring-2 focus:ring-info-500 focus:border-transparent
                 outline-none
               "
             >
@@ -108,7 +108,7 @@ export const CreateSessionDialog: React.FC<CreateSessionDialogProps> = ({
                 rounded-lg
                 bg-white dark:bg-gray-700
                 text-gray-900 dark:text-white
-                focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                focus:ring-2 focus:ring-info-500 focus:border-transparent
                 outline-none
               "
               placeholder="Enter session name"
@@ -125,7 +125,7 @@ export const CreateSessionDialog: React.FC<CreateSessionDialogProps> = ({
                   onChange={(e) => setUseRenderUI(e.target.checked)}
                   className="sr-only peer"
                 />
-                <div className="w-10 h-6 bg-gray-200 dark:bg-gray-700 rounded-full peer peer-checked:bg-blue-500 transition-colors"></div>
+                <div className="w-10 h-6 bg-gray-200 dark:bg-gray-700 rounded-full peer peer-checked:bg-info-500 transition-colors"></div>
                 <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-4"></div>
               </div>
               <div>
@@ -154,7 +154,7 @@ export const CreateSessionDialog: React.FC<CreateSessionDialogProps> = ({
             className={`
               px-4 py-2 text-sm font-medium rounded-lg transition-colors
               ${sessionName.trim()
-                ? 'bg-blue-600 text-white hover:bg-blue-700'
+                ? 'bg-info-600 text-white hover:bg-info-700'
                 : 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
               }
             `}

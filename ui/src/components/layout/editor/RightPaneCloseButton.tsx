@@ -13,7 +13,7 @@ export const RightPaneCloseButton: React.FC<RightPaneCloseButtonProps> = ({
       onClick={onClose}
       aria-label="Close right pane"
       data-testid="right-pane-close-button"
-      className="absolute top-2 right-2 z-20 bg-white/80 dark:bg-gray-800/80 hover:bg-red-100 dark:hover:bg-red-900 text-gray-600 dark:text-gray-300 rounded p-1 shadow-sm"
+      className="absolute top-2 right-2 z-20 bg-white/80 dark:bg-gray-800/80 hover:bg-danger-100 dark:hover:bg-danger-900 text-gray-600 dark:text-gray-300 rounded p-1 shadow-sm"
     >
       <svg
         xmlns="http://www.w3.org/2000/svg"

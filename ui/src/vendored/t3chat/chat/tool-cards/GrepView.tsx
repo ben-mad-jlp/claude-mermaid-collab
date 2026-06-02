@@ -68,7 +68,7 @@ export const GrepView: React.FC<GrepViewProps> = ({ item }) => {
         </div>
       )}
       {topHits.length > 0 && (
-        <ul className="text-[11px] font-mono space-y-0.5">
+        <ul className="text-2xs font-mono space-y-0.5">
           {topHits.map((h, i) => (
             <li key={i} className="truncate text-muted-foreground" title={h}>
               {h}

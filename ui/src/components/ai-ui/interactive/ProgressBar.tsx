@@ -42,13 +42,13 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
   // Determine color classes
   const colorClasses: Record<typeof color, string> = {
     success:
-      'bg-green-500 dark:bg-green-600',
+      'bg-success-500 dark:bg-success-600',
     warning:
       'bg-yellow-500 dark:bg-yellow-600',
     error:
-      'bg-red-500 dark:bg-red-600',
+      'bg-danger-500 dark:bg-danger-600',
     info:
-      'bg-blue-500 dark:bg-blue-600',
+      'bg-info-500 dark:bg-info-600',
   };
 
   const barColorClass = colorClasses[color];

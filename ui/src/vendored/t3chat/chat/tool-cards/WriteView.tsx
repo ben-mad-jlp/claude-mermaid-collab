@@ -26,7 +26,7 @@ export const WriteView: React.FC<WriteViewProps> = ({ item }) => {
         {lineCount} lines, {charCount} chars
       </div>
       {content && (
-        <pre className="mt-2 p-2 bg-muted rounded text-[11px] leading-4 font-mono whitespace-pre overflow-x-auto max-h-64 overflow-y-auto">
+        <pre className="mt-2 p-2 bg-muted rounded text-2xs leading-4 font-mono whitespace-pre overflow-x-auto max-h-64 overflow-y-auto">
           {previewLines.join('\n')}
           {truncated ? `\n…${remaining} more lines` : ''}
         </pre>
