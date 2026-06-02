@@ -35,7 +35,7 @@ function TraceRow({ e }: { e: AuditEntry }) {
   let detail = e.detail ?? '';
   try { const o = JSON.parse(e.detail ?? ''); detail = Object.entries(o).map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' '); } catch { /* raw */ }
   return (
-    <div className="flex items-start gap-2 py-1 px-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 font-mono text-xs">
+    <div className="flex items-start gap-2 py-1 px-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800 font-mono text-xs">
       <span className="shrink-0 text-gray-400 dark:text-gray-500 tabular-nums">{fmtTime(e.ts)}</span>
       <span className={`shrink-0 ${meta.cls}`} title={e.kind}>{meta.glyph}</span>
       <span className={`shrink-0 w-16 ${meta.cls}`}>{e.kind}</span>

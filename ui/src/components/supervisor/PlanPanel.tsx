@@ -67,7 +67,7 @@ function PlanRow({ todo, depth }: { todo: SessionTodo; depth: number }) {
   const isInProgress = todo.status === 'in_progress';
   return (
     <div
-      className={`flex items-start gap-2 py-1 px-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 ${
+      className={`flex items-start gap-2 py-1 px-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800 ${
         isInProgress ? 'bg-info-50 dark:bg-info-900/20' : ''
       }`}
       style={{ paddingLeft: `${0.5 + depth * 1}rem` }}

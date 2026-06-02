@@ -296,7 +296,7 @@ export const ProjectScopeSection: React.FC = () => {
                     type="button"
                     onClick={() => openTodoDetail(todo)}
                     title={`${todo.title} — open detail`}
-                    className="w-full flex items-start gap-1.5 py-0.5 pr-2 rounded text-left hover:bg-gray-100 dark:hover:bg-gray-800/50"
+                    className="w-full flex items-start gap-1.5 py-0.5 pr-2 rounded text-left hover:bg-gray-100 dark:hover:bg-gray-800"
                     style={{ paddingLeft: `${0.75 + depth * 0.85}rem` }}
                   >
                     <span className={`mt-0.5 text-2xs font-mono select-none ${color}`} title={todo.status}>
@@ -367,7 +367,7 @@ export const ProjectScopeSection: React.FC = () => {
                     onClick={() => { if (target) setCurrentSession(target); }}
                     disabled={!target}
                     title={s.session}
-                    className={`w-full flex items-center gap-1.5 py-0.5 pl-3 pr-2 rounded text-left hover:bg-gray-100 dark:hover:bg-gray-800/50 disabled:cursor-default ${isCurrent ? 'bg-accent-50 dark:bg-accent-900/30' : ''}`}
+                    className={`w-full flex items-center gap-1.5 py-0.5 pl-3 pr-2 rounded text-left hover:bg-gray-100 dark:hover:bg-gray-800 disabled:cursor-default ${isCurrent ? 'bg-accent-50 dark:bg-accent-900/30' : ''}`}
                   >
                     {s.supervised && (
                       <span className="shrink-0 text-3xs" title="Supervised">🔒</span>

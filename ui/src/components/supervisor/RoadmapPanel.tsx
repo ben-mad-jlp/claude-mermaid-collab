@@ -42,7 +42,7 @@ function RoadmapListItem({ item }: { item: RoadmapItem }) {
   const colorCls = STATUS_COLOR[item.status] ?? 'text-gray-500';
 
   return (
-    <div className="flex items-start gap-2 py-1 px-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50">
+    <div className="flex items-start gap-2 py-1 px-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800">
       <span className={`mt-0.5 text-xs font-mono select-none ${colorCls}`} title={item.status}>
         {glyph}
       </span>
