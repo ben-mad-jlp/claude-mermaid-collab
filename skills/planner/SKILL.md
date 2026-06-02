@@ -54,7 +54,10 @@ Once todos are `ready`, the Coordinator daemon claims and spawns workers for the
 
 ## Rules of thumb
 
-- Right-size todos: a single todo that would blow ~80% context is too big — split it (the context-watchdog treats a single-todo overflow as a split signal).
+- Right-size todos — UPPER bound: a single todo that would blow ~80% context is too big — split it (the context-watchdog treats a single-todo overflow as a split signal).
+- Right-size todos — LOWER bound: don't over-decompose into atoms. Each leaf is handed to a worker that re-decomposes it (vibe-blueprint(auto) → vibe-go → vibe-review), so a leaf must sit at an altitude where that second split has real work to do. Split at the Planner level only when sub-parts have (a) different agent-profile TYPES (backend vs ui — they route to different pool sessions), (b) hard DEPENDENCIES / sequencing, or (c) an embedded DECISION a human should make up front. Stop there and hand the worker a coherent leaf.
+- A leaf should be "deliverable-sized": roughly blueprintable into ~3–8 implementation tasks. A genuine one-file/one-function change does NOT need its own epic-style decomposition — leave it a single leaf.
+- Anti-pattern: splitting into atoms with no decisions/deps between them — that just relocates the worker's job up to the Planner and clutters the work-graph. Example: "escalation-decision UI" was correctly split into ED1–ED4 (different types + deps + a mechanism decision surfaced at plan time); "migrate 534 color sites" was correctly left as ONE leaf for the worker to blueprint into per-area waves.
 - Prefer explicit `dependsOn` over implicit ordering — the Coordinator parallelizes anything not blocked.
 - Re-validate against `get_active_constraints` before promoting; if a new plan contradicts an active constraint, surface it to the human rather than silently overriding.
 - Never claim, spawn, or complete todos yourself — that's the Coordinator's and workers' job.
