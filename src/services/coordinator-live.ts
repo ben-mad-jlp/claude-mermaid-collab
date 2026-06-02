@@ -1,6 +1,6 @@
 import type { Todo } from './todo-store';
 import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim } from './todo-store';
-import { createEscalation, recordSupervisorAudit, addSupervised, addWatchedProject } from './supervisor-store';
+import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, addSupervised, addWatchedProject } from './supervisor-store';
 import { tmuxBaseName } from './tmux-naming';
 import { ensureSession, runTodoInSession } from './claude-launch';
 import { runTick, type CoordinatorDeps } from './coordinator-daemon';
@@ -57,6 +57,20 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       const session = r.completed.sessionName ?? '';
       if (session) markIdle(session);
       recordSupervisorAudit({ kind: 'complete', project, session, detail: JSON.stringify({ todoId: id, acceptance: acceptance ?? r.completed.acceptanceStatus, promoted: r.promoted }) });
+      // Escalation lifecycle: a todo that completes (accepted) may have left an
+      // OPEN escalation behind — e.g. it exhausted its retry budget, the
+      // coordinator filed a 'blocker', and it later recovered (human decision +
+      // reclaim) and finished. Auto-resolve those so the inbox doesn't keep
+      // phantom 'exhausted retry budget' entries. Match by exact todoId and by
+      // the worker/pool session names this todo ran under.
+      const accepted = (acceptance ?? r.completed.acceptanceStatus) === 'accepted';
+      if (accepted) {
+        const sessions = [session, `worker-${id.slice(0, 8)}`].filter(Boolean);
+        const resolved = resolveEscalationsForTodo(project, id, sessions, 'resolved');
+        if (resolved.length > 0) {
+          recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, autoResolvedEscalations: resolved.map((e) => e.id), reason: 'todo-completed' }) });
+        }
+      }
       return r;
     },
     launchWorker: async (project: string, todo: Todo): Promise<boolean> => {
@@ -143,6 +157,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         session: todo?.sessionName ?? `worker-${todoId.slice(0, 8)}`,
         kind: 'blocker',
         questionText: `Todo "${todo?.title ?? todoId}" exhausted its retry budget (worker repeatedly failed to complete it). Parked as blocked — needs a human decision.`,
+        todoId,
       });
     },
     escalateRejected: async (project: string, todoId: string): Promise<void> => {
@@ -152,6 +167,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         session: todo?.sessionName ?? `worker-${todoId.slice(0, 8)}`,
         kind: 'blocker',
         questionText: `Worker REJECTED todo "${todo?.title ?? todoId}" — its mechanical acceptance gate (tsc + tests) failed and it couldn't fix it in scope. Not auto-retried. Re-open with guidance, split, or drop it.`,
+        todoId,
       });
     },
   };

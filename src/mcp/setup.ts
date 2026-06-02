@@ -2005,7 +2005,7 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'read_last_assistant_turn', description: 'Read the last completed assistant turn from a Claude Code session transcript.', inputSchema: { type: 'object', properties: { claudeSessionId: { type: 'string' }, serverId: { type: 'string' } }, required: ['claudeSessionId'] } },
       { name: 'escalation_list', description: 'List open escalations.', inputSchema: { type: 'object', properties: {} } },
       { name: 'escalation_resolve', description: 'Resolve an escalation by id with a status.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, status: { type: 'string' } }, required: ['id', 'status'] } },
-      { name: 'escalation_create', description: 'Create (or dedupe) an open escalation for a session.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, kind: { type: 'string' }, questionText: { type: 'string' } }, required: ['project', 'session', 'kind', 'questionText'] } },
+      { name: 'escalation_create', description: 'Create (or dedupe) an open escalation for a session. Pass todoId to link it to a work-graph todo so it auto-resolves when that todo completes.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, kind: { type: 'string' }, questionText: { type: 'string' }, todoId: { type: 'string', description: 'Optional work-graph todo id this escalation is about (exact auto-resolve link).' } }, required: ['project', 'session', 'kind', 'questionText'] } },
       { name: 'get_todo', description: 'Read a single project work-graph todo by id (title, description/spec, status, dependsOn, sessionName). Used by a worker to read its claimed todo.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' } }, required: ['project','todoId'] } },
       { name: 'complete_todo', description: 'Worker completion report: mark a project todo accepted or rejected (marks done + unblocks dependents).', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, acceptance: { type: 'string', enum: ['accepted','rejected'] } }, required: ['project','todoId','acceptance'] } },
       { name: 'start_coordinator', description: 'Start the per-project Coordinator daemon (claims ready todos and spawns workers on a tick). Explicit-start.', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'] } },
@@ -3623,11 +3623,11 @@ IMPORTANT - Common pitfalls to avoid:
             return JSON.stringify({ success: true, id, status }, null, 2);
           }
           case 'escalation_create': {
-            const { project, session, kind, questionText } = args as { project: string; session: string; kind: string; questionText: string };
+            const { project, session, kind, questionText, todoId } = args as { project: string; session: string; kind: string; questionText: string; todoId?: string };
             if (!project || !session || !kind || !questionText) throw new Error('Missing required: project, session, kind, questionText');
             // Use the store's authoritative new-vs-dedup signal (no separate
             // pre-check → no TOCTOU): broadcast/record only for new escalations.
-            const { escalation: esc, isNew } = supervisorStore.createEscalation({ project, session, kind, questionText });
+            const { escalation: esc, isNew } = supervisorStore.createEscalation({ project, session, kind, questionText, todoId });
             if (isNew) {
               getWebSocketHandler()?.broadcast({ type: 'escalation_created', project, session, kind, id: esc.id });
               recordSupervisorDecision('escalate', project, session, JSON.stringify({ kind, escalationId: esc.id }));

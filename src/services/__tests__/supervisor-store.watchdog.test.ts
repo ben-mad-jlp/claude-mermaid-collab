@@ -7,7 +7,7 @@ import { join } from 'node:path';
 const dir = mkdtempSync(join(tmpdir(), 'sup-store-'));
 process.env.MERMAID_SUPERVISOR_DIR = dir;
 
-import { addWatchedProject, getWatchdogThreshold, setWatchdogThreshold, listWatchedProjects, recordSupervisorAudit, listSupervisorAudit, setSupervisorPause, isSupervisorPaused, listSupervisorPauses, GLOBAL_PAUSE_SCOPE, createEscalation, listOpenEscalations, _closeDb } from '../supervisor-store';
+import { addWatchedProject, getWatchdogThreshold, setWatchdogThreshold, listWatchedProjects, recordSupervisorAudit, listSupervisorAudit, setSupervisorPause, isSupervisorPaused, listSupervisorPauses, GLOBAL_PAUSE_SCOPE, createEscalation, listOpenEscalations, resolveEscalationsForTodo, _closeDb } from '../supervisor-store';
 
 beforeAll(() => { _closeDb(); });
 afterAll(() => { _closeDb(); rmSync(dir, { recursive: true, force: true }); delete process.env.MERMAID_SUPERVISOR_DIR; });
@@ -115,5 +115,40 @@ describe('createEscalation dedup signal (TOCTOU fix)', () => {
   it('different questionText → new', () => {
     createEscalation({ project: '/e2', session: 's', kind: 'blocker', questionText: 'q1' });
     expect(createEscalation({ project: '/e2', session: 's', kind: 'blocker', questionText: 'q2' }).isNew).toBe(true);
+  });
+  it('persists and returns the todoId link', () => {
+    const { escalation } = createEscalation({ project: '/etd', session: 's', kind: 'blocker', questionText: 'q', todoId: 'todo-1' });
+    expect(escalation.todoId).toBe('todo-1');
+    expect(listOpenEscalations().find((e) => e.id === escalation.id)?.todoId).toBe('todo-1');
+  });
+  it('todoId defaults to null when omitted', () => {
+    const { escalation } = createEscalation({ project: '/etd2', session: 's', kind: 'blocker', questionText: 'q' });
+    expect(escalation.todoId).toBeNull();
+  });
+});
+
+describe('resolveEscalationsForTodo (auto-resolve on todo completion)', () => {
+  it('resolves open escalations matched by exact todoId', () => {
+    const { escalation } = createEscalation({ project: '/r1', session: 'worker-abc', kind: 'blocker', questionText: 'exhausted', todoId: 'T1' });
+    const resolved = resolveEscalationsForTodo('/r1', 'T1');
+    expect(resolved.map((e) => e.id)).toContain(escalation.id);
+    expect(listOpenEscalations().some((e) => e.id === escalation.id)).toBe(false);
+  });
+  it('resolves escalations matched by session even without a todoId link', () => {
+    const { escalation } = createEscalation({ project: '/r2', session: 'worker-12345678', kind: 'blocker', questionText: 'self-escalation' });
+    const resolved = resolveEscalationsForTodo('/r2', '12345678-0000-0000-0000-000000000000', ['worker-12345678']);
+    expect(resolved.map((e) => e.id)).toContain(escalation.id);
+    expect(listOpenEscalations().some((e) => e.id === escalation.id)).toBe(false);
+  });
+  it('leaves unrelated open escalations untouched and returns [] when nothing matches', () => {
+    const { escalation: keep } = createEscalation({ project: '/r3', session: 'worker-other', kind: 'blocker', questionText: 'unrelated', todoId: 'OTHER' });
+    const resolved = resolveEscalationsForTodo('/r3', 'NOPE', ['worker-nomatch']);
+    expect(resolved).toEqual([]);
+    expect(listOpenEscalations().some((e) => e.id === keep.id)).toBe(true);
+  });
+  it('is scoped to the project (does not resolve same todoId in another project)', () => {
+    const { escalation } = createEscalation({ project: '/r4a', session: 's', kind: 'blocker', questionText: 'q', todoId: 'SHARED' });
+    resolveEscalationsForTodo('/r4b', 'SHARED');
+    expect(listOpenEscalations().some((e) => e.id === escalation.id)).toBe(true);
   });
 });

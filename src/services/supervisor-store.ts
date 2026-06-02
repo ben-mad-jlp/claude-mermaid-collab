@@ -38,6 +38,10 @@ export interface Escalation {
   createdAt: number;
   resolvedAt: number | null;
   serverId: string;
+  /** The work-graph todo this escalation is about, when known — gives an exact
+   *  link so the escalation can be auto-resolved when that todo completes. Null
+   *  for escalations not tied to a specific todo. */
+  todoId: string | null;
 }
 
 export const ESCALATION_KINDS = ['question', 'decision', 'blocker', 'approval'] as const;
@@ -66,7 +70,8 @@ CREATE TABLE IF NOT EXISTS escalation (
   status TEXT NOT NULL,
   createdAt INTEGER NOT NULL,
   resolvedAt INTEGER,
-  serverId TEXT NOT NULL DEFAULT ''
+  serverId TEXT NOT NULL DEFAULT '',
+  todoId TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_esc_open ON escalation(project, session, questionText, status);
 CREATE TABLE IF NOT EXISTS supervisor_identity (
@@ -123,6 +128,8 @@ function openDb(): Database {
   addColumnIfMissing(db, 'escalation', 'serverId', "serverId TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, 'supervisor_identity', 'serverId', "serverId TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, 'watched_project', 'watchdogThresholdPercent', 'watchdogThresholdPercent INTEGER');
+  addColumnIfMissing(db, 'escalation', 'todoId', 'todoId TEXT');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_esc_todo ON escalation(project, todoId, status)');
   return db;
 }
 
@@ -221,6 +228,7 @@ export function createEscalation(input: {
   kind: string;
   questionText: string;
   serverId?: string;
+  todoId?: string | null;
 }): { escalation: Escalation; isNew: boolean } {
   const d = openDb();
   const existing = d
@@ -231,9 +239,10 @@ export function createEscalation(input: {
   const id = crypto.randomUUID();
   const createdAt = Date.now();
   const serverId = input.serverId ?? '';
+  const todoId = input.todoId ?? null;
   d.prepare(
-    'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, resolvedAt, serverId) VALUES (?,?,?,?,?,?,?,?,?)'
-  ).run(id, input.project, input.session, input.kind, input.questionText, 'open', createdAt, null, serverId);
+    'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, resolvedAt, serverId, todoId) VALUES (?,?,?,?,?,?,?,?,?,?)'
+  ).run(id, input.project, input.session, input.kind, input.questionText, 'open', createdAt, null, serverId, todoId);
   return {
     escalation: {
       id,
@@ -245,6 +254,7 @@ export function createEscalation(input: {
       createdAt,
       resolvedAt: null,
       serverId,
+      todoId,
     },
     isNew: true,
   };
@@ -272,6 +282,33 @@ export function resolveEscalation(id: string, status: string): void {
     Date.now(),
     id
   );
+}
+
+/**
+ * Auto-resolve all OPEN escalations linked to a todo that just reached a
+ * terminal state. Matches by exact `todoId` (escalations filed by the
+ * coordinator carry it) OR by any of the given `sessions` (worker-<id8> /
+ * pool session names — covers escalations filed before the todoId link
+ * existed, e.g. a worker self-escalation). Returns the resolved escalations
+ * so callers can broadcast/audit them. A no-op (returns []) when nothing matches.
+ */
+export function resolveEscalationsForTodo(
+  project: string,
+  todoId: string,
+  sessions: string[] = [],
+  status = 'resolved',
+): Escalation[] {
+  const d = openDb();
+  const open = d
+    .query("SELECT * FROM escalation WHERE project = ? AND status = 'open'")
+    .all(project) as Escalation[];
+  const sessionSet = new Set(sessions.filter(Boolean));
+  const matched = open.filter((e) => e.todoId === todoId || sessionSet.has(e.session));
+  if (matched.length === 0) return [];
+  const resolvedAt = Date.now();
+  const stmt = d.prepare('UPDATE escalation SET status = ?, resolvedAt = ? WHERE id = ?');
+  for (const e of matched) stmt.run(status, resolvedAt, e.id);
+  return matched.map((e) => ({ ...e, status, resolvedAt }));
 }
 
 // --- Supervisor audit log (durable decision/action trail) ---
