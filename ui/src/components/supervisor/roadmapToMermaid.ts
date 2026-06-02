@@ -1,4 +1,4 @@
-import type { RoadmapItem } from '@/stores/supervisorStore';
+import type { PlanItem } from '@/types/planItem';
 
 export interface RoadmapToMermaidOpts {
   mode?: 'graph' | 'waves';
@@ -34,12 +34,12 @@ function escapeLabel(text: string): string {
   return text.replace(/"/g, '#quot;').replace(/\n/g, ' ');
 }
 
-function nodeLine(item: RoadmapItem, indent: string): string {
+function nodeLine(item: PlanItem, indent: string): string {
   const cls = STATUS_CLASS[item.status] ?? 'planned';
   return `${indent}${sanitizeId(item.id)}["${escapeLabel(item.title)}"]:::${cls}`;
 }
 
-function edgeLines(items: RoadmapItem[]): string[] {
+function edgeLines(items: PlanItem[]): string[] {
   const ids = new Set(items.map((i) => sanitizeId(i.id)));
   const lines: string[] = [];
   for (const item of items) {
@@ -51,7 +51,7 @@ function edgeLines(items: RoadmapItem[]): string[] {
   return lines;
 }
 
-function computeWaveMap(items: RoadmapItem[]): Map<string, number> {
+export function computeWaveMap(items: PlanItem[]): Map<string, number> {
   const idSet = new Set(items.map((i) => i.id));
   const waveMap = new Map<string, number>();
   for (const item of items) waveMap.set(item.id, 0);
@@ -72,7 +72,7 @@ function computeWaveMap(items: RoadmapItem[]): Map<string, number> {
   return waveMap;
 }
 
-export function roadmapToMermaid(items: RoadmapItem[], opts?: RoadmapToMermaidOpts): string {
+export function roadmapToMermaid(items: PlanItem[], opts?: RoadmapToMermaidOpts): string {
   if (!items || items.length === 0) {
     return 'flowchart TD\n  empty["No roadmap items"]';
   }
@@ -82,7 +82,7 @@ export function roadmapToMermaid(items: RoadmapItem[], opts?: RoadmapToMermaidOp
 
   if (mode === 'waves') {
     const waveMap = computeWaveMap(items);
-    const byWave = new Map<number, RoadmapItem[]>();
+    const byWave = new Map<number, PlanItem[]>();
     for (const item of items) {
       const w = waveMap.get(item.id) ?? 0;
       const arr = byWave.get(w) ?? [];
@@ -96,8 +96,8 @@ export function roadmapToMermaid(items: RoadmapItem[], opts?: RoadmapToMermaidOp
     }
   } else {
     const byId = new Map(items.map((i) => [i.id, i]));
-    const childrenByParent = new Map<string, RoadmapItem[]>();
-    const topLevel: RoadmapItem[] = [];
+    const childrenByParent = new Map<string, PlanItem[]>();
+    const topLevel: PlanItem[] = [];
     for (const item of items) {
       const pid = item.parentId;
       if (pid && byId.has(pid)) {

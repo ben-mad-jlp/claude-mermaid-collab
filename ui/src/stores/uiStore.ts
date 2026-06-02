@@ -3,6 +3,9 @@ import { persist } from 'zustand/middleware';
 
 export type Theme = 'light' | 'dark' | 'sepia';
 
+// PCS Phase 5: which role-scoped view the supervisor surface renders.
+export type SupervisorRole = 'supervisor' | 'planner' | 'coordinator';
+
 export interface UIState {
   // Theme state
   theme: Theme;
@@ -59,6 +62,17 @@ export interface UIState {
   supervisorViewOpen: boolean;
   setSupervisorViewOpen: (open: boolean) => void;
   toggleSupervisorView: () => void;
+
+  // PCS Phase 5: role-scoped view discriminant (Supervisor | Planner | Coordinator).
+  supervisorRole: SupervisorRole;
+  setSupervisorRole: (role: SupervisorRole) => void;
+
+  // PCS Phase 5: the project that drives the project-scoped sections (Plan,
+  // Sessions/Workers, scoped Escalations, Artifacts). Independent of the
+  // current session — defaults to the current session's project on first load,
+  // user-controlled thereafter. null = fall back to current session's project.
+  activeProject: string | null;
+  setActiveProject: (project: string | null) => void;
 
   // Diff view preference: side-by-side (true) or unified (false)
   diffSideBySide: boolean;
@@ -188,6 +202,12 @@ export const useUIStore = create<UIState>()(
       setSupervisorViewOpen: (open: boolean) => set({ supervisorViewOpen: open }),
       toggleSupervisorView: () => set({ supervisorViewOpen: !get().supervisorViewOpen }),
 
+      supervisorRole: 'supervisor',
+      setSupervisorRole: (role: SupervisorRole) => set({ supervisorRole: role }),
+
+      activeProject: null,
+      setActiveProject: (project: string | null) => set({ activeProject: project }),
+
       diffSideBySide: true,
       setDiffSideBySide: (on: boolean) => set({ diffSideBySide: on }),
 
@@ -258,7 +278,7 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'ui-preferences', // localStorage key
-      version: 7,
+      version: 8,
       migrate: (persistedState: unknown, version: number) => {
         // v5: terminal/shell removed entirely. Drop legacy panel flags and
         // default agentChatVisible to true so chat is visible by default.
@@ -290,6 +310,11 @@ export const useUIStore = create<UIState>()(
         if (version < 7) {
           const old = persistedState as Record<string, unknown>;
           return { ...old, diffSideBySide: typeof old.diffSideBySide === 'boolean' ? old.diffSideBySide : true } as UIState;
+        }
+        if (version < 8) {
+          // Phase 5: seed role-scoped view discriminant + active project.
+          const old = persistedState as Record<string, unknown>;
+          return { ...old, supervisorRole: 'supervisor', activeProject: null } as UIState;
         }
         return persistedState as UIState;
       },

@@ -1,4 +1,6 @@
-export type TodoStatus = 'backlog' | 'todo' | 'in_progress' | 'blocked' | 'done';
+// Mirrors the backend unified work-graph (src/services/todo-store.ts).
+// `planned`/`ready`/`dropped` are work-graph states the Planner/Coordinator use.
+export type TodoStatus = 'backlog' | 'planned' | 'todo' | 'ready' | 'in_progress' | 'blocked' | 'done' | 'dropped';
 
 export interface SessionTodoLink { blueprintId: string; taskId?: string }
 
@@ -22,4 +24,10 @@ export interface SessionTodo {
   updatedAt: string;
   completedAt: string | null;
   asanaGid: string | null;
+  // Work-graph fields (PCS) — present on unified todos; optional for back-compat.
+  sessionName?: string | null;
+  kind?: string | null;
+  acceptanceStatus?: 'pending' | 'accepted' | 'rejected' | null;
+  claimedBy?: string | null;
+  retryCount?: number;
 }

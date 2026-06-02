@@ -15,6 +15,8 @@ import {
   listSupervisorAudit,
 } from '../services/supervisor-store.ts';
 import { createItem, listItems, updateItem, deleteItem } from '../services/roadmap-store.ts';
+import { listTodos, updateTodo } from '../services/todo-store.ts';
+import { startCoordinator, stopCoordinator, isCoordinatorRunning } from '../services/coordinator-live.ts';
 import { SUPERVISOR_PROJECT, SUPERVISOR_SESSION } from '../config.ts';
 import { sendTmuxKeys } from '../services/tmux-send.ts';
 import { getWebSocketHandler } from '../services/ws-handler-manager.ts';
@@ -92,6 +94,57 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     const project = url.searchParams.get('project');
     if (!project) return jsonError('project is required', 400);
     return Response.json({ items: listItems(project) });
+  }
+
+  // PROJECT TODOS (PCS Phase 5) — the unified work-graph for an entire project,
+  // across all its sessions. This is the data source for the project Plan
+  // (re-points the Plan off the legacy roadmap_item table onto unified todos).
+  if (url.pathname === '/api/supervisor/todos' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) return jsonError('project is required', 400);
+    const includeCompletedParam = url.searchParams.get('includeCompleted');
+    const includeCompleted = includeCompletedParam === null ? true : includeCompletedParam !== 'false';
+    try {
+      // No session filter → all todos for the project.
+      return Response.json({ todos: listTodos(project, { includeCompleted }) });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // PROMOTE / EDIT A PROJECT TODO (PCS Phase 5) — the Planner promotes plan items
+  // to `ready` (the sole planned→ready promoter; the Coordinator never self-promotes).
+  // Project-scoped by id; no session needed.
+  if (url.pathname === '/api/supervisor/todos' && req.method === 'PATCH') {
+    try {
+      const { project, id, status } = (await req.json()) as {
+        project?: string;
+        id?: string;
+        status?: import('../services/todo-store.ts').TodoStatus;
+      };
+      if (!project || !id) return jsonError('project and id are required', 400);
+      const todo = await updateTodo(project, id, status ? { status } : {});
+      return Response.json({ todo });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // COORDINATOR DAEMON STATUS / CONTROL (PCS Phase 5).
+  if (url.pathname === '/api/supervisor/coordinator' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) return jsonError('project is required', 400);
+    return Response.json({ running: isCoordinatorRunning(project) });
+  }
+  if (url.pathname === '/api/supervisor/coordinator' && req.method === 'POST') {
+    try {
+      const { project, action } = (await req.json()) as { project?: string; action?: 'start' | 'stop' };
+      if (!project || !action) return jsonError('project and action are required', 400);
+      const changed = action === 'start' ? startCoordinator(project) : stopCoordinator(project);
+      return Response.json({ running: isCoordinatorRunning(project), changed });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
   }
 
   // AUDIT TRACE (observability) — unified orchestration trace from the supervisor audit log.

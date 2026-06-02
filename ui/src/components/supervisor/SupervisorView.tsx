@@ -16,6 +16,8 @@ import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { activateSessionCard } from '@/components/layout/SessionCard';
 import { EscalationInbox } from './EscalationInbox';
 import { RoadmapPanel } from './RoadmapPanel';
+import { PlanPanel } from './PlanPanel';
+import { RoleSwitcher } from './RoleSwitcher';
 import { SystemMapPanel } from './SystemMapPanel';
 import { TracePanel } from './TracePanel';
 import { SupervisedSessions } from './SupervisedSessions';
@@ -27,8 +29,8 @@ export interface SupervisorViewProps {
   onNavigate?: (serverId: string, project: string, session: string) => void;
 }
 
-type Tab = 'escalations' | 'roadmap' | 'systemmap' | 'trace' | 'sessions';
-type RightView = 'roadmap' | 'systemmap' | 'trace';
+type Tab = 'escalations' | 'plan' | 'roadmap' | 'systemmap' | 'trace' | 'sessions';
+type RightView = 'plan' | 'roadmap' | 'systemmap' | 'trace';
 
 export const SupervisorView: React.FC<SupervisorViewProps> = ({
   currentProject,
@@ -48,7 +50,7 @@ export const SupervisorView: React.FC<SupervisorViewProps> = ({
   const subscriptions = useSubscriptionStore((s) => s.subscriptions);
 
   const [tab, setTab] = useState<Tab>('escalations');
-  const [rightView, setRightView] = useState<RightView>('roadmap');
+  const [rightView, setRightView] = useState<RightView>('plan');
 
   // Load config on mount / when serverScope changes.
   useEffect(() => {
@@ -96,6 +98,7 @@ export const SupervisorView: React.FC<SupervisorViewProps> = ({
 
   const TABS: { id: Tab; label: string }[] = [
     { id: 'escalations', label: `Escalations${openEscalationCount > 0 ? ` (${openEscalationCount})` : ''}` },
+    { id: 'plan', label: 'Plan' },
     { id: 'roadmap', label: 'Roadmap' },
     { id: 'systemmap', label: 'System Map' },
     { id: 'trace', label: 'Trace' },
@@ -128,6 +131,7 @@ export const SupervisorView: React.FC<SupervisorViewProps> = ({
           >
             {openEscalationCount} escalations
           </span>
+          <RoleSwitcher />
         </div>
       </div>
 
@@ -153,6 +157,11 @@ export const SupervisorView: React.FC<SupervisorViewProps> = ({
         <div className="flex-1 overflow-auto p-3">
           {tab === 'escalations' && (
             <EscalationInbox serverId={serverScope} onJump={onJump} />
+          )}
+          {tab === 'plan' && (
+            <div className="h-full min-h-[300px]">
+              <PlanPanel serverId={serverScope} project={activeProject} />
+            </div>
           )}
           {tab === 'roadmap' && (
             <div className="h-full min-h-[300px]">
@@ -185,7 +194,7 @@ export const SupervisorView: React.FC<SupervisorViewProps> = ({
         {/* Right: Roadmap / System Map (top) + Supervised Sessions (bottom) */}
         <div className="flex flex-col overflow-hidden">
           <div className="shrink-0 flex items-center gap-0.5 px-3 pt-2">
-            {(['roadmap', 'systemmap', 'trace'] as RightView[]).map((v) => (
+            {(['plan', 'roadmap', 'systemmap', 'trace'] as RightView[]).map((v) => (
               <button
                 key={v}
                 type="button"
@@ -196,12 +205,14 @@ export const SupervisorView: React.FC<SupervisorViewProps> = ({
                     : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
                 }`}
               >
-                {v === 'roadmap' ? 'Roadmap' : v === 'systemmap' ? 'System Map' : 'Trace'}
+                {v === 'plan' ? 'Plan' : v === 'roadmap' ? 'Roadmap' : v === 'systemmap' ? 'System Map' : 'Trace'}
               </button>
             ))}
           </div>
           <div className="flex-1 overflow-hidden min-h-0 p-3">
-            {rightView === 'roadmap' ? (
+            {rightView === 'plan' ? (
+              <PlanPanel serverId={serverScope} project={activeProject} />
+            ) : rightView === 'roadmap' ? (
               <RoadmapPanel serverId={serverScope} project={activeProject} />
             ) : rightView === 'systemmap' ? (
               <SystemMapPanel serverId={serverScope} project={activeProject} onJump={onJump} />

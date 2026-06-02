@@ -78,6 +78,8 @@ import { SessionCleanupDialog, type CleanupAction, CreateSessionDialog, AddProje
 
 // Import supervisor view
 import { SupervisorView } from '@/components/supervisor/SupervisorView';
+import { PlannerView } from '@/components/supervisor/PlannerView';
+import { CoordinatorView } from '@/components/supervisor/CoordinatorView';
 
 /**
  * Error Boundary Component
@@ -175,6 +177,7 @@ const App: React.FC = () => {
   const setDocumentConflict = useUIStore((s) => s.setDocumentConflict);
   const viewerVisible = useUIStore((s) => s.viewerVisible);
   const supervisorViewOpen = useUIStore((s) => s.supervisorViewOpen);
+  const supervisorRole = useUIStore((s) => s.supervisorRole);
 
   // Design canvas zoom (from design editor store, separate from diagram zoom)
   const designZoom = useDesignEditorStore((s) => s.zoom);
@@ -1789,7 +1792,13 @@ const App: React.FC = () => {
 
           {supervisorViewOpen && (
             <main className="flex-1 h-full min-h-0 overflow-hidden bg-white dark:bg-gray-800">
-              <SupervisorView />
+              {supervisorRole === 'planner' ? (
+                <PlannerView />
+              ) : supervisorRole === 'coordinator' ? (
+                <CoordinatorView />
+              ) : (
+                <SupervisorView />
+              )}
             </main>
           )}
 

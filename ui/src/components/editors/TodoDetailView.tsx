@@ -21,20 +21,26 @@ function shortSlug(blueprintId: string): string {
 
 const STATUS_LABEL: Record<TodoStatus, string> = {
   backlog: 'Backlog',
+  planned: 'Planned',
   todo: 'Todo',
+  ready: 'Ready',
   in_progress: 'In progress',
   blocked: 'Blocked',
   done: 'Done',
+  dropped: 'Dropped',
 };
 
 // Subtle dot color per status — gives the header a professional status cue
 // without turning the pane into a chromatic Jira card.
 const STATUS_DOT: Record<TodoStatus, string> = {
   backlog: 'bg-gray-400',
+  planned: 'bg-gray-300',
   todo: 'bg-blue-500',
+  ready: 'bg-indigo-500',
   in_progress: 'bg-amber-500',
   blocked: 'bg-red-500',
   done: 'bg-emerald-500',
+  dropped: 'bg-gray-300',
 };
 
 const PRIORITY_LABEL: Record<number, string> = { 0: 'P0', 1: 'P1', 2: 'P2', 3: 'P3', 4: 'P4' };

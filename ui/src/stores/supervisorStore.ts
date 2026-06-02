@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { SessionTodo } from '@/types/sessionTodo';
 
 /**
  * Supervisor store (v2 global model).
@@ -72,6 +73,7 @@ export interface SupervisedSession {
 
 const PROJECTS_KEY = 'supervisor-projects';
 const ROADMAP_KEY = 'supervisor-roadmap';
+const TODOS_KEY = 'supervisor-todos-by-project';
 const ESCALATIONS_KEY = 'supervisor-escalations';
 const SUPERVISED_KEY = 'supervisor-supervised';
 const SUPERVISOR_CONFIG_KEY = 'supervisor-config';
@@ -123,6 +125,7 @@ function hydrate<T>(key: string, fallback: T): T {
 interface SupervisorState {
   watchedProjects: WatchedProject[];
   roadmapByProject: Record<string, RoadmapItem[]>;
+  todosByProject: Record<string, SessionTodo[]>;
   escalations: Escalation[];
   supervised: SupervisedSession[];
   config: SupervisorConfig | null;
@@ -134,6 +137,11 @@ interface SupervisorState {
   addProject: (serverId: string, project: string) => Promise<void>;
   removeProject: (serverId: string, project: string) => Promise<void>;
   loadRoadmap: (serverId: string, project: string) => Promise<void>;
+  loadProjectTodos: (serverId: string, project: string) => Promise<void>;
+  promoteTodo: (serverId: string, project: string, id: string, status: string) => Promise<void>;
+  coordinatorByProject: Record<string, boolean>;
+  loadCoordinator: (serverId: string, project: string) => Promise<void>;
+  setCoordinator: (serverId: string, project: string, action: 'start' | 'stop') => Promise<void>;
   loadEscalations: (serverId: string, status?: string) => Promise<void>;
   resolveEscalation: (serverId: string, id: string, status: string) => Promise<void>;
   nudge: (serverId: string, project: string, session: string, text: string) => Promise<boolean>;
@@ -144,6 +152,8 @@ interface SupervisorState {
 export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   watchedProjects: hydrate<WatchedProject[]>(PROJECTS_KEY, []),
   roadmapByProject: hydrate<Record<string, RoadmapItem[]>>(ROADMAP_KEY, {}),
+  todosByProject: hydrate<Record<string, SessionTodo[]>>(TODOS_KEY, {}),
+  coordinatorByProject: {},
   escalations: hydrate<Escalation[]>(ESCALATIONS_KEY, []),
   supervised: hydrate<SupervisedSession[]>(SUPERVISED_KEY, []),
   config: hydrate<SupervisorConfig | null>(SUPERVISOR_CONFIG_KEY, null),
@@ -221,6 +231,41 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
       localStorage.setItem(ROADMAP_KEY, JSON.stringify(roadmapByProject));
       return { roadmapByProject };
     });
+  },
+
+  loadProjectTodos: async (serverId, project) => {
+    const path = `/api/supervisor/todos?project=${encodeURIComponent(project)}`;
+    const res = await invoke(serverId, path, 'GET');
+    if (!res?.ok) return; // keep prior (cached) state on failure
+    set((state) => {
+      const todosByProject = { ...state.todosByProject, [project]: res.body?.todos ?? [] };
+      localStorage.setItem(TODOS_KEY, JSON.stringify(todosByProject));
+      return { todosByProject };
+    });
+  },
+
+  promoteTodo: async (serverId, project, id, status) => {
+    const res = await invoke(serverId, '/api/supervisor/todos', 'PATCH', { project, id, status });
+    if (!res?.ok) return;
+    // Re-fetch the project plan so the change is reflected everywhere.
+    await get().loadProjectTodos(serverId, project);
+  },
+
+  loadCoordinator: async (serverId, project) => {
+    const path = `/api/supervisor/coordinator?project=${encodeURIComponent(project)}`;
+    const res = await invoke(serverId, path, 'GET');
+    if (!res?.ok) return;
+    set((state) => ({
+      coordinatorByProject: { ...state.coordinatorByProject, [project]: !!res.body?.running },
+    }));
+  },
+
+  setCoordinator: async (serverId, project, action) => {
+    const res = await invoke(serverId, '/api/supervisor/coordinator', 'POST', { project, action });
+    if (!res?.ok) return;
+    set((state) => ({
+      coordinatorByProject: { ...state.coordinatorByProject, [project]: !!res.body?.running },
+    }));
   },
 
   loadEscalations: async (serverId, status?) => {
