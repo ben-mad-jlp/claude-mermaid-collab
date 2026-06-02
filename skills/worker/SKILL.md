@@ -59,12 +59,41 @@ Do NOT complete. Raise an escalation so the supervisor/planner can re-validate:
 
 Your session name is `worker-<first 8 chars of the todo id>`.
 
+Always pass `todoId: "<ARGUMENTS>"` so the escalation auto-resolves when the todo later completes.
+
+For a plain blocker, a human-readable `questionText` is enough:
 ```
 Tool: mcp__plugin_mermaid-collab_mermaid__escalation_create
-Args: { "project": "<pwd>", "session": "worker-<first8(ARGUMENTS)>", "kind": "assumption-invalidated", "questionText": "{\"affectedTodoIds\":[\"<ARGUMENTS>\"],\"reason\":\"<what changed / why blocked>\"}" }
+Args: { "project": "<pwd>", "session": "worker-<first8(ARGUMENTS)>", "todoId": "<ARGUMENTS>", "kind": "assumption-invalidated", "questionText": "<what changed / why blocked>" }
 ```
 
-Then STOP — a human or the planner decides next.
+For an **A/B-style decision** (the spec can go one of a few clear ways), emit a structured payload instead of a raw JSON blob — pass `options[]` and, when you have a preference, `recommended`:
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__escalation_create
+Args: {
+  "project": "<pwd>",
+  "session": "worker-<first8(ARGUMENTS)>",
+  "todoId": "<ARGUMENTS>",
+  "kind": "decision",
+  "questionText": "<one-line description of the decision>",
+  "options": [
+    { "id": "a", "label": "<short label>", "detail": "<trade-offs>" },
+    { "id": "b", "label": "<short label>", "detail": "<trade-offs>" }
+  ],
+  "recommended": "a"
+}
+```
+`recommended` must match one of `options[].id`. The plain `questionText` form stays valid — `options` is optional and backward compatible.
+
+**Then await the decision instead of ending the turn.** `escalation_create` returns the escalation's `id`; pass it to `await_human_decision`, which blocks until a human posts an answer (or times out), then returns the chosen `optionId`:
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__await_human_decision
+Args: { "escalationId": "<id-from-escalation_create>" }
+```
+- If it returns `{ decided: true, optionId, note }` → resume the work using the chosen option (this is a real answer, not background context).
+- If it returns `{ timedOut: true }` → no human answered in time; STOP and leave the escalation open for the supervisor/planner.
+
+If you filed a plain blocker (no options), skip the await and STOP — a human or the planner decides next.
 
 ## Rules
 

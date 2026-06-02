@@ -56,7 +56,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // the session name the todo was claimed under.
       const session = r.completed.sessionName ?? '';
       if (session) markIdle(session);
-      recordSupervisorAudit({ kind: 'complete', project, session, detail: JSON.stringify({ todoId: id, acceptance: acceptance ?? r.completed.acceptanceStatus, promoted: r.promoted }) });
+      recordSupervisorAudit({ kind: 'complete', project, session, detail: JSON.stringify({ todoId: id, acceptance: acceptance ?? r.completed.acceptanceStatus, promoted: r.promoted, rolledUp: r.rolledUp }) });
       // Escalation lifecycle: a todo that completes (accepted) may have left an
       // OPEN escalation behind — e.g. it exhausted its retry budget, the
       // coordinator filed a 'blocker', and it later recovered (human decision +

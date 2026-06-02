@@ -97,6 +97,7 @@ export type WSMessage =
   | { type: 'pair_mode_changed'; pairMode: boolean; project: string; session: string }
   | { type: 'supervisor_nudge'; project: string; session: string; serverId: string; text: string; sent: boolean }
   | { type: 'escalation_created'; project: string; session: string; kind: string; id: string }
+  | { type: 'escalation_decided'; project: string; session: string; id: string; optionId: string | null }
   | { type: 'peer_registry'; peers: Array<{ serverId: string; baseUrl: string; token?: string }> };
 
 export class WebSocketHandler {

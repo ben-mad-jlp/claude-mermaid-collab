@@ -52,6 +52,12 @@ export interface AuditEntry {
   serverId: string;
 }
 
+export interface EscalationOption {
+  id: string;
+  label: string;
+  detail?: string;
+}
+
 export interface Escalation {
   id: string;
   project: string;
@@ -61,6 +67,10 @@ export interface Escalation {
   status: string;
   createdAt: number;
   resolvedAt?: number | null;
+  // ED1: structured decision options. Null/absent for a plain question, in which
+  // case the UI renders the legacy Jump/Resolve card instead of a decision card.
+  options?: EscalationOption[] | null;
+  recommended?: string | null; // option id the worker recommends, if any
 }
 
 export interface SupervisedSession {
@@ -144,6 +154,7 @@ interface SupervisorState {
   setCoordinator: (serverId: string, project: string, action: 'start' | 'stop') => Promise<void>;
   loadEscalations: (serverId: string, status?: string) => Promise<void>;
   resolveEscalation: (serverId: string, id: string, status: string) => Promise<void>;
+  decideEscalation: (serverId: string, id: string, optionId: string) => Promise<boolean>;
   nudge: (serverId: string, project: string, session: string, text: string) => Promise<boolean>;
   loadConfig: (serverId: string) => Promise<void>;
   saveConfig: (serverId: string, supervisorProject: string, supervisorSession: string) => Promise<void>;
@@ -315,5 +326,21 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
       localStorage.setItem(ESCALATIONS_KEY, JSON.stringify(escalations));
       return { escalations };
     });
+  },
+
+  // ED2/ED3: answer a structured escalation by choosing one of its options. The
+  // server relays the choice to the waiting worker and resolves the escalation
+  // (status 'decided'); we mirror that locally so the card drops out of the list.
+  decideEscalation: async (serverId, id, optionId) => {
+    const res = await invoke(serverId, `/api/supervisor/escalation/${encodeURIComponent(id)}/decide`, 'POST', { optionId });
+    if (!res?.ok) return false; // leave state unchanged on failure
+    set((state) => {
+      const escalations = state.escalations.map((e) =>
+        e.id === id ? { ...e, status: 'decided', resolvedAt: Date.now() } : e,
+      );
+      localStorage.setItem(ESCALATIONS_KEY, JSON.stringify(escalations));
+      return { escalations };
+    });
+    return true;
   },
 }));

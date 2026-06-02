@@ -127,6 +127,37 @@ describe('createEscalation dedup signal (TOCTOU fix)', () => {
   });
 });
 
+describe('createEscalation structured payload (options + recommended)', () => {
+  const OPTIONS = [
+    { id: 'a', label: 'Option A', detail: 'do A' },
+    { id: 'b', label: 'Option B' },
+  ];
+  it('round-trips options[] and recommended through create + list', () => {
+    const { escalation } = createEscalation({ project: '/so1', session: 's', kind: 'decision', questionText: 'A or B?', options: OPTIONS, recommended: 'a' });
+    expect(escalation.options).toEqual(OPTIONS);
+    expect(escalation.recommended).toBe('a');
+    const listed = listOpenEscalations().find((e) => e.id === escalation.id);
+    expect(listed?.options).toEqual(OPTIONS);
+    expect(listed?.recommended).toBe('a');
+  });
+  it('backward compatible: a plain escalation has options=null, recommended=null', () => {
+    const { escalation } = createEscalation({ project: '/so2', session: 's', kind: 'question', questionText: 'plain?' });
+    expect(escalation.options).toBeNull();
+    expect(escalation.recommended).toBeNull();
+    expect(listOpenEscalations().find((e) => e.id === escalation.id)?.options).toBeNull();
+  });
+  it('drops a recommended that does not match any option id', () => {
+    const { escalation } = createEscalation({ project: '/so3', session: 's', kind: 'decision', questionText: 'q', options: OPTIONS, recommended: 'zzz' });
+    expect(escalation.recommended).toBeNull();
+    expect(escalation.options).toEqual(OPTIONS);
+  });
+  it('an empty options[] is treated as no options', () => {
+    const { escalation } = createEscalation({ project: '/so4', session: 's', kind: 'decision', questionText: 'q', options: [], recommended: 'a' });
+    expect(escalation.options).toBeNull();
+    expect(escalation.recommended).toBeNull();
+  });
+});
+
 describe('resolveEscalationsForTodo (auto-resolve on todo completion)', () => {
   it('resolves open escalations matched by exact todoId', () => {
     const { escalation } = createEscalation({ project: '/r1', session: 'worker-abc', kind: 'blocker', questionText: 'exhausted', todoId: 'T1' });

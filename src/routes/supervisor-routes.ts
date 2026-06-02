@@ -8,6 +8,8 @@ import {
   listOpenEscalations,
   listEscalations,
   resolveEscalation,
+  getEscalation,
+  recordEscalationDecision,
   getSupervisorIdentity,
   getPeer,
   getSupervisorConfig,
@@ -217,6 +219,35 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       return Response.json({ escalations: listEscalations(status) });
     }
     return Response.json({ escalations: listOpenEscalations() });
+  }
+
+  // POST /api/supervisor/escalation/:id/decide — record a human's answer to a
+  // (structured) escalation and resolve it. Paired with the await_human_decision
+  // MCP tool, which polls the decision store until this lands (ED2 poll-await relay).
+  {
+    const decideMatch = url.pathname.match(/^\/api\/supervisor\/escalation\/([^/]+)\/decide$/);
+    if (decideMatch && req.method === 'POST') {
+      try {
+        const id = decodeURIComponent(decideMatch[1]);
+        const { optionId, note } = (await req.json()) as { optionId?: string; note?: string };
+        const esc = getEscalation(id);
+        if (!esc) return jsonError(`escalation not found: ${id}`, 404);
+        // When the escalation carries structured options, the optionId must name
+        // one of them; a note-only answer (no options / no optionId) is allowed.
+        if (esc.options && esc.options.length > 0) {
+          if (!optionId) return jsonError('optionId is required for a structured escalation', 400);
+          if (!esc.options.some((o) => o.id === optionId)) {
+            return jsonError(`optionId "${optionId}" is not one of the escalation's options`, 400);
+          }
+        }
+        const decision = recordEscalationDecision({ escalationId: id, optionId: optionId ?? null, note: note ?? null, decidedBy: 'human' });
+        resolveEscalation(id, 'decided');
+        getWebSocketHandler()?.broadcast({ type: 'escalation_decided', project: esc.project, session: esc.session, id, optionId: decision.optionId });
+        return Response.json({ ok: true, decision });
+      } catch (err) {
+        return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+      }
+    }
   }
 
   if (url.pathname === '/api/supervisor/config' && req.method === 'GET') {

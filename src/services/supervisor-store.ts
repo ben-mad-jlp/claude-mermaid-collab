@@ -28,6 +28,13 @@ export interface SupervisedSession {
 }
 
 
+/** A selectable answer for a structured escalation (A/B-style decision). */
+export interface EscalationOption {
+  id: string;
+  label: string;
+  detail?: string;
+}
+
 export interface Escalation {
   id: string;
   project: string;
@@ -42,10 +49,28 @@ export interface Escalation {
    *  link so the escalation can be auto-resolved when that todo completes. Null
    *  for escalations not tied to a specific todo. */
   todoId: string | null;
+  /** Structured decision options for an A/B-style escalation. Empty/null when the
+   *  escalation is a plain question (questionText only). */
+  options: EscalationOption[] | null;
+  /** The id of the recommended option (must be one of options[].id). Null when
+   *  there is no recommendation or no options. */
+  recommended: string | null;
 }
 
 export const ESCALATION_KINDS = ['question', 'decision', 'blocker', 'approval'] as const;
 export type EscalationKind = typeof ESCALATION_KINDS[number];
+
+/** A human's answer to a (structured) escalation, posted via the decide endpoint
+ *  and polled by the await_human_decision MCP tool. Keyed 1:1 by escalationId. */
+export interface EscalationDecision {
+  escalationId: string;
+  /** The chosen option id (one of the escalation's options[].id), or null for a
+   *  free-text-only answer. */
+  optionId: string | null;
+  note: string | null;
+  decidedBy: string | null;
+  decidedAt: number;
+}
 
 const DDL = `
 CREATE TABLE IF NOT EXISTS watched_project (
@@ -71,9 +96,18 @@ CREATE TABLE IF NOT EXISTS escalation (
   createdAt INTEGER NOT NULL,
   resolvedAt INTEGER,
   serverId TEXT NOT NULL DEFAULT '',
-  todoId TEXT
+  todoId TEXT,
+  optionsJson TEXT,
+  recommended TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_esc_open ON escalation(project, session, questionText, status);
+CREATE TABLE IF NOT EXISTS escalation_decision (
+  escalationId TEXT PRIMARY KEY,
+  optionId TEXT,
+  note TEXT,
+  decidedBy TEXT,
+  decidedAt INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS supervisor_identity (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   project TEXT NOT NULL,
@@ -129,6 +163,8 @@ function openDb(): Database {
   addColumnIfMissing(db, 'supervisor_identity', 'serverId', "serverId TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, 'watched_project', 'watchdogThresholdPercent', 'watchdogThresholdPercent INTEGER');
   addColumnIfMissing(db, 'escalation', 'todoId', 'todoId TEXT');
+  addColumnIfMissing(db, 'escalation', 'optionsJson', 'optionsJson TEXT');
+  addColumnIfMissing(db, 'escalation', 'recommended', 'recommended TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS idx_esc_todo ON escalation(project, todoId, status)');
   return db;
 }
@@ -216,11 +252,39 @@ export function isSupervised(project: string, session: string): boolean {
 
 // --- Escalations ---
 
+/** Raw DB row shape: structured options live in a JSON column (`optionsJson`),
+ *  parsed into `options` by mapEscalationRow before crossing the store boundary. */
+type EscalationRow = Omit<Escalation, 'options'> & { optionsJson: string | null };
+
+/** Parse a stored options blob into a typed array, tolerating null/garbage. */
+function parseOptions(json: string | null): EscalationOption[] | null {
+  if (!json) return null;
+  try {
+    const parsed = JSON.parse(json);
+    if (!Array.isArray(parsed) || parsed.length === 0) return null;
+    return parsed
+      .filter((o): o is EscalationOption => o && typeof o.id === 'string' && typeof o.label === 'string')
+      .map((o) => ({ id: o.id, label: o.label, ...(o.detail != null ? { detail: String(o.detail) } : {}) }));
+  } catch {
+    return null;
+  }
+}
+
+/** Map a raw DB row to the public Escalation shape (optionsJson → options[]). */
+function mapEscalationRow(row: EscalationRow): Escalation {
+  const { optionsJson, ...rest } = row;
+  return { ...rest, options: parseOptions(optionsJson), recommended: row.recommended ?? null };
+}
+
 /**
  * Create an open escalation, deduping on (project, session, questionText). Returns
  * the escalation AND whether it was newly created — so callers broadcast/notify
  * only for genuinely-new escalations WITHOUT a separate pre-check (closes the
  * read-then-create TOCTOU; the check+insert here is one synchronous step).
+ *
+ * Optional `options`/`recommended` carry a structured A/B-style decision; when
+ * omitted the escalation is a plain question (questionText only). `recommended`
+ * is only stored when it names one of the provided options.
  */
 export function createEscalation(input: {
   project: string;
@@ -229,20 +293,28 @@ export function createEscalation(input: {
   questionText: string;
   serverId?: string;
   todoId?: string | null;
+  options?: EscalationOption[] | null;
+  recommended?: string | null;
 }): { escalation: Escalation; isNew: boolean } {
   const d = openDb();
   const existing = d
     .query("SELECT * FROM escalation WHERE project = ? AND session = ? AND questionText = ? AND status = 'open'")
-    .get(input.project, input.session, input.questionText) as Escalation | null;
-  if (existing) return { escalation: existing, isNew: false };
+    .get(input.project, input.session, input.questionText) as EscalationRow | null;
+  if (existing) return { escalation: mapEscalationRow(existing), isNew: false };
 
   const id = crypto.randomUUID();
   const createdAt = Date.now();
   const serverId = input.serverId ?? '';
   const todoId = input.todoId ?? null;
+  const options = input.options && input.options.length > 0 ? input.options : null;
+  const optionsJson = options ? JSON.stringify(options) : null;
+  // Only honour a recommendation that points at a real option.
+  const recommended = options && input.recommended && options.some((o) => o.id === input.recommended)
+    ? input.recommended
+    : null;
   d.prepare(
-    'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, resolvedAt, serverId, todoId) VALUES (?,?,?,?,?,?,?,?,?,?)'
-  ).run(id, input.project, input.session, input.kind, input.questionText, 'open', createdAt, null, serverId, todoId);
+    'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, resolvedAt, serverId, todoId, optionsJson, recommended) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
+  ).run(id, input.project, input.session, input.kind, input.questionText, 'open', createdAt, null, serverId, todoId, optionsJson, recommended);
   return {
     escalation: {
       id,
@@ -255,6 +327,8 @@ export function createEscalation(input: {
       resolvedAt: null,
       serverId,
       todoId,
+      options,
+      recommended,
     },
     isNew: true,
   };
@@ -262,17 +336,23 @@ export function createEscalation(input: {
 
 export function listEscalations(status?: string): Escalation[] {
   const d = openDb();
-  if (status !== undefined) {
-    return d.query("SELECT * FROM escalation WHERE status = ? ORDER BY createdAt DESC").all(status) as Escalation[];
-  }
-  return d.query("SELECT * FROM escalation ORDER BY createdAt DESC").all() as Escalation[];
+  const rows = status !== undefined
+    ? d.query("SELECT * FROM escalation WHERE status = ? ORDER BY createdAt DESC").all(status) as EscalationRow[]
+    : d.query("SELECT * FROM escalation ORDER BY createdAt DESC").all() as EscalationRow[];
+  return rows.map(mapEscalationRow);
 }
 
 export function listOpenEscalations(): Escalation[] {
   const d = openDb();
-  return d
+  return (d
     .query("SELECT * FROM escalation WHERE status = 'open' ORDER BY createdAt")
-    .all() as Escalation[];
+    .all() as EscalationRow[]).map(mapEscalationRow);
+}
+
+export function getEscalation(id: string): Escalation | null {
+  const d = openDb();
+  const row = d.query('SELECT * FROM escalation WHERE id = ?').get(id) as EscalationRow | null;
+  return row ? mapEscalationRow(row) : null;
 }
 
 export function resolveEscalation(id: string, status: string): void {
@@ -282,6 +362,38 @@ export function resolveEscalation(id: string, status: string): void {
     Date.now(),
     id
   );
+}
+
+// --- Escalation decisions (poll-await relay; ED2) ---
+
+/**
+ * Record a human's answer to an escalation (idempotent upsert keyed by
+ * escalationId). The await_human_decision MCP tool polls getEscalationDecision
+ * until this row appears. Storing the answer does NOT itself resolve the
+ * escalation — the decide route pairs this with resolveEscalation.
+ */
+export function recordEscalationDecision(input: {
+  escalationId: string;
+  optionId?: string | null;
+  note?: string | null;
+  decidedBy?: string | null;
+}): EscalationDecision {
+  const d = openDb();
+  const decidedAt = Date.now();
+  const optionId = input.optionId ?? null;
+  const note = input.note ?? null;
+  const decidedBy = input.decidedBy ?? null;
+  d.prepare(
+    `INSERT INTO escalation_decision (escalationId, optionId, note, decidedBy, decidedAt) VALUES (?,?,?,?,?)
+     ON CONFLICT(escalationId) DO UPDATE SET optionId = excluded.optionId, note = excluded.note, decidedBy = excluded.decidedBy, decidedAt = excluded.decidedAt`,
+  ).run(input.escalationId, optionId, note, decidedBy, decidedAt);
+  return { escalationId: input.escalationId, optionId, note, decidedBy, decidedAt };
+}
+
+export function getEscalationDecision(escalationId: string): EscalationDecision | null {
+  const d = openDb();
+  const row = d.query('SELECT * FROM escalation_decision WHERE escalationId = ?').get(escalationId) as EscalationDecision | null;
+  return row ?? null;
 }
 
 /**
@@ -299,9 +411,9 @@ export function resolveEscalationsForTodo(
   status = 'resolved',
 ): Escalation[] {
   const d = openDb();
-  const open = d
+  const open = (d
     .query("SELECT * FROM escalation WHERE project = ? AND status = 'open'")
-    .all(project) as Escalation[];
+    .all(project) as EscalationRow[]).map(mapEscalationRow);
   const sessionSet = new Set(sessions.filter(Boolean));
   const matched = open.filter((e) => e.todoId === todoId || sessionSet.has(e.session));
   if (matched.length === 0) return [];
