@@ -1,0 +1,117 @@
+/**
+ * WorkerRoster — the worker list (BR-2, design §2/§8).
+ *
+ * Reflows WorkerPool's cramped card grid into a clean single-column list: a
+ * liveness dot, the worker name, its current-todo title, and a context
+ * micro-gauge. Liveness comes from the shared `deriveLiveness` so the roster and
+ * future FleetGraph nodes never disagree. Clicking a row dives into that
+ * session's Studio.
+ */
+
+import React, { useEffect, useMemo, useState } from 'react';
+import type { SessionTodo } from '@/types/sessionTodo';
+import {
+  currentTodoFor,
+  deriveLiveness,
+  isContextHot,
+  roleGlyph,
+  type Liveness,
+} from '@/lib/liveness';
+
+interface SubLike {
+  serverId: string;
+  project: string;
+  session: string;
+  status: 'active' | 'waiting' | 'permission' | 'unknown';
+  lastUpdate: number;
+  contextPercent?: number;
+}
+
+export interface WorkerRosterProps {
+  subscriptions: SubLike[];
+  todos: SessionTodo[];
+  onJump?: (project: string, session: string) => void;
+}
+
+function livenessDot(liveness: Liveness): string {
+  switch (liveness) {
+    case 'crashed':
+      return 'bg-danger-500';
+    case 'active':
+      return 'bg-success-500';
+    default:
+      return 'bg-gray-300 dark:bg-gray-600';
+  }
+}
+
+export const WorkerRoster: React.FC<WorkerRosterProps> = ({ subscriptions, todos, onJump }) => {
+  // Tick so staleness re-evaluates without a fresh store event.
+  const [now, setNow] = useState(0);
+  useEffect(() => {
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 5_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const rows = useMemo(() => {
+    return subscriptions.map((sub) => {
+      const currentTodo = currentTodoFor(sub.session, todos);
+      const liveness = deriveLiveness(sub, currentTodo, now);
+      return { sub, currentTodo, liveness, ctxHot: isContextHot(sub.contextPercent) };
+    });
+  }, [subscriptions, todos, now]);
+
+  return (
+    <div
+      data-testid="worker-roster"
+      className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
+    >
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-700 text-xs">
+        <span className="font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Workers</span>
+        <span className="text-gray-400 dark:text-gray-500">{rows.length}</span>
+      </div>
+
+      {rows.length === 0 ? (
+        <p className="px-3 py-2 text-xs text-gray-400 dark:text-gray-500 italic">No active sessions in this project.</p>
+      ) : (
+        <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+          {rows.map(({ sub, currentTodo, liveness, ctxHot }) => (
+            <li key={`${sub.serverId}:${sub.project}:${sub.session}`}>
+              <button
+                type="button"
+                onClick={() => onJump?.(sub.project, sub.session)}
+                data-testid={`roster-row-${sub.session}`}
+                title="Dive into this session's Studio"
+                className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors"
+              >
+                <span className={`shrink-0 w-2 h-2 rounded-full ${livenessDot(liveness)}`} aria-hidden="true" />
+                <span className="shrink-0" aria-hidden="true">{roleGlyph(sub.session)}</span>
+                <span className="shrink-0 font-medium text-gray-800 dark:text-gray-100 truncate max-w-[8rem]">
+                  {sub.session}
+                </span>
+                <span className="flex-1 min-w-0 truncate text-gray-500 dark:text-gray-400">
+                  {currentTodo ? currentTodo.title : liveness === 'crashed' ? 'unresponsive' : 'idle'}
+                </span>
+                {typeof sub.contextPercent === 'number' && (
+                  <span className="shrink-0 flex items-center gap-1">
+                    <span className="w-10 h-1.5 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+                      <span
+                        className={`block h-full ${ctxHot ? 'bg-danger-500' : 'bg-gray-400 dark:bg-gray-500'}`}
+                        style={{ width: `${Math.min(100, Math.max(0, sub.contextPercent))}%` }}
+                      />
+                    </span>
+                    <span className={`tabular-nums ${ctxHot ? 'text-danger-600 dark:text-danger-400 font-semibold' : 'text-gray-400 dark:text-gray-500'}`}>
+                      {Math.round(sub.contextPercent)}%
+                    </span>
+                  </span>
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+};
+
+export default WorkerRoster;

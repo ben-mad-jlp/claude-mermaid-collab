@@ -1,4 +1,5 @@
 import type { PlanItem } from '@/types/planItem';
+import { readThemeColor } from '@/lib/themeTokens';
 
 export interface RoadmapToMermaidOpts {
   mode?: 'graph' | 'waves';
@@ -15,14 +16,28 @@ const STATUS_CLASS: Record<string, string> = {
   dropped: 'dropped',
 };
 
-const CLASSDEFS = [
-  '  classDef done fill:#ddffdd,stroke:#33aa33',
-  '  classDef inprogress fill:#dde5ff,stroke:#3366dd',
-  '  classDef ready fill:#f4f4f5,stroke:#9ca3af',
-  '  classDef planned fill:#f4f4f5,stroke:#9ca3af,stroke-dasharray:4',
-  '  classDef blocked fill:#fff0d6,stroke:#e0a106',
-  '  classDef dropped fill:#eee,stroke:#bbb,color:#999',
-].join('\n');
+/**
+ * ClassDef palette, derived from the app's semantic tokens and keyed to the same
+ * funnel.ts buckets the rest of the control UI uses, so the roadmap graph, the
+ * funnel, and (future) fleet graph all share one palette:
+ *   done → success · inprogress → in-flight (info) · ready → neutral ·
+ *   planned → backlog (neutral, dashed) · blocked → danger · dropped → muted.
+ * Resolved at call time so it follows light/dark/sepia; hex fallbacks reproduce
+ * the legacy look for non-DOM / token-less contexts.
+ */
+function buildClassDefs(): string {
+  const c = (varName: string, fallback: string) => readThemeColor(varName, fallback);
+  const neutralFill = c('--color-muted-100', '#f4f4f5');
+  const neutralStroke = c('--color-muted-400', '#9ca3af');
+  return [
+    `  classDef done fill:${c('--color-success-100', '#ddffdd')},stroke:${c('--color-success-600', '#33aa33')}`,
+    `  classDef inprogress fill:${c('--color-info-100', '#dde5ff')},stroke:${c('--color-info-600', '#3366dd')}`,
+    `  classDef ready fill:${neutralFill},stroke:${neutralStroke}`,
+    `  classDef planned fill:${neutralFill},stroke:${neutralStroke},stroke-dasharray:4`,
+    `  classDef blocked fill:${c('--color-danger-100', '#fff0d6')},stroke:${c('--color-danger-600', '#e0a106')}`,
+    `  classDef dropped fill:${neutralFill},stroke:${neutralStroke},color:${c('--color-muted-500', '#999')}`,
+  ].join('\n');
+}
 
 export function sanitizeId(id: string): string {
   let s = id.replace(/[^A-Za-z0-9_]/g, '_');
@@ -78,7 +93,7 @@ export function roadmapToMermaid(items: PlanItem[], opts?: RoadmapToMermaidOpts)
   }
   const mode = opts?.mode ?? 'graph';
   const edges = edgeLines(items);
-  const out: string[] = ['flowchart TD', CLASSDEFS, ''];
+  const out: string[] = ['flowchart TD', buildClassDefs(), ''];
 
   if (mode === 'waves') {
     const waveMap = computeWaveMap(items);

@@ -7,6 +7,7 @@
  */
 
 import mermaid from 'mermaid';
+import { readThemeColor } from './themeTokens';
 
 /**
  * Check if diagram content has its own init directive
@@ -21,7 +22,9 @@ export function hasCustomInit(content: string): boolean {
  * Note: When a diagram has its own %%{init}%% directive, we don't set a
  * global theme to let the diagram's directive take full control. This allows
  * diagrams to specify their own theme (dark, base, default) or custom styling.
- * For diagrams without custom init, we use the app's theme for good defaults.
+ * For diagrams without custom init, we drive Mermaid's `base` theme from the
+ * app's semantic design tokens (read off `:root` at runtime) so authored
+ * diagrams follow light/dark/sepia instead of the stock mermaid `default` look.
  */
 export async function initializeMermaid(theme: 'light' | 'dark', diagramContent?: string): Promise<void> {
   const hasCustom = diagramContent && hasCustomInit(diagramContent);
@@ -36,19 +39,39 @@ export async function initializeMermaid(theme: 'light' | 'dark', diagramContent?
     },
   };
 
-  // Only set global theme if diagram doesn't have its own init directive
-  // Always use 'default' so node colors are identical across light/dark/sepia
+  // Only set the global theme if the diagram doesn't bring its own %%{init}%%.
+  // Use Mermaid's `base` theme and map its themeVariables onto the app's
+  // semantic tokens so node/edge colors track the active app theme. Fallbacks
+  // mirror the legacy light/dark look for non-DOM / token-less contexts.
   if (!hasCustom) {
-    config.theme = 'default';
-    // In dark mode, only lighten the arrow lines so they're visible against
-    // the dark page background. Leave edge label background and text alone:
-    // mermaid's default light label box with dark text stays readable, and
-    // node text on light pair-mode subgraph fills stays dark.
-    if (theme === 'dark') {
-      config.themeVariables = {
-        lineColor: '#cbd5e1',
-      };
-    }
+    const dark = theme === 'dark';
+    const surface = readThemeColor('--color-surface', dark ? '#1e293b' : '#ffffff');
+    const border = readThemeColor('--color-border', dark ? '#475569' : '#d1d5db');
+    const text = readThemeColor('--color-text', dark ? '#f1f5f9' : '#111827');
+    const muted = readThemeColor('--color-muted', dark ? '#64748b' : '#9ca3af');
+    const cluster = readThemeColor('--color-surface-muted', dark ? '#0f172a' : '#f9fafb');
+    const accent = readThemeColor('--color-accent-500', '#0ea5e9');
+
+    config.theme = 'base';
+    config.themeVariables = {
+      background: surface,
+      primaryColor: surface,
+      primaryBorderColor: border,
+      primaryTextColor: text,
+      secondaryColor: cluster,
+      tertiaryColor: cluster,
+      mainBkg: surface,
+      nodeBorder: border,
+      nodeTextColor: text,
+      clusterBkg: cluster,
+      clusterBorder: border,
+      lineColor: muted,
+      titleColor: text,
+      edgeLabelBackground: surface,
+      textColor: text,
+      // Accent the primary line/link tone so diagrams feel on-brand.
+      lineColorPrimary: accent,
+    };
   }
 
   mermaid.initialize(config);

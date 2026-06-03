@@ -7,15 +7,14 @@
  *   todo       → TodoDetailView
  *   worker     → WorkerDetail
  *   funnel     → the segment's filtered todo list
- * SystemMapPanel + TracePanel ride along as secondary dock tabs — the only
- * fleet "map" surfaces in the Bridge.
+ * TracePanel rides along as a secondary dock tab. (The live SystemMapPanel
+ * mermaid map was retired in BR-3 in favour of the React Flow FleetGraph.)
  */
 
 import React, { useState } from 'react';
 import type { SessionTodo } from '@/types/sessionTodo';
 import { EscalationInbox } from '@/components/supervisor/EscalationInbox';
 import TodoDetailView from '@/components/editors/TodoDetailView';
-import SystemMapPanel from '@/components/supervisor/SystemMapPanel';
 import TracePanel from '@/components/supervisor/TracePanel';
 import { WorkerDetail } from './WorkerDetail';
 import { FUNNEL_SEGMENTS, todosInSegment, type FunnelKey } from '@/components/supervisor/bridge/funnel';
@@ -35,7 +34,7 @@ export type DrillTarget =
   | { kind: 'worker'; session: string }
   | { kind: 'funnel'; segment: FunnelKey };
 
-type DockTab = 'focus' | 'map' | 'trace';
+type DockTab = 'focus' | 'trace';
 
 export interface DrillDockProps {
   target: DrillTarget | null;
@@ -124,7 +123,6 @@ export const DrillDock: React.FC<DrillDockProps> = ({
 
   const tabs: { key: DockTab; label: string }[] = [
     { key: 'focus', label: 'Focus' },
-    { key: 'map', label: 'Map' },
     { key: 'trace', label: 'Trace' },
   ];
 
@@ -176,7 +174,6 @@ export const DrillDock: React.FC<DrillDockProps> = ({
             onJump={onJump}
           />
         )}
-        {tab === 'map' && <SystemMapPanel serverId={serverScope} project={project} onJump={onJump} />}
         {tab === 'trace' && <TracePanel serverId={serverScope} project={project} />}
       </div>
     </aside>

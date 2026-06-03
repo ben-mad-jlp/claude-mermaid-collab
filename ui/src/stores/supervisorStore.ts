@@ -71,6 +71,10 @@ export interface Escalation {
   // case the UI renders the legacy Jump/Resolve card instead of a decision card.
   options?: EscalationOption[] | null;
   recommended?: string | null; // option id the worker recommends, if any
+  // BR-4: optional rich JSON-render decision spec (server-validated closed
+  // catalog). Carried opaquely here; the focal DecisionCard re-validates it via
+  // focal/catalog.parseUiSpec before rendering. Absent/null for plain decisions.
+  ui?: unknown;
 }
 
 export interface SupervisedSession {
