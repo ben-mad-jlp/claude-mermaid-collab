@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useSupervisorStore } from '@/stores/supervisorStore';
 import type { SessionTodo } from '@/types/sessionTodo';
 import type { PlanItem } from '@/types/planItem';
-import { roadmapToMermaid, computeWaveMap } from './roadmapToMermaid';
+import { roadmapToMermaid, computeWaveMap, sanitizeId } from './roadmapToMermaid';
 import { MermaidPreview } from '@/components/editors/MermaidPreview';
 
 /**
@@ -14,6 +14,11 @@ import { MermaidPreview } from '@/components/editors/MermaidPreview';
 export interface PlanPanelProps {
   serverId: string;
   project: string;
+  /**
+   * Optional: clicking a plan item (graph/waves node or a list row) selects the
+   * underlying todo. Used by the Plan workspace to open a TodoDetailView.
+   */
+  onSelectTodo?: (todo: SessionTodo) => void;
 }
 
 type Mode = 'graph' | 'waves' | 'list';
@@ -60,16 +65,25 @@ function planSort(waveMap: Map<string, number>) {
   };
 }
 
-function PlanRow({ todo, depth }: { todo: SessionTodo; depth: number }) {
+function PlanRow({
+  todo,
+  depth,
+  onSelect,
+}: {
+  todo: SessionTodo;
+  depth: number;
+  onSelect?: (todo: SessionTodo) => void;
+}) {
   const glyph = STATUS_GLYPH[todo.status] ?? '○';
   const colorCls = STATUS_COLOR[todo.status] ?? 'text-gray-500';
   const depCount = todo.dependsOn?.length ?? 0;
   const isInProgress = todo.status === 'in_progress';
   return (
     <div
+      onClick={onSelect ? () => onSelect(todo) : undefined}
       className={`flex items-start gap-2 py-1 px-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800 ${
-        isInProgress ? 'bg-info-50 dark:bg-info-900/20' : ''
-      }`}
+        onSelect ? 'cursor-pointer' : ''
+      } ${isInProgress ? 'bg-info-50 dark:bg-info-900/20' : ''}`}
       style={{ paddingLeft: `${0.5 + depth * 1}rem` }}
     >
       <span className={`mt-0.5 text-xs font-mono select-none ${colorCls}`} title={todo.status}>
@@ -95,7 +109,7 @@ function PlanRow({ todo, depth }: { todo: SessionTodo; depth: number }) {
   );
 }
 
-export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project }) => {
+export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelectTodo }) => {
   const todosByProject = useSupervisorStore((s) => s.todosByProject);
   const loadProjectTodos = useSupervisorStore((s) => s.loadProjectTodos);
 
@@ -109,6 +123,19 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project }) => {
   }, [serverId, project, loadProjectTodos]);
 
   const waveMap = useMemo(() => computeWaveMap(todos as PlanItem[]), [todos]);
+
+  // Mermaid node ids are the sanitized todo ids (see roadmapToMermaid); map them
+  // back so a graph/waves node click resolves to its underlying todo.
+  const todoBySanitizedId = useMemo(() => {
+    const m = new Map<string, SessionTodo>();
+    for (const t of todos) m.set(sanitizeId(t.id), t);
+    return m;
+  }, [todos]);
+
+  const handleNodeClick = (nodeId: string) => {
+    const todo = todoBySanitizedId.get(nodeId);
+    if (todo) onSelectTodo?.(todo);
+  };
 
   const inProgress = todos.filter((t) => t.status === 'in_progress').length;
   const blocked = todos.filter((t) => t.status === 'blocked').length;
@@ -183,7 +210,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project }) => {
         ) : mode === 'list' ? (
           <div className="p-2 space-y-0.5">
             {tree.map(({ todo, depth }) => (
-              <PlanRow key={todo.id} todo={todo} depth={depth} />
+              <PlanRow key={todo.id} todo={todo} depth={depth} onSelect={onSelectTodo} />
             ))}
           </div>
         ) : (
@@ -192,6 +219,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project }) => {
               content={roadmapToMermaid(todos as PlanItem[], { mode })}
               hideEditToggle
               className="h-full"
+              onNodeClickWithPosition={onSelectTodo ? handleNodeClick : undefined}
             />
           </div>
         )}

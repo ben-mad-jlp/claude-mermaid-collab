@@ -14,10 +14,10 @@ import React, { useCallback } from 'react';
 import { useTheme } from '@/hooks/useTheme';
 import { useSession } from '@/hooks/useSession';
 import { NavMenu } from './NavMenu';
+import { ModePill } from './ModePill';
 import { useTerminalStore } from '@/stores/terminalStore';
 import { useBrowserStore } from '@/stores/browserStore';
 import { useUIStore } from '@/stores/uiStore';
-import { useSupervisorStore } from '@/stores/supervisorStore';
 import { Session } from '@/types';
 
 export interface HeaderProps {
@@ -74,8 +74,6 @@ export const Header: React.FC<HeaderProps> = ({
   const terminalOpen = useTerminalStore((s) => s.open);
   const browserVisible = useBrowserStore((s) => s.visible);
   const viewerVisible = useUIStore((s) => s.viewerVisible);
-  const supervisorViewOpen = useUIStore((s) => s.supervisorViewOpen);
-  const openEscalationCount = useSupervisorStore((s) => s.escalations.filter((e) => e.status === 'open').length);
 
   // Shared style for a pane-toggle button; highlighted (accent) when its pane
   // is showing, neutral otherwise.
@@ -114,6 +112,9 @@ export const Header: React.FC<HeaderProps> = ({
             Collab
           </h1>
 
+          {/* Top-level mode switch (Studio | Bridge | Plan) + escalation badge */}
+          <ModePill />
+
           {/* VS Code Connection Badge */}
           <div
             data-testid="vscode-badge"
@@ -135,24 +136,9 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right-side controls */}
         <div className="flex items-center gap-3">
-          {/* Supervisor view toggle */}
-          <button
-            data-testid="toggle-supervisor-view"
-            onClick={() => useUIStore.getState().toggleSupervisorView()}
-            aria-label="Toggle supervisor view"
-            title="Supervisor"
-            className={`relative ${paneToggleClass(supervisorViewOpen)}`}
-          >
-            {/* Shield icon */}
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-            </svg>
-            {openEscalationCount > 0 && (
-              <span className="absolute -top-1 -right-1 flex items-center justify-center w-4 h-4 text-3xs font-bold rounded-full bg-danger-500 text-white leading-none">
-                {openEscalationCount > 9 ? '9+' : openEscalationCount}
-              </span>
-            )}
-          </button>
+          {/* The supervisor full-page toggle is gone (CUI-6): the fleet now lives
+              behind the Bridge mode in the ModePill, which carries its own
+              escalation badge. */}
 
           {/* Artifact viewer toggle */}
           <button

@@ -26,6 +26,7 @@ import React, { useEffect, useCallback, useMemo, useState, useRef } from 'react'
 import { useTheme } from '@/hooks/useTheme';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useUIStore } from '@/stores/uiStore';
+import { useEventStreamStore } from '@/stores/eventStreamStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useQuestionStore } from '@/stores/questionStore';
 import { useChatStore } from '@/stores/chatStore';
@@ -50,6 +51,7 @@ import type { Item, Session, ToolbarAction } from '@/types';
 // Import layout components
 import Header from '@/components/layout/Header';
 import Sidebar from '@/components/layout/Sidebar';
+import StudioShell from '@/components/layout/StudioShell';
 import { GlobalSearch } from '@/components/layout/GlobalSearch';
 import { TerminalDrawer } from '@/components/terminal/TerminalDrawer';
 import { BrowserPanel } from '@/components/browser/BrowserPanel';
@@ -77,9 +79,9 @@ const notifiedContextThreshold = new Set<string>();
 import { SessionCleanupDialog, type CleanupAction, CreateSessionDialog, AddProjectDialog } from '@/components/dialogs';
 
 // Import supervisor view
-import { SupervisorView } from '@/components/supervisor/SupervisorView';
-import { PlannerView } from '@/components/supervisor/PlannerView';
-import { CoordinatorView } from '@/components/supervisor/CoordinatorView';
+import { BridgeDashboard } from '@/components/supervisor/bridge/BridgeDashboard';
+import { DiveLayoutGroup } from '@/components/stream/DiveTransition';
+import PlanWorkspace from '@/components/supervisor/PlanWorkspace';
 
 /**
  * Error Boundary Component
@@ -176,8 +178,9 @@ const App: React.FC = () => {
 
   const setDocumentConflict = useUIStore((s) => s.setDocumentConflict);
   const viewerVisible = useUIStore((s) => s.viewerVisible);
-  const supervisorViewOpen = useUIStore((s) => s.supervisorViewOpen);
-  const supervisorRole = useUIStore((s) => s.supervisorRole);
+  // Control-UI vision §2: the main canvas is now gated on `mode`, not the
+  // legacy `supervisorViewOpen` boolean (kept around but no longer read here).
+  const mode = useUIStore((s) => s.mode);
 
   // Design canvas zoom (from design editor store, separate from diagram zoom)
   const designZoom = useDesignEditorStore((s) => s.zoom);
@@ -503,6 +506,11 @@ const App: React.FC = () => {
 
     // Handle incoming messages with incremental updates (Item 2 & 9)
     const subscription = client.onMessage((message) => {
+      // Feed the fleet EventStream ring buffer (Control-UI §6). Pure observation
+      // of the EXISTING message — no new ws events, no polling. Unrecognized
+      // message types are a no-op inside pushFromWs.
+      useEventStreamStore.getState().pushFromWs(message);
+
       // Supervisor nudge toast — fire regardless of which session is open so
       // the user always sees when the supervisor pushes a session to continue.
       if ((message as any).type === 'supervisor_nudge') {
@@ -1785,36 +1793,43 @@ const App: React.FC = () => {
           isVscodeConnected={isVscodeConnected}
         />
 
-        {/* Main Content Area with Sidebar, Content, and ChatPanel */}
+        {/* Main Content Area with Sidebar, Content, and ChatPanel. Wrapped in a
+            DiveLayoutGroup so a Bridge card and the Studio cockpit frame can
+            share a layoutId and morph into each other on dive / step-back. */}
         <div className="flex flex-1 min-h-0 overflow-hidden">
-          {/* Fixed-width Sidebar */}
-          <Sidebar className="h-full" />
+          <DiveLayoutGroup>
+            {/* Fixed-width left rail. Studio gets the stripped single-session
+                cockpit (StudioShell); Bridge/Plan keep the full fleet Sidebar. */}
+            {mode === 'studio' ? (
+              <StudioShell className="h-full" />
+            ) : (
+              <Sidebar className="h-full" />
+            )}
 
-          {supervisorViewOpen && (
-            <main className="flex-1 h-full min-h-0 overflow-hidden bg-white dark:bg-gray-800">
-              {supervisorRole === 'planner' ? (
-                <PlannerView />
-              ) : supervisorRole === 'coordinator' ? (
-                <CoordinatorView />
-              ) : (
-                <SupervisorView />
-              )}
-            </main>
-          )}
+            {/* Bridge mode: the fleet command center (KPI glance). */}
+            {mode === 'bridge' && (
+              <main className="flex-1 h-full min-h-0 overflow-hidden bg-white dark:bg-gray-800">
+                <BridgeDashboard />
+              </main>
+            )}
 
-          {!supervisorViewOpen && viewerVisible && (
-            <main
-              className={`
-                flex-1
-                h-full
-                min-h-0
-                overflow-hidden
-                bg-white dark:bg-gray-800
-              `}
-            >
-              {renderMainContent()}
-            </main>
-          )}
+            {/* Plan mode: roadmap graph + Approve-plan (CUI-4). */}
+            {mode === 'plan' && <PlanWorkspace />}
+
+            {mode === 'studio' && viewerVisible && (
+              <main
+                className={`
+                  flex-1
+                  h-full
+                  min-h-0
+                  overflow-hidden
+                  bg-white dark:bg-gray-800
+                `}
+              >
+                {renderMainContent()}
+              </main>
+            )}
+          </DiveLayoutGroup>
 
           {/* Resizable right columns beside the artifact preview (toggled from
               the Header). Each renders nothing when closed. Browser first, then

@@ -84,6 +84,12 @@ function toTabDescriptor(node: TreeNode) {
 interface ArtifactTreeProps {
   className?: string;
   vsCodeMode?: boolean;
+  /**
+   * Studio mode (Control-UI vision §3): the tree is strictly scoped to the
+   * current session's own buckets — the cross-project "Other sessions" expander
+   * is hidden. There is no scope concept to reconcile in Studio.
+   */
+  studio?: boolean;
 }
 
 interface ContextMenuState {
@@ -118,7 +124,7 @@ function toArtifactNode(
   };
 }
 
-export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
+export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProps) {
   const currentSession = useSessionStore((s) => s.currentSession);
   const diagrams = useSessionStore((s) => s.diagrams);
   const documents = useSessionStore((s) => s.documents);
@@ -504,21 +510,9 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
 
   const noSession = !currentSession;
 
-  // PCS Phase 5 (Wave 3, piece 3): the artifact tree is inherently session-scoped
-  // — it renders the artifacts loaded for the CURRENT session. When the user has
-  // scoped the left column to a different project (uiStore.activeProject), the
-  // loaded artifacts belong to a session in another project, so showing them here
-  // would be misleading. Surface a scope-mismatch hint with a one-click "Sync"
-  // that points the current session at a session under the active project (the
-  // same affordance ProjectScopeSection exposes), rather than display stale data.
-  const activeProject = useUIStore((s) => s.activeProject);
-  const sessionsForSync = useSessionStore((s) => s.sessions);
-  const setCurrentSession = useSessionStore((s) => s.setCurrentSession);
-  const scopeMismatch =
-    !!currentSession && !!activeProject && activeProject !== currentSession.project;
-  const syncTarget = scopeMismatch
-    ? sessionsForSync.find((s) => s.project === activeProject) ?? null
-    : null;
+  // Control-UI vision §2/§3: the scope-mismatch / ⇄ Sync hack is deleted. The
+  // tree is always scoped to the current session's project; in Studio there is
+  // no separate `activeProject` selector to drift from, so nothing to reconcile.
 
   const handleDrop = async (e: React.DragEvent<HTMLElement>) => {
     e.preventDefault();
@@ -963,35 +957,6 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
     );
   }
 
-  if (scopeMismatch) {
-    const projName = activeProject!.split('/').filter(Boolean).pop() ?? activeProject!;
-    return (
-      <div
-        data-testid="artifact-tree-scope-mismatch"
-        className="p-4 text-xs text-gray-500 dark:text-gray-400 space-y-2"
-      >
-        <p>
-          Items follow the active session, which is in a different project than the
-          one in scope (<span className="font-medium">{projName}</span>).
-        </p>
-        {syncTarget ? (
-          <button
-            type="button"
-            onClick={() => setCurrentSession(syncTarget)}
-            className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
-          >
-            ⇄ Switch to {syncTarget.name}
-          </button>
-        ) : (
-          <p className="text-gray-400 dark:text-gray-500">No open session in {projName} to switch to.</p>
-        )}
-        {/* Option D: even while the in-scope tree is hidden, let the user lazily
-            browse artifacts across the active project's sessions. */}
-        <OtherSessionsSection />
-      </div>
-    );
-  }
-
   return (
     <aside
       data-testid="artifact-tree"
@@ -1306,9 +1271,9 @@ export function ArtifactTree({ className, vsCodeMode }: ArtifactTreeProps) {
           setSelection={setSelection}
           toTabDescriptor={toTabDescriptor}
         />
-        {/* Option D (Wave 3, piece 3): lazy per-session expand — browse the
-            active project's OTHER sessions' artifacts on demand. */}
-        <OtherSessionsSection />
+        {/* Lazy per-session expand — browse other sessions' artifacts on
+            demand. Hidden in Studio, which is strictly single-session. */}
+        {!studio && <OtherSessionsSection />}
       </div>
 
       {contextMenu && (

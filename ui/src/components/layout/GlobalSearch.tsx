@@ -14,6 +14,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useUIStore } from '@/stores/uiStore';
+import { useSupervisorStore } from '@/stores/supervisorStore';
+import { useDiveIn } from '@/hooks/useDiveIn';
+import { useDataLoader } from '@/hooks/useDataLoader';
 import { usePendingJump } from '@/stores/pendingJump';
 import { useGlobalSearch } from '@/stores/globalSearch';
 import { fetchCodeSearch, type CodeSearchResult } from '@/lib/code-search-api';
@@ -21,6 +25,18 @@ import { linkFile } from '@/lib/link-file';
 import { LinkAndNavigateDialog } from '@/components/editors/LinkAndNavigateDialog';
 import type { SourceLinkCandidate } from '@/components/editors/LinkAndNavigateDialog';
 import type { Snippet } from '@/types';
+
+/**
+ * A mode-aware command for the ⌘K palette (CUI-6). In Studio the palette is
+ * artifacts + session todos + step-back; in Bridge/Plan it is the role-action
+ * surface (start coordinator, answer an escalation, jump to a session).
+ */
+interface CommandItem {
+  id: string;
+  label: string;
+  hint?: string;
+  run: () => void;
+}
 
 function basename(p: string): string {
   if (!p) return '';
@@ -75,6 +91,20 @@ const KindIconPseudo: React.FC = () => (
 export const GlobalSearch: React.FC = () => {
   const currentSession = useSessionStore((s) => s.currentSession);
   const snippets = useSessionStore((s) => s.snippets);
+  const documents = useSessionStore((s) => s.documents);
+  const diagrams = useSessionStore((s) => s.diagrams);
+  const sessions = useSessionStore((s) => s.sessions);
+
+  const mode = useUIStore((s) => s.mode);
+  const setMode = useUIStore((s) => s.setMode);
+  const activeProject = useUIStore((s) => s.activeProject);
+  const escalations = useSupervisorStore((s) => s.escalations);
+  const coordinatorByProject = useSupervisorStore((s) => s.coordinatorByProject);
+  const setCoordinator = useSupervisorStore((s) => s.setCoordinator);
+  const decideEscalation = useSupervisorStore((s) => s.decideEscalation);
+  const todosByProject = useSupervisorStore((s) => s.todosByProject);
+  const diveIn = useDiveIn();
+  const { selectDocumentWithContent, selectDiagramWithContent } = useDataLoader();
 
   // Open state lives in a shared store so external buttons (Sidebar) can trigger it.
   const isOpen = useGlobalSearch((s) => s.isOpen);
@@ -116,6 +146,84 @@ export const GlobalSearch: React.FC = () => {
       debounceRef.current = null;
     }
   }, [closeStore]);
+
+  // Mode-aware command surface (CUI-6). Studio = artifacts + session todos +
+  // step-back; Bridge/Plan = the role-action surface.
+  const commands = useMemo<CommandItem[]>(() => {
+    const out: CommandItem[] = [];
+    const run = (fn: () => void) => () => {
+      fn();
+      closeOverlay();
+    };
+    const project = activeProject ?? currentSession?.project ?? '';
+    const serverScope = currentSession?.serverId ?? 'local';
+
+    if (mode === 'studio') {
+      out.push({ id: 'step-back', label: '⤢ Step back to Bridge', hint: 'mode', run: run(() => setMode('bridge')) });
+      if (currentSession) {
+        for (const d of documents) {
+          out.push({
+            id: `doc-${d.id}`,
+            label: d.name,
+            hint: 'document',
+            run: run(() => void selectDocumentWithContent(currentSession.serverId, currentSession.project, currentSession.name, d.id)),
+          });
+        }
+        for (const g of diagrams) {
+          out.push({
+            id: `dia-${g.id}`,
+            label: g.name,
+            hint: 'diagram',
+            run: run(() => void selectDiagramWithContent(currentSession.serverId, currentSession.project, currentSession.name, g.id)),
+          });
+        }
+        const sessionTodos = (todosByProject[currentSession.project] ?? []).filter(
+          (t) => t.sessionName === currentSession.name || t.assigneeSession === currentSession.name,
+        );
+        for (const t of sessionTodos) {
+          out.push({ id: `todo-${t.id}`, label: t.title, hint: `todo · ${t.status}`, run: run(() => {}) });
+        }
+      }
+    } else {
+      // Bridge / Plan: the palette IS the role-action surface.
+      const running = !!coordinatorByProject[project];
+      if (project) {
+        out.push({
+          id: 'coordinator',
+          label: running ? '■ Stop coordinator' : '▸ Start coordinator',
+          hint: 'daemon',
+          run: run(() => void setCoordinator(serverScope, project, running ? 'stop' : 'start')),
+        });
+      }
+      out.push({ id: 'approve-plan', label: '✓ Approve plan', hint: 'plan', run: run(() => setMode('plan')) });
+      for (const e of escalations.filter((x) => x.status === 'open')) {
+        const rec = e.options?.find((o) => o.id === e.recommended) ?? (e.options?.length === 1 ? e.options[0] : undefined);
+        out.push({
+          id: `esc-${e.id}`,
+          label: `Answer: ${e.questionText}`,
+          hint: rec ? `→ ${rec.label}` : `jump ${e.session}`,
+          run: run(() => {
+            if (rec) void decideEscalation(serverScope, e.id, rec.id);
+            else diveIn({ project: e.project, session: e.session });
+          }),
+        });
+      }
+      for (const s of sessions) {
+        out.push({ id: `jump-${s.project}:${s.name}`, label: `Jump to ${s.name}`, hint: 'session', run: run(() => diveIn({ project: s.project, session: s.name })) });
+      }
+    }
+    return out;
+  }, [
+    mode, activeProject, currentSession, documents, diagrams, sessions, todosByProject,
+    escalations, coordinatorByProject, setCoordinator, decideEscalation, setMode, diveIn,
+    selectDocumentWithContent, selectDiagramWithContent, closeOverlay,
+  ]);
+
+  const filteredCommands = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return commands;
+    return commands.filter((c) => c.label.toLowerCase().includes(q) || (c.hint ?? '').toLowerCase().includes(q));
+  }, [commands, query]);
 
   // Cmd/Ctrl+K global listener
   useEffect(() => {
@@ -238,6 +346,18 @@ export const GlobalSearch: React.FC = () => {
     closeOverlay();
   }, [currentSession, linkCandidate, linkTargetLine, closeOverlay]);
 
+  // The palette navigates a unified list: commands first, then code results.
+  const totalItems = filteredCommands.length + results.length;
+
+  const activateIdx = useCallback((idx: number) => {
+    if (idx < filteredCommands.length) {
+      filteredCommands[idx]?.run();
+      return;
+    }
+    const r = results[idx - filteredCommands.length];
+    if (r) handleResultClick(r);
+  }, [filteredCommands, results, handleResultClick]);
+
   const handleInputKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') {
       e.preventDefault();
@@ -246,7 +366,7 @@ export const GlobalSearch: React.FC = () => {
     }
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setSelectedIdx((i) => (results.length === 0 ? 0 : Math.min(i + 1, results.length - 1)));
+      setSelectedIdx((i) => (totalItems === 0 ? 0 : Math.min(i + 1, totalItems - 1)));
       return;
     }
     if (e.key === 'ArrowUp') {
@@ -256,11 +376,10 @@ export const GlobalSearch: React.FC = () => {
     }
     if (e.key === 'Enter') {
       e.preventDefault();
-      const r = results[selectedIdx];
-      if (r) handleResultClick(r);
+      activateIdx(selectedIdx);
       return;
     }
-  }, [results, selectedIdx, handleResultClick, closeOverlay]);
+  }, [totalItems, selectedIdx, activateIdx, closeOverlay]);
 
   const overlay = useMemo(() => {
     if (!isOpen) return null;
@@ -288,7 +407,7 @@ export const GlobalSearch: React.FC = () => {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={handleInputKeyDown}
-              placeholder="Search pseudo files and linked snippets…"
+              placeholder={mode === 'studio' ? 'Search artifacts, todos, commands…' : 'Run a command — coordinator, escalations, jump…'}
               className="flex-1 bg-transparent text-sm text-gray-900 dark:text-white placeholder-gray-400 outline-none"
               data-testid="global-search-input"
             />
@@ -306,10 +425,34 @@ export const GlobalSearch: React.FC = () => {
             {error && !loading && (
               <div className="px-4 py-3 text-xs text-danger-600 dark:text-danger-400">{error}</div>
             )}
-            {!loading && !error && query.trim() && results.length === 0 && (
-              <div className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">No results</div>
+            {!loading && !error && totalItems === 0 && (
+              <div className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">
+                {query.trim() ? 'No results' : 'No commands available'}
+              </div>
             )}
-            {!loading && results.map((r, idx) => {
+            {/* Mode-aware commands first. */}
+            {filteredCommands.map((c, idx) => {
+              const isSelected = idx === selectedIdx;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  data-result-idx={idx}
+                  data-testid={`global-search-command-${c.id}`}
+                  onMouseEnter={() => setSelectedIdx(idx)}
+                  onClick={() => c.run()}
+                  className={`w-full text-left px-4 py-2 flex items-center gap-3 border-b border-gray-100 dark:border-gray-700/50 ${
+                    isSelected ? 'bg-accent-50 dark:bg-accent-900/30' : 'hover:bg-gray-50 dark:hover:bg-gray-700/40'
+                  }`}
+                >
+                  <span className="text-accent-500 shrink-0 text-xs">⌘</span>
+                  <span className="flex-1 min-w-0 text-sm text-gray-900 dark:text-white truncate">{c.label}</span>
+                  {c.hint && <span className="shrink-0 text-3xs text-gray-400 dark:text-gray-500">{c.hint}</span>}
+                </button>
+              );
+            })}
+            {!loading && results.map((r, ri) => {
+              const idx = filteredCommands.length + ri;
               const isSelected = idx === selectedIdx;
               const key = `${r.kind}:${r.filePath}:${r.line ?? 'x'}:${r.snippetId ?? 'x'}:${idx}`;
               return (
@@ -317,7 +460,7 @@ export const GlobalSearch: React.FC = () => {
                   key={key}
                   type="button"
                   data-result-idx={idx}
-                  data-testid={`global-search-result-${idx}`}
+                  data-testid={`global-search-result-${ri}`}
                   onMouseEnter={() => setSelectedIdx(idx)}
                   onClick={() => handleResultClick(r)}
                   className={`w-full text-left px-4 py-2 flex items-start gap-3 border-b border-gray-100 dark:border-gray-700/50 ${
@@ -364,7 +507,7 @@ export const GlobalSearch: React.FC = () => {
         </div>
       </div>
     );
-  }, [isOpen, query, loading, error, results, selectedIdx, handleInputKeyDown, handleResultClick, closeOverlay]);
+  }, [isOpen, query, loading, error, results, selectedIdx, handleInputKeyDown, handleResultClick, closeOverlay, filteredCommands, totalItems, mode]);
 
   return (
     <>

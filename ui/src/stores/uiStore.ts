@@ -6,6 +6,11 @@ export type Theme = 'light' | 'dark' | 'sepia';
 // PCS Phase 5: which role-scoped view the supervisor surface renders.
 export type SupervisorRole = 'supervisor' | 'planner' | 'coordinator';
 
+// Control-UI vision §2: the top-level mode model. Studio = single-session
+// cockpit (today's simple surface), Bridge = fleet command center (today's
+// SupervisorView for now), Plan = roadmap/work-graph surface (stub for now).
+export type UIMode = 'studio' | 'bridge' | 'plan';
+
 export interface UIState {
   // Theme state
   theme: Theme;
@@ -58,10 +63,15 @@ export interface UIState {
   proposedEditObserveMode: boolean;
   setProposedEditObserveMode: (on: boolean) => void;
 
-  // Supervisor full-page view
-  supervisorViewOpen: boolean;
-  setSupervisorViewOpen: (open: boolean) => void;
-  toggleSupervisorView: () => void;
+  // Control-UI vision §2: the top-level mode discriminant. Drives the main
+  // canvas gate (Studio | Bridge | Plan). Persisted, defaults to 'studio'.
+  mode: UIMode;
+  setMode: (mode: UIMode) => void;
+
+  // CUI-6: per-mode sticky editor split. Each mode remembers its own split so
+  // diving Studio ↔ Bridge ↔ Plan doesn't reset the user's layout.
+  modeSplit: Record<UIMode, number>;
+  setModeSplit: (mode: UIMode, position: number) => void;
 
   // PCS Phase 5: role-scoped view discriminant (Supervisor | Planner | Coordinator).
   supervisorRole: SupervisorRole;
@@ -198,9 +208,14 @@ export const useUIStore = create<UIState>()(
       proposedEditObserveMode: false,
       setProposedEditObserveMode: (on: boolean) => set({ proposedEditObserveMode: on }),
 
-      supervisorViewOpen: false,
-      setSupervisorViewOpen: (open: boolean) => set({ supervisorViewOpen: open }),
-      toggleSupervisorView: () => set({ supervisorViewOpen: !get().supervisorViewOpen }),
+      mode: 'studio',
+      setMode: (mode: UIMode) => set({ mode }),
+
+      modeSplit: { studio: DEFAULT_EDITOR_SPLIT_POSITION, bridge: DEFAULT_EDITOR_SPLIT_POSITION, plan: DEFAULT_EDITOR_SPLIT_POSITION },
+      setModeSplit: (mode: UIMode, position: number) => {
+        const clamped = Math.max(20, Math.min(80, position));
+        set((state) => ({ modeSplit: { ...state.modeSplit, [mode]: clamped } }));
+      },
 
       supervisorRole: 'supervisor',
       setSupervisorRole: (role: SupervisorRole) => set({ supervisorRole: role }),
@@ -270,6 +285,8 @@ export const useUIStore = create<UIState>()(
           pairMode: false,
           proposedEditObserveMode: false,
           diffSideBySide: true,
+          mode: 'studio',
+          modeSplit: { studio: DEFAULT_EDITOR_SPLIT_POSITION, bridge: DEFAULT_EDITOR_SPLIT_POSITION, plan: DEFAULT_EDITOR_SPLIT_POSITION },
           sidebarSplitPosition: DEFAULT_SIDEBAR_POSITION,
           sessionPanelSplitPosition: DEFAULT_SESSION_PANEL_POSITION,
           editorSplitPosition: DEFAULT_EDITOR_SPLIT_POSITION,
@@ -278,7 +295,7 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'ui-preferences', // localStorage key
-      version: 8,
+      version: 10,
       migrate: (persistedState: unknown, version: number) => {
         // v5: terminal/shell removed entirely. Drop legacy panel flags and
         // default agentChatVisible to true so chat is visible by default.
@@ -315,6 +332,20 @@ export const useUIStore = create<UIState>()(
           // Phase 5: seed role-scoped view discriminant + active project.
           const old = persistedState as Record<string, unknown>;
           return { ...old, supervisorRole: 'supervisor', activeProject: null } as UIState;
+        }
+        if (version < 9) {
+          // Control-UI vision §2: seed the top-level mode discriminant.
+          const old = persistedState as Record<string, unknown>;
+          return { ...old, mode: 'studio' } as UIState;
+        }
+        if (version < 10) {
+          // CUI-6: drop the dead supervisorViewOpen gate; seed per-mode splits.
+          const old = persistedState as Record<string, unknown>;
+          const { supervisorViewOpen: _svo, ...rest } = old;
+          return {
+            ...rest,
+            modeSplit: { studio: DEFAULT_EDITOR_SPLIT_POSITION, bridge: DEFAULT_EDITOR_SPLIT_POSITION, plan: DEFAULT_EDITOR_SPLIT_POSITION },
+          } as UIState;
         }
         return persistedState as UIState;
       },

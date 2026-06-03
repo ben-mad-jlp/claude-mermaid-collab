@@ -2,11 +2,9 @@ import React from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useTabsStore, useSessionTabs } from '@/stores/tabsStore';
-import { useUIStore } from '@/stores/uiStore';
 import { SubscriptionsPanel } from '@/components/layout/SubscriptionsPanel';
 import { SupervisorPanel } from '@/components/layout/SupervisorPanel';
 import { ServersTreeSection } from '@/components/layout/sidebar-tree/ServersTreeSection';
-import { ProjectScopeSection } from '@/components/layout/sidebar-tree/ProjectScopeSection';
 import { ArtifactTree } from '@/components/layout/sidebar-tree/ArtifactTree';
 import { WorktreeBadge } from '@/components/layout/WorktreeBadge';
 import { useDataLoader } from '@/hooks/useDataLoader';
@@ -85,9 +83,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           min-h-0 lets this flex child shrink below its content height so the
           overflow actually scrolls instead of clipping at the viewport edge. */}
       <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
-        {/* SYSTEM + project-scope level (PCS Phase 5, wireframe-pcs-left-column) */}
-        <ProjectScopeSection />
-        <SupervisorPanel currentProject={currentSession?.project} currentSession={currentSession?.name} onOpenSupervisorView={() => useUIStore.getState().setSupervisorViewOpen(true)} />
+        {/* ProjectScopeSection dissolved (CUI-6): its PROJECT select, daemon
+            Start/Stop, plan tree and scoped escalations now live in the Bridge. */}
+        <SupervisorPanel currentProject={currentSession?.project} currentSession={currentSession?.name} />
         <SubscriptionsPanel currentProject={currentSession?.project} />
         <ArtifactTree />
         {/* SERVERS / peers — global, pinned at the bottom per the wireframe */}

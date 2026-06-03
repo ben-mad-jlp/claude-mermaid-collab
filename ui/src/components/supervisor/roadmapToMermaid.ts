@@ -24,7 +24,7 @@ const CLASSDEFS = [
   '  classDef dropped fill:#eee,stroke:#bbb,color:#999',
 ].join('\n');
 
-function sanitizeId(id: string): string {
+export function sanitizeId(id: string): string {
   let s = id.replace(/[^A-Za-z0-9_]/g, '_');
   if (/^[0-9]/.test(s)) s = '_' + s;
   return s;

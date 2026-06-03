@@ -5,7 +5,6 @@ import { useDataLoader } from '../hooks/useDataLoader';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { getWebSocketClient } from '../lib/websocket';
 import { useSubscriptionStore } from '../stores/subscriptionStore';
-import { useUIStore } from '../stores/uiStore';
 import { SessionInfo } from '../components/layout/SessionInfo';
 import { VibeInstructions } from '../components/layout/VibeInstructions';
 import { SubscriptionsPanel } from '../components/layout/SubscriptionsPanel';
@@ -69,7 +68,7 @@ export function SidebarView() {
       <SessionInfo project={currentSession?.project ?? project ?? ''} session={currentSession?.name ?? session ?? ''} connected={wsConnected} isConnecting={wsConnecting} />
       <VibeInstructions vsCodeMode={true} />
       <ServersTreeSection />
-      <SupervisorPanel currentProject={project ?? ''} currentSession={session ?? ''} onNavigate={loadSessionItems} onOpenSupervisorView={() => useUIStore.getState().setSupervisorViewOpen(true)} />
+      <SupervisorPanel currentProject={project ?? ''} currentSession={session ?? ''} onNavigate={loadSessionItems} />
       <SubscriptionsPanel currentProject={project ?? ''} onNavigate={loadSessionItems} />
       <ArtifactTree vsCodeMode={true} className="flex-1 min-h-0 w-full" />
     </div>
