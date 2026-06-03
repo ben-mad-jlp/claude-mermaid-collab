@@ -20,7 +20,11 @@ export interface FunnelSegment {
   match: (t: SessionTodo) => boolean;
 }
 
-const isInflight = (s: TodoStatus, t: SessionTodo) => s === 'in_progress' || !!t.claimedBy;
+// A terminal status (done/dropped) must win over a stale claim: completeTodo
+// marks status='done' but does NOT clear claimedBy, so without this guard a
+// finished todo's lingering claimedBy would mis-bucket it as In-flight.
+const isInflight = (s: TodoStatus, t: SessionTodo) =>
+  s === 'in_progress' || (!!t.claimedBy && s !== 'done' && s !== 'dropped');
 
 export const FUNNEL_SEGMENTS: FunnelSegment[] = [
   {

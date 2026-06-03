@@ -39,14 +39,19 @@ export function deriveLiveness(
 
 /**
  * Find the todo a session is currently working: claimed by or assigned to it
- * and either in progress or claimed.
+ * AND still in progress. A terminal status must never count — completeTodo
+ * marks status='done' without clearing claimedBy, so keying off the claim alone
+ * would surface a stale-claimed done/dropped todo as the worker's "current" work
+ * (phantom animated claim edges in FleetGraph, wrong current todo in the
+ * WorkerRoster). Requiring in_progress is the SI-2 belt-and-suspenders guard
+ * that agrees with the SI-1 producer invariant.
  */
 export function currentTodoFor(session: string, todos: SessionTodo[]): SessionTodo | null {
   return (
     todos.find(
       (t) =>
         (t.claimedBy === session || t.assigneeSession === session) &&
-        (t.status === 'in_progress' || !!t.claimedBy),
+        t.status === 'in_progress',
     ) ?? null
   );
 }
