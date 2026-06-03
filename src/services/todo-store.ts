@@ -436,6 +436,27 @@ export function reclaimClaim(project: string, id: string): Promise<'ready' | 'bl
   });
 }
 
+/**
+ * Release a claim WITHOUT a retry penalty — for a todo the coordinator claimed
+ * but then could NOT spawn a worker for (pool at capacity, deferred BEFORE any
+ * spawn attempt). Unlike reclaimClaim (which charges a retry for a dead/failed
+ * worker), a deferral never ran anything, so the todo returns straight to
+ * 'ready', is immediately re-claimable, and holds no dead lease (DOGFOOD #3).
+ * Returns true if a live claim was released, false if the row wasn't an
+ * in_progress claim (lost the race / already moved on).
+ */
+export function releaseClaim(project: string, id: string): Promise<boolean> {
+  return withLock(project, () => {
+    assertProjectLocal(project);
+    const db = openDb(project);
+    const res = db.prepare(
+      `UPDATE todos SET status='ready', claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL,
+       updatedAt=? WHERE id=? AND status='in_progress' AND claimToken IS NOT NULL`
+    ).run(nowIso(), id);
+    return res.changes > 0;
+  });
+}
+
 export function listReadyTodos(project: string): Todo[] {
   const all = listTodos(project, { includeCompleted: true });
   const byId = new Map(all.map((t) => [t.id, t]));

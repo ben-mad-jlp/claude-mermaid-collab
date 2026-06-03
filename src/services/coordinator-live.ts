@@ -1,5 +1,5 @@
 import type { Todo } from './todo-store';
-import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim } from './todo-store';
+import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, releaseClaim } from './todo-store';
 import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, addSupervised, addWatchedProject } from './supervisor-store';
 import { tmuxBaseName } from './tmux-naming';
 import { ensureSession, runTodoInSession } from './claude-launch';
@@ -86,14 +86,20 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
 
       // 2. Find a routable session of that type. Prefer a warm idle session; else
       //    lazily grab a slot within the type's budget. At capacity (no idle + no
-      //    slot budget) → defer: return false so the todo's lease lapses and a
-      //    later tick reclaims it back to ready (bounded parallelism). Audit the
-      //    deferral instead of silently dropping.
+      //    slot budget) → defer. The coordinator already claimed this todo this
+      //    tick, but we never attempted a spawn — so RELEASE the claim immediately
+      //    (no retry penalty: nothing ran) back to 'ready'. Otherwise the todo
+      //    sits in_progress holding a dead full-length lease with no worker until
+      //    the lease expires → reclaim → re-defer (DOGFOOD #3). Releasing keeps it
+      //    re-claimable next tick once a slot frees, so with pool=N exactly N
+      //    todos run and the rest stay 'ready'. Spawn-FAILED (a real spawn attempt
+      //    that errored, below) is different: it keeps the lease for retry.
       let poolName = findIdleSessionForType(poolType);
       if (!poolName) {
         const slot = getOrCreateSlot(poolType);
         if (!slot) {
-          recordSupervisorAudit({ kind: 'spawn', project, session: poolSessionName(poolType), detail: JSON.stringify({ todoId: todo.id, type: poolType, started: false, reason: 'pool-busy-deferred' }) });
+          try { await releaseClaim(project, todo.id); } catch { /* lease still backstops if the release fails */ }
+          recordSupervisorAudit({ kind: 'spawn', project, session: poolSessionName(poolType), detail: JSON.stringify({ todoId: todo.id, type: poolType, started: false, reason: 'pool-busy-deferred', released: true }) });
           return false;
         }
         poolName = poolSessionName(slot.type, slot.slot);

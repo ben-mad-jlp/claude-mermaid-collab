@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   createTodo, listTodos, getTodo, updateTodo, assignTodo, removeTodo, clearCompleted, reorder, _closeProject,
-  claimTodo, releaseExpiredClaims, reclaimClaim, listReadyTodos, computeWaves, completeTodo, MAX_CLAIM_RETRIES,
+  claimTodo, releaseExpiredClaims, reclaimClaim, releaseClaim, listReadyTodos, computeWaves, completeTodo, MAX_CLAIM_RETRIES,
 } from '../todo-store';
 
 let project: string;
@@ -209,6 +209,23 @@ describe('todo-store new fields and functions', () => {
     expect(getTodo(project, t.id)!.retryCount).toBe(1);
     // not in_progress anymore → null
     expect(await reclaimClaim(project, t.id)).toBeNull();
+  });
+
+  test('releaseClaim: returns a live claim to ready with NO retry penalty; false for non-claims (DOGFOOD #3)', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
+    await claimTodo(project, t.id, 'coordinator', 60_000);
+    expect(getTodo(project, t.id)!.status).toBe('in_progress');
+    const released = await releaseClaim(project, t.id);
+    expect(released).toBe(true);
+    const after = getTodo(project, t.id)!;
+    expect(after.status).toBe('ready'); // immediately re-claimable
+    expect(after.claimedBy).toBeNull();
+    expect(after.claimToken).toBeNull();
+    expect(after.claimedAt).toBeNull();
+    expect(after.claimLeaseMs).toBeNull();
+    expect(after.retryCount).toBe(0); // deferral is NOT a retry (unlike reclaimClaim)
+    // already released → not an in_progress claim → false
+    expect(await releaseClaim(project, t.id)).toBe(false);
   });
 
   test('listReadyTodos: ready w/ no deps included; ready w/ all-done deps included; ready w/ pending dep excluded; unknown dep id included', async () => {
