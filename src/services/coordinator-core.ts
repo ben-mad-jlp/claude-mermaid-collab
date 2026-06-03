@@ -12,14 +12,19 @@ export interface CoordinatorTickPlan {
  */
 export function planCoordinatorTick(todos: Todo[], now: string): CoordinatorTickPlan {
   const statusById = new Map(todos.map((t) => [t.id, t.status]));
+  const acceptById = new Map(todos.map((t) => [t.id, t.acceptanceStatus]));
   const nowMs = new Date(now).getTime();
   const toClaim: string[] = [];
   const toRelease: string[] = [];
   for (const t of todos) {
     if (t.status === 'ready') {
+      // Mirror todo-store.depSatisfied: a dep satisfies only when 'done' AND not
+      // rejected. A rejected dep (SI-3) never silently satisfies its dependents.
+      // An unknown dep id is external → treated as satisfied.
       const depsDone = (t.dependsOn ?? []).every((d) => {
         const s = statusById.get(d);
-        return s === undefined || s === 'done';
+        if (s === undefined) return true;
+        return s === 'done' && acceptById.get(d) !== 'rejected';
       });
       if (depsDone) toClaim.push(t.id);
     } else if (t.status === 'in_progress') {

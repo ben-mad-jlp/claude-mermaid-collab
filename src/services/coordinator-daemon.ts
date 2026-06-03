@@ -69,11 +69,12 @@ export async function runTick(
 }
 
 /** Route a worker's completion to the store. ACCEPTED → done + unblock dependents.
- *  REJECTED (mechanical gate failed) → recorded done-but-rejected (the acceptance
- *  gate keeps it from unblocking dependents) AND escalated as a blocker for a human
- *  to re-open/split/drop — we do NOT auto-retry (re-running the same spec re-fails,
- *  and routing through 'blocked' would get auto-promoted). The caller (the worker,
- *  after its tsc+tests gate) decides accepted/rejected. */
+ *  REJECTED (mechanical gate failed, SI-3) → NOT done: the todo returns to a
+ *  non-terminal 'blocked' state (completedAt cleared) and is escalated as a blocker
+ *  for a human to re-open/split/drop. It is NOT auto-retried — completeTodo's
+ *  unblock pass skips rejected todos, so a rejected todo stays parked (never
+ *  silently re-claims and re-fails) until a human clears the rejection. The caller
+ *  (the worker, after its tsc+tests gate) decides accepted/rejected. */
 export async function handleWorkerComplete(
   deps: CoordinatorDeps,
   project: string,

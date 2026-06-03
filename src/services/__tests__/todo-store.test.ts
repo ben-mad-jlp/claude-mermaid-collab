@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   createTodo, listTodos, getTodo, updateTodo, assignTodo, removeTodo, clearCompleted, reorder, _closeProject,
-  claimTodo, releaseExpiredClaims, reclaimClaim, listReadyTodos, computeWaves, completeTodo,
+  claimTodo, releaseExpiredClaims, reclaimClaim, listReadyTodos, computeWaves, completeTodo, MAX_CLAIM_RETRIES,
 } from '../todo-store';
 
 let project: string;
@@ -185,9 +185,10 @@ describe('todo-store new fields and functions', () => {
 
   test('releaseExpiredClaims: retry cap exceeded → parked blocked + surfaced as exhausted', async () => {
     const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
-    // Re-claim + expire repeatedly. MAX_CLAIM_RETRIES=2 → 3rd expiry parks it blocked.
+    // Re-claim + expire repeatedly. The (MAX_CLAIM_RETRIES+1)-th expiry parks it blocked.
+    const attempts = MAX_CLAIM_RETRIES + 1;
     let lastExhausted: string[] = [];
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < attempts; i++) {
       await claimTodo(project, t.id, 'agent-1', 1000);
       const future = new Date(Date.now() + (i + 1) * 10000).toISOString();
       const res = await releaseExpiredClaims(project, future);
@@ -196,7 +197,7 @@ describe('todo-store new fields and functions', () => {
     expect(lastExhausted).toContain(t.id);
     const after = getTodo(project, t.id)!;
     expect(after.status).toBe('blocked');
-    expect(after.retryCount).toBe(3);
+    expect(after.retryCount).toBe(attempts);
   });
 
   test('reclaimClaim: force-reclaims a live claim to ready regardless of lease; null for non-claims', async () => {
@@ -334,14 +335,29 @@ describe('completeTodo', () => {
     await expect(completeTodo(project, 'no-such-id')).rejects.toThrow('todo not found');
   });
 
-  test('acceptance gate: a REJECTED dep does NOT unblock dependents', async () => {
+  test('acceptance gate: a REJECTED completion is NOT done and does NOT unblock dependents (SI-3)', async () => {
     const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', status: 'in_progress' });
     const blocker = await createTodo(project, { ownerSession: 's1', title: 'blocker', status: 'blocked', dependsOn: [dep.id] });
     const { completed, promoted } = await completeTodo(project, dep.id, 'rejected');
-    expect(completed.status).toBe('done');
+    // SI-3: rejected → non-terminal 'blocked' (not 'done'), completedAt cleared,
+    // so it surfaces as actionable instead of sinking silently into Done.
+    expect(completed.status).toBe('blocked');
+    expect(completed.completedAt).toBeNull();
     expect(completed.acceptanceStatus).toBe('rejected');
     expect(promoted).not.toContain(blocker.id);
     expect(getTodo(project, blocker.id)!.status).toBe('blocked');
+  });
+
+  test('acceptance gate: a rejected todo is NOT auto-promoted by a later completion (SI-3)', async () => {
+    // A rejected todo with no unsatisfied deps must stay parked, not re-promote to ready.
+    const rejected = await createTodo(project, { ownerSession: 's1', title: 'rejected', status: 'in_progress' });
+    await completeTodo(project, rejected.id, 'rejected');
+    expect(getTodo(project, rejected.id)!.status).toBe('blocked');
+    // An unrelated completion triggers the unblock pass — the rejected todo must NOT promote.
+    const other = await createTodo(project, { ownerSession: 's1', title: 'other', status: 'in_progress' });
+    const { promoted } = await completeTodo(project, other.id, 'accepted');
+    expect(promoted).not.toContain(rejected.id);
+    expect(getTodo(project, rejected.id)!.status).toBe('blocked');
   });
 
   test('acceptance gate: an ACCEPTED dep unblocks dependents', async () => {

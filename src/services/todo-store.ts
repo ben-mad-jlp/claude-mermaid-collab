@@ -173,6 +173,12 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'todos', 'claimedAt', 'claimedAt TEXT');
   addColumnIfMissing(db, 'todos', 'claimLeaseMs', 'claimLeaseMs INTEGER');
   addColumnIfMissing(db, 'todos', 'retryCount', 'retryCount INTEGER NOT NULL DEFAULT 0');
+  // One-shot backfill: enforce the claim invariant (claim fields non-null IFF
+  // status==='in_progress') on rows written before the invariant was enforced.
+  db.exec(
+    `UPDATE todos SET claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL
+     WHERE status != 'in_progress' AND (claimedBy IS NOT NULL OR claimToken IS NOT NULL OR claimedAt IS NOT NULL OR claimLeaseMs IS NOT NULL)`
+  );
   dbCache.set(project, db);
   return db;
 }
@@ -313,10 +319,14 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
       acceptanceStatus: patch.acceptanceStatus !== undefined ? patch.acceptanceStatus : existing.acceptanceStatus,
     };
     const db = openDb(project);
+    // Claim invariant: claim fields are non-null IFF status==='in_progress'. Any
+    // write that moves the todo to a non-in_progress status clears the claim
+    // (matches reclaimClaim / releaseExpiredClaims).
+    const clearClaim = status !== 'in_progress';
     db.prepare(
       `UPDATE todos SET title=?, description=?, status=?, priority=?, dueDate=?, parentId=?,
         dependsOn=?, assigneeSession=?, link=?, asanaGid=?, sessionName=?, blueprintId=?, type=?, acceptanceStatus=?,
-        completedAt=?, updatedAt=? WHERE id=?`
+        completedAt=?, updatedAt=?${clearClaim ? ', claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL' : ''} WHERE id=?`
     ).run(
       next.title, next.description, next.status, next.priority, next.dueDate, next.parentId,
       JSON.stringify(next.dependsOn), next.assigneeSession, next.link ? JSON.stringify(next.link) : null,
@@ -492,16 +502,32 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
     if (!existing) throw new Error(`todo not found: ${id}`);
     const ts = nowIso();
     const accept = acceptanceStatus !== undefined ? acceptanceStatus : existing.acceptanceStatus;
-    db.prepare(
-      `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), acceptanceStatus=?, updatedAt=? WHERE id=?`
-    ).run(ts, accept, ts, id);
+    // SI-3: a rejected completion is NOT done. The mechanical gate failed, so the
+    // todo returns to a non-terminal 'blocked' state (completedAt cleared) and is
+    // surfaced — the caller escalates it (handleWorkerComplete) for a human to
+    // re-open/split/drop. It is NOT auto-promoted back to 'ready' (the unblock
+    // pass below skips rejected todos), so it never silently re-claims and
+    // re-fails. Only accepted/pending/null completions move to 'done'.
+    if (accept === 'rejected') {
+      db.prepare(
+        `UPDATE todos SET status='blocked', completedAt=NULL, acceptanceStatus=?,
+          claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL, updatedAt=? WHERE id=?`
+      ).run(accept, ts, id);
+    } else {
+      db.prepare(
+        `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), acceptanceStatus=?,
+          claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL, updatedAt=? WHERE id=?`
+      ).run(ts, accept, ts, id);
+    }
     // Unblock pass: any 'blocked' todo whose every (known) dep is satisfied
-    // (done AND not rejected) → 'ready'. A rejected dep does NOT unblock.
+    // (done AND not rejected) → 'ready'. A rejected dep does NOT unblock, and a
+    // todo that is itself rejected stays parked until a human clears it.
     const all = listTodos(project, { includeCompleted: true });
     const byId = new Map(all.map((t) => [t.id, t]));
     const promoted: string[] = [];
     for (const t of all) {
       if (t.status !== 'blocked') continue;
+      if (t.acceptanceStatus === 'rejected') continue;
       const depsDone = (t.dependsOn ?? []).every((d) => depSatisfied(byId.get(d)));
       if (depsDone) {
         db.prepare(`UPDATE todos SET status='ready', updatedAt=? WHERE id=?`).run(nowIso(), t.id);
@@ -522,7 +548,8 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
       const allChildrenDone = children.every((c) => c.status === 'done' && c.acceptanceStatus !== 'rejected');
       if (!allChildrenDone) break;
       db.prepare(
-        `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), acceptanceStatus=?, updatedAt=? WHERE id=?`
+        `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), acceptanceStatus=?,
+          claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL, updatedAt=? WHERE id=?`
       ).run(ts, 'accepted', nowIso(), parentId);
       rolledUp.push(parentId);
       parentId = parent.parentId;
