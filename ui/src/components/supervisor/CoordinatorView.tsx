@@ -24,7 +24,7 @@ const LANES: { key: string; label: string; match: (t: SessionTodo) => boolean; t
     match: (t) => t.status === 'in_progress' || !!t.claimedBy,
     tint: 'text-info-600 dark:text-info-400',
   },
-  { key: 'blocked', label: 'Blocked', match: (t) => t.status === 'blocked', tint: 'text-yellow-600 dark:text-yellow-400' },
+  { key: 'blocked', label: 'Blocked', match: (t) => t.status === 'blocked', tint: 'text-warning-600 dark:text-warning-400' },
   { key: 'done', label: 'Done', match: (t) => t.status === 'done', tint: 'text-success-600 dark:text-success-400' },
 ];
 

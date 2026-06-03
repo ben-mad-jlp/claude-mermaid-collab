@@ -29,7 +29,7 @@ const STATUS_GLYPH: Record<string, string> = {
 const STATUS_COLOR: Record<string, string> = {
   done: 'text-success-600 dark:text-success-400',
   in_progress: 'text-info-600 dark:text-info-400',
-  blocked: 'text-yellow-600 dark:text-yellow-400',
+  blocked: 'text-warning-600 dark:text-warning-400',
   todo: 'text-gray-500 dark:text-gray-400',
   backlog: 'text-gray-400 dark:text-gray-500',
 };
