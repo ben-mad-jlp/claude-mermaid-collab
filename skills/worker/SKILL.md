@@ -85,13 +85,15 @@ Args: {
 ```
 `recommended` must match one of `options[].id`. The plain `questionText` form stays valid — `options` is optional and backward compatible.
 
-**Then await the decision instead of ending the turn.** `escalation_create` returns the escalation's `id`; pass it to `await_human_decision`, which blocks until a human posts an answer (or times out), then returns the chosen `optionId`:
+**MANDATORY — when you emit `options[]`, the await is the second half of the SAME action, not an optional follow-up.** `escalation_create` returns the escalation's `id`. In the **same turn**, immediately call `await_human_decision(escalationId)` and resume from its return. This is non-negotiable: a structured escalation that is not awaited never auto-resumes and has to be nudged by hand. The two calls are one sequence — `escalation_create(options[…])` → `await_human_decision(id)` → resume.
 ```
 Tool: mcp__plugin_mermaid-collab_mermaid__await_human_decision
 Args: { "escalationId": "<id-from-escalation_create>" }
 ```
 - If it returns `{ decided: true, optionId, note }` → resume the work using the chosen option (this is a real answer, not background context).
 - If it returns `{ timedOut: true }` → no human answered in time; STOP and leave the escalation open for the supervisor/planner.
+
+> **Common mistake (do NOT do this):** emitting `options[]` and then writing a "stopping — a human will decide, a worker can resume once answered" summary and ending the turn. That path is ONLY for plain blockers with no options. If you passed `options[]`, you MUST call `await_human_decision` in the same turn — never end the turn on a "human will decide" note.
 
 If you filed a plain blocker (no options), skip the await and STOP — a human or the planner decides next.
 
