@@ -6,7 +6,11 @@ import type { Todo } from './todo-store';
  *  spawn, the tick scheduler, worker-completion + acceptance gate) is Phase 2c. */
 
 export const COORDINATOR_ID = 'coordinator';
-export const DEFAULT_LEASE_MS = 15 * 60 * 1000;
+/** Claim lease before a worker's todo is reclaimable. 40 min by default — big
+ *  multi-component todos (e.g. a UI command-center build) exceed a short lease
+ *  and get falsely reclaimed mid-work. Override with MERMAID_CLAIM_LEASE_MIN. */
+export const DEFAULT_LEASE_MS =
+  (Number(process.env.MERMAID_CLAIM_LEASE_MIN) || 40) * 60 * 1000;
 
 export interface CoordinatorDeps {
   listReadyTodos: (project: string) => Todo[];

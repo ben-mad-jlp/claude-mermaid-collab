@@ -355,8 +355,9 @@ export function claimTodo(project: string, id: string, claimedBy: string, leaseM
   });
 }
 
-/** Max lease-expiry retries before a todo is parked as 'blocked' for a human (design #2). */
-export const MAX_CLAIM_RETRIES = 2;
+/** Max lease-expiry retries before a todo is parked as 'blocked' for a human (design #2).
+ *  Override with MERMAID_MAX_CLAIM_RETRIES. */
+export const MAX_CLAIM_RETRIES = Number(process.env.MERMAID_MAX_CLAIM_RETRIES) || 4;
 
 export interface ReleaseResult {
   /** Reclaimed to 'ready' for another attempt. */
