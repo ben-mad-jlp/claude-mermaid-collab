@@ -74,14 +74,14 @@ export const FleetVitals: React.FC<FleetVitalsProps> = ({ running, readyCount, t
                 style={{ flexGrow: flex, flexBasis: 0 }}
                 title={`${seg.label}: ${n}`}
                 data-testid={`fleet-funnel-${seg.key}`}
-                className={`min-w-[2.75rem] flex flex-col items-center justify-center px-1 text-xs font-semibold ${
+                className={`min-w-[3.5rem] flex flex-col items-center justify-center px-1 text-xs font-semibold ${
                   loud
                     ? 'bg-danger-500 text-white'
                     : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300'
                 }`}
               >
                 <span className="tabular-nums leading-none">{n}</span>
-                <span className="leading-none mt-0.5 truncate w-full text-center text-[0.625rem]">{seg.label}</span>
+                <span className="leading-none mt-0.5 whitespace-nowrap text-center text-[0.625rem]">{seg.label}</span>
               </div>
             );
           })}

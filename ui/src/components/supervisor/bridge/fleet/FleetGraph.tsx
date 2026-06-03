@@ -86,6 +86,18 @@ const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs, openEscalatio
 
   const { nodes, edges } = useFleetGraph({ todos, subs, openEscalations, expandedEpics, now });
 
+  // Fit the graph to its pane once nodes populate and after each relayout — the
+  // <ReactFlow fitView> prop only fires on the initial (empty) mount, which left
+  // the graph stuck at min-zoom showing a sliver. Keyed on a layout signature
+  // (node count + collapsed-epic set) so it re-fits on populate / expand / collapse.
+  const layoutSig = `${nodes.length}:${expandedEpics.size}`;
+  useEffect(() => {
+    if (nodes.length === 0) return;
+    const raf = requestAnimationFrame(() => fitView({ padding: 0.1, duration: 200, maxZoom: 1.2 }));
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layoutSig, fitView]);
+
   const onNodeClick = useCallback<NodeMouseHandler>(
     (_evt, node) => {
       setSelectedNodeId(node.id);

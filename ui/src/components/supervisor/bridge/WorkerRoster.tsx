@@ -82,14 +82,14 @@ export const WorkerRoster: React.FC<WorkerRosterProps> = ({ subscriptions, todos
                 onClick={() => onJump?.(sub.project, sub.session)}
                 data-testid={`roster-row-${sub.session}`}
                 title="Dive into this session's Studio"
-                className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors"
+                className="w-full flex items-start gap-2 px-3 py-2 text-left text-xs hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors"
               >
-                <span className={`shrink-0 w-2 h-2 rounded-full ${livenessDot(liveness)}`} aria-hidden="true" />
+                <span className={`shrink-0 mt-1 w-2 h-2 rounded-full ${livenessDot(liveness)}`} aria-hidden="true" />
                 <span className="shrink-0" aria-hidden="true">{roleGlyph(sub.session)}</span>
-                <span className="shrink-0 font-medium text-gray-800 dark:text-gray-100 truncate max-w-[8rem]">
+                <span className="shrink-0 font-medium text-gray-800 dark:text-gray-100 truncate max-w-[7rem]">
                   {sub.session}
                 </span>
-                <span className="flex-1 min-w-0 truncate text-gray-500 dark:text-gray-400">
+                <span className="flex-1 min-w-0 text-gray-500 dark:text-gray-400 line-clamp-2 leading-snug">
                   {currentTodo ? currentTodo.title : liveness === 'crashed' ? 'unresponsive' : 'idle'}
                 </span>
                 {typeof sub.contextPercent === 'number' && (

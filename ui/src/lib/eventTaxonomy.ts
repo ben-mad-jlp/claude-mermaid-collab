@@ -286,34 +286,61 @@ const AUDIT_KIND_TO_EVENT: Record<string, EventKey> = {
   override: 'escalation.decided',
 };
 
+/** A concise, human one-liner for an audit event — NEVER raw JSON. */
+function formatAuditTitle(type: EventKey, session: string, label: string | undefined, kind: string | undefined): string {
+  switch (type) {
+    case 'escalation.opened':
+      return `${session} escalated${kind ? ` (${kind})` : ''}${label ? `: ${label}` : ''}`;
+    case 'escalation.decided':
+      return `decision resolved · ${session}`;
+    case 'todo.claimed':
+      return `${session} claimed${label ? ` — ${label}` : ' a todo'}`;
+    case 'todo.completed':
+      return `todo completed${label ? ` — ${label}` : ''} · ${session}`;
+    case 'session.spawned':
+      return `session spawned · ${session}`;
+    default:
+      return `${meta(type).label} · ${session}`;
+  }
+}
+
 /**
- * Backfill adapter: a historical AuditEntry → StreamEvent. Audit kinds that
- * have no stream meaning (nudge, checkpoint, clear) fold into the muted
- * `artifact.updated` bucket so nothing is silently dropped.
+ * Backfill adapter: a historical AuditEntry → StreamEvent. The audit `detail`
+ * column is often a JSON blob (e.g. {kind,escalationId,todoId}); we parse it for
+ * known fields and ALWAYS render a concise human title — never the raw JSON.
+ * Audit kinds with no stream meaning (nudge, checkpoint, clear) fold into the
+ * muted `artifact.updated` bucket so nothing is silently dropped.
  */
 export function fromAuditEntry(entry: AuditEntry): StreamEvent {
   const type = AUDIT_KIND_TO_EVENT[entry.kind] ?? 'artifact.updated';
-  let detail: string | undefined;
   let todoId: string | undefined;
+  let label: string | undefined;
+  let kind: string | undefined;
   if (entry.detail) {
-    try {
-      const parsed = JSON.parse(entry.detail);
-      if (parsed && typeof parsed === 'object') {
-        todoId = typeof parsed.todoId === 'string' ? parsed.todoId : undefined;
-        detail = typeof parsed.title === 'string' ? parsed.title : entry.detail;
-      } else {
-        detail = entry.detail;
+    const trimmed = entry.detail.trim();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed && typeof parsed === 'object') {
+          todoId = typeof parsed.todoId === 'string' ? parsed.todoId : undefined;
+          label = typeof parsed.title === 'string' ? parsed.title : undefined;
+          kind = typeof parsed.kind === 'string' ? parsed.kind : undefined;
+        }
+      } catch {
+        // Malformed JSON → ignore the blob entirely (never surface raw JSON).
       }
-    } catch {
-      detail = entry.detail;
+    } else {
+      // Plain-text detail is safe to show as the label.
+      label = trimmed;
     }
   }
   return build(type, entry.ts, {
     id: `audit-${entry.id}`,
     project: entry.project,
     session: entry.session,
-    title: `${meta(type).label} · ${entry.session}`,
-    detail,
+    title: formatAuditTitle(type, entry.session, label, kind),
+    // Detail is folded into the title; never carry the raw blob.
+    detail: undefined,
     todoId,
   });
 }

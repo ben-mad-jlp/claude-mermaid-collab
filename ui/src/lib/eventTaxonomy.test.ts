@@ -59,7 +59,25 @@ describe('eventTaxonomy', () => {
     expect(e.type).toBe('todo.claimed');
     expect(e.id).toBe('audit-a1');
     expect(e.todoId).toBe('t1');
-    expect(e.detail).toBe('Do thing');
+    // Human title folds in the parsed title; raw JSON is never surfaced.
+    expect(e.title).toContain('Do thing');
+    expect(e.detail).toBeUndefined();
+  });
+
+  it('never surfaces a raw JSON blob as detail or title', () => {
+    const entry: AuditEntry = {
+      id: 'a2',
+      ts: 1,
+      kind: 'escalate',
+      project: '/a/b',
+      session: 'backend-1',
+      detail: JSON.stringify({ kind: 'decision', escalationId: 'x9' }),
+      serverId: 'local',
+    };
+    const e = fromAuditEntry(entry);
+    expect(e.title).not.toContain('{');
+    expect(e.title).toContain('backend-1');
+    expect(e.detail ?? '').not.toContain('{');
   });
 
   it('matchesCategory treats null as All', () => {
