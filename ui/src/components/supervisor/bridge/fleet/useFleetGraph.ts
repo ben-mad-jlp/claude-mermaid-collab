@@ -12,7 +12,7 @@
  * moves them.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { computeWaveMap } from '@/components/supervisor/roadmapToMermaid';
 import { bucketTodo, type FunnelKey } from '../funnel';
 import { currentTodoFor, deriveLiveness, roleGlyph } from '@/lib/liveness';
@@ -64,12 +64,53 @@ function useDebounced<T>(value: T, ms: number): T {
 export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; edges: FleetEdge[] } {
   const { todos, subs, openEscalations, expandedEpics, now } = input;
 
-  const isEpic = (t: SessionTodo) => t.parentId == null;
+  // Structure: an EPIC is any todo that actually HAS children. A parentId==null
+  // todo with no children is a readable LEAF, not an empty-rollup epic block —
+  // this is what made an idle fleet read as a field of dots.
+  const struct = useMemo(() => {
+    const byId = new Map<string, SessionTodo>();
+    for (const t of todos) byId.set(t.id, t);
+    const childrenByEpic = new Map<string, SessionTodo[]>();
+    for (const t of todos) {
+      if (t.parentId != null && byId.has(t.parentId)) {
+        const arr = childrenByEpic.get(t.parentId) ?? [];
+        arr.push(t);
+        childrenByEpic.set(t.parentId, arr);
+      }
+    }
+    return { byId, childrenByEpic, epicIds: new Set(childrenByEpic.keys()) };
+  }, [todos]);
 
-  // Visible todos: epics always; child todos only when their epic is expanded.
-  const visibleTodos = useMemo(
-    () => todos.filter((t) => isEpic(t) || (t.parentId != null && expandedEpics.has(t.parentId))),
-    [todos, expandedEpics],
+  // The visible epic an orphan/leaf hangs under (null = it's a top-level node).
+  const parentEpicOf = useCallback(
+    (t: SessionTodo): string | null => (t.parentId != null && struct.epicIds.has(t.parentId) ? t.parentId : null),
+    [struct],
+  );
+  const isVisibleTodo = useCallback(
+    (t: SessionTodo): boolean => {
+      const pe = parentEpicOf(t);
+      return pe == null || expandedEpics.has(pe);
+    },
+    [parentEpicOf, expandedEpics],
+  );
+  const visibleTodos = useMemo(() => todos.filter(isVisibleTodo), [todos, isVisibleTodo]);
+
+  // Re-route any todo id to its nearest VISIBLE node (itself, or its
+  // collapsed-epic ancestor) so dependency/claim edges survive collapse instead
+  // of being dropped — the cause of the zero-edges graph.
+  const visibleRep = useCallback(
+    (id: string): string | null => {
+      const t = struct.byId.get(id);
+      if (!t) return null;
+      if (isVisibleTodo(t)) return id;
+      const pe = parentEpicOf(t);
+      if (pe) {
+        const ep = struct.byId.get(pe);
+        if (ep && isVisibleTodo(ep)) return pe;
+      }
+      return null;
+    },
+    [struct, isVisibleTodo, parentEpicOf],
   );
 
   // Structural signature → drives the debounced topology recompute.
@@ -83,19 +124,18 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
   }, [todos, subs, expandedKey]);
   const debouncedSig = useDebounced(signature, 250);
 
-  // Keep latest data reachable from the structure-only memo without widening deps.
-  const ref = useRef({ todos, subs, visibleTodos });
-  ref.current = { todos, subs, visibleTodos };
+  // Keep latest derived helpers reachable from the structure-only memo.
+  const ref = useRef({ todos, subs, visibleTodos, visibleRep, epicIds: struct.epicIds });
+  ref.current = { todos, subs, visibleTodos, visibleRep, epicIds: struct.epicIds };
 
   // POSITIONS — recomputed only when the debounced structural signature changes.
   const positions = useMemo(() => {
-    const { todos: allTodos, subs: curSubs, visibleTodos: vis } = ref.current;
+    const { todos: allTodos, subs: curSubs, visibleTodos: vis, visibleRep: rep, epicIds } = ref.current;
     const waveMap = computeWaveMap(allTodos);
-    const visibleIds = new Set(vis.map((t) => t.id));
 
     const layoutNodes: LayoutNode[] = [];
     for (const t of vis) {
-      const size = isEpic(t) ? SIZES.epic : SIZES.todo;
+      const size = epicIds.has(t.id) ? SIZES.epic : SIZES.todo;
       layoutNodes.push({ id: t.id, width: size.width, height: size.height });
     }
     const workerOf = new Map<string, SessionTodo | null>();
@@ -105,15 +145,24 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
       layoutNodes.push({ id: `worker:${sub.session}`, width: SIZES.worker.width, height: SIZES.worker.height });
     }
 
+    // Dependency edges, re-routed to visible representatives + deduped.
+    const seen = new Set<string>();
     const layoutEdges: LayoutEdge[] = [];
-    for (const t of vis) {
+    for (const t of allTodos) {
+      const tgt = rep(t.id);
+      if (!tgt) continue;
       for (const dep of t.dependsOn ?? []) {
-        if (visibleIds.has(dep)) layoutEdges.push({ source: dep, target: t.id });
+        const src = rep(dep);
+        if (src && src !== tgt && !seen.has(`${src}->${tgt}`)) {
+          seen.add(`${src}->${tgt}`);
+          layoutEdges.push({ source: src, target: tgt });
+        }
       }
     }
     for (const sub of curSubs) {
       const todo = workerOf.get(sub.session);
-      if (todo && visibleIds.has(todo.id)) layoutEdges.push({ source: `worker:${sub.session}`, target: todo.id });
+      const tgt = todo ? rep(todo.id) : null;
+      if (tgt) layoutEdges.push({ source: `worker:${sub.session}`, target: tgt });
     }
 
     const rankOf = (id: string): number | undefined => {
@@ -131,14 +180,6 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
   // NODES — fresh data each render, stable positions.
   const nodes = useMemo<FleetNode[]>(() => {
     const out: FleetNode[] = [];
-    const childrenByEpic = new Map<string, SessionTodo[]>();
-    for (const t of todos) {
-      if (t.parentId != null) {
-        const arr = childrenByEpic.get(t.parentId) ?? [];
-        arr.push(t);
-        childrenByEpic.set(t.parentId, arr);
-      }
-    }
     const dangerFor = (t: SessionTodo): boolean =>
       openEscalations.some(
         (e) => e.session === t.claimedBy || e.session === t.assigneeSession || e.session === t.sessionName,
@@ -146,10 +187,10 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
 
     for (const t of visibleTodos) {
       const pos = positions.get(t.id) ?? { x: 0, y: 0 };
-      if (isEpic(t)) {
+      if (struct.epicIds.has(t.id)) {
         const counts = EMPTY_COUNTS();
         let total = 0;
-        for (const c of childrenByEpic.get(t.id) ?? []) {
+        for (const c of struct.childrenByEpic.get(t.id) ?? []) {
           const b = bucketTodo(c);
           if (b) {
             counts[b] += 1;
@@ -185,19 +226,25 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
       out.push({ id, type: 'worker', position: pos, data });
     }
     return out;
-  }, [visibleTodos, todos, subs, openEscalations, positions, now]);
+  }, [visibleTodos, struct, todos, subs, openEscalations, positions, now]);
 
-  // EDGES — structural; dep edges muted/static, claim edges accent/animated.
+  // EDGES — dep edges (muted/static) re-routed through collapsed epics so they
+  // always connect visible nodes; claim edges (accent/animated) only for active
+  // workers (an idle worker has no in_progress todo → no claim edge).
   const edges = useMemo<FleetEdge[]>(() => {
-    const visibleIds = new Set(visibleTodos.map((t) => t.id));
     const out: FleetEdge[] = [];
-    for (const t of visibleTodos) {
+    const seen = new Set<string>();
+    for (const t of todos) {
+      const tgt = visibleRep(t.id);
+      if (!tgt) continue;
       for (const dep of t.dependsOn ?? []) {
-        if (visibleIds.has(dep)) {
+        const src = visibleRep(dep);
+        if (src && src !== tgt && !seen.has(`${src}->${tgt}`)) {
+          seen.add(`${src}->${tgt}`);
           out.push({
-            id: `dep:${dep}->${t.id}`,
-            source: dep,
-            target: t.id,
+            id: `dep:${src}->${tgt}`,
+            source: src,
+            target: tgt,
             animated: false,
             style: { stroke: 'var(--color-muted-400, #9ca3af)', strokeWidth: 1 },
           });
@@ -206,18 +253,19 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
     }
     for (const sub of subs) {
       const todo = currentTodoFor(sub.session, todos);
-      if (todo && visibleIds.has(todo.id)) {
+      const tgt = todo ? visibleRep(todo.id) : null;
+      if (tgt) {
         out.push({
-          id: `claim:${sub.session}->${todo.id}`,
+          id: `claim:${sub.session}->${tgt}`,
           source: `worker:${sub.session}`,
-          target: todo.id,
+          target: tgt,
           animated: true,
           style: { stroke: 'var(--color-accent-500, #6366f1)', strokeWidth: 2 },
         });
       }
     }
     return out;
-  }, [visibleTodos, subs, todos]);
+  }, [todos, subs, visibleRep]);
 
   return { nodes, edges };
 }
