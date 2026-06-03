@@ -26,6 +26,7 @@ import TodosTreeSection from '@/components/layout/sidebar-tree/TodosTreeSection'
 import { WorktreeBadge } from '@/components/layout/WorktreeBadge';
 import { ContextChip } from '@/components/layout/studio/ContextChip';
 import { InlineEscalationDock } from '@/components/layout/studio/InlineEscalationDock';
+import { StudioSessionPicker } from '@/components/layout/studio/StudioSessionPicker';
 import { StudioTicker } from '@/components/stream/StudioTicker';
 import { useDataLoader } from '@/hooks/useDataLoader';
 
@@ -63,6 +64,10 @@ export const StudioShell: React.FC<StudioShellProps> = ({ className = '' }) => {
         ${className}
       `.trim()}
     >
+      {/* In-Studio entry point: pick a watched/recent session. Auto-expands when
+          nothing is selected; collapses to a thin header once one is. */}
+      <StudioSessionPicker />
+
       {/* Session identity chip + context gauge — pinned at the top. */}
       {currentSession && !isDisabled && (
         <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700 space-y-1.5">
