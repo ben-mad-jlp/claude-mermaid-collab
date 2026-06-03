@@ -2,6 +2,7 @@ import Database from 'bun:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { validateUiSpec, type JsonRenderSpec } from './escalation-ui-schema';
 
 /**
  * GLOBAL supervisor store (single connection).
@@ -55,6 +56,10 @@ export interface Escalation {
   /** The id of the recommended option (must be one of options[].id). Null when
    *  there is no recommendation or no options. */
   recommended: string | null;
+  /** Optional rich JSON-render decision spec (BR-4). Server-validated against the
+   *  closed catalog; null when absent or invalid. The options[] / legacy card
+   *  remains the fallback, so this never affects answerability. */
+  ui: JsonRenderSpec | null;
 }
 
 export const ESCALATION_KINDS = ['question', 'decision', 'blocker', 'approval'] as const;
@@ -98,7 +103,8 @@ CREATE TABLE IF NOT EXISTS escalation (
   serverId TEXT NOT NULL DEFAULT '',
   todoId TEXT,
   optionsJson TEXT,
-  recommended TEXT
+  recommended TEXT,
+  uiJson TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_esc_open ON escalation(project, session, questionText, status);
 CREATE TABLE IF NOT EXISTS escalation_decision (
@@ -165,6 +171,7 @@ function openDb(): Database {
   addColumnIfMissing(db, 'escalation', 'todoId', 'todoId TEXT');
   addColumnIfMissing(db, 'escalation', 'optionsJson', 'optionsJson TEXT');
   addColumnIfMissing(db, 'escalation', 'recommended', 'recommended TEXT');
+  addColumnIfMissing(db, 'escalation', 'uiJson', 'uiJson TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS idx_esc_todo ON escalation(project, todoId, status)');
   return db;
 }
@@ -254,7 +261,17 @@ export function isSupervised(project: string, session: string): boolean {
 
 /** Raw DB row shape: structured options live in a JSON column (`optionsJson`),
  *  parsed into `options` by mapEscalationRow before crossing the store boundary. */
-type EscalationRow = Omit<Escalation, 'options'> & { optionsJson: string | null };
+type EscalationRow = Omit<Escalation, 'options' | 'ui'> & { optionsJson: string | null; uiJson: string | null };
+
+/** Parse a stored ui blob, re-validating against the closed catalog (defensive). */
+function parseUi(json: string | null): JsonRenderSpec | null {
+  if (!json) return null;
+  try {
+    return validateUiSpec(JSON.parse(json));
+  } catch {
+    return null;
+  }
+}
 
 /** Parse a stored options blob into a typed array, tolerating null/garbage. */
 function parseOptions(json: string | null): EscalationOption[] | null {
@@ -272,8 +289,8 @@ function parseOptions(json: string | null): EscalationOption[] | null {
 
 /** Map a raw DB row to the public Escalation shape (optionsJson → options[]). */
 function mapEscalationRow(row: EscalationRow): Escalation {
-  const { optionsJson, ...rest } = row;
-  return { ...rest, options: parseOptions(optionsJson), recommended: row.recommended ?? null };
+  const { optionsJson, uiJson, ...rest } = row;
+  return { ...rest, options: parseOptions(optionsJson), recommended: row.recommended ?? null, ui: parseUi(uiJson) };
 }
 
 /**
@@ -295,6 +312,7 @@ export function createEscalation(input: {
   todoId?: string | null;
   options?: EscalationOption[] | null;
   recommended?: string | null;
+  ui?: unknown;
 }): { escalation: Escalation; isNew: boolean } {
   const d = openDb();
   const existing = d
@@ -312,9 +330,13 @@ export function createEscalation(input: {
   const recommended = options && input.recommended && options.some((o) => o.id === input.recommended)
     ? input.recommended
     : null;
+  // Server-side validation of the optional rich ui spec (closed catalog,
+  // terminal-action required, ≤40 elements). Invalid → dropped to null.
+  const ui = validateUiSpec(input.ui);
+  const uiJson = ui ? JSON.stringify(ui) : null;
   d.prepare(
-    'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, resolvedAt, serverId, todoId, optionsJson, recommended) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
-  ).run(id, input.project, input.session, input.kind, input.questionText, 'open', createdAt, null, serverId, todoId, optionsJson, recommended);
+    'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, resolvedAt, serverId, todoId, optionsJson, recommended, uiJson) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
+  ).run(id, input.project, input.session, input.kind, input.questionText, 'open', createdAt, null, serverId, todoId, optionsJson, recommended, uiJson);
   return {
     escalation: {
       id,
@@ -329,6 +351,7 @@ export function createEscalation(input: {
       todoId,
       options,
       recommended,
+      ui,
     },
     isNew: true,
   };
