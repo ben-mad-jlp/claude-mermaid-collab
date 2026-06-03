@@ -51,14 +51,24 @@ export type PoolConfig = Record<PoolType, number>;
 
 export const DEFAULT_SLOTS_PER_TYPE = 1;
 
-/** Default pool config: lazy-spawn, keep-warm, 1 slot per type. */
+/** Per-type slot count, overridable via `MERMAID_POOL_<TYPE>` env (e.g.
+ *  MERMAID_POOL_FRONTEND=3). Falls back to the given default. */
+function slotsFor(type: PoolType, fallback: number): number {
+  const env = process.env[`MERMAID_POOL_${type.toUpperCase()}`];
+  const n = env != null ? Number(env) : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+/** Default pool config: lazy-spawn, keep-warm. `frontend` defaults to 3 so a
+ *  same-type wave (e.g. parallel UI todos) fans out; others stay at 1. Tune per
+ *  type with MERMAID_POOL_<TYPE>. */
 export const POOL_CONFIG: PoolConfig = {
-  frontend: DEFAULT_SLOTS_PER_TYPE,
-  backend: DEFAULT_SLOTS_PER_TYPE,
-  api: DEFAULT_SLOTS_PER_TYPE,
-  ui: DEFAULT_SLOTS_PER_TYPE,
-  library: DEFAULT_SLOTS_PER_TYPE,
-  general: DEFAULT_SLOTS_PER_TYPE,
+  frontend: slotsFor('frontend', 3),
+  backend: slotsFor('backend', DEFAULT_SLOTS_PER_TYPE),
+  api: slotsFor('api', DEFAULT_SLOTS_PER_TYPE),
+  ui: slotsFor('ui', DEFAULT_SLOTS_PER_TYPE),
+  library: slotsFor('library', DEFAULT_SLOTS_PER_TYPE),
+  general: slotsFor('general', DEFAULT_SLOTS_PER_TYPE),
 };
 
 /**
