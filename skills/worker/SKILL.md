@@ -102,7 +102,7 @@ Args: { "project": "<pwd>", "todoId": "<ARGUMENTS>", "acceptance": "rejected" }
 
 ### 4c. Blocked / spec invalid (material change discovered)
 
-Do NOT complete. Raise an escalation so the supervisor/planner can re-validate:
+**Stopping is NOT escalating.** If you cannot complete this todo, your turn does not end until you have called `escalation_create` (below). Printing your reasoning/options to the chat and then stopping is a **NO-OP**: the supervisor cannot see it, the todo strands `in_progress` until lease-expiry, and the coordinator will auto-flag you as a silent stall (DOGFOOD #6) — the structured `escalation_create` call is the ONLY thing that surfaces a blocker. Do NOT complete; raise the escalation so the supervisor/planner can re-validate:
 
 Your session name is `worker-<first 8 chars of the todo id>`.
 

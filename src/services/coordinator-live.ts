@@ -25,6 +25,59 @@ function isTmuxAlive(tmux: string): boolean {
   }
 }
 
+// --- DOGFOOD #6: idle-at-prompt stall detection ---------------------------------
+// A worker can be ALIVE (tmux up, lease unexpired) yet silently stalled: it ended
+// its turn sitting at the input prompt awaiting a human decision, without filing an
+// escalation. reapDeadClaims only catches DEAD workers; this catches alive-but-idle
+// ones and surfaces them as a structured escalation so they don't sit invisibly
+// until lease-expiry.
+
+/** Read a worker's rendered tmux pane (point-in-time). '' if unreadable. */
+function capturePane(tmux: string): string {
+  try {
+    const p = Bun.spawnSync(['tmux', 'capture-pane', '-t', tmux, '-p'], { stdout: 'pipe', stderr: 'ignore' });
+    return p.stdout?.toString() ?? '';
+  } catch {
+    return '';
+  }
+}
+
+/** A Claude TUI pane is ACTIVELY WORKING when it shows a spinner with an elapsed
+ *  timer (e.g. "✻ Zesting… (26s · ↓ 1.1k tokens)") or the interrupt hint. When the
+ *  worker has ended its turn and sits at the input prompt awaiting a human, neither
+ *  is present. */
+function isActivelyWorking(pane: string): boolean {
+  return /\(\d+(?:m\s*\d+)?s\s*·/.test(pane) || /esc to interrupt/i.test(pane);
+}
+
+/** Stable signature of the bottom of the pane (last non-empty lines). Identical
+ *  signatures on two reads spanning the stall window = no progress. */
+function paneSignature(pane: string): string {
+  return pane.split('\n').map((l) => l.trimEnd()).filter((l) => l.length > 0).slice(-12).join('\n');
+}
+
+/** Best-effort: pull the worker's pending question/options out of the pane so the
+ *  escalation card carries context (fix-3) rather than a bare "stalled". */
+function extractStallContext(pane: string): string {
+  const lines = pane.split('\n').map((l) => l.trim()).filter(Boolean);
+  const picked = lines.filter((l) =>
+    /^[•\-*]?\s*\(?[a-cA-C1-3][).]/.test(l) ||
+    /\boption\b|\bescalat/i.test(l) ||
+    /\brecommend/i.test(l) ||
+    /reply with|which option|proceed with/i.test(l),
+  );
+  const ctx = picked.slice(-8).join('\n');
+  return ctx.length > 0 ? ctx : lines.slice(-6).join('\n');
+}
+
+/** In-memory idle tracker: tmux → { sig, since, escalated }. The coordinator is a
+ *  singleton daemon, so per-process module state is fine. */
+const idleTracker = new Map<string, { sig: string; since: number; escalated: boolean }>();
+/** How long a worker must sit idle-at-prompt (unchanged pane) before it's a stall.
+ *  Long enough not to false-trip on normal between-turn idle. Override with
+ *  MERMAID_STALL_MIN. */
+const STALL_MS = (Number(process.env.MERMAID_STALL_MIN) || 3) * 60 * 1000;
+
 /** Per-todo agent profile → launch params (PCS Phase 3). The todo's `type`
  *  (when present; assigned at sync time per #8) resolves to a registry profile
  *  (tools/model/runtimeMode); the `invokeSkill` makes the worker autonomous:
@@ -155,6 +208,49 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         else if (next === 'blocked') exhausted.push(t.id);
       }
       return { reclaimed, exhausted };
+    },
+    detectStalls: async (project: string): Promise<string[]> => {
+      // DOGFOOD #6: surface ALIVE-but-idle (stalled) workers. Signal: the pane is
+      // not actively working (no spinner) AND its bottom is byte-identical across
+      // >= STALL_MS. On detection we file ONE structured escalation per episode so
+      // it appears in the inbox/UI decision card — we never auto-answer (the human
+      // decides). A worker that resumes (pane changes / spinner returns) resets.
+      const stalled: string[] = [];
+      const seen = new Set<string>();
+      for (const t of listTodos(project, { status: 'in_progress' })) {
+        const session = t.sessionName ?? `worker-${t.id.slice(0, 8)}`;
+        const tmux = tmuxBaseName(project, session);
+        seen.add(tmux);
+        if (!isTmuxAlive(tmux)) continue; // dead → reapDeadClaims handles it
+        const pane = capturePane(tmux);
+        if (!pane || isActivelyWorking(pane)) { idleTracker.delete(tmux); continue; }
+        const sig = paneSignature(pane);
+        const now = Date.now();
+        const prev = idleTracker.get(tmux);
+        if (!prev || prev.sig !== sig) {
+          idleTracker.set(tmux, { sig, since: now, escalated: false });
+          continue;
+        }
+        if (prev.escalated || now - prev.since < STALL_MS) continue;
+        try {
+          createEscalation({
+            project,
+            session,
+            kind: 'question',
+            todoId: t.id,
+            questionText:
+              `Worker for "${t.title ?? t.id}" appears STALLED — idle at its prompt with no progress for ` +
+              `${Math.round((now - prev.since) / 60000)}+ min, awaiting input but no escalation was filed ` +
+              `(DOGFOOD #6 auto-detected). Pending context:\n\n${extractStallContext(pane)}`,
+          });
+          recordSupervisorAudit({ kind: 'escalate', project, session, detail: JSON.stringify({ todoId: t.id, reason: 'stall-detected', idleMs: now - prev.since }) });
+          prev.escalated = true;
+          stalled.push(t.id);
+        } catch { /* escalation best-effort; never abort the tick */ }
+      }
+      // GC trackers for tmux sessions no longer in_progress.
+      for (const k of idleTracker.keys()) if (!seen.has(k)) idleTracker.delete(k);
+      return stalled;
     },
     escalateExhausted: async (project: string, todoId: string): Promise<void> => {
       const todo = getTodo(project, todoId);
