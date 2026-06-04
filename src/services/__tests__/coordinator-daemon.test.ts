@@ -182,6 +182,26 @@ describe('runTick', () => {
     expect(escalated).toEqual(['dead-blocked']);
   });
 
+  test('detectStalls (DOGFOOD #6) is invoked each tick', async () => {
+    const stallCalls: string[] = [];
+    const deps = makeDeps({
+      listReadyTodos: () => [],
+      detectStalls: async (project) => { stallCalls.push(project); return ['stalled-x']; },
+    });
+    await runTick(deps, 'proj');
+    expect(stallCalls).toEqual(['proj']);
+  });
+
+  test('detectStalls throwing does NOT abort the tick (ready todos still processed)', async () => {
+    const deps = makeDeps({
+      listReadyTodos: () => [makeTodo('a')],
+      detectStalls: async () => { throw new Error('capture-pane blew up'); },
+    });
+    const result = await runTick(deps, 'proj');
+    expect(result.claimed).toEqual(['a']);
+    expect(result.spawned).toEqual(['a']);
+  });
+
   test('claimTodo is called with COORDINATOR_ID and leaseMs', async () => {
     const todos = [makeTodo('t1')];
     const deps = makeDeps({ listReadyTodos: () => todos });

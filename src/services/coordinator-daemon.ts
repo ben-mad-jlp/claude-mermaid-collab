@@ -23,6 +23,10 @@ export interface CoordinatorDeps {
   /** Reclaim claims whose worker is hard-dead (tmux gone), without waiting for
    *  the lease. Returns reclaimed-to-ready + retry-exhausted (parked blocked) ids. Optional. */
   reapDeadClaims?: (project: string) => Promise<{ reclaimed: string[]; exhausted: string[] }>;
+  /** Detect ALIVE-but-idle (stalled) workers — a worker sitting at its prompt
+   *  awaiting input without filing an escalation — and surface them as escalations
+   *  (DOGFOOD #6). Returns the stalled todo ids. Optional. */
+  detectStalls?: (project: string) => Promise<string[]>;
   /** Escalate a todo a worker REJECTED (mechanical gate failed). Optional. */
   escalateRejected?: (project: string, todoId: string) => Promise<void>;
 }
@@ -50,6 +54,11 @@ export async function runTick(
   }
   for (const id of exhausted) {
     try { await deps.escalateExhausted?.(project, id); } catch { /* escalation must not abort the tick */ }
+  }
+  // Idle-at-prompt stall detection (DOGFOOD #6): file escalations for ALIVE-but-
+  // stalled workers so a silent stall surfaces instead of sitting until lease-expiry.
+  if (deps.detectStalls) {
+    try { await deps.detectStalls(project); } catch { /* stall detection must not abort the tick */ }
   }
   const ready = deps.listReadyTodos(project);
   const claimed: string[] = [];
