@@ -24,18 +24,65 @@ The returned todo's `title` + `description` is your spec. If `description` is em
 
 Implement exactly what the todo's spec asks — no more. Follow the repo's conventions (read neighbouring files first). Prefer the native Read/Edit/Write tools over shell `cat`/`sed`. Keep the change scoped to this one todo; if you discover the spec is materially wrong or blocked by something outside this todo, jump to Step 4 (escalate) instead of guessing.
 
-## Step 3 — Mechanical acceptance gate
+## Step 3 — Mechanical acceptance gate (scoped to YOUR change-set)
 
-Before reporting done, the change MUST pass the mechanical gate (per PCS design #1 — mechanical gate only, no verifier agent):
+Before reporting done, the change MUST pass the mechanical gate (per PCS design #1 — mechanical gate only, no verifier agent).
 
-1. **Type check:** `npx tsc --noEmit` → must exit 0.
-2. **Tests:** run the project's test command for the affected area (e.g. `bun test <path>` or `npm run test:ci -- <path>`) → must pass.
+**CRITICAL — the pool runs many workers in the SAME git working tree.** The tree therefore contains sibling lanes' in-flight, uncommitted edits. Your gate judges **only the change-set YOU produced for this todo** — never reject because another lane's file fails. (This prevents the cross-lane contamination that falsely rejects correct work; see supervisor DOGFOOD #5.)
 
-- **Both pass →** report `accepted` (Step 4a).
-- **Either fails and you can fix it →** fix and re-run the gate.
-- **Either fails and you cannot fix it within scope →** report `rejected` (Step 4b).
+1. **Identify your change-set.** `git status --porcelain` then `git diff --name-only` — the files *this todo* touched. Every other modified/untracked file belongs to a sibling worker; treat those as foreign and out of scope.
+2. **Type check:** `npx tsc --noEmit`. Only type errors located in **your change-set files** count. Errors in files you did not touch are a sibling lane's in-flight state → foreign, ignore them.
+3. **Tests — scope to your change-set, do NOT run the whole suite:** run only the tests that cover the files you changed (e.g. `npm run test:ci -- <your test file/dir>` or `bun test <path>`). A failing test you did **not** author/modify that fails because of files **outside** your change-set is foreign contamination → ignore it; do not reject; do not fall back to the full suite.
+4. **NEVER** run the entire repo test suite, and never let a cross-cutting / whole-tree guard test gate your todo (e.g. an e2e assertion like "this stream modified zero backend files" or "tracked tree is clean") — in a shared pool tree those observe sibling lanes' edits and produce FALSE rejections.
+
+- **Your scope is green →** report `accepted` (Step 4a).
+- **A real failure IN YOUR change-set you can fix →** fix and re-run the scoped gate.
+- **A real failure IN YOUR change-set you cannot fix within scope →** report `rejected` (Step 4b).
+
+### Step 3b — CAD / geometry gate (todos that produce geometry, not code)
+
+If the todo's deliverable is **geometry** (a CAD part, an assembly, a joint or bolted connection — e.g. `type: cad`), the code gate above does **not** apply: `tsc`/`vitest` say nothing about whether the solid is valid. **A script that runs is not a part that exists.** Run the geometry gate instead, via the bsync / build123d MCP verbs:
+
+1. **Non-empty + valid.** `validate_geometry` (plus `get_model_info` / `mass_properties`) on what you produced → must be a **valid, non-empty** solid (bounding box present, volume > 0). An empty body or invalid solid is **rejected**, never accepted. (Watch the known "constraint emptied the assembly" failure — a 0-volume / no-tree-node result after an op means your change broke it.)
+2. **Envelope sanity.** The part's bounding box / mass is within the **declared envelope** in the todo spec — catches wrong-scale or wrong-units parts that are "valid" but wrong.
+3. **Kinematics (assembly / joint todos).** `analyze_dof` returns exactly the DOF the spec declares (a revolute joint adds 1; a coupled gripper nets 1). Wrong DOF = rejected.
+4. **Interference (assembly todos).** `check_clearance` reports **zero** interference for the declared pose(s). A baked bolted connection must show real holes **and** fasteners present, not just a constraint.
+5. **Reproducible export (part todos).** The part exports to a valid STEP (`step_save` / `export_*` returns bytes and re-imports clean) — this is also how the assembly stage consumes your part.
+
+- **All declared checks green →** `accepted`.
+- **Empty / invalid / wrong-DOF / interfering geometry you can fix in scope →** fix and re-run.
+- **…you cannot fix →** `rejected`.
+- **The failure is a SOLVER / tool limitation, not your modeling** (e.g. a coupled mechanism can't be driven, `same_orientation`/`parallel-3d` crashes) → **escalate** (Step 4c), do NOT report rejected. This is the attribution that matters: a bad change is `rejected`; a tool limitation is an escalation. **In your completion/escalation message, name the verb that failed and its return** so the failure can be attributed (collab-layer vs bsync-layer) until structured friction-notes exist.
 
 ## Step 4 — Report completion
+
+### 4·0 — First, record your attempt (friction note) — ALWAYS
+
+Before any accept/reject/escalate below, **Write a friction note** so the run is
+attributable (without it, a wave's failures can't be classified — see DOGFOOD #4/#5).
+Use the native **Write** tool (one file per todo, overwrite is fine):
+
+Path: `<pwd>/.collab/attempts/<ARGUMENTS>.json` (where `<ARGUMENTS>` is the todo id).
+
+```json
+{
+  "todoId": "<ARGUMENTS>",
+  "session": "<your pool lane / worker session name>",
+  "outcome": "accepted | rejected | escalated",
+  "retryReason": "none | wrong-cmd | re-derived-contract | acceptance-format | geometry-invalid | solver-error | contamination",
+  "layer": "none | collab | bsync",
+  "verbsTried": ["..."],
+  "failingVerb": "<verb that failed, or null>",
+  "failingReturn": "<short verbatim error / return, or null>",
+  "summary": "<one line: what you did and why it ended this way>"
+}
+```
+
+- `layer` is the attribution that matters: `collab` = orchestration/gate/tooling got in your
+  way; `bsync` = the CAD kernel/solver failed (e.g. couldn't drive a coupled mechanism).
+- `retryReason: contamination` = a sibling lane's file/state failed your gate (you should have
+  ignored it per Step 3) — record it so we can measure how often isolation bites.
+- Keep `failingReturn` short (one line). Then proceed to the matching report below.
 
 ### 4a. Accepted
 
