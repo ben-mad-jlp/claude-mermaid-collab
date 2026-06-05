@@ -1,0 +1,11 @@
+{
+  "todoId": "7ef13930-cbe1-46e1-ba2f-6e0f9a4f488e",
+  "session": "backend-3",
+  "outcome": "accepted",
+  "retryReason": "none",
+  "layer": "none",
+  "verbsTried": ["get_todo", "complete_todo"],
+  "failingVerb": null,
+  "failingReturn": null,
+  "summary": "Added src/services/bsync-session.ts (deriveBsyncSessionId -> stable+unique collab-<sha1[:16]> from project/lane/todo, isCadTodo, bsyncSessionContextNote) and wired it into coordinator-live.ts launchWorker so CAD todos inject session_id isolation into the worker contextPrompt. NOTE: a prior Explore agent hallucinated that this file already existed; it did not — implemented from scratch. tsc clean on change-set; 36/36 bsync-session+coordinator tests pass."
+}

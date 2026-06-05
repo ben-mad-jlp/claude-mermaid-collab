@@ -4,8 +4,8 @@
  *
  * This module is intentionally side-effect-free: NO tmux, NO launch, NO
  * coordinator wiring (those are POOL-3/POOL-4). It only defines the pool
- * taxonomy, per-type slot config, descriptive session-name derivation, todo→pool
- * type mapping, and an in-memory slot registry that POOL-4 will consume to route
+ * taxonomy, per-type slot config, descriptive session-name derivation, todo
+ * `type` normalization, and an in-memory slot registry that POOL-4 will consume to route
  * todos to free sessions.
  *
  * Constraints (from approved decision records):
@@ -72,35 +72,36 @@ export const POOL_CONFIG: PoolConfig = {
 };
 
 /**
- * Map an `AgentProfileType` to a `PoolType`. The only divergence is
- * `default` → `general` (the absorbing slot); every other profile type is a
- * 1:1 pool type.
+ * Map an `AgentProfileType` (the distinct `profile` concept) to a routing
+ * `type`. The only divergence is `default` → `general` (the absorbing slot);
+ * every other profile type is a 1:1 routing type.
  */
-export function profileTypeToPoolType(profileType: AgentProfileType): PoolType {
+export function profileToType(profileType: AgentProfileType): PoolType {
   return profileType === 'default' ? 'general' : profileType;
 }
 
 /**
- * Map a todo's `type` string to a pool type. Null/unknown/`default`/multi-domain
- * → `general`. Reuses the agent-profile taxonomy; a recognized profile type maps
- * directly, anything else falls through to `general`.
+ * Normalize a todo's `type` string into the canonical routing `type` set.
+ * Null/unknown/`default`/multi-domain → `general`. Reuses the agent-profile
+ * taxonomy; a recognized profile type maps directly, anything else falls through
+ * to `general`.
  *
  * NOTE: this does NOT re-run PATH_RULES file inference — that lives in
  * `agent-profiles.inferProfileType` and operates on a task's touched files, not
- * a todo's already-assigned `type` string. POOL-4 can call `poolTypeForFiles`
+ * a todo's already-assigned `type` string. POOL-4 can call `typeForFiles`
  * below when it only has files.
  */
-export function todoTypeToPoolType(todoType?: string | null): PoolType {
+export function normalizeType(todoType?: string | null): PoolType {
   if (!todoType) return 'general';
   if ((POOL_TYPES as readonly string[]).includes(todoType)) {
-    // already a valid pool type (covers frontend/backend/api/ui/library/general)
+    // already a valid routing type (covers frontend/backend/api/ui/library/general)
     return todoType as PoolType;
   }
   if (todoType === 'default') return 'general';
   // Recognized agent-profile type? (e.g. a future profile-only type.)
   const known: AgentProfileType[] = ['default', 'frontend', 'backend', 'api', 'ui', 'library'];
   if ((known as string[]).includes(todoType)) {
-    return profileTypeToPoolType(todoType as AgentProfileType);
+    return profileToType(todoType as AgentProfileType);
   }
   return 'general';
 }
@@ -108,10 +109,10 @@ export function todoTypeToPoolType(todoType?: string | null): PoolType {
 /**
  * Convenience for POOL-4 when routing from a task's touched files instead of a
  * pre-assigned `type` string: defers to agent-profiles' PATH_RULES inference,
- * then maps the resulting profile type into pool space.
+ * then maps the resulting profile into the routing `type` set.
  */
-export function poolTypeForFiles(files: string[] | undefined | null): PoolType {
-  return profileTypeToPoolType(inferProfileType(files));
+export function typeForFiles(files: string[] | undefined | null): PoolType {
+  return profileToType(inferProfileType(files));
 }
 
 /**
