@@ -64,6 +64,14 @@ export interface ProjectManifest {
   version?: number;
   /** type → profile overrides/additions. */
   profiles?: Record<string, ManifestProfile>;
+  /** Shared tech-pack ids this project uses (Profile L2). Each id references a
+   *  framework/domain pack in the cross-project registry (src/config/tech-packs.ts)
+   *  — the project declares WHICH packs apply; the pack bodies live in collab, not
+   *  here. Unknown ids resolve to nothing (degrade gracefully). */
+  packs?: string[];
+  /** Which declared pack is the project's primary domain pack (usually one of
+   *  `packs`). A primary not listed in `packs` is still honoured if it resolves. */
+  primaryPack?: string;
   /** The project's mechanical acceptance gate command (e.g. a pytest invocation
    *  for a Python repo where `npx tsc` does not apply). Advisory metadata the
    *  Coordinator-side gate can consult. */
