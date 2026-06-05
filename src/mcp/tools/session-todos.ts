@@ -21,6 +21,7 @@ import {
 } from '../../services/todo-store.js';
 import { inferProfileType } from '../../config/agent-profiles.js';
 import { inferTypeFromManifest } from '../../config/project-manifest.js';
+import type { ToolDef } from './registry.js';
 
 // ============= Type Re-exports =============
 
@@ -444,3 +445,181 @@ export async function assignSessionTodo(
   const updated = await assignTodo(project, String(id), assigneeSession);
   return Object.assign(updated, { previousAssigneeSession });
 }
+
+// ============= Tool definitions (registry) =============
+//
+// Migrated out of setup.ts's monolithic switch. NO behaviour change — identical
+// request shapes, required-field checks, WS broadcasts, and JSON output. The WS
+// broadcast (previously `getWebSocketHandler()?.broadcast(...)`) is now routed
+// through the injected `ctx.broadcast`, which keeps handlers unit-testable.
+
+export const sessionTodoToolDefs: ToolDef[] = [
+  {
+    name: 'list_session_todos',
+    description: 'List per-session todos (checkable list attached to a collab session). Set includeCompleted=false to filter out completed items. For long-lived sessions with many todos, pass compact=true (slim projection, omits descriptions) to stay under the token cap, or descriptionLimit=N to truncate descriptions. Results are sorted by order ascending.',
+    inputSchema: listSessionTodosSchema,
+    handler: async (args) => {
+      const { project, session, includeCompleted, assigneeSession, status, compact, descriptionLimit } = args as {
+        project: string;
+        session: string;
+        includeCompleted?: boolean;
+        assigneeSession?: string;
+        status?: TodoStatus;
+        compact?: boolean;
+        descriptionLimit?: number;
+      };
+      if (!project || !session) throw new Error('Missing required: project, session');
+      const result = await listSessionTodos(project, session, { includeCompleted, assigneeSession, status, compact, descriptionLimit });
+      return JSON.stringify(result, null, 2);
+    },
+  },
+  {
+    name: 'add_session_todo',
+    description: 'Add a new per-session todo. Appended to the end of the list with an order value greater than any existing todo.',
+    inputSchema: addSessionTodoSchema,
+    handler: async (args, ctx) => {
+      const { project, session, text, title, link, assigneeSession, description, status, priority, dueDate, dependsOn, parentId, sessionName, type, files } = args as {
+        project: string;
+        session: string;
+        text?: string;
+        title?: string;
+        link?: SessionTodoLink;
+        assigneeSession?: string;
+        description?: string;
+        status?: TodoStatus;
+        priority?: 0 | 1 | 2 | 3 | 4;
+        dueDate?: string;
+        dependsOn?: string[];
+        parentId?: string | null;
+        sessionName?: string | null;
+        type?: string | null;
+        files?: string[];
+      };
+      if (!project || !session || !(title ?? text)) throw new Error('Missing required: project, session, text');
+      const result = await addSessionTodo(project, session, title ?? text!, link, { assigneeSession, description, status, priority, dueDate, dependsOn, parentId, sessionName, type, files });
+      ctx.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined });
+      return JSON.stringify(result, null, 2);
+    },
+  },
+  {
+    name: 'update_session_todo',
+    description: 'Update a per-session todo. Any combination of text, completed, and order can be provided; omitted fields are left unchanged.',
+    inputSchema: updateSessionTodoSchema,
+    handler: async (args, ctx) => {
+      const { project, session, id, text, title, completed, link, assigneeSession, description, status, priority, dueDate, dependsOn, parentId, sessionName } = args as {
+        project: string;
+        session: string;
+        id: string;
+        text?: string;
+        title?: string;
+        completed?: boolean;
+        order?: number;
+        link?: SessionTodoLink | null;
+        assigneeSession?: string;
+        description?: string;
+        status?: TodoStatus;
+        priority?: 0 | 1 | 2 | 3 | 4 | null;
+        dueDate?: string;
+        dependsOn?: string[];
+        parentId?: string | null;
+        sessionName?: string | null;
+      };
+      if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
+      const result = await updateSessionTodo(project, session, id, { text, title, completed, link, assigneeSession, description, status, priority, dueDate, dependsOn, parentId, sessionName });
+      ctx.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined, previousAssigneeSession: result.previousAssigneeSession ?? undefined });
+      return JSON.stringify(result, null, 2);
+    },
+  },
+  {
+    name: 'toggle_session_todo',
+    description: 'Toggle the completed state of a per-session todo. If completed is omitted, the current value is flipped.',
+    inputSchema: toggleSessionTodoSchema,
+    handler: async (args, ctx) => {
+      const { project, session, id, completed } = args as {
+        project: string;
+        session: string;
+        id: string;
+        completed?: boolean;
+      };
+      if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
+      const result = await toggleSessionTodo(project, session, id, completed);
+      ctx.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined });
+      return JSON.stringify(result, null, 2);
+    },
+  },
+  {
+    name: 'remove_session_todo',
+    description: 'Remove a per-session todo by id.',
+    inputSchema: removeSessionTodoSchema,
+    handler: async (args, ctx) => {
+      const { project, session, id } = args as {
+        project: string;
+        session: string;
+        id: string;
+      };
+      if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
+      const result = await removeSessionTodo(project, session, id);
+      ctx.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result?.ownerSession, assigneeSession: result?.assigneeSession ?? undefined });
+      return JSON.stringify(result, null, 2);
+    },
+  },
+  {
+    name: 'clear_completed_session_todos',
+    description: 'Remove all completed per-session todos for a session. Returns the number of todos removed.',
+    inputSchema: clearCompletedSessionTodosSchema,
+    handler: async (args, ctx) => {
+      const { project, session } = args as { project: string; session: string };
+      if (!project || !session) throw new Error('Missing required: project, session');
+      const result = await clearCompletedSessionTodos(project, session);
+      ctx.broadcast({ type: 'session_todos_updated', project, session });
+      return JSON.stringify(result, null, 2);
+    },
+  },
+  {
+    name: 'reorder_session_todos',
+    description: 'Reorder per-session todos by providing a full permutation of existing todo ids. Assigns new order values (10, 20, 30, ...) in the provided sequence.',
+    inputSchema: reorderSessionTodosSchema,
+    handler: async (args, ctx) => {
+      const { project, session, orderedIds } = args as {
+        project: string;
+        session: string;
+        orderedIds: string[];
+      };
+      if (!project || !session || !Array.isArray(orderedIds)) throw new Error('Missing required: project, session, orderedIds');
+      const result = await reorderSessionTodos(project, session, orderedIds);
+      ctx.broadcast({ type: 'session_todos_updated', project, session });
+      return JSON.stringify(result, null, 2);
+    },
+  },
+  {
+    name: 'complete_linked_todos',
+    description: 'Mark completed all session todos linked to a blueprint (and optional taskId). Used to sync linked todos when a Go task finishes.',
+    inputSchema: completeLinkedTodosSchema,
+    handler: async (args, ctx) => {
+      const { project, session, blueprintId, taskId } = args as {
+        project: string; session: string; blueprintId: string; taskId?: string;
+      };
+      if (!project || !session || !blueprintId) throw new Error('Missing required: project, session, blueprintId');
+      const result = await completeTodosForTask(project, session, blueprintId, taskId);
+      ctx.broadcast({ type: 'session_todos_updated', project, session });
+      return JSON.stringify(result, null, 2);
+    },
+  },
+  {
+    name: 'assign_session_todo',
+    description: 'Assign a session todo to a specific session (assigneeSession). Pass null to unassign.',
+    inputSchema: assignSessionTodoSchema,
+    handler: async (args, ctx) => {
+      const { project, session, id, assigneeSession } = args as {
+        project: string;
+        session: string;
+        id: string;
+        assigneeSession: string | null;
+      };
+      if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
+      const result = await assignSessionTodo(project, session, id, assigneeSession);
+      ctx.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined, previousAssigneeSession: result.previousAssigneeSession ?? undefined });
+      return JSON.stringify(result, null, 2);
+    },
+  },
+];

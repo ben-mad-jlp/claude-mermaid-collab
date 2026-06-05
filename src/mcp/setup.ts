@@ -22,6 +22,16 @@ import { getAgentRegistry } from '../agent/agent-registry-manager.js';
 import { updateUI, updateUISchema } from './tools/update-ui.js';
 import { renderUISchema } from './tools/render-ui.js';
 import { browserToolSchemas } from './tools/browser.js';
+import { ToolRegistry, type ToolCtx } from './tools/registry.js';
+import { API_BASE_URL, buildUrl, asJson, type AnyJson, sessionParamsDesc } from './tools/http-util.js';
+import {
+  documentToolDefs,
+  listDocuments,
+  getDocument,
+  createDocument,
+  updateDocument,
+  patchDocument,
+} from './tools/documents.js';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join as pathJoin } from 'node:path';
 import {
@@ -89,6 +99,7 @@ import {
   reorderSessionTodosSchema,
   completeLinkedTodosSchema,
   assignSessionTodoSchema,
+  sessionTodoToolDefs,
   type SessionTodoLink,
 } from './tools/session-todos.js';
 import {
@@ -287,10 +298,8 @@ const desktopScreenshotDef = {
 // overridden desktop_screenshot) so clients don't see tools that always error.
 const desktopToolDefs = _bridge ? [...desktopDefsForList, desktopScreenshotDef] : [];
 
-// Configuration
-const API_PORT = parseInt(process.env.PORT || '9002', 10);
-const API_HOST = process.env.HOST || 'localhost';
-const API_BASE_URL = `http://${API_HOST}:${API_PORT}`;
+// Configuration (API_BASE_URL, buildUrl, asJson, AnyJson, sessionParamsDesc
+// now live in ./tools/http-util.js — imported above).
 
 // SERVER_VERSION is imported from server.ts (single source of truth, synced by
 // the `npm version` hook) — see the import near the top of this file.
@@ -315,28 +324,6 @@ function generateSessionName(): string {
   const adj2 = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
   const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
   return `${adj1}-${adj2}-${noun}`;
-}
-
-function buildUrl(path: string, project: string, session: string, extraParams?: Record<string, string>): string {
-  const url = new URL(path, API_BASE_URL);
-  url.searchParams.set('project', project);
-  url.searchParams.set('session', session);
-  if (extraParams) {
-    for (const [key, value] of Object.entries(extraParams)) {
-      url.searchParams.set(key, value);
-    }
-  }
-  return url.toString();
-}
-
-// Loose JSON shape for arbitrary API response bodies. The MCP setup glues
-// many internal HTTP endpoints together; rather than declaring a precise
-// type for every payload, we treat them as generic key/value records and
-// rely on runtime callers to extract the fields they need. This keeps the
-// surface tsc-clean without weakening overall strict mode.
-type AnyJson = Record<string, any>;
-async function asJson(res: Response): Promise<AnyJson> {
-  return (await res.json()) as AnyJson;
 }
 
 // ============= Diagram Tools =============
