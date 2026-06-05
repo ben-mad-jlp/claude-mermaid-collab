@@ -65,7 +65,7 @@ import { specHealth, syncShortlist } from '../services/cartographer.js';
 import { lastAssistantTurn } from '../services/transcript-reader.js';
 import { listTodos, getTodo, resetTodo, overrideAcceptTodo, createGate, completeGatesForDecision } from '../services/todo-store.js';
 import { validateStewardProof, isOverrideRateLimited, type StewardProof, type StewardVerb } from '../services/steward-proof.js';
-import { getConfig } from '../services/config-service.js';
+import { getConfig, getSecret } from '../services/config-service.js';
 import { handleWorkerComplete } from '../services/coordinator-daemon.js';
 import { makeCoordinatorDeps, startCoordinator, stopCoordinator } from '../services/coordinator-live.js';
 import { awaitHumanDecision } from '../services/decision-relay.js';
@@ -3383,7 +3383,9 @@ IMPORTANT - Common pitfalls to avoid:
             const { prompt, system, model = 'grok-build-0.1' } = args as { prompt: string; system?: string; model?: string };
             if (!prompt) throw new Error('Missing required: prompt');
 
-            const apiKey = getConfig('XAI_API_KEY');
+            // User-managed secret: config.json (Settings UI) is authoritative
+            // over a stale ambient XAI_API_KEY inherited via the hook respawn.
+            const apiKey = getSecret('XAI_API_KEY');
             if (!apiKey) throw new Error('XAI_API_KEY is not set (env or ~/.mermaid-collab/config.json)');
 
             const messages: Array<{ role: string; content: string }> = [];

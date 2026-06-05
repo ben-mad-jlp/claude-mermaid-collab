@@ -1,0 +1,11 @@
+{
+  "todoId": "163288e0-e67b-4d39-904f-e97a9eb55016",
+  "session": "worker-163288e0",
+  "outcome": "accepted",
+  "retryReason": "none",
+  "layer": "none",
+  "verbsTried": ["get_todo", "complete_todo"],
+  "failingVerb": null,
+  "failingReturn": null,
+  "summary": "Added config-first getSecret(key,fallback) (config.json → env → fallback, inverse of env-first getConfig) so the Settings Secrets UI is authoritative over a stale ambient key inherited via the hook respawn. Routed the only user-managed secret consumer (consult_grok XAI_API_KEY @setup.ts:2978) through getSecret; getConfig kept env-first for deploy-time vars. Added 5 getSecret tests incl. the stale-env scenario. tsc 0 errors; config-service tests 12/12."
+}

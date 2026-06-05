@@ -37,6 +37,26 @@ export function getConfig(key: string, fallback?: string): string | undefined {
 }
 
 /**
+ * Secret precedence — the INVERSE of getConfig: non-empty config.json[key] →
+ * non-empty process.env[key] → fallback.
+ *
+ * Use this for USER-MANAGED secrets set via the Settings "Secrets" UI (which
+ * writes config.json). It makes the UI authoritative even when a STALE ambient
+ * env var of the same name is present: the Claude hook `server-check.sh`
+ * respawns the collab server inheriting the Claude session's env, so an
+ * env-first read would let an old XAI_API_KEY shadow a freshly-updated config
+ * value ("I updated the key in Settings but it didn't take"). Genuine
+ * deploy-time env vars should keep using getConfig (env-first).
+ */
+export function getSecret(key: string, fallback?: string): string | undefined {
+  const fileVal = loadFile()[key];
+  if (typeof fileVal === 'string' && fileVal !== '') return fileVal;
+  const env = process.env[key];
+  if (env !== undefined && env !== '') return env;
+  return fallback;
+}
+
+/**
  * Return the full set of config.json keys/values (the file layer only — env
  * overrides are NOT folded in). Used by the Settings "Secrets" UI to show what
  * is currently stored. Returns a shallow copy so callers can't mutate the cache.

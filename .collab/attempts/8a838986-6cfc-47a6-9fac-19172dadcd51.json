@@ -1,0 +1,11 @@
+{
+  "todoId": "8a838986-6cfc-47a6-9fac-19172dadcd51",
+  "session": "worker-8a838986",
+  "outcome": "escalated",
+  "retryReason": "re-derived-contract",
+  "layer": "collab",
+  "verbsTried": ["get_todo", "escalation_create", "await_human_decision"],
+  "failingVerb": null,
+  "failingReturn": null,
+  "summary": "Spec root cause appears wrong: ALL MCP artifact write helpers fetch the REST API (:9002) and those REST routes already broadcast *_created/_updated/_deleted (api.ts 1526/842/1026/1752/1973); UI App.tsx already handles them (addDocument/addDiagram/addDesign). The MCP create path DOES broadcast via the REST handler it calls — the prescribed 'broadcast from tool fns' fix is a no-op or causes double-broadcast on the REST path. retryCount 5. Escalated for re-validation rather than guessing."
+}

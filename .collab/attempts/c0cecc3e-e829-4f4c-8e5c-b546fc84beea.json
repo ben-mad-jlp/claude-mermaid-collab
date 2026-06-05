@@ -1,0 +1,11 @@
+{
+  "todoId": "c0cecc3e-e829-4f4c-8e5c-b546fc84beea",
+  "session": "worker-c0cecc3e",
+  "outcome": "escalated",
+  "retryReason": "none",
+  "layer": "collab",
+  "verbsTried": ["get_todo", "escalation_create", "await_human_decision"],
+  "failingVerb": null,
+  "failingReturn": null,
+  "summary": "Todo bundles 4-5 deliverables across backend (todo-store schema migration + first-class epic kind), the add_session_todo guard, FleetGraph UI (render-by-kind + tests), AND a retroactive migration that MUTATES THE LIVE production todo DB the running pool depends on (plus 'appropriate epics' grouping = planning judgment). Escalated a split-decision rather than unilaterally mutating live state or thrashing on a too-big todo."
+}
