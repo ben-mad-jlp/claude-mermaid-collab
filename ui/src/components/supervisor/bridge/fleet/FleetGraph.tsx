@@ -22,9 +22,9 @@ import {
   type NodeTypes,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useDiveIn } from '@/hooks/useDiveIn';
+import { useDiveIn, type DiveTarget } from '@/hooks/useDiveIn';
 import { useDeckStore, type Lod } from '@/stores/deckStore';
-import type { Escalation } from '@/stores/supervisorStore';
+import { useSupervisorStore, type Escalation } from '@/stores/supervisorStore';
 import type { SessionTodo } from '@/types/sessionTodo';
 import { EpicNode } from './nodes/EpicNode';
 import { TodoNode } from './nodes/TodoNode';
@@ -39,13 +39,28 @@ const NODE_TYPES: NodeTypes = {
 
 export interface FleetGraphProps {
   todos: SessionTodo[];
-  subs: WorkerSub[];
-  openEscalations: Escalation[];
+  /**
+   * Live worker subscriptions — drives the worker nodes + animated claim edges.
+   * OPTIONAL so the graph can render from todos+deps alone (e.g. the task view)
+   * with no worker/claim overlay. Defaults to no workers.
+   */
+  subs?: WorkerSub[];
+  /**
+   * Open escalations — drives the danger tint + focal-card affordance. OPTIONAL
+   * (no danger overlay when absent). Defaults to none.
+   */
+  openEscalations?: Escalation[];
+  /**
+   * Bridge P5: override the worker-node click. When provided, clicking a worker
+   * selects+shows its session IN PLACE (stays in Bridge, swaps the Z3 artifact
+   * pane) instead of the default dive-to-Studio. Absent → default dive.
+   */
+  onWorkerSelect?: (target: DiveTarget) => void;
 }
 
 const LOD_LABELS: Record<Lod | 'auto', string> = { auto: 'Auto', 0: 'L0', 1: 'L1', 2: 'L2' };
 
-const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs, openEscalations }) => {
+const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs = [], openEscalations = [], onWorkerSelect }) => {
   const diveIn = useDiveIn();
   const setSelectedNodeId = useDeckStore((s) => s.setSelectedNodeId);
   const forcedLod = useDeckStore((s) => s.forcedLod);
@@ -74,7 +89,17 @@ const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs, openEscalatio
     [todos, openEscalations],
   );
 
-  const [expandedEpics, setExpandedEpics] = useState<Set<string>>(new Set());
+  // G1: epics are ALWAYS expanded — every epic renders as a framed container
+  // with its todos nested inside. `expandedEpics` is therefore the full set of
+  // epic ids (any todo that has children). It's a pure function of topology, so
+  // it only changes when the work-graph structure changes — never per tick
+  // (never-jump). No collapse-by-default, no click-to-collapse.
+  const expandedEpics = useMemo(() => {
+    const ids = new Set(todos.map((t) => t.id));
+    const epics = new Set<string>();
+    for (const t of todos) if (t.parentId && ids.has(t.parentId)) epics.add(t.parentId);
+    return epics;
+  }, [todos]);
 
   // Tick for liveness staleness re-eval (data merge only — no relayout).
   const [now, setNow] = useState(0);
@@ -84,7 +109,19 @@ const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs, openEscalatio
     return () => clearInterval(id);
   }, []);
 
-  const { nodes, edges } = useFleetGraph({ todos, subs, openEscalations, expandedEpics, now });
+  // G1: the fleet graph always flows top→bottom (TB) so it reads as a grouped
+  // vertical tree of epic containers — no LR/TB viewport switch.
+  const direction = 'TB';
+  // G3: only the coordinator-spawned sessions count as "working fleet" workers
+  // (plus any session currently holding a claimed in_progress todo, derived in
+  // the hook). Foreground operators registered in the subscription store are
+  // filtered out so they don't show up as idle worker nodes.
+  const supervised = useSupervisorStore((s) => s.supervised);
+  const spawnedSessions = useMemo(
+    () => new Set(supervised.filter((s) => s.source === 'spawn').map((s) => s.session)),
+    [supervised],
+  );
+  const { nodes, edges } = useFleetGraph({ todos, subs, openEscalations, expandedEpics, now, direction, spawnedSessions });
 
   // Fit the graph to its pane once nodes populate and after each relayout — the
   // <ReactFlow fitView> prop only fires on the initial (empty) mount, which left
@@ -102,18 +139,20 @@ const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs, openEscalatio
     (_evt, node) => {
       setSelectedNodeId(node.id);
       if (node.type === 'epic') {
-        setExpandedEpics((cur) => {
-          const next = new Set(cur);
-          if (next.has(node.id)) next.delete(node.id);
-          else next.add(node.id);
-          return next;
-        });
+        // G1: epics are always expanded — clicking just spotlights the container
+        // (no collapse toggle).
         return;
       }
       if (node.type === 'worker') {
         const session = node.id.slice('worker:'.length);
         const sub = subs.find((s) => s.session === session);
-        if (sub) diveIn({ project: sub.project, session, serverId: sub.serverId });
+        if (sub) {
+          const target = { project: sub.project, session, serverId: sub.serverId };
+          // P5: select-in-place (stay in Bridge, swap the artifact pane) when the
+          // host wires it; otherwise the default dive-to-Studio.
+          if (onWorkerSelect) onWorkerSelect(target);
+          else diveIn(target);
+        }
         return;
       }
       if (node.type === 'todo') {
@@ -126,7 +165,7 @@ const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs, openEscalatio
         }
       }
     },
-    [diveIn, subs, setSelectedNodeId, escalationForTodo, setFocalEscalationId, setFocusNodeId],
+    [diveIn, onWorkerSelect, subs, setSelectedNodeId, escalationForTodo, setFocalEscalationId, setFocusNodeId],
   );
 
   const lodButtons = useMemo<(Lod | 'auto')[]>(() => ['auto', 0, 1, 2], []);

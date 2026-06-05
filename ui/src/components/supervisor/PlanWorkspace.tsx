@@ -4,6 +4,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useUIStore } from '@/stores/uiStore';
 import type { SessionTodo } from '@/types/sessionTodo';
 import { PlanPanel } from './PlanPanel';
+import { SplitPane } from '@/components/layout/SplitPane';
 import TodoDetailView from '@/components/editors/TodoDetailView';
 
 /**
@@ -112,30 +113,45 @@ export const PlanWorkspace: React.FC = () => {
         </button>
       </div>
 
-      {/* Center plan + right-hand detail dock. */}
-      <div className="flex-1 min-h-0 flex overflow-hidden">
-        <div className="flex-1 min-w-0 overflow-hidden p-3">
-          <PlanPanel serverId={serverScope} project={project} onSelectTodo={selectTodo} />
-        </div>
-        {selectedTodoId && (
-          <aside
-            data-testid="plan-detail-dock"
-            className="w-[28rem] max-w-[45%] shrink-0 border-l border-gray-200 dark:border-gray-700 flex flex-col min-h-0"
-          >
-            <div className="shrink-0 flex items-center justify-end px-2 py-1 border-b border-gray-200 dark:border-gray-700">
-              <button
-                type="button"
-                aria-label="Close detail"
-                onClick={() => setSelectedTodoId(null)}
-                className="px-2 py-0.5 text-xs rounded text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="flex-1 min-h-0 overflow-hidden">
-              <TodoDetailView todoId={selectedTodoId} />
-            </div>
-          </aside>
+      {/* Center plan + right-hand detail dock. When a todo is selected the dock
+          becomes a RESIZABLE SplitPane (draggable divider, persisted width);
+          min-w-0 on both panes lets the detail content shrink instead of
+          overflowing to the right. */}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        {selectedTodoId ? (
+          <SplitPane
+            direction="horizontal"
+            storageId="plan-detail-split"
+            defaultPrimarySize={64}
+            minPrimarySize={40}
+            maxPrimarySize={80}
+            primaryContent={
+              <div className="h-full min-w-0 overflow-hidden p-3">
+                <PlanPanel serverId={serverScope} project={project} onSelectTodo={selectTodo} />
+              </div>
+            }
+            secondaryContent={
+              <aside data-testid="plan-detail-dock" className="h-full min-w-0 flex flex-col min-h-0">
+                <div className="shrink-0 flex items-center justify-end px-2 py-1 border-b border-gray-200 dark:border-gray-700">
+                  <button
+                    type="button"
+                    aria-label="Close detail"
+                    onClick={() => setSelectedTodoId(null)}
+                    className="px-2 py-0.5 text-xs rounded text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="flex-1 min-h-0 overflow-hidden">
+                  <TodoDetailView todoId={selectedTodoId} />
+                </div>
+              </aside>
+            }
+          />
+        ) : (
+          <div className="h-full min-w-0 overflow-hidden p-3">
+            <PlanPanel serverId={serverScope} project={project} onSelectTodo={selectTodo} />
+          </div>
         )}
       </div>
     </main>

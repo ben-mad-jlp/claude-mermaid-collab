@@ -15,7 +15,8 @@ const ROLLUP_COLOR: Record<FunnelKey, string> = {
   backlog: 'bg-gray-400',
   ready: 'bg-gray-500',
   inflight: 'bg-info-500',
-  blocked: 'bg-danger-500',
+  // One-red: blocked is amber (warning), not red.
+  blocked: 'bg-warning-500',
   done: 'bg-success-500',
 };
 

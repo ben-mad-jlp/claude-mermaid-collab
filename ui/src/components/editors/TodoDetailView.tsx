@@ -189,8 +189,12 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
       className="h-full flex flex-col bg-white dark:bg-gray-900 overflow-hidden text-gray-900 dark:text-gray-100"
       data-testid={`todo-detail-${todo.id}`}
     >
-      {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-200 dark:border-gray-700 text-sm">
+      {/* Header — wraps at narrow width (e.g. the Plan detail dock) so the
+          status/assignee selects and edit controls never push past the edge. */}
+      <div
+        data-testid="todo-detail-header"
+        className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-gray-200 dark:border-gray-700 text-sm min-w-0"
+      >
         <span
           className="shrink-0 tabular-nums text-xs text-gray-400 dark:text-gray-500 select-all"
           title={todo.id}
@@ -205,7 +209,7 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
           value={status}
           onChange={(e) => changeStatus(e.target.value as TodoStatus)}
           aria-label="Status"
-          className={plainControl}
+          className={`${plainControl} max-w-[140px] truncate`}
         >
           {(Object.keys(STATUS_LABEL) as TodoStatus[]).map((s) => (
             <option key={s} value={s}>{STATUS_LABEL[s]}</option>
@@ -238,32 +242,35 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
             ↳ {shortSlug(todo.link.blueprintId)}{todo.link.taskId ? ` · ${todo.link.taskId}` : ''}
           </span>
         )}
-        <div className="flex-1" />
-        {editing ? (
-          <>
+        {/* Edit controls — pushed right and kept together as a shrink-0 cluster
+            that wraps to its own line rather than overflowing. */}
+        <div className="ml-auto flex items-center gap-2 shrink-0">
+          {editing ? (
+            <>
+              <button
+                onClick={cancelEdit}
+                disabled={saving}
+                className="px-2 py-1 text-sm rounded text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={save}
+                disabled={saving}
+                className="px-2 py-1 text-sm rounded bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-white disabled:opacity-50"
+              >
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+            </>
+          ) : (
             <button
-              onClick={cancelEdit}
-              disabled={saving}
-              className="px-2 py-1 text-sm rounded text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+              onClick={beginEdit}
+              className="px-2 py-1 text-sm rounded text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
             >
-              Cancel
+              Edit
             </button>
-            <button
-              onClick={save}
-              disabled={saving}
-              className="px-2 py-1 text-sm rounded bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-white disabled:opacity-50"
-            >
-              {saving ? 'Saving…' : 'Save'}
-            </button>
-          </>
-        ) : (
-          <button
-            onClick={beginEdit}
-            className="px-2 py-1 text-sm rounded text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
-          >
-            Edit
-          </button>
-        )}
+          )}
+        </div>
       </div>
 
       {error && (

@@ -38,6 +38,14 @@ export interface UseFleetGraphInput {
   now: number;
   /** dagre rankdir, mirrors the deck orientation (LR wide / TB narrow). */
   direction?: LayoutDirection;
+  /**
+   * G3: the sessions the coordinator SPAWNED (supervised source='spawn'). A sub
+   * becomes a worker node only if it's in here OR currently holds a claimed
+   * in_progress todo — so foreground operators (planner/supervisor/steward) that
+   * are merely registered don't leak in as idle worker nodes. Absent → treated
+   * as empty (only claim-holders qualify).
+   */
+  spawnedSessions?: Set<string>;
 }
 
 const EMPTY_COUNTS = (): Record<FunnelKey, number> => ({
@@ -55,10 +63,11 @@ const SIZES = {
 };
 
 // Framed-container chrome (expanded epic): a header band holds the label +
-// status bar; padding frames the nested children below it.
-const EPIC_HEADER_H = 44;
-const EPIC_PAD_X = 16;
-const EPIC_PAD_BOTTOM = 16;
+// status bar; padding frames the nested children below it. G1: roomier so the
+// grouped contents breathe now that every epic is an always-open container.
+const EPIC_HEADER_H = 52;
+const EPIC_PAD_X = 28;
+const EPIC_PAD_BOTTOM = 28;
 
 /** Output of the two-level layout: absolute/relative positions + container metadata. */
 interface FleetLayout {
@@ -80,7 +89,18 @@ function useDebounced<T>(value: T, ms: number): T {
 }
 
 export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; edges: FleetEdge[] } {
-  const { todos, subs, openEscalations, expandedEpics, now, direction = 'LR' } = input;
+  const { todos, subs: rawSubs, openEscalations, expandedEpics, now, direction = 'LR', spawnedSessions } = input;
+
+  // G3: restrict the worker nodes to the WORKING fleet. A session qualifies if
+  // it was coordinator-spawned (spawnedSessions) OR it currently holds a claimed
+  // in_progress todo (currentTodoFor returns non-null only for in_progress work).
+  // Everything else — idle foreground operators merely registered in the
+  // subscription store — is excluded. Done once here so the layout, nodes and
+  // claim edges all derive from the same filtered set.
+  const subs = useMemo(
+    () => rawSubs.filter((s) => spawnedSessions?.has(s.session) || currentTodoFor(s.session, todos) != null),
+    [rawSubs, spawnedSessions, todos],
+  );
 
   // Structure: an EPIC is any todo that actually HAS children. A parentId==null
   // todo with no children is a readable LEAF, not an empty-rollup epic block —

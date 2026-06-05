@@ -76,8 +76,8 @@ export const FleetVitals: React.FC<FleetVitalsProps> = ({ running, readyCount, t
                 data-testid={`fleet-funnel-${seg.key}`}
                 className={`min-w-[3.5rem] flex flex-col items-center justify-center px-1 text-xs font-semibold ${
                   loud
-                    ? 'bg-danger-500 text-white'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300'
+                    ? 'bg-warning-500 text-white'
+                    : seg.bg
                 }`}
               >
                 <span className="tabular-nums leading-none">{n}</span>

@@ -15,7 +15,15 @@ export interface FunnelSegment {
   label: string;
   /** Tailwind text tint for the count label. */
   tint: string;
-  /** Whether this segment is "loud" (danger-toned) while it has items. */
+  /**
+   * Tailwind segment FILL (background + readable text) — the SINGLE source of
+   * each bucket's color, so the funnel bar, the worker roster and the graph
+   * nodes can't disagree. inflight=info, done=success, blocked=warning (amber,
+   * NOT red — one-red: danger is reserved for open escalations), ready/backlog=
+   * neutral.
+   */
+  bg: string;
+  /** Whether this segment is "loud" while it has items (blocked → solid amber). */
   loud?: boolean;
   match: (t: SessionTodo) => boolean;
 }
@@ -31,24 +39,30 @@ export const FUNNEL_SEGMENTS: FunnelSegment[] = [
     key: 'backlog',
     label: 'Backlog',
     tint: 'text-gray-500 dark:text-gray-400',
+    bg: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300',
     match: (t) => t.status === 'backlog' || t.status === 'planned' || t.status === 'todo',
   },
   {
     key: 'ready',
     label: 'Ready',
     tint: 'text-gray-600 dark:text-gray-300',
+    bg: 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200',
     match: (t) => t.status === 'ready' && !t.claimedBy,
   },
   {
     key: 'inflight',
     label: 'In-flight',
     tint: 'text-info-600 dark:text-info-400',
+    bg: 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300',
     match: (t) => isInflight(t.status, t),
   },
   {
     key: 'blocked',
     label: 'Blocked',
-    tint: 'text-danger-600 dark:text-danger-400',
+    // One-red: blocked is amber (warning), not red — danger is reserved for
+    // open escalations only.
+    tint: 'text-warning-600 dark:text-warning-400',
+    bg: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
     loud: true,
     match: (t) => t.status === 'blocked',
   },
@@ -56,9 +70,27 @@ export const FUNNEL_SEGMENTS: FunnelSegment[] = [
     key: 'done',
     label: 'Done',
     tint: 'text-success-600 dark:text-success-400',
+    bg: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
     match: (t) => t.status === 'done',
   },
 ];
+
+/**
+ * The SINGLE status-bucket label vocabulary. Every surface that shows a status
+ * bucket name — the Bridge funnel, the Plan progress header, the FleetGraph
+ * TodoNode pills — reads its label from here, so the words can never drift apart
+ * (e.g. a node calling it "inflight" while the funnel says "In-flight"). NOTE:
+ * these are STATUS-bucket labels; the Plan "Startable" lane is a separate
+ * CAPABILITY concept (deps-satisfied + unclaimed) and deliberately does NOT
+ * reuse the status word "Ready".
+ */
+export const FUNNEL_LABELS: Record<FunnelKey, string> = FUNNEL_SEGMENTS.reduce(
+  (acc, seg) => {
+    acc[seg.key] = seg.label;
+    return acc;
+  },
+  {} as Record<FunnelKey, string>,
+);
 
 /** First matching segment wins, so each todo lands in exactly one bucket. */
 export function bucketTodo(t: SessionTodo): FunnelKey | null {

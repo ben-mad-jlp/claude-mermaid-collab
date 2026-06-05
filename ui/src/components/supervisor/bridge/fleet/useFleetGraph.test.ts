@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import { useFleetGraph } from './useFleetGraph';
+import { useFleetGraph, type WorkerSub } from './useFleetGraph';
 import type { SessionTodo } from '@/types/sessionTodo';
+
+function sub(session: string): WorkerSub {
+  return { serverId: 'local', project: 'P', session, status: 'active', lastUpdate: 0 };
+}
 
 function todo(p: Partial<SessionTodo>): SessionTodo {
   return {
@@ -118,5 +122,47 @@ describe('useFleetGraph', () => {
     // dependent B sits in the next wave: to the RIGHT of A in LR, BELOW A in TB.
     expect(pos(lr, 'B').x).toBeGreaterThan(pos(lr, 'A').x);
     expect(pos(tb, 'B').y).toBeGreaterThan(pos(tb, 'A').y);
+  });
+
+  it('G1: TB flow with the epic expanded frames a container with parented children', () => {
+    const todos = [
+      todo({ id: 'E1' }),
+      todo({ id: 'A', parentId: 'E1' }),
+      todo({ id: 'B', parentId: 'E1', dependsOn: ['A'] }),
+    ];
+    // G1 default at the FleetGraph level: TB + the epic always in expandedEpics.
+    const { result } = renderHook(() =>
+      useFleetGraph({ ...base, todos, expandedEpics: new Set(['E1']), direction: 'TB' }),
+    );
+    const epic = result.current.nodes.find((n) => n.id === 'E1')!;
+    expect(epic.type).toBe('epic');
+    expect((epic.data as { expanded?: boolean }).expanded).toBe(true);
+    const a = result.current.nodes.find((n) => n.id === 'A')!;
+    const b = result.current.nodes.find((n) => n.id === 'B')!;
+    expect(a.parentId).toBe('E1');
+    expect(b.parentId).toBe('E1');
+    expect(a.extent).toBe('parent');
+    // TB inner flow: dependent child B is below A within the container.
+    expect(b.position.y).toBeGreaterThan(a.position.y);
+  });
+
+  it('G3: worker nodes only for the working fleet (spawned OR holding a claimed in_progress todo)', () => {
+    const todos = [todo({ id: 'T', status: 'in_progress', claimedBy: 'worker-x' })];
+    const subs = [sub('worker-x'), sub('planner-1')];
+
+    // No session spawned: worker-x holds a claimed in_progress todo → node;
+    // planner-1 is an idle foreground operator → NO node.
+    const { result } = renderHook(() =>
+      useFleetGraph({ ...base, todos, subs, expandedEpics: new Set(), spawnedSessions: new Set() }),
+    );
+    const ids = result.current.nodes.map((n) => n.id);
+    expect(ids).toContain('worker:worker-x');
+    expect(ids).not.toContain('worker:planner-1');
+
+    // Mark planner-1 as coordinator-spawned → it now qualifies as a worker node.
+    const spawned = renderHook(() =>
+      useFleetGraph({ ...base, todos, subs, expandedEpics: new Set(), spawnedSessions: new Set(['planner-1']) }),
+    );
+    expect(spawned.result.current.nodes.map((n) => n.id)).toContain('worker:planner-1');
   });
 });

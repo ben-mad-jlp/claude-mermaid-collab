@@ -8,7 +8,7 @@
 
 import React from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import type { FunnelKey } from '../../funnel';
+import { FUNNEL_LABELS, type FunnelKey } from '../../funnel';
 import type { TodoNodeData } from '../types';
 import { useLod } from '../useLod';
 import { useDeckStore } from '@/stores/deckStore';
@@ -17,7 +17,9 @@ const BUCKET_STYLE: Record<FunnelKey, { dot: string; pill: string }> = {
   backlog: { dot: 'bg-gray-400', pill: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300' },
   ready: { dot: 'bg-gray-500', pill: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200' },
   inflight: { dot: 'bg-info-500', pill: 'bg-info-100 text-info-700 dark:bg-info-900/40 dark:text-info-300' },
-  blocked: { dot: 'bg-danger-500', pill: 'bg-danger-100 text-danger-700 dark:bg-danger-900/40 dark:text-danger-300' },
+  // One-red: blocked is amber (warning), not red — danger is reserved for the
+  // open-escalation ring only.
+  blocked: { dot: 'bg-warning-500', pill: 'bg-warning-100 text-warning-700 dark:bg-warning-900/40 dark:text-warning-300' },
   done: { dot: 'bg-success-500', pill: 'bg-success-100 text-success-700 dark:bg-success-900/40 dark:text-success-300' },
 };
 
@@ -47,7 +49,7 @@ const TodoNodeImpl: React.FC<NodeProps> = ({ id, data }) => {
       ) : (
         <div className="px-2 py-1.5">
           <div className="flex items-center gap-1.5">
-            <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${style.pill}`}>{d.bucket}</span>
+            <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${style.pill}`}>{FUNNEL_LABELS[d.bucket]}</span>
             {d.retryCount > 0 && (
               <span className="px-1 rounded text-xs font-semibold bg-warning-100 text-warning-700 dark:bg-warning-900/40 dark:text-warning-300">
                 ↺{d.retryCount}

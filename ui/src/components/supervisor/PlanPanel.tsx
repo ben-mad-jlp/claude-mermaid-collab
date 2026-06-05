@@ -2,26 +2,26 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useSupervisorStore } from '@/stores/supervisorStore';
 import type { SessionTodo } from '@/types/sessionTodo';
 import type { PlanItem } from '@/types/planItem';
-import { roadmapToMermaid, computeWaveMap, sanitizeId } from './roadmapToMermaid';
-import { MermaidPreview } from '@/components/editors/MermaidPreview';
+import { computeWaveMap } from './roadmapToMermaid';
+import { PlanKanban } from './PlanKanban';
 
 /**
- * PCS Phase 5 — the project Plan, backed by the UNIFIED work-graph todos
- * (todosByProject) rather than the legacy roadmap_item table. Mirrors
- * RoadmapPanel's graph/waves/list affordances but over SessionTodo, and the
- * list mode groups by epic (parentId) with the wireframe sort order.
+ * PCS Phase 5 / Bridge P6 — the project Plan, backed by the UNIFIED work-graph
+ * todos (todosByProject). The primary view is the flex/grid PlanKanban (wave
+ * columns + Ready-Now lane + progress + bottleneck tags); the mermaid graph/waves
+ * render path is gone. `List` is kept as a dense, epic-grouped fallback.
  */
 export interface PlanPanelProps {
   serverId: string;
   project: string;
   /**
-   * Optional: clicking a plan item (graph/waves node or a list row) selects the
+   * Optional: clicking a plan item (kanban card or a list row) selects the
    * underlying todo. Used by the Plan workspace to open a TodoDetailView.
    */
   onSelectTodo?: (todo: SessionTodo) => void;
 }
 
-type Mode = 'graph' | 'waves' | 'list';
+type Mode = 'kanban' | 'list';
 
 const STATUS_GLYPH: Record<string, string> = {
   done: '●',
@@ -114,7 +114,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
   const loadProjectTodos = useSupervisorStore((s) => s.loadProjectTodos);
 
   const todos: SessionTodo[] = todosByProject[project] ?? [];
-  const [mode, setMode] = useState<Mode>('graph');
+  const [mode, setMode] = useState<Mode>('kanban');
 
   useEffect(() => {
     if (serverId && project) {
@@ -123,19 +123,6 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
   }, [serverId, project, loadProjectTodos]);
 
   const waveMap = useMemo(() => computeWaveMap(todos as PlanItem[]), [todos]);
-
-  // Mermaid node ids are the sanitized todo ids (see roadmapToMermaid); map them
-  // back so a graph/waves node click resolves to its underlying todo.
-  const todoBySanitizedId = useMemo(() => {
-    const m = new Map<string, SessionTodo>();
-    for (const t of todos) m.set(sanitizeId(t.id), t);
-    return m;
-  }, [todos]);
-
-  const handleNodeClick = (nodeId: string) => {
-    const todo = todoBySanitizedId.get(nodeId);
-    if (todo) onSelectTodo?.(todo);
-  };
 
   const inProgress = todos.filter((t) => t.status === 'in_progress').length;
   const blocked = todos.filter((t) => t.status === 'blocked').length;
@@ -193,14 +180,13 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
           </span>
         </div>
         <div className="flex items-center gap-0.5 shrink-0">
-          {modeButton('graph', 'Graph')}
-          {modeButton('waves', 'Waves')}
+          {modeButton('kanban', 'Kanban')}
           {modeButton('list', 'List')}
         </div>
       </div>
 
-      {/* Body */}
-      <div className="flex-1 overflow-auto min-h-0">
+      {/* Body — wave-kanban (primary) or the dense epic-grouped list fallback. */}
+      <div className="flex-1 overflow-hidden min-h-0">
         {todos.length === 0 ? (
           <div className="flex items-center justify-center h-full">
             <p className="text-xs text-gray-400 dark:text-gray-500">
@@ -208,19 +194,14 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
             </p>
           </div>
         ) : mode === 'list' ? (
-          <div className="p-2 space-y-0.5">
+          <div className="h-full overflow-auto p-2 space-y-0.5">
             {tree.map(({ todo, depth }) => (
               <PlanRow key={todo.id} todo={todo} depth={depth} onSelect={onSelectTodo} />
             ))}
           </div>
         ) : (
-          <div className="h-full min-h-[200px]">
-            <MermaidPreview
-              content={roadmapToMermaid(todos as PlanItem[], { mode })}
-              hideEditToggle
-              className="h-full"
-              onNodeClickWithPosition={onSelectTodo ? handleNodeClick : undefined}
-            />
+          <div className="h-full p-2">
+            <PlanKanban todos={todos} onSelectTodo={onSelectTodo} />
           </div>
         )}
       </div>
