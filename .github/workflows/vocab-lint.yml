@@ -1,0 +1,30 @@
+name: Vocabulary Lint
+
+# Fails the build when a CHANGED file introduces a retired vocabulary synonym
+# (see spec-canonical-vocabulary / decision 45a0d906). Scoped to changed files,
+# so not-yet-migrated legacy code is never flagged unless it is touched.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+      - main
+
+jobs:
+  vocab-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Need the base ref reachable for the changed-files diff.
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Lint vocabulary (changed files)
+        run: bun run scripts/vocab-lint.ts "origin/${{ github.base_ref || github.event.repository.default_branch }}"
