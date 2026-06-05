@@ -250,3 +250,60 @@ describe('handleWorkerComplete', () => {
     expect(escalated).toEqual(['t3']); // unchanged
   });
 });
+
+describe('handleWorkerComplete — authoritative gate (5374e299)', () => {
+  test('accepted + gate FAILS → overridden to rejected + escalated; completeTodo gets rejected', async () => {
+    const escalated: string[] = [];
+    const deps = makeDeps({
+      completeTodo: async (_p, _id, _a) => ({ completed: makeTodo('g1'), promoted: [] }),
+      escalateRejected: async (_p, id) => { escalated.push(id); },
+      runGate: async () => ({ passed: false, reasons: ['fitness too low'] }),
+    });
+    const r = await handleWorkerComplete(deps, 'proj', 'g1', 'accepted');
+    expect(deps._completeCalls[0]).toEqual(['proj', 'g1', 'rejected']); // worker's 'accepted' was overridden
+    expect(r.escalated).toBe(true);
+    expect(escalated).toEqual(['g1']);
+    expect(r.gateOverride?.reasons).toEqual(['fitness too low']);
+  });
+
+  test('accepted + gate PASSES → stays accepted (no escalation)', async () => {
+    const deps = makeDeps({
+      completeTodo: async (_p, _id, _a) => ({ completed: makeTodo('g2'), promoted: ['dep'] }),
+      runGate: async () => ({ passed: true, reasons: [] }),
+    });
+    const r = await handleWorkerComplete(deps, 'proj', 'g2', 'accepted');
+    expect(deps._completeCalls[0]).toEqual(['proj', 'g2', 'accepted']);
+    expect(r.escalated).toBe(false);
+    expect(r.gateOverride).toBeUndefined();
+  });
+
+  test('accepted + NO gate declared (null) → honors worker (backward compat)', async () => {
+    const deps = makeDeps({
+      completeTodo: async (_p, _id, _a) => ({ completed: makeTodo('g3'), promoted: [] }),
+      runGate: async () => null,
+    });
+    await handleWorkerComplete(deps, 'proj', 'g3', 'accepted');
+    expect(deps._completeCalls[0]).toEqual(['proj', 'g3', 'accepted']);
+  });
+
+  test('accepted + gate THROWS → fail CLOSED (rejected), never auto-accepts', async () => {
+    const deps = makeDeps({
+      completeTodo: async (_p, _id, _a) => ({ completed: makeTodo('g4'), promoted: [] }),
+      runGate: async () => { throw new Error('boom'); },
+    });
+    const r = await handleWorkerComplete(deps, 'proj', 'g4', 'accepted');
+    expect(deps._completeCalls[0]).toEqual(['proj', 'g4', 'rejected']);
+    expect(r.gateOverride?.passed).toBe(false);
+  });
+
+  test('worker REJECTED → gate is not consulted (already rejected)', async () => {
+    let gateCalls = 0;
+    const deps = makeDeps({
+      completeTodo: async (_p, _id, _a) => ({ completed: makeTodo('g5'), promoted: [] }),
+      runGate: async () => { gateCalls++; return { passed: true, reasons: [] }; },
+    });
+    await handleWorkerComplete(deps, 'proj', 'g5', 'rejected');
+    expect(deps._completeCalls[0]).toEqual(['proj', 'g5', 'rejected']);
+    expect(gateCalls).toBe(0);
+  });
+});

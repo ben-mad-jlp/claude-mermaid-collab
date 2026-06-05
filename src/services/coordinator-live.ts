@@ -3,7 +3,8 @@ import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTo
 import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, addSupervised, addWatchedProject } from './supervisor-store';
 import { tmuxBaseName } from './tmux-naming';
 import { ensureSession, runTodoInSession } from './claude-launch';
-import { runTick, type CoordinatorDeps } from './coordinator-daemon';
+import { runTick, type CoordinatorDeps, type GateVerdict } from './coordinator-daemon';
+import { loadProjectManifest } from '../config/project-manifest';
 import { resolveProfile, type AgentProfile } from '../config/agent-profiles';
 import {
   todoTypeToPoolType,
@@ -285,7 +286,54 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         todoId,
       });
     },
+    runGate: async (project: string, _todoId: string): Promise<GateVerdict | null> => {
+      // AUTHORITATIVE gate: run the project's manifest-declared gate command in the
+      // project dir and derive a verdict the worker cannot fake. No gateCommand →
+      // null (honor the worker's self-report, preserving prior behavior).
+      const cmd = loadProjectManifest(project)?.gateCommand?.trim();
+      if (!cmd) return null;
+      try {
+        const proc = Bun.spawnSync(['sh', '-c', cmd], { cwd: project, stdout: 'pipe', stderr: 'pipe' });
+        const out = (proc.stdout?.toString() ?? '') + '\n' + (proc.stderr?.toString() ?? '');
+        // Prefer a structured verdict if the gate emits a trailing JSON line
+        // (e.g. a CAD fitness gate: {"passed":false,"reasons":[...],"metrics":{...}}).
+        const structured = parseTrailingVerdict(out);
+        if (structured) return structured;
+        const passed = proc.exitCode === 0;
+        return { passed, reasons: passed ? [] : [`gate command exited ${proc.exitCode}: ${lastLines(out, 20)}`] };
+      } catch (e) {
+        // Fail CLOSED — an un-runnable gate blocks acceptance, never passes it.
+        return { passed: false, reasons: [`gate could not run (${cmd}): ${e instanceof Error ? e.message : String(e)}`] };
+      }
+    },
   };
+}
+
+/** Scan the tail of gate output for a JSON object carrying a boolean `passed`.
+ *  Lets a domain gate emit a structured {passed, reasons, metrics} verdict on its
+ *  last line; anything else falls back to the exit code. */
+function parseTrailingVerdict(out: string): GateVerdict | null {
+  const lines = out.split('\n').map((l) => l.trim()).filter(Boolean);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (!line.startsWith('{') || !line.endsWith('}')) continue;
+    try {
+      const obj = JSON.parse(line);
+      if (obj && typeof obj.passed === 'boolean') {
+        return {
+          passed: obj.passed,
+          reasons: Array.isArray(obj.reasons) ? obj.reasons.map(String) : [],
+          metrics: obj.metrics && typeof obj.metrics === 'object' ? obj.metrics : undefined,
+        };
+      }
+    } catch { /* not JSON — keep scanning upward */ }
+  }
+  return null;
+}
+
+/** Last `n` non-empty lines of a string, joined — for compact failure reasons. */
+function lastLines(s: string, n: number): string {
+  return s.split('\n').map((l) => l.trimEnd()).filter(Boolean).slice(-n).join('\n');
 }
 
 const timers = new Map<string, ReturnType<typeof setInterval>>();

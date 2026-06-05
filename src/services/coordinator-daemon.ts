@@ -34,9 +34,24 @@ export interface CoordinatorDeps {
   detectStalls?: (project: string) => Promise<string[]>;
   /** Escalate a todo a worker REJECTED (mechanical gate failed). Optional. */
   escalateRejected?: (project: string, todoId: string) => Promise<void>;
+  /** Run the project's DECLARED acceptance gate on a worker-completed todo and
+   *  return an AUTHORITATIVE verdict. null = no gate declared → honor the worker's
+   *  self-report (backward compat). The COORDINATOR runs this, not the worker; a
+   *  failed verdict overrides a worker 'accepted' to 'rejected' so unverified work
+   *  never lands — the #6/#7 lesson made enforceable (5374e299). Optional. */
+  runGate?: (project: string, todoId: string) => Promise<GateVerdict | null>;
 }
 
 export interface TickResult { released: string[]; exhausted: string[]; claimed: string[]; spawned: string[]; }
+
+/** Authoritative acceptance-gate verdict (5374e299). `passed` is the only thing
+ *  that governs whether a worker's 'accepted' stands; `reasons`/`metrics` are for
+ *  the escalation + audit trail. */
+export interface GateVerdict {
+  passed: boolean;
+  reasons: string[];
+  metrics?: Record<string, unknown>;
+}
 
 /** One coordination tick: reclaim expired leases (retry, or park+escalate if the
  *  retry cap is exceeded), then claim each ready todo and spawn a worker. A
@@ -98,11 +113,31 @@ export async function handleWorkerComplete(
   project: string,
   todoId: string,
   acceptance: 'accepted' | 'rejected',
-): Promise<{ promoted: string[]; escalated: boolean }> {
-  const { promoted } = await deps.completeTodo(project, todoId, acceptance);
+): Promise<{ promoted: string[]; escalated: boolean; gateOverride?: GateVerdict }> {
+  // AUTHORITATIVE GATE (5374e299): a worker can only PROPOSE 'accepted'. The
+  // Coordinator runs the project's declared gate on the committed artifact; a
+  // failed — or un-runnable — gate overrides to 'rejected' so nothing the worker
+  // self-certifies lands unverified. No declared gate (runGate → null) preserves
+  // the prior trust-the-worker behavior.
+  let effective: 'accepted' | 'rejected' = acceptance;
+  let gateOverride: GateVerdict | undefined;
+  if (acceptance === 'accepted' && deps.runGate) {
+    let verdict: GateVerdict | null;
+    try {
+      verdict = await deps.runGate(project, todoId);
+    } catch (e) {
+      // Fail CLOSED: a gate that errors must NOT auto-accept unverified work.
+      verdict = { passed: false, reasons: [`gate execution error: ${e instanceof Error ? e.message : String(e)}`] };
+    }
+    if (verdict && !verdict.passed) {
+      effective = 'rejected';
+      gateOverride = verdict;
+    }
+  }
+  const { promoted } = await deps.completeTodo(project, todoId, effective);
   let escalated = false;
-  if (acceptance === 'rejected' && deps.escalateRejected) {
+  if (effective === 'rejected' && deps.escalateRejected) {
     try { await deps.escalateRejected(project, todoId); escalated = true; } catch { /* never block the report */ }
   }
-  return { promoted, escalated };
+  return { promoted, escalated, gateOverride };
 }
