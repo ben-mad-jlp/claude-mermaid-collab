@@ -23,6 +23,11 @@ export interface CoordinatorDeps {
   /** Reclaim claims whose worker is hard-dead (tmux gone), without waiting for
    *  the lease. Returns reclaimed-to-ready + retry-exhausted (parked blocked) ids. Optional. */
   reapDeadClaims?: (project: string) => Promise<{ reclaimed: string[]; exhausted: string[] }>;
+  /** Free pool SLOTS whose backing worker tmux is gone, independent of any todo's
+   *  status. reapDeadClaims only visits in_progress todos, so a slot orphaned by a
+   *  dropped/abandoned todo would otherwise stay wedged 'busy' forever (889e3e26).
+   *  Returns the freed session names. Optional. */
+  reapDeadPoolSlots?: (project: string) => Promise<string[]>;
   /** Detect ALIVE-but-idle (stalled) workers — a worker sitting at its prompt
    *  awaiting input without filing an escalation — and surface them as escalations
    *  (DOGFOOD #6). Returns the stalled todo ids. Optional. */
@@ -51,6 +56,10 @@ export async function runTick(
       released.push(...dead.reclaimed);
       exhausted.push(...dead.exhausted);
     } catch { /* reaping must not abort the tick */ }
+  }
+  // Free pool slots orphaned by dropped/abandoned todos (their worker tmux gone).
+  if (deps.reapDeadPoolSlots) {
+    try { await deps.reapDeadPoolSlots(project); } catch { /* slot reaping must not abort the tick */ }
   }
   for (const id of exhausted) {
     try { await deps.escalateExhausted?.(project, id); } catch { /* escalation must not abort the tick */ }

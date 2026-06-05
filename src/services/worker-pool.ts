@@ -133,6 +133,10 @@ export interface PoolSlot {
   status: SlotStatus;
   /** The todo id the slot is currently working, when busy. */
   currentTodoId?: string;
+  /** The full tmux base name backing this slot while busy. Recorded at markBusy
+   *  so a slot can be reaped on its OWN worker's death, independent of any todo's
+   *  status (a dropped/completed-out-of-band todo must still free its slot). */
+  tmux?: string;
 }
 
 /** sessionName (`frontend-1`) → slot. Module-level; no DB (intentional). */
@@ -189,12 +193,14 @@ export function findIdleSessionForType(type: PoolType): string | undefined {
   return undefined;
 }
 
-/** Mark a session busy on a todo. Returns the slot, or undefined if unknown. */
-export function markBusy(sessionName: string, todoId: string): PoolSlot | undefined {
+/** Mark a session busy on a todo. Pass `tmux` (the slot's tmux base name) so the
+ *  slot can be reaped on its worker's death independent of todo status. */
+export function markBusy(sessionName: string, todoId: string, tmux?: string): PoolSlot | undefined {
   const s = registry.get(sessionName);
   if (!s) return undefined;
   s.status = 'busy';
   s.currentTodoId = todoId;
+  if (tmux !== undefined) s.tmux = tmux;
   return s;
 }
 
@@ -204,7 +210,27 @@ export function markIdle(sessionName: string): PoolSlot | undefined {
   if (!s) return undefined;
   s.status = 'idle';
   delete s.currentTodoId;
+  delete s.tmux;
   return s;
+}
+
+/** Free every busy slot whose backing tmux session is dead. Decouples slot
+ *  release from todo status: a slot orphaned by a dropped/abandoned todo (its
+ *  worker gone) is reclaimed here so the pool doesn't wedge "busy" on a vanished
+ *  session. `isAlive` is injected (tmux liveness check) to keep this pure. A busy
+ *  slot with no recorded tmux is left alone (legacy/in-flight — the todo-level
+ *  reaper still backstops it). Returns the freed session names. */
+export function reapDeadSlots(isAlive: (tmux: string) => boolean): string[] {
+  const freed: string[] = [];
+  for (const [name, s] of registry.entries()) {
+    if (s.status === 'busy' && s.tmux && !isAlive(s.tmux)) {
+      s.status = 'idle';
+      delete s.currentTodoId;
+      delete s.tmux;
+      freed.push(name);
+    }
+  }
+  return freed;
 }
 
 /** Snapshot of the registry: sessionName → slot (shallow copies). */

@@ -13,6 +13,7 @@ import {
   poolSessionName,
   markBusy,
   markIdle,
+  reapDeadSlots,
 } from './worker-pool';
 
 /** True if a tmux session with this base name exists (worker still alive). */
@@ -176,7 +177,9 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       const ok = started && reason === undefined;
 
       if (ok) {
-        markBusy(poolName, todo.id);
+        // Record the backing tmux so reapDeadSlots can free this slot on the
+        // worker's death regardless of the todo's eventual status.
+        markBusy(poolName, todo.id, ensured.tmux ?? tmuxBaseName(project, poolName));
         // Claim continues under the pool session name (todo.sessionName = poolName)
         // so reclaim/lease semantics and the dead-claim reaper key off it.
         try { await updateTodo(project, todo.id, { sessionName: poolName }); } catch { /* spawn already succeeded; lease covers any inconsistency */ }
@@ -211,6 +214,13 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         else if (next === 'blocked') exhausted.push(t.id);
       }
       return { reclaimed, exhausted };
+    },
+    reapDeadPoolSlots: async (_project: string): Promise<string[]> => {
+      // Slot-level reconciliation: a slot records its tmux at markBusy, so we can
+      // free it on its worker's death regardless of the todo's status (dropped,
+      // completed out-of-band, or an operator-killed lane). Project-agnostic — it
+      // keys off each slot's own recorded tmux, not the in_progress todo list.
+      return reapDeadSlots((tmux) => isTmuxAlive(tmux));
     },
     detectStalls: async (project: string): Promise<string[]> => {
       // DOGFOOD #6: surface ALIVE-but-idle (stalled) workers. Signal: the pane is
