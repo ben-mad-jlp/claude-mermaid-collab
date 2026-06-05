@@ -104,6 +104,8 @@ Args: { "project": "<pwd>", "todoId": "<ARGUMENTS>", "acceptance": "rejected" }
 
 **Stopping is NOT escalating.** If you cannot complete this todo, your turn does not end until you have called `escalation_create` (below). Printing your reasoning/options to the chat and then stopping is a **NO-OP**: the supervisor cannot see it, the todo strands `in_progress` until lease-expiry, and the coordinator will auto-flag you as a silent stall (DOGFOOD #6) — the structured `escalation_create` call is the ONLY thing that surfaces a blocker. Do NOT complete; raise the escalation so the supervisor/planner can re-validate:
 
+> **"This todo is too big / needs to be split" is ALSO a blocker — escalate it, never park it.** If you judge the todo should be decomposed into sub-todos before it can be done, that is a *planning decision for the supervisor/planner*, not something you do silently. File an `escalation_create` (`kind: "decision"`, with `options[]` proposing the split) and `await_human_decision` — do NOT end your turn with "a human/planner decides how to slice it" printed to the chat. That exact phrasing stranded a todo `in_progress` and wedged its whole lane (the parked-worker failure, 41d24bee). Escalating frees the lane; parking blocks it.
+
 Your session name is `worker-<first 8 chars of the todo id>`.
 
 Always pass `todoId: "<ARGUMENTS>"` so the escalation auto-resolves when the todo later completes.

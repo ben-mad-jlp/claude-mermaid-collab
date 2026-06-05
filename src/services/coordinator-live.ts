@@ -260,6 +260,18 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
           recordSupervisorAudit({ kind: 'escalate', project, session, detail: JSON.stringify({ todoId: t.id, reason: 'stall-detected', idleMs: now - prev.since }) });
           prev.escalated = true;
           stalled.push(t.id);
+          // RECOVERY (41d24bee): a stalled worker would otherwise hold its claim
+          // (until the 40-min lease) AND its pool slot, wedging the whole lane —
+          // exactly the parked-worker-blocks-the-pool failure observed live. Now
+          // that it's escalated for a human, park the todo 'blocked' (not re-run —
+          // re-running a stall just re-stalls) and FREE the pool slot so the lane
+          // keeps flowing; the worker session becomes a warm idle slot reused for
+          // the next ready todo.
+          try {
+            await releaseClaim(project, t.id);
+            await updateTodo(project, t.id, { status: 'blocked' });
+            markIdle(session);
+          } catch { /* recovery best-effort; never abort the tick */ }
         } catch { /* escalation best-effort; never abort the tick */ }
       }
       // GC trackers for tmux sessions no longer in_progress.
