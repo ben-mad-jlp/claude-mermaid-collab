@@ -8,9 +8,10 @@ import { ensureSession, runTodoInSession } from './claude-launch';
 import { runTick, type CoordinatorDeps, type GateVerdict } from './coordinator-daemon';
 import { loadProjectManifest } from '../config/project-manifest';
 import { resolveProfile, type AgentProfile } from '../config/agent-profiles';
+import { deriveBsyncSessionId, isCadTodo, bsyncSessionContextNote } from './bsync-session';
 import {
-  todoTypeToPoolType,
-  poolTypeForFiles,
+  normalizeType,
+  typeForFiles,
   findIdleSessionForType,
   getOrCreateSlot,
   poolSessionName,
@@ -233,12 +234,12 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // POOL-4: route the todo to a persistent, role-typed pool session instead
       // of spawning a fresh worker-<id8> per todo.
       //
-      // 1. Resolve the pool type. Prefer the todo's assigned `type` (set at sync
+      // 1. Resolve the routing type. Prefer the todo's assigned `type` (set at sync
       //    time, the same input resolveProfile/resolveWorkerProfile uses); if it's
-      //    null, fall back to file-based inference (poolTypeForFiles). Both default
+      //    null, fall back to file-based inference (typeForFiles). Both default
       //    unmatched → 'general'.
       const files = (todo as { files?: string[] | null }).files;
-      const poolType = todo.type ? todoTypeToPoolType(todo.type) : (files ? poolTypeForFiles(files) : 'general');
+      const type = todo.type ? normalizeType(todo.type) : (files ? typeForFiles(files) : 'general');
 
       // 2. Find a routable session of that type. Prefer a warm idle session; else
       //    lazily grab a slot within the type's budget. At capacity (no idle + no
@@ -250,12 +251,12 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       //    re-claimable next tick once a slot frees, so with pool=N exactly N
       //    todos run and the rest stay 'ready'. Spawn-FAILED (a real spawn attempt
       //    that errored, below) is different: it keeps the lease for retry.
-      let poolName = findIdleSessionForType(poolType);
+      let poolName = findIdleSessionForType(type);
       if (!poolName) {
-        const slot = getOrCreateSlot(poolType);
+        const slot = getOrCreateSlot(type);
         if (!slot) {
           try { await releaseClaim(project, todo.id); } catch { /* lease still backstops if the release fails */ }
-          recordSupervisorAudit({ kind: 'spawn', project, session: poolSessionName(poolType), detail: JSON.stringify({ todoId: todo.id, type: poolType, started: false, reason: 'pool-busy-deferred', released: true }) });
+          recordSupervisorAudit({ kind: 'spawn', project, session: poolSessionName(type), detail: JSON.stringify({ todoId: todo.id, type, started: false, reason: 'pool-busy-deferred', released: true }) });
           return false;
         }
         poolName = poolSessionName(slot.type, slot.slot);
@@ -281,6 +282,20 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
           `edits here in ${targetProject}. For collab todo operations — get_todo, complete_todo, and the ` +
           `.collab/attempts friction note — use project=${project} (the tracking project), NOT your cwd.`;
         contextPrompt = (contextPrompt ?? '') + note;
+      }
+
+      // BSYNC SESSION ISOLATION (SEAM·both): a CAD todo drives the bsync
+      // (build123d) server, which defaults every call to a shared "default"
+      // session — so two concurrent CAD workers would stomp each other's live
+      // assembly. Derive a stable, unique bsync session_id from (tracking
+      // project, pool lane, todo) and instruct the worker to pass it on every
+      // bsync call. We key on `poolName` (the persistent lane), not the tmux
+      // base name, so a reclaimed worker re-spawned in the same lane reattaches
+      // to the same bsync session; the todo.id keeps sequential todos in one
+      // lane apart and the whole triple is deterministic for resume.
+      if (isCadTodo(todo)) {
+        const bsyncSessionId = deriveBsyncSessionId(project, poolName, todo.id);
+        contextPrompt = (contextPrompt ?? '') + bsyncSessionContextNote(bsyncSessionId);
       }
 
       // 2b. DOGFOOD #5 isolation: when enabled, run this worker in a fresh git
@@ -332,7 +347,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
           addWatchedProject(project);
         } catch { /* watching registration is best-effort; spawn already succeeded */ }
       }
-      recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, type: poolType, started: ok, reason }) });
+      recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, type, started: ok, reason }) });
       return ok;
     },
     reapDeadClaims: async (project: string): Promise<{ reclaimed: string[]; exhausted: string[] }> => {
