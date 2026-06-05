@@ -69,6 +69,16 @@ export class ProjectRegistry {
       throw new Error('Invalid project path: must be an absolute path');
     }
 
+    // Never register transient/internal isolation dirs as projects. Worker
+    // worktrees live under <repo>/.collab/agent-sessions/worktrees/<slot> (and the
+    // supervisor/__integration__ dirs alongside) — they're per-todo scratch
+    // checkouts, not projects. They'd otherwise pollute the Bridge project picker
+    // every time an isolation worker makes an MCP call with project=its-own-cwd.
+    // Skip as a no-op (an explicit register_project of such a path is a mistake too).
+    if (/[/\\]\.collab[/\\]agent-sessions[/\\]/.test(path)) {
+      return { created: false };
+    }
+
     // Validate path exists
     if (!fs.existsSync(path)) {
       throw new Error(`Project path does not exist: ${path}`);
