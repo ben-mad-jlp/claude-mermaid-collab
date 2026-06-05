@@ -41,6 +41,102 @@ function killTmuxSession(tmux: string): void {
   }
 }
 
+// --- 63a59bd6: PID-based liveness (dead Claude in a live tmux) -------------------
+// A worker can sit with its tmux session ALIVE but its Claude process EXITED — the
+// pane is a bare shell. This falls through BOTH existing watchdog passes:
+// reapDeadClaims/reapDeadPoolSlots only fire on a DEAD tmux (this one's alive), and
+// the stall classifier only matches an idle Claude TUI (a shell matches neither).
+// Result observed live: dead worker, slot held, UI red, human never notified. We
+// close it by walking the pane's process subtree and asking "is a `claude` process
+// still running?" — definitive, unlike pane scraping.
+
+/** One `ps` snapshot → pid → { ppid-children, comm }. Built once per detect pass
+ *  so the subtree walk costs a single subprocess regardless of worker count.
+ *  Returns null if ps is unavailable (→ callers treat liveness as unknown). */
+function procSnapshot(): Map<number, { children: number[]; comm: string }> | null {
+  try {
+    const out = Bun.spawnSync(['ps', '-axo', 'pid=,ppid=,comm='], { stdout: 'pipe', stderr: 'ignore' }).stdout?.toString() ?? '';
+    if (!out.trim()) return null;
+    const byPid = new Map<number, { children: number[]; comm: string }>();
+    const rows: Array<{ pid: number; ppid: number; comm: string }> = [];
+    for (const line of out.split('\n')) {
+      const m = line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/);
+      if (!m) continue;
+      const pid = Number(m[1]);
+      const ppid = Number(m[2]);
+      const comm = m[3];
+      rows.push({ pid, ppid, comm });
+      const ex = byPid.get(pid);
+      if (ex) ex.comm = comm;
+      else byPid.set(pid, { children: [], comm });
+    }
+    for (const r of rows) {
+      let parent = byPid.get(r.ppid);
+      if (!parent) { parent = { children: [], comm: '' }; byPid.set(r.ppid, parent); }
+      parent.children.push(r.pid);
+    }
+    return byPid;
+  } catch {
+    return null;
+  }
+}
+
+/** The shell PID running in a tmux session's (first) pane, or null. */
+function tmuxPanePid(tmux: string): number | null {
+  try {
+    const p = Bun.spawnSync(['tmux', 'list-panes', '-t', tmux, '-F', '#{pane_pid}'], { stdout: 'pipe', stderr: 'ignore' });
+    const first = (p.stdout?.toString() ?? '').split('\n').map((l) => l.trim()).filter(Boolean)[0];
+    const n = Number(first);
+    return Number.isInteger(n) && n > 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Pure BFS: is a `claude` process anywhere in `rootPid`'s subtree, per the
+ *  snapshot's child index? Exported for unit testing (no tmux/ps required). */
+export function claudeAliveInSubtree(rootPid: number, snap: Map<number, { children: number[]; comm: string }>): boolean {
+  const seen = new Set<number>();
+  const queue: number[] = [rootPid];
+  while (queue.length > 0) {
+    const pid = queue.shift()!;
+    if (seen.has(pid)) continue;
+    seen.add(pid);
+    const node = snap.get(pid);
+    if (!node) continue;
+    if (/claude/i.test(node.comm)) return true;
+    for (const c of node.children) if (!seen.has(c)) queue.push(c);
+  }
+  return false;
+}
+
+/** Is a `claude` process alive in this tmux pane's process subtree? Returns
+ *  true/false, or null when it can't be determined (no pane pid / no ps snapshot)
+ *  — callers MUST treat null as "assume alive" and never escalate on uncertainty. */
+function claudeProcessPresent(tmux: string, snap: Map<number, { children: number[]; comm: string }> | null): boolean | null {
+  if (!snap) return null;
+  const panePid = tmuxPanePid(tmux);
+  if (panePid == null) return null;
+  return claudeAliveInSubtree(panePid, snap);
+}
+
+/** Cheap corroboration: does the pane render any Claude TUI chrome (status bar,
+ *  spinner, interrupt hint)? Used only to AVOID a false dead-shell call during the
+ *  brief spawn gap before claude paints — the PID check is the primary signal.
+ *  Deliberately omits the bare `❯` (oh-my-zsh/p10k prompts use it too). Exported
+ *  for unit testing. */
+export function isClaudeTuiPresent(pane: string): boolean {
+  return /ctx\s*\||for agents|esc to interrupt|\(\d+(?:m\s*\d+)?s\s*·/.test(pane);
+}
+
+/** Dead-worker tracker (tmux → first-confirmed-dead + escalated), parallel to
+ *  idleTracker. A dead shell is confirmed across DEAD_GRACE_MS so we never trip on
+ *  the spawn/handoff gap before claude launches. */
+const deadTracker = new Map<string, { since: number; escalated: boolean }>();
+/** How long a worker's Claude must be confirmed-gone (tmux still alive) before we
+ *  declare it dead. Long enough to clear cold-start; override MERMAID_DEAD_GRACE. */
+const DEAD_GRACE_MS = (Number(process.env.MERMAID_DEAD_GRACE) || 45) * 1000;
+
 // --- DOGFOOD #6: idle-at-prompt stall detection ---------------------------------
 // A worker can be ALIVE (tmux up, lease unexpired) yet silently stalled: it ended
 // its turn sitting at the input prompt awaiting a human decision, without filing an
@@ -394,12 +490,53 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // decides). A worker that resumes (pane changes / spinner returns) resets.
       const stalled: string[] = [];
       const seen = new Set<string>();
+      // One process snapshot for the whole pass → the PID-liveness subtree walk
+      // (63a59bd6) costs a single `ps` regardless of how many workers are live.
+      const snap = procSnapshot();
       for (const t of listTodos(project, { status: 'in_progress' })) {
         const session = t.sessionName ?? `worker-${t.id.slice(0, 8)}`;
         const tmux = tmuxBaseName(project, session);
         seen.add(tmux);
         if (!isTmuxAlive(tmux)) continue; // dead → reapDeadClaims handles it
         const pane = capturePane(tmux);
+
+        // 63a59bd6 — DEAD CLAUDE IN A LIVE TMUX (the watchdog blind spot): the tmux
+        // is alive but no `claude` process remains in its pane subtree, and the pane
+        // shows no Claude TUI chrome (so it's a bare shell, not a mid-spawn gap).
+        // Confirm across DEAD_GRACE_MS, then ESCALATE (the death was previously
+        // silent), kill the dud session, and reclaim the claim so the lane resets.
+        const claudePresent = claudeProcessPresent(tmux, snap);
+        if (claudePresent === false && !isClaudeTuiPresent(pane)) {
+          const now = Date.now();
+          const prevDead = deadTracker.get(tmux);
+          if (!prevDead) { deadTracker.set(tmux, { since: now, escalated: false }); continue; }
+          if (prevDead.escalated || now - prevDead.since < DEAD_GRACE_MS) continue;
+          try {
+            createEscalation({
+              project,
+              session,
+              kind: 'blocker',
+              todoId: t.id,
+              questionText:
+                `Worker for "${t.title ?? t.id}" DIED — its Claude process exited but the tmux ` +
+                `session stayed alive (a bare shell), so it silently held its slot with nothing ` +
+                `running and showed RED without raising anything. The lane has been reset and the ` +
+                `claim reclaimed. Re-open/retry with guidance, or drop it. (63a59bd6 auto-detected).`,
+            });
+            recordSupervisorAudit({ kind: 'escalate', project, session, detail: JSON.stringify({ todoId: t.id, reason: 'dead-claude-live-tmux', deadMs: now - prevDead.since }) });
+            // Reset the lane: kill the dud bare-shell tmux, free the pool slot, and
+            // reclaim the claim (retry-budget-aware → ready or blocked).
+            killTmuxSession(tmux);
+            markIdle(session);
+            await reclaimClaim(project, t.id);
+            prevDead.escalated = true;
+            stalled.push(t.id);
+          } catch { /* escalation/recovery best-effort; never abort the tick */ }
+          continue;
+        }
+        // Claude is present (or liveness unknown) → clear any dead-tracking for it.
+        deadTracker.delete(tmux);
+
         if (!pane || isActivelyWorking(pane)) { idleTracker.delete(tmux); continue; }
         const sig = paneSignature(pane);
         const now = Date.now();
@@ -463,6 +600,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       }
       // GC trackers for tmux sessions no longer in_progress.
       for (const k of idleTracker.keys()) if (!seen.has(k)) idleTracker.delete(k);
+      for (const k of deadTracker.keys()) if (!seen.has(k)) deadTracker.delete(k);
       return stalled;
     },
     escalateExhausted: async (project: string, todoId: string): Promise<void> => {

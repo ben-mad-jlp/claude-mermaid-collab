@@ -33,7 +33,7 @@ mock.module('../todo-store', () => ({
   reclaimClaim: async () => 'ready',
 }));
 
-import { makeCoordinatorDeps, startCoordinator, stopCoordinator, isCoordinatorRunning, autoStartCoordinator, isCoordinatorAutoManaged, resolveWorkerProfile, detectPermissionPrompt, extractRequestedTool, getCoordinatorLiveness } from '../coordinator-live';
+import { makeCoordinatorDeps, startCoordinator, stopCoordinator, isCoordinatorRunning, autoStartCoordinator, isCoordinatorAutoManaged, resolveWorkerProfile, detectPermissionPrompt, extractRequestedTool, getCoordinatorLiveness, claudeAliveInSubtree, isClaudeTuiPresent } from '../coordinator-live';
 import { isSupervised, removeSupervised, listSupervised } from '../supervisor-store';
 import { resetPool, listPool, markBusy, markIdle } from '../worker-pool';
 import type { Todo } from '../todo-store';
@@ -308,6 +308,49 @@ describe('detectPermissionPrompt (DOGFOOD #6 follow-up)', () => {
     expect(extractRequestedTool('mcp__srv__do_thing(x: 1)')).toBe('mcp__srv__do_thing');
     expect(extractRequestedTool('MyTool(arg)')).toBe('MyTool');
     expect(extractRequestedTool('just some prose with no tool call')).toBeNull();
+  });
+});
+
+describe('PID-based liveness (63a59bd6 — dead Claude in a live tmux)', () => {
+  type Snap = Map<number, { children: number[]; comm: string }>;
+  const snap = (rows: Array<[number, number, string]>): Snap => {
+    const m: Snap = new Map();
+    for (const [pid, , comm] of rows) m.set(pid, { children: [], comm });
+    for (const [pid, ppid] of rows) {
+      if (!m.has(ppid)) m.set(ppid, { children: [], comm: '' });
+      m.get(ppid)!.children.push(pid);
+    }
+    return m;
+  };
+
+  it('finds claude as a descendant of the pane shell (live worker)', () => {
+    // pane shell (100) → claude (101). claude is alive.
+    const s = snap([[100, 1, '-zsh'], [101, 100, 'claude']]);
+    expect(claudeAliveInSubtree(100, s)).toBe(true);
+  });
+
+  it('finds claude under an intermediate wrapper process', () => {
+    const s = snap([[100, 1, '-zsh'], [101, 100, 'node'], [102, 101, 'claude']]);
+    expect(claudeAliveInSubtree(100, s)).toBe(true);
+  });
+
+  it('returns false for a bare shell with no claude descendant (the dead worker)', () => {
+    // pane shell (100) with only a pager child — claude exited.
+    const s = snap([[100, 1, '-zsh'], [103, 100, 'less']]);
+    expect(claudeAliveInSubtree(100, s)).toBe(false);
+  });
+
+  it('does not escape the subtree (sibling claude under a different root)', () => {
+    const s = snap([[100, 1, '-zsh'], [200, 1, '-zsh'], [201, 200, 'claude']]);
+    expect(claudeAliveInSubtree(100, s)).toBe(false);
+  });
+
+  it('isClaudeTuiPresent: live Claude chrome vs a bare shell prompt', () => {
+    expect(isClaudeTuiPresent('🧠 0% ctx | ← for agents')).toBe(true);
+    expect(isClaudeTuiPresent('✻ Zesting… (26s · ↓ 1.1k tokens)')).toBe(true);
+    expect(isClaudeTuiPresent('  3. No, and tell Claude what to do (esc to interrupt)')).toBe(true);
+    expect(isClaudeTuiPresent('benmaderazo@host project %')).toBe(false);
+    expect(isClaudeTuiPresent('➜  claude-mermaid-collab git:(master) ✗')).toBe(false);
   });
 });
 
