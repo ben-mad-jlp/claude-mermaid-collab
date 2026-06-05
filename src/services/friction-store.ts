@@ -1,0 +1,155 @@
+import Database from 'bun:sqlite';
+import { mkdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+
+/**
+ * Per-PROJECT friction-signal store (SEAM·collab — friction persistence).
+ *
+ * Failure attribution used to go into a void: the worker skill told workers to
+ * write `.collab/attempts/<id>.json`, but that directory existed in no repo and
+ * nothing in src/ read it; todos.db carried only `retryCount`, a noisy proxy that
+ * increments on lease re-claim, not only on real failure. So "was the friction
+ * collab-side (gate format / wrong test command — ORCHESTRATION) or project-side
+ * (domain API re-derived / missing model — DOMAIN)?" was not queryable.
+ *
+ * This store makes that signal concrete and queryable: a worker emits a structured
+ * friction note (attempt #, retry reason, LAYER) persisted to `.collab/friction.db`,
+ * so DETECT/DRAFT (self-improving profiles, fd052733 stage-2) and the supervisor
+ * can read real evidence without opening each worker's private ~/.claude transcript.
+ */
+
+/** Where the friction came from: the orchestration harness (collab) vs the
+ *  project's own domain (the code/API the worker was editing). */
+export type FrictionLayer = 'orchestration' | 'domain';
+
+export interface FrictionNote {
+  id: string;
+  /** The work-graph todo this attempt was against. */
+  todoId: string;
+  /** The worker/pool session that emitted it. */
+  session: string | null;
+  /** 1-based attempt number (the worker's own count, not the lease retryCount). */
+  attempt: number;
+  /** Which layer the friction came from. */
+  layer: FrictionLayer;
+  /** Short machine-ish reason tag (e.g. "gate-format", "wrong-test-cmd",
+   *  "cad-api-rederived", "missing-domain-model"). */
+  retryReason: string;
+  /** Optional free-text elaboration. */
+  detail: string | null;
+  createdAt: string;
+}
+
+export interface RecordFrictionInput {
+  todoId: string;
+  session?: string | null;
+  attempt?: number;
+  layer: FrictionLayer;
+  retryReason: string;
+  detail?: string | null;
+}
+
+export interface FrictionFilter {
+  todoId?: string;
+  session?: string;
+  layer?: FrictionLayer;
+}
+
+const DDL = `
+CREATE TABLE IF NOT EXISTS friction_notes (
+  id TEXT PRIMARY KEY,
+  todoId TEXT NOT NULL,
+  session TEXT,
+  attempt INTEGER NOT NULL DEFAULT 1,
+  layer TEXT NOT NULL,
+  retryReason TEXT NOT NULL,
+  detail TEXT,
+  createdAt TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_friction_todo ON friction_notes(todoId);
+CREATE INDEX IF NOT EXISTS idx_friction_layer ON friction_notes(layer);
+`;
+
+const dbCache = new Map<string, Database>();
+
+function openDb(project: string): Database {
+  const cached = dbCache.get(project);
+  if (cached) return cached;
+  const path = join(project, '.collab', 'friction.db');
+  mkdirSync(dirname(path), { recursive: true });
+  const db = new Database(path);
+  db.exec('PRAGMA journal_mode = WAL');
+  db.exec(DDL);
+  dbCache.set(project, db);
+  return db;
+}
+
+/** For tests: drop the cached handle so a fresh dir opens a fresh DB. */
+export function _closeProject(project: string): void {
+  const db = dbCache.get(project);
+  if (db) {
+    try { db.close(); } catch { /* ignore */ }
+    dbCache.delete(project);
+  }
+}
+
+// Per-project serialized write lock (mirrors todo-store.ts).
+const locks = new Map<string, Promise<unknown>>();
+function withLock<T>(project: string, fn: () => T | Promise<T>): Promise<T> {
+  const prev = locks.get(project) ?? Promise.resolve();
+  const next = prev.then(() => fn());
+  locks.set(project, next.catch(() => {}));
+  return next;
+}
+
+const nowIso = () => new Date().toISOString();
+
+const VALID_LAYERS: FrictionLayer[] = ['orchestration', 'domain'];
+
+function rowToNote(row: any): FrictionNote {
+  return {
+    id: row.id,
+    todoId: row.todoId,
+    session: row.session ?? null,
+    attempt: row.attempt,
+    layer: row.layer as FrictionLayer,
+    retryReason: row.retryReason,
+    detail: row.detail ?? null,
+    createdAt: row.createdAt,
+  };
+}
+
+/** Persist a worker's friction note. Validates the layer (the whole point of the
+ *  store is a clean orchestration-vs-domain split). Returns the stored note. */
+export function recordFriction(project: string, input: RecordFrictionInput): Promise<FrictionNote> {
+  return withLock(project, () => {
+    if (!input.todoId) throw new Error('recordFriction: todoId is required');
+    if (!input.retryReason) throw new Error('recordFriction: retryReason is required');
+    if (!VALID_LAYERS.includes(input.layer)) {
+      throw new Error(`recordFriction: layer must be one of ${VALID_LAYERS.join(' | ')} (got ${String(input.layer)})`);
+    }
+    const db = openDb(project);
+    const id = crypto.randomUUID();
+    const ts = nowIso();
+    const attempt = input.attempt ?? 1;
+    db.prepare(
+      `INSERT INTO friction_notes (id, todoId, session, attempt, layer, retryReason, detail, createdAt)
+       VALUES (?,?,?,?,?,?,?,?)`
+    ).run(id, input.todoId, input.session ?? null, attempt, input.layer, input.retryReason, input.detail ?? null, ts);
+    return rowToNote(db.prepare('SELECT * FROM friction_notes WHERE id = ?').get(id));
+  });
+}
+
+/** Query friction notes, newest first. Filter by todoId / session / layer — e.g.
+ *  `listFriction(project, { layer: 'domain' })` answers "which todos hit
+ *  domain-layer friction and why" without opening any worker transcript. */
+export function listFriction(project: string, filter: FrictionFilter = {}): FrictionNote[] {
+  const db = openDb(project);
+  const where: string[] = [];
+  const params: string[] = [];
+  if (filter.todoId) { where.push('todoId = ?'); params.push(filter.todoId); }
+  if (filter.session) { where.push('session = ?'); params.push(filter.session); }
+  if (filter.layer) { where.push('layer = ?'); params.push(filter.layer); }
+  const sql = `SELECT * FROM friction_notes${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY createdAt DESC, rowid DESC`;
+  return (db.prepare(sql).all(...params) as any[]).map(rowToNote);
+}

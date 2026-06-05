@@ -43,12 +43,22 @@ const isCollabBound = (t: string) => /collab|server health|Vibe|register/i.test(
  * and collab-bound, it is REUSED as-is (no relaunch, no double `/collab`).
  * This is everything EXCEPT sending the worker skill — see runTodoInSession.
  */
+/** Single-quote a string for safe inclusion in a shell command sent as keystrokes
+ *  (the contextPrompt can carry spaces, quotes, newlines). Wraps in single quotes
+ *  and escapes embedded single quotes via the '\'' idiom. */
+function shellSingleQuote(s: string): string {
+  return "'" + s.replace(/'/g, "'\\''") + "'";
+}
+
 export async function ensureSession(opts: {
   project: string;
   session: string;
   allowedTools?: string;
   model?: string;
   runtimeMode?: 'read-only' | 'edit' | 'bypass';
+  /** Domain context injected via `--append-system-prompt` so the worker starts
+   *  warm (SEAM·collab: a per-project manifest declares this). */
+  contextPrompt?: string;
 }): Promise<{ ready: boolean; tmux?: string; reason?: string }> {
   try {
     if (!existsSync(opts.project)) return { ready: false, reason: 'no-project-dir' };
@@ -86,6 +96,7 @@ export async function ensureSession(opts: {
     const cmd = 'claude'
       + (opts.allowedTools ? ' --allowedTools "' + opts.allowedTools + '"' : '')
       + (opts.model ? ' --model ' + opts.model : '')
+      + (opts.contextPrompt ? ' --append-system-prompt ' + shellSingleQuote(opts.contextPrompt) : '')
       + runtimeModeFlags(opts.runtimeMode);
     await sendTmuxKeysRaw(tmux, cmd);
 

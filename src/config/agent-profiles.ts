@@ -1,4 +1,5 @@
 import type { RuntimeMode } from '../agent/contracts';
+import { manifestProfile, inferTypeFromManifest } from './project-manifest';
 
 /**
  * Agent-profile registry (PCS Phase 3). A todo's `type` resolves to a profile
@@ -20,6 +21,12 @@ export interface AgentProfile {
   model?: string;
   /** Runtime permission mode for the worker's CLI. */
   runtimeMode?: RuntimeMode;
+  /** Optional domain context injected into the worker's CLI as an appended
+   *  system prompt (SEAM·collab). Lets a project declare "here's how to work in
+   *  this repo" WITH the repo (.collab/project.json) so the worker starts warm —
+   *  no cold start, no learning collab has to ship. Global profiles leave this
+   *  unset; only a per-project manifest typically populates it. */
+  contextPrompt?: string;
 }
 
 export type AgentProfileType = 'default' | 'frontend' | 'backend' | 'api' | 'ui' | 'library';
@@ -47,10 +54,28 @@ export const AGENT_PROFILES: Record<AgentProfileType, AgentProfile> = {
 
 export const DEFAULT_PROFILE_TYPE: AgentProfileType = 'default';
 
-/** Resolve a todo `type` to its profile. Unknown/missing types fall back to `default`. */
-export function resolveProfile(type?: string | null): AgentProfile {
-  if (type && type in AGENT_PROFILES) return AGENT_PROFILES[type as AgentProfileType];
-  return AGENT_PROFILES[DEFAULT_PROFILE_TYPE];
+/** Resolve a todo `type` to its profile. Unknown/missing types fall back to `default`.
+ *
+ *  When `project` is given, the project's `.collab/project.json` manifest is
+ *  consulted and any profile it declares for `type` is MERGED OVER the global
+ *  hard-coded profile (manifest fields win; omitted fields keep the global). This
+ *  is how a project ships its own profile (e.g. build123d's `cad`) without collab
+ *  knowing anything about it. The no-manifest / no-project path returns the exact
+ *  global profile object by reference (callers + tests rely on that identity). */
+export function resolveProfile(type?: string | null, project?: string): AgentProfile {
+  const base = (type && type in AGENT_PROFILES)
+    ? AGENT_PROFILES[type as AgentProfileType]
+    : AGENT_PROFILES[DEFAULT_PROFILE_TYPE];
+  if (!project) return base;
+  const override = manifestProfile(project, type);
+  if (!override) return base;
+  // Merge: manifest fields override the global base; undefined fields keep base.
+  return {
+    allowedTools: override.allowedTools ?? base.allowedTools,
+    model: override.model ?? base.model,
+    runtimeMode: override.runtimeMode ?? base.runtimeMode,
+    contextPrompt: override.contextPrompt ?? base.contextPrompt,
+  };
 }
 
 /**

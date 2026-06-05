@@ -20,6 +20,7 @@ import {
   type TodoLink,
 } from '../../services/todo-store.js';
 import { inferProfileType } from '../../config/agent-profiles.js';
+import { inferTypeFromManifest } from '../../config/project-manifest.js';
 
 // ============= Type Re-exports =============
 
@@ -251,8 +252,12 @@ export async function addSessionTodo(
   const { title: _extrasTitle, files, type, ...extrasRest } = extras ?? {};
   const trimmed = (extras?.title ?? text).trim();
   if (!trimmed) throw new Error('text must be non-empty');
-  // Explicit type wins; otherwise infer from the touched files (open-problem #8).
-  const resolvedType = type ?? (files && files.length ? inferProfileType(files) : null);
+  // Explicit type wins; otherwise infer from the touched files (open-problem #8) —
+  // the project's manifest path-rules get first say (so a repo can route its own
+  // file shapes to a profile collab has never heard of), then the global rules.
+  const resolvedType = type ?? (files && files.length
+    ? (inferTypeFromManifest(project, files) ?? inferProfileType(files))
+    : null);
   return createTodo(project, {
     ownerSession: session,
     ...extrasRest,

@@ -14,6 +14,8 @@ export default defineConfig({
       'src/services/__tests__/todo-store.test.ts',
       'src/services/__tests__/todo-migration.test.ts',
       'src/mcp/tools/lessons.test.ts',
+      'src/config/__tests__/project-manifest.test.ts',
+      'src/services/__tests__/friction-store.test.ts',
     ],
     setupFiles: ['./vitest.setup.ts'],
     coverage: {

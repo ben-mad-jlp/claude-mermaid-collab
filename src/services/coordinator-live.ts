@@ -80,12 +80,15 @@ const STALL_MS = (Number(process.env.MERMAID_STALL_MIN) || 3) * 60 * 1000;
 
 /** Per-todo agent profile → launch params (PCS Phase 3). The todo's `type`
  *  (when present; assigned at sync time per #8) resolves to a registry profile
- *  (tools/model/runtimeMode); the `invokeSkill` makes the worker autonomous:
- *  after `/collab` binds the session, the worker skill reads its claimed todo
- *  (by id), works it, runs the mechanical acceptance gate, and reports via
- *  `complete_todo`. Unknown/missing type → the `default` profile. */
-export function resolveWorkerProfile(todo: Todo): AgentProfile & { invokeSkill: string } {
-  const profile = resolveProfile(todo.type);
+ *  (tools/model/runtimeMode/contextPrompt); the `invokeSkill` makes the worker
+ *  autonomous: after `/collab` binds the session, the worker skill reads its
+ *  claimed todo (by id), works it, runs the mechanical acceptance gate, and
+ *  reports via `complete_todo`. Unknown/missing type → the `default` profile.
+ *  Passing `project` lets the project's `.collab/project.json` manifest override
+ *  the global profile (SEAM·collab) — e.g. a `cad` profile shipped with build123d
+ *  injects its CAD/viewer allowedTools + contextPrompt. */
+export function resolveWorkerProfile(todo: Todo, project?: string): AgentProfile & { invokeSkill: string } {
+  const profile = resolveProfile(todo.type, project);
   return { ...profile, invokeSkill: `/mermaid-collab:worker ${todo.id}` };
 }
 
@@ -158,12 +161,12 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         poolName = poolSessionName(slot.type, slot.slot);
       }
 
-      const { allowedTools, invokeSkill, model, runtimeMode } = resolveWorkerProfile(todo);
+      const { allowedTools, invokeSkill, model, runtimeMode, contextPrompt } = resolveWorkerProfile(todo, project);
 
       // 3. Spawn or reuse the pool session (idempotent — ensureSession reuses a
       //    live, bound session), then send the worker skill into it. Profile
       //    params still drive tools/model/runtimeMode.
-      const ensured = await ensureSession({ project, session: poolName, allowedTools, model, runtimeMode });
+      const ensured = await ensureSession({ project, session: poolName, allowedTools, model, runtimeMode, contextPrompt });
       const started = ensured.ready;
       let reason = ensured.reason;
       if (started) {
