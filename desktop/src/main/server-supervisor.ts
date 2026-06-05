@@ -126,7 +126,20 @@ const INJECTED_SECRET_KEYS = ['XAI_API_KEY'] as const;
  * inject it into the child env at spawn — surviving app restarts without a
  * standalone-sidecar/launchctl stopgap.
  */
-const INJECTED_FLAG_KEYS = ['MERMAID_WORKER_ISOLATION'] as const;
+const INJECTED_FLAG_KEYS = [
+  'MERMAID_WORKER_ISOLATION',
+  // Pool sizing (the parallelism dial) — injected the same durable way as the
+  // isolation flag so a Dock-/login-launched sidecar honors config.json pool
+  // overrides instead of silently reverting to the per-type defaults (backend=1)
+  // on every app restart. pickEnvFromConfig only injects keys actually present in
+  // config.json, so listing all of them here is safe when some are unset.
+  'MERMAID_POOL_FRONTEND',
+  'MERMAID_POOL_BACKEND',
+  'MERMAID_POOL_API',
+  'MERMAID_POOL_UI',
+  'MERMAID_POOL_LIBRARY',
+  'MERMAID_POOL_GENERAL',
+] as const;
 
 interface ConfigEnvOpts {
   currentEnv?: NodeJS.ProcessEnv;
