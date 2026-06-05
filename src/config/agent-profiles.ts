@@ -38,18 +38,26 @@ export type AgentProfileType = 'default' | 'frontend' | 'backend' | 'api' | 'ui'
 // a belt-and-suspenders match for contexts where the server is namespaced.
 const MCP = 'mcp__mermaid mcp__plugin_mermaid-collab_mermaid';
 
+// Pre-authorize the collab system's OWN skills so an autonomous worker never
+// stalls on a "Use skill mermaid-collab:…?" permission prompt (the dominant cause
+// of wedged workers, observed live: 3/3 workers frozen 20-40min on the vibe-active
+// prompt, holding their slots). Surgical, not a blanket bypass — only the trusted
+// first-party collab skills are allowed; arbitrary tools still gate per
+// runtimeMode. Honors constraint 64f813bd (no headless bypass by default).
+const SKILLS = 'Skill(mermaid-collab:*)';
+
 /**
  * The registry. `default` (≈ "full") is the fallback. Domain profiles narrow the
  * tool surface where it makes sense; all can edit + run since a worker must do
  * real work (vary hard limits via runtimeMode, not by removing Edit/Write).
  */
 export const AGENT_PROFILES: Record<AgentProfileType, AgentProfile> = {
-  default:  { allowedTools: `Bash Edit Write Read ${MCP}`, runtimeMode: 'edit' },
-  frontend: { allowedTools: `Bash Edit Write Read ${MCP}`, runtimeMode: 'edit' },
-  backend:  { allowedTools: `Bash Edit Write Read ${MCP}`, runtimeMode: 'edit' },
-  api:      { allowedTools: `Bash Edit Write Read ${MCP}`, runtimeMode: 'edit' },
-  ui:       { allowedTools: `Bash Edit Write Read ${MCP}`, runtimeMode: 'edit' },
-  library:  { allowedTools: `Bash Edit Write Read ${MCP}`, runtimeMode: 'edit' },
+  default:  { allowedTools: `Bash Edit Write Read ${MCP} ${SKILLS}`, runtimeMode: 'edit' },
+  frontend: { allowedTools: `Bash Edit Write Read ${MCP} ${SKILLS}`, runtimeMode: 'edit' },
+  backend:  { allowedTools: `Bash Edit Write Read ${MCP} ${SKILLS}`, runtimeMode: 'edit' },
+  api:      { allowedTools: `Bash Edit Write Read ${MCP} ${SKILLS}`, runtimeMode: 'edit' },
+  ui:       { allowedTools: `Bash Edit Write Read ${MCP} ${SKILLS}`, runtimeMode: 'edit' },
+  library:  { allowedTools: `Bash Edit Write Read ${MCP} ${SKILLS}`, runtimeMode: 'edit' },
 };
 
 export const DEFAULT_PROFILE_TYPE: AgentProfileType = 'default';
