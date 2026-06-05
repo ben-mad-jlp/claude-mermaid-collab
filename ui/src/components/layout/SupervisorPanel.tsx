@@ -156,14 +156,22 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   const serverIconById = useMemo(() => {
     const m = new Map<string, string>();
     for (const s of servers) if (s.icon) m.set(s.id, s.icon);
+    // Supervised/watched rows are stamped with the 'local' sentinel (serverScope
+    // = activeId ?? 'local') rather than the local server's real id, so a direct
+    // get('local') would miss and fall back to the generic icon. Register the
+    // sentinel against the local server's icon so those cards resolve correctly.
+    const localServer = servers.find((s) => s.source === 'local');
+    if (localServer?.icon) m.set('local', localServer.icon);
     return m;
   }, [servers]);
   const serverLabelById = useMemo(() => {
     const m = new Map<string, string>();
     for (const s of servers) m.set(s.id, s.label);
+    const localServer = servers.find((s) => s.source === 'local');
+    if (localServer) m.set('local', localServer.label);
     return m;
   }, [servers]);
-  const activeServerIcon = activeId ? serverIconById.get(activeId) : undefined;
+  const activeServerIcon = (activeId ? serverIconById.get(activeId) : undefined) ?? serverIconById.get('local');
 
   // Supervised sessions grouped by project (the session-centric view).
   const byProject = useMemo(() => {
