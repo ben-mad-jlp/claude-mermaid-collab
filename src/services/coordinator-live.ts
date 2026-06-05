@@ -1,5 +1,7 @@
+import * as path from 'node:path';
 import type { Todo } from './todo-store';
 import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, releaseClaim } from './todo-store';
+import { WorktreeManager } from '../agent/worktree-manager';
 import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, addSupervised, addWatchedProject } from './supervisor-store';
 import { tmuxBaseName } from './tmux-naming';
 import { ensureSession, runTodoInSession } from './claude-launch';
@@ -129,6 +131,39 @@ export function resolveWorkerProfile(todo: Todo, project?: string): AgentProfile
   return { ...profile, invokeSkill: `/mermaid-collab:worker ${todo.id}` };
 }
 
+// --- DOGFOOD #5: worker write-isolation (integration-branch recombination) ------
+// Behind MERMAID_WORKER_ISOLATION (default OFF). When ON, each worker runs in a
+// fresh git worktree branched off the per-project `collab/integration` branch (so
+// it sees all prior ACCEPTED work — dependent-todo data-flow is preserved), and on
+// `accepted` its branch is committed + merged back into integration. The
+// integration branch is the accumulated result of the wave (replaces the pile of
+// uncommitted edits in the shared working tree). A merge conflict leaves
+// integration untouched and is escalated, never silently corrupted.
+
+/** True when worker write-isolation is enabled via env flag. */
+export function workerIsolationEnabled(): boolean {
+  const v = process.env.MERMAID_WORKER_ISOLATION;
+  return v === '1' || v === 'true';
+}
+
+// One WorktreeManager per target-repo root (memoised). Records + worktrees live
+// under <repo>/.collab/agent-sessions to match the AgentSessionRegistry default,
+// so launchWorker (ensure) and completeTodo (merge-back) key off the same store.
+const worktreeManagers = new Map<string, WorktreeManager>();
+export function getWorktreeManager(projectRoot: string): WorktreeManager {
+  let m = worktreeManagers.get(projectRoot);
+  if (!m) {
+    const persistDir = path.join(projectRoot, '.collab', 'agent-sessions');
+    m = new WorktreeManager({
+      projectRoot,
+      baseDir: path.join(persistDir, 'worktrees'),
+      persistDir,
+    });
+    worktreeManagers.set(projectRoot, m);
+  }
+  return m;
+}
+
 /** Wire the Coordinator daemon to the real todo-store + a live worker launcher. */
 export function makeCoordinatorDeps(): CoordinatorDeps {
   return {
@@ -157,6 +192,34 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // phantom 'exhausted retry budget' entries. Match by exact todoId and by
       // the worker/pool session names this todo ran under.
       const accepted = (acceptance ?? r.completed.acceptanceStatus) === 'accepted';
+      // DOGFOOD #5 isolation: on acceptance, commit the worker's worktree and
+      // merge its branch back into the integration branch. A conflict leaves
+      // integration untouched and is escalated for a human to resolve.
+      if (accepted && workerIsolationEnabled() && session) {
+        const targetProject = r.completed.targetProject ?? project;
+        try {
+          const wm = getWorktreeManager(targetProject);
+          const message = `collab(${id.slice(0, 8)}): ${r.completed.title}`.slice(0, 200);
+          const merge = await wm.commitAndMergeToIntegration(session, { message });
+          recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, isolation: 'merge-back', merged: merge.merged, conflict: merge.conflict, committed: merge.committed, branch: merge.workerBranch }) });
+          if (merge.conflict) {
+            createEscalation({
+              project,
+              session,
+              todoId: id,
+              kind: 'assumption-invalidated',
+              questionText: `Worker-isolation merge conflict: branch ${merge.workerBranch} could not merge into ${merge.integrationBranch} for todo "${r.completed.title}". Resolve the conflict manually, then merge the branch into ${merge.integrationBranch}.`,
+            });
+          } else {
+            // Merge succeeded — the worktree branch is now in integration. Remove
+            // the worktree so the next todo for this pool lane gets a fresh one
+            // branched off the latest integration (sees this merge).
+            await wm.remove(session).catch(() => {});
+          }
+        } catch (e) {
+          recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, isolation: 'merge-back-failed', reason: e instanceof Error ? e.message : String(e) }) });
+        }
+      }
       if (accepted) {
         const sessions = [session, `worker-${id.slice(0, 8)}`].filter(Boolean);
         const resolved = resolveEscalationsForTodo(project, id, sessions, 'resolved');
@@ -220,10 +283,31 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         contextPrompt = (contextPrompt ?? '') + note;
       }
 
+      // 2b. DOGFOOD #5 isolation: when enabled, run this worker in a fresh git
+      //     worktree branched off the project's integration branch (so it sees all
+      //     prior accepted work) instead of the shared working tree. cwd becomes
+      //     the worktree path. Best-effort: if worktree setup fails (e.g. non-git
+      //     repo), fall back to the shared-tree behavior rather than dropping the
+      //     todo.
+      let launchCwd: string | undefined;
+      if (workerIsolationEnabled()) {
+        try {
+          const wm = getWorktreeManager(targetProject);
+          const integ = await wm.ensureIntegration();
+          if (integ) {
+            const wt = await wm.ensure(poolName, { baseBranch: integ.branch });
+            launchCwd = wt.path;
+          }
+        } catch (e) {
+          recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, isolation: 'worktree-setup-failed', reason: e instanceof Error ? e.message : String(e) }) });
+        }
+      }
+
       // 3. Spawn or reuse the pool session (idempotent — ensureSession reuses a
       //    live, bound session), then send the worker skill into it. Profile
-      //    params still drive tools/model/runtimeMode. cwd = the target repo.
-      const ensured = await ensureSession({ project: targetProject, session: poolName, allowedTools, model, runtimeMode, contextPrompt });
+      //    params still drive tools/model/runtimeMode. cwd = the worktree (under
+      //    isolation) or the target repo.
+      const ensured = await ensureSession({ project: targetProject, session: poolName, allowedTools, model, runtimeMode, contextPrompt, cwd: launchCwd });
       const started = ensured.ready;
       let reason = ensured.reason;
       if (started) {

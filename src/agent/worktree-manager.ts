@@ -29,6 +29,42 @@ export interface CommitPushPROpts {
   timeoutMs?: number;
 }
 
+/** The shared per-project integration branch that accumulates accepted worker
+ *  output under the DOGFOOD #5 recombination model. Workers branch FROM it (so
+ *  they see all prior accepted work — dependent-todo data-flow is preserved) and
+ *  merge BACK into it on acceptance. */
+export const INTEGRATION_BRANCH = 'collab/integration';
+
+export interface IntegrationWorktree {
+  branch: string;
+  path: string; // absolute path to the integration worktree dir
+}
+
+export interface MergeBackResult {
+  /** A new commit was created in the worker's worktree (false → nothing to commit). */
+  committed: boolean;
+  /** The worker branch merged cleanly into the integration branch. */
+  merged: boolean;
+  /** Merge hit a conflict (integration left untouched — aborted). Caller escalates. */
+  conflict: boolean;
+  commitSha?: string;
+  integrationBranch: string;
+  workerBranch?: string;
+}
+
+export interface CommitMergeOpts {
+  message: string;
+  onProgress?: (channel: 'stdout' | 'stderr', chunk: string) => void;
+  timeoutMs?: number;
+}
+
+export interface EnsureOpts {
+  /** Branch the new worktree off this ref instead of the detected base branch.
+   *  Used by the isolation model to branch each worker off the LATEST integration
+   *  branch so it sees all prior accepted work. */
+  baseBranch?: string;
+}
+
 interface SpawnResult {
   code: number;
   stdout: string;
@@ -53,17 +89,17 @@ export class WorktreeManager {
   // ---------------------------------------------------------------------------
   // ensure — create or resume a worktree for the session; non-git fallback.
   // ---------------------------------------------------------------------------
-  async ensure(sessionId: string): Promise<SessionWorktree> {
+  async ensure(sessionId: string, opts?: EnsureOpts): Promise<SessionWorktree> {
     const pending = this.pendingEnsures.get(sessionId);
     if (pending) return pending;
-    const p = this._ensureInner(sessionId).finally(() =>
+    const p = this._ensureInner(sessionId, opts).finally(() =>
       this.pendingEnsures.delete(sessionId),
     );
     this.pendingEnsures.set(sessionId, p);
     return p;
   }
 
-  private async _ensureInner(sessionId: string): Promise<SessionWorktree> {
+  private async _ensureInner(sessionId: string, opts?: EnsureOpts): Promise<SessionWorktree> {
     // 1. cached record? verify the dir still exists.
     const cached = await this.readRecord(sessionId);
     if (cached) {
@@ -83,8 +119,9 @@ export class WorktreeManager {
       } satisfies NonGitFallback;
     }
 
-    // 3. discover baseBranch.
-    const baseBranch = await this.detectBaseBranch();
+    // 3. discover baseBranch (or use the caller's override — e.g. the integration
+    //    branch under the isolation model).
+    const baseBranch = opts?.baseBranch ?? (await this.detectBaseBranch());
 
     // 4. pick a branch + path, handling collisions.
     const slug = this.slug(sessionId);
@@ -365,6 +402,143 @@ export class WorktreeManager {
       prUrl,
       pushed: true,
       dirtyBefore,
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // ensureIntegration — create/resume the shared per-project integration branch
+  // + its dedicated worktree (DOGFOOD #5). The integration worktree is where
+  // accepted worker branches are merged back; the branch itself is the
+  // accumulated result of the wave. Returns null for the non-git fallback.
+  // ---------------------------------------------------------------------------
+  async ensureIntegration(): Promise<IntegrationWorktree | null> {
+    if (!(await this.isGitRepo())) return null;
+    const branch = INTEGRATION_BRANCH;
+    const wtPath = path.join(this.opts.baseDir, '__integration__');
+
+    // Already materialised? A linked worktree has a `.git` file at its root.
+    if (await this.pathExists(path.join(wtPath, '.git'))) {
+      return { branch, path: wtPath };
+    }
+
+    await fs.mkdir(this.opts.baseDir, { recursive: true });
+
+    const branchExists =
+      (
+        await this.runGit(
+          this.opts.projectRoot,
+          ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`],
+          QUICK_TIMEOUT_MS,
+        ).catch(() => ({ code: 1, stdout: '', stderr: '' }))
+      ).code === 0;
+
+    const addArgs = branchExists
+      ? ['worktree', 'add', wtPath, branch]
+      : ['worktree', 'add', '-b', branch, wtPath, await this.detectBaseBranch()];
+
+    let result = await this.runGit(this.opts.projectRoot, addArgs, DEFAULT_STEP_TIMEOUT_MS);
+
+    // The dir may be left dangling from a crashed run — prune + retry once.
+    if (result.code !== 0) {
+      await this.runGit(
+        this.opts.projectRoot,
+        ['worktree', 'remove', '--force', wtPath],
+        QUICK_TIMEOUT_MS,
+      ).catch(() => ({ code: 0, stdout: '', stderr: '' }));
+      await this.runGit(this.opts.projectRoot, ['worktree', 'prune'], QUICK_TIMEOUT_MS).catch(
+        () => ({ code: 0, stdout: '', stderr: '' }),
+      );
+      result = await this.runGit(this.opts.projectRoot, addArgs, DEFAULT_STEP_TIMEOUT_MS);
+      if (result.code !== 0) {
+        throw new Error(
+          `git worktree add (integration) failed (code ${result.code}): ${result.stderr.trim() || result.stdout.trim()}`,
+        );
+      }
+    }
+
+    return { branch, path: wtPath };
+  }
+
+  // ---------------------------------------------------------------------------
+  // commitAndMergeToIntegration — on `accepted`, commit the worker's worktree
+  // and merge its branch into the integration branch. A merge conflict leaves
+  // the integration branch UNTOUCHED (aborted) and is reported so the caller can
+  // escalate — never corrupt integration. Distinct from commitPushPR (the
+  // agent-SDK push/PR path); this is the local recombination path.
+  // ---------------------------------------------------------------------------
+  async commitAndMergeToIntegration(
+    sessionId: string,
+    opts: CommitMergeOpts,
+  ): Promise<MergeBackResult> {
+    const rec = await this.readRecord(sessionId);
+    if (!rec) throw new Error(`no worktree for session ${sessionId}`);
+    const timeoutMs = opts.timeoutMs ?? DEFAULT_STEP_TIMEOUT_MS;
+    const onProgress = opts.onProgress;
+
+    const integ = await this.ensureIntegration();
+    if (!integ) throw new Error('cannot resolve integration worktree (non-git project)');
+
+    // 1. Commit the worker's working tree (if dirty). Uncommitted work would
+    //    otherwise not be visible to the merge.
+    let committed = false;
+    let commitSha: string | undefined;
+    const dirty = await this.runGit(
+      rec.path,
+      ['status', '--porcelain'],
+      QUICK_TIMEOUT_MS,
+      onProgress,
+    );
+    if (dirty.code === 0 && dirty.stdout.trim().length > 0) {
+      const addRes = await this.runGit(rec.path, ['add', '-A'], timeoutMs, onProgress);
+      if (addRes.code !== 0) throw new Error(`git add failed: ${addRes.stderr.trim()}`);
+      const commitRes = await this.runGit(
+        rec.path,
+        ['commit', '-m', opts.message],
+        timeoutMs,
+        onProgress,
+      );
+      if (commitRes.code !== 0) {
+        throw new Error(
+          `git commit failed: ${commitRes.stderr.trim() || commitRes.stdout.trim()}`,
+        );
+      }
+      committed = true;
+      const shaRes = await this.runGit(rec.path, ['rev-parse', 'HEAD'], QUICK_TIMEOUT_MS);
+      if (shaRes.code === 0) commitSha = shaRes.stdout.trim() || undefined;
+    }
+
+    // 2. Merge the worker branch into the integration branch (in the integration
+    //    worktree). --no-ff keeps each accepted todo a distinct merge commit.
+    const mergeRes = await this.runGit(
+      integ.path,
+      ['merge', '--no-ff', '-m', opts.message, rec.branch],
+      timeoutMs,
+      onProgress,
+    );
+    if (mergeRes.code !== 0) {
+      // Conflict (or other failure) — abort so integration stays clean.
+      await this.runGit(integ.path, ['merge', '--abort'], QUICK_TIMEOUT_MS).catch(() => ({
+        code: 0,
+        stdout: '',
+        stderr: '',
+      }));
+      return {
+        committed,
+        merged: false,
+        conflict: true,
+        commitSha,
+        integrationBranch: integ.branch,
+        workerBranch: rec.branch,
+      };
+    }
+
+    return {
+      committed,
+      merged: true,
+      conflict: false,
+      commitSha,
+      integrationBranch: integ.branch,
+      workerBranch: rec.branch,
     };
   }
 

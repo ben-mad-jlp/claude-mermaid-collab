@@ -7,6 +7,7 @@
 import { tmuxBaseName } from './tmux-naming.js';
 import { sendTmuxKeysRaw } from './tmux-send.ts';
 import { healStaleTmuxSession } from './tmux-session.ts';
+import { registerLaneClaudeSession } from './lane-session-register.ts';
 import { existsSync } from 'node:fs';
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -59,15 +60,21 @@ export async function ensureSession(opts: {
   /** Domain context injected via `--append-system-prompt` so the worker starts
    *  warm (SEAM·collab: a per-project manifest declares this). */
   contextPrompt?: string;
+  /** Working directory to launch the session in. Defaults to `project`. Under the
+   *  worker-isolation model (DOGFOOD #5) this is the worker's git worktree, so its
+   *  edits land on an isolated branch instead of the shared working tree. */
+  cwd?: string;
 }): Promise<{ ready: boolean; tmux?: string; reason?: string }> {
   try {
     if (!existsSync(opts.project)) return { ready: false, reason: 'no-project-dir' };
+    const launchCwd = opts.cwd ?? opts.project;
+    if (!existsSync(launchCwd)) return { ready: false, reason: 'no-cwd-dir' };
 
     const tmux = tmuxBaseName(opts.project, opts.session);
 
     // Self-heal: a pre-fix session parked in the wrong dir would otherwise be
     // reused, launching claude against the wrong folder.
-    await healStaleTmuxSession(tmux, opts.project);
+    await healStaleTmuxSession(tmux, launchCwd);
 
     // Ensure the tmux session exists (map any spawn failure → no-tmux). If it
     // already exists AND claude is interactive + collab-bound, reuse it.
@@ -76,7 +83,7 @@ export async function ensureSession(opts: {
       const check = Bun.spawn(['tmux', 'has-session', '-t', tmux], { stdout: 'ignore', stderr: 'ignore' });
       alreadyExisted = (await check.exited) === 0;
       if (!alreadyExisted) {
-        const create = Bun.spawn(['tmux', 'new-session', '-d', '-s', tmux, '-c', opts.project], { stdout: 'ignore', stderr: 'ignore' });
+        const create = Bun.spawn(['tmux', 'new-session', '-d', '-s', tmux, '-c', launchCwd], { stdout: 'ignore', stderr: 'ignore' });
         await create.exited;
       }
     } catch (e: any) {
@@ -118,6 +125,16 @@ export async function ensureSession(opts: {
       await sleep(4000);
       if (isCollabBound(capturePane(tmux))) break;
     }
+
+    // Deterministically register THIS lane's Claude session so it shows live
+    // status (status dot + context%) in the UI like an interactive /collab
+    // session. The worker skill never registers, and the auto-sent /collab
+    // above stalls on the "create session?" prompt for pool lanes — so the
+    // daemon does the binding itself from the pane's Claude PID. Best-effort:
+    // a registration failure must not fail the spawn. (SEAM·collab option B.)
+    try {
+      await registerLaneClaudeSession({ project: opts.project, session: opts.session, tmux });
+    } catch { /* observability nicety; never block the spawn */ }
 
     return { ready: true, tmux };
   } catch (e) {
