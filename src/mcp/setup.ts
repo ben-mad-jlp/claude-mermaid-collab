@@ -1952,7 +1952,7 @@ IMPORTANT - Common pitfalls to avoid:
       // Session todos tools
       {
         name: 'list_session_todos',
-        description: 'List per-session todos (checkable list attached to a collab session). Set includeCompleted=false to filter out completed items. Results are sorted by order ascending.',
+        description: 'List per-session todos (checkable list attached to a collab session). Set includeCompleted=false to filter out completed items. For long-lived sessions with many todos, pass compact=true (slim projection, omits descriptions) to stay under the token cap, or descriptionLimit=N to truncate descriptions. Results are sorted by order ascending.',
         inputSchema: listSessionTodosSchema,
       },
       {
@@ -3386,15 +3386,17 @@ IMPORTANT - Common pitfalls to avoid:
 
           // Session todos tools
           case 'list_session_todos': {
-            const { project, session, includeCompleted, assigneeSession, status } = args as {
+            const { project, session, includeCompleted, assigneeSession, status, compact, descriptionLimit } = args as {
               project: string;
               session: string;
               includeCompleted?: boolean;
               assigneeSession?: string;
               status?: import('../services/todo-store.js').TodoStatus;
+              compact?: boolean;
+              descriptionLimit?: number;
             };
             if (!project || !session) throw new Error('Missing required: project, session');
-            const result = await listSessionTodos(project, session, { includeCompleted, assigneeSession, status });
+            const result = await listSessionTodos(project, session, { includeCompleted, assigneeSession, status, compact, descriptionLimit });
             return JSON.stringify(result, null, 2);
           }
 

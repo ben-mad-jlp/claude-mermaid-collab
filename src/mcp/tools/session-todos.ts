@@ -36,6 +36,62 @@ export interface ListSessionTodosOptions {
   includeCompleted?: boolean;
   assigneeSession?: string;
   status?: TodoStatus;
+  /**
+   * Return a slim projection (drops `description` and bulky timestamp/claim
+   * fields) so a session with dozens of richly-described todos stays well
+   * under the tool-result token cap. Use `get_todo` to fetch a single todo's
+   * full description. Mutually shaped with `descriptionLimit` (compact wins).
+   */
+  compact?: boolean;
+  /**
+   * When NOT compact, truncate each `description` to this many characters
+   * (a `… (+N more)` marker is appended when truncated). Ignored if compact.
+   */
+  descriptionLimit?: number;
+}
+
+/** Slim todo projection returned when `compact: true`. */
+export interface CompactTodo {
+  id: string;
+  title: string;
+  status: TodoStatus;
+  completed: boolean;
+  ownerSession: string;
+  assigneeSession: string | null;
+  priority: 0 | 1 | 2 | 3 | 4 | null;
+  dependsOn: string[];
+  parentId: string | null;
+  order: number;
+  type: string | null;
+  acceptanceStatus: 'pending' | 'accepted' | 'rejected' | null;
+  claimedBy: string | null;
+  targetProject: string | null;
+}
+
+function toCompactTodo(t: Todo): CompactTodo {
+  return {
+    id: t.id,
+    title: t.title,
+    status: t.status,
+    completed: t.completed,
+    ownerSession: t.ownerSession,
+    assigneeSession: t.assigneeSession,
+    priority: t.priority,
+    dependsOn: t.dependsOn,
+    parentId: t.parentId,
+    order: t.order,
+    type: t.type,
+    acceptanceStatus: t.acceptanceStatus,
+    claimedBy: t.claimedBy,
+    targetProject: t.targetProject,
+  };
+}
+
+function truncateDescription(t: Todo, limit: number): Todo {
+  if (t.description == null || t.description.length <= limit) return t;
+  const head = t.description.slice(0, limit);
+  const remaining = t.description.length - limit;
+  return { ...t, description: `${head}… (+${remaining} more chars — use get_todo for full)` };
 }
 
 export interface ClearCompletedResult {
@@ -61,6 +117,14 @@ export const listSessionTodosSchema = {
       type: 'string',
       enum: ['backlog', 'planned', 'todo', 'ready', 'in_progress', 'blocked', 'done', 'dropped'],
       description: 'Filter todos by status',
+    },
+    compact: {
+      type: 'boolean',
+      description: 'Return a slim projection (id, title, status, assignee, priority, dependsOn, parentId, type, acceptanceStatus, claimedBy, targetProject) — omits `description` and bulky timestamp/claim fields. Use this for long-lived sessions with many richly-described todos to stay under the token cap; fetch a single full description with get_todo.',
+    },
+    descriptionLimit: {
+      type: 'number',
+      description: 'When NOT compact, truncate each description to this many characters (a marker is appended when truncated). Ignored if compact=true.',
     },
   },
   required: ['project', 'session'],
@@ -220,13 +284,18 @@ export async function listSessionTodos(
   project: string,
   session: string,
   opts: ListSessionTodosOptions = {}
-): Promise<Todo[]> {
-  return listTodos(project, {
+): Promise<Todo[] | CompactTodo[]> {
+  const todos = await listTodos(project, {
     session,
     assigneeSession: opts.assigneeSession,
     status: opts.status,
     includeCompleted: opts.includeCompleted,
   });
+  if (opts.compact) return todos.map(toCompactTodo);
+  if (opts.descriptionLimit != null && opts.descriptionLimit >= 0) {
+    return todos.map((t) => truncateDescription(t, opts.descriptionLimit!));
+  }
+  return todos;
 }
 
 export async function addSessionTodo(
