@@ -119,7 +119,8 @@ CREATE TABLE IF NOT EXISTS supervisor_identity (
   project TEXT NOT NULL,
   session TEXT NOT NULL,
   updatedAt INTEGER NOT NULL,
-  serverId TEXT NOT NULL DEFAULT ''
+  serverId TEXT NOT NULL DEFAULT '',
+  epoch INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS supervisor_config (
   id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -167,6 +168,7 @@ function openDb(): Database {
   addColumnIfMissing(db, 'supervised_session', 'serverId', "serverId TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, 'escalation', 'serverId', "serverId TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, 'supervisor_identity', 'serverId', "serverId TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, 'supervisor_identity', 'epoch', 'epoch INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'watched_project', 'watchdogThresholdPercent', 'watchdogThresholdPercent INTEGER');
   addColumnIfMissing(db, 'escalation', 'todoId', 'todoId TEXT');
   addColumnIfMissing(db, 'escalation', 'optionsJson', 'optionsJson TEXT');
@@ -545,14 +547,62 @@ export interface SupervisorIdentity {
   session: string;
   updatedAt: number;
   serverId: string;
+  /**
+   * Monotonic ownership counter (NOT a timestamp — clock-skew-immune). Bumped on
+   * every register. The single-writer fence: only the caller holding the CURRENT
+   * epoch may mutate as the supervisor; a superseded (hung-then-resumed) supervisor
+   * carries an older epoch and is rejected server-side. See assertSupervisorOwner.
+   */
+  epoch: number;
 }
 
-/** Register which collab session IS the supervisor (singleton, id=1). */
-export function setSupervisorIdentity(project: string, session: string, serverId = ''): void {
+/**
+ * Structured error thrown by assertSupervisorOwner when a caller's epoch is no
+ * longer the current one (i.e. it was superseded by a respawn). The MCP handlers
+ * catch this and return a `{ superseded: true }` payload performing NO write.
+ */
+export class SupersededError extends Error {
+  readonly superseded = true;
+  constructor(
+    readonly callerEpoch: number | undefined,
+    readonly currentEpoch: number | null,
+    readonly currentSession: string | null,
+  ) {
+    super(
+      `superseded: caller epoch ${callerEpoch ?? '(none)'} is not the current supervisor epoch ` +
+        `${currentEpoch ?? '(no supervisor registered)'}`,
+    );
+    this.name = 'SupersededError';
+  }
+}
+
+/**
+ * Register which collab session IS the supervisor (singleton, id=1) and bump the
+ * ownership epoch. Returns the NEW epoch — the caller must carry it on subsequent
+ * mutating supervisor calls so the server can fence a superseded predecessor.
+ */
+export function setSupervisorIdentity(project: string, session: string, serverId = ''): number {
   const d = openDb();
+  const prev = d.query('SELECT epoch FROM supervisor_identity WHERE id = 1').get() as { epoch: number } | null;
+  const epoch = (prev?.epoch ?? 0) + 1;
   d.prepare(
-    'INSERT OR REPLACE INTO supervisor_identity (id, project, session, updatedAt, serverId) VALUES (1, ?, ?, ?, ?)'
-  ).run(project, session, Date.now(), serverId);
+    'INSERT OR REPLACE INTO supervisor_identity (id, project, session, updatedAt, serverId, epoch) VALUES (1, ?, ?, ?, ?, ?)'
+  ).run(project, session, Date.now(), serverId, epoch);
+  return epoch;
+}
+
+/**
+ * Server-enforced single-writer fence (PCS invariant b9c4c5d applied to the
+ * supervisor role). Throws SupersededError — performing NO write — when `epoch`
+ * is not the current ownership epoch. A caller that omits its epoch is treated as
+ * superseded too (it cannot prove ownership). This is the authoritative fence;
+ * the supervisor skill self-exiting on `superseded` is only the politeness layer.
+ */
+export function assertSupervisorOwner(epoch: number | undefined): void {
+  const id = getSupervisorIdentity();
+  if (id == null || epoch == null || epoch !== id.epoch) {
+    throw new SupersededError(epoch, id?.epoch ?? null, id?.session ?? null);
+  }
 }
 
 /**
@@ -562,8 +612,16 @@ export function setSupervisorIdentity(project: string, session: string, serverId
  * crashed/stale one — register_supervisor writes updatedAt once; this keeps
  * it advancing while the supervisor is alive.
  */
-export function touchSupervisorIdentity(): boolean {
+export function touchSupervisorIdentity(epoch?: number): boolean {
   const d = openDb();
+  // Fenced touch: when an epoch is supplied, only the current owner may advance
+  // liveness — a superseded supervisor cannot resurrect ownership by heartbeating.
+  // Omitting the epoch is the server's own best-effort heartbeat (it keeps whoever
+  // currently owns the row alive, which is always correct).
+  if (epoch != null) {
+    const info = d.prepare('UPDATE supervisor_identity SET updatedAt = ? WHERE id = 1 AND epoch = ?').run(Date.now(), epoch);
+    return info.changes > 0;
+  }
   const info = d.prepare('UPDATE supervisor_identity SET updatedAt = ? WHERE id = 1').run(Date.now());
   return info.changes > 0;
 }
@@ -575,7 +633,7 @@ export const SUPERVISOR_STALE_AFTER_MS = SUPERVISOR_HEARTBEAT_INTERVAL_MS * 2;
 
 export function getSupervisorIdentity(): SupervisorIdentity | null {
   const d = openDb();
-  const row = d.query('SELECT project, session, updatedAt, serverId FROM supervisor_identity WHERE id = 1').get() as
+  const row = d.query('SELECT project, session, updatedAt, serverId, epoch FROM supervisor_identity WHERE id = 1').get() as
     | SupervisorIdentity
     | null;
   return row ?? null;
