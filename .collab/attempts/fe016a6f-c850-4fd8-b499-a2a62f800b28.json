@@ -1,0 +1,11 @@
+{
+  "todoId": "fe016a6f-c850-4fd8-b499-a2a62f800b28",
+  "session": "worker-fe016a6f",
+  "outcome": "accepted",
+  "retryReason": "none",
+  "layer": "none",
+  "verbsTried": ["get_todo", "tsc --noEmit", "bun test"],
+  "failingVerb": null,
+  "failingReturn": null,
+  "summary": "Added Profile L1 capability layer (edit/reviewer/headless) to agent-profiles.ts: Capability type, CAPABILITIES registry, DEFAULT_CAPABILITY=edit, resolveCapability (headless never auto-selected, requires allowHeadless opt-in per constraint 64f813bd), capabilitySpec, and resolveProfile capability merge decoupled from routing type. 13/13 tests pass; tsc clean."
+}
