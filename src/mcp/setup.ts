@@ -4523,7 +4523,12 @@ IMPORTANT - Common pitfalls to avoid:
             const cfg = { ...DEFAULT_WATCHDOG_CONFIG, thresholdPercent: effectiveThreshold };
             const now = Date.now();
             const cooldown = checkpointCooldownMs ?? 10 * 60 * 1000;
-            const all = selectWatchdogActions(getStatuses(project), now, cfg);
+            // The supervisor's OWN session (if it lives in this project) is tagged
+            // self=true so the loop self-checkpoints/clears instead of trying to
+            // drive itself via supervisor_clear_session (which targets a PEER).
+            const identity = supervisorStore.getSupervisorIdentity();
+            const selfSession = identity && identity.project === project ? identity.session : undefined;
+            const all = selectWatchdogActions(getStatuses(project), now, cfg, selfSession);
             // Durable debounce on the repeatable 'checkpoint' nudge only. 'clear' is
             // self-limiting: its marker is consumed on a successful clear, and a
             // failed clear SHOULD retry — so it passes through every tick.

@@ -35,6 +35,13 @@ export interface WatchdogCandidate {
   action: WatchdogAction;
   contextPercent: number | null;
   reason: string;
+  /**
+   * True when this candidate IS the supervisor's own session. The supervisor
+   * cannot drive itself via supervisor_clear_session (that targets ANOTHER
+   * session); a self candidate is handled by the supervisor's own
+   * checkpoint→clear→resume branch. Omitted (falsy) for supervised sessions.
+   */
+  self?: boolean;
 }
 
 /**
@@ -49,13 +56,17 @@ export function selectWatchdogActions(
   rows: SessionStatusRow[],
   now: number,
   cfg: WatchdogConfig = DEFAULT_WATCHDOG_CONFIG,
+  /** The supervisor's OWN session in this project — its candidate is tagged self. */
+  selfSession?: string,
 ): WatchdogCandidate[] {
   const out: WatchdogCandidate[] = [];
+  const tagSelf = (c: WatchdogCandidate): WatchdogCandidate =>
+    selfSession != null && c.session === selfSession ? { ...c, self: true } : c;
   for (const r of rows) {
     // 1. A recent persisted checkpoint authorizes a clear NOW, regardless of the
     //    session's current activity status (it already checkpointed at a boundary).
     if (r.checkpointReadyAt != null && now - r.checkpointReadyAt <= cfg.checkpointMaxAgeMs) {
-      out.push({ session: r.session, action: 'clear', contextPercent: r.contextPercent, reason: 'checkpoint-persisted' });
+      out.push(tagSelf({ session: r.session, action: 'clear', contextPercent: r.contextPercent, reason: 'checkpoint-persisted' }));
       continue;
     }
     // 2. Over threshold + fresh reading + safe (idle) boundary → checkpoint.
@@ -66,7 +77,7 @@ export function selectWatchdogActions(
       now - r.contextUpdatedAt <= cfg.contextMaxAgeMs &&
       isSafeBoundary(r.status)
     ) {
-      out.push({ session: r.session, action: 'checkpoint', contextPercent: r.contextPercent, reason: `context>=${cfg.thresholdPercent}@idle` });
+      out.push(tagSelf({ session: r.session, action: 'checkpoint', contextPercent: r.contextPercent, reason: `context>=${cfg.thresholdPercent}@idle` }));
     }
     // else: under threshold, stale reading, or unsafe boundary → wait.
   }

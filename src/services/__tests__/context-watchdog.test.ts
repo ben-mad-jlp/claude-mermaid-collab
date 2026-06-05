@@ -55,6 +55,30 @@ describe('selectWatchdogActions', () => {
     expect(a).toEqual([]);
   });
 
+  it('tags ONLY the supervisor own-session candidate with self=true', () => {
+    const a = selectWatchdogActions(
+      [
+        row({ session: 'worker-hot', status: 'waiting', contextPercent: 90, contextUpdatedAt: NOW }),
+        row({ session: 'the-supervisor', status: 'waiting', contextPercent: 88, contextUpdatedAt: NOW }),
+      ],
+      NOW,
+      DEFAULT_WATCHDOG_CONFIG,
+      'the-supervisor',
+    );
+    expect(a.find((x) => x.session === 'worker-hot')!.self).toBeUndefined();
+    expect(a.find((x) => x.session === 'the-supervisor')!.self).toBe(true);
+  });
+
+  it('tags a self CLEAR candidate too', () => {
+    const a = selectWatchdogActions(
+      [row({ session: 'sup', status: 'active', checkpointReadyAt: NOW - 500, contextPercent: 91, contextUpdatedAt: NOW })],
+      NOW,
+      DEFAULT_WATCHDOG_CONFIG,
+      'sup',
+    );
+    expect(a).toEqual([{ session: 'sup', action: 'clear', contextPercent: 91, reason: 'checkpoint-persisted', self: true }]);
+  });
+
   it('handles a mixed fleet deterministically', () => {
     const a = actions([
       row({ session: 'idle-cold', status: 'waiting', contextPercent: 20, contextUpdatedAt: NOW }),

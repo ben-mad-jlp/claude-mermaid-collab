@@ -157,7 +157,9 @@ Each turn/wake, for every supervised **project** (dedupe the reconcile rows by `
 supervisor_watchdog_scan { project }
 ```
 
-It returns `{ actions: [{ session, action, contextPercent, reason }], suppressed, thresholdPercent }`. The trigger threshold defaults to 80% but is **per-project configurable** — `set_watchdog_threshold { project, thresholdPercent }` (or `null` to revert); the scan applies it automatically. Act on each action:
+It returns `{ actions: [{ session, action, contextPercent, reason, self? }], suppressed, thresholdPercent }`. The trigger threshold defaults to 80% but is **per-project configurable** — `set_watchdog_threshold { project, thresholdPercent }` (or `null` to revert); the scan applies it automatically.
+
+**First check `self`.** A candidate with `self: true` IS your own session (the supervisor lives in this project). You cannot drive yourself with `supervisor_nudge`/`supervisor_clear_session` — those target a PEER. Handle the self case directly (see "Self-watchdog" below). For every candidate WITHOUT `self`, act as a peer:
 
 - **`action: "checkpoint"`** (a session is over the context threshold on a safe/idle boundary) — nudge it to checkpoint:
   ```
@@ -169,6 +171,13 @@ It returns `{ actions: [{ session, action, contextPercent, reason }], suppressed
   supervisor_clear_session { project, session, serverId? }
   ```
   This sends `/clear` only because the checkpoint is verified persisted; it refuses (`checkpoint-not-ready`) otherwise. After clearing, the session re-runs `/collab <session>` on resume.
+
+### Self-watchdog (a `self: true` candidate)
+
+The context-watchdog applies to the supervisor too — a long-lived session that must not be left to auto-compact. Most of your durable state already lives in SQLite (escalations, audit log, decisions, supervised set) and the work-graph todos, so a self-clear is safe once you've checkpointed the in-flight thread. On a `self` candidate:
+
+- **`self` + `action: "checkpoint"`** — you are over threshold on a safe boundary. Checkpoint YOURSELF now: write "where I am" into the active session's checkpoint (the `/vibe-checkpoint` ritual — capture the in-flight reconcile/decision thread into the vibeinstructions + the in-progress todo), then call `checkpoint_ready { project, session }` for your OWN `(project, session)`. Do not nudge anyone. The next scan surfaces this as `self` + `clear`.
+- **`self` + `action: "clear"`** — your checkpoint is persisted (gate satisfied). Clear yourself: tell the human plainly that you're at the context limit with a verified checkpoint and to run `/clear` (then you resume via `/collab <session>`), OR if running headless/looped, invoke your own clear+resume path. After a successful self-clear, the checkpoint marker is consumed on resume. **Never** route a self candidate through `supervisor_clear_session` — it targets a peer and cannot clear the foreground session you are running in.
 
 **Resume confirmation:** a re-setup session re-registers, which broadcasts `claude_session_registered` for `(project, session)`. Treat that event (or the session reappearing `active`/`waiting` in the next reconcile) as confirmation the clear+resume completed. If a cleared session does not re-register within a tick or two, escalate (Step 9) — a resume that loses the thread is exactly what the persisted-checkpoint gate exists to prevent.
 
