@@ -109,6 +109,59 @@ function augmentedPath(): string {
   return cachedLoginPath;
 }
 
+/**
+ * Secret/API keys the sidecar should inherit from the GUI-held config when the
+ * launching environment doesn't already carry them. A Dock/Finder/login-item
+ * launch starts with a clean env (no XAI_API_KEY), so without this the sidecar
+ * — and the children it spawns (claude, consult_grok's reader) — can't see the
+ * key the user entered in the desktop Settings UI. Keep this list in sync with
+ * the keys the server's config-service reads.
+ */
+const INJECTED_SECRET_KEYS = ['XAI_API_KEY'] as const;
+
+/**
+ * Build the set of secret env vars to inject into the sidecar spawn, read from
+ * the GUI-held secrets file (~/.mermaid-collab/config.json, the same file the
+ * desktop Settings "Secrets" tab writes). Honors config-service precedence
+ * (env → config.json → fallback): a key the launching env already provides is
+ * left untouched so an explicit override (e.g. a launchctl stopgap) still wins;
+ * only the missing keys are filled from the file. Exported for testing.
+ */
+export function resolveSecretsEnv(opts?: {
+  currentEnv?: NodeJS.ProcessEnv;
+  configPath?: string;
+  keys?: readonly string[];
+  readFileImpl?: (p: string) => string;
+  existsImpl?: (p: string) => boolean;
+}): Record<string, string> {
+  const currentEnv = opts?.currentEnv ?? process.env;
+  const keys = opts?.keys ?? INJECTED_SECRET_KEYS;
+  const configFile =
+    opts?.configPath ??
+    process.env.MERMAID_CONFIG_PATH ??
+    path.join(os.homedir(), '.mermaid-collab', 'config.json');
+  const exists = opts?.existsImpl ?? fs.existsSync;
+  const read = opts?.readFileImpl ?? ((p: string) => fs.readFileSync(p, 'utf8'));
+
+  let fileConfig: Record<string, unknown> = {};
+  try {
+    if (exists(configFile)) fileConfig = JSON.parse(read(configFile)) as Record<string, unknown>;
+  } catch {
+    // missing/unreadable/corrupt config — inject nothing; the server still falls
+    // back to its own config-service read of the same file.
+    fileConfig = {};
+  }
+
+  const out: Record<string, string> = {};
+  for (const key of keys) {
+    const envVal = currentEnv[key];
+    if (envVal !== undefined && envVal !== '') continue; // env already wins — don't override
+    const fileVal = fileConfig[key];
+    if (typeof fileVal === 'string' && fileVal !== '') out[key] = fileVal;
+  }
+  return out;
+}
+
 /** Resolve a free loopback port (lifted from the verified spike). */
 export function getFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -157,6 +210,11 @@ export class ServerSupervisor {
 
     const env: NodeJS.ProcessEnv = {
       ...process.env,
+      // Inject GUI-held secrets (XAI_API_KEY, …) from ~/.mermaid-collab/config.json
+      // for the keys this (often Dock-/login-launched, clean-env) process lacks, so
+      // the sidecar and its children resolve them without a launchctl stopgap. The
+      // helper skips keys already in process.env, so the explicit-env override wins.
+      ...resolveSecretsEnv(),
       // Repair the minimal PATH a GUI/login-item launch inherits, so the sidecar
       // and its children (tmux, the PTY shells, git, claude) can find
       // user-installed tools. Without this, tmux is missing after a restart and

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
-import { ServerSupervisor } from '../server-supervisor';
+import { ServerSupervisor, resolveSecretsEnv } from '../server-supervisor';
 
 function fakeChild(pid = 12345) {
   const child: any = new EventEmitter();
@@ -132,5 +132,65 @@ describe('ServerSupervisor', () => {
     await sup.start();
     await sup.stop(); // should not throw and nothing to kill
     expect(spawnImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe('resolveSecretsEnv', () => {
+  const cfg = '/fake/.mermaid-collab/config.json';
+  const withFile = (json: string) => ({
+    configPath: cfg,
+    existsImpl: () => true,
+    readFileImpl: () => json,
+  });
+
+  it('injects a secret from config.json when the launching env lacks it', () => {
+    const out = resolveSecretsEnv({
+      currentEnv: {},
+      ...withFile(JSON.stringify({ XAI_API_KEY: 'xai-from-file' })),
+    });
+    expect(out).toEqual({ XAI_API_KEY: 'xai-from-file' });
+  });
+
+  it('does NOT override a key the launching env already provides (env wins)', () => {
+    const out = resolveSecretsEnv({
+      currentEnv: { XAI_API_KEY: 'xai-from-env' },
+      ...withFile(JSON.stringify({ XAI_API_KEY: 'xai-from-file' })),
+    });
+    expect(out).toEqual({}); // nothing injected — explicit env override stands
+  });
+
+  it('treats an empty-string env value as missing and fills from the file', () => {
+    const out = resolveSecretsEnv({
+      currentEnv: { XAI_API_KEY: '' },
+      ...withFile(JSON.stringify({ XAI_API_KEY: 'xai-from-file' })),
+    });
+    expect(out).toEqual({ XAI_API_KEY: 'xai-from-file' });
+  });
+
+  it('injects nothing when the config file is absent', () => {
+    const out = resolveSecretsEnv({
+      currentEnv: {},
+      configPath: cfg,
+      existsImpl: () => false,
+      readFileImpl: () => { throw new Error('should not read'); },
+    });
+    expect(out).toEqual({});
+  });
+
+  it('injects nothing when the config file is corrupt', () => {
+    const out = resolveSecretsEnv({
+      currentEnv: {},
+      ...withFile('{ not valid json'),
+    });
+    expect(out).toEqual({});
+  });
+
+  it('only injects the declared keys, ignoring other file entries', () => {
+    const out = resolveSecretsEnv({
+      currentEnv: {},
+      keys: ['XAI_API_KEY'],
+      ...withFile(JSON.stringify({ XAI_API_KEY: 'k', OTHER_SECRET: 'nope' })),
+    });
+    expect(out).toEqual({ XAI_API_KEY: 'k' });
   });
 });
