@@ -374,7 +374,7 @@ export class SessionRegistry {
     // enumeration sees live sessions without manual re-onboarding.
     // (DOGFOOD #1)
     const presentKeys = new Set(
-      validSessions.map(s => `${s.project} ${s.session}`)
+      validSessions.map(s => `${s.project}${s.session}`)
     );
     const discovered = await this.discoverDiskSessions(
       await this.collectProjectRoots(validSessions),
@@ -382,7 +382,7 @@ export class SessionRegistry {
     );
     for (const s of discovered) {
       validSessions.push(s);
-      presentKeys.add(`${s.project} ${s.session}`);
+      presentKeys.add(`${s.project}${s.session}`);
     }
 
     // Auto-clean stale sessions / backfill discovered ones. This is a
@@ -454,7 +454,7 @@ export class SessionRegistry {
     // presentKeys style used for the discovered-session reconcile above.
     const deduped = new Map<string, Session>();
     for (const s of validSessions) {
-      const key = `${s.project} ${s.session}`;
+      const key = `${s.project}${s.session}`;
       const existing = deduped.get(key);
       if (
         !existing ||

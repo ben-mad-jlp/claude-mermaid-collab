@@ -7,7 +7,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { existsSync } from 'fs';
 import { config } from './config';
-import { PORT_REQUEST, MERMAID_PROJECT, MERMAID_SESSION, MC_BROWSER_TARGET, MERMAID_CHROME_PATH, MERMAID_BROWSER_HEADLESS, MERMAID_IDLE_SHUTDOWN_MS, MERMAID_AUTO_START_COORDINATOR } from './config';
+import { PORT_REQUEST, MERMAID_PROJECT, MERMAID_SESSION, MC_BROWSER_TARGET, MERMAID_CHROME_PATH, MERMAID_BROWSER_HEADLESS, MERMAID_IDLE_SHUTDOWN_MS, MERMAID_AUTO_START_COORDINATOR, MERMAID_AUTO_SUPERVISOR } from './config';
 import { checkAuth } from './auth';
 import { writeInstance, removeInstance, deriveSessionId, installSignalHandlers } from './services/instance-discovery';
 import { SERVER_VERSION } from './mcp/server';
@@ -34,6 +34,7 @@ import { handleWorktreeFilesAPI } from './routes/worktree-files';
 import { handleArtifactAPI } from './routes/artifact-api.js';
 import { handleIdeRoutes } from './routes/ide-routes.js';
 import { handleSupervisorRoutes } from './routes/supervisor-routes.js';
+import { touchSupervisorIdentity, SUPERVISOR_HEARTBEAT_INTERVAL_MS } from './services/supervisor-store.js';
 import { handleBrowserRoutes } from './routes/browser-routes.js';
 import { sessionRegistry, SessionRegistryCorruptError } from './services/session-registry';
 import { statusManager } from './services/status-manager';
@@ -134,6 +135,21 @@ if (MERMAID_AUTO_START_COORDINATOR && existsSync(MERMAID_PROJECT)) {
     console.log(`🤖 Coordinator daemon auto-started (always-on) for ${MERMAID_PROJECT}`);
   } catch (err) {
     console.error(`mermaid-collab: coordinator auto-start failed — ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+// Server-owned supervisor liveness: ensure a supervisor WATCHDOG is always alive
+// (no fresh heartbeat → auto-spawn; stale → respawn). Opt-in so only one always-on
+// host races to spawn the single global supervisor. Planning stays human-initiated.
+let stopSupervisorLiveness: (() => void) | null = null;
+if (MERMAID_AUTO_SUPERVISOR) {
+  try {
+    const mod = await import('./services/supervisor-liveness.js');
+    mod.startSupervisorLiveness();
+    stopSupervisorLiveness = mod.stopSupervisorLiveness;
+    console.log('🛡️  Supervisor liveness loop started (server-owned auto-spawn/respawn)');
+  } catch (err) {
+    console.error(`mermaid-collab: supervisor liveness start failed — ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -452,6 +468,20 @@ if (typeof server.port !== 'number' || server.port === 0) {
 const actualPort = server.port;
 const sessionId = deriveSessionId(MERMAID_PROJECT, MERMAID_SESSION);
 
+// Supervisor liveness heartbeat: while this server is alive, keep the
+// registered supervisor's updatedAt advancing so the UI can tell a running
+// supervisor from a crashed/stale one. No-op until a supervisor registers.
+// Cleared on shutdown so a killed server lets updatedAt go stale.
+let supervisorHeartbeat: ReturnType<typeof setInterval> | null = null;
+const cancelSupervisorHeartbeat = () => {
+  if (supervisorHeartbeat) { clearInterval(supervisorHeartbeat); supervisorHeartbeat = null; }
+};
+supervisorHeartbeat = setInterval(() => {
+  try { touchSupervisorIdentity(); } catch { /* best-effort liveness */ }
+}, SUPERVISOR_HEARTBEAT_INTERVAL_MS);
+// Don't let the heartbeat alone keep the process alive.
+supervisorHeartbeat.unref?.();
+
 // Handle graceful shutdown - kill all PTY sessions
 let idleTimer: ReturnType<typeof setTimeout> | null = null;
 const cancelIdle = () => { if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; } };
@@ -465,6 +495,8 @@ const armIdle = () => {
 
 process.on('SIGINT', () => {
   cancelIdle();
+  cancelSupervisorHeartbeat();
+  stopSupervisorLiveness?.();
   console.log('\n🛑 SIGINT received, shutting down gracefully...');
   sweeper.stop();
   chromeManager?.stop();
@@ -476,6 +508,8 @@ process.on('SIGINT', () => {
 
 process.on('SIGTERM', () => {
   cancelIdle();
+  cancelSupervisorHeartbeat();
+  stopSupervisorLiveness?.();
   console.log('\n🛑 SIGTERM received, shutting down gracefully...');
   sweeper.stop();
   chromeManager?.stop();

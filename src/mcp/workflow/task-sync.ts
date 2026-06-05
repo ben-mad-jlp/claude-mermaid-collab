@@ -7,6 +7,7 @@ import { getSessionState, updateSessionState } from '../tools/collab-state.js';
 import { MetadataManager } from '../../services/metadata-manager.js';
 import { listTodos, updateTodo } from '../../services/todo-store.js';
 import { inferProfileType } from '../../config/agent-profiles.js';
+import { inferTypeFromManifest } from '../../config/project-manifest.js';
 import { readFile, writeFile, readdir, access } from 'fs/promises';
 import { join } from 'path';
 
@@ -396,7 +397,9 @@ async function assignProfileTypes(project: string, session: string, tasks: TaskG
     if (todo.type) continue; // respect an explicit assignment
     const taskId = todo.link?.taskId;
     if (!taskId || !filesByTaskId.has(taskId)) continue;
-    const inferred = inferProfileType(filesByTaskId.get(taskId));
+    const files = filesByTaskId.get(taskId);
+    // Project manifest path-rules win over the global rules (per-project registry).
+    const inferred = inferTypeFromManifest(project, files) ?? inferProfileType(files);
     try { await updateTodo(project, todo.id, { type: inferred }); } catch { /* best-effort */ }
   }
 }

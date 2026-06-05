@@ -1,5 +1,5 @@
-import { readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 
 /**
@@ -34,6 +34,39 @@ export function getConfig(key: string, fallback?: string): string | undefined {
   const fileVal = loadFile()[key];
   if (typeof fileVal === 'string' && fileVal !== '') return fileVal;
   return fallback;
+}
+
+/**
+ * Return the full set of config.json keys/values (the file layer only — env
+ * overrides are NOT folded in). Used by the Settings "Secrets" UI to show what
+ * is currently stored. Returns a shallow copy so callers can't mutate the cache.
+ */
+export function getConfigEntries(): Record<string, unknown> {
+  return { ...loadFile() };
+}
+
+/**
+ * Persist one or more keys to ~/.mermaid-collab/config.json and refresh the
+ * in-memory cache so a subsequent getConfig() (e.g. the next consult_grok call)
+ * sees the new value WITHOUT an app restart. Writes atomically (tmp + rename).
+ * A key whose value is an empty string is removed from the file. Returns the
+ * merged file contents.
+ */
+export function setConfig(updates: Record<string, string>): Record<string, unknown> {
+  const current = loadFile();
+  const merged: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(updates)) {
+    if (value === '') delete merged[key];
+    else merged[key] = value;
+  }
+  const p = configPath();
+  mkdirSync(dirname(p), { recursive: true });
+  const tmp = p + '.tmp';
+  writeFileSync(tmp, JSON.stringify(merged, null, 2) + '\n', 'utf8');
+  renameSync(tmp, p);
+  // Replace (not mutate) the cache so getConfig re-reads the new values live.
+  cache = merged;
+  return merged;
 }
 
 /** Test helper: drop the cached file so the next getConfig re-reads. */

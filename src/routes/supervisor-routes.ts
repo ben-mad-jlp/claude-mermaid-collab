@@ -11,6 +11,8 @@ import {
   getEscalation,
   recordEscalationDecision,
   getSupervisorIdentity,
+  SUPERVISOR_HEARTBEAT_INTERVAL_MS,
+  SUPERVISOR_STALE_AFTER_MS,
   getPeer,
   getSupervisorConfig,
   setSupervisorConfig,
@@ -304,7 +306,33 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
   }
 
   if (url.pathname === '/api/supervisor/identity' && req.method === 'GET') {
-    return Response.json(getSupervisorIdentity());
+    const identity = getSupervisorIdentity();
+    if (!identity) {
+      // No supervisor registered: report not-running rather than bare null so
+      // the client can render a definitive "no supervisor" state.
+      return Response.json({
+        identity: null,
+        running: false,
+        stale: true,
+        ageMs: null,
+        heartbeatIntervalMs: SUPERVISOR_HEARTBEAT_INTERVAL_MS,
+        staleAfterMs: SUPERVISOR_STALE_AFTER_MS,
+      });
+    }
+    // Compute liveness from how long ago the heartbeat last advanced updatedAt.
+    const ageMs = Date.now() - identity.updatedAt;
+    const stale = ageMs > SUPERVISOR_STALE_AFTER_MS;
+    return Response.json({
+      // Spread identity fields at top level for backward compatibility with
+      // existing callers that read { project, session, updatedAt, serverId }.
+      ...identity,
+      identity,
+      running: !stale,
+      stale,
+      ageMs,
+      heartbeatIntervalMs: SUPERVISOR_HEARTBEAT_INTERVAL_MS,
+      staleAfterMs: SUPERVISOR_STALE_AFTER_MS,
+    });
   }
 
   return null;

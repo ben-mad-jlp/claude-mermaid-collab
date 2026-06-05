@@ -555,6 +555,24 @@ export function setSupervisorIdentity(project: string, session: string, serverId
   ).run(project, session, Date.now(), serverId);
 }
 
+/**
+ * Heartbeat: refresh ONLY supervisor_identity.updatedAt to "now". No-op if no
+ * supervisor is registered (id=1 row absent). Returns true if a row was
+ * touched. This is what lets the UI distinguish a live supervisor from a
+ * crashed/stale one — register_supervisor writes updatedAt once; this keeps
+ * it advancing while the supervisor is alive.
+ */
+export function touchSupervisorIdentity(): boolean {
+  const d = openDb();
+  const info = d.prepare('UPDATE supervisor_identity SET updatedAt = ? WHERE id = 1').run(Date.now());
+  return info.changes > 0;
+}
+
+/** Heartbeat cadence (ms) the server refreshes supervisor liveness at. */
+export const SUPERVISOR_HEARTBEAT_INTERVAL_MS = 30_000;
+/** A supervisor is considered stale once updatedAt is older than this (2x heartbeat). */
+export const SUPERVISOR_STALE_AFTER_MS = SUPERVISOR_HEARTBEAT_INTERVAL_MS * 2;
+
 export function getSupervisorIdentity(): SupervisorIdentity | null {
   const d = openDb();
   const row = d.query('SELECT project, session, updatedAt, serverId FROM supervisor_identity WHERE id = 1').get() as

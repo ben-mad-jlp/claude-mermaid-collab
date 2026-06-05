@@ -3429,6 +3429,45 @@ export async function handleAPI(
     }
   }
 
+  // GET /api/settings/secrets - Read secrets/API keys from ~/.mermaid-collab/config.json
+  if (path === '/api/settings/secrets' && req.method === 'GET') {
+    try {
+      const { getConfigEntries } = await import('../services/config-service.ts');
+      const entries = getConfigEntries();
+      // Only surface string-valued entries (secrets/API keys); the file may also
+      // hold non-secret structured config we don't want to render as a text field.
+      const secrets: Record<string, string> = {};
+      for (const [k, v] of Object.entries(entries)) {
+        if (typeof v === 'string') secrets[k] = v;
+      }
+      return Response.json({ secrets }, { headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' } });
+    } catch (error: unknown) {
+      return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    }
+  }
+
+  // POST /api/settings/secrets - Save secrets/API keys to ~/.mermaid-collab/config.json.
+  // Writes via the config service so the in-memory cache refreshes and the next
+  // consult_grok (and other getConfig readers) pick up the new value with no restart.
+  if (path === '/api/settings/secrets' && req.method === 'POST') {
+    try {
+      const body = await req.json() as { secrets?: Record<string, string> };
+      const { secrets } = body;
+      if (!secrets || typeof secrets !== 'object' || Array.isArray(secrets)) {
+        return Response.json({ error: 'secrets must be a key/value object' }, { status: 400 });
+      }
+      const updates: Record<string, string> = {};
+      for (const [k, v] of Object.entries(secrets)) {
+        if (typeof k === 'string' && k.trim()) updates[k.trim()] = typeof v === 'string' ? v : String(v);
+      }
+      const { setConfig } = await import('../services/config-service.ts');
+      setConfig(updates);
+      return Response.json({ success: true });
+    } catch (error: unknown) {
+      return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
+    }
+  }
+
   // GET /api/mcp/servers - List configured MCP servers
   if (path === '/api/mcp/servers' && req.method === 'GET') {
     try {

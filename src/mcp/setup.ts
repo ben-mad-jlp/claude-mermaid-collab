@@ -65,6 +65,12 @@ import {
   listLessonsSchema,
 } from './tools/lessons.js';
 import {
+  recordFrictionTool,
+  listFrictionTool,
+  recordFrictionSchema,
+  listFrictionSchema,
+} from './tools/friction.js';
+import {
   listSessionTodos,
   addSessionTodo,
   updateSessionTodo,
@@ -1949,6 +1955,17 @@ IMPORTANT - Common pitfalls to avoid:
         description: 'Get all lessons from a session.',
         inputSchema: listLessonsSchema,
       },
+      // Friction-signal tools (SEAM·collab)
+      {
+        name: 'record_friction',
+        description: 'Record a structured friction note for a worker attempt: the retry reason + LAYER (orchestration = collab harness friction like gate format / wrong test command; domain = the project code/API the worker was editing). Persisted per-project to .collab/friction.db so failure attribution is queryable instead of lost in the worker transcript.',
+        inputSchema: recordFrictionSchema,
+      },
+      {
+        name: 'list_friction',
+        description: 'Query persisted friction notes (newest first). Filter by todoId / session / layer — e.g. layer="domain" answers "which todos hit domain-layer friction and why" without opening each worker\'s private transcript.',
+        inputSchema: listFrictionSchema,
+      },
       // Session todos tools
       {
         name: 'list_session_todos',
@@ -3381,6 +3398,29 @@ IMPORTANT - Common pitfalls to avoid:
             const { project, session } = args as { project: string; session: string };
             if (!project || !session) throw new Error('Missing required: project, session');
             const result = await listLessons(project, session);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'record_friction': {
+            const a = args as {
+              project: string; todoId: string;
+              layer: import('../services/friction-store.js').FrictionLayer;
+              retryReason: string; session?: string; attempt?: number; detail?: string;
+            };
+            if (!a.project || !a.todoId || !a.layer || !a.retryReason) {
+              throw new Error('Missing required: project, todoId, layer, retryReason');
+            }
+            const result = await recordFrictionTool(a);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'list_friction': {
+            const a = args as {
+              project: string; todoId?: string; session?: string;
+              layer?: import('../services/friction-store.js').FrictionLayer;
+            };
+            if (!a.project) throw new Error('Missing required: project');
+            const result = listFrictionTool(a);
             return JSON.stringify(result, null, 2);
           }
 

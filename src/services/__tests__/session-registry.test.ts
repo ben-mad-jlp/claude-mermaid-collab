@@ -290,8 +290,13 @@ describe('SessionRegistry.list()', () => {
 
       const result = await registry.list();
 
-      // Both should be returned (they both exist), but in sorted order
-      expect(result).toHaveLength(2);
+      // The two rows are the SAME (project, session) — list() dedups them to
+      // one (this is what the test name asks for; the old assertion of 2 was
+      // encoding the duplicate-rows bug that surfaced in the Watching list).
+      // The surviving row keeps the freshest lastAccess.
+      expect(result).toHaveLength(1);
+      expect(result[0].session).toBe('session-a');
+      expect(result[0].lastAccess).toBe('2026-01-21T10:00:00Z');
     });
   });
 });

@@ -122,13 +122,40 @@ export class ProjectRegistry {
       }
     }
 
-    // Auto-clean stale projects if any were found
-    if (staleProjects.length > 0) {
+    // Reconcile WITH disk: the global registry is NOT the sole source of
+    // truth. A project whose projects.json entry was lost (server restart,
+    // pre-update onboarding) is still discoverable from its on-disk .collab/
+    // — e.g. the session registry references it. Union those in and backfill
+    // so cross-project enumeration sees live projects without manual
+    // re-onboarding. (DOGFOOD #1)
+    const knownPaths = new Set(validProjects.map(p => p.path));
+    const discovered: Project[] = [];
+    for (const path of await this.discoverProjectPaths()) {
+      if (knownPaths.has(path)) continue;
+      let lastAccess: string;
+      try {
+        lastAccess = fs.statSync(join(path, '.collab')).mtime.toISOString();
+      } catch {
+        lastAccess = new Date(0).toISOString();
+      }
+      const project: Project = { path, name: basename(path), lastAccess };
+      discovered.push(project);
+      validProjects.push(project);
+      knownPaths.add(path);
+    }
+
+    // Persist the reconciled set (stale removed, discovered backfilled).
+    if (staleProjects.length > 0 || discovered.length > 0) {
       registry.projects = validProjects;
       try {
         await this.save(registry);
+        if (discovered.length > 0) {
+          console.log(
+            `Backfilled on-disk projects into registry: ${discovered.map(p => p.name).join(', ')}`
+          );
+        }
       } catch (error) {
-        console.warn('Failed to save registry after cleaning stale projects:', error);
+        console.warn('Failed to save registry after reconciling projects:', error);
         // Continue - don't let save failure prevent returning valid projects
       }
     }
@@ -137,6 +164,37 @@ export class ProjectRegistry {
     return validProjects.sort(
       (a, b) => new Date(b.lastAccess).getTime() - new Date(a.lastAccess).getTime()
     );
+  }
+
+  /**
+   * Derive candidate project paths from disk rather than the registry: the
+   * distinct project roots referenced by the session registry that still
+   * have a valid on-disk .collab/ directory. This is what lets a project
+   * with live sessions but a lost registry entry reappear. Read raw via the
+   * session registry's load() (not list()) to avoid a list()→list() cycle.
+   */
+  private async discoverProjectPaths(): Promise<string[]> {
+    const paths = new Set<string>();
+    // Only cross-reference the global session registry for the default
+    // singleton. Test instances (and any non-default registryPath) stay
+    // isolated to their own file rather than pulling in the real registry.
+    if (this.registryPath !== PROJECTS_PATH) {
+      return [];
+    }
+    try {
+      const { sessionRegistry } = await import('./session-registry.js');
+      const data = await sessionRegistry.load();
+      for (const s of data.sessions) {
+        try {
+          if (fs.existsSync(join(s.project, '.collab'))) paths.add(s.project);
+        } catch {
+          // skip unreadable
+        }
+      }
+    } catch {
+      // Best-effort: session registry unreadable → nothing to derive.
+    }
+    return [...paths];
   }
 
   /**
