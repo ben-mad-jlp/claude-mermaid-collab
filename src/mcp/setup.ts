@@ -1827,7 +1827,7 @@ IMPORTANT - Common pitfalls to avoid:
           properties: {
             prompt: { type: 'string', description: 'The question or prompt to send to Grok' },
             system: { type: 'string', description: 'Optional system prompt to set context for Grok' },
-            model: { type: 'string', description: 'Grok model to use. Default: grok-4.20-reasoning' },
+            model: { type: 'string', description: 'Grok model to use. Default: grok-build-0.1.' },
           },
           required: ['prompt'],
         },
@@ -3274,7 +3274,7 @@ IMPORTANT - Common pitfalls to avoid:
           }
 
           case 'consult_grok': {
-            const { prompt, system, model = 'grok-4.20-reasoning' } = args as { prompt: string; system?: string; model?: string };
+            const { prompt, system, model = 'grok-build-0.1' } = args as { prompt: string; system?: string; model?: string };
             if (!prompt) throw new Error('Missing required: prompt');
 
             const apiKey = getConfig('XAI_API_KEY');
@@ -3294,8 +3294,14 @@ IMPORTANT - Common pitfalls to avoid:
             });
 
             if (!response.ok) {
-              const error = await response.json() as any;
-              throw new Error(`Grok API error: ${error?.error?.message || response.statusText}`);
+              const raw = await response.text();
+              let detail = raw;
+              try {
+                const parsed = JSON.parse(raw) as any;
+                // xAI returns either { error: { message } } or a flat { code, error: "<string>" }
+                detail = parsed?.error?.message || (typeof parsed?.error === 'string' ? parsed.error : '') || parsed?.message || raw;
+              } catch { /* non-JSON body — use raw text */ }
+              throw new Error(`Grok API error (${response.status} ${response.statusText}): ${detail || '(no body)'}`);
             }
 
             const data = await response.json() as any;
