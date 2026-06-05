@@ -54,8 +54,9 @@ import * as roadmapStore from '../services/roadmap-store.js';
 import * as supervisorStore from '../services/supervisor-store.js';
 import { sendTmuxKeys } from '../services/tmux-send.js';
 import { launchAndBind } from '../services/claude-launch.js';
-import { getStatuses, recordCheckpointReady, clearCheckpointReady, isCheckpointReady, tryEmitWatchdogAction, resetWatchdogDebounce } from '../services/session-status-store.js';
+import { recordCheckpointReady, clearCheckpointReady, isCheckpointReady, tryEmitWatchdogAction, resetWatchdogDebounce } from '../services/session-status-store.js';
 import { selectWatchdogActions, DEFAULT_WATCHDOG_CONFIG } from '../services/context-watchdog.js';
+import { listSessionRuntimes } from '../services/session-runtime.js';
 import { resolveReconcile } from '../services/planner-reconcile-live.js';
 import { SERVER_VERSION } from './server.js';
 import { createDecisionRecord, listDecisionRecords, approveDecisionRecord, supersedeDecisionRecord, getActiveConstraints, type DecisionKind } from '../services/decision-record-store.js';
@@ -3644,11 +3645,12 @@ IMPORTANT - Common pitfalls to avoid:
             { const fenced = supervisorFence((args as { supervisorEpoch?: number }).supervisorEpoch); if (fenced) return fenced; }
             const out: Array<{ project: string; session: string; status: string | null; updatedAt: number | null; openTodos: number; supervised: boolean; serverId: string }> = [];
             for (const wp of supervisorStore.listWatchedProjects()) {
-              const statuses = getStatuses(wp.project);
-              for (const s of statuses) {
-                const supervised = supervisorStore.isSupervised(wp.project, s.session);
-                const openTodos = supervised ? listTodos(wp.project, { session: s.session, includeCompleted: false }).length : 0;
-                out.push({ project: wp.project, session: s.session, status: s.status, updatedAt: s.updatedAt, openTodos, supervised, serverId: '' });
+              // Unified read model owns the status/liveness join; the supervisor
+              // overlay (supervised + open-todo count) stays a supervisor concern.
+              for (const rt of listSessionRuntimes(wp.project)) {
+                const supervised = supervisorStore.isSupervised(wp.project, rt.session);
+                const openTodos = supervised ? listTodos(wp.project, { session: rt.session, includeCompleted: false }).length : 0;
+                out.push({ project: wp.project, session: rt.session, status: rt.status, updatedAt: rt.updatedAt, openTodos, supervised, serverId: '' });
               }
             }
             // Remote supervised sessions: fetch each peer's session-status once per (serverId, project).
@@ -4629,7 +4631,9 @@ IMPORTANT - Common pitfalls to avoid:
             // drive itself via supervisor_clear_session (which targets a PEER).
             const identity = supervisorStore.getSupervisorIdentity();
             const selfSession = identity && identity.project === project ? identity.session : undefined;
-            const all = selectWatchdogActions(getStatuses(project), now, cfg, selfSession);
+            // Feed the watchdog selector from the unified read model (a structural
+            // superset of SessionStatusRow) rather than stitching getStatuses here.
+            const all = selectWatchdogActions(listSessionRuntimes(project, now), now, cfg, selfSession);
             // Durable debounce on the repeatable 'checkpoint' nudge only. 'clear' is
             // self-limiting: its marker is consumed on a successful clear, and a
             // failed clear SHOULD retry — so it passes through every tick.

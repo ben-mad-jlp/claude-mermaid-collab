@@ -32,6 +32,7 @@ import {
   type TodoLink as SessionTodoLink,
 } from '../services/todo-store';
 import { recordStatus, getStatuses, getStatus, recordContextPercent, type ClaudeStatus } from '../services/session-status-store';
+import { listSessionRuntimes } from '../services/session-runtime';
 import { isSupervised, getSupervisorIdentity } from '../services/supervisor-store.ts';
 import { sendTmuxKeys } from '../services/tmux-send.ts';
 import { lastAssistantTurn } from '../services/transcript-reader.ts';
@@ -2483,6 +2484,18 @@ export async function handleAPI(
       return Response.json({ error: 'project required' }, { status: 400 });
     }
     return Response.json({ statuses: getStatuses(project) });
+  }
+
+  // GET /api/session-runtime?project=
+  // Unified read model feed for the FleetGraph: status + claim + identity joined
+  // server-side with a single deriveLiveness, so the UI consumes one shape
+  // instead of re-stitching session-status + todos client-side.
+  if (path === '/api/session-runtime' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) {
+      return Response.json({ error: 'project required' }, { status: 400 });
+    }
+    return Response.json({ runtimes: listSessionRuntimes(project) });
   }
 
   // GET /api/transcript/last-turn?claudeSessionId=  (peer-callable)

@@ -1,0 +1,11 @@
+{
+  "todoId": "86799634-eaab-44d3-a22a-aebc7751dcdc",
+  "session": "backend-2",
+  "outcome": "accepted",
+  "retryReason": "none",
+  "layer": "none",
+  "verbsTried": ["get_todo", "tsc", "bun test"],
+  "failingVerb": null,
+  "failingReturn": null,
+  "summary": "Built src/services/session-runtime.ts (unified read model joining session-status+todos+supervisor identity, single deriveLiveness); migrated supervisor_reconcile + supervisor_watchdog_scan + added /api/session-runtime FleetGraph feed; ui/lib/liveness made a thin client of the same shape. 13 new unit tests pass (incl. golden reconcile equivalence); no schema change. Pre-existing setup.ts:29-33 import-conflict tsc errors are foreign (present on HEAD with my changes stashed)."
+}
