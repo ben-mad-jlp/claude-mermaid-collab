@@ -6,10 +6,12 @@ import { describe, it, expect, afterEach, mock } from 'bun:test';
 // resolve to the mocks. POOL-4 splits spawn (ensureSession) from run (runTodoInSession).
 let launchStarted = true;
 const ensureSessionCalls: string[] = []; // session names ensureSession was called with
+const ensureSessionOpts: Array<{ project: string; session: string; contextPrompt?: string }> = [];
 const runTodoCalls: Array<{ session: string; invokeSkill: string }> = [];
 mock.module('../claude-launch', () => ({
-  ensureSession: async (opts: { session: string }) => {
+  ensureSession: async (opts: { project: string; session: string; contextPrompt?: string }) => {
     ensureSessionCalls.push(opts.session);
+    ensureSessionOpts.push({ project: opts.project, session: opts.session, contextPrompt: opts.contextPrompt });
     return launchStarted ? { ready: true, tmux: `tmux-${opts.session}` } : { ready: false, reason: 'mock-blocked' };
   },
   runTodoInSession: async (opts: { session: string; invokeSkill: string }) => {
@@ -31,7 +33,7 @@ mock.module('../todo-store', () => ({
   reclaimClaim: async () => 'ready',
 }));
 
-import { makeCoordinatorDeps, startCoordinator, stopCoordinator, isCoordinatorRunning, autoStartCoordinator, isCoordinatorAutoManaged, resolveWorkerProfile } from '../coordinator-live';
+import { makeCoordinatorDeps, startCoordinator, stopCoordinator, isCoordinatorRunning, autoStartCoordinator, isCoordinatorAutoManaged, resolveWorkerProfile, detectPermissionPrompt, extractRequestedTool, getCoordinatorLiveness } from '../coordinator-live';
 import { isSupervised, removeSupervised, listSupervised } from '../supervisor-store';
 import { resetPool, listPool, markBusy, markIdle } from '../worker-pool';
 import type { Todo } from '../todo-store';
@@ -248,5 +250,136 @@ describe('launchWorker pool routing & keep-warm (POOL-4)', () => {
     // Slot still exists (session kept warm) but is now idle and available.
     expect(listPool()['library-1'].status).toBe('idle');
     expect(listPool()['library-1'].currentTodoId).toBeUndefined();
+  });
+});
+
+describe('detectPermissionPrompt (DOGFOOD #6 follow-up)', () => {
+  // A realistic Claude Code permission-prompt pane for a non-allowlisted MCP tool.
+  const permissionPane = [
+    'I need to navigate the desktop to verify the layout.',
+    '',
+    'mcp__bsync-desktop__desktop_navigate(url: "http://localhost:9102")',
+    '',
+    'Do you want to proceed?',
+    '❯ 1. Yes',
+    "  2. Yes, and don't ask again for mcp__bsync-desktop__desktop_navigate",
+    '  3. No, and tell Claude what to do differently (esc)',
+  ].join('\n');
+
+  it('classifies a permission prompt and extracts the MCP tool', () => {
+    const r = detectPermissionPrompt(permissionPane);
+    expect(r.isPermission).toBe(true);
+    expect(r.tool).toBe('mcp__bsync-desktop__desktop_navigate');
+  });
+
+  it('classifies via the bare 1.Yes/3.No menu when the don\'t-ask line is absent', () => {
+    const pane = [
+      'SomeTool(arg: 1)',
+      'Do you want to proceed?',
+      ' 1. Yes',
+      ' 3. No',
+    ].join('\n');
+    const r = detectPermissionPrompt(pane);
+    expect(r.isPermission).toBe(true);
+    expect(r.tool).toBe('SomeTool');
+  });
+
+  it('does NOT classify a self-filed escalation/decision stall as a permission prompt', () => {
+    const decisionPane = [
+      'I found two viable approaches. Which option should I take?',
+      '  (a) Refactor the store',
+      '  (b) Patch in place',
+      'Recommended: (a)',
+    ].join('\n');
+    const r = detectPermissionPrompt(decisionPane);
+    expect(r.isPermission).toBe(false);
+    expect(r.tool).toBeNull();
+  });
+
+  it('does not false-trip on prose mentioning proceeding', () => {
+    const prose = 'The build will proceed once tests pass. Do you want to proceed with caution generally?';
+    // "Do you want to proceed?" substring matches, but there is no yes/no menu
+    // and no don't-ask affordance, so it must NOT be treated as a permission prompt.
+    const r = detectPermissionPrompt('The build will proceed once tests pass.');
+    expect(r.isPermission).toBe(false);
+  });
+
+  it('extractRequestedTool prefers an mcp__ token, falls back to a tool-call line, else null', () => {
+    expect(extractRequestedTool('mcp__srv__do_thing(x: 1)')).toBe('mcp__srv__do_thing');
+    expect(extractRequestedTool('MyTool(arg)')).toBe('MyTool');
+    expect(extractRequestedTool('just some prose with no tool call')).toBeNull();
+  });
+});
+
+describe('launchWorker cross-project target (SEAM·collab)', () => {
+  const TRACKING = 'test-coordinator-live-xproj';
+  const TARGET = '/repos/build123d-ocp-mcp';
+
+  afterEach(() => {
+    launchStarted = true;
+    resetPool();
+    ensureSessionCalls.length = 0;
+    ensureSessionOpts.length = 0;
+    runTodoCalls.length = 0;
+    for (const s of listSupervised()) {
+      if (s.project === TRACKING) removeSupervised(s.project, s.session);
+    }
+  });
+
+  it('spawns the worker with cwd = the todo.targetProject, not the tracking project', async () => {
+    const todo = { id: 'aaaa1111-2222-3333-4444-555555555555', type: 'backend', targetProject: TARGET } as Todo;
+    await makeCoordinatorDeps().launchWorker(TRACKING, todo);
+    const opts = ensureSessionOpts.at(-1)!;
+    expect(opts.project).toBe(TARGET);
+    // and the worker is told its todo is tracked elsewhere
+    expect(opts.contextPrompt).toContain(TRACKING);
+    expect(opts.contextPrompt).toMatch(/CROSS-PROJECT TODO/);
+  });
+
+  it('defaults cwd to the tracking project when no targetProject (no cross-project note)', async () => {
+    const todo = { id: 'bbbb1111-2222-3333-4444-555555555555', type: 'backend', targetProject: null } as Todo;
+    await makeCoordinatorDeps().launchWorker(TRACKING, todo);
+    const opts = ensureSessionOpts.at(-1)!;
+    expect(opts.project).toBe(TRACKING);
+    expect(opts.contextPrompt ?? '').not.toMatch(/CROSS-PROJECT TODO/);
+  });
+});
+
+describe('coordinator self-liveness (1cb49878)', () => {
+  // A huge interval keeps the tick from firing during the test, so we exercise the
+  // registration + liveness contract deterministically (no real runTick / I/O).
+  const P = '/tmp/coord-liveness-test';
+  const BIG = 10_000_000;
+  afterEach(() => { stopCoordinator(P); });
+
+  it('start registers a healthy (non-stale) loop and reports liveness', () => {
+    expect(startCoordinator(P, BIG)).toBe(true);
+    expect(isCoordinatorRunning(P)).toBe(true);
+    const live = getCoordinatorLiveness(P, BIG);
+    expect(live.running).toBe(true);
+    expect(live.stale).toBe(false);
+    expect(live.lastTickAt).not.toBeNull();
+  });
+
+  it('a second start on a healthy loop is a no-op (returns false)', () => {
+    expect(startCoordinator(P, BIG)).toBe(true);
+    expect(startCoordinator(P, BIG)).toBe(false); // healthy → genuine no-op
+  });
+
+  it('stop clears the loop and its heartbeat', () => {
+    startCoordinator(P, BIG);
+    expect(stopCoordinator(P)).toBe(true);
+    expect(isCoordinatorRunning(P)).toBe(false);
+    expect(getCoordinatorLiveness(P, BIG).running).toBe(false);
+    expect(getCoordinatorLiveness(P, BIG).lastTickAt).toBeNull();
+  });
+
+  it('a registered-but-STALE loop is force-restarted by start (the wedge fix)', async () => {
+    expect(startCoordinator(P, BIG)).toBe(true);
+    // intervalMs=0 makes the staleness window 0 → any elapsed time counts as stale.
+    // Wait a beat so (now - seededHeartbeat) > 0 deterministically.
+    await new Promise((r) => setTimeout(r, 3));
+    expect(getCoordinatorLiveness(P, 0).stale).toBe(true);
+    expect(startCoordinator(P, 0)).toBe(true); // stale → force-restart, NOT a no-op
   });
 });

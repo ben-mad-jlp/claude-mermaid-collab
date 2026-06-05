@@ -72,6 +72,41 @@ function extractStallContext(pane: string): string {
   return ctx.length > 0 ? ctx : lines.slice(-6).join('\n');
 }
 
+/** DOGFOOD #6 follow-up: a Claude Code PERMISSION PROMPT is a distinct class of
+ *  idle-at-prompt from a self-filed escalation/decision. It renders the tool
+ *  call plus the "Do you want to proceed?" 1.Yes / 2.Yes-don't-ask / 3.No menu
+ *  for a non-allowlisted tool. The remedy differs: not a generic decision (the
+ *  human can't usefully "decide" the worker's question — there is none), but a
+ *  "permission needed: <tool>" signal (root fix is the profile allowlist; see
+ *  P3 cad-profile). We classify it here so detectStalls can surface it
+ *  correctly. Returns the requested tool name when extractable. */
+export function detectPermissionPrompt(pane: string): { isPermission: boolean; tool: string | null } {
+  // The prompt question + the don't-ask-again affordance is the most specific
+  // signature (the bare "Do you want to proceed?" can appear in other prose).
+  const hasQuestion = /Do you want to proceed\?/i.test(pane);
+  const hasDontAsk = /Yes,?\s*(?:and\s*)?don'?t ask again/i.test(pane);
+  const hasYesNoMenu =
+    /(?:^|\n)\s*❯?\s*1\.\s*Yes\b/i.test(pane) && /(?:^|\n)\s*❯?\s*(?:2|3)\.\s*(?:Yes|No)\b/i.test(pane);
+  const isPermission = hasQuestion && (hasDontAsk || hasYesNoMenu);
+  if (!isPermission) return { isPermission: false, tool: null };
+  return { isPermission: true, tool: extractRequestedTool(pane) };
+}
+
+/** Best-effort: pull the tool the permission prompt is gating out of the pane.
+ *  Prefers an explicit MCP tool token (mcp__server__tool), then a tool-call
+ *  line ending in "(", then null. */
+export function extractRequestedTool(pane: string): string | null {
+  const mcp = pane.match(/mcp__[a-zA-Z0-9_-]+__[a-zA-Z0-9_-]+/);
+  if (mcp) return mcp[0];
+  const lines = pane.split('\n').map((l) => l.trim()).filter(Boolean);
+  for (const l of lines) {
+    // A tool call line typically looks like "ToolName(arg: …)" or "ToolName(".
+    const m = l.match(/^([A-Za-z][\w-]*)\s*\(/);
+    if (m && !/^(?:if|for|while|switch|function|return)$/i.test(m[1])) return m[1];
+  }
+  return null;
+}
+
 /** In-memory idle tracker: tmux → { sig, since, escalated }. The coordinator is a
  *  singleton daemon, so per-process module state is fine. */
 const idleTracker = new Map<string, { sig: string; since: number; escalated: boolean }>();
@@ -163,12 +198,32 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         poolName = poolSessionName(slot.type, slot.slot);
       }
 
-      const { allowedTools, invokeSkill, model, runtimeMode, contextPrompt } = resolveWorkerProfile(todo, project);
+      // CROSS-PROJECT (SEAM·collab): the todo lives in `project` (the tracking
+      // store where it was claimed) but may be IMPLEMENTED in a different repo.
+      // Spawn the worker with cwd = the target repo so its edits land there and
+      // the gate (below) can see them; resolve the worker profile from the target
+      // repo's manifest too. All claim/store/supervised bookkeeping stays on the
+      // tracking `project` — that's where the todo + lease live.
+      const targetProject = todo.targetProject ?? project;
+      let { allowedTools, invokeSkill, model, runtimeMode, contextPrompt } = resolveWorkerProfile(todo, targetProject);
+
+      // When the implementation target differs from the tracking project, the
+      // worker's cwd is the target repo but its todo (get_todo/complete_todo +
+      // friction note) lives in the tracking project — tell it so it reports to
+      // the right store instead of defaulting every collab call to its cwd.
+      if (targetProject !== project) {
+        const note =
+          `\n\nCROSS-PROJECT TODO: this todo is TRACKED in the collab project ${project}, but its ` +
+          `implementation TARGET is your current working directory (${targetProject}). Make all code ` +
+          `edits here in ${targetProject}. For collab todo operations — get_todo, complete_todo, and the ` +
+          `.collab/attempts friction note — use project=${project} (the tracking project), NOT your cwd.`;
+        contextPrompt = (contextPrompt ?? '') + note;
+      }
 
       // 3. Spawn or reuse the pool session (idempotent — ensureSession reuses a
       //    live, bound session), then send the worker skill into it. Profile
-      //    params still drive tools/model/runtimeMode.
-      const ensured = await ensureSession({ project, session: poolName, allowedTools, model, runtimeMode, contextPrompt });
+      //    params still drive tools/model/runtimeMode. cwd = the target repo.
+      const ensured = await ensureSession({ project: targetProject, session: poolName, allowedTools, model, runtimeMode, contextPrompt });
       const started = ensured.ready;
       let reason = ensured.reason;
       if (started) {
@@ -180,7 +235,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       if (ok) {
         // Record the backing tmux so reapDeadSlots can free this slot on the
         // worker's death regardless of the todo's eventual status.
-        markBusy(poolName, todo.id, ensured.tmux ?? tmuxBaseName(project, poolName));
+        markBusy(poolName, todo.id, ensured.tmux ?? tmuxBaseName(targetProject, poolName));
         // Claim continues under the pool session name (todo.sessionName = poolName)
         // so reclaim/lease semantics and the dead-claim reaper key off it.
         try { await updateTodo(project, todo.id, { sessionName: poolName }); } catch { /* spawn already succeeded; lease covers any inconsistency */ }
@@ -247,17 +302,41 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         }
         if (prev.escalated || now - prev.since < STALL_MS) continue;
         try {
-          createEscalation({
-            project,
-            session,
-            kind: 'question',
-            todoId: t.id,
-            questionText:
-              `Worker for "${t.title ?? t.id}" appears STALLED — idle at its prompt with no progress for ` +
-              `${Math.round((now - prev.since) / 60000)}+ min, awaiting input but no escalation was filed ` +
-              `(DOGFOOD #6 auto-detected). Pending context:\n\n${extractStallContext(pane)}`,
-          });
-          recordSupervisorAudit({ kind: 'escalate', project, session, detail: JSON.stringify({ todoId: t.id, reason: 'stall-detected', idleMs: now - prev.since }) });
+          // DOGFOOD #6 follow-up: classify the idle-at-prompt. A permission
+          // prompt is NOT a decision the human can answer in the inbox — it's a
+          // "permission needed: <tool>" signal whose root fix is the worker
+          // profile allowlist (P3). Surface it as a distinct 'approval'
+          // escalation naming the tool, so it reads as "allowlist this tool",
+          // not a generic stalled-decision card.
+          const perm = detectPermissionPrompt(pane);
+          const idleMin = Math.round((now - prev.since) / 60000);
+          if (perm.isPermission) {
+            const toolLabel = perm.tool ?? 'an unknown tool';
+            createEscalation({
+              project,
+              session,
+              kind: 'approval',
+              todoId: t.id,
+              questionText:
+                `Permission needed: worker for "${t.title ?? t.id}" is blocked on a Claude Code ` +
+                `permission prompt for ${toolLabel} (non-allowlisted) and has been idle ${idleMin}+ min. ` +
+                `Root fix: add ${toolLabel} to the worker profile allowlist so it never prompts ` +
+                `(see P3 cad-profile). This is a permission stall, not a decision (DOGFOOD #6 follow-up).`,
+            });
+            recordSupervisorAudit({ kind: 'escalate', project, session, detail: JSON.stringify({ todoId: t.id, reason: 'permission-prompt', tool: perm.tool, idleMs: now - prev.since }) });
+          } else {
+            createEscalation({
+              project,
+              session,
+              kind: 'question',
+              todoId: t.id,
+              questionText:
+                `Worker for "${t.title ?? t.id}" appears STALLED — idle at its prompt with no progress for ` +
+                `${idleMin}+ min, awaiting input but no escalation was filed ` +
+                `(DOGFOOD #6 auto-detected). Pending context:\n\n${extractStallContext(pane)}`,
+            });
+            recordSupervisorAudit({ kind: 'escalate', project, session, detail: JSON.stringify({ todoId: t.id, reason: 'stall-detected', idleMs: now - prev.since }) });
+          }
           prev.escalated = true;
           stalled.push(t.id);
           // RECOVERY (41d24bee): a stalled worker would otherwise hold its claim
@@ -298,14 +377,21 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         todoId,
       });
     },
-    runGate: async (project: string, _todoId: string): Promise<GateVerdict | null> => {
-      // AUTHORITATIVE gate: run the project's manifest-declared gate command in the
-      // project dir and derive a verdict the worker cannot fake. No gateCommand →
-      // null (honor the worker's self-report, preserving prior behavior).
-      const cmd = loadProjectManifest(project)?.gateCommand?.trim();
+    runGate: async (project: string, todoId: string): Promise<GateVerdict | null> => {
+      // AUTHORITATIVE gate: run the manifest-declared gate command in the repo
+      // dir and derive a verdict the worker cannot fake. No gateCommand → null
+      // (honor the worker's self-report, preserving prior behavior).
+      //
+      // CROSS-PROJECT (SEAM·collab): a todo may be implemented in a repo other
+      // than the tracking project. Gate the TARGET repo — its manifest + its
+      // change-set — not the tracking project's, which would be BLIND to the
+      // actual edits (the observed f719e7e0 bug: gate ran in the tracking repo
+      // and saw none of the target's changes).
+      const gateProject = getTodo(project, todoId)?.targetProject ?? project;
+      const cmd = loadProjectManifest(gateProject)?.gateCommand?.trim();
       if (!cmd) return null;
       try {
-        const proc = Bun.spawnSync(['sh', '-c', cmd], { cwd: project, stdout: 'pipe', stderr: 'pipe' });
+        const proc = Bun.spawnSync(['sh', '-c', cmd], { cwd: gateProject, stdout: 'pipe', stderr: 'pipe' });
         const out = (proc.stdout?.toString() ?? '') + '\n' + (proc.stderr?.toString() ?? '');
         // Prefer a structured verdict if the gate emits a trailing JSON line
         // (e.g. a CAD fitness gate: {"passed":false,"reasons":[...],"metrics":{...}}).
@@ -349,17 +435,63 @@ function lastLines(s: string, n: number): string {
 }
 
 const timers = new Map<string, ReturnType<typeof setInterval>>();
+/** Per-project heartbeat: when the LAST tick COMPLETED (resolved or threw), not
+ *  when it fired. A registered timer whose runTick hangs forever keeps firing but
+ *  never completes — so we key liveness on completion, which goes stale if the
+ *  tick body wedges. (1cb49878) */
+const lastTickAt = new Map<string, number>();
+/** A loop is considered wedged if no tick has COMPLETED within this many intervals. */
+const STALE_TICK_INTERVALS = 4;
 
-/** Start a per-project coordinator tick loop. Returns false if already running. Explicit-start only (never auto-started at boot). */
+function isTickStale(project: string, intervalMs: number): boolean {
+  const last = lastTickAt.get(project);
+  if (last == null) return false; // just started, no completed tick yet — not stale
+  return Date.now() - last > intervalMs * STALE_TICK_INTERVALS;
+}
+
+/** Tear down a project's timer WITHOUT touching auto-manage (unlike stopCoordinator,
+ *  which also opts out of respawn). Used to force-restart a wedged loop. */
+function clearTimer(project: string): void {
+  const t = timers.get(project);
+  if (t) clearInterval(t);
+  timers.delete(project);
+  lastTickAt.delete(project);
+}
+
+/** Start a per-project coordinator tick loop. Returns false if a HEALTHY loop is
+ *  already running; if a loop is registered but WEDGED (no completed tick within
+ *  STALE_TICK_INTERVALS), force-restarts it and returns true. Explicit-start only
+ *  (never auto-started at boot). The stale-recovery path is what lets both an
+ *  explicit start AND the auto-respawn watchdog rescue a dead loop — previously a
+ *  wedged loop reported running:true and start no-op'd forever (1cb49878). */
 export function startCoordinator(project: string, intervalMs = 30_000): boolean {
-  if (timers.has(project)) return false;
+  if (timers.has(project)) {
+    if (!isTickStale(project, intervalMs)) return false; // healthy → genuine no-op
+    clearTimer(project); // wedged → force-restart below
+  }
   const deps = makeCoordinatorDeps();
+  const mark = () => lastTickAt.set(project, Date.now()); // stamp on COMPLETION
   const t = setInterval(() => {
-    void runTick(deps, project).catch(() => { /* never let a tick rejection kill the loop */ });
+    void runTick(deps, project).then(mark, mark); // mark whether it resolves or throws
   }, intervalMs);
   (t as { unref?: () => void }).unref?.();
   timers.set(project, t);
+  lastTickAt.set(project, Date.now()); // seed so a fresh loop isn't judged stale
   return true;
+}
+
+/** Coordinator liveness for visibility/diagnostics: is a timer registered, when
+ *  did the last tick complete, and is the loop wedged (stale heartbeat)? */
+export function getCoordinatorLiveness(project: string, intervalMs = 30_000): {
+  running: boolean;
+  lastTickAt: number | null;
+  stale: boolean;
+} {
+  return {
+    running: timers.has(project),
+    lastTickAt: lastTickAt.get(project) ?? null,
+    stale: timers.has(project) && isTickStale(project, intervalMs),
+  };
 }
 
 export function stopCoordinator(project: string): boolean {
@@ -371,6 +503,7 @@ export function stopCoordinator(project: string): boolean {
   if (!t) return false;
   clearInterval(t);
   timers.delete(project);
+  lastTickAt.delete(project);
   return true;
 }
 
