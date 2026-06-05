@@ -32,6 +32,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { RuntimeMode } from '../agent/contracts';
+import type { Capability } from './agent-profiles';
 
 /** One profile declared (or overridden) by a project manifest. Every field is
  *  optional; whatever is omitted falls back to the global profile of the same
@@ -46,6 +47,13 @@ export interface ManifestProfile {
   model?: string;
   /** Runtime permission mode. */
   runtimeMode?: RuntimeMode;
+  /** Requested capability (edit/reviewer/headless), resolved independently of the
+   *  routing `type`. Omitted → `edit`. `headless` only takes effect when `trusted`
+   *  is also true (constraint 64f813bd — no headless bypass by default). */
+  capability?: Capability;
+  /** Opt-in trust flag that allows a `headless` capability request to resolve;
+   *  without it a `headless` request is downgraded to `edit`. */
+  trusted?: boolean;
   /** Project-scoped path→type inference rules. `test` is a RegExp source string
    *  (the manifest stays plain JSON); first match wins. Lets a project route its
    *  own file shapes (.step/.parts) to a profile collab has never heard of. */

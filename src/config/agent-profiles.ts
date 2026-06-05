@@ -1,13 +1,6 @@
 import type { RuntimeMode } from '../agent/contracts';
 import { manifestProfile, inferTypeFromManifest } from './project-manifest';
 
-// Allow ALL mermaid MCP tools without per-tool prompts. The server is registered
-// as `mermaid` in the project .mcp.json (tools are mcp__mermaid__*), so the
-// server-level `mcp__mermaid` token is what actually matches a spawned worker's
-// tool calls (get_todo/complete_todo/etc.). The plugin-namespaced form is kept as
-// a belt-and-suspenders match for contexts where the server is namespaced.
-const MCP = 'mcp__mermaid mcp__plugin_mermaid-collab_mermaid';
-
 /**
  * Agent-profile registry (PCS Phase 3). A todo's `type` resolves to a profile
  * that parameterizes the worker launch: which tools, which model, which skill,
@@ -34,77 +27,41 @@ export interface AgentProfile {
    *  no cold start, no learning collab has to ship. Global profiles leave this
    *  unset; only a per-project manifest typically populates it. */
   contextPrompt?: string;
-  /** Capability dimension (Profile L1) — the small GLOBAL taxonomy of what a
-   *  worker is permitted to DO (tools / permissions / model behaviour),
-   *  deliberately DECOUPLED from the routing `type` string (frontend/backend/…
-   *  stay a pool-routing hint only). Omitted ⇒ the `edit` default; `headless` is
-   *  never auto-selected. See {@link Capability}. */
+  /** What the worker is ALLOWED to do — tools/permissions/model behaviour — as a
+   *  small global taxonomy, decoupled from the routing `type`. The routing `type`
+   *  (frontend/backend/…) is only a pool-placement hint; `capability` is the real
+   *  permission axis. Omitted → resolves to the default (`edit`). See
+   *  {@link Capability} / {@link resolveCapability}. */
   capability?: Capability;
 }
 
 export type AgentProfileType = 'default' | 'frontend' | 'backend' | 'api' | 'ui' | 'library';
 
 /**
- * Capability layer (Profile L1, per e8fddf63). The ONLY thing worth a small
- * GLOBAL taxonomy is *capability* — the tools / permissions / model behaviour a
- * worker is granted — kept separate from the routing `type` (which is just a
- * pool-routing hint). Three capabilities cover the real axes:
+ * Capability — the ONE small global taxonomy worth having (per e8fddf63): what a
+ * worker is allowed to do (tools / permissions / model behaviour), kept strictly
+ * SEPARATE from the routing `type` string. A todo's `type` (frontend/backend/…)
+ * only hints which pool runs it; its `capability` decides what it can touch.
  *
- *  - `edit`     — the default worker: Bash/Edit/Write/Read at runtimeMode=edit.
- *  - `reviewer` — read-only + review tools; cannot mutate the tree (read-only).
- *  - `headless` — opt-in `--dangerously-skip` (runtimeMode=bypass), permitted
- *                 ONLY when a caller explicitly trusts the run. Gated by
- *                 constraint 64f813bd ("no headless bypass by default"): it is
- *                 NEVER auto-selected — {@link resolveCapability} returns it only
- *                 when both named AND `allowHeadless` is passed.
+ *  - `edit`     — the default worker: full edit surface (Bash/Edit/Write/Read +
+ *                 MCP) at `runtimeMode: 'edit'`.
+ *  - `reviewer` — read-only: review/inspection tools, no Edit/Write/Bash,
+ *                 `runtimeMode: 'read-only'`.
+ *  - `headless` — opt-in bypass (`--dangerously-skip-permissions`,
+ *                 `runtimeMode: 'bypass'`). Gated by constraint 64f813bd
+ *                 ("no headless bypass by default"): NEVER auto-selected — only
+ *                 resolves when explicitly requested AND marked trusted.
  */
 export type Capability = 'edit' | 'reviewer' | 'headless';
 
-/** The launch params a capability grants — the same shape an AgentProfile carries
- *  for tools/permissions, so it can be merged over a routing profile. */
-export interface CapabilitySpec {
-  allowedTools: string;
-  runtimeMode: RuntimeMode;
-}
-
-/** The default capability when none is explicitly requested. Stays `edit` — a
- *  worker must be able to do real work, and `headless` must never be the default. */
 export const DEFAULT_CAPABILITY: Capability = 'edit';
 
-/** The global capability registry: capability → tool/permission surface. This is
- *  intentionally tiny (three entries). Routing `type` does NOT appear here. */
-export const CAPABILITIES: Record<Capability, CapabilitySpec> = {
-  // The default worker: full edit surface.
-  edit:     { allowedTools: `Bash Edit Write Read ${MCP}`, runtimeMode: 'edit' },
-  // Read-only review: can read/search/run checks but never mutate the tree.
-  reviewer: { allowedTools: `Bash Read Grep Glob ${MCP}`, runtimeMode: 'read-only' },
-  // Trusted headless: bypass permissions. Same tools as edit; the difference is
-  // the runtime mode. Only reachable via an explicit opt-in (see resolveCapability).
-  headless: { allowedTools: `Bash Edit Write Read ${MCP}`, runtimeMode: 'bypass' },
-};
-
-/**
- * Resolve a requested capability INDEPENDENT of the routing type. Missing /
- * unknown ⇒ the `edit` default. `headless` is special: it is NEVER auto-selected
- * — even when explicitly named it is only honoured when the caller also passes
- * `allowHeadless: true` (the explicit-trust opt-in that satisfies constraint
- * 64f813bd "no headless bypass by default"); otherwise it falls back to `edit`.
- */
-export function resolveCapability(
-  requested?: string | null,
-  opts?: { allowHeadless?: boolean },
-): Capability {
-  if (requested === 'reviewer') return 'reviewer';
-  if (requested === 'headless') return opts?.allowHeadless ? 'headless' : DEFAULT_CAPABILITY;
-  // 'edit', unknown, or missing → the default. `headless` is unreachable here, so
-  // it can never be auto-selected from an arbitrary/inferred string.
-  return DEFAULT_CAPABILITY;
-}
-
-/** The launch params for a resolved capability. */
-export function capabilitySpec(capability: Capability): CapabilitySpec {
-  return CAPABILITIES[capability];
-}
+// Allow ALL mermaid MCP tools without per-tool prompts. The server is registered
+// as `mermaid` in the project .mcp.json (tools are mcp__mermaid__*), so the
+// server-level `mcp__mermaid` token is what actually matches a spawned worker's
+// tool calls (get_todo/complete_todo/etc.). The plugin-namespaced form is kept as
+// a belt-and-suspenders match for contexts where the server is namespaced.
+const MCP = 'mcp__mermaid mcp__plugin_mermaid-collab_mermaid';
 
 /**
  * The registry. `default` (≈ "full") is the fallback. Domain profiles narrow the
@@ -122,6 +79,40 @@ export const AGENT_PROFILES: Record<AgentProfileType, AgentProfile> = {
 
 export const DEFAULT_PROFILE_TYPE: AgentProfileType = 'default';
 
+/**
+ * Capability registry — maps each capability to the launch params it grants.
+ * This is the permission axis, independent of the routing `type` table above.
+ * `headless` carries the bypass runtimeMode; whether it is ever *selected* is
+ * gated separately in {@link resolveCapability} (constraint 64f813bd).
+ */
+export const CAPABILITIES: Record<Capability, Pick<AgentProfile, 'allowedTools' | 'runtimeMode'>> = {
+  edit:     { allowedTools: `Bash Edit Write Read ${MCP}`, runtimeMode: 'edit' },
+  reviewer: { allowedTools: `Read Grep Glob ${MCP}`, runtimeMode: 'read-only' },
+  headless: { allowedTools: `Bash Edit Write Read ${MCP}`, runtimeMode: 'bypass' },
+};
+
+/**
+ * Resolve a worker's capability — independent of its routing `type`. Unknown or
+ * missing requests fall back to {@link DEFAULT_CAPABILITY} (`edit`).
+ *
+ * `headless` is NEVER auto-selected (constraint 64f813bd "no headless bypass by
+ * default"): it resolves ONLY when explicitly requested AND `opts.trusted` is
+ * true. A `headless` request without trust is downgraded to `edit`.
+ */
+export function resolveCapability(
+  requested?: string | null,
+  opts?: { trusted?: boolean },
+): Capability {
+  if (requested === 'reviewer') return 'reviewer';
+  if (requested === 'headless') return opts?.trusted === true ? 'headless' : 'edit';
+  return DEFAULT_CAPABILITY;
+}
+
+/** Look up the launch params (tools + runtimeMode) granted by a capability. */
+export function capabilityProfile(capability: Capability): Pick<AgentProfile, 'allowedTools' | 'runtimeMode'> {
+  return CAPABILITIES[capability];
+}
+
 /** Resolve a todo `type` to its profile. Unknown/missing types fall back to `default`.
  *
  *  When `project` is given, the project's `.collab/project.json` manifest is
@@ -130,37 +121,25 @@ export const DEFAULT_PROFILE_TYPE: AgentProfileType = 'default';
  *  is how a project ships its own profile (e.g. build123d's `cad`) without collab
  *  knowing anything about it. The no-manifest / no-project path returns the exact
  *  global profile object by reference (callers + tests rely on that identity). */
-export function resolveProfile(
-  type?: string | null,
-  project?: string,
-  capability?: Capability,
-): AgentProfile {
-  const baseProfile = (type && type in AGENT_PROFILES)
+export function resolveProfile(type?: string | null, project?: string): AgentProfile {
+  const base = (type && type in AGENT_PROFILES)
     ? AGENT_PROFILES[type as AgentProfileType]
     : AGENT_PROFILES[DEFAULT_PROFILE_TYPE];
-  const override = project ? manifestProfile(project, type) : null;
-  // Identity contract: with no manifest override AND no capability requested, the
-  // routing-type path returns the exact global profile object by reference
-  // (callers + tests rely on that identity). Only build a new object when a
-  // manifest override or an explicit capability actually changes something.
-  if (!override && !capability) return baseProfile;
+  if (!project) return base;
+  const override = manifestProfile(project, type);
+  if (!override) return base;
   // Merge: manifest fields override the global base; undefined fields keep base.
-  const merged: AgentProfile = {
-    allowedTools: override?.allowedTools ?? baseProfile.allowedTools,
-    model: override?.model ?? baseProfile.model,
-    runtimeMode: override?.runtimeMode ?? baseProfile.runtimeMode,
-    contextPrompt: override?.contextPrompt ?? baseProfile.contextPrompt,
+  // Capability is resolved independently of the routing `type` and defaults to
+  // `edit`; `headless` only takes effect if the manifest also marks it trusted
+  // (constraint 64f813bd — no headless bypass by default).
+  const capability = resolveCapability(override.capability, { trusted: override.trusted });
+  return {
+    allowedTools: override.allowedTools ?? base.allowedTools,
+    model: override.model ?? base.model,
+    runtimeMode: override.runtimeMode ?? base.runtimeMode,
+    contextPrompt: override.contextPrompt ?? base.contextPrompt,
+    capability,
   };
-  // Capability (Profile L1) is decoupled from the routing type: when requested it
-  // dictates the tool/permission surface, layered OVER whatever the type+manifest
-  // produced. This is what lets `reviewer`/`headless` apply to ANY routing type.
-  if (capability) {
-    const spec = CAPABILITIES[capability];
-    merged.allowedTools = spec.allowedTools;
-    merged.runtimeMode = spec.runtimeMode;
-    merged.capability = capability;
-  }
-  return merged;
 }
 
 /**

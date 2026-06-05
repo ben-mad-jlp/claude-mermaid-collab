@@ -2,10 +2,10 @@
   "todoId": "fe016a6f-c850-4fd8-b499-a2a62f800b28",
   "session": "worker-fe016a6f",
   "outcome": "accepted",
-  "retryReason": "none",
-  "layer": "none",
-  "verbsTried": ["get_todo", "tsc --noEmit", "bun test"],
-  "failingVerb": null,
-  "failingReturn": null,
-  "summary": "Added Profile L1 capability layer (edit/reviewer/headless) to agent-profiles.ts: Capability type, CAPABILITIES registry, DEFAULT_CAPABILITY=edit, resolveCapability (headless never auto-selected, requires allowHeadless opt-in per constraint 64f813bd), capabilitySpec, and resolveProfile capability merge decoupled from routing type. 13/13 tests pass; tsc clean."
+  "retryReason": "wrong-cmd",
+  "layer": "collab",
+  "verbsTried": ["get_todo", "list_session_todos", "complete_todo", "check_server_health"],
+  "failingVerb": "complete_todo",
+  "failingReturn": "Unable to connect (server down/restarting); earlier: disk I/O error",
+  "summary": "Implemented [Profile L1] Capability layer (Capability type edit/reviewer/headless + CAPABILITIES registry + resolveCapability/capabilityProfile, added capability dim to AgentProfile + ManifestProfile, wired into resolveProfile; headless never auto-selected, gated by trusted). Gate GREEN: tsc clean on change-set, 16/16 bun tests pass (agent-profiles + project-manifest). Could not call complete_todo: collab server was throwing disk I/O error, then went offline for restart. Work done on disk; needs complete_todo(accepted) once server is back."
 }

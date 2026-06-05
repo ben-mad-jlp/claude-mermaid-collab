@@ -22,6 +22,16 @@ import { getAgentRegistry } from '../agent/agent-registry-manager.js';
 import { updateUI, updateUISchema } from './tools/update-ui.js';
 import { renderUISchema } from './tools/render-ui.js';
 import { browserToolSchemas } from './tools/browser.js';
+import { ToolRegistry, type ToolCtx } from './tools/registry.js';
+import { API_BASE_URL, buildUrl, asJson, type AnyJson, sessionParamsDesc } from './tools/http-util.js';
+import {
+  documentToolDefs,
+  listDocuments,
+  getDocument,
+  createDocument,
+  updateDocument,
+  patchDocument,
+} from './tools/documents.js';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join as pathJoin } from 'node:path';
 import {
@@ -89,6 +99,7 @@ import {
   reorderSessionTodosSchema,
   completeLinkedTodosSchema,
   assignSessionTodoSchema,
+  sessionTodoToolDefs,
   type SessionTodoLink,
 } from './tools/session-todos.js';
 import {
@@ -287,10 +298,8 @@ const desktopScreenshotDef = {
 // overridden desktop_screenshot) so clients don't see tools that always error.
 const desktopToolDefs = _bridge ? [...desktopDefsForList, desktopScreenshotDef] : [];
 
-// Configuration
-const API_PORT = parseInt(process.env.PORT || '9002', 10);
-const API_HOST = process.env.HOST || 'localhost';
-const API_BASE_URL = `http://${API_HOST}:${API_PORT}`;
+// Configuration (API_BASE_URL, buildUrl, asJson, AnyJson, sessionParamsDesc
+// now live in ./tools/http-util.js — imported above).
 
 // SERVER_VERSION is imported from server.ts (single source of truth, synced by
 // the `npm version` hook) — see the import near the top of this file.
@@ -315,28 +324,6 @@ function generateSessionName(): string {
   const adj2 = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
   const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
   return `${adj1}-${adj2}-${noun}`;
-}
-
-function buildUrl(path: string, project: string, session: string, extraParams?: Record<string, string>): string {
-  const url = new URL(path, API_BASE_URL);
-  url.searchParams.set('project', project);
-  url.searchParams.set('session', session);
-  if (extraParams) {
-    for (const [key, value] of Object.entries(extraParams)) {
-      url.searchParams.set(key, value);
-    }
-  }
-  return url.toString();
-}
-
-// Loose JSON shape for arbitrary API response bodies. The MCP setup glues
-// many internal HTTP endpoints together; rather than declaring a precise
-// type for every payload, we treat them as generic key/value records and
-// rely on runtime callers to extract the fields they need. This keeps the
-// surface tsc-clean without weakening overall strict mode.
-type AnyJson = Record<string, any>;
-async function asJson(res: Response): Promise<AnyJson> {
-  return (await res.json()) as AnyJson;
 }
 
 // ============= Diagram Tools =============
@@ -490,6 +477,34 @@ function recordSupervisorDecision(kind: string, project: string, session: string
     const entry = supervisorStore.recordSupervisorAudit({ kind, project, session, detail, serverId });
     getWebSocketHandler()?.broadcast({ type: 'supervisor_decision', project, session, kind, detail: entry.detail, ts: entry.ts });
   } catch { /* audit must never break the action it records */ }
+}
+
+/**
+ * Single-writer fence for mutating supervisor tools. Returns a structured
+ * `superseded` payload (string) when the caller's epoch is no longer current —
+ * the caller must then perform NO write and return this payload. Returns null
+ * when the caller is the current owner OR did not supply an epoch at all.
+ *
+ * Enforced-WHEN-PRESENT by design: escalation_create is also called by ordinary
+ * workers (which never carry a supervisor epoch), so the fence only bites when a
+ * supervisor-context caller supplies `supervisorEpoch`. A superseded supervisor
+ * still carries its (now stale) epoch and is correctly rejected.
+ */
+function supervisorFence(supervisorEpoch: number | undefined): string | null {
+  if (supervisorEpoch == null) return null;
+  try {
+    supervisorStore.assertSupervisorOwner(supervisorEpoch);
+    return null;
+  } catch (e) {
+    if (e instanceof supervisorStore.SupersededError) {
+      return JSON.stringify(
+        { superseded: true, currentEpoch: e.currentEpoch, currentSession: e.currentSession, message: e.message },
+        null,
+        2,
+      );
+    }
+    throw e;
+  }
 }
 
 async function getDocument(project: string, session: string, id: string): Promise<string> {
@@ -2018,19 +2033,19 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'roadmap_spawn_session', description: 'Spawn a collab session for a roadmap item: materializes the session via assigned todos, links them to the item, and registers the session as supervised.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, itemId: { type: 'string' }, session: { type: 'string' }, todos: { type: 'array', items: { type: 'string' }, description: 'Todo titles to create, assigned to the session' } }, required: ['project', 'itemId', 'session'] } },
       { name: 'supervisor_list_supervised', description: 'List all supervised sessions across all projects.', inputSchema: { type: 'object', properties: {} } },
       { name: 'register_supervisor', description: "Register this collab session as THE supervisor, so the server pushes real-time reconcile notifications into its tmux when supervised workers change state.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, serverId: { type: 'string' } }, required: ['project', 'session'] } },
-      { name: 'supervisor_nudge', description: 'Send text/keys into a supervised session tmux pane, routing to a peer server when serverId names a known peer.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, serverId: { type: 'string' }, text: { type: 'string' } }, required: ['project', 'session', 'text'] } },
-      { name: 'supervisor_reconcile', description: 'For every watched project, return session status + open-todo counts and the supervised flag.', inputSchema: { type: 'object', properties: {} } },
+      { name: 'supervisor_nudge', description: 'Send text/keys into a supervised session tmux pane, routing to a peer server when serverId names a known peer.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, serverId: { type: 'string' }, text: { type: 'string' }, supervisorEpoch: { type: 'number', description: 'Ownership epoch from register_supervisor. Pass it so the server can fence a superseded supervisor; a stale epoch is rejected (superseded) and performs no action.' } }, required: ['project', 'session', 'text'] } },
+      { name: 'supervisor_reconcile', description: 'For every watched project, return session status + open-todo counts and the supervised flag.', inputSchema: { type: 'object', properties: { supervisorEpoch: { type: 'number', description: 'Ownership epoch from register_supervisor; a superseded supervisor is rejected.' } } } },
       { name: 'read_last_assistant_turn', description: 'Read the last completed assistant turn from a Claude Code session transcript.', inputSchema: { type: 'object', properties: { claudeSessionId: { type: 'string' }, serverId: { type: 'string' } }, required: ['claudeSessionId'] } },
       { name: 'escalation_list', description: 'List open escalations.', inputSchema: { type: 'object', properties: {} } },
-      { name: 'escalation_resolve', description: 'Resolve an escalation by id with a status.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, status: { type: 'string' } }, required: ['id', 'status'] } },
-      { name: 'escalation_create', description: 'Create (or dedupe) an open escalation for a session. Pass todoId to link it to a work-graph todo so it auto-resolves when that todo completes. For an A/B-style decision, pass structured options[] (and optionally recommended) instead of a raw JSON questionText.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, kind: { type: 'string' }, questionText: { type: 'string', description: 'Human-readable prompt for the decision/question.' }, todoId: { type: 'string', description: 'Optional work-graph todo id this escalation is about (exact auto-resolve link).' }, options: { type: 'array', description: 'Optional structured choices for an A/B-style decision.', items: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, detail: { type: 'string' } }, required: ['id', 'label'] } }, recommended: { type: 'string', description: 'Optional id of the recommended option (must match one of options[].id).' }, ui: { type: 'object', description: 'Optional rich decision spec (BR-4): { elements: [...] } over the closed catalog (Heading, Text, Callout, CodeBlock, DiffView, CompareTable, KeyValue, OptionButton, Form, SubmitButton). Server-validated; must contain a terminal action (OptionButton/SubmitButton/Form), ≤40 elements. Compose ONLY when the decision needs evidence (a diff/compare/form); otherwise use plain options[]. Invalid specs are dropped, falling back to options[].' } }, required: ['project', 'session', 'kind', 'questionText'] } },
+      { name: 'escalation_resolve', description: 'Resolve an escalation by id with a status.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, status: { type: 'string' }, supervisorEpoch: { type: 'number', description: 'Supervisor ownership epoch from register_supervisor; a superseded supervisor is rejected.' } }, required: ['id', 'status'] } },
+      { name: 'escalation_create', description: 'Create (or dedupe) an open escalation for a session. Pass todoId to link it to a work-graph todo so it auto-resolves when that todo completes. For an A/B-style decision, pass structured options[] (and optionally recommended) instead of a raw JSON questionText.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, kind: { type: 'string' }, questionText: { type: 'string', description: 'Human-readable prompt for the decision/question.' }, todoId: { type: 'string', description: 'Optional work-graph todo id this escalation is about (exact auto-resolve link).' }, options: { type: 'array', description: 'Optional structured choices for an A/B-style decision.', items: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, detail: { type: 'string' } }, required: ['id', 'label'] } }, recommended: { type: 'string', description: 'Optional id of the recommended option (must match one of options[].id).' }, ui: { type: 'object', description: 'Optional rich decision spec (BR-4): { elements: [...] } over the closed catalog (Heading, Text, Callout, CodeBlock, DiffView, CompareTable, KeyValue, OptionButton, Form, SubmitButton). Server-validated; must contain a terminal action (OptionButton/SubmitButton/Form), ≤40 elements. Compose ONLY when the decision needs evidence (a diff/compare/form); otherwise use plain options[]. Invalid specs are dropped, falling back to options[].' }, supervisorEpoch: { type: 'number', description: 'Supervisor ownership epoch from register_supervisor. Workers escalating omit this; a superseded supervisor that passes its stale epoch is rejected (superseded).' } }, required: ['project', 'session', 'kind', 'questionText'] } },
       { name: 'await_human_decision', description: 'Block until a human posts a decision for the given escalation (via the decide endpoint), then return the chosen optionId + any note. Use after filing a structured escalation (escalation_create with options[]) to relay an A/B decision without ending the turn. Returns { timedOut: true } if no answer arrives within timeoutMs.', inputSchema: { type: 'object', properties: { escalationId: { type: 'string' }, timeoutMs: { type: 'number', description: 'Max time to wait in ms (default 600000 = 10 min).' } }, required: ['escalationId'] } },
       { name: 'get_todo', description: 'Read a single project work-graph todo by id (title, description/spec, status, dependsOn, sessionName). Used by a worker to read its claimed todo.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' } }, required: ['project','todoId'] } },
       { name: 'complete_todo', description: 'Worker completion report: mark a project todo accepted or rejected (marks done + unblocks dependents).', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, acceptance: { type: 'string', enum: ['accepted','rejected'] } }, required: ['project','todoId','acceptance'] } },
       { name: 'start_coordinator', description: 'Start the per-project Coordinator daemon (claims ready todos and spawns workers on a tick). Explicit-start.', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'] } },
       { name: 'stop_coordinator', description: 'Stop the per-project Coordinator daemon.', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'] } },
       { name: 'checkpoint_ready', description: 'Context-watchdog: a session reports that its checkpoint is persisted. The server VERIFIES the named artifact was JUST written (recency gate) before recording checkpoint_ready — so a /clear can safely follow. Provide checkpointTodoId (vibe-checkpoint writes into the in_progress todo) OR checkpointDocId (a doc, e.g. vibe.vibeinstructions). Call this at the END of your checkpoint.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, checkpointTodoId: { type: 'string', description: 'Todo id the checkpoint updated (preferred — vibe-checkpoint writes the checkpoint into the in_progress todo description).' }, checkpointDocId: { type: 'string', description: 'Document id the checkpoint wrote (alternative to checkpointTodoId).' }, maxWriteAgeMs: { type: 'number', description: 'How recent the write must be to count as a fresh checkpoint (default 120000).' } }, required: ['project', 'session'] } },
-      { name: 'supervisor_clear_session', description: 'Context-watchdog HARD GATE: send /clear to a watched session ONLY if it has a recent persisted checkpoint (checkpoint_ready). Refuses otherwise. Consumes the checkpoint marker on success.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, serverId: { type: 'string', description: 'Optional peer server id for a remote session.' }, maxAgeMs: { type: 'number', description: 'Max age of the checkpoint marker to still allow clearing (default 600000).' } }, required: ['project', 'session'] } },
+      { name: 'supervisor_clear_session', description: 'Context-watchdog HARD GATE: send /clear to a watched session ONLY if it has a recent persisted checkpoint (checkpoint_ready). Refuses otherwise. Consumes the checkpoint marker on success.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, serverId: { type: 'string', description: 'Optional peer server id for a remote session.' }, maxAgeMs: { type: 'number', description: 'Max age of the checkpoint marker to still allow clearing (default 600000).' }, supervisorEpoch: { type: 'number', description: 'Supervisor ownership epoch from register_supervisor; a superseded supervisor is rejected.' } }, required: ['project', 'session'] } },
       { name: 'submit_reconcile_result', description: 'A reconcile session reports its merged plan graph back to the waiting reconciliation request. Call this at the END of the reconcile skill with the id you were given.', inputSchema: { type: 'object', properties: { reconcileId: { type: 'string' }, mergedGraph: { type: 'array', description: 'The merged PlanNode[] ({id, dependsOn[], parentId?, title?}).', items: { type: 'object' } }, newConstraints: { type: 'array', description: 'Optional new constraints surfaced by the merge ({title, rationale?}).', items: { type: 'object' } } }, required: ['reconcileId', 'mergedGraph'] } },
       { name: 'create_decision_record', description: 'Record a planning decision/constraint/assumption (PCS #9). decisions/assumptions are auto-active; constraints start "proposed" and need approval. epicId null = project-level.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, kind: { type: 'string', enum: ['decision', 'constraint', 'assumption'] }, title: { type: 'string' }, rationale: { type: 'string' }, alternatives: { type: 'array', items: { type: 'string' } }, linkedTodos: { type: 'array', items: { type: 'string' } }, epicId: { type: 'string', description: 'Epic id, or omit for project-level.' }, authorSession: { type: 'string' } }, required: ['project', 'kind', 'title'] } },
       { name: 'list_decision_records', description: 'List decision records for a project, filterable by epicId / kind / status.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, epicId: { type: 'string' }, kind: { type: 'string', enum: ['decision', 'constraint', 'assumption'] }, status: { type: 'string', enum: ['proposed', 'approved', 'active', 'superseded'] } }, required: ['project'] } },
@@ -3595,12 +3610,16 @@ IMPORTANT - Common pitfalls to avoid:
           case 'register_supervisor': {
             const { project, session, serverId } = args as { project: string; session: string; serverId?: string };
             if (!project || !session) throw new Error('Missing required: project, session');
-            supervisorStore.setSupervisorIdentity(project, session, serverId);
-            return JSON.stringify({ success: true, supervisor: { project, session, serverId } }, null, 2);
+            const epoch = supervisorStore.setSupervisorIdentity(project, session, serverId);
+            // The new epoch is the ownership token: the supervisor must carry it on
+            // subsequent mutating supervisor calls (supervisorEpoch) so the server
+            // can fence a superseded predecessor. See assertSupervisorOwner.
+            return JSON.stringify({ success: true, supervisor: { project, session, serverId, epoch } }, null, 2);
           }
           case 'supervisor_nudge': {
-            const { project, session, serverId, text } = args as { project: string; session: string; serverId?: string; text: string };
+            const { project, session, serverId, text, supervisorEpoch } = args as { project: string; session: string; serverId?: string; text: string; supervisorEpoch?: number };
             if (!project || !session || !text) throw new Error('Missing required: project, session, text');
+            { const fenced = supervisorFence(supervisorEpoch); if (fenced) return fenced; }
             if (supervisorStore.isSupervisorPaused(project)) return JSON.stringify({ sent: false, skipped: 'paused' }, null, 2);
             let result: any;
             let sent: boolean;
@@ -3620,6 +3639,7 @@ IMPORTANT - Common pitfalls to avoid:
             return JSON.stringify(result, null, 2);
           }
           case 'supervisor_reconcile': {
+            { const fenced = supervisorFence((args as { supervisorEpoch?: number }).supervisorEpoch); if (fenced) return fenced; }
             const out: Array<{ project: string; session: string; status: string | null; updatedAt: number | null; openTodos: number; supervised: boolean; serverId: string }> = [];
             for (const wp of supervisorStore.listWatchedProjects()) {
               const statuses = getStatuses(wp.project);
@@ -3661,14 +3681,18 @@ IMPORTANT - Common pitfalls to avoid:
             return JSON.stringify(supervisorStore.listOpenEscalations(), null, 2);
           }
           case 'escalation_resolve': {
-            const { id, status } = args as { id: string; status: string };
+            const { id, status, supervisorEpoch } = args as { id: string; status: string; supervisorEpoch?: number };
             if (!id || !status) throw new Error('Missing required: id, status');
+            { const fenced = supervisorFence(supervisorEpoch); if (fenced) return fenced; }
             supervisorStore.resolveEscalation(id, status);
             return JSON.stringify({ success: true, id, status }, null, 2);
           }
           case 'escalation_create': {
-            const { project, session, kind, questionText, todoId, options, recommended, ui } = args as { project: string; session: string; kind: string; questionText: string; todoId?: string; options?: Array<{ id: string; label: string; detail?: string }>; recommended?: string; ui?: unknown };
+            const { project, session, kind, questionText, todoId, options, recommended, ui, supervisorEpoch } = args as { project: string; session: string; kind: string; questionText: string; todoId?: string; options?: Array<{ id: string; label: string; detail?: string }>; recommended?: string; ui?: unknown; supervisorEpoch?: number };
             if (!project || !session || !kind || !questionText) throw new Error('Missing required: project, session, kind, questionText');
+            // Fence only bites a supervisor-context caller (one that carries an
+            // epoch). Ordinary workers escalate without an epoch — never fenced.
+            { const fenced = supervisorFence(supervisorEpoch); if (fenced) return fenced; }
             // Use the store's authoritative new-vs-dedup signal (no separate
             // pre-check → no TOCTOU): broadcast/record only for new escalations.
             // `ui` (BR-4) is server-validated inside createEscalation against the
@@ -4440,8 +4464,9 @@ IMPORTANT - Common pitfalls to avoid:
             return JSON.stringify({ persisted: true, artifact, ageMs }, null, 2);
           }
           case 'supervisor_clear_session': {
-            const { project, session, serverId, maxAgeMs } = args as { project: string; session: string; serverId?: string; maxAgeMs?: number };
+            const { project, session, serverId, maxAgeMs, supervisorEpoch } = args as { project: string; session: string; serverId?: string; maxAgeMs?: number; supervisorEpoch?: number };
             if (!project || !session) throw new Error('Missing required: project, session');
+            { const fenced = supervisorFence(supervisorEpoch); if (fenced) return fenced; }
             if (supervisorStore.isSupervisorPaused(project)) return JSON.stringify({ cleared: false, reason: 'paused' }, null, 2);
             // Gate: only clear if a recent persisted checkpoint exists. For a peer
             // session the marker lives on its home server, so check there.
