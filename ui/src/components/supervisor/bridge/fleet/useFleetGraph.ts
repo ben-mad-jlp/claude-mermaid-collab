@@ -18,7 +18,7 @@ import { bucketTodo, type FunnelKey } from '../funnel';
 import { currentTodoFor, deriveLiveness, roleGlyph } from '@/lib/liveness';
 import type { SessionTodo } from '@/types/sessionTodo';
 import type { Escalation } from '@/stores/supervisorStore';
-import { layoutFleet, type LayoutEdge, type LayoutNode } from './layout';
+import { layoutFleet, type LayoutDirection, type LayoutEdge, type LayoutNode, type Positioned } from './layout';
 import type { EpicNodeData, FleetEdge, FleetNode, TodoNodeData, WorkerNodeData } from './types';
 
 export interface WorkerSub {
@@ -36,6 +36,8 @@ export interface UseFleetGraphInput {
   openEscalations: Escalation[];
   expandedEpics: Set<string>;
   now: number;
+  /** dagre rankdir, mirrors the deck orientation (LR wide / TB narrow). */
+  direction?: LayoutDirection;
 }
 
 const EMPTY_COUNTS = (): Record<FunnelKey, number> => ({
@@ -52,6 +54,22 @@ const SIZES = {
   worker: { width: 170, height: 60 },
 };
 
+// Framed-container chrome (expanded epic): a header band holds the label +
+// status bar; padding frames the nested children below it.
+const EPIC_HEADER_H = 44;
+const EPIC_PAD_X = 16;
+const EPIC_PAD_BOTTOM = 16;
+
+/** Output of the two-level layout: absolute/relative positions + container metadata. */
+interface FleetLayout {
+  /** Absolute position for top-level entities; RELATIVE (to its epic) for nested children. */
+  pos: Map<string, Positioned>;
+  /** childId → the expanded epic that frames it (drives React Flow parentId). */
+  parentOf: Map<string, string>;
+  /** epicId → its framed container size, for expanded epics only. */
+  epicSize: Map<string, { width: number; height: number }>;
+}
+
 function useDebounced<T>(value: T, ms: number): T {
   const [v, setV] = useState(value);
   useEffect(() => {
@@ -62,7 +80,7 @@ function useDebounced<T>(value: T, ms: number): T {
 }
 
 export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; edges: FleetEdge[] } {
-  const { todos, subs, openEscalations, expandedEpics, now } = input;
+  const { todos, subs, openEscalations, expandedEpics, now, direction = 'LR' } = input;
 
   // Structure: an EPIC is any todo that actually HAS children. A parentId==null
   // todo with no children is a readable LEAF, not an empty-rollup epic block —
@@ -120,62 +138,136 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
       .map((x) => `${x.id}:${x.parentId ?? ''}:${(x.dependsOn ?? []).join('|')}:${x.claimedBy ?? ''}:${x.assigneeSession ?? ''}`)
       .join(';');
     const s = subs.map((x) => x.session).sort().join(',');
-    return `${t}#${s}#${expandedKey}`;
-  }, [todos, subs, expandedKey]);
+    // `direction` is folded in so an orientation flip is ONE deliberate relayout
+    // (debounced ~250ms) — status/ctx ticks never touch the signature, so they
+    // only updateNodeData in place (never-jump).
+    return `${t}#${s}#${expandedKey}#${direction}`;
+  }, [todos, subs, expandedKey, direction]);
   const debouncedSig = useDebounced(signature, 250);
 
   // Keep latest derived helpers reachable from the structure-only memo.
-  const ref = useRef({ todos, subs, visibleTodos, visibleRep, epicIds: struct.epicIds });
-  ref.current = { todos, subs, visibleTodos, visibleRep, epicIds: struct.epicIds };
+  const ref = useRef({ todos, subs, visibleTodos, visibleRep, struct, expandedEpics, direction });
+  ref.current = { todos, subs, visibleTodos, visibleRep, struct, expandedEpics, direction };
 
   // POSITIONS — recomputed only when the debounced structural signature changes.
-  const positions = useMemo(() => {
-    const { todos: allTodos, subs: curSubs, visibleTodos: vis, visibleRep: rep, epicIds } = ref.current;
+  //
+  // Two-level layout (decision d0a6bb2b): an EXPANDED epic is a framed container.
+  //  - INNER: its visible children are laid out among themselves (intra-epic deps)
+  //    and the bounding box → the container's size; child positions are RELATIVE
+  //    to the container (offset below the header band).
+  //  - OUTER: leaf top-level todos, epics (collapsed chip OR expanded container at
+  //    its full size) and workers are laid out together, with every dependency
+  //    edge re-routed to its TOP-LEVEL representative (a child's edges pull on its
+  //    epic, not the epic's neighbours). Expanded-epic children are skipped here —
+  //    they live inside their container.
+  const layout = useMemo<FleetLayout>(() => {
+    const { todos: allTodos, subs: curSubs, visibleTodos: vis, struct: st, expandedEpics: expanded, direction: dir } = ref.current;
     const waveMap = computeWaveMap(allTodos);
+    const isExpandedEpic = (id: string) => st.epicIds.has(id) && expanded.has(id);
 
-    const layoutNodes: LayoutNode[] = [];
+    // ---- INNER: each expanded epic → relative child positions + container size.
+    const pos = new Map<string, Positioned>();
+    const parentOf = new Map<string, string>();
+    const epicSize = new Map<string, { width: number; height: number }>();
+    for (const epicId of st.epicIds) {
+      if (!expanded.has(epicId)) continue;
+      const kids = (st.childrenByEpic.get(epicId) ?? []).filter((c) => vis.some((v) => v.id === c.id));
+      if (kids.length === 0) continue;
+      const kidIds = new Set(kids.map((k) => k.id));
+      const innerNodes: LayoutNode[] = kids.map((k) => ({ id: k.id, width: SIZES.todo.width, height: SIZES.todo.height }));
+      const seenInner = new Set<string>();
+      const innerEdges: LayoutEdge[] = [];
+      for (const k of kids) {
+        for (const dep of k.dependsOn ?? []) {
+          if (kidIds.has(dep) && !seenInner.has(`${dep}->${k.id}`)) {
+            seenInner.add(`${dep}->${k.id}`);
+            innerEdges.push({ source: dep, target: k.id });
+          }
+        }
+      }
+      const inner = layoutFleet(innerNodes, innerEdges, (id) => waveMap.get(id), dir);
+      // Normalise to (0,0) then offset for the header + padding; size to fit.
+      let minX = Infinity, minY = Infinity;
+      for (const p of inner.values()) { minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); }
+      if (!isFinite(minX)) { minX = 0; minY = 0; }
+      let maxRight = 0, maxBottom = 0;
+      for (const k of kids) {
+        const p = inner.get(k.id) ?? { x: 0, y: 0 };
+        const rel = { x: p.x - minX + EPIC_PAD_X, y: p.y - minY + EPIC_HEADER_H };
+        pos.set(k.id, rel);
+        parentOf.set(k.id, epicId);
+        maxRight = Math.max(maxRight, rel.x + SIZES.todo.width);
+        maxBottom = Math.max(maxBottom, rel.y + SIZES.todo.height);
+      }
+      epicSize.set(epicId, {
+        width: Math.max(SIZES.epic.width, maxRight + EPIC_PAD_X),
+        height: maxBottom + EPIC_PAD_BOTTOM,
+      });
+    }
+
+    // ---- OUTER: top-level entities (skip children that now live in a container).
+    const outerRep = (id: string): string | null => {
+      const t = st.byId.get(id);
+      if (!t) return null;
+      if (st.epicIds.has(id)) return id;
+      const pe = t.parentId != null && st.epicIds.has(t.parentId) ? t.parentId : null;
+      return pe ?? id; // child → its epic; otherwise a top-level leaf
+    };
+
+    const outerNodes: LayoutNode[] = [];
     for (const t of vis) {
-      const size = epicIds.has(t.id) ? SIZES.epic : SIZES.todo;
-      layoutNodes.push({ id: t.id, width: size.width, height: size.height });
+      if (parentOf.has(t.id)) continue; // nested inside an expanded epic
+      const size = isExpandedEpic(t.id) ? epicSize.get(t.id)! : st.epicIds.has(t.id) ? SIZES.epic : SIZES.todo;
+      outerNodes.push({ id: t.id, width: size.width, height: size.height });
     }
     const workerOf = new Map<string, SessionTodo | null>();
     for (const sub of curSubs) {
       const todo = currentTodoFor(sub.session, allTodos);
       workerOf.set(sub.session, todo);
-      layoutNodes.push({ id: `worker:${sub.session}`, width: SIZES.worker.width, height: SIZES.worker.height });
+      outerNodes.push({ id: `worker:${sub.session}`, width: SIZES.worker.width, height: SIZES.worker.height });
     }
 
-    // Dependency edges, re-routed to visible representatives + deduped.
     const seen = new Set<string>();
-    const layoutEdges: LayoutEdge[] = [];
+    const outerEdges: LayoutEdge[] = [];
     for (const t of allTodos) {
-      const tgt = rep(t.id);
+      const tgt = outerRep(t.id);
       if (!tgt) continue;
       for (const dep of t.dependsOn ?? []) {
-        const src = rep(dep);
+        const src = outerRep(dep);
         if (src && src !== tgt && !seen.has(`${src}->${tgt}`)) {
           seen.add(`${src}->${tgt}`);
-          layoutEdges.push({ source: src, target: tgt });
+          outerEdges.push({ source: src, target: tgt });
         }
       }
     }
     for (const sub of curSubs) {
       const todo = workerOf.get(sub.session);
-      const tgt = todo ? rep(todo.id) : null;
-      if (tgt) layoutEdges.push({ source: `worker:${sub.session}`, target: tgt });
+      const tgt = todo ? outerRep(todo.id) : null;
+      if (tgt) outerEdges.push({ source: `worker:${sub.session}`, target: tgt });
     }
 
+    // An epic's rank is the earliest wave among its children so it sits ahead of
+    // the work that depends on it; a worker borrows its todo's representative rank.
     const rankOf = (id: string): number | undefined => {
       if (id.startsWith('worker:')) {
         const todo = workerOf.get(id.slice('worker:'.length));
-        return todo ? waveMap.get(todo.id) : 0;
+        return todo ? waveMap.get(outerRep(todo.id) ?? todo.id) : 0;
+      }
+      if (st.epicIds.has(id)) {
+        const kids = st.childrenByEpic.get(id) ?? [];
+        const waves = kids.map((k) => waveMap.get(k.id)).filter((w): w is number => w != null);
+        return waves.length ? Math.min(...waves) : waveMap.get(id);
       }
       return waveMap.get(id);
     };
 
-    return layoutFleet(layoutNodes, layoutEdges, rankOf);
+    const outer = layoutFleet(outerNodes, outerEdges, rankOf, dir);
+    for (const [id, p] of outer) pos.set(id, p); // absolute for top-level entities
+
+    return { pos, parentOf, epicSize };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSig]);
+  const { pos: positions, parentOf, epicSize } = layout;
 
   // NODES — fresh data each render, stable positions.
   const nodes = useMemo<FleetNode[]>(() => {
@@ -197,8 +289,17 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
             total += 1;
           }
         }
-        const data: EpicNodeData = { kind: 'epic', label: t.title, counts, total };
-        out.push({ id: t.id, type: 'epic', position: pos, data });
+        const size = epicSize.get(t.id);
+        const data: EpicNodeData = size
+          ? { kind: 'epic', label: t.title, counts, total, expanded: true, width: size.width, height: size.height }
+          : { kind: 'epic', label: t.title, counts, total };
+        // An expanded epic is a framed container: give React Flow the box size so
+        // it reserves space and the nested children render inside its bounds.
+        out.push(
+          size
+            ? { id: t.id, type: 'epic', position: pos, data, style: { width: size.width, height: size.height } }
+            : { id: t.id, type: 'epic', position: pos, data },
+        );
       } else {
         const data: TodoNodeData = {
           kind: 'todo',
@@ -207,7 +308,14 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
           retryCount: t.retryCount ?? 0,
           danger: dangerFor(t),
         };
-        out.push({ id: t.id, type: 'todo', position: pos, data });
+        // A child of an expanded epic is nested: its position is relative to the
+        // container and React Flow clamps it inside (extent: 'parent').
+        const parent = parentOf.get(t.id);
+        out.push(
+          parent
+            ? { id: t.id, type: 'todo', position: pos, data, parentId: parent, extent: 'parent' }
+            : { id: t.id, type: 'todo', position: pos, data },
+        );
       }
     }
 
@@ -225,8 +333,12 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
       };
       out.push({ id, type: 'worker', position: pos, data });
     }
+    // React Flow requires a parent node to appear before its children. Container
+    // epics have no parentId; their nested children do — a stable partition by
+    // "has parentId" guarantees every container precedes the todos inside it.
+    out.sort((a, b) => (a.parentId ? 1 : 0) - (b.parentId ? 1 : 0));
     return out;
-  }, [visibleTodos, struct, todos, subs, openEscalations, positions, now]);
+  }, [visibleTodos, struct, todos, subs, openEscalations, positions, parentOf, epicSize, now]);
 
   // EDGES — dep edges (muted/static) re-routed through collapsed epics so they
   // always connect visible nodes; claim edges (accent/animated) only for active

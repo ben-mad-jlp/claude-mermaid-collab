@@ -12,6 +12,15 @@ export interface EpicNodeData extends Record<string, unknown> {
   /** Per-bucket rollup counts of child todos. */
   counts: Record<FunnelKey, number>;
   total: number;
+  /**
+   * True when the epic is expanded into a framed container — its children are
+   * nested React Flow nodes (parentId == this id) and this node paints only the
+   * header band + frame at the given size. False/undefined = the compact chip.
+   */
+  expanded?: boolean;
+  /** Container size when expanded (chrome that frames the nested children). */
+  width?: number;
+  height?: number;
 }
 
 export interface TodoNodeData extends Record<string, unknown> {

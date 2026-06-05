@@ -78,4 +78,45 @@ describe('useFleetGraph', () => {
     expect(ids).toContain('B');
     expect(result.current.edges.some((e) => e.source === 'A' && e.target === 'B')).toBe(true);
   });
+
+  it('frames an expanded epic as a container: children are parented + the epic is sized', () => {
+    const todos = [
+      todo({ id: 'E1' }),
+      todo({ id: 'A', parentId: 'E1' }),
+      todo({ id: 'B', parentId: 'E1', dependsOn: ['A'] }),
+    ];
+    const { result } = renderHook(() =>
+      useFleetGraph({ ...base, todos, expandedEpics: new Set(['E1']) }),
+    );
+    const epic = result.current.nodes.find((n) => n.id === 'E1')!;
+    expect(epic.type).toBe('epic');
+    expect((epic.data as { expanded?: boolean }).expanded).toBe(true);
+    // The container is sized to frame its children.
+    expect((epic.data as { width?: number }).width).toBeGreaterThan(0);
+    expect((epic.data as { height?: number }).height).toBeGreaterThan(0);
+    // Children are nested (parentId == the epic) and clamped to the parent.
+    const a = result.current.nodes.find((n) => n.id === 'A')!;
+    const b = result.current.nodes.find((n) => n.id === 'B')!;
+    expect(a.parentId).toBe('E1');
+    expect(b.parentId).toBe('E1');
+    expect(a.extent).toBe('parent');
+    // The container precedes its children in the node array (React Flow requires it).
+    const ids = result.current.nodes.map((n) => n.id);
+    expect(ids.indexOf('E1')).toBeLessThan(ids.indexOf('A'));
+    expect(ids.indexOf('E1')).toBeLessThan(ids.indexOf('B'));
+  });
+
+  it('threads direction into the layout: LR spreads waves along x, TB along y', () => {
+    const todos = [todo({ id: 'A' }), todo({ id: 'B', dependsOn: ['A'] })];
+    const lr = renderHook(() =>
+      useFleetGraph({ ...base, todos, expandedEpics: new Set(), direction: 'LR' }),
+    );
+    const tb = renderHook(() =>
+      useFleetGraph({ ...base, todos, expandedEpics: new Set(), direction: 'TB' }),
+    );
+    const pos = (r: typeof lr, id: string) => r.result.current.nodes.find((n) => n.id === id)!.position;
+    // dependent B sits in the next wave: to the RIGHT of A in LR, BELOW A in TB.
+    expect(pos(lr, 'B').x).toBeGreaterThan(pos(lr, 'A').x);
+    expect(pos(tb, 'B').y).toBeGreaterThan(pos(tb, 'A').y);
+  });
 });
