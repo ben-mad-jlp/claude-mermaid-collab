@@ -118,24 +118,33 @@ function augmentedPath(): string {
  * the keys the server's config-service reads.
  */
 const INJECTED_SECRET_KEYS = ['XAI_API_KEY'] as const;
-
 /**
- * Build the set of secret env vars to inject into the sidecar spawn, read from
- * the GUI-held secrets file (~/.mermaid-collab/config.json, the same file the
- * desktop Settings "Secrets" tab writes). Honors config-service precedence
- * (env → config.json → fallback): a key the launching env already provides is
- * left untouched so an explicit override (e.g. a launchctl stopgap) still wins;
- * only the missing keys are filled from the file. Exported for testing.
+ * Non-secret FEATURE FLAGS injected into the sidecar spawn the same way as
+ * secrets. This is the DURABLE way to enable MERMAID_WORKER_ISOLATION (and future
+ * flags) for a Dock-/login-launched sidecar: `launchctl setenv` is unreliable for
+ * app-spawned children, so we read the flag from ~/.mermaid-collab/config.json and
+ * inject it into the child env at spawn — surviving app restarts without a
+ * standalone-sidecar/launchctl stopgap.
  */
-export function resolveSecretsEnv(opts?: {
+const INJECTED_FLAG_KEYS = ['MERMAID_WORKER_ISOLATION'] as const;
+
+interface ConfigEnvOpts {
   currentEnv?: NodeJS.ProcessEnv;
   configPath?: string;
   keys?: readonly string[];
   readFileImpl?: (p: string) => string;
   existsImpl?: (p: string) => boolean;
-}): Record<string, string> {
+}
+
+/**
+ * Shared core: pick `keys` from the GUI config file for any key the launching env
+ * doesn't already provide. Honors config-service precedence (env → config.json):
+ * a key already in the env is left untouched so an explicit override still wins;
+ * only missing keys are filled from the file. Number/boolean values are
+ * stringified (so `"MERMAID_WORKER_ISOLATION": 1` or `true` both work).
+ */
+function pickEnvFromConfig(keys: readonly string[], opts?: ConfigEnvOpts): Record<string, string> {
   const currentEnv = opts?.currentEnv ?? process.env;
-  const keys = opts?.keys ?? INJECTED_SECRET_KEYS;
   const configFile =
     opts?.configPath ??
     process.env.MERMAID_CONFIG_PATH ??
@@ -158,8 +167,27 @@ export function resolveSecretsEnv(opts?: {
     if (envVal !== undefined && envVal !== '') continue; // env already wins — don't override
     const fileVal = fileConfig[key];
     if (typeof fileVal === 'string' && fileVal !== '') out[key] = fileVal;
+    else if (typeof fileVal === 'number' || typeof fileVal === 'boolean') out[key] = String(fileVal);
   }
   return out;
+}
+
+/**
+ * Secret env vars to inject into the sidecar spawn (XAI_API_KEY, …), read from
+ * the GUI-held secrets file (~/.mermaid-collab/config.json, the same file the
+ * desktop Settings "Secrets" tab writes). Env-wins precedence. Exported for testing.
+ */
+export function resolveSecretsEnv(opts?: ConfigEnvOpts): Record<string, string> {
+  return pickEnvFromConfig(opts?.keys ?? INJECTED_SECRET_KEYS, opts);
+}
+
+/**
+ * Feature-flag env vars to inject into the sidecar spawn (MERMAID_WORKER_ISOLATION,
+ * …) from ~/.mermaid-collab/config.json, env-wins. The durable enable-isolation
+ * path for a GUI-launched sidecar. Exported for testing.
+ */
+export function resolveFlagsEnv(opts?: ConfigEnvOpts): Record<string, string> {
+  return pickEnvFromConfig(opts?.keys ?? INJECTED_FLAG_KEYS, opts);
 }
 
 /** Resolve a free loopback port (lifted from the verified spike). */
@@ -215,6 +243,10 @@ export class ServerSupervisor {
       // the sidecar and its children resolve them without a launchctl stopgap. The
       // helper skips keys already in process.env, so the explicit-env override wins.
       ...resolveSecretsEnv(),
+      // Inject durable feature flags (MERMAID_WORKER_ISOLATION, …) from the same
+      // config file, so worker write-isolation survives an app restart without a
+      // launchctl setenv / standalone-sidecar stopgap (env still wins if set).
+      ...resolveFlagsEnv(),
       // Repair the minimal PATH a GUI/login-item launch inherits, so the sidecar
       // and its children (tmux, the PTY shells, git, claude) can find
       // user-installed tools. Without this, tmux is missing after a restart and

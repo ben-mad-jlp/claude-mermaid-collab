@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
-import { ServerSupervisor, resolveSecretsEnv } from '../server-supervisor';
+import { ServerSupervisor, resolveSecretsEnv, resolveFlagsEnv } from '../server-supervisor';
 
 function fakeChild(pid = 12345) {
   const child: any = new EventEmitter();
@@ -192,5 +192,35 @@ describe('resolveSecretsEnv', () => {
       ...withFile(JSON.stringify({ XAI_API_KEY: 'k', OTHER_SECRET: 'nope' })),
     });
     expect(out).toEqual({ XAI_API_KEY: 'k' });
+  });
+});
+
+describe('resolveFlagsEnv (durable worker-isolation enable — 828a89a9)', () => {
+  const cfg = '/fake/.mermaid-collab/config.json';
+  const withFile = (json: string) => ({ configPath: cfg, existsImpl: () => true, readFileImpl: () => json });
+
+  it('injects MERMAID_WORKER_ISOLATION from config.json when the env lacks it', () => {
+    const out = resolveFlagsEnv({ currentEnv: {}, ...withFile(JSON.stringify({ MERMAID_WORKER_ISOLATION: '1' })) });
+    expect(out).toEqual({ MERMAID_WORKER_ISOLATION: '1' });
+  });
+
+  it('stringifies a numeric or boolean flag value (1 / true both enable)', () => {
+    expect(resolveFlagsEnv({ currentEnv: {}, ...withFile(JSON.stringify({ MERMAID_WORKER_ISOLATION: 1 })) }))
+      .toEqual({ MERMAID_WORKER_ISOLATION: '1' });
+    expect(resolveFlagsEnv({ currentEnv: {}, ...withFile(JSON.stringify({ MERMAID_WORKER_ISOLATION: true })) }))
+      .toEqual({ MERMAID_WORKER_ISOLATION: 'true' });
+  });
+
+  it('does NOT override the flag when the launching env already sets it (env wins)', () => {
+    const out = resolveFlagsEnv({
+      currentEnv: { MERMAID_WORKER_ISOLATION: '0' },
+      ...withFile(JSON.stringify({ MERMAID_WORKER_ISOLATION: '1' })),
+    });
+    expect(out).toEqual({}); // explicit env stands (e.g. a launchctl override)
+  });
+
+  it('injects nothing when the flag is absent / config missing', () => {
+    expect(resolveFlagsEnv({ currentEnv: {}, ...withFile(JSON.stringify({ XAI_API_KEY: 'k' })) })).toEqual({});
+    expect(resolveFlagsEnv({ currentEnv: {}, configPath: cfg, existsImpl: () => false, readFileImpl: () => { throw new Error('no'); } })).toEqual({});
   });
 });
