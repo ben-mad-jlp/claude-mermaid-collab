@@ -118,33 +118,34 @@ describe('pool registry transitions', () => {
 describe('reapDeadSlots (889e3e26 — slot release decoupled from todo status)', () => {
   beforeEach(() => resetPool());
 
-  it('frees a busy slot whose backing tmux is dead, leaving live ones alone', () => {
+  it('frees a busy slot whose backing tmux is dead, leaving live ones alone', async () => {
     const a = getOrCreateSlot('backend')!;
     markBusy(poolSessionName(a.type, a.slot), 'todo-a', 'mc-proj-backend-1');
     expect(listPool()['backend-1'].status).toBe('busy');
     // backend at capacity (1 slot) → no new slot until the dead one is reaped.
     expect(getOrCreateSlot('backend')).toBeUndefined();
 
-    // The worker's tmux vanished (dropped/abandoned todo, or killed lane).
-    const freed = reapDeadSlots((tmux) => tmux !== 'mc-proj-backend-1');
+    // The worker's tmux vanished (dropped/abandoned todo, or killed lane). The
+    // predicate is async now (944408c2: tmux liveness is a non-blocking subprocess).
+    const freed = await reapDeadSlots(async (tmux) => tmux !== 'mc-proj-backend-1');
     expect(freed).toEqual(['backend-1']);
     expect(listPool()['backend-1'].status).toBe('idle');
     // Slot is reusable again — the wedge is gone.
     expect(getOrCreateSlot('backend')).toBeDefined();
   });
 
-  it('leaves a busy slot with a LIVE tmux untouched', () => {
+  it('leaves a busy slot with a LIVE tmux untouched', async () => {
     const s = getOrCreateSlot('frontend')!;
     markBusy(poolSessionName(s.type, s.slot), 'todo-x', 'mc-proj-frontend-1');
-    const freed = reapDeadSlots(() => true); // all alive
+    const freed = await reapDeadSlots(async () => true); // all alive
     expect(freed).toEqual([]);
     expect(listPool()['frontend-1'].status).toBe('busy');
   });
 
-  it('ignores a busy slot with no recorded tmux (legacy/in-flight backstop)', () => {
+  it('ignores a busy slot with no recorded tmux (legacy/in-flight backstop)', async () => {
     const s = getOrCreateSlot('api')!;
     markBusy(poolSessionName(s.type, s.slot), 'todo-y'); // no tmux recorded
-    const freed = reapDeadSlots(() => false); // everything "dead"
+    const freed = await reapDeadSlots(async () => false); // everything "dead"
     expect(freed).toEqual([]); // not reaped — todo-level reaper backstops it
     expect(listPool()['api-1'].status).toBe('busy');
   });

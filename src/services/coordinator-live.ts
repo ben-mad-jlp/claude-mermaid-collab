@@ -20,10 +20,32 @@ import {
   reapDeadSlots,
 } from './worker-pool';
 
+/** Run a subprocess ASYNC and await it — NEVER block the single-threaded sidecar
+ *  event loop with spawnSync (bug 944408c2: the coordinator/watchdog runs in the
+ *  sidecar process, so a synchronous tmux/ps/gate call freezes the whole HTTP API
+ *  — terminal + health included — until it returns). `capture` pipes stdout/stderr;
+ *  otherwise they're discarded for speed. */
+async function execAsync(
+  cmd: string[],
+  opts: { cwd?: string; capture?: boolean } = {},
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  const proc = Bun.spawn(cmd, {
+    cwd: opts.cwd,
+    stdout: opts.capture ? 'pipe' : 'ignore',
+    stderr: opts.capture ? 'pipe' : 'ignore',
+  });
+  const [stdout, stderr, code] = await Promise.all([
+    opts.capture && proc.stdout ? new Response(proc.stdout).text() : Promise.resolve(''),
+    opts.capture && proc.stderr ? new Response(proc.stderr).text() : Promise.resolve(''),
+    proc.exited,
+  ]);
+  return { code: code ?? 0, stdout, stderr };
+}
+
 /** True if a tmux session with this base name exists (worker still alive). */
-function isTmuxAlive(tmux: string): boolean {
+async function isTmuxAlive(tmux: string): Promise<boolean> {
   try {
-    return Bun.spawnSync(['tmux', 'has-session', '-t', tmux], { stdout: 'ignore', stderr: 'ignore' }).exitCode === 0;
+    return (await execAsync(['tmux', 'has-session', '-t', tmux])).code === 0;
   } catch {
     // can't check → assume alive (don't reclaim on uncertainty; the lease still backstops).
     return true;
@@ -33,9 +55,9 @@ function isTmuxAlive(tmux: string): boolean {
 /** Kill a tmux session by base name. Best-effort (no-op if absent). Used by the
  *  worker-isolation lifecycle to tear down a warm session whose worktree cwd was
  *  removed on merge-back (drop keep-warm, decision c4a8bf40). */
-function killTmuxSession(tmux: string): void {
+async function killTmuxSession(tmux: string): Promise<void> {
   try {
-    Bun.spawnSync(['tmux', 'kill-session', '-t', tmux], { stdout: 'ignore', stderr: 'ignore' });
+    await execAsync(['tmux', 'kill-session', '-t', tmux]);
   } catch {
     /* best-effort */
   }
@@ -53,9 +75,9 @@ function killTmuxSession(tmux: string): void {
 /** One `ps` snapshot → pid → { ppid-children, comm }. Built once per detect pass
  *  so the subtree walk costs a single subprocess regardless of worker count.
  *  Returns null if ps is unavailable (→ callers treat liveness as unknown). */
-function procSnapshot(): Map<number, { children: number[]; comm: string }> | null {
+async function procSnapshot(): Promise<Map<number, { children: number[]; comm: string }> | null> {
   try {
-    const out = Bun.spawnSync(['ps', '-axo', 'pid=,ppid=,comm='], { stdout: 'pipe', stderr: 'ignore' }).stdout?.toString() ?? '';
+    const out = (await execAsync(['ps', '-axo', 'pid=,ppid=,comm='], { capture: true })).stdout;
     if (!out.trim()) return null;
     const byPid = new Map<number, { children: number[]; comm: string }>();
     const rows: Array<{ pid: number; ppid: number; comm: string }> = [];
@@ -82,10 +104,10 @@ function procSnapshot(): Map<number, { children: number[]; comm: string }> | nul
 }
 
 /** The shell PID running in a tmux session's (first) pane, or null. */
-function tmuxPanePid(tmux: string): number | null {
+async function tmuxPanePid(tmux: string): Promise<number | null> {
   try {
-    const p = Bun.spawnSync(['tmux', 'list-panes', '-t', tmux, '-F', '#{pane_pid}'], { stdout: 'pipe', stderr: 'ignore' });
-    const first = (p.stdout?.toString() ?? '').split('\n').map((l) => l.trim()).filter(Boolean)[0];
+    const out = (await execAsync(['tmux', 'list-panes', '-t', tmux, '-F', '#{pane_pid}'], { capture: true })).stdout;
+    const first = out.split('\n').map((l) => l.trim()).filter(Boolean)[0];
     const n = Number(first);
     return Number.isInteger(n) && n > 0 ? n : null;
   } catch {
@@ -113,9 +135,9 @@ export function claudeAliveInSubtree(rootPid: number, snap: Map<number, { childr
 /** Is a `claude` process alive in this tmux pane's process subtree? Returns
  *  true/false, or null when it can't be determined (no pane pid / no ps snapshot)
  *  — callers MUST treat null as "assume alive" and never escalate on uncertainty. */
-function claudeProcessPresent(tmux: string, snap: Map<number, { children: number[]; comm: string }> | null): boolean | null {
+async function claudeProcessPresent(tmux: string, snap: Map<number, { children: number[]; comm: string }> | null): Promise<boolean | null> {
   if (!snap) return null;
-  const panePid = tmuxPanePid(tmux);
+  const panePid = await tmuxPanePid(tmux);
   if (panePid == null) return null;
   return claudeAliveInSubtree(panePid, snap);
 }
@@ -137,6 +159,24 @@ const deadTracker = new Map<string, { since: number; escalated: boolean }>();
  *  declare it dead. Long enough to clear cold-start; override MERMAID_DEAD_GRACE. */
 const DEAD_GRACE_MS = (Number(process.env.MERMAID_DEAD_GRACE) || 45) * 1000;
 
+// --- 944408c2 safety valve: respawn backoff + cold-start concurrency cap --------
+// A crash-looping worker (dies → reclaim → respawn → dies) plus a thundering herd
+// of simultaneous cold-starts together starved the sidecar — the storm behind the
+// terminal/health wedge. Two governors keep a few failures from cascading into a
+// storm:
+//  1. BACKOFF — a todo that just had a spawn attempt waits backoff(retryCount)
+//     before another, so a deterministic failure isn't hammered tick after tick.
+//  2. COLD-START CAP — at most MERMAID_MAX_COLD_STARTS worker spawns run at once,
+//     so a wave can't launch N heavy `claude` cold-starts (+ their MCP load)
+//     simultaneously; the rest defer and spawn as slots free.
+const lastSpawnAttempt = new Map<string, number>();
+function respawnBackoffMs(retryCount: number): number {
+  if (retryCount <= 0) return 0;
+  return Math.min(5_000 * 2 ** (retryCount - 1), 5 * 60_000); // 5s,10s,20s,40s… cap 5m
+}
+const MAX_COLD_STARTS = Math.max(1, Number(process.env.MERMAID_MAX_COLD_STARTS) || 2);
+let coldStartsInFlight = 0;
+
 // --- DOGFOOD #6: idle-at-prompt stall detection ---------------------------------
 // A worker can be ALIVE (tmux up, lease unexpired) yet silently stalled: it ended
 // its turn sitting at the input prompt awaiting a human decision, without filing an
@@ -145,10 +185,9 @@ const DEAD_GRACE_MS = (Number(process.env.MERMAID_DEAD_GRACE) || 45) * 1000;
 // until lease-expiry.
 
 /** Read a worker's rendered tmux pane (point-in-time). '' if unreadable. */
-function capturePane(tmux: string): string {
+async function capturePane(tmux: string): Promise<string> {
   try {
-    const p = Bun.spawnSync(['tmux', 'capture-pane', '-t', tmux, '-p'], { stdout: 'pipe', stderr: 'ignore' });
-    return p.stdout?.toString() ?? '';
+    return (await execAsync(['tmux', 'capture-pane', '-t', tmux, '-p'], { capture: true })).stdout;
   } catch {
     return '';
   }
@@ -327,7 +366,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
             // warm session's cwd is a deleted dir. Kill its tmux session and drop
             // the pool slot so the next todo spawns a FRESH session in a FRESH
             // worktree instead of reusing a bare-shell session.
-            try { killTmuxSession(tmuxBaseName(targetProject, session)); } catch { /* best-effort teardown */ }
+            try { await killTmuxSession(tmuxBaseName(targetProject, session)); } catch { /* best-effort teardown */ }
             removeSlot(session);
           }
         } catch (e) {
@@ -344,6 +383,20 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       return r;
     },
     launchWorker: async (project: string, todo: Todo): Promise<boolean> => {
+      // SAFETY VALVE 1 — respawn backoff (944408c2): a todo whose worker was just
+      // attempted waits backoff(retryCount) before another spawn, so a crash loop
+      // can't hammer the sidecar tick after tick. Defer (release the claim) until
+      // the window elapses; it stays re-claimable.
+      const backoff = respawnBackoffMs(todo.retryCount ?? 0);
+      if (backoff > 0) {
+        const last = lastSpawnAttempt.get(todo.id);
+        if (last != null && Date.now() - last < backoff) {
+          try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
+          recordSupervisorAudit({ kind: 'spawn', project, session: '', detail: JSON.stringify({ todoId: todo.id, started: false, reason: 'respawn-backoff', backoffMs: backoff, retryCount: todo.retryCount ?? 0, released: true }) });
+          return false;
+        }
+      }
+
       // POOL-4: route the todo to a persistent, role-typed pool session instead
       // of spawning a fresh worker-<id8> per todo.
       //
@@ -423,16 +476,38 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         }
       }
 
+      // SAFETY VALVE 2 — cold-start concurrency cap (944408c2): bound simultaneous
+      // worker cold-starts so a wave can't storm the sidecar with N heavy claude
+      // spawns + MCP load at once. At cap → defer (release the claim; re-claimable
+      // next tick once an in-flight spawn finishes). Counts only REAL spawn attempts
+      // (after all the deferrals above), so a wave of N todos with cap=2 spawns in
+      // waves of 2 instead of all at once.
+      if (coldStartsInFlight >= MAX_COLD_STARTS) {
+        try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
+        recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, started: false, reason: 'cold-start-cap', inFlight: coldStartsInFlight, cap: MAX_COLD_STARTS, released: true }) });
+        return false;
+      }
+
       // 3. Spawn or reuse the pool session (idempotent — ensureSession reuses a
       //    live, bound session), then send the worker skill into it. Profile
       //    params still drive tools/model/runtimeMode. cwd = the worktree (under
-      //    isolation) or the target repo.
-      const ensured = await ensureSession({ project: targetProject, session: poolName, allowedTools, model, runtimeMode, contextPrompt, cwd: launchCwd });
-      const started = ensured.ready;
-      let reason = ensured.reason;
-      if (started) {
-        const run = await runTodoInSession({ session: poolName, invokeSkill, tmux: ensured.tmux });
-        if (!run.sent) reason = run.reason;
+      //    isolation) or the target repo. Stamp the attempt (for backoff) and count
+      //    it against the cold-start cap until the spawn finishes.
+      lastSpawnAttempt.set(todo.id, Date.now());
+      coldStartsInFlight++;
+      let ensured: Awaited<ReturnType<typeof ensureSession>> = { ready: false };
+      let started = false;
+      let reason: string | undefined;
+      try {
+        ensured = await ensureSession({ project: targetProject, session: poolName, allowedTools, model, runtimeMode, contextPrompt, cwd: launchCwd });
+        started = ensured.ready;
+        reason = ensured.reason;
+        if (started) {
+          const run = await runTodoInSession({ session: poolName, invokeSkill, tmux: ensured.tmux });
+          if (!run.sent) reason = run.reason;
+        }
+      } finally {
+        coldStartsInFlight--;
       }
       const ok = started && reason === undefined;
 
@@ -466,7 +541,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // the slot isn't wedged busy on a vanished session.
       for (const t of listTodos(project, { status: 'in_progress' })) {
         const session = t.sessionName ?? `worker-${t.id.slice(0, 8)}`;
-        if (isTmuxAlive(tmuxBaseName(project, session))) continue; // worker still running (incl. warm idle pool sessions)
+        if (await isTmuxAlive(tmuxBaseName(project, session))) continue; // worker still running (incl. warm idle pool sessions)
         const next = await reclaimClaim(project, t.id);
         // The session is gone — release the pool slot it held (no-op if it wasn't a pool session).
         markIdle(session);
@@ -480,7 +555,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // free it on its worker's death regardless of the todo's status (dropped,
       // completed out-of-band, or an operator-killed lane). Project-agnostic — it
       // keys off each slot's own recorded tmux, not the in_progress todo list.
-      return reapDeadSlots((tmux) => isTmuxAlive(tmux));
+      return await reapDeadSlots((tmux) => isTmuxAlive(tmux));
     },
     detectStalls: async (project: string): Promise<string[]> => {
       // DOGFOOD #6: surface ALIVE-but-idle (stalled) workers. Signal: the pane is
@@ -492,20 +567,20 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       const seen = new Set<string>();
       // One process snapshot for the whole pass → the PID-liveness subtree walk
       // (63a59bd6) costs a single `ps` regardless of how many workers are live.
-      const snap = procSnapshot();
+      const snap = await procSnapshot();
       for (const t of listTodos(project, { status: 'in_progress' })) {
         const session = t.sessionName ?? `worker-${t.id.slice(0, 8)}`;
         const tmux = tmuxBaseName(project, session);
         seen.add(tmux);
-        if (!isTmuxAlive(tmux)) continue; // dead → reapDeadClaims handles it
-        const pane = capturePane(tmux);
+        if (!(await isTmuxAlive(tmux))) continue; // dead → reapDeadClaims handles it
+        const pane = await capturePane(tmux);
 
         // 63a59bd6 — DEAD CLAUDE IN A LIVE TMUX (the watchdog blind spot): the tmux
         // is alive but no `claude` process remains in its pane subtree, and the pane
         // shows no Claude TUI chrome (so it's a bare shell, not a mid-spawn gap).
         // Confirm across DEAD_GRACE_MS, then ESCALATE (the death was previously
         // silent), kill the dud session, and reclaim the claim so the lane resets.
-        const claudePresent = claudeProcessPresent(tmux, snap);
+        const claudePresent = await claudeProcessPresent(tmux, snap);
         if (claudePresent === false && !isClaudeTuiPresent(pane)) {
           const now = Date.now();
           const prevDead = deadTracker.get(tmux);
@@ -526,7 +601,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
             recordSupervisorAudit({ kind: 'escalate', project, session, detail: JSON.stringify({ todoId: t.id, reason: 'dead-claude-live-tmux', deadMs: now - prevDead.since }) });
             // Reset the lane: kill the dud bare-shell tmux, free the pool slot, and
             // reclaim the claim (retry-budget-aware → ready or blocked).
-            killTmuxSession(tmux);
+            await killTmuxSession(tmux);
             markIdle(session);
             await reclaimClaim(project, t.id);
             prevDead.escalated = true;
@@ -637,14 +712,18 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       const cmd = loadProjectManifest(gateProject)?.gateCommand?.trim();
       if (!cmd) return null;
       try {
-        const proc = Bun.spawnSync(['sh', '-c', cmd], { cwd: gateProject, stdout: 'pipe', stderr: 'pipe' });
-        const out = (proc.stdout?.toString() ?? '') + '\n' + (proc.stderr?.toString() ?? '');
+        // ASYNC (944408c2): the gate runs tsc + tests — seconds to minutes. Running
+        // it with spawnSync froze the ENTIRE single-threaded sidecar (HTTP API,
+        // terminal, health) for the whole gate. Await it instead so the event loop
+        // keeps serving while the gate child runs.
+        const proc = await execAsync(['sh', '-c', cmd], { cwd: gateProject, capture: true });
+        const out = proc.stdout + '\n' + proc.stderr;
         // Prefer a structured verdict if the gate emits a trailing JSON line
         // (e.g. a CAD fitness gate: {"passed":false,"reasons":[...],"metrics":{...}}).
         const structured = parseTrailingVerdict(out);
         if (structured) return structured;
-        const passed = proc.exitCode === 0;
-        return { passed, reasons: passed ? [] : [`gate command exited ${proc.exitCode}: ${lastLines(out, 20)}`] };
+        const passed = proc.code === 0;
+        return { passed, reasons: passed ? [] : [`gate command exited ${proc.code}: ${lastLines(out, 20)}`] };
       } catch (e) {
         // Fail CLOSED — an un-runnable gate blocks acceptance, never passes it.
         return { passed: false, reasons: [`gate could not run (${cmd}): ${e instanceof Error ? e.message : String(e)}`] };

@@ -231,14 +231,22 @@ export function removeSlot(sessionName: string): boolean {
  *  session. `isAlive` is injected (tmux liveness check) to keep this pure. A busy
  *  slot with no recorded tmux is left alone (legacy/in-flight — the todo-level
  *  reaper still backstops it). Returns the freed session names. */
-export function reapDeadSlots(isAlive: (tmux: string) => boolean): string[] {
+export async function reapDeadSlots(isAlive: (tmux: string) => boolean | Promise<boolean>): Promise<string[]> {
   const freed: string[] = [];
-  for (const [name, s] of registry.entries()) {
-    if (s.status === 'busy' && s.tmux && !isAlive(s.tmux)) {
-      s.status = 'idle';
-      delete s.currentTodoId;
-      delete s.tmux;
-      freed.push(name);
+  // Snapshot busy slots first so we can await liveness without iterating the
+  // registry while it may mutate. The predicate is async (944408c2: tmux liveness
+  // is an async subprocess call now, never a blocking spawnSync on the sidecar).
+  const busy = [...registry.entries()].filter(([, s]) => s.status === 'busy' && s.tmux);
+  for (const [name, s] of busy) {
+    if (!(await isAlive(s.tmux!))) {
+      // Re-read in case it changed while awaiting.
+      const cur = registry.get(name);
+      if (cur && cur.status === 'busy') {
+        cur.status = 'idle';
+        delete cur.currentTodoId;
+        delete cur.tmux;
+        freed.push(name);
+      }
     }
   }
   return freed;
