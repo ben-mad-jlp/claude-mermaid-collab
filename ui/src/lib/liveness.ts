@@ -5,11 +5,43 @@
  * FleetGraph nodes derive a session's state identically — one source of truth
  * for "is this worker active / idle / crashed", computed INLINE from
  * subscription freshness (no server round-trip, no supervisorLiveness helper).
+ *
+ * THIN CLIENT of the canonical read model (refactor C3): the server owns the
+ * unified join + `deriveLiveness` in `src/services/session-runtime.ts`; this file
+ * mirrors that shape (`SessionRuntime`) and keeps the SAME liveness rule so the
+ * UI can either compute liveness inline (current) or consume the server's
+ * `/api/session-runtime` feed without a shape mismatch. Keep CRASH_MS and the
+ * derive rule in lockstep with the backend module.
  */
 
 import type { SessionTodo } from '@/types/sessionTodo';
 
 export type Liveness = 'active' | 'idle' | 'crashed';
+
+/**
+ * Mirror of the server's `SessionRuntime` (src/services/session-runtime.ts) — the
+ * single unified shape for "who is alive and what are they doing". The UI cannot
+ * import backend code, so this is a hand-kept structural copy; the
+ * `/api/session-runtime` feed serves exactly this shape.
+ */
+export interface SessionRuntime {
+  project: string;
+  session: string;
+  role: string;
+  isSupervisor: boolean;
+  status: 'active' | 'waiting' | 'permission' | 'checkpoint_ready';
+  updatedAt: number;
+  contextPercent: number | null;
+  contextUpdatedAt: number | null;
+  checkpointReadyAt: number | null;
+  claimedTodoId: string | null;
+  claimedAt: string | null;
+  retryCount: number;
+  slotTmux: string | null;
+  idleSince: number | null;
+  escalated: boolean;
+  liveness: Liveness;
+}
 
 /** No heartbeat for this long ⇒ treat a working session as crashed. */
 export const CRASH_MS = 120_000;
