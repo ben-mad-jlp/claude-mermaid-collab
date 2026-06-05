@@ -22,6 +22,7 @@
 import {
   getSupervisorIdentity,
   getSupervisorConfig,
+  pendingDecisionCount,
   SUPERVISOR_HEARTBEAT_INTERVAL_MS,
   SUPERVISOR_STALE_AFTER_MS,
   type SupervisorIdentity,
@@ -55,6 +56,11 @@ export interface SupervisorLivenessDeps {
   staleAfterMs: number;
   /** Launch (or respawn) the supervisor watchdog lane. Best-effort. */
   spawn: (project: string, session: string) => Promise<{ started: boolean; reason?: string }>;
+  /** On-demand gate (COORD handoff): when set, a supervisor LLM is only ensured
+   *  WHILE there is work for it to judge (the decision queue is non-empty) — it is
+   *  no longer kept always-on. Absent → legacy always-on behaviour (spawn whenever
+   *  the heartbeat is absent/stale). */
+  hasPendingWork?: () => boolean;
   log?: (msg: string) => void;
 }
 
@@ -69,7 +75,7 @@ export function makeLivenessState(): LivenessState {
   return { spawning: false, lastSpawnAt: 0 };
 }
 
-export type LivenessAction = 'healthy' | 'spawn-in-flight' | 'grace' | 'spawned' | 'respawned' | 'spawn-failed';
+export type LivenessAction = 'healthy' | 'spawn-in-flight' | 'grace' | 'spawned' | 'respawned' | 'spawn-failed' | 'idle-no-work';
 
 /**
  * One liveness decision. Pure-ish: all I/O is via injected deps so the
@@ -93,6 +99,11 @@ export async function supervisorLivenessTick(
   const id = deps.getIdentity();
   const isFresh = id != null && now - id.updatedAt <= deps.staleAfterMs;
   if (isFresh) return { action: 'healthy' };
+
+  // On-demand gate: with no fresh supervisor AND nothing queued to judge, do NOT
+  // spawn — the LLM session is summoned only when the decision queue has work
+  // (COORD handoff: the daemon handles the mechanical loop; the LLM only judges).
+  if (deps.hasPendingWork && !deps.hasPendingWork()) return { action: 'idle-no-work' };
 
   // Absent (never registered) → spawn; stale (registered but heartbeat old) →
   // respawn. Both take the same launch path.
@@ -139,6 +150,12 @@ function realDeps(): SupervisorLivenessDeps {
     getConfig: defaultGetConfig,
     staleAfterMs: SUPERVISOR_STALE_AFTER_MS,
     spawn: defaultSpawn,
+    // On-demand spawn is opt-in (MERMAID_SUPERVISOR_ONDEMAND) until the 5.83.0
+    // supervisor cutover — until then liveness stays legacy always-on.
+    hasPendingWork:
+      process.env.MERMAID_SUPERVISOR_ONDEMAND === '1' || process.env.MERMAID_SUPERVISOR_ONDEMAND === 'true'
+        ? () => pendingDecisionCount() > 0
+        : undefined,
     log: (m) => console.log(m),
   };
 }
