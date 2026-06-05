@@ -1,10 +1,11 @@
 import { useEffect, useId, useState } from 'react';
 import { PermissionRulesEditor } from './PermissionRulesEditor';
 import { EnvVarsEditor } from './EnvVarsEditor';
+import { SecretsEditor } from './SecretsEditor';
 import { McpServersPanel } from '../mcp/McpServersPanel';
 import { AddMcpServerDialog } from '../mcp/AddMcpServerDialog';
 
-export type SettingsTab = 'permissions' | 'mcp' | 'env' | 'policy';
+export type SettingsTab = 'permissions' | 'mcp' | 'env' | 'secrets' | 'policy';
 
 interface SettingsPanelProps {
   open: boolean;
@@ -17,6 +18,7 @@ const TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'permissions', label: 'Permissions' },
   { id: 'mcp', label: 'MCP Servers' },
   { id: 'env', label: 'Env Vars' },
+  { id: 'secrets', label: 'Secrets / API Keys' },
   { id: 'policy', label: 'Managed Policy' },
 ];
 
@@ -105,6 +107,7 @@ export function SettingsPanel({ open, onClose, openTab, project }: SettingsPanel
           {activeTab === 'env' && (
             <EnvVarsEditor project={project ?? window.location.pathname} />
           )}
+          {activeTab === 'secrets' && <SecretsEditor />}
           {activeTab === 'policy' && (
             <div className="text-sm text-gray-500 dark:text-gray-400 py-4">
               Managed Policy — coming soon

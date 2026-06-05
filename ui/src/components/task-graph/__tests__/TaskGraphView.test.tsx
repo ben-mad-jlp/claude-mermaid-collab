@@ -12,10 +12,10 @@ vi.mock('@/hooks/useTaskGraph', () => ({
   useTaskGraph: vi.fn(),
 }));
 
-// Mock MermaidPreview component
-vi.mock('@/components/editors/MermaidPreview', () => ({
-  MermaidPreview: ({ content }: { content: string }) => (
-    <div data-testid="mermaid-preview">{content}</div>
+// Mock FleetGraph — the shared React Flow canvas the task view now reuses.
+vi.mock('@/components/supervisor/bridge/fleet/FleetGraph', () => ({
+  FleetGraph: ({ todos }: { todos: unknown[] }) => (
+    <div data-testid="fleet-graph">{todos.length} todos</div>
   ),
 }));
 
@@ -94,7 +94,7 @@ describe('TaskGraphView', () => {
     expect(screen.getByText('Task graph will appear during implementation phase')).toBeInTheDocument();
   });
 
-  it('should render MermaidPreview with diagram content', () => {
+  it('should render the shared FleetGraph when a task graph is present', () => {
     const testDiagram = 'graph TD; A-->B; B-->C';
     mockUseTaskGraph.mockReturnValue({
       diagram: testDiagram,
@@ -108,9 +108,7 @@ describe('TaskGraphView', () => {
 
     render(<TaskGraphView project="/test/project" session="test-session" />);
 
-    const preview = screen.getByTestId('mermaid-preview');
-    expect(preview).toBeInTheDocument();
-    expect(preview.textContent).toContain('graph TD');
+    expect(screen.getByTestId('fleet-graph')).toBeInTheDocument();
   });
 
   it('should pass correct project and session to useTaskGraph', () => {

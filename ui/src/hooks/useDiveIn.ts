@@ -24,6 +24,40 @@ export interface DiveTarget {
   serverId?: string;
 }
 
+/**
+ * Select a session + fire its activation side-effects (terminal/browser/drawer).
+ * Shared by the full dive (which also flips to Studio) and the in-place select
+ * used inside the Bridge (Bridge P5 signal 6/7: select+show a worker's session
+ * BESIDE the live graph without leaving Bridge mode).
+ */
+function selectSession(
+  sessions: Session[],
+  setCurrentSession: (s: Session) => void,
+  target: DiveTarget,
+): void {
+  const match: Session | undefined = sessions.find(
+    (s) => s.project === target.project && s.name === target.session,
+  );
+  const serverId = match?.serverId ?? target.serverId ?? 'local';
+  const session: Session = match ?? {
+    project: target.project,
+    name: target.session,
+    serverId,
+  };
+
+  setCurrentSession(session);
+
+  // Best-effort activation side-effects. Never block on them.
+  const card: SessionCardData = {
+    serverId,
+    project: target.project,
+    session: target.session,
+    status: 'unknown',
+    lastUpdate: 0,
+  };
+  void activateSessionCard(card).catch(() => {});
+}
+
 export function useDiveIn() {
   const sessions = useSessionStore((s) => s.sessions);
   const setCurrentSession = useSessionStore((s) => s.setCurrentSession);
@@ -31,30 +65,27 @@ export function useDiveIn() {
 
   return useCallback(
     (target: DiveTarget) => {
-      const match: Session | undefined = sessions.find(
-        (s) => s.project === target.project && s.name === target.session,
-      );
-      const serverId = match?.serverId ?? target.serverId ?? 'local';
-      const session: Session = match ?? {
-        project: target.project,
-        name: target.session,
-        serverId,
-      };
-
-      setCurrentSession(session);
+      selectSession(sessions, setCurrentSession, target);
       setMode('studio');
-
-      // Best-effort activation side-effects. Never block the dive on them.
-      const card: SessionCardData = {
-        serverId,
-        project: target.project,
-        session: target.session,
-        status: 'unknown',
-        lastUpdate: 0,
-      };
-      void activateSessionCard(card).catch(() => {});
     },
     [sessions, setCurrentSession, setMode],
+  );
+}
+
+/**
+ * Bridge P5: select a session + activate it WITHOUT changing mode — the graph
+ * stays on screen and (with the artifact viewer open) the Z3 stage swaps to that
+ * session's artifacts beside the live FleetGraph. Two-surface model intact.
+ */
+export function useSelectSessionInPlace() {
+  const sessions = useSessionStore((s) => s.sessions);
+  const setCurrentSession = useSessionStore((s) => s.setCurrentSession);
+
+  return useCallback(
+    (target: DiveTarget) => {
+      selectSession(sessions, setCurrentSession, target);
+    },
+    [sessions, setCurrentSession],
   );
 }
 

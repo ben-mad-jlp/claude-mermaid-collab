@@ -303,6 +303,20 @@ const App: React.FC = () => {
   const { servers } = useServers();
   const activeServerId = currentSession?.serverId ?? null;
   const subscriptionsForWatch = useSubscriptionStore((s) => s.subscriptions);
+  const migrateLegacyEntries = useSubscriptionStore((s) => s.migrateLegacyEntries);
+
+  // (1) One-shot legacy-entry migration. Runs once, as soon as a boot-time
+  // active server id is known, to tag/rekey pre-cross-server subscriptions
+  // (serverId ''). This also collapses a legacy entry and a new explicit-
+  // serverId entry for the same session onto one composite key (the source
+  // of the duplicate rows in the Watching list). No-ops when nothing needs it.
+  const legacyMigratedRef = useRef(false);
+  useEffect(() => {
+    if (legacyMigratedRef.current || !activeServerId) return;
+    legacyMigratedRef.current = true;
+    migrateLegacyEntries(activeServerId);
+  }, [activeServerId, migrateLegacyEntries]);
+
   useEffect(() => {
     const mc = (window as any).mc;
     if (!mc?.setWatchedServers) return;
@@ -1806,10 +1820,15 @@ const App: React.FC = () => {
               <Sidebar className="h-full" />
             )}
 
-            {/* Bridge mode: the fleet command center (KPI glance). */}
+            {/* Bridge mode: the fleet command center. P5: the artifact viewer is
+                no longer ignored in Bridge — when it's open for the current
+                session it docks into the Bridge's Z3 stage (beside the live
+                graph), never the exclusive `main`, so the graph stays mounted. */}
             {mode === 'bridge' && (
               <main className="flex-1 h-full min-h-0 overflow-hidden bg-white dark:bg-gray-800">
-                <BridgeDashboard />
+                <BridgeDashboard
+                  artifactViewer={viewerVisible && currentSession ? renderMainContent() : null}
+                />
               </main>
             )}
 

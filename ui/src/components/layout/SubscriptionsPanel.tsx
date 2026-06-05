@@ -156,7 +156,18 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
   // existing subscriptions (composite-keyed by serverId).
   const availableSessions = useMemo(() => {
     const subscribedKeys = new Set(projectSubscriptions.map(([key]) => key));
-    return crossServerSessions
+    // Safety net: dedup by (serverId, project, name) before rendering the
+    // picker. The registry list() already dedups at the source, but a stale
+    // fan-out or a server returning the same session twice would otherwise
+    // surface it twice in the subscribe list.
+    const seen = new Set<string>();
+    const uniqueCrossServer = crossServerSessions.filter((s) => {
+      const k = `${s.serverId}:${s.project}:${s.name}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+    return uniqueCrossServer
       .filter((s) => !subscribedKeys.has(`${s.serverId}:${s.project}:${s.name}`))
       .sort((a, b) => {
         const labA = a.serverLabel ?? '';

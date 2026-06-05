@@ -97,6 +97,19 @@ export interface SupervisorConfig {
   supervisorSession: string;
 }
 
+/**
+ * Liveness of the supervisor process, derived from /api/supervisor/identity.
+ * `running` is the server's freshness verdict (updatedAt within the staleness
+ * window); `stale` is its complement. When no supervisor has ever registered,
+ * `identity` is null and `running` is false.
+ */
+export interface SupervisorLiveness {
+  identity: { project: string; session: string; updatedAt: number; serverId?: string } | null;
+  running: boolean;
+  stale: boolean;
+  ageMs: number | null;
+}
+
 interface InvokeResult {
   ok: boolean;
   status: number;
@@ -143,6 +156,8 @@ interface SupervisorState {
   escalations: Escalation[];
   supervised: SupervisedSession[];
   config: SupervisorConfig | null;
+  liveness: SupervisorLiveness | null;
+  loadLiveness: (serverId: string) => Promise<void>;
   auditByProject: Record<string, AuditEntry[]>;
   loadAudit: (serverId: string, project: string, kind?: string) => Promise<void>;
   loadSupervised: (serverId: string) => Promise<void>;
@@ -172,7 +187,26 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   escalations: hydrate<Escalation[]>(ESCALATIONS_KEY, []),
   supervised: hydrate<SupervisedSession[]>(SUPERVISED_KEY, []),
   config: hydrate<SupervisorConfig | null>(SUPERVISOR_CONFIG_KEY, null),
+  liveness: null,
   auditByProject: {},
+
+  // Poll the supervisor's liveness (heartbeat freshness). The server computes
+  // running/stale from how long ago updatedAt last advanced, so the client just
+  // mirrors its verdict. Kept out of localStorage — it's a live signal, and a
+  // hydrated stale value would falsely read as 'crashed' on first paint.
+  loadLiveness: async (serverId) => {
+    const res = await invoke(serverId, '/api/supervisor/identity', 'GET');
+    if (!res?.ok) return; // keep prior verdict on transient failure
+    const b = res.body ?? {};
+    set({
+      liveness: {
+        identity: b.identity ?? null,
+        running: !!b.running,
+        stale: !!b.stale,
+        ageMs: typeof b.ageMs === 'number' ? b.ageMs : null,
+      },
+    });
+  },
 
   loadAudit: async (serverId, project, kind?) => {
     const qs = new URLSearchParams({ project });
@@ -185,7 +219,17 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   loadSupervised: async (serverId) => {
     const res = await invoke(serverId, '/api/supervisor/supervised', 'GET');
     if (!res?.ok) return; // keep prior (cached) state on failure
-    const supervised: SupervisedSession[] = res.body?.supervised ?? [];
+    // Stamp the serverId we fetched FROM as authoritative. Coordinator-spawned
+    // rows are persisted with serverId='' (the backend daemon has no serverId —
+    // it's a client/desktop concept), so without this the Supervisor cards show
+    // the wrong server icon and clicking routes to the active server instead of
+    // the one this session actually lives on. The fetching server is, by
+    // definition, the session's server.
+    const raw: SupervisedSession[] = res.body?.supervised ?? [];
+    const supervised: SupervisedSession[] = raw.map((s) => ({
+      ...s,
+      serverId: s.serverId || serverId,
+    }));
     localStorage.setItem(SUPERVISED_KEY, JSON.stringify(supervised));
     set({ supervised });
   },

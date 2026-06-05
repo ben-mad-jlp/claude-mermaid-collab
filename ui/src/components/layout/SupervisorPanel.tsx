@@ -26,6 +26,7 @@ import { useTerminalStore } from '@/stores/terminalStore';
 import { useServers } from '@/contexts/ServerContext';
 import { ServerIcon } from '@/components/ServerIcon';
 import { SessionCard, activateSessionCard, type SessionCardData } from '@/components/layout/SessionCard';
+import { SupervisorOnboarding } from '@/components/supervisor/SupervisorOnboarding';
 
 export interface SupervisorPanelProps {
   currentProject?: string;
@@ -47,8 +48,12 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   const {
     supervised,
     escalations,
+    config,
+    liveness,
     loadSupervised,
     loadEscalations,
+    loadConfig,
+    loadLiveness,
     resolveEscalation,
   } = useSupervisorStore();
 
@@ -125,11 +130,28 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
     const refresh = () => {
       void loadSupervised(serverScope);
       void loadEscalations(serverScope);
+      // Config + liveness drive the front-door state ('none' / 'crashed' /
+      // 'running'); poll them on the same cadence so the panel flips to the
+      // Restart front door within the staleness window when the supervisor dies.
+      void loadConfig(serverScope);
+      void loadLiveness(serverScope);
     };
     refresh();
     const id = setInterval(refresh, 10_000);
     return () => clearInterval(id);
-  }, [serverScope, loadSupervised, loadEscalations]);
+  }, [serverScope, loadSupervised, loadEscalations, loadConfig, loadLiveness]);
+
+  // Front-door state: no config saved → 'none' (Become the Supervisor); config
+  // present but the heartbeat has gone stale (or never registered) → 'crashed'
+  // (Restart front door); config present and the heartbeat is fresh → 'running'
+  // (the live dashboard below). `liveness === null` means we haven't polled yet,
+  // so don't flash the crashed door before the first identity response lands.
+  const hasConfig = !!(config?.supervisorProject && config?.supervisorSession);
+  const supervisorState: 'none' | 'crashed' | 'running' = !hasConfig
+    ? 'none'
+    : liveness == null || liveness.running
+      ? 'running'
+      : 'crashed';
 
   const serverIconById = useMemo(() => {
     const m = new Map<string, string>();
@@ -370,7 +392,19 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
       </div>
 
       {/* Body */}
-      {!collapsed && (
+      {!collapsed && supervisorState !== 'running' ? (
+        // No running supervisor: render the front door instead of the dashboard.
+        // 'none' → Become the Supervisor onboarding; 'crashed' → Restart card
+        // (config present but the heartbeat went stale). SupervisorOnboarding
+        // loads/saves config itself via the store, so it stays in sync.
+        <div className="pb-2">
+          <SupervisorOnboarding
+            serverId={serverScope}
+            state={supervisorState}
+            lastSession={config?.supervisorSession}
+          />
+        </div>
+      ) : !collapsed ? (
         <div className="px-2 pb-2">
           {supervised.length === 0 ? (
             <div className="px-2 py-4 text-xs text-gray-500 dark:text-gray-400 text-center">
@@ -465,7 +499,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
             </div>
           )}
         </div>
-      )}
+      ) : null}
     </div>
   );
 };

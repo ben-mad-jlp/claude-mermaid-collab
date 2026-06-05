@@ -1,43 +1,17 @@
 import type { PlanItem } from '@/types/planItem';
-import { readThemeColor } from '@/lib/themeTokens';
-
-export interface RoadmapToMermaidOpts {
-  mode?: 'graph' | 'waves';
-}
-
-const STATUS_CLASS: Record<string, string> = {
-  done: 'done',
-  completed: 'done',
-  in_progress: 'inprogress',
-  inprogress: 'inprogress',
-  ready: 'ready',
-  planned: 'planned',
-  blocked: 'blocked',
-  dropped: 'dropped',
-};
 
 /**
- * ClassDef palette, derived from the app's semantic tokens and keyed to the same
- * funnel.ts buckets the rest of the control UI uses, so the roadmap graph, the
- * funnel, and (future) fleet graph all share one palette:
- *   done → success · inprogress → in-flight (info) · ready → neutral ·
- *   planned → backlog (neutral, dashed) · blocked → danger · dropped → muted.
- * Resolved at call time so it follows light/dark/sepia; hex fallbacks reproduce
- * the legacy look for non-DOM / token-less contexts.
+ * Plan dependency-graph helpers.
+ *
+ * Bridge P6 retired the mermaid plan visualization (the `roadmapToMermaid`
+ * graph/waves render path is gone — the Plan surface is now the flex/grid
+ * PlanKanban). What remains here are the two pure helpers that survive that
+ * change because other surfaces depend on them:
+ *  - `computeWaveMap` — dependency-depth → wave number; used by the PlanKanban
+ *    columns AND the FleetGraph layout.
+ *  - `sanitizeId` — id → mermaid/DOM-safe token; kept for any remaining
+ *    id-normalization callers.
  */
-function buildClassDefs(): string {
-  const c = (varName: string, fallback: string) => readThemeColor(varName, fallback);
-  const neutralFill = c('--color-muted-100', '#f4f4f5');
-  const neutralStroke = c('--color-muted-400', '#9ca3af');
-  return [
-    `  classDef done fill:${c('--color-success-100', '#ddffdd')},stroke:${c('--color-success-600', '#33aa33')}`,
-    `  classDef inprogress fill:${c('--color-info-100', '#dde5ff')},stroke:${c('--color-info-600', '#3366dd')}`,
-    `  classDef ready fill:${neutralFill},stroke:${neutralStroke}`,
-    `  classDef planned fill:${neutralFill},stroke:${neutralStroke},stroke-dasharray:4`,
-    `  classDef blocked fill:${c('--color-danger-100', '#fff0d6')},stroke:${c('--color-danger-600', '#e0a106')}`,
-    `  classDef dropped fill:${neutralFill},stroke:${neutralStroke},color:${c('--color-muted-500', '#999')}`,
-  ].join('\n');
-}
 
 export function sanitizeId(id: string): string {
   let s = id.replace(/[^A-Za-z0-9_]/g, '_');
@@ -45,27 +19,10 @@ export function sanitizeId(id: string): string {
   return s;
 }
 
-function escapeLabel(text: string): string {
-  return text.replace(/"/g, '#quot;').replace(/\n/g, ' ');
-}
-
-function nodeLine(item: PlanItem, indent: string): string {
-  const cls = STATUS_CLASS[item.status] ?? 'planned';
-  return `${indent}${sanitizeId(item.id)}["${escapeLabel(item.title)}"]:::${cls}`;
-}
-
-function edgeLines(items: PlanItem[]): string[] {
-  const ids = new Set(items.map((i) => sanitizeId(i.id)));
-  const lines: string[] = [];
-  for (const item of items) {
-    for (const dep of item.dependsOn ?? []) {
-      const from = sanitizeId(dep);
-      if (ids.has(from)) lines.push(`  ${from} --> ${sanitizeId(item.id)}`);
-    }
-  }
-  return lines;
-}
-
+/**
+ * Wave number per item = longest dependency chain depth (roots = 0). Cycles are
+ * naturally bounded by the pass limit (at most `items.length` passes).
+ */
 export function computeWaveMap(items: PlanItem[]): Map<string, number> {
   const idSet = new Set(items.map((i) => i.id));
   const waveMap = new Map<string, number>();
@@ -85,58 +42,4 @@ export function computeWaveMap(items: PlanItem[]): Map<string, number> {
     if (!changed) break;
   }
   return waveMap;
-}
-
-export function roadmapToMermaid(items: PlanItem[], opts?: RoadmapToMermaidOpts): string {
-  if (!items || items.length === 0) {
-    return 'flowchart TD\n  empty["No roadmap items"]';
-  }
-  const mode = opts?.mode ?? 'graph';
-  const edges = edgeLines(items);
-  const out: string[] = ['flowchart TD', buildClassDefs(), ''];
-
-  if (mode === 'waves') {
-    const waveMap = computeWaveMap(items);
-    const byWave = new Map<number, PlanItem[]>();
-    for (const item of items) {
-      const w = waveMap.get(item.id) ?? 0;
-      const arr = byWave.get(w) ?? [];
-      arr.push(item);
-      byWave.set(w, arr);
-    }
-    for (const w of Array.from(byWave.keys()).sort((a, b) => a - b)) {
-      out.push(`  subgraph wave_${w}["Wave ${w}"]`);
-      for (const item of byWave.get(w)!) out.push(nodeLine(item, '    '));
-      out.push('  end');
-    }
-  } else {
-    const byId = new Map(items.map((i) => [i.id, i]));
-    const childrenByParent = new Map<string, PlanItem[]>();
-    const topLevel: PlanItem[] = [];
-    for (const item of items) {
-      const pid = item.parentId;
-      if (pid && byId.has(pid)) {
-        const arr = childrenByParent.get(pid) ?? [];
-        arr.push(item);
-        childrenByParent.set(pid, arr);
-      } else {
-        topLevel.push(item);
-      }
-    }
-    for (const item of topLevel) {
-      if (childrenByParent.has(item.id)) continue;
-      out.push(nodeLine(item, '  '));
-    }
-    for (const [pid, children] of childrenByParent) {
-      const parent = byId.get(pid);
-      const label = escapeLabel(parent ? parent.title : pid);
-      out.push(`  subgraph ${sanitizeId(pid)}["${label}"]`);
-      for (const child of children) out.push(nodeLine(child, '    '));
-      out.push('  end');
-    }
-  }
-
-  out.push('');
-  out.push(...edges);
-  return out.join('\n') + '\n';
 }

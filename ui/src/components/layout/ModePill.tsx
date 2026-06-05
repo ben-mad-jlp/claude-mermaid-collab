@@ -13,7 +13,7 @@
 
 import React, { useEffect } from 'react';
 import { useUIStore, type UIMode } from '@/stores/uiStore';
-import { useSupervisorStore } from '@/stores/supervisorStore';
+import { CommandBarBadge } from '@/components/supervisor/bridge/CommandBarBadge';
 
 interface ModeDef {
   key: UIMode;
@@ -30,9 +30,6 @@ const MODES: ModeDef[] = [
 export const ModePill: React.FC = () => {
   const mode = useUIStore((s) => s.mode);
   const setMode = useUIStore((s) => s.setMode);
-  const openEscalationCount = useSupervisorStore(
-    (s) => s.escalations.filter((e) => e.status === 'open').length
-  );
 
   // ⌘1 / ⌘2 / ⌘3 quick-switch (grafted from workspace-perspectives).
   useEffect(() => {
@@ -77,16 +74,12 @@ export const ModePill: React.FC = () => {
         );
       })}
 
-      {/* Escalation count badge — rides the pill in every mode. */}
-      {openEscalationCount > 0 && (
-        <span
-          data-testid="mode-pill-escalation-badge"
-          title={`${openEscalationCount} open escalation(s)`}
-          className="ml-1 mr-0.5 flex items-center gap-0.5 px-1.5 py-0.5 text-3xs font-bold rounded-full bg-danger-500 text-white leading-none"
-        >
-          ⚠ {openEscalationCount > 9 ? '9+' : openEscalationCount}
-        </span>
-      )}
+      {/* Escalation safety-net badge — the single project-scoped selector,
+          calm-green at zero, red + clickable when a human is needed. Rides the
+          pill in every mode (Bridge P1). */}
+      <span className="ml-1 mr-0.5 flex items-center">
+        <CommandBarBadge />
+      </span>
     </div>
   );
 };

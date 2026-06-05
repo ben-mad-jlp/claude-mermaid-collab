@@ -1,15 +1,17 @@
 /**
  * TaskGraphView Component
  *
- * Displays the task graph in the main content area using MermaidPreview.
- * Fetches task graph data via useTaskGraph hook and renders it.
+ * Displays the implementation task graph in the main content area. The graph
+ * canvas is the SAME React Flow <FleetGraph> the Bridge uses (one graph, not
+ * two) — fed from the active session's work-graph todos, with no worker/claim
+ * overlay (FleetGraph's subs/escalations are optional). useTaskGraph is still
+ * the source of the loading / error / empty gating for the implementation phase.
  */
 
 import React from 'react';
 import { useTaskGraph } from '@/hooks/useTaskGraph';
-import { MermaidPreview } from '@/components/editors/MermaidPreview';
-import { useUIStore } from '@/stores/uiStore';
-import { useShallow } from 'zustand/react/shallow';
+import { FleetGraph } from '@/components/supervisor/bridge/fleet/FleetGraph';
+import { useSessionStore } from '@/stores/sessionStore';
 
 export interface TaskGraphViewProps {
   /** Project path */
@@ -23,15 +25,10 @@ export interface TaskGraphViewProps {
  */
 export const TaskGraphView: React.FC<TaskGraphViewProps> = ({ project, session }) => {
   const { diagram, isLoading, error, refresh } = useTaskGraph(project, session);
-
-  const { zoomLevel, zoomIn, zoomOut, setZoomLevel } = useUIStore(
-    useShallow((state) => ({
-      zoomLevel: state.zoomLevel,
-      zoomIn: state.zoomIn,
-      zoomOut: state.zoomOut,
-      setZoomLevel: state.setZoomLevel,
-    }))
-  );
+  // The work-graph todos for the active session — FleetGraph derives epics,
+  // todos and dependency edges from these (no extra fetch: the session store
+  // already maintains this list for the current session).
+  const sessionTodos = useSessionStore((s) => s.sessionTodos);
 
   if (isLoading) {
     return (
@@ -82,16 +79,8 @@ export const TaskGraphView: React.FC<TaskGraphViewProps> = ({ project, session }
   }
 
   return (
-    <div className="h-full w-full">
-      <MermaidPreview
-        content={diagram}
-        zoomLevel={zoomLevel}
-        onZoomIn={zoomIn}
-        onZoomOut={zoomOut}
-        onSetZoom={setZoomLevel}
-        hideEditToggle
-        className="h-full w-full"
-      />
+    <div className="h-full w-full flex">
+      <FleetGraph todos={sessionTodos} />
     </div>
   );
 };

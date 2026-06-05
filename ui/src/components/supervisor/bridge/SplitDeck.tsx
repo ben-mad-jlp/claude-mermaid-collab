@@ -1,14 +1,22 @@
 /**
- * SplitDeck — the Bridge's root shell (BR-2, design §2/§8).
+ * SplitDeck — the Bridge's root shell (BR-2 → Bridge P3, design §2/§8).
  *
- * A CommandBar across the top, then two fixed halves below: the LEFT
- * instrument panel (38%) and the RIGHT graph stage (62%). Below 1024px the two
- * halves collapse into a [Panel | Graph] tabbed toggle so neither gets crushed.
- * This is a pure layout primitive — callers pass the bar and the two halves as
- * nodes; SplitDeck owns only the geometry and the responsive switch.
+ * A CommandBar across the top, then a single draggable <SplitPane> that REFLOWS
+ * by viewport: on lg+ the instrument column and the graph sit side-by-side
+ * (horizontal split, graph laid out LR); below 1024px they stack — instrument
+ * column over graph (vertical split, graph TB). The divider is draggable in both
+ * orientations and its ratio persists PER ORIENTATION (separate storageIds).
+ *
+ * Both panes are ALWAYS mounted (one SplitPane, no CSS show/hide and no
+ * Panel|Graph tab toggle) — the old toggle could hide an open escalation in the
+ * inactive tab, the documented worst case. The orientation flip is a JS state
+ * change on the same tree, so the subscription-bearing FleetGraph is never
+ * double-mounted and never remounted on flip.
  */
 
-import React, { useState } from 'react';
+import React from 'react';
+import { SplitPane } from '@/components/layout/SplitPane';
+import { useIsDesktop } from '@/hooks/useIsDesktop';
 
 export interface SplitDeckProps {
   commandBar: React.ReactNode;
@@ -16,50 +24,41 @@ export interface SplitDeckProps {
   right: React.ReactNode;
 }
 
-type MobileTab = 'panel' | 'graph';
-
 export const SplitDeck: React.FC<SplitDeckProps> = ({ commandBar, left, right }) => {
-  const [tab, setTab] = useState<MobileTab>('panel');
+  const isDesktop = useIsDesktop();
+  const direction = isDesktop ? 'horizontal' : 'vertical';
+  // Per-orientation persisted ratio so resizing wide doesn't clobber the narrow
+  // split and vice-versa. SplitPane reads autoSaveId, so the id carries the axis.
+  const storageId = isDesktop ? 'bridge-deck-split-h' : 'bridge-deck-split-v';
+
+  const leftPane = (
+    <div data-testid="split-left" className="h-full min-h-0 overflow-y-auto w-full">
+      <div className="flex flex-col gap-3 p-3 w-full">{left}</div>
+    </div>
+  );
+  const rightPane = (
+    <div data-testid="split-right" className="h-full min-h-0 w-full overflow-hidden">
+      {right}
+    </div>
+  );
 
   return (
     <div data-testid="bridge-split-deck" className="flex flex-col h-full overflow-hidden bg-white dark:bg-gray-900">
       <div className="shrink-0">{commandBar}</div>
-
-      {/* Mobile toggle — only shown under lg. */}
-      <div className="shrink-0 flex items-center gap-1 px-3 py-1.5 border-b border-gray-200 dark:border-gray-700 lg:hidden">
-        {(['panel', 'graph'] as MobileTab[]).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            data-testid={`split-tab-${t}`}
-            className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-              tab === t
-                ? 'bg-accent-100 dark:bg-accent-900/50 text-accent-700 dark:text-accent-300'
-                : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-            }`}
-          >
-            {t === 'panel' ? 'Panel' : 'Graph'}
-          </button>
-        ))}
-      </div>
-
-      {/* Two fixed halves on lg+, single active tab below. */}
-      <div className="flex-1 min-h-0 flex overflow-hidden">
-        <section
-          data-testid="split-left"
-          className={`min-h-0 overflow-y-auto border-r border-gray-200 dark:border-gray-700 ${
-            tab === 'panel' ? 'flex' : 'hidden'
-          } w-full lg:flex lg:w-[38%]`}
-        >
-          <div className="flex flex-col gap-3 p-3 w-full">{left}</div>
-        </section>
-        <section
-          data-testid="split-right"
-          className={`min-h-0 overflow-hidden ${tab === 'graph' ? 'flex' : 'hidden'} w-full lg:flex lg:w-[62%]`}
-        >
-          {right}
-        </section>
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <SplitPane
+          // direction + storageId are passed dynamically (NOT via a remounting
+          // `key`) so the orientation flip never tears down the FleetGraph; the
+          // PanelGroup re-applies the axis and the per-orientation saved ratio
+          // in place.
+          direction={direction}
+          primaryContent={leftPane}
+          secondaryContent={rightPane}
+          defaultPrimarySize={38}
+          minPrimarySize={25}
+          maxPrimarySize={60}
+          storageId={storageId}
+        />
       </div>
     </div>
   );
