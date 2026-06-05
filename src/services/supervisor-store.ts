@@ -143,6 +143,23 @@ CREATE TABLE IF NOT EXISTS supervisor_pause (
   scope TEXT PRIMARY KEY,
   pausedAt INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS supervisor_decision (
+  id TEXT PRIMARY KEY,
+  project TEXT NOT NULL,
+  workerSession TEXT NOT NULL,
+  signal TEXT NOT NULL,
+  snapshot TEXT NOT NULL,
+  sigHash TEXT NOT NULL,
+  status TEXT NOT NULL,
+  verdict TEXT,
+  verdictReason TEXT,
+  resolvedBy TEXT,
+  resolvedEpoch INTEGER,
+  createdAt INTEGER NOT NULL,
+  resolvedAt INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_decision_pending ON supervisor_decision(project, status, createdAt);
+CREATE INDEX IF NOT EXISTS idx_decision_dedup ON supervisor_decision(sigHash, status);
 `;
 
 /** Scope for an emergency pause: the literal 'global' or a project path. */
@@ -663,3 +680,200 @@ let peerRegistry: PeerInfo[] = [];
 export function setPeerRegistry(peers: PeerInfo[]): void { peerRegistry = peers; }
 export function getPeer(serverId: string): PeerInfo | undefined { return peerRegistry.find((p) => p.serverId === serverId); }
 export function listPeers(): PeerInfo[] { return peerRegistry; }
+
+// --- Supervisor decision queue (COORD watchdog↔supervisor handoff) ---------------
+//
+// Realizes design `design-watchdog-daemon-decision-handoff` (decision eb3c3e60).
+// The MECHANICAL watchdog runs as a deterministic daemon; it NEVER judges an
+// ambiguous worker stop itself — it enqueues a bounded decision REQUEST here and
+// later ACTS on the verdict an on-demand supervisor LLM session writes back. This
+// durable SQLite queue is the handoff seam between the two:
+//
+//   daemon detects ambiguous stop → enqueueDecision (deduped by sigHash)
+//     → supervisor LLM reads getNextPendingDecision → resolveDecision(verdict)
+//       → daemon acts on the verdict (escalate/nudge/resume/wait) → markDecisionConsumed
+//
+// Fail-safe toward the human: a request never silently drops — an unresolved
+// request older than the timeout defaults to ESCALATE (see coordinator-live).
+
+/** Lifecycle of a queued decision request. */
+export type DecisionStatus = 'pending' | 'resolved' | 'consumed';
+
+/** The verdict a supervisor returns for an ambiguous stop. `escalate` surfaces it
+ *  to the human (fail-safe default); `nudge`/`resume` push the worker to continue;
+ *  `wait` leaves it (still working / will resolve itself). */
+export type DecisionVerdict = 'escalate' | 'nudge' | 'resume' | 'wait';
+export const DECISION_VERDICTS: readonly DecisionVerdict[] = ['escalate', 'nudge', 'resume', 'wait'];
+
+export interface SupervisorDecision {
+  id: string;
+  project: string;
+  /** The supervised worker session the ambiguous stop was observed on. */
+  workerSession: string;
+  /** The detection signal that enqueued this request (e.g. 'stall'). */
+  signal: string;
+  /** Captured pane / context snapshot the LLM judges from (capped by the caller). */
+  snapshot: string;
+  /** Dedupe key — repeat detections of the SAME episode collapse to one request. */
+  sigHash: string;
+  status: DecisionStatus;
+  verdict: DecisionVerdict | null;
+  verdictReason: string | null;
+  /** "session@epoch" of the supervisor that resolved it (provenance). */
+  resolvedBy: string | null;
+  /** Ownership epoch of the resolving supervisor (epoch-gated per 2dd13c65). */
+  resolvedEpoch: number | null;
+  createdAt: number;
+  resolvedAt: number | null;
+}
+
+interface DecisionRow {
+  id: string;
+  project: string;
+  workerSession: string;
+  signal: string;
+  snapshot: string;
+  sigHash: string;
+  status: string;
+  verdict: string | null;
+  verdictReason: string | null;
+  resolvedBy: string | null;
+  resolvedEpoch: number | null;
+  createdAt: number;
+  resolvedAt: number | null;
+}
+
+function mapDecisionRow(r: DecisionRow): SupervisorDecision {
+  return {
+    id: r.id,
+    project: r.project,
+    workerSession: r.workerSession,
+    signal: r.signal,
+    snapshot: r.snapshot,
+    sigHash: r.sigHash,
+    status: r.status as DecisionStatus,
+    verdict: (r.verdict as DecisionVerdict | null) ?? null,
+    verdictReason: r.verdictReason ?? null,
+    resolvedBy: r.resolvedBy ?? null,
+    resolvedEpoch: r.resolvedEpoch ?? null,
+    createdAt: r.createdAt,
+    resolvedAt: r.resolvedAt ?? null,
+  };
+}
+
+/**
+ * Enqueue a decision request for an ambiguous worker stop. DEDUPES on
+ * (sigHash, status='pending'): a repeat detection of the same episode returns the
+ * existing pending request instead of piling up duplicates. Returns the request
+ * plus whether it was newly created (so the daemon logs/acts only for new ones).
+ */
+export function enqueueDecision(input: {
+  project: string;
+  workerSession: string;
+  signal: string;
+  snapshot: string;
+  sigHash: string;
+}): { decision: SupervisorDecision; isNew: boolean } {
+  const d = openDb();
+  const existing = d
+    .query("SELECT * FROM supervisor_decision WHERE sigHash = ? AND status = 'pending'")
+    .get(input.sigHash) as DecisionRow | null;
+  if (existing) return { decision: mapDecisionRow(existing), isNew: false };
+  const id = crypto.randomUUID();
+  const createdAt = Date.now();
+  d.prepare(
+    'INSERT INTO supervisor_decision (id, project, workerSession, signal, snapshot, sigHash, status, verdict, verdictReason, resolvedBy, resolvedEpoch, createdAt, resolvedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
+  ).run(id, input.project, input.workerSession, input.signal, input.snapshot, input.sigHash, 'pending', null, null, null, null, createdAt, null);
+  return {
+    decision: {
+      id,
+      project: input.project,
+      workerSession: input.workerSession,
+      signal: input.signal,
+      snapshot: input.snapshot,
+      sigHash: input.sigHash,
+      status: 'pending',
+      verdict: null,
+      verdictReason: null,
+      resolvedBy: null,
+      resolvedEpoch: null,
+      createdAt,
+      resolvedAt: null,
+    },
+    isNew: true,
+  };
+}
+
+/** All pending requests, oldest first. Optionally scoped to a project. */
+export function listPendingDecisions(project?: string): SupervisorDecision[] {
+  const d = openDb();
+  const rows = (project
+    ? d.query("SELECT * FROM supervisor_decision WHERE status = 'pending' AND project = ? ORDER BY createdAt ASC").all(project)
+    : d.query("SELECT * FROM supervisor_decision WHERE status = 'pending' ORDER BY createdAt ASC").all()) as DecisionRow[];
+  return rows.map(mapDecisionRow);
+}
+
+/** The oldest pending request for a project (the LLM polls this), or null. */
+export function getNextPendingDecision(project?: string): SupervisorDecision | null {
+  return listPendingDecisions(project)[0] ?? null;
+}
+
+/** Resolved-but-not-yet-consumed requests the daemon must still act on. */
+export function listResolvedDecisions(project?: string): SupervisorDecision[] {
+  const d = openDb();
+  const rows = (project
+    ? d.query("SELECT * FROM supervisor_decision WHERE status = 'resolved' AND project = ? ORDER BY resolvedAt ASC").all(project)
+    : d.query("SELECT * FROM supervisor_decision WHERE status = 'resolved' ORDER BY resolvedAt ASC").all()) as DecisionRow[];
+  return rows.map(mapDecisionRow);
+}
+
+export function getDecision(id: string): SupervisorDecision | null {
+  const d = openDb();
+  const row = d.query('SELECT * FROM supervisor_decision WHERE id = ?').get(id) as DecisionRow | null;
+  return row ? mapDecisionRow(row) : null;
+}
+
+/**
+ * Record a supervisor's verdict for a pending request. EPOCH-GATED (per 2dd13c65):
+ * `assertSupervisorOwner(epoch)` throws SupersededError for a superseded supervisor,
+ * performing NO write — a hung-then-resumed supervisor cannot resolve decisions a
+ * replacement now owns. Only a `pending` request transitions to `resolved`
+ * (idempotent: a second resolve is a no-op and returns null).
+ */
+export function resolveDecision(input: {
+  id: string;
+  verdict: DecisionVerdict;
+  reason?: string | null;
+  resolvedBy?: string | null;
+  epoch?: number;
+}): SupervisorDecision | null {
+  // Single-writer fence: throws SupersededError (caught by the MCP handler) before
+  // any write when the caller's epoch is stale.
+  assertSupervisorOwner(input.epoch);
+  const d = openDb();
+  const resolvedAt = Date.now();
+  const info = d
+    .prepare(
+      "UPDATE supervisor_decision SET status = 'resolved', verdict = ?, verdictReason = ?, resolvedBy = ?, resolvedEpoch = ?, resolvedAt = ? WHERE id = ? AND status = 'pending'"
+    )
+    .run(input.verdict, input.reason ?? null, input.resolvedBy ?? null, input.epoch ?? null, resolvedAt, input.id);
+  if (info.changes === 0) return null;
+  return getDecision(input.id);
+}
+
+/** Mark a request consumed (terminal) once the daemon has acted on it. Accepts a
+ *  `resolved` row (acted on a verdict) OR a `pending` row (the timeout fail-safe
+ *  escalated it without a verdict) — both end as `consumed`. Already-consumed → no-op. */
+export function markDecisionConsumed(id: string): boolean {
+  const d = openDb();
+  const info = d
+    .prepare("UPDATE supervisor_decision SET status = 'consumed' WHERE id = ? AND status IN ('pending','resolved')")
+    .run(id);
+  return info.changes > 0;
+}
+
+/** Count of requests still awaiting a verdict — drives on-demand supervisor spawn
+ *  (a supervisor LLM session is ensured WHILE this is > 0, not always-on). */
+export function pendingDecisionCount(project?: string): number {
+  return listPendingDecisions(project).length;
+}

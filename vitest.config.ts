@@ -17,6 +17,7 @@ export default defineConfig({
       'src/config/__tests__/project-manifest.test.ts',
       'src/config/__tests__/agent-profiles.test.ts',
       'src/services/__tests__/friction-store.test.ts',
+      'src/services/__tests__/supervisor-decisions.test.ts',
     ],
     setupFiles: ['./vitest.setup.ts'],
     coverage: {

@@ -151,6 +151,34 @@ Each turn and each wake:
 - `escalation_list` → surface all open escalations to the user (verbatim, with project/session).
 - `escalation_resolve { id, status }` once an escalation has been handled.
 
+## 10c. Decision queue — judge ambiguous worker stops (COORD handoff)
+
+The mechanical watchdog now runs as a deterministic **daemon** (coordinator): it
+detects an alive-but-idle worker, and for an **ambiguous** stop it does NOT decide
+what to do — it enqueues a bounded **decision request** for you to judge. Your one
+job here is the judgment the daemon can't make; the daemon then ACTS on your verdict
+and surfaces/nudges accordingly. You never run the mechanical loop for these — you
+only judge.
+
+Each turn/wake, drain the decision queue:
+
+1. `supervisor_next_decision { project }` (omit `project` for all watched projects) →
+   the oldest **pending** request, or `null` when the queue is empty. It carries
+   `{ id, workerSession, signal, snapshot }` — the captured pane context to judge from.
+2. **Judge the snapshot** — is the worker waiting on a real human decision, just idle,
+   or a transient stop? Pick a verdict:
+   - `escalate` — it needs a human (surfaces it in the escalation inbox). **When in doubt → escalate.**
+   - `nudge` / `resume` — it just stalled; push it to continue.
+   - `wait` — not yet actionable; leave it.
+3. `supervisor_resolve_decision { id, verdict, reason, supervisorEpoch: <your epoch> }`.
+   This is **epoch-gated** — pass your ownership epoch from `register_supervisor`; a
+   superseded supervisor's resolve is rejected (`{ superseded: true }`) and performs no
+   write (then self-exit per Step 2). Loop until `supervisor_next_decision` returns `null`.
+
+The daemon applies your verdict on its next tick (escalate → escalation inbox; nudge/
+resume → tmux nudge) and marks the request consumed. **Fail-safe:** a request you never
+resolve defaults to **escalate** after the timeout — nothing is silently dropped.
+
 ## 10b. Context-watchdog pass (never auto-compact)
 
 Each turn/wake, for every supervised **project** (dedupe the reconcile rows by `project`), run the watchdog so no watched session is ever left to auto-compact:

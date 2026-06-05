@@ -2040,6 +2040,8 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'escalation_resolve', description: 'Resolve an escalation by id with a status.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, status: { type: 'string' }, supervisorEpoch: { type: 'number', description: 'Supervisor ownership epoch from register_supervisor; a superseded supervisor is rejected.' } }, required: ['id', 'status'] } },
       { name: 'escalation_create', description: 'Create (or dedupe) an open escalation for a session. Pass todoId to link it to a work-graph todo so it auto-resolves when that todo completes. For an A/B-style decision, pass structured options[] (and optionally recommended) instead of a raw JSON questionText.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, kind: { type: 'string' }, questionText: { type: 'string', description: 'Human-readable prompt for the decision/question.' }, todoId: { type: 'string', description: 'Optional work-graph todo id this escalation is about (exact auto-resolve link).' }, options: { type: 'array', description: 'Optional structured choices for an A/B-style decision.', items: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, detail: { type: 'string' } }, required: ['id', 'label'] } }, recommended: { type: 'string', description: 'Optional id of the recommended option (must match one of options[].id).' }, ui: { type: 'object', description: 'Optional rich decision spec (BR-4): { elements: [...] } over the closed catalog (Heading, Text, Callout, CodeBlock, DiffView, CompareTable, KeyValue, OptionButton, Form, SubmitButton). Server-validated; must contain a terminal action (OptionButton/SubmitButton/Form), ≤40 elements. Compose ONLY when the decision needs evidence (a diff/compare/form); otherwise use plain options[]. Invalid specs are dropped, falling back to options[].' }, supervisorEpoch: { type: 'number', description: 'Supervisor ownership epoch from register_supervisor. Workers escalating omit this; a superseded supervisor that passes its stale epoch is rejected (superseded).' } }, required: ['project', 'session', 'kind', 'questionText'] } },
       { name: 'await_human_decision', description: 'Block until a human posts a decision for the given escalation (via the decide endpoint), then return the chosen optionId + any note. Use after filing a structured escalation (escalation_create with options[]) to relay an A/B decision without ending the turn. Returns { timedOut: true } if no answer arrives within timeoutMs.', inputSchema: { type: 'object', properties: { escalationId: { type: 'string' }, timeoutMs: { type: 'number', description: 'Max time to wait in ms (default 600000 = 10 min).' } }, required: ['escalationId'] } },
+      { name: 'supervisor_next_decision', description: 'On-demand supervisor LLM poll: return the oldest PENDING ambiguous-stop decision request (id, workerSession, signal, snapshot) the watchdog daemon enqueued, or null when the queue is empty. Read the snapshot, JUDGE, then call supervisor_resolve_decision. The LLM never loops or acts — it only judges; the daemon acts on the verdict.', inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Optional project scope; omit for all watched projects.' } } } },
+      { name: 'supervisor_resolve_decision', description: 'Write a verdict for a pending decision request (the supervisor LLM\'s one judgment). verdict: escalate (surface to the human), nudge/resume (push the worker to continue), or wait (leave it). EPOCH-GATED: pass supervisorEpoch from register_supervisor; a superseded supervisor is rejected and performs no write. The daemon acts on the verdict on its next tick.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, verdict: { type: 'string', enum: ['escalate', 'nudge', 'resume', 'wait'] }, reason: { type: 'string', description: 'Short rationale for the verdict (recorded for provenance).' }, supervisorEpoch: { type: 'number', description: 'Supervisor ownership epoch from register_supervisor; a superseded supervisor is rejected (superseded).' } }, required: ['id', 'verdict'] } },
       { name: 'get_todo', description: 'Read a single project work-graph todo by id (title, description/spec, status, dependsOn, sessionName). Used by a worker to read its claimed todo.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' } }, required: ['project','todoId'] } },
       { name: 'complete_todo', description: 'Worker completion report: mark a project todo accepted or rejected (marks done + unblocks dependents).', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, acceptance: { type: 'string', enum: ['accepted','rejected'] } }, required: ['project','todoId','acceptance'] } },
       { name: 'start_coordinator', description: 'Start the per-project Coordinator daemon (claims ready todos and spawns workers on a tick). Explicit-start.', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'] } },
@@ -3709,6 +3711,40 @@ IMPORTANT - Common pitfalls to avoid:
             if (!escalationId) throw new Error('Missing required: escalationId');
             const result = await awaitHumanDecision(escalationId, { timeoutMs });
             return JSON.stringify(result, null, 2);
+          }
+          case 'supervisor_next_decision': {
+            // The on-demand supervisor LLM polls the oldest pending ambiguous-stop
+            // request. Read-only; null when the queue is empty (nothing to judge).
+            const { project } = args as { project?: string };
+            return JSON.stringify(supervisorStore.getNextPendingDecision(project), null, 2);
+          }
+          case 'supervisor_resolve_decision': {
+            const { id, verdict, reason, supervisorEpoch } = args as { id: string; verdict: string; reason?: string; supervisorEpoch?: number };
+            if (!id || !verdict) throw new Error('Missing required: id, verdict');
+            if (!supervisorStore.DECISION_VERDICTS.includes(verdict as supervisorStore.DecisionVerdict)) {
+              throw new Error(`Invalid verdict "${verdict}" (expected one of ${supervisorStore.DECISION_VERDICTS.join(', ')})`);
+            }
+            // EPOCH-GATED (2dd13c65): resolveDecision calls assertSupervisorOwner and
+            // throws SupersededError for a stale supervisor — catch it and return the
+            // structured superseded payload, performing NO write (mirrors supervisorFence).
+            const owner = supervisorStore.getSupervisorIdentity();
+            try {
+              const resolved = supervisorStore.resolveDecision({
+                id,
+                verdict: verdict as supervisorStore.DecisionVerdict,
+                reason,
+                resolvedBy: owner ? `${owner.session}@${owner.epoch}` : null,
+                epoch: supervisorEpoch,
+              });
+              if (!resolved) return JSON.stringify({ success: false, reason: 'not-pending', id }, null, 2);
+              recordSupervisorDecision('decide', resolved.project, resolved.workerSession, JSON.stringify({ decisionId: id, verdict, reason: reason ?? null }));
+              return JSON.stringify({ success: true, decision: resolved }, null, 2);
+            } catch (e) {
+              if (e instanceof supervisorStore.SupersededError) {
+                return JSON.stringify({ superseded: true, currentEpoch: e.currentEpoch, currentSession: e.currentSession, message: e.message }, null, 2);
+              }
+              throw e;
+            }
           }
           case 'complete_linked_todos': {
             const { project, session, blueprintId, taskId } = args as {
