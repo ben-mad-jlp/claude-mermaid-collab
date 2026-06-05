@@ -214,6 +214,17 @@ export function markIdle(sessionName: string): PoolSlot | undefined {
   return s;
 }
 
+/** Remove a slot from the registry entirely (not just mark idle). Used by the
+ *  worker-isolation lifecycle: under isolation keep-warm is DROPPED — once a todo
+ *  completes its worktree is removed and its session killed, so the slot must NOT
+ *  linger as a reusable warm session. Dropping it lets getOrCreateSlot recreate a
+ *  FRESH slot (→ a fresh session in a fresh worktree) for the next todo. Returns
+ *  true if a slot was removed. No-op (false) for the non-isolation keep-warm path,
+ *  which calls markIdle instead. */
+export function removeSlot(sessionName: string): boolean {
+  return registry.delete(sessionName);
+}
+
 /** Free every busy slot whose backing tmux session is dead. Decouples slot
  *  release from todo status: a slot orphaned by a dropped/abandoned todo (its
  *  worker gone) is reclaimed here so the pool doesn't wedge "busy" on a vanished

@@ -112,6 +112,34 @@ describe('WorktreeManager — integration-branch recombination (DOGFOOD #5)', ()
     expect((await runGit(repo, ['show', `${INTEGRATION_BRANCH}:b.txt`])).stdout).toBe('B-output\n');
   });
 
+  it('symlinks main-repo node_modules into a fresh worktree for each package.json dir', async () => {
+    // Main repo has deps at root and in ui/ (the auto-detect case the fix targets).
+    // node_modules is gitignored (as in reality) → worktrees start WITHOUT it.
+    await fs.writeFile(path.join(repo, '.gitignore'), 'node_modules/\n');
+    await fs.writeFile(path.join(repo, 'package.json'), '{"name":"root"}\n');
+    await fs.mkdir(path.join(repo, 'node_modules', 'left-pad'), { recursive: true });
+    await fs.writeFile(path.join(repo, 'node_modules', 'left-pad', 'index.js'), 'module.exports=1\n');
+    await fs.mkdir(path.join(repo, 'ui'), { recursive: true });
+    await fs.writeFile(path.join(repo, 'ui', 'package.json'), '{"name":"ui"}\n');
+    await fs.mkdir(path.join(repo, 'ui', 'node_modules', 'react'), { recursive: true });
+    await fs.writeFile(path.join(repo, 'ui', 'node_modules', 'react', 'index.js'), 'module.exports=2\n');
+    await runGit(repo, ['add', '-A']);
+    await runGit(repo, ['commit', '-q', '-m', 'add packages']);
+
+    const integ = await mgr.ensureIntegration();
+    const wt = await mgr.ensure('deps-lane', { baseBranch: integ!.branch });
+
+    // Root node_modules is a symlink resolving to the main repo's deps.
+    const rootNM = path.join(wt.path, 'node_modules');
+    expect((await fs.lstat(rootNM)).isSymbolicLink()).toBe(true);
+    expect(await fs.readFile(path.join(rootNM, 'left-pad', 'index.js'), 'utf8')).toBe('module.exports=1\n');
+
+    // Nested ui/node_modules is symlinked too (auto-detected via ui/package.json).
+    const uiNM = path.join(wt.path, 'ui', 'node_modules');
+    expect((await fs.lstat(uiNM)).isSymbolicLink()).toBe(true);
+    expect(await fs.readFile(path.join(uiNM, 'react', 'index.js'), 'utf8')).toBe('module.exports=2\n');
+  });
+
   it('reports a conflict and leaves integration untouched (never corrupts it)', async () => {
     const integ = await mgr.ensureIntegration();
 

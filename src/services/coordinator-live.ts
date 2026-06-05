@@ -16,6 +16,7 @@ import {
   poolSessionName,
   markBusy,
   markIdle,
+  removeSlot,
   reapDeadSlots,
 } from './worker-pool';
 
@@ -26,6 +27,17 @@ function isTmuxAlive(tmux: string): boolean {
   } catch {
     // can't check → assume alive (don't reclaim on uncertainty; the lease still backstops).
     return true;
+  }
+}
+
+/** Kill a tmux session by base name. Best-effort (no-op if absent). Used by the
+ *  worker-isolation lifecycle to tear down a warm session whose worktree cwd was
+ *  removed on merge-back (drop keep-warm, decision c4a8bf40). */
+function killTmuxSession(tmux: string): void {
+  try {
+    Bun.spawnSync(['tmux', 'kill-session', '-t', tmux], { stdout: 'ignore', stderr: 'ignore' });
+  } catch {
+    /* best-effort */
   }
 }
 
@@ -215,6 +227,12 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
             // the worktree so the next todo for this pool lane gets a fresh one
             // branched off the latest integration (sees this merge).
             await wm.remove(session).catch(() => {});
+            // DROP keep-warm (decision c4a8bf40): the worktree is now gone, so the
+            // warm session's cwd is a deleted dir. Kill its tmux session and drop
+            // the pool slot so the next todo spawns a FRESH session in a FRESH
+            // worktree instead of reusing a bare-shell session.
+            try { killTmuxSession(tmuxBaseName(targetProject, session)); } catch { /* best-effort teardown */ }
+            removeSlot(session);
           }
         } catch (e) {
           recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, isolation: 'merge-back-failed', reason: e instanceof Error ? e.message : String(e) }) });
@@ -250,7 +268,13 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       //    re-claimable next tick once a slot frees, so with pool=N exactly N
       //    todos run and the rest stay 'ready'. Spawn-FAILED (a real spawn attempt
       //    that errored, below) is different: it keeps the lease for retry.
-      let poolName = findIdleSessionForType(poolType);
+      // DROP keep-warm UNDER ISOLATION (decision c4a8bf40): a warm pool session
+      // kept its prior worktree as cwd, but that worktree is REMOVED on merge-back
+      // → reusing it lands the worker at a bare shell in a deleted dir (the observed
+      // regression). So under isolation never route to a warm idle session; always
+      // grab a slot → a FRESH session in a FRESH worktree per todo. Keep-warm reuse
+      // stays for the non-isolation shared-tree path.
+      let poolName = workerIsolationEnabled() ? undefined : findIdleSessionForType(poolType);
       if (!poolName) {
         const slot = getOrCreateSlot(poolType);
         if (!slot) {

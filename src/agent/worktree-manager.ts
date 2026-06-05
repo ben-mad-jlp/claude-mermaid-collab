@@ -180,6 +180,14 @@ export class WorktreeManager {
       }
     }
 
+    // Provisioning (decision c4a8bf40): isolate SOURCE, share DEPENDENCIES. A git
+    // worktree starts WITHOUT node_modules (gitignored) → JS/Bun workers die at a
+    // bare shell. Symlink the main repo's node_modules into the worktree for every
+    // dir that has a package.json (root + nested, e.g. ui/) so deps resolve
+    // instantly with zero disk. Best-effort: a link failure must not fail worktree
+    // creation (the worker can still run; deps just won't resolve for that dir).
+    await this.linkNodeModules(wtPath).catch(() => {});
+
     const info: WorktreeInfo = {
       sessionId,
       path: wtPath,
@@ -190,6 +198,67 @@ export class WorktreeManager {
 
     await this.writeRecord(info);
     return info;
+  }
+
+  // ---------------------------------------------------------------------------
+  // linkNodeModules — symlink the main repo's node_modules into a fresh worktree
+  // for every package.json dir (root + nested). AUTO-DETECT: no manifest needed.
+  // ---------------------------------------------------------------------------
+  private async linkNodeModules(worktreePath: string): Promise<void> {
+    const pkgDirs = await this.findPackageJsonDirs(worktreePath);
+    for (const rel of pkgDirs) {
+      const srcNM = path.join(this.opts.projectRoot, rel, 'node_modules');
+      const dstNM = path.join(worktreePath, rel, 'node_modules');
+      // Only link where the MAIN repo actually has deps installed for that dir,
+      // and skip if the worktree dir already has a node_modules (real or symlink).
+      if (!(await this.pathExists(srcNM))) continue;
+      if (await this.lpathExists(dstNM)) continue;
+      try {
+        await fs.symlink(srcNM, dstNM, 'dir');
+      } catch {
+        // best-effort per dir — one missing/failed link shouldn't abort the rest
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // findPackageJsonDirs — bounded walk returning dirs (relative to root) that
+  // contain a package.json. Skips node_modules/.git/build output + dotdirs.
+  // ---------------------------------------------------------------------------
+  private async findPackageJsonDirs(root: string): Promise<string[]> {
+    const SKIP = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'coverage', 'out']);
+    const out: string[] = [];
+    const walk = async (relDir: string, depth: number): Promise<void> => {
+      const abs = path.join(root, relDir);
+      let entries: any[];
+      try {
+        entries = await fs.readdir(abs, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      if (entries.some((e: any) => e.isFile() && e.name === 'package.json')) {
+        out.push(relDir);
+      }
+      if (depth <= 0) return;
+      for (const e of entries) {
+        if (e.isDirectory() && !SKIP.has(e.name) && !e.name.startsWith('.')) {
+          await walk(path.join(relDir, e.name), depth - 1);
+        }
+      }
+    };
+    await walk('', 3);
+    return out;
+  }
+
+  /** Like pathExists but uses lstat so an existing SYMLINK (even a dangling one)
+   *  counts as present — we must not clobber/duplicate an existing node_modules. */
+  private async lpathExists(p: string): Promise<boolean> {
+    try {
+      await fs.lstat(p);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   // ---------------------------------------------------------------------------
