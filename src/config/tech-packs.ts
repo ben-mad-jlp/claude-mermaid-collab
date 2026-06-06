@@ -23,6 +23,9 @@
  * builds/tests") stay in the manifest's `profiles[].contextPrompt`. A tech-pack
  * is framework-level and shared; project-context is repo-level and local.
  */
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { loadProjectManifest } from './project-manifest';
 
 /** One shared, cross-project framework/domain context pack. */
@@ -71,15 +74,95 @@ export const TECH_PACKS: Record<string, TechPack> = {
   },
 };
 
+/**
+ * Writable, cross-project pack store (Profile L4b — the substrate L4d's approve
+ * writes into). The seed {@link TECH_PACKS} above ships in code; this store is the
+ * mutable other half: an APPROVED pack (drafted by L4c) is persisted here so it
+ * lands cross-project — every project's resolver sees it without a code change.
+ *
+ * Persistence is a single JSON map ({ [id]: TechPack }) at
+ * `~/.mermaid-collab/tech-packs.json`, overridable via MERMAID_TECH_PACKS_PATH
+ * (tests + alternate homes). Reads fail SOFT (missing/corrupt file → empty store)
+ * so a worker launch never breaks on a bad store; writes are id-keyed upserts.
+ */
+const STORE_PATH_ENV = 'MERMAID_TECH_PACKS_PATH';
+
+function storePath(): string {
+  return process.env[STORE_PATH_ENV] ?? join(homedir(), '.mermaid-collab', 'tech-packs.json');
+}
+
+/** Read the persisted store as an id→pack map. Never throws — a missing or
+ *  unparseable file yields an empty store. */
+function readStore(): Record<string, TechPack> {
+  const path = storePath();
+  if (!existsSync(path)) return {};
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf8'));
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, TechPack>;
+    }
+  } catch {
+    /* corrupt store → treat as empty, never break a launch */
+  }
+  return {};
+}
+
+function writeStore(store: Record<string, TechPack>): void {
+  const path = storePath();
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(store, null, 2), 'utf8');
+}
+
+const PACK_ID = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+/** Persist (upsert by id) an approved tech-pack into the writable store and return
+ *  it. Validates the pack shape — the store is the L4 adoption substrate, so a
+ *  malformed pack must fail loudly rather than corrupt the cross-project library.
+ *  A stored pack with the same id as a seed pack OVERRIDES the seed (see listPacks). */
+export function registerPack(pack: TechPack): TechPack {
+  if (!pack || typeof pack !== 'object') throw new Error('registerPack: pack must be an object');
+  const id = (pack.id ?? '').trim();
+  if (!PACK_ID.test(id)) throw new Error(`registerPack: id must be kebab-case (got "${pack.id}")`);
+  if (!pack.description?.trim()) throw new Error('registerPack: description is required');
+  if (typeof pack.contextPrompt !== 'string') throw new Error('registerPack: contextPrompt must be a string');
+  if (typeof pack.allowedTools !== 'string') throw new Error('registerPack: allowedTools must be a string');
+  const clean: TechPack = {
+    id,
+    description: pack.description.trim(),
+    contextPrompt: pack.contextPrompt,
+    allowedTools: pack.allowedTools,
+    ...(pack.model ? { model: pack.model } : {}),
+  };
+  const store = readStore();
+  store[id] = clean;
+  writeStore(store);
+  return clean;
+}
+
+/** The full pack library: the seed {@link TECH_PACKS} MERGED with the writable
+ *  store, where a stored pack overrides a seed pack of the same id (the seed stays
+ *  the default; an approved override or new pack wins). This is the set the L2/L3
+ *  resolver reads. */
+export function listPacks(): TechPack[] {
+  const merged = new Map<string, TechPack>();
+  for (const p of Object.values(TECH_PACKS)) merged.set(p.id, p);
+  for (const p of Object.values(readStore())) {
+    if (p && typeof p === 'object' && typeof p.id === 'string') merged.set(p.id, p);
+  }
+  return [...merged.values()];
+}
+
 /** A pack id this project declares in its manifest is "known" only if it resolves
- *  against {@link TECH_PACKS}. Unknown ids are dropped (never throw) so a stale or
- *  typo'd reference degrades gracefully rather than breaking a worker launch. */
+ *  against the merged library ({@link listPacks} — seed + writable store). Unknown
+ *  ids are dropped (never throw) so a stale or typo'd reference degrades gracefully
+ *  rather than breaking a worker launch. */
 export function resolveTechPacks(ids?: readonly string[] | null): TechPack[] {
   if (!ids || ids.length === 0) return [];
+  const library = new Map(listPacks().map((p) => [p.id, p]));
   const seen = new Set<string>();
   const out: TechPack[] = [];
   for (const id of ids) {
-    const pack = TECH_PACKS[id];
+    const pack = library.get(id);
     if (pack && !seen.has(id)) {
       seen.add(id);
       out.push(pack);
