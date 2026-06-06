@@ -1,0 +1,11 @@
+{
+  "todoId": "32125394-9b9b-4bea-b1d7-5564532b7ec3",
+  "session": "worker-32125394",
+  "outcome": "escalated",
+  "retryReason": "re-derived-contract",
+  "layer": "collab",
+  "verbsTried": ["get_todo", "grep(wsPort|8765|8766|bsync|step import)"],
+  "failingVerb": null,
+  "failingReturn": null,
+  "summary": "SEAM·bsync todo (viewer wsPort 8766/8765 reconcile + gripper STEP-as-3-instances) targets the build123d-ocp-mcp/bsync repo; claude-mermaid-collab worktree has no viewer/wsPort/STEP-import code. Misrouted (targetProject=null, sessionName=backend-2 in collab). Escalating to reroute."
+}

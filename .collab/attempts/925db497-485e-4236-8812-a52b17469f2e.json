@@ -1,0 +1,11 @@
+{
+  "todoId": "925db497-485e-4236-8812-a52b17469f2e",
+  "session": "worker-925db497",
+  "outcome": "accepted",
+  "retryReason": "none",
+  "layer": "none",
+  "verbsTried": ["get_todo", "complete_todo"],
+  "failingVerb": null,
+  "failingReturn": null,
+  "summary": "Added cross-project tech-pack registry (src/config/tech-packs.ts) seeded with cad + web-react packs; manifest now declares packs[]/primaryPack referencing shared ids; resolveTechPacks/resolveManifestPacks resolve ids to context+tools fragments for L3 composition. 7 new + 9 existing manifest tests green, tsc clean in change-set."
+}

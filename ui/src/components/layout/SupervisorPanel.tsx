@@ -187,10 +187,11 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   // Supervised rows are stamped with the 'local' SENTINEL (serverScope = activeId
   // ?? 'local'), but these maps are keyed by REAL server ids — so a 'local' row
   // missed and fell back to the generic/alien icon (bug 2e3efadd). The map builders
-  // alias 'local' → the actual local server's icon/label.
+  // alias 'local' → the actual local server's icon/label (tested helpers; also
+  // handle a loopback-host local server). activeServerIcon falls back to 'local'.
   const serverIconById = useMemo(() => buildServerIconMap(servers), [servers]);
   const serverLabelById = useMemo(() => buildServerLabelMap(servers), [servers]);
-  const activeServerIcon = activeId ? serverIconById.get(activeId) : undefined;
+  const activeServerIcon = (activeId ? serverIconById.get(activeId) : undefined) ?? serverIconById.get('local');
 
   // Supervised sessions grouped by project (the session-centric view).
   const byProject = useMemo(() => {

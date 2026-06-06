@@ -1,6 +1,7 @@
 import Database from 'bun:sqlite';
 import { mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { hostname } from 'node:os';
 
 /**
  * Per-PROJECT todo store (Phase 0 of the todos upgrade — see design-todos-upgrade).
@@ -16,10 +17,16 @@ export interface TodoLink {
   taskId?: string;
 }
 
+/** Whether a todo's assignee is an autonomous agent (default) or a human.
+ *  Attribution, NOT auth (B1): drives "who is expected to act / who acted". */
+export type AssigneeKind = 'agent' | 'human';
+
 export interface Todo {
   id: string;
   ownerSession: string;
   assigneeSession: string | null;
+  /** Agent (default) vs human assignee. Existing rows backfill to 'agent'. */
+  assigneeKind: AssigneeKind;
   title: string;
   description: string | null;
   status: TodoStatus;
@@ -49,6 +56,11 @@ export interface Todo {
   claimedAt: string | null;
   claimLeaseMs: number | null;
   retryCount: number;
+  /** Opaque actor handle (e.g. 'local:<hostname>') recorded as the completer
+   *  when a HUMAN todo is marked done — attribution, not auth (B1). Null for
+   *  agent todos and for any todo not (yet) completed. One nullable string makes
+   *  Layer C a backfill rather than a migration. */
+  completedBy: string | null;
 }
 
 export interface TodoFilter {
@@ -62,6 +74,7 @@ export interface TodoFilter {
 export interface CreateTodoInput {
   ownerSession: string;
   assigneeSession?: string | null;
+  assigneeKind?: AssigneeKind;
   title: string;
   description?: string | null;
   status?: TodoStatus;
@@ -86,6 +99,7 @@ export type UpdateTodoPatch = Partial<{
   parentId: string | null;
   dependsOn: string[];
   assigneeSession: string | null;
+  assigneeKind: AssigneeKind;
   link: TodoLink | null;
   asanaGid: string | null;
   sessionName: string | null;
@@ -93,12 +107,16 @@ export type UpdateTodoPatch = Partial<{
   type: string | null;
   targetProject: string | null;
   acceptanceStatus: 'pending' | 'accepted' | 'rejected' | null;
+  /** Explicit actor handle to record as completer. Normally left unset — a human
+   *  completion auto-stamps 'local:<hostname>'. Set to null to clear. */
+  completedBy: string | null;
 }>;
 
 interface TodoRow {
   id: string;
   ownerSession: string;
   assigneeSession: string | null;
+  assigneeKind: string | null;
   title: string;
   description: string | null;
   status: string;
@@ -122,6 +140,7 @@ interface TodoRow {
   claimedAt: string | null;
   claimLeaseMs: number | null;
   retryCount: number;
+  completedBy: string | null;
 }
 
 const DDL = `
@@ -129,6 +148,7 @@ CREATE TABLE IF NOT EXISTS todos (
   id TEXT PRIMARY KEY,
   ownerSession TEXT NOT NULL,
   assigneeSession TEXT,
+  assigneeKind TEXT NOT NULL DEFAULT 'agent',
   title TEXT NOT NULL,
   description TEXT,
   status TEXT NOT NULL DEFAULT 'todo',
@@ -151,7 +171,8 @@ CREATE TABLE IF NOT EXISTS todos (
   claimToken TEXT,
   claimedAt TEXT,
   claimLeaseMs INTEGER,
-  retryCount INTEGER NOT NULL DEFAULT 0
+  retryCount INTEGER NOT NULL DEFAULT 0,
+  completedBy TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_todos_owner ON todos(ownerSession);
 CREATE INDEX IF NOT EXISTS idx_todos_assignee ON todos(assigneeSession);
@@ -183,6 +204,10 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'todos', 'claimedAt', 'claimedAt TEXT');
   addColumnIfMissing(db, 'todos', 'claimLeaseMs', 'claimLeaseMs INTEGER');
   addColumnIfMissing(db, 'todos', 'retryCount', 'retryCount INTEGER NOT NULL DEFAULT 0');
+  // B1: human-vs-agent attribution. assigneeKind backfills existing rows to
+  // 'agent' (backward compat); completedBy is the nullable actor handle.
+  addColumnIfMissing(db, 'todos', 'assigneeKind', "assigneeKind TEXT NOT NULL DEFAULT 'agent'");
+  addColumnIfMissing(db, 'todos', 'completedBy', 'completedBy TEXT');
   // One-shot backfill: enforce the claim invariant (claim fields non-null IFF
   // status==='in_progress') on rows written before the invariant was enforced.
   db.exec(
@@ -213,6 +238,12 @@ function withLock<T>(project: string, fn: () => T | Promise<T>): Promise<T> {
 
 const nowIso = () => new Date().toISOString();
 
+/** Minimal default actor handle for a human completion when the caller didn't
+ *  supply one. Opaque attribution string (B1) — host-scoped, not an identity. */
+function defaultActorHandle(): string {
+  try { return `local:${hostname()}`; } catch { return 'local:unknown'; }
+}
+
 function rowToTodo(row: TodoRow): Todo {
   let dependsOn: string[] = [];
   try { dependsOn = JSON.parse(row.dependsOn); } catch { /* default [] */ }
@@ -222,6 +253,7 @@ function rowToTodo(row: TodoRow): Todo {
     id: row.id,
     ownerSession: row.ownerSession,
     assigneeSession: row.assigneeSession,
+    assigneeKind: (row.assigneeKind as AssigneeKind) ?? 'agent',
     title: row.title,
     description: row.description,
     status: row.status as TodoStatus,
@@ -246,6 +278,7 @@ function rowToTodo(row: TodoRow): Todo {
     claimedAt: row.claimedAt ?? null,
     claimLeaseMs: row.claimLeaseMs ?? null,
     retryCount: row.retryCount ?? 0,
+    completedBy: row.completedBy ?? null,
   };
 }
 
@@ -285,18 +318,18 @@ export function createTodo(project: string, input: CreateTodoInput): Promise<Tod
     const ts = nowIso();
     const status = input.status ?? 'todo';
     db.prepare(
-      `INSERT INTO todos (id, ownerSession, assigneeSession, title, description, status, priority,
+      `INSERT INTO todos (id, ownerSession, assigneeSession, assigneeKind, title, description, status, priority,
         dueDate, parentId, dependsOn, ord, link, createdAt, updatedAt, completedAt, asanaGid,
-        sessionName, blueprintId, type, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        sessionName, blueprintId, type, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       // A todo added in a session defaults to being assigned to that session
       // (its ownerSession). Pass an explicit assigneeSession to assign elsewhere.
-      id, input.ownerSession, input.assigneeSession ?? input.ownerSession ?? null, input.title, input.description ?? null,
+      id, input.ownerSession, input.assigneeSession ?? input.ownerSession ?? null, input.assigneeKind ?? 'agent', input.title, input.description ?? null,
       status, input.priority ?? null, input.dueDate ?? null, input.parentId ?? null,
       JSON.stringify(input.dependsOn ?? []), ord, input.link ? JSON.stringify(input.link) : null,
       ts, ts, status === 'done' ? ts : null, null,
-      input.sessionName ?? null, input.blueprintId ?? null, input.type ?? null, input.targetProject ?? null, null, null, null, null, null, 0
+      input.sessionName ?? null, input.blueprintId ?? null, input.type ?? null, input.targetProject ?? null, null, null, null, null, null, 0, null
     );
     return getTodo(project, id)!;
   });
@@ -313,6 +346,21 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     if (patch.completed === false && existing.status === 'done') status = 'todo';
     const completedAt = status === 'done' ? (existing.completedAt ?? nowIso()) : null;
 
+    const assigneeKind: AssigneeKind = patch.assigneeKind ?? existing.assigneeKind;
+    // completedBy mirrors completedAt: non-null only while done. An explicit
+    // patch.completedBy always wins; otherwise a HUMAN todo transitioning to done
+    // auto-stamps a default actor handle (attribution, not auth — B1).
+    let completedBy: string | null;
+    if (status !== 'done') {
+      completedBy = null;
+    } else if (patch.completedBy !== undefined) {
+      completedBy = patch.completedBy;
+    } else if (existing.completedBy != null) {
+      completedBy = existing.completedBy;
+    } else {
+      completedBy = assigneeKind === 'human' ? defaultActorHandle() : null;
+    }
+
     const next = {
       title: patch.title ?? existing.title,
       description: patch.description !== undefined ? patch.description : existing.description,
@@ -322,6 +370,7 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
       parentId: patch.parentId !== undefined ? patch.parentId : existing.parentId,
       dependsOn: patch.dependsOn ?? existing.dependsOn,
       assigneeSession: patch.assigneeSession !== undefined ? patch.assigneeSession : existing.assigneeSession,
+      assigneeKind,
       link: patch.link !== undefined ? patch.link : existing.link,
       asanaGid: patch.asanaGid !== undefined ? patch.asanaGid : existing.asanaGid,
       sessionName: patch.sessionName !== undefined ? patch.sessionName : existing.sessionName,
@@ -337,13 +386,13 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     const clearClaim = status !== 'in_progress';
     db.prepare(
       `UPDATE todos SET title=?, description=?, status=?, priority=?, dueDate=?, parentId=?,
-        dependsOn=?, assigneeSession=?, link=?, asanaGid=?, sessionName=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?,
-        completedAt=?, updatedAt=?${clearClaim ? ', claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL' : ''} WHERE id=?`
+        dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?,
+        completedAt=?, completedBy=?, updatedAt=?${clearClaim ? ', claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL' : ''} WHERE id=?`
     ).run(
       next.title, next.description, next.status, next.priority, next.dueDate, next.parentId,
-      JSON.stringify(next.dependsOn), next.assigneeSession, next.link ? JSON.stringify(next.link) : null,
+      JSON.stringify(next.dependsOn), next.assigneeSession, next.assigneeKind, next.link ? JSON.stringify(next.link) : null,
       next.asanaGid, next.sessionName, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus,
-      completedAt, nowIso(), id
+      completedAt, completedBy, nowIso(), id
     );
     return getTodo(project, id)!;
   });
@@ -527,7 +576,7 @@ function depSatisfied(dep: Pick<Todo, 'status' | 'acceptanceStatus'> | undefined
  * Only the planner moves planned→ready/blocked (approval). This (the coordinator core)
  * only promotes blocked→ready when the last dep completes — it never touches 'planned'.
  */
-export function completeTodo(project: string, id: string, acceptanceStatus?: 'pending' | 'accepted' | 'rejected'): Promise<CompleteTodoResult> {
+export function completeTodo(project: string, id: string, acceptanceStatus?: 'pending' | 'accepted' | 'rejected', completedBy?: string | null): Promise<CompleteTodoResult> {
   return withLock(project, () => {
     assertProjectLocal(project);
     const db = openDb(project);
@@ -535,6 +584,11 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
     if (!existing) throw new Error(`todo not found: ${id}`);
     const ts = nowIso();
     const accept = acceptanceStatus !== undefined ? acceptanceStatus : existing.acceptanceStatus;
+    // Attribution (B1): an explicit completer wins; otherwise a HUMAN todo
+    // auto-stamps a default actor handle. Agent todos stay null unless told.
+    const actor: string | null = completedBy !== undefined
+      ? completedBy
+      : (existing.assigneeKind === 'human' ? (existing.completedBy ?? defaultActorHandle()) : existing.completedBy);
     // SI-3: a rejected completion is NOT done. The mechanical gate failed, so the
     // todo returns to a non-terminal 'blocked' state (completedAt cleared) and is
     // surfaced — the caller escalates it (handleWorkerComplete) for a human to
@@ -542,15 +596,16 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
     // pass below skips rejected todos), so it never silently re-claims and
     // re-fails. Only accepted/pending/null completions move to 'done'.
     if (accept === 'rejected') {
+      // Not done → completedBy cleared (mirrors completedAt).
       db.prepare(
-        `UPDATE todos SET status='blocked', completedAt=NULL, acceptanceStatus=?,
+        `UPDATE todos SET status='blocked', completedAt=NULL, completedBy=NULL, acceptanceStatus=?,
           claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL, updatedAt=? WHERE id=?`
       ).run(accept, ts, id);
     } else {
       db.prepare(
-        `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), acceptanceStatus=?,
+        `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), completedBy=?, acceptanceStatus=?,
           claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL, updatedAt=? WHERE id=?`
-      ).run(ts, accept, ts, id);
+      ).run(ts, actor, accept, ts, id);
     }
     // Unblock pass: any 'blocked' todo whose every (known) dep is satisfied
     // (done AND not rejected) → 'ready'. A rejected dep does NOT unblock, and a
@@ -646,14 +701,14 @@ export function importTodo(project: string, input: ImportTodoInput): void {
   const status = input.status ?? 'todo';
   db.prepare(
     `INSERT OR IGNORE INTO todos
-      (id, ownerSession, assigneeSession, title, description, status, priority, dueDate, parentId,
+      (id, ownerSession, assigneeSession, assigneeKind, title, description, status, priority, dueDate, parentId,
        dependsOn, ord, link, createdAt, updatedAt, completedAt, asanaGid,
-       sessionName, blueprintId, type, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+       sessionName, blueprintId, type, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).run(
-    input.id, input.ownerSession, input.ownerSession, input.title, input.description ?? null, status,
+    input.id, input.ownerSession, input.ownerSession, 'agent', input.title, input.description ?? null, status,
     null, null, input.parentId ?? null, JSON.stringify(input.dependsOn ?? []), ord, null, ts, ts,
     status === 'done' ? ts : null, null,
-    input.sessionName ?? null, input.blueprintId ?? null, input.type ?? null, null, null, null, null, null, 0
+    input.sessionName ?? null, input.blueprintId ?? null, input.type ?? null, null, null, null, null, null, 0, null
   );
 }

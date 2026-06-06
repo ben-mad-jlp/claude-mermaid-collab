@@ -69,6 +69,7 @@ import type { MermaidPreviewRef } from '@/components/editors/MermaidPreview';
 import { ToastContainer } from '@/components/notifications';
 import { requestNotificationPermission, showUserInputNotification } from '@/services/notification-service';
 import { useNotificationStore } from '@/stores/notificationStore';
+import { useSupervisorStore } from '@/stores/supervisorStore';
 import { shouldRefetchTodos, type TodoUpdatedEvent } from '@/lib/todoEvents';
 
 // Track which project:session pairs have already fired a context threshold notification
@@ -549,6 +550,10 @@ const App: React.FC = () => {
           message: `${projectLabel} / ${escSession}${escKind ? ` — ${escKind}` : ''}`,
           duration: 8000,
         });
+        // Idempotently refresh the escalation store so a brief WS gap (or a
+        // missed event) doesn't leave the NeedsYouZone/badge stale — not just a
+        // toast. Reload for the active server scope.
+        void useSupervisorStore.getState().loadEscalations(activeServerId ?? 'local', 'open');
         return;
       }
 

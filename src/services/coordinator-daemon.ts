@@ -32,6 +32,12 @@ export interface CoordinatorDeps {
    *  awaiting input without filing an escalation — and surface them as escalations
    *  (DOGFOOD #6). Returns the stalled todo ids. Optional. */
   detectStalls?: (project: string) => Promise<string[]>;
+  /** Act on the supervisor decision queue (COORD handoff): apply resolved verdicts
+   *  (escalate/nudge/resume/wait) and time-out unresolved requests to a fail-safe
+   *  escalate, then mark them consumed. Returns the consumed decision ids. The
+   *  daemon detects+enqueues in detectStalls and ACTS here — the LLM only judges
+   *  in between. Optional. */
+  drainDecisions?: (project: string) => Promise<string[]>;
   /** Escalate a todo a worker REJECTED (mechanical gate failed). Optional. */
   escalateRejected?: (project: string, todoId: string) => Promise<void>;
   /** Run the project's DECLARED acceptance gate on a worker-completed todo and
@@ -83,6 +89,9 @@ export async function runTick(
   // stalled workers so a silent stall surfaces instead of sitting until lease-expiry.
   if (deps.detectStalls) {
     try { await deps.detectStalls(project); } catch { /* stall detection must not abort the tick */ }
+  }
+  if (deps.drainDecisions) {
+    try { await deps.drainDecisions(project); } catch { /* decision drain must not abort the tick */ }
   }
   const ready = deps.listReadyTodos(project);
   const claimed: string[] = [];
