@@ -45,7 +45,6 @@ import { api, generateSessionName, type CachedUIState } from '@/lib/api';
 import { patchSessionItemsCache, getSessionItemsCache, isCacheStale } from '@/lib/sessionItemsCache';
 import { useProjectStore } from '@/stores/projectStore';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
-import { useSupervisorStore } from '@/stores/supervisorStore';
 import { useDesignEditorStore } from '@/stores/designEditorStore';
 import type { Item, Session, ToolbarAction } from '@/types';
 

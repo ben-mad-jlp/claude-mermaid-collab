@@ -1,6 +1,6 @@
 /**
- * PlanKanban (Bridge P6) — wave columns + pinned Ready-Now lane + segmented
- * progress + bottleneck tags + click-to-navigate.
+ * PlanKanban — epic swimlanes (G6) + pinned Startable strip + segmented progress
+ * + bottleneck tags + click-to-navigate + a Show-completed toggle.
  */
 
 import React from 'react';
@@ -32,7 +32,7 @@ function todo(p: Partial<SessionTodo> & { id: string }): SessionTodo {
   } as SessionTodo;
 }
 
-// A (startable) ← B ← C : A unblocks 2, and only A is Startable.
+// A (startable) ← B ← C : A unblocks 2, and only A is Startable. All orphans.
 const TODOS = [
   todo({ id: 'A', status: 'ready' }),
   todo({ id: 'B', status: 'planned', dependsOn: ['A'] }),
@@ -40,11 +40,35 @@ const TODOS = [
 ];
 
 describe('PlanKanban', () => {
-  it('renders a column per wave (dependency depth)', () => {
+  it('renders a No-epic lane for orphan todos', () => {
     render(<PlanKanban todos={TODOS} />);
-    expect(screen.getByTestId('wave-col-0')).toBeInTheDocument();
-    expect(screen.getByTestId('wave-col-1')).toBeInTheDocument();
-    expect(screen.getByTestId('wave-col-2')).toBeInTheDocument();
+    const lane = screen.getByTestId('orphan-lane');
+    expect(within(lane).getByText('No epic')).toBeInTheDocument();
+  });
+
+  it('renders an epic swimlane per epic with its child todos', () => {
+    const withEpic = [
+      todo({ id: 'E', title: 'Epic-E' }),
+      todo({ id: 'E1', status: 'planned', parentId: 'E' }),
+    ];
+    render(<PlanKanban todos={withEpic} />);
+    const lane = screen.getByTestId('epic-lane-E');
+    expect(within(lane).getByText('Epic-E')).toBeInTheDocument();
+    expect(within(lane).getByText('E1')).toBeInTheDocument();
+  });
+
+  it('hides completed epics by default and reveals them via the toggle', () => {
+    const todos = [
+      todo({ id: 'DONE', title: 'Done-Epic' }),
+      todo({ id: 'D1', status: 'done', completed: true, parentId: 'DONE' }),
+      todo({ id: 'D2', status: 'done', completed: true, parentId: 'DONE' }),
+    ];
+    render(<PlanKanban todos={todos} />);
+    // All children terminal → completed epic, hidden by default.
+    expect(screen.queryByTestId('epic-lane-DONE')).toBeNull();
+    // Toggle on → it appears.
+    fireEvent.click(screen.getByTestId('plan-show-completed'));
+    expect(screen.getByTestId('epic-lane-DONE')).toBeInTheDocument();
   });
 
   it('pins a Startable lane with only the startable, unclaimed todos', () => {
