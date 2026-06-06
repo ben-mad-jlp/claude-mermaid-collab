@@ -36,6 +36,37 @@ export interface SupervisorPanelProps {
   onOpenSupervisorView?: () => void;
 }
 
+type IconServer = { id: string; icon?: string; label: string; source?: string; host?: string };
+
+/** The actual local server, used to resolve the 'local' SENTINEL that supervised
+ *  rows are stamped with (source==='local', else a loopback host). Pure; (2e3efadd). */
+export function localServerOf<T extends { source?: string; host?: string }>(servers: T[]): T | undefined {
+  return (
+    servers.find((s) => s.source === 'local') ??
+    servers.find((s) => s.host === '127.0.0.1' || s.host === 'localhost')
+  );
+}
+
+/** id→icon map that ALSO aliases the 'local' sentinel to the local server's icon,
+ *  so a supervised card stamped serverId='local' shows the real local-server icon
+ *  instead of the generic fallback (bug 2e3efadd). Pure; unit-tested. */
+export function buildServerIconMap(servers: IconServer[]): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const s of servers) if (s.icon) m.set(s.id, s.icon);
+  const local = localServerOf(servers);
+  if (local?.icon) m.set('local', local.icon);
+  return m;
+}
+
+/** id→label map with the same 'local' aliasing as buildServerIconMap. */
+export function buildServerLabelMap(servers: IconServer[]): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const s of servers) m.set(s.id, s.label);
+  const local = localServerOf(servers);
+  if (local) m.set('local', local.label);
+  return m;
+}
+
 export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject, currentSession, onNavigate, onOpenSupervisorView }) => {
   const activeId = useSessionStore((s) => s.currentSession)?.serverId ?? null;
   // Routing scope for supervisor API calls. The supervisor store is GLOBAL
@@ -153,16 +184,12 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
       ? 'running'
       : 'crashed';
 
-  const serverIconById = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const s of servers) if (s.icon) m.set(s.id, s.icon);
-    return m;
-  }, [servers]);
-  const serverLabelById = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const s of servers) m.set(s.id, s.label);
-    return m;
-  }, [servers]);
+  // Supervised rows are stamped with the 'local' SENTINEL (serverScope = activeId
+  // ?? 'local'), but these maps are keyed by REAL server ids — so a 'local' row
+  // missed and fell back to the generic/alien icon (bug 2e3efadd). The map builders
+  // alias 'local' → the actual local server's icon/label.
+  const serverIconById = useMemo(() => buildServerIconMap(servers), [servers]);
+  const serverLabelById = useMemo(() => buildServerLabelMap(servers), [servers]);
   const activeServerIcon = activeId ? serverIconById.get(activeId) : undefined;
 
   // Supervised sessions grouped by project (the session-centric view).
