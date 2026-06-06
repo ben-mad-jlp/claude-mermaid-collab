@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import {
   createTodo, listTodos, getTodo, updateTodo, assignTodo, removeTodo, clearCompleted, reorder, _closeProject,
   claimTodo, releaseExpiredClaims, reclaimClaim, releaseClaim, listReadyTodos, computeWaves, completeTodo, MAX_CLAIM_RETRIES,
+  resetTodo, overrideAcceptTodo,
 } from '../todo-store';
 
 let project: string;
@@ -546,5 +547,75 @@ describe('todo-store assigneeKind + completedBy (B1 attribution)', () => {
     const res = await completeTodo(project, t.id, 'rejected');
     expect(res.completed.status).toBe('blocked');
     expect(res.completed.completedBy).toBeNull();
+  });
+
+  test('B2: listReadyTodos excludes ready human todos (not coordinator-claimable)', async () => {
+    const agentT = await createTodo(project, { ownerSession: 's1', title: 'agent work', status: 'ready', assigneeKind: 'agent' });
+    const humanT = await createTodo(project, { ownerSession: 's1', title: 'human review', status: 'ready', assigneeKind: 'human' });
+    const ids = listReadyTodos(project).map((t) => t.id);
+    expect(ids).toContain(agentT.id);
+    expect(ids).not.toContain(humanT.id); // human todo sits outside the claim path
+  });
+
+  test('B2: an agent todo depending on a human todo becomes claimable once the human marks it done (both-way flow)', async () => {
+    const humanDep = await createTodo(project, { ownerSession: 's1', title: 'human approves', status: 'ready', assigneeKind: 'human' });
+    const agentDependent = await createTodo(project, { ownerSession: 's1', title: 'agent follows', status: 'ready', assigneeKind: 'agent', dependsOn: [humanDep.id] });
+    // human dep not done yet → agent dependent blocked from claim
+    expect(listReadyTodos(project).map((t) => t.id)).not.toContain(agentDependent.id);
+    // human marks their todo done → dep satisfied → agent todo now claimable
+    await completeTodo(project, humanDep.id, 'accepted');
+    expect(listReadyTodos(project).map((t) => t.id)).toContain(agentDependent.id);
+  });
+});
+
+describe('steward verbs', () => {
+  test('resetTodo clears retryCount/acceptance/claim and re-promotes a parked over-retried todo', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'stuck' });
+    await updateTodo(project, t.id, { status: 'ready' }); // claimable
+    // Drive it over the retry budget via repeated claim→reclaim until it parks 'blocked'.
+    let status: 'ready' | 'blocked' | null = null;
+    for (let i = 0; i < MAX_CLAIM_RETRIES + 2 && status !== 'blocked'; i++) {
+      const claimed = await claimTodo(project, t.id, 'coordinator', 1000);
+      if (!claimed) break;
+      status = await reclaimClaim(project, t.id);
+    }
+    expect(status).toBe('blocked');
+    const parked = getTodo(project, t.id)!;
+    expect(parked.retryCount).toBeGreaterThan(MAX_CLAIM_RETRIES);
+
+    const reset = await resetTodo(project, t.id);
+    expect(reset.status).toBe('ready');
+    expect(reset.retryCount).toBe(0);
+    expect(reset.acceptanceStatus).toBeNull();
+    expect(reset.claimedBy).toBeNull();
+    // Now claimable again — a fresh claim won't immediately re-park.
+    expect(listReadyTodos(project).map((x) => x.id)).toContain(t.id);
+  });
+
+  test('resetTodo honors an explicit target status', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'park-me' });
+    const r = await resetTodo(project, t.id, 'planned');
+    expect(r.status).toBe('planned');
+    expect(r.retryCount).toBe(0);
+  });
+
+  test('overrideAcceptTodo force-accepts a gate-rejected todo and unblocks its dependents', async () => {
+    const dep = await createTodo(project, { ownerSession: 's1', title: 'verified-but-rejected' });
+    const child = await createTodo(project, { ownerSession: 's1', title: 'waiting', dependsOn: [dep.id] });
+    // A todo gated behind an unfinished dep sits 'blocked' (the unblock pass only
+    // promotes 'blocked' todos whose deps are now satisfied).
+    await updateTodo(project, child.id, { status: 'blocked' });
+    // Simulate the false-rejection: gate said no, todo parked 'blocked'/rejected.
+    await completeTodo(project, dep.id, 'rejected');
+    expect(getTodo(project, dep.id)!.status).toBe('blocked');
+    expect(listReadyTodos(project).map((x) => x.id)).not.toContain(child.id);
+
+    const res = await overrideAcceptTodo(project, dep.id);
+    expect(res.completed.status).toBe('done');
+    expect(res.completed.acceptanceStatus).toBe('accepted');
+    expect(res.completed.completedBy).toBe('steward');
+    // Dependent unblocks exactly as a normal acceptance.
+    expect(res.promoted).toContain(child.id);
+    expect(listReadyTodos(project).map((x) => x.id)).toContain(child.id);
   });
 });

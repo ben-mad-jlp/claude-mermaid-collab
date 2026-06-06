@@ -518,11 +518,28 @@ export function releaseClaim(project: string, id: string): Promise<boolean> {
   });
 }
 
+/**
+ * The Coordinator's claimable set: ready, deps-satisfied, AND assigneeKind='agent'.
+ *
+ * B2 (user-todo): human todos sit STRUCTURALLY outside the claim/lease/gate
+ * machinery via this ONE filter at the claim boundary — they are a different
+ * actor on the same graph, not a second execution contract, so they never get a
+ * claimToken / lease / gateCommand. This is the single chokepoint, NOT a
+ * skip-flag sprinkled through lease/retry/gate.
+ *
+ * Dependency resolution still flows both ways: depSatisfied keys only on a dep's
+ * status='done' (independent of assigneeKind), so an agent todo depending on a
+ * human todo becomes claimable the moment the human marks it done, and a human
+ * todo depending on an agent todo becomes actionable (in the B3 inbox VIEW) once
+ * the agent finishes + gate passes. The filter only removes human todos from the
+ * CLAIM path — never from the graph.
+ */
 export function listReadyTodos(project: string): Todo[] {
   const all = listTodos(project, { includeCompleted: true });
   const byId = new Map(all.map((t) => [t.id, t]));
   return all.filter((t) => {
     if (t.status !== 'ready') return false;
+    if (t.assigneeKind !== 'agent') return false; // human todos are not coordinator-claimable
     return (t.dependsOn ?? []).every((depId) => depSatisfied(byId.get(depId)));
   });
 }
@@ -644,6 +661,44 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
     }
     return { completed: getTodo(project, id)!, promoted, rolledUp };
   });
+}
+
+/**
+ * STEWARD: unstick a parked/over-retried todo and re-promote it. Use when the
+ * CAUSE of repeated rejections is fixed EXTERNALLY (a now-merged dependency, a
+ * foreign whole-tree gate error since repaired, a corrected gate command) so a
+ * todo sitting at/over MAX_CLAIM_RETRIES — which would otherwise re-park to
+ * 'blocked' the instant it's reclaimed — can flow again. Resets retryCount=0,
+ * clears acceptanceStatus + any stale claim + completion stamps, and sets the
+ * status (default 'ready'). This is the supported replacement for hand-editing
+ * todos.db. Returns the updated todo.
+ */
+export function resetTodo(project: string, id: string, status: TodoStatus = 'ready'): Promise<Todo> {
+  return withLock(project, () => {
+    assertProjectLocal(project);
+    const existing = getTodo(project, id);
+    if (!existing) throw new Error(`todo not found: ${id}`);
+    const db = openDb(project);
+    db.prepare(
+      `UPDATE todos SET status=?, retryCount=0, acceptanceStatus=NULL,
+        claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL,
+        completedAt=NULL, completedBy=NULL, updatedAt=? WHERE id=?`
+    ).run(status, nowIso(), id);
+    return getTodo(project, id)!;
+  });
+}
+
+/**
+ * STEWARD override-accept: force a todo whose work is verified-done DONE+accepted,
+ * BYPASSING the mechanical gate. Use when the gate FALSE-rejected verified-green
+ * work (e.g. a whole-tree `tsc` tripping on a sibling lane's committed error, or a
+ * gate command that's wrong for the change-set). Routes through completeTodo so
+ * dependents unblock and parent epics roll up exactly as a normal acceptance —
+ * the ONLY difference is no gate runs. Records the steward as completer for
+ * provenance. Returns the completion result (completed todo + promoted/rolledUp).
+ */
+export function overrideAcceptTodo(project: string, id: string, completedBy: string = 'steward'): Promise<CompleteTodoResult> {
+  return completeTodo(project, id, 'accepted', completedBy);
 }
 
 export function assignTodo(project: string, id: string, assigneeSession: string | null): Promise<Todo> {
