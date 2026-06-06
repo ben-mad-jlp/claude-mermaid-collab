@@ -24,6 +24,18 @@ export function isTransientProjectPath(path: string): boolean {
   return /[/\\]\.collab[/\\]agent-sessions[/\\]/.test(path);
 }
 
+/** Map a worker-worktree path back to its tracking repo root. A worktree lives at
+ *  <repo>/.collab/agent-sessions/worktrees/<lane>; the durable per-project stores
+ *  (todos.db, decision-records.db, …) are owned by <repo>, NOT the per-todo
+ *  checkout. Without this, a worker whose cwd is the worktree resolves its DB to an
+ *  empty worktree-local todos.db — so the Coordinator's todos are invisible and
+ *  stick in_progress forever (pool starvation). Returns the path unchanged when it
+ *  is not a worktree path. */
+export function trackingProjectRoot(path: string): string {
+  const m = path.match(/^(.*?)[/\\]\.collab[/\\]agent-sessions[/\\]/);
+  return m ? m[1] : path;
+}
+
 export class ProjectRegistry {
   private registryPath: string;
 
