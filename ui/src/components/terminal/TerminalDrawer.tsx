@@ -103,7 +103,16 @@ export function TerminalDrawer() {
         }}
       >
         {tabs.map((tab) => {
-          const srv = servers.find((s) => s.id === tab.serverId);
+          // Resolve the 'local' SENTINEL to the real local server, same as the
+          // supervised cards (c880934). Worker tabs carry serverId='local', which
+          // never matches the real-UUID-keyed servers list → srv was undefined →
+          // generic/alien icon. localServerOf aliases it to the actual local server.
+          const srv =
+            servers.find((s) => s.id === tab.serverId) ??
+            ((!tab.serverId || tab.serverId === 'local')
+              ? (servers.find((s) => s.source === 'local') ??
+                 servers.find((s) => s.host === '127.0.0.1' || s.host === 'localhost'))
+              : undefined);
           const label = tab.serverLabel || srv?.label || '(unknown)';
           const icon = srv?.icon;
           return (

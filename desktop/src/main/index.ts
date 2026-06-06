@@ -481,7 +481,17 @@ async function startServices(opts: { cdpPort: number; controlUrl: string; contro
   // Resolver: live lookup keeps tokens in main and lets per-server WS bridges
   // pick the right upstream regardless of which server is "active".
   proxy.setResolver((id) => {
-    const e = store?.get(id);
+    // Resolve the 'local' SENTINEL (and empty/undefined) to the local server,
+    // exactly as invokeOnServer does. Supervised/worker terminal tabs carry
+    // serverId='local' (supervisor panel's `activeId ?? 'local'`); without this
+    // the per-server terminal WS resolved to null → socket.destroy() → the pane
+    // connected nowhere and showed empty, even though the POST that created the
+    // tab (via invokeOnServer, which DOES resolve 'local') succeeded.
+    let e = store?.get(id);
+    if (!e && (!id || id === 'local')) {
+      const localInfo = store?.list().find((s) => s.source === 'local');
+      if (localInfo) e = store?.get(localInfo.id);
+    }
     return e ? { host: e.host, port: e.port, token: e.token } : null;
   });
   aggregator = new WatchAggregator((e) => void onWatchEvent(e), () => pushPeerRegistry());
