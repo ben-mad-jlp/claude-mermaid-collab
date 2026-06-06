@@ -7,5 +7,5 @@
   "verbsTried": ["get_todo", "complete_todo"],
   "failingVerb": null,
   "failingReturn": null,
-  "summary": "Removed session-name input from StewardPanel front door; hardcoded stewardSession='steward' so Become the Steward launches in one click. tsc clean for change-set; 5/5 StewardPanel tests pass (added one-click/no-input test)."
+  "summary": "StewardPanel polish (3 tweaks): (1) relabeled front-door heading+button 'Become the Steward'/'Start steward' -> 'Launch the Steward'; (2) one-click launch (fixed 'steward' name, no input) already present from prior retry; (3) added a real SessionCard for the (project,'steward') session merged from the subscription feed, clickable to open its terminal via activateSessionCard, alongside the loud override-count + Pause/Take over. tsc clean for change-set; StewardPanel.test.tsx 6/6 pass (added card-render + relabel assertions)."
 }

@@ -22,7 +22,8 @@ describe('StewardPanel — three states', () => {
     seed({ identity: null, running: false, stale: true, ageMs: null, overrideAccepts: 0 });
     render(<StewardPanel currentProject="/p" />);
     expect(screen.getByTestId('steward-panel').getAttribute('data-state')).toBe('none');
-    expect(screen.getByText('Become the Steward')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Launch the Steward' })).toBeTruthy();
+    expect(screen.getByTestId('steward-launch').textContent).toContain('Launch the Steward');
   });
 
   it('launches in one click — no session-name input, button enabled with a project scope', () => {
@@ -52,6 +53,15 @@ describe('StewardPanel — three states', () => {
     // [Pause] / [Take over] controls are surfaced.
     expect(screen.getByTestId('steward-pause')).toBeTruthy();
     expect(screen.getByTestId('steward-takeover')).toBeTruthy();
+  });
+
+  it('renders a clickable SessionCard for the steward session when running', () => {
+    seed({ identity: { project: '/p', session: 'steward', updatedAt: Date.now() }, running: true, stale: false, ageMs: 100, overrideAccepts: 0 });
+    render(<StewardPanel currentProject="/p" />);
+    const card = screen.getByTestId('steward-session-card');
+    expect(card).toBeTruthy();
+    // The card shows the steward session name.
+    expect(card.textContent).toContain('steward');
   });
 });
 
