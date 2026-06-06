@@ -152,7 +152,11 @@ export class ProjectRegistry {
     const knownPaths = new Set(validProjects.map(p => p.path));
     const discovered: Project[] = [];
     for (const path of await this.discoverProjectPaths()) {
-      if (knownPaths.has(path)) continue;
+      // A worker worktree under .collab/agent-sessions/ holds its own .collab/
+      // (session refs), so on-disk discovery RE-FINDS it and re-adds it here even
+      // after the load filter — the actual leak behind the picker pollution. Skip
+      // transient paths so they never re-enter via discovery either.
+      if (knownPaths.has(path) || isTransientProjectPath(path)) continue;
       let lastAccess: string;
       try {
         lastAccess = fs.statSync(join(path, '.collab')).mtime.toISOString();
