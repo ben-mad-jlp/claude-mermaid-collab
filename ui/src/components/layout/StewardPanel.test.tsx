@@ -25,6 +25,16 @@ describe('StewardPanel — three states', () => {
     expect(screen.getByText('Become the Steward')).toBeTruthy();
   });
 
+  it('launches in one click — no session-name input, button enabled with a project scope', () => {
+    seed({ identity: null, running: false, stale: true, ageMs: null, overrideAccepts: 0 });
+    const { container } = render(<StewardPanel currentProject="/p" />);
+    // The session-name text box is gone — the steward is always named 'steward'.
+    expect(container.querySelector('input[type="text"]')).toBeNull();
+    // The launch button is immediately clickable (no typing required).
+    const launch = screen.getByTestId('steward-launch') as HTMLButtonElement;
+    expect(launch.disabled).toBe(false);
+  });
+
   it("renders the 'crashed' front door when the steward heartbeat is stale", () => {
     seed({ identity: { project: '/p', session: 'steward', updatedAt: 1 }, running: false, stale: true, ageMs: 999999, overrideAccepts: 0 });
     render(<StewardPanel currentProject="/p" />);
