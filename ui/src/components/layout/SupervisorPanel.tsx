@@ -17,7 +17,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   useSupervisorStore,
-  type Escalation,
   type SupervisedSession,
 } from '@/stores/supervisorStore';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
@@ -25,7 +24,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useTerminalStore } from '@/stores/terminalStore';
 import { useServers } from '@/contexts/ServerContext';
 import { ServerIcon } from '@/components/ServerIcon';
-import { SessionCard, activateSessionCard, type SessionCardData } from '@/components/layout/SessionCard';
+import { SessionCard, type SessionCardData } from '@/components/layout/SessionCard';
 import { SupervisorOnboarding } from '@/components/supervisor/SupervisorOnboarding';
 
 export interface SupervisorPanelProps {
@@ -78,14 +77,12 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
 
   const {
     supervised,
-    escalations,
     config,
     liveness,
     loadSupervised,
     loadEscalations,
     loadConfig,
     loadLiveness,
-    resolveEscalation,
   } = useSupervisorStore();
 
   const subscriptions = useSubscriptionStore((s) => s.subscriptions);
@@ -325,8 +322,6 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
     [findSubscription, fetchedStatuses, activeId],
   );
 
-  const openEscalations = escalations.filter((e) => e.status === 'open');
-
   // Navigate: mirror the Watching panel — update local session state for
   // same-server rows (the card's click side-effects handle terminal/browser).
   const handleNavigate = useCallback(
@@ -467,64 +462,9 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
             ))
           )}
 
-          {/* Escalations inbox */}
-          {openEscalations.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-              <div className="flex items-center gap-1.5 px-1 pb-1.5">
-                <span className="text-2xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                  Escalations
-                </span>
-                <span className="text-gray-400 dark:text-gray-500 font-normal text-xs">
-                  {openEscalations.length}
-                </span>
-              </div>
-              <div className="space-y-1.5">
-                {openEscalations.map((e: Escalation) => (
-                  <div
-                    key={e.id}
-                    className="px-2 py-1.5 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 space-y-1"
-                  >
-                    <div className="text-2xs font-medium text-gray-500 dark:text-gray-400 truncate">
-                      {`${e.project.split('/').pop()} / ${e.session}`}
-                    </div>
-                    <div className="text-xs font-mono leading-relaxed text-gray-900 dark:text-gray-100 whitespace-pre-wrap break-words">
-                      {e.questionText}
-                    </div>
-                    <div className="flex items-center gap-1.5 pt-0.5">
-                      <button
-                        onClick={() => {
-                          const sub = findSubscription(e.project, e.session) ?? {
-                            serverId: activeId ?? 'local',
-                            project: e.project,
-                            session: e.session,
-                            status: 'unknown' as const,
-                            lastUpdate: Date.now(),
-                          };
-                          // Same as clicking a card: select the session AND fire
-                          // the per-server side-effects (terminal + browser focus).
-                          handleNavigate(sub);
-                          void activateSessionCard(sub, serverLabelById.get(sub.serverId));
-                        }}
-                        className="px-2 py-0.5 text-2xs font-medium rounded bg-gray-200 text-gray-700 border border-gray-300 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-600 transition-colors"
-                        title="Jump to session"
-                      >
-                        Jump to session
-                      </button>
-                      <button
-                        onClick={() => {
-                          void resolveEscalation(serverScope, e.id, 'resolved');
-                        }}
-                        className="px-2 py-0.5 text-2xs rounded text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-                        title="Mark resolved and remove from inbox"
-                      >
-                        Resolve
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* Escalations inbox REMOVED — scoped escalations now live ONLY in the
+              Bridge's NeedsYouZone (Z1). The main left column no longer surfaces
+              them, to keep a single source of "needs you". */}
         </div>
       ) : null}
     </div>
