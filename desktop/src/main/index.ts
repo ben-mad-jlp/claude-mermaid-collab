@@ -530,11 +530,23 @@ if (gotLock) {
     void supervisor?.stop();
   };
 
-  app.on('before-quit', () => {
+  // Guards the async final flush of the connection store so before-quit only
+  // defers the quit once, then lets it proceed after the write lands on disk.
+  let storeFlushed = false;
+  app.on('before-quit', (event) => {
     teardownSidecar();
     aggregator?.stop();
     void control?.stop();
     void proxy?.stop();
+    // Await a final durable write of the server list before exiting — add/remove
+    // schedule fire-and-forget, so an in-flight write could otherwise be lost.
+    if (!storeFlushed && store) {
+      event.preventDefault();
+      void store.flush().finally(() => {
+        storeFlushed = true;
+        app.quit();
+      });
+    }
   });
 
   app.on('window-all-closed', () => {

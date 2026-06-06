@@ -19,10 +19,13 @@ import {
 } from '../config/agent-profiles';
 
 /**
- * Pool types = the agent-profile taxonomy, with the profile `default` concept
- * remapped to the pool's `general` slot (Q5: cross-type/untyped → a `general`
- * pool). Keep this aligned with `AgentProfileType` minus `default`, plus
- * `general`.
+ * The set of valid routing `type` values (canonical vocabulary: the todo routing
+ * key is `type`; `pool-type`/`poolType` are RETIRED synonyms — see
+ * spec-canonical-vocabulary). This `PoolType` enum is the sanctioned thin internal
+ * alias for that value set (each value names a pool). It is the agent-profile
+ * taxonomy with the profile `default` concept remapped to the pool's `general`
+ * slot (Q5: cross-type/untyped → a `general` pool) — kept aligned with
+ * `AgentProfileType` minus `default`, plus `general`.
  */
 export type PoolType =
   | 'frontend'
@@ -72,35 +75,37 @@ export const POOL_CONFIG: PoolConfig = {
 };
 
 /**
- * Map an `AgentProfileType` to a `PoolType`. The only divergence is
+ * Map an `AgentProfileType` to a routing `type`. The only divergence is
  * `default` → `general` (the absorbing slot); every other profile type is a
- * 1:1 pool type.
+ * 1:1 routing type. (`profile` is a DISTINCT concept from `type` per the
+ * canonical vocabulary — this is the deliberate, explicit bridge between them.)
  */
-export function profileTypeToPoolType(profileType: AgentProfileType): PoolType {
+export function profileTypeToType(profileType: AgentProfileType): PoolType {
   return profileType === 'default' ? 'general' : profileType;
 }
 
 /**
- * Map a todo's `type` string to a pool type. Null/unknown/`default`/multi-domain
- * → `general`. Reuses the agent-profile taxonomy; a recognized profile type maps
- * directly, anything else falls through to `general`.
+ * Resolve a todo's `type` string to a valid routing `type`. Null/unknown/
+ * `default`/multi-domain → `general`. Reuses the agent-profile taxonomy; a
+ * recognized profile type maps directly, anything else falls through to
+ * `general`.
  *
  * NOTE: this does NOT re-run PATH_RULES file inference — that lives in
  * `agent-profiles.inferProfileType` and operates on a task's touched files, not
- * a todo's already-assigned `type` string. POOL-4 can call `poolTypeForFiles`
+ * a todo's already-assigned `type` string. POOL-4 can call `typeForFiles`
  * below when it only has files.
  */
-export function todoTypeToPoolType(todoType?: string | null): PoolType {
+export function resolveType(todoType?: string | null): PoolType {
   if (!todoType) return 'general';
   if ((POOL_TYPES as readonly string[]).includes(todoType)) {
-    // already a valid pool type (covers frontend/backend/api/ui/library/general)
+    // already a valid routing type (frontend/backend/api/ui/library/general)
     return todoType as PoolType;
   }
   if (todoType === 'default') return 'general';
   // Recognized agent-profile type? (e.g. a future profile-only type.)
   const known: AgentProfileType[] = ['default', 'frontend', 'backend', 'api', 'ui', 'library'];
   if ((known as string[]).includes(todoType)) {
-    return profileTypeToPoolType(todoType as AgentProfileType);
+    return profileTypeToType(todoType as AgentProfileType);
   }
   return 'general';
 }
@@ -108,10 +113,10 @@ export function todoTypeToPoolType(todoType?: string | null): PoolType {
 /**
  * Convenience for POOL-4 when routing from a task's touched files instead of a
  * pre-assigned `type` string: defers to agent-profiles' PATH_RULES inference,
- * then maps the resulting profile type into pool space.
+ * then maps the resulting profile type into routing-`type` space.
  */
-export function poolTypeForFiles(files: string[] | undefined | null): PoolType {
-  return profileTypeToPoolType(inferProfileType(files));
+export function typeForFiles(files: string[] | undefined | null): PoolType {
+  return profileTypeToType(inferProfileType(files));
 }
 
 /**

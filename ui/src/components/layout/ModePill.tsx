@@ -14,6 +14,7 @@
 import React, { useEffect } from 'react';
 import { useUIStore, type UIMode } from '@/stores/uiStore';
 import { CommandBarBadge } from '@/components/supervisor/bridge/CommandBarBadge';
+import { ProposedBadge } from '@/components/supervisor/bridge/ProposedBadge';
 
 interface ModeDef {
   key: UIMode;
@@ -77,7 +78,10 @@ export const ModePill: React.FC = () => {
       {/* Escalation safety-net badge — the single project-scoped selector,
           calm-green at zero, red + clickable when a human is needed. Rides the
           pill in every mode (Bridge P1). */}
-      <span className="ml-1 mr-0.5 flex items-center">
+      {/* Proposed(N) confirm-loop depth (amber) sits beside the escalation
+          safety-net badge (red) — reachable from any mode. */}
+      <span className="ml-1 mr-0.5 flex items-center gap-1">
+        <ProposedBadge />
         <CommandBarBadge />
       </span>
     </div>

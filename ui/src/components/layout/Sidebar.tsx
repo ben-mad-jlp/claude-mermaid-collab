@@ -4,6 +4,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useTabsStore, useSessionTabs } from '@/stores/tabsStore';
 import { SubscriptionsPanel } from '@/components/layout/SubscriptionsPanel';
 import { SupervisorPanel } from '@/components/layout/SupervisorPanel';
+import { StewardPanel } from '@/components/layout/StewardPanel';
 import { ServersTreeSection } from '@/components/layout/sidebar-tree/ServersTreeSection';
 import { ArtifactTree } from '@/components/layout/sidebar-tree/ArtifactTree';
 import { WorktreeBadge } from '@/components/layout/WorktreeBadge';
@@ -85,6 +86,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
         {/* ProjectScopeSection dissolved (CUI-6): its PROJECT select, daemon
             Start/Stop, plan tree and scoped escalations now live in the Bridge. */}
+        {/* Role ladder (Steward P3): Steward ▸ Supervisor ▸ Coordinator/Planner
+            ▸ workers — the Steward sits at the top of the column, above Supervisor. */}
+        <StewardPanel currentProject={currentSession?.project} currentSession={currentSession?.name} />
         <SupervisorPanel currentProject={currentSession?.project} currentSession={currentSession?.name} />
         <SubscriptionsPanel currentProject={currentSession?.project} />
         <ArtifactTree />

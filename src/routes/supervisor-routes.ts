@@ -20,6 +20,10 @@ import {
 } from '../services/supervisor-store.ts';
 import { createItem, listItems, updateItem, deleteItem } from '../services/roadmap-store.ts';
 import { listTodos, updateTodo } from '../services/todo-store.ts';
+import { listDecisionRecords, createDecisionRecord, type DecisionStatus, type RequirementSpec } from '../services/decision-record-store.ts';
+import { listObjects, listTypes } from '../services/system-object-store.ts';
+import { bom } from '../services/system-object-bom.ts';
+import { specCoverage, decideRequirement, type RequirementDecision } from '../services/spec-coverage.ts';
 import { startCoordinator, stopCoordinator, isCoordinatorRunning } from '../services/coordinator-live.ts';
 import { SUPERVISOR_PROJECT, SUPERVISOR_SESSION } from '../config.ts';
 import { sendTmuxKeys } from '../services/tmux-send.ts';
@@ -339,6 +343,147 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       heartbeatIntervalMs: SUPERVISOR_HEARTBEAT_INTERVAL_MS,
       staleAfterMs: SUPERVISOR_STALE_AFTER_MS,
     });
+  }
+
+  // GET /api/supervisor/steward-identity[?project=] — the Steward panel's front
+  // door. Mirrors /api/supervisor/identity's liveness math (heartbeat staleness),
+  // but reads the INDEPENDENT 'steward' role row (separate epoch line). Also
+  // surfaces the SCARY observability metric the panel leads with:
+  // `overrideAccepts` — how many todos the steward force-accepted past the gate
+  // (override_accept_todo stamps completedBy='steward'); scoped to ?project= when
+  // given, 0 otherwise. No new WS events — REST-poll on the panel's 10s cadence.
+  if (url.pathname === '/api/supervisor/steward-identity' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    const overrideAccepts = project
+      ? listTodos(project, { includeCompleted: true }).filter((t) => t.completedBy === 'steward').length
+      : 0;
+    const identity = getSupervisorIdentity('steward');
+    if (!identity) {
+      // No steward registered: report not-running so the panel renders the
+      // definitive "Become the Steward" front door rather than flashing crashed.
+      return Response.json({
+        identity: null,
+        running: false,
+        stale: true,
+        ageMs: null,
+        overrideAccepts,
+        heartbeatIntervalMs: SUPERVISOR_HEARTBEAT_INTERVAL_MS,
+        staleAfterMs: SUPERVISOR_STALE_AFTER_MS,
+      });
+    }
+    const ageMs = Date.now() - identity.updatedAt;
+    const stale = ageMs > SUPERVISOR_STALE_AFTER_MS;
+    return Response.json({
+      ...identity,
+      identity,
+      running: !stale,
+      stale,
+      ageMs,
+      overrideAccepts,
+      heartbeatIntervalMs: SUPERVISOR_HEARTBEAT_INTERVAL_MS,
+      staleAfterMs: SUPERVISOR_STALE_AFTER_MS,
+    });
+  }
+
+  // ── SPEC API SURFACE (design-system-object-ui §8) ──────────────────────────
+  // The seam every spec UI leaf builds against: requirements feed, inline-cheap
+  // coverage (Todo.objectRef join), the durable object tree, BOM rollup, and the
+  // requirement decision (approve/edit/reject). REST-poll on the Bridge cadence —
+  // NO new WS events.
+
+  // GET /api/supervisor/requirements?project=&epicId=&status= — the RequirementsInbox
+  // feed: requirement-kind decision records (all statuses by default).
+  if (url.pathname === '/api/supervisor/requirements' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) return jsonError('project is required', 400);
+    const filter: { kind: 'requirement'; epicId?: string | null; status?: DecisionStatus } = { kind: 'requirement' };
+    const epicId = url.searchParams.get('epicId');
+    if (epicId !== null) filter.epicId = epicId;
+    const status = url.searchParams.get('status');
+    if (status) filter.status = status as DecisionStatus;
+    try {
+      return Response.json({ requirements: listDecisionRecords(project, filter) });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // GET /api/supervisor/coverage?project= — inline-cheap coverage rollup over the
+  // Todo.objectRef → SystemObject join (no full-tree walk, no per-change recompute).
+  if (url.pathname === '/api/supervisor/coverage' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) return jsonError('project is required', 400);
+    try {
+      return Response.json({ coverage: specCoverage(project) });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // GET /api/supervisor/system-objects?project= — the durable object tree (+ type
+  // registry) the Spec Sheet renders via deriveSystemNodes.
+  if (url.pathname === '/api/supervisor/system-objects' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) return jsonError('project is required', 400);
+    try {
+      return Response.json({ objects: listObjects(project), types: listTypes(project) });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // GET /api/supervisor/bom?project=&rootId= — rolled-up bill-of-materials beneath
+  // a root object (derived recursive-CTE; never stored).
+  if (url.pathname === '/api/supervisor/bom' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    const rootId = url.searchParams.get('rootId');
+    if (!project || !rootId) return jsonError('project and rootId are required', 400);
+    try {
+      return Response.json({ lines: bom(project, rootId) });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // POST /api/supervisor/requirements — propose a new requirement (the Spec Sheet
+  // '+ promise' composer). Creates a requirement-kind decision record in 'proposed'
+  // status, which then flows to the Bridge RequirementsInbox for signature.
+  if (url.pathname === '/api/supervisor/requirements' && req.method === 'POST') {
+    try {
+      const { project, title, spec, epicId, rationale, authorSession } = (await req.json()) as {
+        project?: string;
+        title?: string;
+        spec?: RequirementSpec | null;
+        epicId?: string | null;
+        rationale?: string | null;
+        authorSession?: string | null;
+      };
+      if (!project || !title) return jsonError('project and title are required', 400);
+      const rec = createDecisionRecord(project, { kind: 'requirement', title, spec: spec ?? null, epicId: epicId ?? null, rationale: rationale ?? null, authorSession: authorSession ?? null });
+      return Response.json({ requirement: rec });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // POST /api/supervisor/requirements/decide — sign/reject/re-sign a requirement,
+  // reusing the decision-record approve/supersede path. Mirrors decideEscalation.
+  if (url.pathname === '/api/supervisor/requirements/decide' && req.method === 'POST') {
+    try {
+      const { project, id, decision, approvedBy, spec, title } = (await req.json()) as {
+        project?: string;
+        id?: string;
+        decision?: RequirementDecision;
+        approvedBy?: string;
+        spec?: RequirementSpec;
+        title?: string;
+      };
+      if (!project || !id || !decision) return jsonError('project, id, and decision are required', 400);
+      const result = decideRequirement(project, { id, decision, approvedBy, spec, title });
+      return Response.json(result);
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
   }
 
   return null;

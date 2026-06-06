@@ -9,7 +9,8 @@ export type TabKind =
   | 'blueprint'
   | 'embed'
   | 'code-file'
-  | 'todo-detail';
+  | 'todo-detail'
+  | 'spec';
 
 export type TabArtifactType =
   | 'diagram'

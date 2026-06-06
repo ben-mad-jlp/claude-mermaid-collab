@@ -88,6 +88,11 @@ export class ConnectionStore {
   private readonly instancesDir: string;
   private readonly safeStorage: SafeStorageLike;
   private readonly serversFile: string;
+  // Tail of the serialized persist chain. add()/remove() schedule a write
+  // fire-and-forget for UI responsiveness, but every scheduled write is linked
+  // here so a caller (e.g. before-quit) can `await flush()` for the final state
+  // to actually hit disk. Writes are serialized to avoid interleaved truncation.
+  private persistTail: Promise<void> = Promise.resolve();
 
   constructor(opts: ConnectionStoreOpts = {}) {
     // Lazy-require electron only when defaults are needed, so tests can inject.
@@ -169,7 +174,8 @@ export class ConnectionStore {
       source: 'manual',
       icon: pickIcon(this.takenIcons()),
     });
-    void this.persist();
+    // Fire-and-forget for UI responsiveness; before-quit awaits flush() for durability.
+    void this.persist().catch(() => {});
     return id;
   }
 
@@ -180,7 +186,8 @@ export class ConnectionStore {
     if (e?.source === 'local') this.forgotten.add(`${e.host}:${e.port}`);
     this.entries.delete(id);
     this.capabilities.delete(id);
-    void this.persist();
+    // Fire-and-forget for UI responsiveness; before-quit awaits flush() for durability.
+    void this.persist().catch(() => {});
   }
 
   getServerCapabilities(id: string): ServerCapabilities {
@@ -268,7 +275,29 @@ export class ConnectionStore {
     }
   }
 
-  private async persist(): Promise<void> {
+  /**
+   * Schedule a durable write. Serializes onto the persist chain and returns a
+   * promise that resolves once THIS snapshot has been written, so callers can
+   * either `void persist()` (fire-and-forget) or `await persist()`.
+   */
+  private persist(): Promise<void> {
+    const next = this.persistTail.then(
+      () => this.writeToDisk(),
+      // A prior write failing must not poison the chain — log nothing here (the
+      // writer already throws to its own awaiter) and proceed with this write.
+      () => this.writeToDisk()
+    );
+    // Keep the tail un-rejected so flush() never rejects on a transient write error.
+    this.persistTail = next.catch(() => {});
+    return next;
+  }
+
+  /** Await all scheduled writes — call before quit so the final state is durable. */
+  async flush(): Promise<void> {
+    await this.persistTail;
+  }
+
+  private async writeToDisk(): Promise<void> {
     const entries: PersistedEntry[] = Array.from(this.entries.values()).map((e) => {
       const { token, ...rest } = e;
       const p: PersistedEntry = { ...rest };

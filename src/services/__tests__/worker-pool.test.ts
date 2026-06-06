@@ -4,9 +4,9 @@ import {
   POOL_CONFIG,
   DEFAULT_SLOTS_PER_TYPE,
   poolSessionName,
-  todoTypeToPoolType,
-  profileTypeToPoolType,
-  poolTypeForFiles,
+  resolveType,
+  profileTypeToType,
+  typeForFiles,
   getOrCreateSlot,
   findIdleSessionForType,
   markBusy,
@@ -38,30 +38,30 @@ describe('poolSessionName', () => {
   });
 });
 
-describe('todoTypeToPoolType', () => {
+describe('resolveType', () => {
   it('maps known profile types 1:1', () => {
-    expect(todoTypeToPoolType('frontend')).toBe('frontend');
-    expect(todoTypeToPoolType('backend')).toBe('backend');
-    expect(todoTypeToPoolType('api')).toBe('api');
-    expect(todoTypeToPoolType('ui')).toBe('ui');
-    expect(todoTypeToPoolType('library')).toBe('library');
+    expect(resolveType('frontend')).toBe('frontend');
+    expect(resolveType('backend')).toBe('backend');
+    expect(resolveType('api')).toBe('api');
+    expect(resolveType('ui')).toBe('ui');
+    expect(resolveType('library')).toBe('library');
   });
   it('absorbs null/unknown/default/multi-domain into general', () => {
-    expect(todoTypeToPoolType(null)).toBe('general');
-    expect(todoTypeToPoolType(undefined)).toBe('general');
-    expect(todoTypeToPoolType('')).toBe('general');
-    expect(todoTypeToPoolType('default')).toBe('general');
-    expect(todoTypeToPoolType('something-unknown')).toBe('general');
-    expect(todoTypeToPoolType('general')).toBe('general');
+    expect(resolveType(null)).toBe('general');
+    expect(resolveType(undefined)).toBe('general');
+    expect(resolveType('')).toBe('general');
+    expect(resolveType('default')).toBe('general');
+    expect(resolveType('something-unknown')).toBe('general');
+    expect(resolveType('general')).toBe('general');
   });
-  it('profileTypeToPoolType remaps default→general', () => {
-    expect(profileTypeToPoolType('default')).toBe('general');
-    expect(profileTypeToPoolType('ui')).toBe('ui');
+  it('profileTypeToType remaps default→general', () => {
+    expect(profileTypeToType('default')).toBe('general');
+    expect(profileTypeToType('ui')).toBe('ui');
   });
-  it('poolTypeForFiles infers via PATH_RULES then maps to pool space', () => {
-    expect(poolTypeForFiles(['ui/src/App.tsx'])).toBe('ui');
-    expect(poolTypeForFiles(undefined)).toBe('general'); // no files → default → general
-    expect(poolTypeForFiles(['ui/App.tsx', 'src/services/x.ts'])).toBe('general'); // multi-domain
+  it('typeForFiles infers via PATH_RULES then maps to routing-type space', () => {
+    expect(typeForFiles(['ui/src/App.tsx'])).toBe('ui');
+    expect(typeForFiles(undefined)).toBe('general'); // no files → default → general
+    expect(typeForFiles(['ui/App.tsx', 'src/services/x.ts'])).toBe('general'); // multi-domain
   });
 });
 

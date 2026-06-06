@@ -23,6 +23,7 @@ import { SplitPane } from '@/components/layout/SplitPane';
 import { SplitDeck } from './SplitDeck';
 import { CommandBar } from './CommandBar';
 import { NeedsYouZone } from './NeedsYouZone';
+import { RequirementsInbox } from './RequirementsInbox';
 import { HumanInbox } from '@/components/todos/HumanInbox';
 import { FleetVitals } from './FleetVitals';
 import { WorkerRoster } from './WorkerRoster';
@@ -67,6 +68,10 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
   const setCoordinator = useSupervisorStore((s) => s.setCoordinator);
   const loadAudit = useSupervisorStore((s) => s.loadAudit);
   const auditByProject = useSupervisorStore((s) => s.auditByProject);
+  const requirementsByProject = useSupervisorStore((s) => s.requirementsByProject);
+  const loadRequirements = useSupervisorStore((s) => s.loadRequirements);
+  const coverageByProject = useSupervisorStore((s) => s.coverageByProject);
+  const loadCoverage = useSupervisorStore((s) => s.loadCoverage);
 
   const subscriptions = useSubscriptionStore((s) => s.subscriptions);
 
@@ -93,8 +98,10 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
       void loadProjectTodos(serverScope, project);
       void loadCoordinator(serverScope, project);
       void loadAudit(serverScope, project);
+      void loadRequirements(serverScope, project);
+      void loadCoverage(serverScope, project);
     }
-  }, [serverScope, project, loadEscalations, loadProjectTodos, loadCoordinator, loadAudit]);
+  }, [serverScope, project, loadEscalations, loadProjectTodos, loadCoordinator, loadAudit, loadRequirements, loadCoverage]);
 
   useEffect(() => {
     resyncBridge();
@@ -235,6 +242,13 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
               serverScope={serverScope}
               onJump={handleJump}
             />
+            {/* The confirm-loop heartbeat — sibling below NeedsYouZone, amber
+                (one-red discipline). Silent until a promise needs signing. */}
+            <RequirementsInbox
+              requirements={requirementsByProject[project] ?? []}
+              project={project}
+              serverScope={serverScope}
+            />
             {/* "Your todos": the human-assigned, human-actionable slice of the
                 work-graph. Derived from the same project todos store (no new WS
                 events); Claim/Complete drive the work-graph transitions a person
@@ -250,6 +264,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
               readyCount={readyCount}
               todos={todos}
               onToggle={() => void setCoordinator(serverScope, project, running ? 'stop' : 'start')}
+              coverage={coverageByProject[project]}
             />
             <WorkerRoster subscriptions={projectSubs} todos={todos} onJump={handleJump} />
             <StreamTicker events={projectStreamEvents} />

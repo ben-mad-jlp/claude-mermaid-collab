@@ -55,6 +55,17 @@ export interface GateSubject {
   manifest: ProjectManifest | null;
   /** Subprocess runner for command-running plugins. */
   exec: GateExec;
+  /** LANE-LOCAL change-set (todo b78fd3f6): when worker isolation is ON, this is
+   *  the absolute path to THIS todo's own git worktree. Present → the gate derives
+   *  the change-set from this lane's worktree (its diff vs `integrationBase` + its
+   *  own uncommitted edits) instead of the shared tree's `git status`, so a sibling
+   *  lane's in-flight error never false-rejects green work. Absent (isolation off,
+   *  single shared tree) → fall back to whole-tree `git status` on `gateProject`. */
+  laneCwd?: string;
+  /** The integration base ref the lane branched from (e.g. `collab/integration`).
+   *  Only meaningful with `laneCwd`; the committed half of the change-set is
+   *  `git diff --name-only <integrationBase>..HEAD` in the lane worktree. */
+  integrationBase?: string;
 }
 
 /** A pluggable gate strategy. `appliesTo` is a SYNC predicate (cheap checks only —
@@ -154,6 +165,155 @@ export function lastLines(s: string, n: number): string {
   return s.split('\n').map((l) => l.trimEnd()).filter(Boolean).slice(-n).join('\n');
 }
 
+// ─── Change-set scoping (todo 63dcca2f) ──────────────────────────────────────
+//
+// The whole-tree completion gate (a project's opaque `gateCommand`, e.g.
+// `npx tsc --noEmit` / project-wide pytest) runs over the SHARED/integration
+// working tree, so ANY sibling lane's in-flight or committed error false-rejects
+// an otherwise-green change-set — defeating the per-change-set worker contract
+// (worker Step-3 gate is scoped; the completion gate was not). We can't rewrite
+// an arbitrary command to gate only N files, but we CAN do exactly what the
+// worker's Step-3 gate does: after the command fails, attribute each reported
+// failure to a file and judge ONLY the change-set. A failure whose files are all
+// OUTSIDE the change-set is foreign contamination → the change-set is green.
+
+/** A file path is normalized for comparison by dropping a leading `./` and any
+ *  surrounding quotes (git porcelain quotes paths with special chars). */
+function normPath(p: string): string {
+  return p.trim().replace(/^"(.*)"$/, '$1').replace(/^\.\//, '');
+}
+
+/** Parse `git status --porcelain` into the list of changed paths — the worker's
+ *  own Step-3 definition of its change-set (modified/added/untracked/renamed).
+ *  For a rename (`R  old -> new`) the NEW path is the change-set member. */
+export function parseChangedFiles(porcelain: string): string[] {
+  const out: string[] = [];
+  for (const raw of porcelain.split('\n')) {
+    if (!raw.trim()) continue;
+    let p = raw.length > 3 ? raw.slice(3) : raw.trim(); // drop the `XY ` status prefix
+    const arrow = p.indexOf(' -> ');
+    if (arrow !== -1) p = p.slice(arrow + 4);
+    out.push(normPath(p));
+  }
+  return out;
+}
+
+/** Extract the source files a gate's failure output points at. Matches the two
+ *  diagnostic shapes the real gates emit: tsc/eslint `path(line,col)` or
+ *  `path:line[:col]`, and pytest `FAILED path::test`. Restricted to known source
+ *  extensions so version-like tokens (`node:18`) aren't misread as files. */
+export function extractDiagnosticFiles(out: string): string[] {
+  const EXT = '(?:tsx?|mts|cts|jsx?|mjs|cjs|py|json|svelte|vue)';
+  const files = new Set<string>();
+  const posRe = new RegExp(`([A-Za-z0-9_./@+-]+\\.${EXT})[(:]\\d+`, 'g');
+  const failedRe = new RegExp(`FAILED\\s+([A-Za-z0-9_./@+-]+\\.${EXT})::`, 'g');
+  let m: RegExpExecArray | null;
+  while ((m = posRe.exec(out)) !== null) files.add(normPath(m[1]));
+  while ((m = failedRe.exec(out)) !== null) files.add(normPath(m[1]));
+  return [...files];
+}
+
+/** Whether a diagnostic file belongs to the change-set. Lenient on the
+ *  cwd/repo-root prefix: an exact match, or either path being a path-suffix of
+ *  the other (covers a gate run from a monorepo subdirectory). */
+export function isInChangeSet(file: string, changeSet: readonly string[]): boolean {
+  const f = normPath(file);
+  return changeSet.some((c) => {
+    const cc = normPath(c);
+    return cc === f || cc.endsWith('/' + f) || f.endsWith('/' + cc);
+  });
+}
+
+/**
+ * Re-judge a FAILED whole-tree gate against the worker's change-set.
+ *  - returns a PASS verdict when the failure references files but NONE are in the
+ *    change-set (pure foreign contamination — the change-set is green);
+ *  - returns a FAIL verdict (reasons filtered to the offending files) when at
+ *    least one referenced file IS in the change-set (a real in-scope failure);
+ *  - returns null when it cannot attribute (no change-set, or no parseable file
+ *    paths) so the caller can FAIL CLOSED, preserving prior whole-tree behavior.
+ */
+export function scopeFailureToChangeSet(
+  out: string,
+  changeSet: readonly string[] | null,
+): GateVerdict | null {
+  if (!changeSet || changeSet.length === 0) return null;
+  const files = extractDiagnosticFiles(out);
+  if (files.length === 0) return null;
+  const offending = files.filter((f) => isInChangeSet(f, changeSet));
+  if (offending.length === 0) {
+    return {
+      passed: true,
+      reasons: [],
+      metrics: { scopedGate: true, foreignFailureFiles: files },
+    };
+  }
+  const detail = out
+    .split('\n')
+    .map((l) => l.trimEnd())
+    .filter((l) => l && offending.some((f) => l.includes(f)))
+    .slice(0, 20);
+  return {
+    passed: false,
+    reasons: [
+      `change-set gate failed (${offending.length} file(s)): ${offending.join(', ')}`,
+      ...detail,
+    ],
+    metrics: { scopedGate: true, changeSetFailureFiles: offending },
+  };
+}
+
+/** The change-set THIS todo touched, or null if it can't be read (caller then
+ *  fails closed on a whole-tree failure).
+ *
+ *  LANE-LOCAL (todo b78fd3f6): under worker isolation each lane has its OWN git
+ *  worktree, so `git status` in the SHARED/gate tree returns sibling lanes' files
+ *  and the gate still scopes to the TREE, not the TODO — false-rejecting green
+ *  work. When `laneCwd` is set we instead derive the change-set from the lane's
+ *  own worktree: its committed diff vs the integration base UNION its uncommitted
+ *  edits (which, in an isolated worktree, are this lane's alone). With isolation
+ *  OFF (`laneCwd` absent), fall back to whole-tree `git status` on the gate repo —
+ *  there is a single shared tree and one lane, so it IS the change-set. */
+async function fetchChangeSet(ctx: GateSubject): Promise<string[] | null> {
+  if (ctx.laneCwd) return fetchLaneChangeSet(ctx, ctx.laneCwd);
+  try {
+    const r = await ctx.exec(['git', '-C', ctx.gateProject, 'status', '--porcelain'], {
+      cwd: ctx.gateProject,
+      capture: true,
+    });
+    if (r.code !== 0) return null;
+    return parseChangedFiles(r.stdout);
+  } catch {
+    return null;
+  }
+}
+
+/** Lane-local change-set from an isolated worker worktree: committed work vs the
+ *  integration base (`diff --name-only <base>..HEAD`) UNION uncommitted edits
+ *  (`status --porcelain`). Returns the union, or null only when BOTH git reads
+ *  fail (→ caller fails closed). An empty-but-readable result is a real empty
+ *  change-set, not an error. */
+async function fetchLaneChangeSet(ctx: GateSubject, cwd: string): Promise<string[] | null> {
+  const set = new Set<string>();
+  let read = false;
+  const tryExec = async (args: string[]): Promise<{ code: number; stdout: string } | null> => {
+    try { return await ctx.exec(args, { cwd, capture: true }); } catch { return null; }
+  };
+  if (ctx.integrationBase) {
+    const d = await tryExec(['git', '-C', cwd, 'diff', '--name-only', `${ctx.integrationBase}..HEAD`]);
+    if (d && d.code === 0) {
+      read = true;
+      for (const line of d.stdout.split('\n')) { const p = normPath(line); if (p) set.add(p); }
+    }
+  }
+  const s = await tryExec(['git', '-C', cwd, 'status', '--porcelain']);
+  if (s && s.code === 0) {
+    read = true;
+    for (const p of parseChangedFiles(s.stdout)) set.add(p);
+  }
+  return read ? [...set] : null;
+}
+
 export const manifestCommandGatePlugin: GatePlugin = {
   id: 'manifest-command',
   tier: 'project',
@@ -168,8 +328,14 @@ export const manifestCommandGatePlugin: GatePlugin = {
       const out = proc.stdout + '\n' + proc.stderr;
       const structured = parseTrailingVerdict(out);
       if (structured) return structured;
-      const passed = proc.code === 0;
-      return { passed, reasons: passed ? [] : [`gate command exited ${proc.code}: ${lastLines(out, 20)}`] };
+      if (proc.code === 0) return { passed: true, reasons: [] };
+      // FAILED whole-tree run: scope to the change-set (todo 63dcca2f) so a
+      // sibling lane's foreign error doesn't false-reject green work. Attributable
+      // foreign-only failure → pass; in-scope failure → keep reject; unattributable
+      // → fall through and FAIL CLOSED with the full tail.
+      const scoped = scopeFailureToChangeSet(out, await fetchChangeSet(ctx));
+      if (scoped) return scoped;
+      return { passed: false, reasons: [`gate command exited ${proc.code}: ${lastLines(out, 20)}`] };
     } catch (e) {
       // Fail CLOSED — an un-runnable gate blocks acceptance, never passes it.
       return { passed: false, reasons: [`gate could not run (${cmd}): ${e instanceof Error ? e.message : String(e)}`] };

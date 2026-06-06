@@ -75,6 +75,72 @@ export interface Escalation {
   // catalog). Carried opaquely here; the focal DecisionCard re-validates it via
   // focal/catalog.parseUiSpec before rendering. Absent/null for plain decisions.
   ui?: unknown;
+  // Steward routing (Steward P3): server-decided destination at create-time
+  // ('human' | 'steward'). When 'steward', the steward triaged it and routed it
+  // on to the human — the provenance tag distinguishes triaged-and-deferred from
+  // never-seen. Absent on payloads written before the field existed → 'human'.
+  routedTo?: string;
+  /** How many times the steward auto-attempted this escalation (thrash guard). */
+  stewardAttempts?: number;
+}
+
+/** Machine-checkable requirement target (mirrors server RequirementSpec). */
+export interface RequirementSpec {
+  metric: string;
+  op: string;
+  target: number | string;
+}
+
+/** A requirement promise — a requirement-kind decision record. */
+export interface Requirement {
+  id: string;
+  project: string;
+  epicId: string | null;
+  kind: string;
+  status: string;
+  title: string;
+  rationale?: string | null;
+  spec: RequirementSpec | null;
+  supersededBy?: string | null;
+  linkedTodos?: string[];
+  approvedBy?: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type CoverageState = 'covered' | 'partial' | 'uncovered';
+
+export interface ObjectCoverage {
+  objectId: string;
+  name: string;
+  typeId: string;
+  state: CoverageState;
+  todoCount: number;
+  doneCount: number;
+}
+
+export interface CoverageRollup {
+  total: number;
+  covered: number;
+  partial: number;
+  uncovered: number;
+  byObject: ObjectCoverage[];
+}
+
+export interface SystemObjectNode {
+  id: string;
+  typeId: string;
+  typeVersion: number;
+  parentObjectId: string | null;
+  qty: number;
+  name: string;
+  attributes: Record<string, unknown>;
+  currentRevisionId: string | null;
+}
+
+export interface BomLine {
+  typeId: string;
+  totalQty: number;
 }
 
 export interface SupervisedSession {
@@ -91,6 +157,7 @@ const TODOS_KEY = 'supervisor-todos-by-project';
 const ESCALATIONS_KEY = 'supervisor-escalations';
 const SUPERVISED_KEY = 'supervisor-supervised';
 const SUPERVISOR_CONFIG_KEY = 'supervisor-config';
+const REQUIREMENTS_KEY = 'supervisor-requirements-by-project';
 
 export interface SupervisorConfig {
   supervisorProject: string;
@@ -108,6 +175,20 @@ export interface SupervisorLiveness {
   running: boolean;
   stale: boolean;
   ageMs: number | null;
+}
+
+/**
+ * Liveness of the STEWARD process (Steward P3), derived from
+ * /api/supervisor/steward-identity. Same shape as SupervisorLiveness plus the
+ * scary observability metric the panel leads with: `overrideAccepts` — how many
+ * todos the steward force-accepted past the mechanical gate.
+ */
+export interface StewardLiveness {
+  identity: { project: string; session: string; updatedAt: number; serverId?: string } | null;
+  running: boolean;
+  stale: boolean;
+  ageMs: number | null;
+  overrideAccepts: number;
 }
 
 interface InvokeResult {
@@ -158,6 +239,9 @@ interface SupervisorState {
   config: SupervisorConfig | null;
   liveness: SupervisorLiveness | null;
   loadLiveness: (serverId: string) => Promise<void>;
+  // Steward P3: independent steward role liveness + the override-accept count.
+  stewardLiveness: StewardLiveness | null;
+  loadStewardIdentity: (serverId: string, project?: string) => Promise<void>;
   auditByProject: Record<string, AuditEntry[]>;
   loadAudit: (serverId: string, project: string, kind?: string) => Promise<void>;
   loadSupervised: (serverId: string) => Promise<void>;
@@ -180,6 +264,29 @@ interface SupervisorState {
   nudge: (serverId: string, project: string, session: string, text: string) => Promise<boolean>;
   loadConfig: (serverId: string) => Promise<void>;
   saveConfig: (serverId: string, supervisorProject: string, supervisorSession: string) => Promise<void>;
+  // SPEC API surface (design-system-object-ui §8). Coverage/objects/bom are live
+  // (REST-poll, no WS), kept out of localStorage; requirements are cached so the
+  // inbox paints instantly on reopen.
+  requirementsByProject: Record<string, Requirement[]>;
+  coverageByProject: Record<string, CoverageRollup>;
+  systemObjectsByProject: Record<string, SystemObjectNode[]>;
+  bomByRoot: Record<string, BomLine[]>;
+  loadRequirements: (serverId: string, project: string, opts?: { epicId?: string; status?: string }) => Promise<void>;
+  loadCoverage: (serverId: string, project: string) => Promise<void>;
+  loadSystemObjects: (serverId: string, project: string) => Promise<void>;
+  loadBom: (serverId: string, project: string, rootId: string) => Promise<void>;
+  decideRequirement: (
+    serverId: string,
+    project: string,
+    id: string,
+    decision: 'approve' | 'reject' | 'edit',
+    opts?: { approvedBy?: string; spec?: RequirementSpec; title?: string },
+  ) => Promise<boolean>;
+  proposeRequirement: (
+    serverId: string,
+    project: string,
+    input: { title: string; spec?: RequirementSpec | null; epicId?: string | null; rationale?: string | null },
+  ) => Promise<boolean>;
 }
 
 export const useSupervisorStore = create<SupervisorState>((set, get) => ({
@@ -191,7 +298,12 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   supervised: hydrate<SupervisedSession[]>(SUPERVISED_KEY, []),
   config: hydrate<SupervisorConfig | null>(SUPERVISOR_CONFIG_KEY, null),
   liveness: null,
+  stewardLiveness: null,
   auditByProject: {},
+  requirementsByProject: hydrate<Record<string, Requirement[]>>(REQUIREMENTS_KEY, {}),
+  coverageByProject: {},
+  systemObjectsByProject: {},
+  bomByRoot: {},
 
   // Poll the supervisor's liveness (heartbeat freshness). The server computes
   // running/stale from how long ago updatedAt last advanced, so the client just
@@ -207,6 +319,28 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
         running: !!b.running,
         stale: !!b.stale,
         ageMs: typeof b.ageMs === 'number' ? b.ageMs : null,
+      },
+    });
+  },
+
+  // Steward P3: poll the steward's INDEPENDENT liveness + override-accept count
+  // from /api/supervisor/steward-identity (role='steward'). Project-scoped so the
+  // server can count the steward's force-accepts in this project. Like liveness,
+  // kept out of localStorage — a hydrated stale value would falsely read crashed.
+  loadStewardIdentity: async (serverId, project?) => {
+    const path = project
+      ? `/api/supervisor/steward-identity?project=${encodeURIComponent(project)}`
+      : '/api/supervisor/steward-identity';
+    const res = await invoke(serverId, path, 'GET');
+    if (!res?.ok) return; // keep prior verdict on transient failure
+    const b = res.body ?? {};
+    set({
+      stewardLiveness: {
+        identity: b.identity ?? null,
+        running: !!b.running,
+        stale: !!b.stale,
+        ageMs: typeof b.ageMs === 'number' ? b.ageMs : null,
+        overrideAccepts: typeof b.overrideAccepts === 'number' ? b.overrideAccepts : 0,
       },
     });
   },
@@ -383,6 +517,64 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
       localStorage.setItem(ESCALATIONS_KEY, JSON.stringify(escalations));
       return { escalations };
     });
+  },
+
+  // ── SPEC API surface (design-system-object-ui §8) ─────────────────────────
+  // Mirror the load* pattern: GET → keep prior on failure → set keyed by project.
+
+  loadRequirements: async (serverId, project, opts) => {
+    const qs = new URLSearchParams({ project });
+    if (opts?.epicId !== undefined) qs.set('epicId', opts.epicId);
+    if (opts?.status) qs.set('status', opts.status);
+    const res = await invoke(serverId, `/api/supervisor/requirements?${qs.toString()}`, 'GET');
+    if (!res?.ok) return; // keep prior (cached) state on failure
+    set((state) => {
+      const requirementsByProject = { ...state.requirementsByProject, [project]: res.body?.requirements ?? [] };
+      localStorage.setItem(REQUIREMENTS_KEY, JSON.stringify(requirementsByProject));
+      return { requirementsByProject };
+    });
+  },
+
+  loadCoverage: async (serverId, project) => {
+    const res = await invoke(serverId, `/api/supervisor/coverage?project=${encodeURIComponent(project)}`, 'GET');
+    if (!res?.ok || !res.body?.coverage) return; // keep prior on failure
+    set((state) => ({ coverageByProject: { ...state.coverageByProject, [project]: res.body.coverage } }));
+  },
+
+  loadSystemObjects: async (serverId, project) => {
+    const res = await invoke(serverId, `/api/supervisor/system-objects?project=${encodeURIComponent(project)}`, 'GET');
+    if (!res?.ok) return; // keep prior on failure
+    set((state) => ({ systemObjectsByProject: { ...state.systemObjectsByProject, [project]: res.body?.objects ?? [] } }));
+  },
+
+  loadBom: async (serverId, project, rootId) => {
+    const qs = new URLSearchParams({ project, rootId });
+    const res = await invoke(serverId, `/api/supervisor/bom?${qs.toString()}`, 'GET');
+    if (!res?.ok) return; // keep prior on failure
+    set((state) => ({ bomByRoot: { ...state.bomByRoot, [rootId]: res.body?.lines ?? [] } }));
+  },
+
+  // Sign/reject/re-sign a requirement, then re-fetch the inbox (and coverage,
+  // since an approve can flip a chip's tint) so every surface reflects the change.
+  decideRequirement: async (serverId, project, id, decision, opts) => {
+    const res = await invoke(serverId, '/api/supervisor/requirements/decide', 'POST', {
+      project, id, decision, approvedBy: opts?.approvedBy, spec: opts?.spec, title: opts?.title,
+    });
+    if (!res?.ok) return false; // leave state unchanged on failure
+    await get().loadRequirements(serverId, project);
+    await get().loadCoverage(serverId, project);
+    return true;
+  },
+
+  // Propose a new requirement (Spec Sheet '+ promise' composer). Creates a
+  // 'proposed' record, then re-fetches the inbox so it surfaces for signature.
+  proposeRequirement: async (serverId, project, input) => {
+    const res = await invoke(serverId, '/api/supervisor/requirements', 'POST', {
+      project, title: input.title, spec: input.spec ?? null, epicId: input.epicId ?? null, rationale: input.rationale ?? null,
+    });
+    if (!res?.ok) return false; // leave state unchanged on failure
+    await get().loadRequirements(serverId, project);
+    return true;
   },
 
   // ED2/ED3: answer a structured escalation by choosing one of its options. The

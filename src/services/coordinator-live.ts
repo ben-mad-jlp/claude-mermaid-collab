@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 import type { Todo } from './todo-store';
 import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, releaseClaim } from './todo-store';
-import { WorktreeManager } from '../agent/worktree-manager';
+import { WorktreeManager, INTEGRATION_BRANCH } from '../agent/worktree-manager';
 import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, addSupervised, addWatchedProject } from './supervisor-store';
 import { tmuxBaseName } from './tmux-naming';
 import { ensureSession, runTodoInSession } from './claude-launch';
@@ -14,8 +14,8 @@ import './cad-gate-plugin';
 import { deriveBsyncSessionId, isCadTodo, bsyncSessionContextNote } from './bsync-session';
 import { resolveProfile, type AgentProfile } from '../config/agent-profiles';
 import {
-  todoTypeToPoolType,
-  poolTypeForFiles,
+  resolveType,
+  typeForFiles,
   findIdleSessionForType,
   getOrCreateSlot,
   poolSessionName,
@@ -405,12 +405,12 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // POOL-4: route the todo to a persistent, role-typed pool session instead
       // of spawning a fresh worker-<id8> per todo.
       //
-      // 1. Resolve the pool type. Prefer the todo's assigned `type` (set at sync
-      //    time, the same input resolveProfile/resolveWorkerProfile uses); if it's
-      //    null, fall back to file-based inference (poolTypeForFiles). Both default
+      // 1. Resolve the routing `type`. Prefer the todo's assigned `type` (set at
+      //    sync time, the same input resolveProfile/resolveWorkerProfile uses); if
+      //    it's null, fall back to file-based inference (typeForFiles). Both default
       //    unmatched → 'general'.
       const files = (todo as { files?: string[] | null }).files;
-      const poolType = todo.type ? todoTypeToPoolType(todo.type) : (files ? poolTypeForFiles(files) : 'general');
+      const type = todo.type ? resolveType(todo.type) : (files ? typeForFiles(files) : 'general');
 
       // 2. Find a routable session of that type. Prefer a warm idle session; else
       //    lazily grab a slot within the type's budget. At capacity (no idle + no
@@ -428,12 +428,12 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // regression). So under isolation never route to a warm idle session; always
       // grab a slot → a FRESH session in a FRESH worktree per todo. Keep-warm reuse
       // stays for the non-isolation shared-tree path.
-      let poolName = workerIsolationEnabled() ? undefined : findIdleSessionForType(poolType);
+      let poolName = workerIsolationEnabled() ? undefined : findIdleSessionForType(type);
       if (!poolName) {
-        const slot = getOrCreateSlot(poolType);
+        const slot = getOrCreateSlot(type);
         if (!slot) {
           try { await releaseClaim(project, todo.id); } catch { /* lease still backstops if the release fails */ }
-          recordSupervisorAudit({ kind: 'spawn', project, session: poolSessionName(poolType), detail: JSON.stringify({ todoId: todo.id, type: poolType, started: false, reason: 'pool-busy-deferred', released: true }) });
+          recordSupervisorAudit({ kind: 'spawn', project, session: poolSessionName(type), detail: JSON.stringify({ todoId: todo.id, type, started: false, reason: 'pool-busy-deferred', released: true }) });
           return false;
         }
         poolName = poolSessionName(slot.type, slot.slot);
@@ -572,7 +572,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
           addWatchedProject(project);
         } catch { /* watching registration is best-effort; spawn already succeeded */ }
       }
-      recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, type: poolType, started: ok, reason }) });
+      recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, type, started: ok, reason }) });
       return ok;
     },
     reapDeadClaims: async (project: string): Promise<{ reclaimed: string[]; exhausted: string[] }> => {
@@ -768,6 +768,19 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // and saw none of the target's changes).
       const todo = getTodo(project, todoId);
       const gateProject = todo?.targetProject ?? project;
+      // LANE-LOCAL change-set (todo b78fd3f6): under worker isolation each lane has
+      // its OWN worktree, so scope the gate to THIS lane's worktree diff rather than
+      // the shared tree's git status (which returns sibling lanes' in-flight files
+      // and false-rejects green work). Resolve the lane's worktree path read-only
+      // from the todo's session; absent/unisolated → undefined → whole-tree fallback.
+      let laneCwd: string | undefined;
+      let integrationBase: string | undefined;
+      if (workerIsolationEnabled() && todo?.sessionName) {
+        try {
+          const p = await getWorktreeManager(gateProject).existingPath(todo.sessionName);
+          if (p) { laneCwd = p; integrationBase = INTEGRATION_BRANCH; }
+        } catch { /* fall back to whole-tree scoping */ }
+      }
       return runRegistryGate({
         project,
         gateProject,
@@ -775,6 +788,8 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         todo: todo ?? null,
         manifest: loadProjectManifest(gateProject),
         exec: execAsync,
+        laneCwd,
+        integrationBase,
       });
     },
   };

@@ -79,6 +79,13 @@ export interface ProjectManifest {
   /** Which metric-vocabulary entries (from a project's fitness/analysis tools)
    *  the gate references — documents the seam between the gate and the metrics. */
   metricRefs?: string[];
+  /** System-object plugin overlays (design-system-object-primitive §7.2): each
+   *  entry NARROWS a globally-registered type's composition grammar for this
+   *  project (subset its `allowedChildTypes`/`requiredArtifacts`). Consumed by
+   *  plugin-registry.resolvePlugins; widening throws. Plain JSON — the shape
+   *  mirrors plugin-registry's PluginTypeOverlay (kept structural to avoid a
+   *  config→service import cycle). */
+  plugins?: Array<{ id: string; allowedChildTypes?: string[]; requiredArtifacts?: string[] }>;
 }
 
 const MANIFEST_REL = join('.collab', 'project.json');

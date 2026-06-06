@@ -27,6 +27,7 @@ import { SnippetsSection } from './sections/SnippetsSection';
 import { SpreadsheetSection } from './sections/SpreadsheetSection';
 import { ImagesSection } from './sections/ImagesSection';
 import { EmbedsSection } from './sections/EmbedsSection';
+import { SpecsSection } from './sections/SpecsSection';
 import { PinsSection } from './sections/PinsSection';
 import { RecentSection } from './sections/RecentSection';
 import { ArchivedSection } from './sections/ArchivedSection';
@@ -77,6 +78,11 @@ function toTabDescriptor(node: TreeNode) {
   }
   if (node.kind === 'task-details') {
     return { id: node.id, kind: 'task-details' as const, artifactId: node.id, name: node.name };
+  }
+  if (node.kind === 'spec') {
+    // The Spec Sheet is a per-project singleton tab (SpecSheetPane reads the
+    // active project); the node id doubles as the tab's artifactId.
+    return { id: node.id, kind: 'spec' as const, artifactId: node.id, name: node.name };
   }
   return null;
 }
@@ -261,6 +267,19 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
     [embeds],
   );
 
+  // The Spec Sheet entry point (reachability fix fc4e9a7d): a per-project
+  // SINGLETON node — clicking it opens the kind:'spec' SpecSheetPane tab (already
+  // wired in PaneContent). The Sheet is one-per-project (SpecSheetPane needs only
+  // the active project), so there's exactly one node, present whenever a session
+  // (hence a project) is active.
+  const specNodes = useMemo<TreeNode[]>(
+    () =>
+      currentSession?.project
+        ? [{ id: `spec-sheet-${currentSession.project}`, kind: 'spec', name: 'Spec Sheet' }]
+        : [],
+    [currentSession?.project],
+  );
+
   const imageNodes = useMemo<TreeNode[]>(
     () => images.map((img) => toArtifactNode(img as any, 'image')),
     [images],
@@ -350,6 +369,7 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
         id: 'implementing',
         leaves: [...blueprintNodes, ...taskNodes, ...implementingRawNodes].map((n) => ({ id: n.id, name: n.name })),
       },
+      { id: 'specs', leaves: specNodes.map((n) => ({ id: n.id, name: n.name })) },
       { id: 'embeds', leaves: embedNodes.map((n) => ({ id: n.id, name: n.name })) },
       { id: 'images', leaves: imageNodes.map((n) => ({ id: n.id, name: n.name })) },
       { id: 'diagrams', leaves: diagramNodes.map((n) => ({ id: n.id, name: n.name })) },
@@ -373,6 +393,7 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
     archivedBlueprintNodes,
     taskNodes,
     implementingRawNodes,
+    specNodes,
     embedNodes,
     imageNodes,
     diagramNodes,
@@ -408,6 +429,7 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
       { id: 'pins', nodes: pinnedNodes },
       { id: 'recent', nodes: recentlyUpdatedNodes },
       { id: 'implementing', nodes: [...blueprintNodes, ...taskNodes, ...implementingRawNodes] },
+      { id: 'specs', nodes: specNodes },
       { id: 'embeds', nodes: embedNodes },
       { id: 'images', nodes: imageNodes },
       { id: 'diagrams', nodes: diagramNodes },
@@ -439,6 +461,7 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
     archivedBlueprintNodes,
     taskNodes,
     implementingRawNodes,
+    specNodes,
     embedNodes,
     imageNodes,
     diagramNodes,
@@ -614,6 +637,8 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
     } else if (node.kind === 'task-details') {
       selectDocument(node.id);
       loadDocumentContent(node.id);
+    } else if (node.kind === 'spec') {
+      // handled by openPermanent/openPreview (kind:'spec' → SpecSheetPane)
     }
   };
 
@@ -682,6 +707,8 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
       return activeTabDescriptor?.kind === 'task-graph';
     } else if (node.kind === 'task-details') {
       return selectedDocumentId === node.id;
+    } else if (node.kind === 'spec') {
+      return activeTabDescriptor?.kind === 'spec';
     }
     return false;
   };
@@ -694,6 +721,7 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
       ...blueprintNodes,
       ...taskNodes,
       ...implementingRawNodes,
+      ...specNodes,
       ...embedNodes,
       ...imageNodes,
       ...diagramNodes,
@@ -712,6 +740,7 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
     blueprintNodes,
     taskNodes,
     implementingRawNodes,
+    specNodes,
     embedNodes,
     imageNodes,
     diagramNodes,
@@ -1124,6 +1153,24 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
         <TodosTreeSection
           collapsed={collapsedSections.has('todos')}
           onToggle={() => toggleSection('todos')}
+        />
+        <SpecsSection
+          nodes={specNodes}
+          collapsed={collapsedSections.has('specs')}
+          forceExpanded={forceExpandedSections.has('specs')}
+          onToggle={() => toggleSection('specs')}
+          showDeprecated={showDeprecated}
+          searchQuery={searchQuery}
+          visibleNodes={visibleNodes}
+          multiSelection={multiSelection}
+          isSelected={isSelected}
+          handleNodeClick={handleNodeClick}
+          openNode={openNode}
+          openPermanent={openPermanent}
+          openPreview={openPreview}
+          handleNodeContextMenu={handleNodeContextMenu}
+          setSelection={setSelection}
+          toTabDescriptor={toTabDescriptor}
         />
         <EmbedsSection
           nodes={embedNodes}

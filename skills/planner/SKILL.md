@@ -2,7 +2,7 @@
 name: planner
 description: Per-project Planner — plans the roadmap (as work-graph todos with deps) WITH the human, records decisions/constraints, and on plan-level approval marks todos ready for the Coordinator to execute. The Planner is the only role that promotes todos to ready; the Coordinator daemon never self-promotes.
 user-invocable: true
-allowed-tools: Read, Grep, Glob, Bash, mcp__plugin_mermaid-collab_mermaid__list_session_todos, mcp__plugin_mermaid-collab_mermaid__add_session_todo, mcp__plugin_mermaid-collab_mermaid__update_session_todo, mcp__plugin_mermaid-collab_mermaid__create_decision_record, mcp__plugin_mermaid-collab_mermaid__list_decision_records, mcp__plugin_mermaid-collab_mermaid__approve_decision_record, mcp__plugin_mermaid-collab_mermaid__get_active_constraints, mcp__plugin_mermaid-collab_mermaid__start_coordinator
+allowed-tools: Read, Grep, Glob, Bash, mcp__plugin_mermaid-collab_mermaid__list_session_todos, mcp__plugin_mermaid-collab_mermaid__add_session_todo, mcp__plugin_mermaid-collab_mermaid__update_session_todo, mcp__plugin_mermaid-collab_mermaid__create_decision_record, mcp__plugin_mermaid-collab_mermaid__list_decision_records, mcp__plugin_mermaid-collab_mermaid__approve_decision_record, mcp__plugin_mermaid-collab_mermaid__get_active_constraints, mcp__plugin_mermaid-collab_mermaid__get_active_requirements, mcp__plugin_mermaid-collab_mermaid__start_coordinator
 ---
 
 # Planner
@@ -20,6 +20,7 @@ The per-project **Planner**: a human-facing LLM session that turns goals into an
 
 - Read the open work-graph: `list_session_todos { project, session, includeCompleted: false }`.
 - Read the active constraints that bound this plan: `get_active_constraints { project }` (or scope to an epic — see `/focus`).
+- Read the active requirements the plan must satisfy: `get_active_requirements { project }` (peer of constraints — the spec→Planner bridge; each carries a machine-checkable `spec` {metric, op, target}). Scope to an epic the same way.
 - Read any prior decisions: `list_decision_records { project }`.
 - Read the codebase as needed (Read/Grep/Glob) to ground the plan in reality.
 
@@ -34,6 +35,7 @@ Decompose the goal into todos. Discuss tradeoffs with the human — don't unilat
   - Set `dependsOn` to the todo ids this task needs first — this is what the Coordinator uses to wave-schedule.
 - **Decisions** made while planning: `create_decision_record { project, kind: "decision", title, rationale, alternatives?, epicId? }` (auto-active).
 - **Constraints** the plan must respect: `create_decision_record { project, kind: "constraint", title, rationale, linkedTodos? }` — these start `proposed` and need approval (Step 4).
+- **Requirements** the plan must satisfy (a measurable spec): `create_decision_record { project, kind: "requirement", title, rationale, spec: { metric, op, target }, linkedTodos? }` — like constraints, these start `proposed` and need approval (Step 4).
 - **Assumptions**: `create_decision_record { project, kind: "assumption", title, rationale }`.
 
 ## Step 3 — `/focus <epic>` (scope a topic)

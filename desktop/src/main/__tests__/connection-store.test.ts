@@ -84,6 +84,24 @@ describe('ConnectionStore', () => {
     expect(s2.get(id)?.token).toBe('secret');
   });
 
+  it('flush() awaits the fire-and-forget add() write so it is durable', async () => {
+    const s1 = await makeStore();
+    const id = s1.add({ label: 'T', host: '127.0.0.1', port: 3000, token: 'secret' });
+    // No setTimeout — flush() must guarantee the scheduled write has landed.
+    await s1.flush();
+    const s2 = await makeStore();
+    expect(s2.get(id)?.token).toBe('secret');
+  });
+
+  it('flush() awaits a remove() write so the deletion is durable', async () => {
+    const s1 = await makeStore();
+    const id = s1.add({ label: 'T', host: '127.0.0.1', port: 3000 });
+    s1.remove(id);
+    await s1.flush();
+    const s2 = await makeStore();
+    expect(s2.get(id)).toBeNull();
+  });
+
   it('refreshLocal() auto-lists instance files as local entries', async () => {
     await writeInstance(4001, '/repo', 'a');
     await writeInstance(4002, '/repo', 'b');

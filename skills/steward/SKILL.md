@@ -23,6 +23,27 @@ Two jobs, always together:
 2. **Dogfood** — when you have to hand-edit a DB, run a manual sweep, or repeat a judgment, that
    friction IS a todo: file it (under an epic — invariant `373a2d52`) or fix it inline.
 
+## Step 0 — Register as the steward (epoch fence)
+
+Register on the existing supervisor convention so the server pushes real-time
+escalation/reconcile notifications into THIS session and fences a stale steward:
+
+```
+register_supervisor { project: <cwd>, session: <this session>, serverId: <own serverId if known, else ''> }
+```
+
+- **Capture the `epoch`** from the response — your ownership token. Hold it for the
+  session and pass `supervisorEpoch: <epoch>` on every mutating supervisor call
+  (`escalation_resolve`, and `supervisor_*` if you use them). The server bumps the
+  epoch on every register, so this is the single-writer fence.
+- **On a `{ superseded: true }` response** from any call: a newer steward/supervisor
+  owns the role and the server performed NO write. **Stop immediately** — don't retry
+  or re-register; cancel any pending wake; tell the user "superseded (epoch N) — exiting"
+  and END the loop. The server reject is authoritative.
+
+This is Phase 0: ZERO schema. The steward is a SKILL that registers, loops on
+`escalation_list`, and acts via already-shipped verbs — nothing new in the DB.
+
 ## Step 1 — Pull state AND ground-truth it
 
 Escalations are written at a point in time; their stated blocker is often ALREADY FIXED by a
@@ -53,16 +74,46 @@ A repaired root cause turns a whole CLUSTER of escalations stale at once.
 
 ## Step 3 — Steward verbs (the supported tools — do NOT hand-edit todos.db)
 
-- **`reset_todo` { project, todoId, status? }** — unstick a parked/over-retried todo. Resets
-  `retryCount=0`, clears `acceptanceStatus` + stale claim + completion stamps, sets status
-  (default `ready`). Use when the CAUSE of repeated rejections was fixed externally; a todo
-  at/over `MAX_CLAIM_RETRIES` would otherwise re-park `blocked` the instant it's reclaimed.
-- **`override_accept_todo` { project, todoId, completedBy? }** — force a verified-done todo
-  DONE+accepted, BYPASSING the gate. ONLY for a confirmed false-rejection (whole-tree `tsc`
-  tripping on a sibling lane, or a gate command wrong for the change-set). Unblocks dependents
-  and rolls up epics exactly as a normal acceptance. **Confirm the deliverable exists first.**
+### The proof-required autonomy ladder (server-enforced — design §3/§5)
+
+**The invariant: a steward acts only when the SERVER can re-derive its verdict from ground
+truth; absence of proof is a hand-back, never a license for judgment.** When `MERMAID_STEWARD_AUTO`
+is on, every act-verb call you make as the steward MUST cite a `proof` the server RE-VALIDATES at
+act time (it runs `git`/`tsc`/store checks itself — it never trusts a boolean you assert). A call
+with absent/false proof is **rejected and the escalation is flipped `routedTo='human'`** (re-surfaces
+tagged "deferred by steward"). Pass `escalationId` (links the audit + is the reroute target) and
+your `supervisorEpoch` as `stewardEpoch`.
+
+| Bucket | Verb | `proof` the server re-validates |
+|--------|------|----------------------------------|
+| STALE blocker | `reset_todo` | `{kind:'merged'}` (HEAD..master==0) · `{kind:'tsc-clean'}` · `{kind:'grep',symbol,present}` |
+| NOW-BUILDABLE | `reset_todo` → `ready` | `{kind:'dep-done'}` — server confirms every dep is `done`/accepted IN THE STORE (+ leaf) |
+| VERIFIED-DONE false-reject | `override_accept_todo` | **DEFAULT DEFER.** `{kind:'override', artifactPath\|artifactSymbol, foreignErrorFiles:[…]}` — auto ONLY with DUAL proof: deliverable provably in-tree AND the gate error provably FOREIGN (outside this todo's change-set). Also rate-limited (cap/hr). |
+| NEEDS-DESIGN | `update_session_todo` → `planned` | never design; re-park with a "run vibe-blueprint" note |
+| keep-flowing | `start`/`stop_coordinator` | coordinator stale/stopped |
+
+**HUMAN-RESERVED FLOORS (server routes these to human by KIND — you can NEVER auto-decide them):**
+irreversible (delete/force-push/migration; an `override_accept` whose gate failed INSIDE its own
+files); outward-facing (deploy/publish/external write/spend — `operatorGated=1`); true product
+decisions (`kind='decision'`); `approval` / `assumption-invalidated`; and anything lacking its
+deterministic proof. `reset_todo` is the reversible UNDO and ramps in first; `override_accept` is
+the blast-radius verb and is gated hardest (dual proof + rate limit + loud counter).
+
+### Verb reference
+
+- **`reset_todo` { project, todoId, status?, proof?, escalationId?, stewardEpoch? }** — unstick a
+  parked/over-retried todo. Resets `retryCount=0`, clears `acceptanceStatus` + stale claim +
+  completion stamps, sets status (default `ready`). Use when the CAUSE of repeated rejections was
+  fixed externally; a todo at/over `MAX_CLAIM_RETRIES` would otherwise re-park `blocked` the instant
+  it's reclaimed.
+- **`override_accept_todo` { project, todoId, completedBy?, proof?, escalationId?, stewardEpoch?, changeSetFiles? }** —
+  force a verified-done todo DONE+accepted, BYPASSING the gate. ONLY for a confirmed false-rejection
+  (whole-tree `tsc` tripping on a sibling lane, or a gate command wrong for the change-set). Requires
+  the **foreign-error dual proof** above; **confirm the deliverable exists in-tree first.** Unblocks
+  dependents and rolls up epics exactly as a normal acceptance.
 - **`update_session_todo` { …, status }** — for re-park (`planned`) and ordinary status moves.
-- **`escalation_resolve` { id, status: "resolved" }** — close each escalation as you act on it.
+- **`escalation_resolve` { id, status: "resolved", supervisorEpoch: <epoch> }** — close each
+  escalation as you act on it; pass the epoch from Step 0 (a superseded steward is rejected).
 
 If you reach for raw SQL on `todos.db`, STOP: that's missing-verb friction. Add the verb
 (`src/services/todo-store.ts` + register in `src/mcp/setup.ts`, with a test) instead.
@@ -87,6 +138,60 @@ Every manual work-around is a signal. As steward you CLOSE the loop:
 - **Decision worth keeping** → `create_decision_record` so the reasoning survives a `/clear`.
 - Keep every work todo under an epic (`feedback_every_todo_needs_an_epic`); orphans go to the
   Bugfix-inbox epic (`feedback_bugfix_inbox_epic`).
+
+## Step 6 — Liveness & human reclaim (the kill-switches — design §4/§5)
+
+You are the human's autonomous stand-in, never an unaccountable one. Three reclaim paths
+exist — all server-enforced, none require killing a process:
+
+- **Supersede (the hard kill-switch).** A human simply runs this skill in their own session:
+  `register_supervisor`/`register_steward` bumps the steward epoch, and the previous autonomous
+  steward is **stopped cold** — its next fenced call gets `{ superseded: true }` (server did NO
+  write) and it must exit. "I've got it from here" needs no coordination.
+- **Pause / resume.** `steward_pause` stops the router forwarding — every NEW escalation routes
+  to the human and you park; `steward_resume` lifts it. `steward_pause_status` → `{ paused, live,
+  enabled }` drives the panel's paused/crashed state. Use pause when you want the steward idle
+  without superseding it.
+- **`reset_todo` is the override UNDO.** Every `override_accept_todo` is reversible by a
+  `reset_todo` back to `ready` (one-click in the panel) — that asymmetry is why override ramps in
+  last and reset first.
+
+**Fail-open-to-human (automatic).** If your heartbeat goes stale (crash/hang), the server flips
+ALL routing to human, the StewardPanel shows *crashed*, and the watchdog surfaces **exactly ONE**
+summary escalation — "steward offline, N queued" — it NEVER spawns a replacement LLM. So a dead
+steward degrades to "the human triages," never to silent rot.
+
+**Heartbeat + self-clear.** Touch your identity each loop so liveness stays fresh; manage your OWN
+context with `checkpoint_ready` → `supervisor_clear_session` (the watchdog scans your session
+role-agnostically by `(project, session)`, so you are checkpoint/clear-managed like any worker).
+
+## Smoke checklist — prove the loop end-to-end (Phase 0 acceptance)
+
+Run this once against the REAL queue to confirm the full triage→act→resolve→keep-flowing
+loop works on shipped verbs with zero schema. It is the Phase-0 exit criterion.
+
+1. **Register** — `register_supervisor` returns an `{ epoch }`; a second call returns a
+   higher epoch (fence works). Hold the latest.
+2. **Pull** — `escalation_list` returns the open queue; for each, `get_todo` returns its
+   status/retryCount/acceptanceStatus. (Empty queue ⇒ nothing to prove now; seed one by
+   leaving a known-stale escalation, or stop here.)
+3. **Ground-truth** — at least one Step-1 check actually ran (`git rev-list --count HEAD..master`,
+   a dep grep, `npx tsc --noEmit`, or the `gateCommand` read) and changed a bucket call.
+4. **Act, one per bucket exercised at least once across the sweep:**
+   - STALE → `escalation_resolve` (+ `reset_todo` if parked) → re-read: escalation gone, todo `ready`.
+   - VERIFIED-DONE → deliverable confirmed in-tree → `override_accept_todo` → re-read: todo `done`+accepted, dependents promoted.
+   - NOW-BUILDABLE → `reset_todo` → `ready` → re-read.
+   - GENUINE DECISION → `create_decision_record` + set the todo + `escalation_resolve`.
+   - NEEDS-DESIGN → `update_session_todo` → `planned` + note `vibe-blueprint` + `escalation_resolve`.
+5. **Keep flowing** — `start_coordinator` confirmed running; a `reset_todo`'d item gets
+   re-claimed and (with the change-set-scoped gate) accepted on its own.
+6. **Converge** — after the sweep `escalation_list` is `[]` (or only items deliberately left
+   for a true human decision, named in the summary). Re-read affected todos: each landed or in-flight.
+7. **Epoch hygiene** — every mutating call this pass carried `supervisorEpoch`; no call returned
+   `{ superseded: true }` (if one did, you exited per Step 0 — that is also a PASS of the fence).
+
+PASS = the queue converged using ONLY shipped verbs (no `todos.db` hand-edit, no schema change).
+Any place you reached for raw SQL or a missing verb is a Step-5 dogfood todo, not a checklist failure.
 
 ## Notes
 - Prefer deterministic server mechanics over LLM judgment (`feedback_deterministic_daemon_first`):

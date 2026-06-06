@@ -22,6 +22,7 @@ import { ImageViewer } from '@/components/ImageViewer';
 import { TaskGraphView } from '@/components/task-graph';
 import CodeFileView from '@/components/editors/CodeFileView';
 import { CodeEditor } from '@/components/editors/CodeEditor';
+import { SpecSheetPane } from '@/components/supervisor/spec/SpecSheetPane';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUIStore } from '@/stores/uiStore';
 import type { TabDescriptor } from '@/stores/tabsStore';
@@ -211,6 +212,11 @@ export const PaneContent: React.FC<PaneContentProps> = ({
 
     case 'todo-detail': {
       return <TodoDetailView todoId={tab.artifactId} />;
+    }
+
+    case 'spec': {
+      if (!project) return <NotFound message="Spec Sheet requires a project" />;
+      return <SpecSheetPane project={project} />;
     }
 
     default:

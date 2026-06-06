@@ -25,6 +25,22 @@ export function highestPriorityEscalation(open: Escalation[]): Escalation | null
 }
 
 /**
+ * Steward provenance (Steward P3): true when the steward triaged this escalation
+ * and routed it on to the human (`routedTo === 'steward'`). The NeedsYouZone card
+ * shows a "steward sent this to you" tag for these so a person can tell a
+ * triaged-and-deferred item from one the steward never saw. Absent routedTo
+ * (legacy / steward-auto OFF) reads as 'human' → not steward-routed.
+ */
+export function isStewardRouted(e: Escalation): boolean {
+  return e.routedTo === 'steward';
+}
+
+/** The steward-deferred subset of an already-open escalation set. */
+export function selectStewardDeferred(open: Escalation[]): Escalation[] {
+  return open.filter(isStewardRouted);
+}
+
+/**
  * Map an escalation to the FleetGraph node id it should frame: the todo claimed
  * by / assigned to / owned by the escalation's worker session. Todo node ids ARE
  * the todo id (see useFleetGraph), so we return that id directly. Null when no

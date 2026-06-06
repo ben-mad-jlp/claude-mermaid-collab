@@ -10,7 +10,8 @@ export type NodeKind =
   | 'blueprint'
   | 'embed'
   | 'code-file'
-  | 'todo';
+  | 'todo'
+  | 'spec';
 
 export type ArtifactType =
   | 'diagram'

@@ -126,6 +126,18 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
                   <span className="text-3xs font-medium text-gray-500 dark:text-gray-400 truncate" title={`${e.project} / ${e.session}`}>
                     {e.session}
                   </span>
+                  {/* Steward provenance (Steward P3): the steward triaged this and
+                      routed it on to you — distinguishes triaged-and-deferred from
+                      never-seen. Derived from the server's routedTo flip. */}
+                  {e.routedTo === 'steward' && (
+                    <span
+                      data-testid="steward-provenance-tag"
+                      title="The steward triaged this and sent it to you"
+                      className="shrink-0 inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-3xs font-medium bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300"
+                    >
+                      🛡 steward sent this
+                    </span>
+                  )}
                   {onJump && (
                     <button
                       type="button"

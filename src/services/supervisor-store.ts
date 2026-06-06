@@ -68,10 +68,36 @@ export interface Escalation {
    *  closed catalog; null when absent or invalid. The options[] / legacy card
    *  remains the fallback, so this never affects answerability. */
   ui: JsonRenderSpec | null;
+  /** Server-routed destination decided at create-time by `routeOf` (design §3):
+   *  'human' or 'steward'. Defaults 'human' (and is forced 'human' while
+   *  MERMAID_STEWARD_AUTO is OFF). */
+  routedTo: string;
+  /** 1 when this escalation gates an irreversible/outward action — a hard server
+   *  floor that always routes to the human, never the steward. */
+  operatorGated: number;
+  /** Deterministic, server-re-validated proof string cited on a steward
+   *  resolution (Phase 2). Null until resolved by the steward. */
+  proof: string | null;
+  /** How many times the steward has auto-attempted this escalation — the thrash
+   *  guard (rail 5). Defaults 0. */
+  stewardAttempts: number;
 }
 
-export const ESCALATION_KINDS = ['question', 'decision', 'blocker', 'approval'] as const;
+export const ESCALATION_KINDS = [
+  'question',
+  'decision',
+  'blocker',
+  'approval',
+  // Steward routing (design-first-class-steward §3): a mechanical re-park request
+  // (steward), a re-planning trigger (human), and an irreversible/outward gate (human).
+  'needs-design',
+  'assumption-invalidated',
+  'operator-gated',
+] as const;
 export type EscalationKind = typeof ESCALATION_KINDS[number];
+
+/** Where an escalation is routed at create-time (design §3). */
+export type EscalationRoute = 'human' | 'steward';
 
 /** A human's answer to a (structured) escalation, posted via the decide endpoint
  *  and polled by the await_human_decision MCP tool. Keyed 1:1 by escalationId. */
@@ -113,7 +139,11 @@ CREATE TABLE IF NOT EXISTS escalation (
   todoId TEXT,
   optionsJson TEXT,
   recommended TEXT,
-  uiJson TEXT
+  uiJson TEXT,
+  routedTo TEXT DEFAULT 'human',
+  operatorGated INTEGER DEFAULT 0,
+  proof TEXT,
+  stewardAttempts INTEGER DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_esc_open ON escalation(project, session, questionText, status);
 CREATE TABLE IF NOT EXISTS escalation_decision (
@@ -124,7 +154,7 @@ CREATE TABLE IF NOT EXISTS escalation_decision (
   decidedAt INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS supervisor_identity (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
+  role TEXT PRIMARY KEY,
   project TEXT NOT NULL,
   session TEXT NOT NULL,
   updatedAt INTEGER NOT NULL,
@@ -201,8 +231,45 @@ function openDb(): Database {
   addColumnIfMissing(db, 'escalation', 'optionsJson', 'optionsJson TEXT');
   addColumnIfMissing(db, 'escalation', 'recommended', 'recommended TEXT');
   addColumnIfMissing(db, 'escalation', 'uiJson', 'uiJson TEXT');
+  // Steward routing (design §3): create-time route + the irreversible/outward gate
+  // + the resolution proof + the thrash counter. Additive, DEFAULTed so existing
+  // open escalations backfill to routedTo='human' (no behavioural change).
+  addColumnIfMissing(db, 'escalation', 'routedTo', "routedTo TEXT DEFAULT 'human'");
+  addColumnIfMissing(db, 'escalation', 'operatorGated', 'operatorGated INTEGER DEFAULT 0');
+  addColumnIfMissing(db, 'escalation', 'proof', 'proof TEXT');
+  addColumnIfMissing(db, 'escalation', 'stewardAttempts', 'stewardAttempts INTEGER DEFAULT 0');
   db.exec('CREATE INDEX IF NOT EXISTS idx_esc_todo ON escalation(project, todoId, status)');
+  // Steward role model (design §2): relax the supervisor_identity singleton
+  // (id=1 CHECK) to PRIMARY KEY(role). Additive rebuild that backfills the
+  // existing row to role='supervisor', so every current caller is untouched.
+  migrateSupervisorIdentityToRole(db);
   return db;
+}
+
+/** One-time rebuild of the legacy `id=1 CHECK` supervisor_identity singleton into
+ *  the role-keyed table (PRIMARY KEY(role)), backfilling the existing row to
+ *  role='supervisor'. Idempotent: a no-op once the table is already role-keyed.
+ *  Wrapped in a transaction so a partial rebuild can never leave a half-migrated
+ *  identity that would fence the live supervisor (top risk #1). */
+function migrateSupervisorIdentityToRole(d: Database): void {
+  const cols = d.query('PRAGMA table_info(supervisor_identity)').all() as Array<{ name: string }>;
+  const hasLegacyId = cols.some((c) => c.name === 'id');
+  if (!hasLegacyId) return; // already role-keyed (fresh DB or prior migration)
+  d.transaction(() => {
+    d.exec(`CREATE TABLE supervisor_identity_new (
+      role TEXT PRIMARY KEY,
+      project TEXT NOT NULL,
+      session TEXT NOT NULL,
+      updatedAt INTEGER NOT NULL,
+      serverId TEXT NOT NULL DEFAULT '',
+      epoch INTEGER NOT NULL DEFAULT 0
+    )`);
+    d.exec(`INSERT INTO supervisor_identity_new (role, project, session, updatedAt, serverId, epoch)
+      SELECT 'supervisor', project, session, updatedAt, COALESCE(serverId, ''), COALESCE(epoch, 0)
+      FROM supervisor_identity WHERE id = 1`);
+    d.exec('DROP TABLE supervisor_identity');
+    d.exec('ALTER TABLE supervisor_identity_new RENAME TO supervisor_identity');
+  })();
 }
 
 /** For tests: drop the cached handle so a fresh DB opens on next use. */
@@ -350,6 +417,113 @@ function mapEscalationRow(row: EscalationRow): Escalation {
  * omitted the escalation is a plain question (questionText only). `recommended`
  * is only stored when it names one of the provided options.
  */
+/**
+ * Whether the steward auto-routing/acting path is enabled. Default OFF
+ * (constraint 020b7ab1). While OFF, the role/routing machinery is INERT — every
+ * escalation routes to the human exactly as before — so the Phase-1 migration can
+ * never silently fence the live supervisor by diverting its escalations. Enable
+ * with MERMAID_STEWARD_AUTO=1 (or =true) once the proof gate (Phase 2) is in.
+ */
+export function stewardAutoEnabled(): boolean {
+  const v = process.env.MERMAID_STEWARD_AUTO;
+  return v === '1' || v === 'true';
+}
+
+/**
+ * Pure, deterministic create-time routing (design §3) — by KIND, not prose.
+ * While steward-auto is OFF, EVERYTHING routes to the human. While ON, the hard
+ * server floors stay human: an operator-gated (irreversible/outward) escalation,
+ * an `approval` (human sign-off), a `decision` (genuine product A/B), and an
+ * `assumption-invalidated` (re-planning is the Planner's). `blocker`, `question`,
+ * and `needs-design` (mechanical re-park only) route to the steward. Unknown
+ * kinds fail SAFE to the human.
+ */
+export function routeOf(kind: string, operatorGated: boolean): EscalationRoute {
+  if (!stewardAutoEnabled()) return 'human';
+  if (operatorGated) return 'human';
+  switch (kind) {
+    case 'blocker':
+    case 'question':
+    case 'needs-design':
+      return 'steward';
+    case 'approval':
+    case 'decision':
+    case 'assumption-invalidated':
+    case 'operator-gated':
+      return 'human';
+    default:
+      return 'human';
+  }
+}
+
+/** Pause scope for the steward role (design §4): a single sentinel scope in the
+ *  shared supervisor_pause table, parallel to GLOBAL_PAUSE_SCOPE. */
+export const STEWARD_PAUSE_SCOPE = '__steward__';
+
+/** Pause / resume the steward's auto-routing+acting. While paused the router
+ *  forwards nothing (all→human) and the steward parks — the standin's
+ *  "I've got it from here." */
+export function setStewardPause(paused: boolean): void {
+  setSupervisorPause(STEWARD_PAUSE_SCOPE, paused);
+}
+export function isStewardPaused(): boolean {
+  const d = openDb();
+  return !!d.query('SELECT 1 FROM supervisor_pause WHERE scope = ? LIMIT 1').get(STEWARD_PAUSE_SCOPE);
+}
+
+/** True iff a steward is registered AND its heartbeat is fresh (not stale/dead).
+ *  Drives fail-open-to-human: a dead steward must not silently swallow escalations. */
+export function isStewardLive(now: number = Date.now()): boolean {
+  const id = getSupervisorIdentity('steward');
+  return id != null && now - id.updatedAt < SUPERVISOR_STALE_AFTER_MS;
+}
+
+/**
+ * Create-time routing WITH the fail-open overlay (design §3/§4/§5): the pure
+ * `routeOf` table decides by kind, but an escalation only reaches the steward when
+ * the steward is enabled, NOT paused, AND live. Paused or stale/dead → everything
+ * fails open to the human. This is the single place create-time routing is decided.
+ */
+export function routeEscalation(kind: string, operatorGated: boolean, now: number = Date.now()): EscalationRoute {
+  if (!stewardAutoEnabled()) return 'human';
+  if (isStewardPaused()) return 'human';
+  if (!isStewardLive(now)) return 'human';
+  return routeOf(kind, operatorGated);
+}
+
+/** Sentinel session for the single fail-open summary escalation (keeps it deduped). */
+export const STEWARD_FAILOPEN_SESSION = '__steward_failopen__';
+
+/**
+ * Fail-open-to-human (design §4/§5): when a steward IS registered but its
+ * heartbeat is stale/dead, surface EXACTLY ONE human escalation summarising the
+ * backlog ("steward dead, N queued") — never spawn a replacement LLM. Deduped via
+ * the sentinel session, so repeated scans don't pile up. Returns the state so the
+ * watchdog/UI can flip the StewardPanel to "crashed". A no-op when the steward is
+ * disabled, unregistered, or live.
+ */
+export function stewardFailOpenScan(now: number = Date.now()): { stale: boolean; queued: number; escalationId: string | null } {
+  if (!stewardAutoEnabled()) return { stale: false, queued: 0, escalationId: null };
+  const id = getSupervisorIdentity('steward');
+  if (!id || isStewardLive(now)) return { stale: false, queued: 0, escalationId: null };
+  const d = openDb();
+  const queued = (d.query("SELECT COUNT(*) AS n FROM escalation WHERE status = 'open' AND routedTo = 'steward'").get() as { n: number }).n;
+  // Single summary escalation — reuse the open one if it already exists.
+  const existing = d
+    .query("SELECT id FROM escalation WHERE session = ? AND status = 'open' LIMIT 1")
+    .get(STEWARD_FAILOPEN_SESSION) as { id: string } | null;
+  if (existing) return { stale: true, queued, escalationId: existing.id };
+  // operatorGated forces the human floor regardless of kind/liveness routing.
+  const { escalation } = createEscalation({
+    project: id.project,
+    session: STEWARD_FAILOPEN_SESSION,
+    kind: 'operator-gated',
+    questionText: `Steward offline (heartbeat stale) — ${queued} steward-routed escalation(s) now need a human. Re-register a steward or triage them directly.`,
+    operatorGated: true,
+  });
+  return { stale: true, queued, escalationId: escalation.id };
+}
+
 export function createEscalation(input: {
   project: string;
   session: string;
@@ -360,6 +534,8 @@ export function createEscalation(input: {
   options?: EscalationOption[] | null;
   recommended?: string | null;
   ui?: unknown;
+  /** Marks an irreversible/outward action gate → always routes to the human. */
+  operatorGated?: boolean;
 }): { escalation: Escalation; isNew: boolean } {
   const d = openDb();
   const existing = d
@@ -381,9 +557,14 @@ export function createEscalation(input: {
   // terminal-action required, ≤40 elements). Invalid → dropped to null.
   const ui = validateUiSpec(input.ui);
   const uiJson = ui ? JSON.stringify(ui) : null;
+  // Deterministic server-side routing at create-time (design §3) WITH the
+  // pause/liveness fail-open overlay (§4/§5): a paused or stale/dead steward
+  // routes everything to the human.
+  const operatorGated = input.operatorGated ? 1 : 0;
+  const routedTo = routeEscalation(input.kind, operatorGated === 1);
   d.prepare(
-    'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, resolvedAt, serverId, todoId, optionsJson, recommended, uiJson) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
-  ).run(id, input.project, input.session, input.kind, input.questionText, 'open', createdAt, null, serverId, todoId, optionsJson, recommended, uiJson);
+    'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, resolvedAt, serverId, todoId, optionsJson, recommended, uiJson, routedTo, operatorGated, proof, stewardAttempts) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+  ).run(id, input.project, input.session, input.kind, input.questionText, 'open', createdAt, null, serverId, todoId, optionsJson, recommended, uiJson, routedTo, operatorGated, null, 0);
   return {
     escalation: {
       id,
@@ -399,6 +580,10 @@ export function createEscalation(input: {
       options,
       recommended,
       ui,
+      routedTo,
+      operatorGated,
+      proof: null,
+      stewardAttempts: 0,
     },
     isNew: true,
   };
@@ -432,6 +617,32 @@ export function resolveEscalation(id: string, status: string): void {
     Date.now(),
     id
   );
+}
+
+/**
+ * Re-route an open escalation (the steward proof gate flips routedTo='human' when
+ * an auto-act lacks valid proof — design §3 "No-proof → flip routedTo='human'").
+ * Records the proof string that was cited (for the loud audit panel) when given.
+ */
+export function setEscalationRoute(id: string, routedTo: string, proof?: string | null): void {
+  const d = openDb();
+  if (proof !== undefined) {
+    d.prepare('UPDATE escalation SET routedTo = ?, proof = ? WHERE id = ?').run(routedTo, proof, id);
+  } else {
+    d.prepare('UPDATE escalation SET routedTo = ? WHERE id = ?').run(routedTo, id);
+  }
+}
+
+/**
+ * Thrash guard (design §7 rail 5): bump an escalation's stewardAttempts and return
+ * the new count. The handler escalates as systemic once it exceeds a cap K so the
+ * steward can't loop forever on an un-actionable escalation.
+ */
+export function incrementStewardAttempts(id: string): number {
+  const d = openDb();
+  d.prepare('UPDATE escalation SET stewardAttempts = COALESCE(stewardAttempts, 0) + 1 WHERE id = ?').run(id);
+  const row = d.query('SELECT stewardAttempts FROM escalation WHERE id = ?').get(id) as { stewardAttempts: number } | null;
+  return row?.stewardAttempts ?? 0;
 }
 
 // --- Escalation decisions (poll-await relay; ED2) ---
@@ -612,10 +823,12 @@ export class SupersededError extends Error {
     readonly callerEpoch: number | undefined,
     readonly currentEpoch: number | null,
     readonly currentSession: string | null,
+    /** Which role's fence rejected the caller ('supervisor' | 'steward'). */
+    readonly role: string = 'supervisor',
   ) {
     super(
-      `superseded: caller epoch ${callerEpoch ?? '(none)'} is not the current supervisor epoch ` +
-        `${currentEpoch ?? '(no supervisor registered)'}`,
+      `superseded: caller epoch ${callerEpoch ?? '(none)'} is not the current ${role} epoch ` +
+        `${currentEpoch ?? `(no ${role} registered)`}`,
     );
     this.name = 'SupersededError';
   }
@@ -626,13 +839,13 @@ export class SupersededError extends Error {
  * ownership epoch. Returns the NEW epoch — the caller must carry it on subsequent
  * mutating supervisor calls so the server can fence a superseded predecessor.
  */
-export function setSupervisorIdentity(project: string, session: string, serverId = ''): number {
+export function setSupervisorIdentity(project: string, session: string, serverId = '', role = 'supervisor'): number {
   const d = openDb();
-  const prev = d.query('SELECT epoch FROM supervisor_identity WHERE id = 1').get() as { epoch: number } | null;
+  const prev = d.query('SELECT epoch FROM supervisor_identity WHERE role = ?').get(role) as { epoch: number } | null;
   const epoch = (prev?.epoch ?? 0) + 1;
   d.prepare(
-    'INSERT OR REPLACE INTO supervisor_identity (id, project, session, updatedAt, serverId, epoch) VALUES (1, ?, ?, ?, ?, ?)'
-  ).run(project, session, Date.now(), serverId, epoch);
+    'INSERT OR REPLACE INTO supervisor_identity (role, project, session, updatedAt, serverId, epoch) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(role, project, session, Date.now(), serverId, epoch);
   return epoch;
 }
 
@@ -643,10 +856,10 @@ export function setSupervisorIdentity(project: string, session: string, serverId
  * superseded too (it cannot prove ownership). This is the authoritative fence;
  * the supervisor skill self-exiting on `superseded` is only the politeness layer.
  */
-export function assertSupervisorOwner(epoch: number | undefined): void {
-  const id = getSupervisorIdentity();
+export function assertSupervisorOwner(epoch: number | undefined, role = 'supervisor'): void {
+  const id = getSupervisorIdentity(role);
   if (id == null || epoch == null || epoch !== id.epoch) {
-    throw new SupersededError(epoch, id?.epoch ?? null, id?.session ?? null);
+    throw new SupersededError(epoch, id?.epoch ?? null, id?.session ?? null, role);
   }
 }
 
@@ -657,17 +870,17 @@ export function assertSupervisorOwner(epoch: number | undefined): void {
  * crashed/stale one — register_supervisor writes updatedAt once; this keeps
  * it advancing while the supervisor is alive.
  */
-export function touchSupervisorIdentity(epoch?: number): boolean {
+export function touchSupervisorIdentity(epoch?: number, role = 'supervisor'): boolean {
   const d = openDb();
   // Fenced touch: when an epoch is supplied, only the current owner may advance
   // liveness — a superseded supervisor cannot resurrect ownership by heartbeating.
   // Omitting the epoch is the server's own best-effort heartbeat (it keeps whoever
-  // currently owns the row alive, which is always correct).
+  // currently owns the row alive, which is always correct). Per-role fence.
   if (epoch != null) {
-    const info = d.prepare('UPDATE supervisor_identity SET updatedAt = ? WHERE id = 1 AND epoch = ?').run(Date.now(), epoch);
+    const info = d.prepare('UPDATE supervisor_identity SET updatedAt = ? WHERE role = ? AND epoch = ?').run(Date.now(), role, epoch);
     return info.changes > 0;
   }
-  const info = d.prepare('UPDATE supervisor_identity SET updatedAt = ? WHERE id = 1').run(Date.now());
+  const info = d.prepare('UPDATE supervisor_identity SET updatedAt = ? WHERE role = ?').run(Date.now(), role);
   return info.changes > 0;
 }
 
@@ -676,9 +889,9 @@ export const SUPERVISOR_HEARTBEAT_INTERVAL_MS = 30_000;
 /** A supervisor is considered stale once updatedAt is older than this (2x heartbeat). */
 export const SUPERVISOR_STALE_AFTER_MS = SUPERVISOR_HEARTBEAT_INTERVAL_MS * 2;
 
-export function getSupervisorIdentity(): SupervisorIdentity | null {
+export function getSupervisorIdentity(role = 'supervisor'): SupervisorIdentity | null {
   const d = openDb();
-  const row = d.query('SELECT project, session, updatedAt, serverId, epoch FROM supervisor_identity WHERE id = 1').get() as
+  const row = d.query('SELECT project, session, updatedAt, serverId, epoch FROM supervisor_identity WHERE role = ?').get(role) as
     | SupervisorIdentity
     | null;
   return row ?? null;

@@ -381,7 +381,7 @@ export function newRevision(
   objectId: string,
   artifactHashes: string[] = [],
 ): Promise<SystemRevision> {
-  return withLock(project, () => {
+  return withLock(project, async () => {
     const db = openDb(project);
     const obj = getObject(project, objectId);
     if (!obj) throw new Error(`newRevision: object not found: ${objectId}`);
@@ -390,6 +390,7 @@ export function newRevision(
 
     const existing = db.query('SELECT * FROM revisions WHERE objectId = ? AND contentHash = ? LIMIT 1')
       .get(objectId, hash) as RevisionRow | null;
+    const created = !existing;
     const rev = existing ?? (() => {
       const id = randomUUID();
       db.prepare('INSERT INTO revisions (id, objectId, contentHash, createdAt, gateVerdict) VALUES (?,?,?,?,?)')
@@ -398,6 +399,17 @@ export function newRevision(
     })();
 
     db.prepare('UPDATE instances SET currentRevisionId = ? WHERE id = ?').run(rev.id, objectId);
+
+    // STALE-on-bump (Phase 3): a genuine content change (new revision, not a
+    // hash reuse) invalidates this object's downstream traceability proofs.
+    // Lazy import keeps the store↔edges dependency one-directional (no static
+    // cycle); best-effort so a revision never fails on the edges side.
+    if (created) {
+      try {
+        const { markStaleForObject } = await import('./system-object-edges');
+        markStaleForObject(project, objectId);
+      } catch { /* edges layer optional; revision stands regardless */ }
+    }
     return rowToRevision(rev);
   });
 }

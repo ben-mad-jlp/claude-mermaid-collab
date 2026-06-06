@@ -56,11 +56,17 @@ export interface FleetGraphProps {
    * pane) instead of the default dive-to-Studio. Absent → default dive.
    */
   onWorkerSelect?: (target: DiveTarget) => void;
+  /**
+   * Notified when a todo node is clicked, with the clicked todo. The Bridge wires
+   * this to surface the TodoDetailView in its left panel. OPTIONAL — absent (e.g.
+   * the task view) → clicking a todo just spotlights the node, no detail callout.
+   */
+  onSelectTodo?: (todo: SessionTodo) => void;
 }
 
 const LOD_LABELS: Record<Lod | 'auto', string> = { auto: 'Auto', 0: 'L0', 1: 'L1', 2: 'L2' };
 
-const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs = [], openEscalations = [], onWorkerSelect }) => {
+const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs = [], openEscalations = [], onWorkerSelect, onSelectTodo }) => {
   const diveIn = useDiveIn();
   const setSelectedNodeId = useDeckStore((s) => s.setSelectedNodeId);
   const forcedLod = useDeckStore((s) => s.forcedLod);
@@ -156,6 +162,10 @@ const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs = [], openEsca
         return;
       }
       if (node.type === 'todo') {
+        // Surface the clicked todo's detail in the host (Bridge left panel) when
+        // wired; the task view passes no handler → spotlight only.
+        const todo = todos.find((t) => t.id === node.id);
+        if (todo) onSelectTodo?.(todo);
         // A danger todo (worker has an open escalation) opens the focal card and
         // frames the node (graph-answers-the-card).
         const esc = escalationForTodo(node.id);
@@ -165,7 +175,7 @@ const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs = [], openEsca
         }
       }
     },
-    [diveIn, onWorkerSelect, subs, setSelectedNodeId, escalationForTodo, setFocalEscalationId, setFocusNodeId],
+    [diveIn, onWorkerSelect, onSelectTodo, todos, subs, setSelectedNodeId, escalationForTodo, setFocalEscalationId, setFocusNodeId],
   );
 
   const lodButtons = useMemo<(Lod | 'auto')[]>(() => ['auto', 0, 1, 2], []);

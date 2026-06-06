@@ -10,16 +10,20 @@
 
 import React, { useMemo } from 'react';
 import type { SessionTodo } from '@/types/sessionTodo';
+import type { CoverageRollup } from '@/stores/supervisorStore';
 import { FUNNEL_SEGMENTS, funnelCounts } from './funnel';
+import { SpecCoverageCard } from './SpecCoverageCard';
 
 export interface FleetVitalsProps {
   running: boolean;
   readyCount: number;
   todos: SessionTodo[];
   onToggle: () => void;
+  /** Spec coverage rollup (design §5). Absent/empty → the card self-hides. */
+  coverage?: CoverageRollup;
 }
 
-export const FleetVitals: React.FC<FleetVitalsProps> = ({ running, readyCount, todos, onToggle }) => {
+export const FleetVitals: React.FC<FleetVitalsProps> = ({ running, readyCount, todos, onToggle, coverage }) => {
   const counts = useMemo(() => funnelCounts(todos), [todos]);
   const total = todos.length;
   const stoppedWithWork = !running && readyCount > 0;
@@ -87,6 +91,9 @@ export const FleetVitals: React.FC<FleetVitalsProps> = ({ running, readyCount, t
           })}
         </div>
       </div>
+
+      {/* Spec coverage glance (§5) — self-hides when the project has no spec objects. */}
+      <SpecCoverageCard coverage={coverage} />
     </div>
   );
 };

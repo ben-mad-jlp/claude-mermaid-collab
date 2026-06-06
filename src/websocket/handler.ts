@@ -96,8 +96,12 @@ export type WSMessage =
   | { type: 'browser_tab_update'; session: string; active: boolean }
   | { type: 'pair_mode_changed'; pairMode: boolean; project: string; session: string }
   | { type: 'supervisor_nudge'; project: string; session: string; serverId: string; text: string; sent: boolean }
-  | { type: 'escalation_created'; project: string; session: string; kind: string; id: string }
+  | { type: 'escalation_created'; project: string; session: string; kind: string; id: string; routedTo?: string }
   | { type: 'escalation_decided'; project: string; session: string; id: string; optionId: string | null }
+  // Steward observability feed (Steward P3) — cheap, NOT load-bearing: the
+  // escalation table stays the source of truth; the panel feed just narrates.
+  | { type: 'steward_action'; project: string; id: string; action: string; proof?: string }
+  | { type: 'steward_handback'; project: string; id: string; reason?: string }
   | { type: 'peer_registry'; peers: Array<{ serverId: string; baseUrl: string; token?: string }> }
   | { type: 'coordinator_status'; project: string; running: boolean };
 

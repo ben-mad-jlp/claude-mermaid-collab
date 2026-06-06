@@ -58,8 +58,12 @@ import { listSessionRuntimes } from '../services/session-runtime.js';
 import { resolveReconcile } from '../services/planner-reconcile-live.js';
 import { SERVER_VERSION } from './server.js';
 import { createDecisionRecord, listDecisionRecords, approveDecisionRecord, supersedeDecisionRecord, getActiveConstraints, getActiveRequirements, type DecisionKind, type RequirementSpec } from '../services/decision-record-store.js';
+import { listObjects, listTypes } from '../services/system-object-store.js';
+import { bom } from '../services/system-object-bom.js';
+import { specCoverage, decideRequirement, type RequirementDecision } from '../services/spec-coverage.js';
 import { lastAssistantTurn } from '../services/transcript-reader.js';
 import { listTodos, getTodo, resetTodo, overrideAcceptTodo } from '../services/todo-store.js';
+import { validateStewardProof, isOverrideRateLimited, type StewardProof, type StewardVerb } from '../services/steward-proof.js';
 import { getConfig } from '../services/config-service.js';
 import { handleWorkerComplete } from '../services/coordinator-daemon.js';
 import { makeCoordinatorDeps, startCoordinator, stopCoordinator } from '../services/coordinator-live.js';
@@ -476,6 +480,75 @@ function recordSupervisorDecision(kind: string, project: string, session: string
     const entry = supervisorStore.recordSupervisorAudit({ kind, project, session, detail, serverId });
     getWebSocketHandler()?.broadcast({ type: 'supervisor_decision', project, session, kind, detail: entry.detail, ts: entry.ts });
   } catch { /* audit must never break the action it records */ }
+}
+
+/** Max auto override_accepts per hour (design §7 rail 2). Operator-tunable. */
+const STEWARD_OVERRIDE_CAP = Math.max(0, parseInt(process.env.MERMAID_STEWARD_OVERRIDE_CAP ?? '2', 10) || 0);
+/** Thrash cap K (design §7 rail 5): after this many steward attempts on one escalation, escalate systemic. */
+const STEWARD_THRASH_CAP = Math.max(1, parseInt(process.env.MERMAID_STEWARD_THRASH_CAP ?? '3', 10) || 3);
+
+interface StewardGateInput {
+  verb: StewardVerb;
+  project: string;
+  todoId: string;
+  proof?: StewardProof;
+  escalationId?: string;
+  changeSetFiles?: string[];
+}
+/** Decision from the server proof gate: allow the act, or reject + (re)route to human. */
+interface StewardGateDecision { ok: boolean; reason: string; }
+
+/**
+ * The keystone safety rail (design §3/§5/§7, constraint 020b7ab1): under a steward
+ * epoch, an act-verb is allowed ONLY when the SERVER re-derives the cited proof
+ * from ground truth. Absent/false proof, rate-limit, or thrash → reject the act,
+ * flip the linked escalation routedTo='human', and audit the deferral. Returns a
+ * decision; the caller performs the actual reset/override only when ok=true.
+ */
+function stewardProofGate(input: StewardGateInput): StewardGateDecision {
+  const { verb, project, todoId, proof, escalationId } = input;
+  const audit = (kind: string, detail: string) =>
+    supervisorStore.recordSupervisorAudit({ kind, project, session: 'steward', detail });
+  const deferToHuman = (reason: string) => {
+    if (escalationId) supervisorStore.setEscalationRoute(escalationId, 'human', proof ? JSON.stringify(proof) : null);
+    audit('steward_defer', JSON.stringify({ verb, todoId, escalationId: escalationId ?? null, reason }));
+    return { ok: false, reason };
+  };
+
+  // Thrash guard FIRST: a repeatedly-failing escalation is systemic, not retryable.
+  if (escalationId) {
+    const attempts = supervisorStore.incrementStewardAttempts(escalationId);
+    if (attempts > STEWARD_THRASH_CAP) return deferToHuman(`thrash:${attempts}>${STEWARD_THRASH_CAP}`);
+  }
+
+  // override_accept rate-limit (the scary verb): cap auto-overrides/hr.
+  if (verb === 'override_accept_todo') {
+    const recent = supervisorStore
+      .listSupervisorAudit({ project, kind: 'steward_override', limit: 1000 })
+      .map((e) => e.ts);
+    if (isOverrideRateLimited(recent, Date.now(), STEWARD_OVERRIDE_CAP)) {
+      return deferToHuman(`rate-limit:${STEWARD_OVERRIDE_CAP}/hr`);
+    }
+  }
+
+  const todo = getTodo(project, todoId);
+  if (!todo) return deferToHuman('todo-not-found');
+
+  const verdict = validateStewardProof(verb, proof, {
+    project,
+    dependsOn: todo.dependsOn ?? [],
+    getDep: (id) => {
+      const d = getTodo(project, id);
+      return d ? { id: d.id, status: d.status, acceptanceStatus: d.acceptanceStatus } : null;
+    },
+    changeSetFiles: input.changeSetFiles,
+  });
+  if (!verdict.ok) return deferToHuman(verdict.reason);
+
+  // Proof re-validated green → record the auto-act with its proof + escalation link.
+  audit(verb === 'reset_todo' ? 'steward_reset' : 'steward_override',
+    JSON.stringify({ todoId, escalationId: escalationId ?? null, proof }));
+  return { ok: true, reason: 'ok' };
 }
 
 /**
@@ -2032,6 +2105,7 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'roadmap_spawn_session', description: 'Spawn a collab session for a roadmap item: materializes the session via assigned todos, links them to the item, and registers the session as supervised.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, itemId: { type: 'string' }, session: { type: 'string' }, todos: { type: 'array', items: { type: 'string' }, description: 'Todo titles to create, assigned to the session' } }, required: ['project', 'itemId', 'session'] } },
       { name: 'supervisor_list_supervised', description: 'List all supervised sessions across all projects.', inputSchema: { type: 'object', properties: {} } },
       { name: 'register_supervisor', description: "Register this collab session as THE supervisor, so the server pushes real-time reconcile notifications into its tmux when supervised workers change state.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, serverId: { type: 'string' } }, required: ['project', 'session'] } },
+      { name: 'register_steward', description: "Register this collab session as THE steward (the human's autonomous stand-in for escalation triage). Independent, parallel epoch to the supervisor — a second steward registering supersedes the first. Returns { steward: { epoch } } to carry on fenced steward calls.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, serverId: { type: 'string' } }, required: ['project', 'session'] } },
       { name: 'supervisor_nudge', description: 'Send text/keys into a supervised session tmux pane, routing to a peer server when serverId names a known peer.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, serverId: { type: 'string' }, text: { type: 'string' }, supervisorEpoch: { type: 'number', description: 'Ownership epoch from register_supervisor. Pass it so the server can fence a superseded supervisor; a stale epoch is rejected (superseded) and performs no action.' } }, required: ['project', 'session', 'text'] } },
       { name: 'supervisor_reconcile', description: 'For every watched project, return session status + open-todo counts and the supervised flag.', inputSchema: { type: 'object', properties: { supervisorEpoch: { type: 'number', description: 'Ownership epoch from register_supervisor; a superseded supervisor is rejected.' } } } },
       { name: 'read_last_assistant_turn', description: 'Read the last completed assistant turn from a Claude Code session transcript.', inputSchema: { type: 'object', properties: { claudeSessionId: { type: 'string' }, serverId: { type: 'string' } }, required: ['claudeSessionId'] } },
@@ -2043,8 +2117,8 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'supervisor_resolve_decision', description: 'Write a verdict for a pending decision request (the supervisor LLM\'s one judgment). verdict: escalate (surface to the human), nudge/resume (push the worker to continue), or wait (leave it). EPOCH-GATED: pass supervisorEpoch from register_supervisor; a superseded supervisor is rejected and performs no write. The daemon acts on the verdict on its next tick.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, verdict: { type: 'string', enum: ['escalate', 'nudge', 'resume', 'wait'] }, reason: { type: 'string', description: 'Short rationale for the verdict (recorded for provenance).' }, supervisorEpoch: { type: 'number', description: 'Supervisor ownership epoch from register_supervisor; a superseded supervisor is rejected (superseded).' } }, required: ['id', 'verdict'] } },
       { name: 'get_todo', description: 'Read a single project work-graph todo by id (title, description/spec, status, dependsOn, sessionName). Used by a worker to read its claimed todo.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' } }, required: ['project','todoId'] } },
       { name: 'complete_todo', description: 'Worker completion report: mark a project todo accepted or rejected (marks done + unblocks dependents).', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, acceptance: { type: 'string', enum: ['accepted','rejected'] } }, required: ['project','todoId','acceptance'] } },
-      { name: 'reset_todo', description: "STEWARD: unstick a parked/over-retried todo and re-promote it. Use when the CAUSE of repeated rejections was fixed EXTERNALLY (a now-merged dependency, a foreign whole-tree gate error since repaired, a corrected gate command) — a todo at/over the retry budget would otherwise re-park to 'blocked' the instant it's reclaimed. Resets retryCount=0, clears acceptanceStatus + any stale claim + completion stamps, sets status (default 'ready'), and OPTIONALLY reroutes targetProject (fix a cross-project todo created without it). The supported replacement for hand-editing todos.db.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, status: { type: 'string', enum: ['backlog','planned','todo','ready','in_progress','blocked','done','dropped'], description: "Status to set after reset (default 'ready')." }, targetProject: { type: ['string','null'], description: 'Optional: set the implementation repo (worker cwd + gate location). Pass null to clear; omit to leave unchanged.' } }, required: ['project','todoId'] } },
-      { name: 'override_accept_todo', description: 'STEWARD override-accept: force a todo whose work is verified-done DONE+accepted, BYPASSING the mechanical gate. Use ONLY when the gate FALSE-rejected verified-green work (e.g. a whole-tree tsc tripping on a sibling lane error, or a gate command wrong for the change-set) — confirm the deliverable exists first. Unblocks dependents and rolls up parent epics exactly as a normal acceptance; records the steward as completer for provenance.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, completedBy: { type: 'string', description: "Completer handle for provenance (default 'steward')." } }, required: ['project','todoId'] } },
+      { name: 'reset_todo', description: "STEWARD: unstick a parked/over-retried todo and re-promote it. Use when the CAUSE of repeated rejections was fixed EXTERNALLY (a now-merged dependency, a foreign whole-tree gate error since repaired, a corrected gate command) — a todo at/over the retry budget would otherwise re-park to 'blocked' the instant it's reclaimed. Resets retryCount=0, clears acceptanceStatus + any stale claim + completion stamps, sets status (default 'ready'), and OPTIONALLY reroutes targetProject (fix a cross-project todo created without it). The supported replacement for hand-editing todos.db.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, status: { type: 'string', enum: ['backlog','planned','todo','ready','in_progress','blocked','done','dropped'], description: "Status to set after reset (default 'ready')." }, targetProject: { type: ['string','null'], description: 'Optional: set the implementation repo (worker cwd + gate location). Pass null to clear; omit to leave unchanged.' }, proof: { type: 'object', description: "STEWARD proof the server RE-VALIDATES at act time (never trusted as asserted). One of: {kind:'merged'} (HEAD..master==0), {kind:'tsc-clean'}, {kind:'grep',symbol,present}, {kind:'dep-done'} (all deps done/accepted in store). Required for an autonomous steward act when MERMAID_STEWARD_AUTO is on; a no-proof steward act is rejected + re-routed to human." }, escalationId: { type: 'string', description: 'Open escalation this act resolves — links the audit + is flipped routedTo=human on a failed/absent proof.' }, stewardEpoch: { type: 'number', description: 'Marks this as a steward auto-act (engages the proof gate).' } }, required: ['project','todoId'] } },
+      { name: 'override_accept_todo', description: 'STEWARD override-accept: force a todo whose work is verified-done DONE+accepted, BYPASSING the mechanical gate. Use ONLY when the gate FALSE-rejected verified-green work (e.g. a whole-tree tsc tripping on a sibling lane error, or a gate command wrong for the change-set) — confirm the deliverable exists first. Unblocks dependents and rolls up parent epics exactly as a normal acceptance; records the steward as completer for provenance.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, completedBy: { type: 'string', description: "Completer handle for provenance (default 'steward')." }, proof: { type: 'object', description: "STEWARD DUAL proof, server-re-validated: {kind:'override', artifactPath?|artifactSymbol? (the deliverable provably IN-TREE), foreignErrorFiles:[] (the gate failure provably OUTSIDE this todo's change-set)}. DEFAULT DEFER — without both halves the override is rejected + re-routed to human." }, escalationId: { type: 'string', description: 'Open escalation this act resolves — flipped routedTo=human on a failed/absent proof.' }, stewardEpoch: { type: 'number', description: 'Marks this as a steward auto-act (engages the proof gate + rate limit).' }, changeSetFiles: { type: 'array', items: { type: 'string' }, description: "This todo's change-set files — used to prove the gate error is foreign." } }, required: ['project','todoId'] } },
       { name: 'start_coordinator', description: 'Start the per-project Coordinator daemon (claims ready todos and spawns workers on a tick). Explicit-start.', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'] } },
       { name: 'stop_coordinator', description: 'Stop the per-project Coordinator daemon.', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'] } },
       { name: 'checkpoint_ready', description: 'Context-watchdog: a session reports that its checkpoint is persisted. The server VERIFIES the named artifact was JUST written (recency gate) before recording checkpoint_ready — so a /clear can safely follow. Provide checkpointTodoId (vibe-checkpoint writes into the in_progress todo) OR checkpointDocId (a doc, e.g. vibe.vibeinstructions). Call this at the END of your checkpoint.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, checkpointTodoId: { type: 'string', description: 'Todo id the checkpoint updated (preferred — vibe-checkpoint writes the checkpoint into the in_progress todo description).' }, checkpointDocId: { type: 'string', description: 'Document id the checkpoint wrote (alternative to checkpointTodoId).' }, maxWriteAgeMs: { type: 'number', description: 'How recent the write must be to count as a fresh checkpoint (default 120000).' } }, required: ['project', 'session'] } },
@@ -2056,9 +2130,16 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'supersede_decision_record', description: 'Mark a decision record superseded by another (the superseding record should already exist).', inputSchema: { type: 'object', properties: { project: { type: 'string' }, id: { type: 'string' }, bySupersedingId: { type: 'string' } }, required: ['project', 'id', 'bySupersedingId'] } },
       { name: 'get_active_constraints', description: 'Active constraints in scope for an epic (epic-level + project-level) — the decision-record half of /focus. Omit epicId for all active constraints.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, epicId: { type: 'string' } }, required: ['project'] } },
       { name: 'get_active_requirements', description: 'Active requirements in scope for an epic (epic-level + project-level) — the spec→Planner bridge, peer of get_active_constraints. Omit epicId for all active requirements.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, epicId: { type: 'string' } }, required: ['project'] } },
+      { name: 'spec_coverage', description: 'Spec coverage rollup (design-system-object-ui §5): for each durable system object, is it covered/partial/uncovered, derived inline from the Todo.objectRef join (no full-tree walk). Returns { total, covered, partial, uncovered, byObject[] }.', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'] } },
+      { name: 'list_system_objects', description: 'List the durable system-object tree (instances) + the type registry for a project — the data the Spec Sheet renders.', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'] } },
+      { name: 'system_object_bom', description: 'Rolled-up bill-of-materials beneath a root object (derived recursive-CTE; never stored): total qty per child type.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, rootId: { type: 'string' } }, required: ['project', 'rootId'] } },
+      { name: 'decide_requirement', description: 'Sign/reject/re-sign a requirement promise (reuses the decision-record approve/supersede path). decision: "approve" → active; "reject" → superseded (no replacement); "edit" → creates a fresh proposed requirement carrying the new spec and supersedes the old (the re-sign DIFF). edit requires spec.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, id: { type: 'string' }, decision: { type: 'string', enum: ['approve', 'reject', 'edit'] }, approvedBy: { type: 'string' }, spec: { type: 'object', description: 'New requirement spec {metric, op, target} — required for decision="edit".', properties: { metric: { type: 'string' }, op: { type: 'string' }, target: {} } }, title: { type: 'string' } }, required: ['project', 'id', 'decision'] } },
       { name: 'supervisor_pause', description: 'EMERGENCY OVERRIDE: pause supervisor driving-actions (nudge/clear/watchdog) — globally or for one project. Use when the supervisor is misbehaving. Resume with supervisor_resume.', inputSchema: { type: 'object', properties: { scope: { type: 'string', description: "'global' (default) or a project path." } } } },
       { name: 'supervisor_resume', description: 'Lift a supervisor pause (the scope you paused: "global" or a project path).', inputSchema: { type: 'object', properties: { scope: { type: 'string', description: "'global' (default) or a project path." } } } },
       { name: 'supervisor_pause_status', description: 'List active supervisor pauses.', inputSchema: { type: 'object', properties: {} } },
+      { name: 'steward_pause', description: "Pause the STEWARD's auto-routing+acting (design §4 human-reclaim). While paused the router forwards nothing (every new escalation → human) and the steward parks — the human standin's \"I've got it from here.\" Resume with steward_resume.", inputSchema: { type: 'object', properties: {} } },
+      { name: 'steward_resume', description: 'Lift the steward pause — auto-routing+acting resume (subject to the steward being live).', inputSchema: { type: 'object', properties: {} } },
+      { name: 'steward_pause_status', description: 'Steward liveness + pause snapshot: { paused, live, enabled }. Drives the StewardPanel crashed/paused state.', inputSchema: { type: 'object', properties: {} } },
       { name: 'check_graph_drift', description: 'Graph↔code drift check: scans the session\'s blueprint task files and flags MISSING dependencies — where one task\'s code imports another task\'s files but the plan graph has no dependsOn. Deterministic (import-edge analysis, no LLM). The supervisor can run this periodically.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' } }, required: ['project', 'session'] } },
       { name: 'supervisor_audit_list', description: 'List the supervisor\'s durable decision/action audit trail (nudge/escalate/checkpoint/clear/…), most-recent-first. Survives restart; feeds observability + the System Map. Optional project/kind filters.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, kind: { type: 'string' }, limit: { type: 'number', description: 'Max entries (default 100, max 1000).' } } } },
       { name: 'set_watchdog_threshold', description: 'Set (or clear, with null) a project\'s context-watchdog trigger threshold (%). Overrides the 80% default for supervisor_watchdog_scan on that project. Pass null to revert to the default.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, thresholdPercent: { type: ['number', 'null'], description: 'Percent (1-100) or null to clear.' } }, required: ['project', 'thresholdPercent'] } },
@@ -3630,6 +3711,17 @@ IMPORTANT - Common pitfalls to avoid:
             // can fence a superseded predecessor. See assertSupervisorOwner.
             return JSON.stringify({ success: true, supervisor: { project, session, serverId, epoch } }, null, 2);
           }
+          case 'register_steward': {
+            // Clone of register_supervisor under the 'steward' role (design §2):
+            // INDEPENDENT, parallel epoch — NOT a parent/owner fence over the
+            // supervisor. Running skills/steward/SKILL.md registers the session;
+            // a second steward registering bumps the steward-epoch and supersedes
+            // the first (the free kill-switch + human-reclaim).
+            const { project, session, serverId } = args as { project: string; session: string; serverId?: string };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            const epoch = supervisorStore.setSupervisorIdentity(project, session, serverId, 'steward');
+            return JSON.stringify({ success: true, steward: { project, session, serverId, epoch } }, null, 2);
+          }
           case 'supervisor_nudge': {
             const { project, session, serverId, text, supervisorEpoch } = args as { project: string; session: string; serverId?: string; text: string; supervisorEpoch?: number };
             if (!project || !session || !text) throw new Error('Missing required: project, session, text');
@@ -3703,7 +3795,7 @@ IMPORTANT - Common pitfalls to avoid:
             return JSON.stringify({ success: true, id, status }, null, 2);
           }
           case 'escalation_create': {
-            const { project, session, kind, questionText, todoId, options, recommended, ui, supervisorEpoch } = args as { project: string; session: string; kind: string; questionText: string; todoId?: string; options?: Array<{ id: string; label: string; detail?: string }>; recommended?: string; ui?: unknown; supervisorEpoch?: number };
+            const { project, session, kind, questionText, todoId, options, recommended, ui, operatorGated, supervisorEpoch } = args as { project: string; session: string; kind: string; questionText: string; todoId?: string; options?: Array<{ id: string; label: string; detail?: string }>; recommended?: string; ui?: unknown; operatorGated?: boolean; supervisorEpoch?: number };
             if (!project || !session || !kind || !questionText) throw new Error('Missing required: project, session, kind, questionText');
             // Fence only bites a supervisor-context caller (one that carries an
             // epoch). Ordinary workers escalate without an epoch — never fenced.
@@ -3712,9 +3804,9 @@ IMPORTANT - Common pitfalls to avoid:
             // pre-check → no TOCTOU): broadcast/record only for new escalations.
             // `ui` (BR-4) is server-validated inside createEscalation against the
             // closed catalog; an invalid spec is dropped, never throws.
-            const { escalation: esc, isNew } = supervisorStore.createEscalation({ project, session, kind, questionText, todoId, options, recommended, ui });
+            const { escalation: esc, isNew } = supervisorStore.createEscalation({ project, session, kind, questionText, todoId, options, recommended, ui, operatorGated });
             if (isNew) {
-              getWebSocketHandler()?.broadcast({ type: 'escalation_created', project, session, kind, id: esc.id });
+              getWebSocketHandler()?.broadcast({ type: 'escalation_created', project, session, kind, id: esc.id, routedTo: esc.routedTo });
               recordSupervisorDecision('escalate', project, session, JSON.stringify({ kind, escalationId: esc.id }));
             }
             return JSON.stringify(esc, null, 2);
@@ -4462,16 +4554,31 @@ IMPORTANT - Common pitfalls to avoid:
             return JSON.stringify(result, null, 2);
           }
           case 'reset_todo': {
-            const { project, todoId, status, targetProject } = args as { project: string; todoId: string; status?: import('../services/todo-store.js').TodoStatus; targetProject?: string | null };
+            const { project, todoId, status, targetProject, proof, escalationId, stewardEpoch } = args as { project: string; todoId: string; status?: import('../services/todo-store.js').TodoStatus; targetProject?: string | null; proof?: StewardProof; escalationId?: string; stewardEpoch?: number };
             if (!project || !todoId) throw new Error('Missing required: project, todoId');
+            // Steward proof gate: enforced only for an autonomous steward act
+            // (proof/escalationId/epoch present AND MERMAID_STEWARD_AUTO on). A plain
+            // operator call (no steward context) keeps the manual undo behaviour.
+            const asSteward = supervisorStore.stewardAutoEnabled() && (proof !== undefined || escalationId !== undefined || stewardEpoch !== undefined);
+            if (asSteward) {
+              const gate = stewardProofGate({ verb: 'reset_todo', project, todoId, proof, escalationId });
+              if (!gate.ok) return JSON.stringify({ rejected: true, reason: gate.reason, routedTo: 'human' }, null, 2);
+            }
             const result = await resetTodo(project, todoId, status ?? 'ready', targetProject);
+            if (asSteward && escalationId) supervisorStore.resolveEscalation(escalationId, 'resolved');
             getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
             return JSON.stringify(result, null, 2);
           }
           case 'override_accept_todo': {
-            const { project, todoId, completedBy } = args as { project: string; todoId: string; completedBy?: string };
+            const { project, todoId, completedBy, proof, escalationId, stewardEpoch, changeSetFiles } = args as { project: string; todoId: string; completedBy?: string; proof?: StewardProof; escalationId?: string; stewardEpoch?: number; changeSetFiles?: string[] };
             if (!project || !todoId) throw new Error('Missing required: project, todoId');
+            const asSteward = supervisorStore.stewardAutoEnabled() && (proof !== undefined || escalationId !== undefined || stewardEpoch !== undefined);
+            if (asSteward) {
+              const gate = stewardProofGate({ verb: 'override_accept_todo', project, todoId, proof, escalationId, changeSetFiles });
+              if (!gate.ok) return JSON.stringify({ rejected: true, reason: gate.reason, routedTo: 'human' }, null, 2);
+            }
             const result = await overrideAcceptTodo(project, todoId, completedBy ?? 'steward');
+            if (asSteward && escalationId) supervisorStore.resolveEscalation(escalationId, 'resolved');
             getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
             return JSON.stringify(result, null, 2);
           }
@@ -4608,6 +4715,26 @@ IMPORTANT - Common pitfalls to avoid:
             if (!project) throw new Error('Missing required: project');
             return JSON.stringify({ requirements: getActiveRequirements(project, epicId) }, null, 2);
           }
+          case 'spec_coverage': {
+            const { project } = args as { project: string };
+            if (!project) throw new Error('Missing required: project');
+            return JSON.stringify({ coverage: specCoverage(project) }, null, 2);
+          }
+          case 'list_system_objects': {
+            const { project } = args as { project: string };
+            if (!project) throw new Error('Missing required: project');
+            return JSON.stringify({ objects: listObjects(project), types: listTypes(project) }, null, 2);
+          }
+          case 'system_object_bom': {
+            const { project, rootId } = args as { project: string; rootId: string };
+            if (!project || !rootId) throw new Error('Missing required: project, rootId');
+            return JSON.stringify({ lines: bom(project, rootId) }, null, 2);
+          }
+          case 'decide_requirement': {
+            const { project, id, decision, approvedBy, spec, title } = args as { project: string; id: string; decision: RequirementDecision; approvedBy?: string; spec?: RequirementSpec; title?: string };
+            if (!project || !id || !decision) throw new Error('Missing required: project, id, decision');
+            return JSON.stringify(decideRequirement(project, { id, decision, approvedBy, spec, title }), null, 2);
+          }
           case 'supervisor_pause': {
             const { scope } = args as { scope?: string };
             const s = scope || supervisorStore.GLOBAL_PAUSE_SCOPE;
@@ -4624,6 +4751,23 @@ IMPORTANT - Common pitfalls to avoid:
           }
           case 'supervisor_pause_status': {
             return JSON.stringify({ pauses: supervisorStore.listSupervisorPauses() }, null, 2);
+          }
+          case 'steward_pause': {
+            supervisorStore.setStewardPause(true);
+            recordSupervisorDecision('override', '', 'steward', JSON.stringify({ action: 'steward_pause' }));
+            return JSON.stringify({ paused: true, scope: 'steward' }, null, 2);
+          }
+          case 'steward_resume': {
+            supervisorStore.setStewardPause(false);
+            recordSupervisorDecision('override', '', 'steward', JSON.stringify({ action: 'steward_resume' }));
+            return JSON.stringify({ paused: false, scope: 'steward' }, null, 2);
+          }
+          case 'steward_pause_status': {
+            return JSON.stringify({
+              paused: supervisorStore.isStewardPaused(),
+              live: supervisorStore.isStewardLive(),
+              enabled: supervisorStore.stewardAutoEnabled(),
+            }, null, 2);
           }
           case 'check_graph_drift': {
             const { project, session } = args as { project: string; session: string };
@@ -4670,7 +4814,14 @@ IMPORTANT - Common pitfalls to avoid:
             const actions = all.filter((a) =>
               a.action !== 'checkpoint' || tryEmitWatchdogAction(project, a.session, 'checkpoint', cooldown, now),
             );
-            return JSON.stringify({ actions, suppressed: all.length - actions.length, thresholdPercent: effectiveThreshold }, null, 2);
+            // Fail-open-to-human: if the steward crashed (stale heartbeat), surface
+            // the single "steward dead, N queued" summary escalation (role-agnostic —
+            // the steward session is also checkpoint/clear-managed by the scan above).
+            const stewardFailOpen = supervisorStore.stewardFailOpenScan(now);
+            if (stewardFailOpen.stale && stewardFailOpen.escalationId) {
+              getWebSocketHandler()?.broadcast({ type: 'escalation_created', project, session: supervisorStore.STEWARD_FAILOPEN_SESSION, kind: 'operator-gated', id: stewardFailOpen.escalationId, routedTo: 'human' });
+            }
+            return JSON.stringify({ actions, suppressed: all.length - actions.length, thresholdPercent: effectiveThreshold, stewardFailOpen }, null, 2);
           }
 
           default:

@@ -8,7 +8,7 @@ import type { DecisionRecord } from '../decision-record-store';
 const n = (id: string, dependsOn: string[] = [], parentId: string | null = null): PlanNode => ({ id, dependsOn, parentId });
 const constraint = (over: Partial<DecisionRecord>): DecisionRecord => ({
   id: 'c', project: '/p', epicId: null, kind: 'constraint', status: 'active', title: 'c',
-  rationale: null, alternatives: [], supersededBy: null, linkedTodos: [], authorSession: null,
+  rationale: null, alternatives: [], spec: null, supersededBy: null, linkedTodos: [], authorSession: null,
   approvedBy: null, createdAt: 0, updatedAt: 0, ...over,
 });
 

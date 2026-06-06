@@ -325,6 +325,18 @@ export class WorktreeManager {
   }
 
   // ---------------------------------------------------------------------------
+  // existingPath — the absolute worktree dir for a session if (and only if) it
+  // already exists on disk; null otherwise. Read-only: never creates a worktree
+  // (unlike ensure). Used by the completion gate to scope the change-set to this
+  // lane's OWN worktree instead of the shared tree (todo b78fd3f6).
+  // ---------------------------------------------------------------------------
+  async existingPath(sessionId: string): Promise<string | null> {
+    const rec = await this.readRecord(sessionId);
+    if (!rec) return null;
+    return (await this.pathExists(rec.path)) ? rec.path : null;
+  }
+
+  // ---------------------------------------------------------------------------
   // list — enumerate all persisted worktree records.
   // ---------------------------------------------------------------------------
   async list(): Promise<WorktreeInfo[]> {
