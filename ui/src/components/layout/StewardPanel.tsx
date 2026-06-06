@@ -3,7 +3,7 @@
  *
  * Top of the role ladder in DOM order (Steward ▸ Supervisor ▸ Coordinator/Planner
  * ▸ workers): the human's autonomous stand-in for escalation triage. Clones the
- * SupervisorPanel three-state front door — none → "Become the Steward" /
+ * SupervisorPanel three-state front door — none → "Launch the Steward" /
  * crashed → "Restart" / running → the observability dashboard — driven off the
  * INDEPENDENT 'steward' identity row (/api/supervisor/steward-identity, polled 10s).
  *
@@ -16,6 +16,10 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSupervisorStore } from '@/stores/supervisorStore';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useSubscriptionStore } from '@/stores/subscriptionStore';
+import { useServers } from '@/contexts/ServerContext';
+import { SessionCard, type SessionCardData } from '@/components/layout/SessionCard';
+import { buildServerIconMap, buildServerLabelMap } from '@/components/layout/SupervisorPanel';
 import { selectOpenEscalations, selectStewardDeferred } from '@/components/supervisor/bridge/escalationSelectors';
 
 export interface StewardPanelProps {
@@ -78,6 +82,48 @@ export const StewardPanel: React.FC<StewardPanelProps> = ({ currentProject }) =>
   // Live ON/OFF switch (persistent; default ON when unknown). Distinct from the
   // build-time env arm and the transient pause.
   const switchedOn = stewardLiveness?.switchedOn !== false;
+
+  // The steward session is (project, 'steward'). Render it as a real SessionCard
+  // — the same card the Watching/supervised lists use — so the human can open
+  // its terminal + focus it like any supervised session. Merge live status from
+  // the Watching feed (subscriptionStore); fall back to 'unknown' when no live
+  // subscription exists yet. Routing scope mirrors SupervisorPanel: real server
+  // ids resolve icons/labels, with the 'local' sentinel aliased to the local one.
+  const subscriptions = useSubscriptionStore((s) => s.subscriptions);
+  const sessions = useSessionStore((s) => s.sessions);
+  const setCurrentSession = useSessionStore((s) => s.setCurrentSession);
+  const { servers } = useServers();
+  const serverIconById = useMemo(() => buildServerIconMap(servers), [servers]);
+  const serverLabelById = useMemo(() => buildServerLabelMap(servers), [servers]);
+  const activeServerIcon = (activeId ? serverIconById.get(activeId) : undefined) ?? serverIconById.get('local');
+
+  const stewardCard: SessionCardData = useMemo(() => {
+    const matched = Object.values(subscriptions).find(
+      (sub) => sub.project === project && sub.session === stewardSession,
+    ) as SessionCardData | undefined;
+    const status = (matched?.status && matched.status !== 'unknown' ? matched.status : 'unknown') as SessionCardData['status'];
+    return {
+      serverId: matched?.serverId || activeId || 'local',
+      project,
+      session: stewardSession,
+      claudeSessionId: matched?.claudeSessionId,
+      status,
+      lastUpdate: matched?.lastUpdate ?? Date.now(),
+      contextPercent: matched?.contextPercent,
+    };
+  }, [subscriptions, project, activeId]);
+
+  // Card-click navigation — mirror SupervisorPanel: update local session state
+  // for same-server rows (the card's own click side-effects open the terminal +
+  // focus the browser tab via activateSessionCard).
+  const handleNavigate = useCallback(
+    (sub: SessionCardData) => {
+      if (sub.serverId && activeId && sub.serverId !== activeId) return;
+      const target = sessions.find((x) => x.project === sub.project && x.name === sub.session);
+      if (target) setCurrentSession(target);
+    },
+    [sessions, setCurrentSession, activeId],
+  );
 
   // Flip the steward's runtime on/off switch, then refresh so the rendered state
   // reflects the server (survives the 10s poll). Optimistic + best-effort.
@@ -184,7 +230,7 @@ export const StewardPanel: React.FC<StewardPanelProps> = ({ currentProject }) =>
           <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 space-y-3">
             <div className="text-center space-y-1">
               <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                {stewardState === 'none' ? 'Become the Steward' : 'Steward — not running'}
+                {stewardState === 'none' ? 'Launch the Steward' : 'Steward — not running'}
               </h2>
               <p className="text-2xs text-gray-500 dark:text-gray-400 leading-relaxed">
                 The human&apos;s autonomous stand-in for escalation triage — answers what it safely can,
@@ -205,7 +251,7 @@ export const StewardPanel: React.FC<StewardPanelProps> = ({ currentProject }) =>
                   ? 'Starting…'
                   : 'Restarting…'
                 : stewardState === 'none'
-                  ? 'Start steward'
+                  ? 'Launch the Steward'
                   : 'Restart steward'}
             </button>
           </div>
@@ -234,6 +280,20 @@ export const StewardPanel: React.FC<StewardPanelProps> = ({ currentProject }) =>
               <span className={`inline-block w-1.5 h-1.5 rounded-full ${switchedOn ? 'bg-success-500' : 'bg-gray-400'}`} aria-hidden="true" />
               {switchedOn ? 'ON' : 'OFF'}
             </button>
+          </div>
+
+          {/* The steward's own session, as a real SessionCard — clickable to open
+              its terminal + focus the browser tab, exactly like a supervised one. */}
+          <div data-testid="steward-session-card">
+            <SessionCard
+              sub={stewardCard}
+              serverLabel={serverLabelById.get(stewardCard.serverId) ?? undefined}
+              serverIcon={serverIconById.get(stewardCard.serverId) ?? activeServerIcon}
+              onNavigate={handleNavigate}
+              isSelected={false}
+              supervised
+              onToggleSupervise={() => {}}
+            />
           </div>
 
           {/* SCARY metric — override-accepts this session, surfaced LOUD. */}
