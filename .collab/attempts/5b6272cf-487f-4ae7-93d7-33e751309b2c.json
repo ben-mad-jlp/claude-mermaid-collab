@@ -1,0 +1,11 @@
+{
+  "todoId": "5b6272cf-487f-4ae7-93d7-33e751309b2c",
+  "session": "worker-5b6272cf",
+  "outcome": "accepted",
+  "retryReason": "none",
+  "layer": "none",
+  "verbsTried": ["get_todo", "complete_todo"],
+  "failingVerb": null,
+  "failingReturn": null,
+  "summary": "Implemented L4a DETECT as pure module src/services/profile-opportunity.ts: per-project general-routing accumulator (deduped by todoId), file/dir/ext pattern capture, env-tunable conservative threshold (MERMAID_GENERAL_OVERUSE_THRESHOLD), no-matching-pack guard via existing routing inference, and a deduped pollNewOpportunities signal. 17 vitest unit tests pass; tsc clean on change-set."
+}
