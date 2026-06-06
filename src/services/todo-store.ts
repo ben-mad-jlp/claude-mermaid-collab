@@ -61,6 +61,11 @@ export interface Todo {
    *  agent todos and for any todo not (yet) completed. One nullable string makes
    *  Layer C a backfill rather than a migration. */
   completedBy: string | null;
+  /** One-directional FK → SystemObject.id (durable system-object this work-todo
+   *  builds/changes). null = not object-linked. The work-vs-durable firewall
+   *  (design §4): the link is the ONLY coupling — a durable object carries NO
+   *  work-graph lifecycle (no status/claim/lease here on the object side). */
+  objectRef: string | null;
 }
 
 export interface TodoFilter {
@@ -87,6 +92,7 @@ export interface CreateTodoInput {
   blueprintId?: string | null;
   type?: string | null;
   targetProject?: string | null;
+  objectRef?: string | null;
 }
 
 export type UpdateTodoPatch = Partial<{
@@ -110,6 +116,9 @@ export type UpdateTodoPatch = Partial<{
   /** Explicit actor handle to record as completer. Normally left unset — a human
    *  completion auto-stamps 'local:<hostname>'. Set to null to clear. */
   completedBy: string | null;
+  /** One-directional FK → SystemObject.id. Set to link this work-todo to a
+   *  durable system-object; null to unlink. No lifecycle coupling (the firewall). */
+  objectRef: string | null;
 }>;
 
 interface TodoRow {
@@ -141,6 +150,7 @@ interface TodoRow {
   claimLeaseMs: number | null;
   retryCount: number;
   completedBy: string | null;
+  objectRef: string | null;
 }
 
 const DDL = `
@@ -172,7 +182,8 @@ CREATE TABLE IF NOT EXISTS todos (
   claimedAt TEXT,
   claimLeaseMs INTEGER,
   retryCount INTEGER NOT NULL DEFAULT 0,
-  completedBy TEXT
+  completedBy TEXT,
+  objectRef TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_todos_owner ON todos(ownerSession);
 CREATE INDEX IF NOT EXISTS idx_todos_assignee ON todos(assigneeSession);
@@ -208,6 +219,10 @@ function openDb(project: string): Database {
   // 'agent' (backward compat); completedBy is the nullable actor handle.
   addColumnIfMissing(db, 'todos', 'assigneeKind', "assigneeKind TEXT NOT NULL DEFAULT 'agent'");
   addColumnIfMissing(db, 'todos', 'completedBy', 'completedBy TEXT');
+  // Phase 2 §7.4: one-directional FK to a durable SystemObject. Nullable, NO
+  // lifecycle columns — the work-vs-durable firewall (durable objects never
+  // inherit the todo status/claim/lease ladder).
+  addColumnIfMissing(db, 'todos', 'objectRef', 'objectRef TEXT');
   // One-shot backfill: enforce the claim invariant (claim fields non-null IFF
   // status==='in_progress') on rows written before the invariant was enforced.
   db.exec(
@@ -279,6 +294,7 @@ function rowToTodo(row: TodoRow): Todo {
     claimLeaseMs: row.claimLeaseMs ?? null,
     retryCount: row.retryCount ?? 0,
     completedBy: row.completedBy ?? null,
+    objectRef: row.objectRef ?? null,
   };
 }
 
@@ -320,8 +336,8 @@ export function createTodo(project: string, input: CreateTodoInput): Promise<Tod
     db.prepare(
       `INSERT INTO todos (id, ownerSession, assigneeSession, assigneeKind, title, description, status, priority,
         dueDate, parentId, dependsOn, ord, link, createdAt, updatedAt, completedAt, asanaGid,
-        sessionName, blueprintId, type, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        sessionName, blueprintId, type, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       // A todo added in a session defaults to being assigned to that session
       // (its ownerSession). Pass an explicit assigneeSession to assign elsewhere.
@@ -329,7 +345,7 @@ export function createTodo(project: string, input: CreateTodoInput): Promise<Tod
       status, input.priority ?? null, input.dueDate ?? null, input.parentId ?? null,
       JSON.stringify(input.dependsOn ?? []), ord, input.link ? JSON.stringify(input.link) : null,
       ts, ts, status === 'done' ? ts : null, null,
-      input.sessionName ?? null, input.blueprintId ?? null, input.type ?? null, input.targetProject ?? null, null, null, null, null, null, 0, null
+      input.sessionName ?? null, input.blueprintId ?? null, input.type ?? null, input.targetProject ?? null, null, null, null, null, null, 0, null, input.objectRef ?? null
     );
     return getTodo(project, id)!;
   });
@@ -378,6 +394,7 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
       type: patch.type !== undefined ? patch.type : existing.type,
       targetProject: patch.targetProject !== undefined ? patch.targetProject : existing.targetProject,
       acceptanceStatus: patch.acceptanceStatus !== undefined ? patch.acceptanceStatus : existing.acceptanceStatus,
+      objectRef: patch.objectRef !== undefined ? patch.objectRef : existing.objectRef,
     };
     const db = openDb(project);
     // Claim invariant: claim fields are non-null IFF status==='in_progress'. Any
@@ -386,12 +403,12 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     const clearClaim = status !== 'in_progress';
     db.prepare(
       `UPDATE todos SET title=?, description=?, status=?, priority=?, dueDate=?, parentId=?,
-        dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?,
+        dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?, objectRef=?,
         completedAt=?, completedBy=?, updatedAt=?${clearClaim ? ', claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL' : ''} WHERE id=?`
     ).run(
       next.title, next.description, next.status, next.priority, next.dueDate, next.parentId,
       JSON.stringify(next.dependsOn), next.assigneeSession, next.assigneeKind, next.link ? JSON.stringify(next.link) : null,
-      next.asanaGid, next.sessionName, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus,
+      next.asanaGid, next.sessionName, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus, next.objectRef,
       completedAt, completedBy, nowIso(), id
     );
     return getTodo(project, id)!;

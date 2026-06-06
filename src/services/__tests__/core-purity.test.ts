@@ -25,14 +25,20 @@ function stripComments(src: string): string {
     .replace(/(^|[^:])\/\/[^\n]*/g, '$1'); // keep the char before // (avoids eating "http://")
 }
 
-describe('gate-runner core purity', () => {
-  const coreSrc = readFileSync(join(__dirname, '..', 'gate-runner.ts'), 'utf8');
-  const code = stripComments(coreSrc);
+/** The domain-FREE core files. Each must be pure (no domain literal in CODE).
+ *  Phase 2 adds the system-object type vocabulary (domain-plugin.ts) to the set. */
+const CORE_FILES = ['gate-runner.ts', 'domain-plugin.ts', 'artifact-kind-resolver.ts', 'plugin-registry.ts'];
 
-  for (const literal of DOMAIN_LITERALS) {
-    it(`core contains no domain literal "${literal}"`, () => {
-      const re = new RegExp(`\\b${literal}\\b`, 'i');
-      expect(re.test(code)).toBe(false);
-    });
-  }
-});
+for (const file of CORE_FILES) {
+  describe(`core purity: ${file}`, () => {
+    const coreSrc = readFileSync(join(__dirname, '..', file), 'utf8');
+    const code = stripComments(coreSrc);
+
+    for (const literal of DOMAIN_LITERALS) {
+      it(`contains no domain literal "${literal}"`, () => {
+        const re = new RegExp(`\\b${literal}\\b`, 'i');
+        expect(re.test(code)).toBe(false);
+      });
+    }
+  });
+}

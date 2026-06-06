@@ -30,6 +30,28 @@ describe('todo-store', () => {
     expect(t.dependsOn).toEqual([]);
   });
 
+  test('objectRef defaults null and round-trips through create + update (the durable-link firewall)', async () => {
+    // Defaults null (work-todo not linked to any durable system-object).
+    const t = await createTodo(project, { ownerSession: 's1', title: 'unlinked' });
+    expect(t.objectRef).toBe(null);
+    expect(getTodo(project, t.id)!.objectRef).toBe(null);
+
+    // Set at create.
+    const linked = await createTodo(project, { ownerSession: 's1', title: 'linked', objectRef: 'obj-123' });
+    expect(linked.objectRef).toBe('obj-123');
+    expect(getTodo(project, linked.id)!.objectRef).toBe('obj-123');
+
+    // Set via update, then cleared back to null.
+    const updated = await updateTodo(project, t.id, { objectRef: 'obj-456' });
+    expect(updated.objectRef).toBe('obj-456');
+    const cleared = await updateTodo(project, t.id, { objectRef: null });
+    expect(cleared.objectRef).toBe(null);
+
+    // An unrelated update leaves objectRef untouched (partial-patch semantics).
+    await updateTodo(project, linked.id, { title: 'renamed' });
+    expect(getTodo(project, linked.id)!.objectRef).toBe('obj-123');
+  });
+
   test('listTodos session scope is owner-only; assigneeSession filter is separate; excludes done by default', async () => {
     await createTodo(project, { ownerSession: 's1', title: 'a' });
     await createTodo(project, { ownerSession: 's1', assigneeSession: 's2', title: 'b' });
