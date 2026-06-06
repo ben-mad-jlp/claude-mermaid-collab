@@ -1,0 +1,11 @@
+{
+  "todoId": "3d0c0e6b-7bf7-4c85-9d19-3a017c51d86e",
+  "session": "backend-4",
+  "outcome": "accepted",
+  "retryReason": "re-derived-contract",
+  "layer": "collab",
+  "verbsTried": [],
+  "failingVerb": null,
+  "failingReturn": null,
+  "summary": "Implemented L4c DRAFT proposer in src/services/profile-draft.ts: gatherEvidence (cluster friction + pack library), buildProposerPrompt, parsePackCandidate (validates ADOPT-known-id | CREATE-new-kebab), draftPackCandidate via injectable ProposerAgentRunner seam (agent mocked in tests). One retry: sibling's tech-packs.ts has no _resetTechPackStore (reads disk per call), removed that import. tsc clean on change-set, 15/15 tests pass."
+}
