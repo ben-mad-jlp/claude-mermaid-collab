@@ -8,6 +8,9 @@ export interface SessionTodo {
   id: string; // was number — now a UUID
   ownerSession: string;
   assigneeSession: string | null;
+  /** Agent (default) vs human assignee — attribution, not auth (B1). Optional for
+   *  back-compat with payloads written before the field existed. */
+  assigneeKind?: 'agent' | 'human';
   title: string; // replaces `text`
   /** @deprecated use `title` — kept so existing components compile until todo-ui-views updates them */
   text?: string;
@@ -30,4 +33,6 @@ export interface SessionTodo {
   acceptanceStatus?: 'pending' | 'accepted' | 'rejected' | null;
   claimedBy?: string | null;
   retryCount?: number;
+  /** Opaque actor handle recorded when a HUMAN todo is completed (B1). */
+  completedBy?: string | null;
 }

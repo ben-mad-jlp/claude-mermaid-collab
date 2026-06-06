@@ -59,6 +59,7 @@ export interface CompactTodo {
   completed: boolean;
   ownerSession: string;
   assigneeSession: string | null;
+  assigneeKind: 'agent' | 'human';
   priority: 0 | 1 | 2 | 3 | 4 | null;
   dependsOn: string[];
   parentId: string | null;
@@ -66,6 +67,7 @@ export interface CompactTodo {
   type: string | null;
   acceptanceStatus: 'pending' | 'accepted' | 'rejected' | null;
   claimedBy: string | null;
+  completedBy: string | null;
   targetProject: string | null;
 }
 
@@ -77,6 +79,7 @@ function toCompactTodo(t: Todo): CompactTodo {
     completed: t.completed,
     ownerSession: t.ownerSession,
     assigneeSession: t.assigneeSession,
+    assigneeKind: t.assigneeKind,
     priority: t.priority,
     dependsOn: t.dependsOn,
     parentId: t.parentId,
@@ -84,6 +87,7 @@ function toCompactTodo(t: Todo): CompactTodo {
     type: t.type,
     acceptanceStatus: t.acceptanceStatus,
     claimedBy: t.claimedBy,
+    completedBy: t.completedBy,
     targetProject: t.targetProject,
   };
 }
@@ -139,6 +143,7 @@ export const addSessionTodoSchema = {
     text: { type: 'string', description: 'Todo text (becomes title)' },
     title: { type: 'string', description: 'Todo title (alias for text)' },
     assigneeSession: { type: 'string', description: 'Session to assign the todo to' },
+    assigneeKind: { type: 'string', enum: ['agent', 'human'], description: "Whether the assignee is an autonomous agent (default) or a human. Attribution, not auth." },
     description: { type: 'string', description: 'Optional longer description' },
     status: {
       type: 'string',
@@ -184,6 +189,8 @@ export const updateSessionTodoSchema = {
       description: 'New status (optional)',
     },
     assigneeSession: { type: 'string', description: 'Reassign to this session (optional)' },
+    assigneeKind: { type: 'string', enum: ['agent', 'human'], description: 'Set assignee kind: agent (default) or human. Attribution, not auth (optional).' },
+    completedBy: { type: ['string', 'null'], description: "Actor handle to record as the completer (e.g. 'local:host'). Normally omitted — a human todo auto-stamps on completion; pass null to clear (optional)." },
     description: { type: 'string', description: 'New description (optional)' },
     priority: { type: 'number', description: 'New priority 0-4 (optional)' },
     dueDate: { type: 'string', description: 'New due date ISO string (optional)' },
@@ -307,6 +314,7 @@ export async function addSessionTodo(
   extras?: {
     title?: string;
     assigneeSession?: string;
+    assigneeKind?: 'agent' | 'human';
     description?: string;
     status?: TodoStatus;
     priority?: 0 | 1 | 2 | 3 | 4;
@@ -347,6 +355,8 @@ export async function updateSessionTodo(
     completed?: boolean;
     status?: TodoStatus;
     assigneeSession?: string | null;
+    assigneeKind?: 'agent' | 'human';
+    completedBy?: string | null;
     description?: string | null;
     priority?: 0 | 1 | 2 | 3 | 4 | null;
     dueDate?: string | null;
@@ -368,6 +378,8 @@ export async function updateSessionTodo(
     completed: updates.completed,
     status: updates.status,
     assigneeSession: updates.assigneeSession,
+    assigneeKind: updates.assigneeKind,
+    completedBy: updates.completedBy,
     description: updates.description,
     priority: updates.priority,
     dueDate: updates.dueDate,
@@ -478,13 +490,14 @@ export const sessionTodoToolDefs: ToolDef[] = [
     description: 'Add a new per-session todo. Appended to the end of the list with an order value greater than any existing todo.',
     inputSchema: addSessionTodoSchema,
     handler: async (args, ctx) => {
-      const { project, session, text, title, link, assigneeSession, description, status, priority, dueDate, dependsOn, parentId, sessionName, type, files } = args as {
+      const { project, session, text, title, link, assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, sessionName, type, files } = args as {
         project: string;
         session: string;
         text?: string;
         title?: string;
         link?: SessionTodoLink;
         assigneeSession?: string;
+        assigneeKind?: 'agent' | 'human';
         description?: string;
         status?: TodoStatus;
         priority?: 0 | 1 | 2 | 3 | 4;
@@ -496,7 +509,7 @@ export const sessionTodoToolDefs: ToolDef[] = [
         files?: string[];
       };
       if (!project || !session || !(title ?? text)) throw new Error('Missing required: project, session, text');
-      const result = await addSessionTodo(project, session, title ?? text!, link, { assigneeSession, description, status, priority, dueDate, dependsOn, parentId, sessionName, type, files });
+      const result = await addSessionTodo(project, session, title ?? text!, link, { assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, sessionName, type, files });
       ctx.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined });
       return JSON.stringify(result, null, 2);
     },
@@ -506,7 +519,7 @@ export const sessionTodoToolDefs: ToolDef[] = [
     description: 'Update a per-session todo. Any combination of text, completed, and order can be provided; omitted fields are left unchanged.',
     inputSchema: updateSessionTodoSchema,
     handler: async (args, ctx) => {
-      const { project, session, id, text, title, completed, link, assigneeSession, description, status, priority, dueDate, dependsOn, parentId, sessionName } = args as {
+      const { project, session, id, text, title, completed, link, assigneeSession, assigneeKind, completedBy, description, status, priority, dueDate, dependsOn, parentId, sessionName } = args as {
         project: string;
         session: string;
         id: string;
@@ -516,6 +529,8 @@ export const sessionTodoToolDefs: ToolDef[] = [
         order?: number;
         link?: SessionTodoLink | null;
         assigneeSession?: string;
+        assigneeKind?: 'agent' | 'human';
+        completedBy?: string | null;
         description?: string;
         status?: TodoStatus;
         priority?: 0 | 1 | 2 | 3 | 4 | null;
@@ -525,7 +540,7 @@ export const sessionTodoToolDefs: ToolDef[] = [
         sessionName?: string | null;
       };
       if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
-      const result = await updateSessionTodo(project, session, id, { text, title, completed, link, assigneeSession, description, status, priority, dueDate, dependsOn, parentId, sessionName });
+      const result = await updateSessionTodo(project, session, id, { text, title, completed, link, assigneeSession, assigneeKind, completedBy, description, status, priority, dueDate, dependsOn, parentId, sessionName });
       ctx.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined, previousAssigneeSession: result.previousAssigneeSession ?? undefined });
       return JSON.stringify(result, null, 2);
     },
