@@ -514,13 +514,33 @@ async function startServices(opts: { cdpPort: number; controlUrl: string; contro
 if (gotLock) {
   void bootstrap();
 
+  // Tear down the sidecar we spawned so a quit→relaunch actually redeploys.
+  // The mc-server sidecar is a MANAGED child (spawned, not detached): if it
+  // survives the app, it can orphan (reparent to init) and a relaunch then
+  // either reattaches to the STALE server on :9002 — so a freshly-built binary
+  // never runs — or, worse, the orphan wedges while holding :9002 and the app's
+  // managed sidecar can't bind at all ("sidecar couldn't start"). supervisor.stop()
+  // sends SIGTERM synchronously and no-ops when we only attached (see
+  // ServerSupervisor.stop), so it's safe to call here unconditionally. Guarded so
+  // before-quit + window-all-closed don't double-fire it.
+  let sidecarStopped = false;
+  const teardownSidecar = (): void => {
+    if (sidecarStopped) return;
+    sidecarStopped = true;
+    void supervisor?.stop();
+  };
+
   app.on('before-quit', () => {
+    teardownSidecar();
     aggregator?.stop();
     void control?.stop();
     void proxy?.stop();
   });
 
   app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') app.quit();
+    if (process.platform !== 'darwin') {
+      teardownSidecar();
+      app.quit();
+    }
   });
 }
