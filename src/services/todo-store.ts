@@ -673,17 +673,28 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
  * status (default 'ready'). This is the supported replacement for hand-editing
  * todos.db. Returns the updated todo.
  */
-export function resetTodo(project: string, id: string, status: TodoStatus = 'ready'): Promise<Todo> {
+export function resetTodo(
+  project: string,
+  id: string,
+  status: TodoStatus = 'ready',
+  targetProject?: string | null,
+): Promise<Todo> {
   return withLock(project, () => {
     assertProjectLocal(project);
     const existing = getTodo(project, id);
     if (!existing) throw new Error(`todo not found: ${id}`);
     const db = openDb(project);
-    db.prepare(
+    // Optionally REROUTE while unsticking: a cross-project todo created without a
+    // targetProject (so the worker spawned with cwd=tracking repo and the gate ran
+    // in the wrong place) can be corrected in the same call. undefined → leave it.
+    const setTarget = targetProject !== undefined ? ', targetProject=?' : '';
+    const stmt = db.prepare(
       `UPDATE todos SET status=?, retryCount=0, acceptanceStatus=NULL,
         claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL,
-        completedAt=NULL, completedBy=NULL, updatedAt=? WHERE id=?`
-    ).run(status, nowIso(), id);
+        completedAt=NULL, completedBy=NULL${setTarget}, updatedAt=? WHERE id=?`
+    );
+    if (targetProject !== undefined) stmt.run(status, targetProject, nowIso(), id);
+    else stmt.run(status, nowIso(), id);
     return getTodo(project, id)!;
   });
 }

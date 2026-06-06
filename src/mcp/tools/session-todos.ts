@@ -210,6 +210,7 @@ export const updateSessionTodoSchema = {
     },
     parentId: { type: 'string', description: 'Parent todo id (for subtasks)' },
     sessionName: { type: 'string', description: 'Session name to associate with this todo' },
+    targetProject: { type: ['string', 'null'], description: 'Absolute path to the repo where this todo is IMPLEMENTED, when different from the tracking project (the worker spawns with cwd=targetProject and its gate runs there). Pass null to clear. Steward use: reroute a cross-project todo (e.g. a yolox/build123d todo) that was created without it.' },
   },
   required: ['project', 'session', 'id'],
 };
@@ -364,6 +365,7 @@ export async function updateSessionTodo(
     dependsOn?: string[];
     parentId?: string | null;
     sessionName?: string | null;
+    targetProject?: string | null;
   }
 ): Promise<Todo & { previousAssigneeSession: string | null }> {
   const titleValue = updates.title ?? updates.text;
@@ -387,6 +389,7 @@ export async function updateSessionTodo(
     dependsOn: updates.dependsOn,
     parentId: updates.parentId,
     sessionName: updates.sessionName,
+    targetProject: updates.targetProject,
   });
   return Object.assign(updated, { previousAssigneeSession });
 }

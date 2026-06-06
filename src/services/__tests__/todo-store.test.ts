@@ -599,6 +599,19 @@ describe('steward verbs', () => {
     expect(r.retryCount).toBe(0);
   });
 
+  test('resetTodo reroutes targetProject when provided, leaves it untouched when omitted', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'misrouted', targetProject: '/old/repo' });
+    // omitted → unchanged
+    const a = await resetTodo(project, t.id, 'ready');
+    expect(a.targetProject).toBe('/old/repo');
+    // explicit → rerouted
+    const b = await resetTodo(project, t.id, 'ready', '/new/repo');
+    expect(b.targetProject).toBe('/new/repo');
+    // null → cleared
+    const c = await resetTodo(project, t.id, 'ready', null);
+    expect(c.targetProject).toBeNull();
+  });
+
   test('overrideAcceptTodo force-accepts a gate-rejected todo and unblocks its dependents', async () => {
     const dep = await createTodo(project, { ownerSession: 's1', title: 'verified-but-rejected' });
     const child = await createTodo(project, { ownerSession: 's1', title: 'waiting', dependsOn: [dep.id] });
