@@ -16,6 +16,14 @@ export interface ProjectRegistryData {
 const DATA_DIR = join(homedir(), '.mermaid-collab');
 const PROJECTS_PATH = join(DATA_DIR, 'projects.json');
 
+/** A worker worktree (and the __integration__/supervisor scratch dirs) lives under
+ *  <repo>/.collab/agent-sessions/ — a per-todo isolation checkout, never a project.
+ *  Such paths must never enter the registry (they'd flood the Bridge picker every
+ *  time an isolation worker makes an MCP call with project=its-own-cwd). */
+export function isTransientProjectPath(path: string): boolean {
+  return /[/\\]\.collab[/\\]agent-sessions[/\\]/.test(path);
+}
+
 export class ProjectRegistry {
   private registryPath: string;
 
@@ -39,6 +47,12 @@ export class ProjectRegistry {
         console.warn('Invalid projects.json format, starting fresh');
         return { projects: [] };
       }
+      // SELF-HEAL: drop any transient worker-worktree entries that an older build
+      // (or a save-race from a live worker mid-migration) left behind. Filtering on
+      // every load means a worker's register(real-project) → save rewrites the file
+      // WITHOUT them — they vanish and can't be re-preserved by the race that made a
+      // manual unregister fail to stick. Pairs with the register() guard.
+      data.projects = data.projects.filter((p: Project) => !isTransientProjectPath(p?.path ?? ''));
       return data;
     } catch (error) {
       console.warn('Failed to load projects.json, starting fresh:', error);
@@ -69,13 +83,10 @@ export class ProjectRegistry {
       throw new Error('Invalid project path: must be an absolute path');
     }
 
-    // Never register transient/internal isolation dirs as projects. Worker
-    // worktrees live under <repo>/.collab/agent-sessions/worktrees/<slot> (and the
-    // supervisor/__integration__ dirs alongside) — they're per-todo scratch
-    // checkouts, not projects. They'd otherwise pollute the Bridge project picker
-    // every time an isolation worker makes an MCP call with project=its-own-cwd.
-    // Skip as a no-op (an explicit register_project of such a path is a mistake too).
-    if (/[/\\]\.collab[/\\]agent-sessions[/\\]/.test(path)) {
+    // Never register transient/internal isolation dirs as projects (see
+    // isTransientProjectPath). Skip as a no-op — an explicit register_project of
+    // such a path is a mistake too.
+    if (isTransientProjectPath(path)) {
       return { created: false };
     }
 
