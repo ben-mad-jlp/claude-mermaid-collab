@@ -456,6 +456,20 @@ export function routeOf(kind: string, operatorGated: boolean): EscalationRoute {
   }
 }
 
+/**
+ * P3 (readiness ergonomics): which escalation kinds should auto-attach a durable
+ * human [GATE] to their linked work-todo (via todo-store createGate) INSTEAD of
+ * the steward's manual re-park to 'planned'. A `needs-design` escalation
+ * (mechanical re-park — "land a design / run vibe-blueprint") and ANY
+ * operator-gated escalation (irreversible/outward — "provision env", a human must
+ * clear it) become a self-clearing gate that surfaces in the human inbox and
+ * auto-promotes the work-todo when the human completes it. Pure + deterministic so
+ * the wiring (escalation_create) stays a thin, testable call.
+ */
+export function shouldAutoGate(kind: string, operatorGated: boolean): boolean {
+  return operatorGated || kind === 'needs-design' || kind === 'operator-gated';
+}
+
 /** Pause scope for the steward role (design §4): a single sentinel scope in the
  *  shared supervisor_pause table, parallel to GLOBAL_PAUSE_SCOPE. */
 export const STEWARD_PAUSE_SCOPE = '__steward__';
@@ -469,6 +483,21 @@ export function setStewardPause(paused: boolean): void {
 export function isStewardPaused(): boolean {
   const d = openDb();
   return !!d.query('SELECT 1 FROM supervisor_pause WHERE scope = ? LIMIT 1').get(STEWARD_PAUSE_SCOPE);
+}
+
+/** Runtime ON/OFF switch for the steward (the live human off-switch — distinct
+ *  from MERMAID_STEWARD_AUTO, the build-time env arm, and from the transient
+ *  steward_pause "I've got it"). PERSISTENT: survives a poll/restart, stored as a
+ *  sentinel scope in the shared supervisor_pause table. Default ON (absent =
+ *  enabled) so an env-armed steward runs unless a human flips it off; the running
+ *  steward skill checks this each loop and idles + routes all→human while OFF. */
+export const STEWARD_DISABLED_SCOPE = '__steward_disabled__';
+export function setStewardEnabled(enabled: boolean): void {
+  setSupervisorPause(STEWARD_DISABLED_SCOPE, !enabled);
+}
+export function isStewardEnabled(): boolean {
+  const d = openDb();
+  return !d.query('SELECT 1 FROM supervisor_pause WHERE scope = ? LIMIT 1').get(STEWARD_DISABLED_SCOPE);
 }
 
 /** True iff a steward is registered AND its heartbeat is fresh (not stale/dead).
@@ -486,6 +515,7 @@ export function isStewardLive(now: number = Date.now()): boolean {
  */
 export function routeEscalation(kind: string, operatorGated: boolean, now: number = Date.now()): EscalationRoute {
   if (!stewardAutoEnabled()) return 'human';
+  if (!isStewardEnabled()) return 'human'; // live human off-switch (this is the runtime toggle)
   if (isStewardPaused()) return 'human';
   if (!isStewardLive(now)) return 'human';
   return routeOf(kind, operatorGated);

@@ -10,7 +10,7 @@
 
 import React, { useMemo } from 'react';
 import type { SystemObjectNode, CoverageRollup } from '@/stores/supervisorStore';
-import { buildSystemObjectTree, flattenTree, coverageStateOf, COVERAGE_TINTS } from './objectTreeModel';
+import { buildSystemObjectTree, flattenTree, coverageStateOf, COVERAGE_TINTS, isStaleObject, STALE_GLYPH } from './objectTreeModel';
 
 export interface SystemObjectTreeProps {
   objects: SystemObjectNode[];
@@ -35,6 +35,7 @@ export const SystemObjectTree: React.FC<SystemObjectTreeProps> = ({ objects, cov
       {flat.map((node) => {
         const state = coverageStateOf(node.id, coverage);
         const tint = state ? COVERAGE_TINTS[state] : null;
+        const stale = isStaleObject(node.id, coverage);
         const selected = node.id === selectedId;
         return (
           <li key={node.id}>
@@ -57,6 +58,15 @@ export const SystemObjectTree: React.FC<SystemObjectTreeProps> = ({ objects, cov
                 className={`shrink-0 w-2 h-2 rounded-full ${tint?.dot ?? 'bg-gray-300 dark:bg-gray-600'}`}
               />
               <span className="truncate">{node.name}</span>
+              {stale && (
+                <span
+                  data-testid="system-object-stale"
+                  title="drifted: the object changed after its proof — re-author to clear"
+                  className={`shrink-0 text-3xs font-semibold ${STALE_GLYPH.className}`}
+                >
+                  {STALE_GLYPH.mark}
+                </span>
+              )}
               {node.qty > 1 && <span className="ml-auto text-3xs text-gray-400 dark:text-gray-500">×{node.qty}</span>}
             </button>
           </li>

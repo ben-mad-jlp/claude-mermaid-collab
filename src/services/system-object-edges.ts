@@ -186,3 +186,25 @@ export function markStaleForRequirement(project: string, reqId: string): number 
   ).run(reqId);
   return res.changes;
 }
+
+/**
+ * The staleness signal for the Spec Sheet (todo 9fd5fce8): object ids that have a
+ * STALE satisfy/verify edge whose requirement is NOT re-covered by an ACTIVE one.
+ * An object's proof goes stale when its content-hash revision bumps
+ * (newRevision → markStaleForObject); RE-AUTHORING (a fresh satisfy/verify edge to
+ * the same requirement) restores an active edge, which clears the signal — so the
+ * glyph disappears on re-author rather than lingering behind a dead stale edge.
+ * Pure read; deterministic.
+ */
+export function staleObjectIds(project: string): string[] {
+  const d = db(project);
+  const rows = d.query(
+    `SELECT DISTINCT s.aboutObjectId AS oid FROM edges s
+     WHERE s.status = 'stale' AND s.kind IN ('satisfy','verify') AND s.aboutObjectId IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM edges a
+         WHERE a.status = 'active' AND a.kind IN ('satisfy','verify') AND a.dstId = s.dstId
+       )`,
+  ).all() as Array<{ oid: string }>;
+  return rows.map((r) => r.oid);
+}

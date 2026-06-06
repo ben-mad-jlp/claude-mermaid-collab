@@ -11,6 +11,8 @@ import {
   getEscalation,
   recordEscalationDecision,
   getSupervisorIdentity,
+  isStewardEnabled,
+  setStewardEnabled,
   SUPERVISOR_HEARTBEAT_INTERVAL_MS,
   SUPERVISOR_STALE_AFTER_MS,
   getPeer,
@@ -19,10 +21,11 @@ import {
   listSupervisorAudit,
 } from '../services/supervisor-store.ts';
 import { createItem, listItems, updateItem, deleteItem } from '../services/roadmap-store.ts';
-import { listTodos, updateTodo } from '../services/todo-store.ts';
+import { listTodos, updateTodo, getTodo } from '../services/todo-store.ts';
 import { listDecisionRecords, createDecisionRecord, type DecisionStatus, type RequirementSpec } from '../services/decision-record-store.ts';
 import { listObjects, listTypes } from '../services/system-object-store.ts';
 import { bom } from '../services/system-object-bom.ts';
+import { satisfy } from '../services/system-object-edges.ts';
 import { specCoverage, decideRequirement, type RequirementDecision } from '../services/spec-coverage.ts';
 import { startCoordinator, stopCoordinator, isCoordinatorRunning } from '../services/coordinator-live.ts';
 import { SUPERVISOR_PROJECT, SUPERVISOR_SESSION } from '../config.ts';
@@ -358,6 +361,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       ? listTodos(project, { includeCompleted: true }).filter((t) => t.completedBy === 'steward').length
       : 0;
     const identity = getSupervisorIdentity('steward');
+    const switchedOn = isStewardEnabled();
     if (!identity) {
       // No steward registered: report not-running so the panel renders the
       // definitive "Become the Steward" front door rather than flashing crashed.
@@ -367,6 +371,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
         stale: true,
         ageMs: null,
         overrideAccepts,
+        switchedOn,
         heartbeatIntervalMs: SUPERVISOR_HEARTBEAT_INTERVAL_MS,
         staleAfterMs: SUPERVISOR_STALE_AFTER_MS,
       });
@@ -380,9 +385,21 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       stale,
       ageMs,
       overrideAccepts,
+      switchedOn,
       heartbeatIntervalMs: SUPERVISOR_HEARTBEAT_INTERVAL_MS,
       staleAfterMs: SUPERVISOR_STALE_AFTER_MS,
     });
+  }
+
+  // POST /api/supervisor/steward/enabled { enabled } — the live human ON/OFF
+  // switch (StewardPanel toggle). PERSISTENT; while OFF the router sends every
+  // escalation to the human and the running steward idles. Distinct from the
+  // env arm (MERMAID_STEWARD_AUTO) and the transient steward_pause.
+  if (url.pathname === '/api/supervisor/steward/enabled' && req.method === 'POST') {
+    const { enabled } = (await req.json()) as { enabled?: boolean };
+    if (typeof enabled !== 'boolean') return jsonError('enabled (boolean) required', 400);
+    setStewardEnabled(enabled);
+    return Response.json({ switchedOn: enabled });
   }
 
   // ── SPEC API SURFACE (design-system-object-ui §8) ──────────────────────────
@@ -481,6 +498,37 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       if (!project || !id || !decision) return jsonError('project, id, and decision are required', 400);
       const result = decideRequirement(project, { id, decision, approvedBy, spec, title });
       return Response.json(result);
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // POST /api/supervisor/edges/satisfy — the satisfy-drag landing (decision
+  // 8ee2469e): an OBJECT→REQUIREMENT satisfy edge. The Spec UI drags an
+  // object-linked todo onto a RequirementChip; the edge is OBJECT→req, resolved
+  // via the dragged todo's `objectRef`. Accepts an explicit `objectId`, OR a
+  // `todoId` whose `objectRef` is resolved here (so a todo with no objectRef is
+  // rejected gracefully — there is no todo→req edge kind). Reuses D's shipped
+  // system-object-edges.satisfy().
+  if (url.pathname === '/api/supervisor/edges/satisfy' && req.method === 'POST') {
+    try {
+      const { project, objectId, todoId, reqId } = (await req.json()) as {
+        project?: string;
+        objectId?: string;
+        todoId?: string;
+        reqId?: string;
+      };
+      if (!project || !reqId) return jsonError('project and reqId are required', 400);
+      // Resolve the object: explicit objectId wins; else the dragged todo's objectRef.
+      let resolvedObjectId = objectId ?? null;
+      if (!resolvedObjectId && todoId) resolvedObjectId = getTodo(project, todoId)?.objectRef ?? null;
+      if (!resolvedObjectId) {
+        // A todo with no objectRef → graceful reject (link an object first); no
+        // todo→req edge kind exists by design.
+        return jsonError('no object to satisfy with: the dragged todo has no objectRef — link it to a system object first', 422);
+      }
+      const edge = satisfy(project, resolvedObjectId, reqId);
+      return Response.json({ edge });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }

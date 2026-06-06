@@ -15,9 +15,12 @@ import {
   SupersededError,
   routeOf,
   routeEscalation,
+  shouldAutoGate,
   stewardAutoEnabled,
   setStewardPause,
   isStewardPaused,
+  setStewardEnabled,
+  isStewardEnabled,
   isStewardLive,
   stewardFailOpenScan,
   STEWARD_FAILOPEN_SESSION,
@@ -200,5 +203,61 @@ describe('P4 reclaim + liveness — pause, fail-open, supersede (design §4/§5)
     expect(e2).toBe(e1 + 1);
     expect(() => assertSupervisorOwner(e1, 'steward')).toThrow(SupersededError); // old steward stopped cold
     expect(() => assertSupervisorOwner(e2, 'steward')).not.toThrow();
+  });
+});
+
+describe('runtime ON/OFF switch (live human off-switch)', () => {
+  beforeEach(() => { freshDb(); process.env.MERMAID_STEWARD_AUTO = '1'; });
+  afterEach(() => { delete process.env.MERMAID_STEWARD_AUTO; });
+
+  it('defaults ON (enabled) when never set', () => {
+    expect(isStewardEnabled()).toBe(true);
+  });
+
+  it('toggling OFF routes a steward-kind to human; ON resumes (one-loop honor)', () => {
+    setSupervisorIdentity('/p', 'stew', '', 'steward'); // live
+    expect(routeEscalation('blocker', false)).toBe('steward'); // baseline ON
+
+    setStewardEnabled(false);
+    expect(isStewardEnabled()).toBe(false);
+    expect(routeEscalation('blocker', false)).toBe('human'); // OFF → human within the loop
+    const { escalation } = createEscalation({ project: '/p', session: 'w', kind: 'blocker', questionText: 'off-q' });
+    expect(escalation.routedTo).toBe('human'); // new escalations flip to human while OFF
+
+    setStewardEnabled(true);
+    expect(routeEscalation('blocker', false)).toBe('steward'); // ON → resumes
+  });
+
+  it('is INDEPENDENT of pause (either OFF or paused routes to human)', () => {
+    setSupervisorIdentity('/p', 'stew', '', 'steward');
+    setStewardEnabled(false);
+    setStewardPause(false);
+    expect(routeEscalation('blocker', false)).toBe('human'); // off-switch alone suffices
+    setStewardEnabled(true);
+    expect(routeEscalation('blocker', false)).toBe('steward');
+  });
+
+  it('persists across a store reopen (durable, survives a poll/restart)', () => {
+    setStewardEnabled(false);
+    _closeDb();
+    expect(isStewardEnabled()).toBe(false);
+  });
+});
+
+describe('shouldAutoGate (P3 readiness)', () => {
+  it('needs-design auto-gates (mechanical re-park → durable human gate)', () => {
+    expect(shouldAutoGate('needs-design', false)).toBe(true);
+  });
+  it('an operator-gated escalation of any kind auto-gates', () => {
+    expect(shouldAutoGate('blocker', true)).toBe(true);
+    expect(shouldAutoGate('question', true)).toBe(true);
+  });
+  it('the operator-gated KIND auto-gates even without the flag', () => {
+    expect(shouldAutoGate('operator-gated', false)).toBe(true);
+  });
+  it('ordinary steward/human kinds do NOT auto-gate', () => {
+    for (const k of ['blocker', 'question', 'decision', 'approval', 'assumption-invalidated']) {
+      expect(shouldAutoGate(k, false)).toBe(false);
+    }
   });
 });

@@ -66,6 +66,15 @@ export interface Todo {
    *  (design §4): the link is the ONLY coupling — a durable object carries NO
    *  work-graph lifecycle (no status/claim/lease here on the object side). */
   objectRef: string | null;
+  /** Readiness-gates P2: when this todo is a design/decision [GATE], the
+   *  decision-record id whose approval auto-completes it. Null for non-gate todos
+   *  and gates cleared manually. */
+  decisionRef: string | null;
+  /** Readiness-gates P4: an operator-env probe spec (e.g. 'tcp://127.0.0.1:8082'
+   *  or 'http://host:port/health'). The Coordinator FILTERS this todo out of the
+   *  claimable set at CLAIM time while the probe fails — auto-claimable once it
+   *  passes, with NO status write and no stored cleared-bit. Null = no probe. */
+  claimProbe: string | null;
 }
 
 export interface TodoFilter {
@@ -93,6 +102,8 @@ export interface CreateTodoInput {
   type?: string | null;
   targetProject?: string | null;
   objectRef?: string | null;
+  decisionRef?: string | null;
+  claimProbe?: string | null;
 }
 
 export type UpdateTodoPatch = Partial<{
@@ -119,6 +130,8 @@ export type UpdateTodoPatch = Partial<{
   /** One-directional FK → SystemObject.id. Set to link this work-todo to a
    *  durable system-object; null to unlink. No lifecycle coupling (the firewall). */
   objectRef: string | null;
+  decisionRef: string | null;
+  claimProbe: string | null;
 }>;
 
 interface TodoRow {
@@ -151,6 +164,8 @@ interface TodoRow {
   retryCount: number;
   completedBy: string | null;
   objectRef: string | null;
+  decisionRef: string | null;
+  claimProbe: string | null;
 }
 
 const DDL = `
@@ -183,7 +198,9 @@ CREATE TABLE IF NOT EXISTS todos (
   claimLeaseMs INTEGER,
   retryCount INTEGER NOT NULL DEFAULT 0,
   completedBy TEXT,
-  objectRef TEXT
+  objectRef TEXT,
+  decisionRef TEXT,
+  claimProbe TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_todos_owner ON todos(ownerSession);
 CREATE INDEX IF NOT EXISTS idx_todos_assignee ON todos(assigneeSession);
@@ -223,6 +240,10 @@ function openDb(project: string): Database {
   // lifecycle columns — the work-vs-durable firewall (durable objects never
   // inherit the todo status/claim/lease ladder).
   addColumnIfMissing(db, 'todos', 'objectRef', 'objectRef TEXT');
+  // Readiness-gates P2: nullable decision-record link on a design/decision gate.
+  addColumnIfMissing(db, 'todos', 'decisionRef', 'decisionRef TEXT');
+  // Readiness-gates P4: nullable operator-env probe spec for the claim-time filter.
+  addColumnIfMissing(db, 'todos', 'claimProbe', 'claimProbe TEXT');
   // One-shot backfill: enforce the claim invariant (claim fields non-null IFF
   // status==='in_progress') on rows written before the invariant was enforced.
   db.exec(
@@ -295,6 +316,8 @@ function rowToTodo(row: TodoRow): Todo {
     retryCount: row.retryCount ?? 0,
     completedBy: row.completedBy ?? null,
     objectRef: row.objectRef ?? null,
+    decisionRef: row.decisionRef ?? null,
+    claimProbe: row.claimProbe ?? null,
   };
 }
 
@@ -336,8 +359,8 @@ export function createTodo(project: string, input: CreateTodoInput): Promise<Tod
     db.prepare(
       `INSERT INTO todos (id, ownerSession, assigneeSession, assigneeKind, title, description, status, priority,
         dueDate, parentId, dependsOn, ord, link, createdAt, updatedAt, completedAt, asanaGid,
-        sessionName, blueprintId, type, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        sessionName, blueprintId, type, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef, decisionRef, claimProbe)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       // A todo added in a session defaults to being assigned to that session
       // (its ownerSession). Pass an explicit assigneeSession to assign elsewhere.
@@ -345,7 +368,7 @@ export function createTodo(project: string, input: CreateTodoInput): Promise<Tod
       status, input.priority ?? null, input.dueDate ?? null, input.parentId ?? null,
       JSON.stringify(input.dependsOn ?? []), ord, input.link ? JSON.stringify(input.link) : null,
       ts, ts, status === 'done' ? ts : null, null,
-      input.sessionName ?? null, input.blueprintId ?? null, input.type ?? null, input.targetProject ?? null, null, null, null, null, null, 0, null, input.objectRef ?? null
+      input.sessionName ?? null, input.blueprintId ?? null, input.type ?? null, input.targetProject ?? null, null, null, null, null, null, 0, null, input.objectRef ?? null, input.decisionRef ?? null, input.claimProbe ?? null
     );
     return getTodo(project, id)!;
   });
@@ -395,6 +418,8 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
       targetProject: patch.targetProject !== undefined ? patch.targetProject : existing.targetProject,
       acceptanceStatus: patch.acceptanceStatus !== undefined ? patch.acceptanceStatus : existing.acceptanceStatus,
       objectRef: patch.objectRef !== undefined ? patch.objectRef : existing.objectRef,
+      decisionRef: patch.decisionRef !== undefined ? patch.decisionRef : existing.decisionRef,
+      claimProbe: patch.claimProbe !== undefined ? patch.claimProbe : existing.claimProbe,
     };
     const db = openDb(project);
     // Claim invariant: claim fields are non-null IFF status==='in_progress'. Any
@@ -403,12 +428,12 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     const clearClaim = status !== 'in_progress';
     db.prepare(
       `UPDATE todos SET title=?, description=?, status=?, priority=?, dueDate=?, parentId=?,
-        dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?, objectRef=?,
+        dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?, objectRef=?, decisionRef=?, claimProbe=?,
         completedAt=?, completedBy=?, updatedAt=?${clearClaim ? ', claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL' : ''} WHERE id=?`
     ).run(
       next.title, next.description, next.status, next.priority, next.dueDate, next.parentId,
       JSON.stringify(next.dependsOn), next.assigneeSession, next.assigneeKind, next.link ? JSON.stringify(next.link) : null,
-      next.asanaGid, next.sessionName, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus, next.objectRef,
+      next.asanaGid, next.sessionName, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus, next.objectRef, next.decisionRef, next.claimProbe,
       completedAt, completedBy, nowIso(), id
     );
     return getTodo(project, id)!;
@@ -559,6 +584,96 @@ export function listReadyTodos(project: string): Todo[] {
     if (t.assigneeKind !== 'agent') return false; // human todos are not coordinator-claimable
     return (t.dependsOn ?? []).every((depId) => depSatisfied(byId.get(depId)));
   });
+}
+
+export interface CreateGateInput {
+  /** The work-graph (agent) todo this gate must clear before it can run. */
+  workTodoId: string;
+  title: string;
+  description?: string | null;
+  /** Optional label folded into the title for the inbox (e.g. 'spec-review'). */
+  gateKind?: string;
+  /** Human-gate epic to parent the gate under (project-specific; the caller
+   *  supplies it — the per-project store stays free of any hard-coded epic id).
+   *  Omit to leave the gate unparented. */
+  parentId?: string | null;
+  /** P2: link a design/decision gate to a decision-record id so approving that
+   *  record auto-completes this gate (see completeGatesForDecision). */
+  decisionRef?: string | null;
+}
+export interface CreateGateResult { gate: Todo; workTodo: Todo; }
+
+/**
+ * Readiness gate (design-readiness-gates Phase 1) — ZERO schema. A gate is just a
+ * HUMAN todo the work-todo depends on:
+ *  1. create a `[GATE]` human todo (assigneeKind:'human', status:'ready') — humans
+ *     can act on it immediately, but the coordinator NEVER claims it (listReadyTodos
+ *     filters assigneeKind!=='agent');
+ *  2. append the gate's id to the work-todo's dependsOn and park the work-todo
+ *     'blocked'.
+ * Because depSatisfied keys only on status==='done' (regardless of assigneeKind),
+ * the open gate holds the work-todo blocked — never auto-promoted, never claimed/
+ * false-failed — and completing the gate auto-promotes it to 'ready' on the SAME
+ * completeTodo tick (the unblock pass), with no new status and no reset_todo.
+ */
+export async function createGate(project: string, input: CreateGateInput): Promise<CreateGateResult> {
+  const work = getTodo(project, input.workTodoId);
+  if (!work) throw new Error(`work todo not found: ${input.workTodoId}`);
+  const label = input.gateKind ? `[GATE:${input.gateKind}]` : '[GATE]';
+  const title = input.title.startsWith('[GATE') ? input.title : `${label} ${input.title}`;
+  const gate = await createTodo(project, {
+    ownerSession: work.ownerSession,
+    assigneeKind: 'human',
+    parentId: input.parentId ?? null,
+    status: 'ready',
+    title,
+    description: input.description ?? null,
+    decisionRef: input.decisionRef ?? null,
+  });
+  const nextDeps = [...(work.dependsOn ?? []), gate.id];
+  // Park the work-todo blocked behind the gate (unless already terminal).
+  const status: TodoStatus = work.status === 'done' || work.status === 'dropped' ? work.status : 'blocked';
+  const workTodo = await updateTodo(project, input.workTodoId, { dependsOn: nextDeps, status });
+  return { gate, workTodo };
+}
+
+/**
+ * Reverse-edge view: the OPEN gates (human todos, not yet done) the work-todo is
+ * waiting on — the "what is this waiting on" inbox line. Empty when nothing gates it.
+ */
+export function listGatesBlocking(project: string, workTodoId: string): Todo[] {
+  const work = getTodo(project, workTodoId);
+  if (!work) return [];
+  return (work.dependsOn ?? [])
+    .map((id) => getTodo(project, id))
+    .filter((t): t is Todo => t != null && t.assigneeKind === 'human' && t.status !== 'done');
+}
+
+/**
+ * Reverse-edge view: the work-todos a given gate blocks — the "what does this gate
+ * unblock when I clear it" inbox line.
+ */
+export function listGatedBy(project: string, gateId: string): Todo[] {
+  return listTodos(project, { includeCompleted: true }).filter((t) => (t.dependsOn ?? []).includes(gateId));
+}
+
+/**
+ * Readiness-gates P2: auto-complete every open gate whose decisionRef === the
+ * just-approved decision-record id. Landing the design = approving the record =
+ * the gate clears itself (each completeTodo runs the normal unblock pass, so the
+ * gated work-todos auto-promote on the same tick). Returns one CompleteTodoResult
+ * per gate completed; empty when no gate references the decision. Called by the
+ * approve_decision_record handler — the stores stay decoupled (no decision-record
+ * → todo-store import; the MCP layer, which knows the project, orchestrates).
+ */
+export async function completeGatesForDecision(project: string, decisionId: string): Promise<CompleteTodoResult[]> {
+  const gates = listTodos(project, { includeCompleted: false })
+    .filter((t) => t.decisionRef === decisionId && t.status !== 'done');
+  const results: CompleteTodoResult[] = [];
+  for (const g of gates) {
+    results.push(await completeTodo(project, g.id, 'accepted', `decision:${decisionId}`));
+  }
+  return results;
 }
 
 export function computeWaves(todos: Todo[]): Todo[][] {

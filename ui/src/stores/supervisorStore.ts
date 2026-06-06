@@ -117,6 +117,9 @@ export interface ObjectCoverage {
   state: CoverageState;
   todoCount: number;
   doneCount: number;
+  /** Content-hash drift: the object's proof went stale and wasn't re-authored
+   *  (todo 9fd5fce8). Spec Sheet shows a stale glyph; the coverage card goes amber. */
+  stale: boolean;
 }
 
 export interface CoverageRollup {
@@ -124,6 +127,8 @@ export interface CoverageRollup {
   covered: number;
   partial: number;
   uncovered: number;
+  /** Count of stale (drifted) objects. */
+  stale: number;
   byObject: ObjectCoverage[];
 }
 
@@ -189,6 +194,8 @@ export interface StewardLiveness {
   stale: boolean;
   ageMs: number | null;
   overrideAccepts: number;
+  /** Live human ON/OFF switch state (persistent; default ON when absent). */
+  switchedOn?: boolean;
 }
 
 interface InvokeResult {
@@ -287,6 +294,17 @@ interface SupervisorState {
     project: string,
     input: { title: string; spec?: RequirementSpec | null; epicId?: string | null; rationale?: string | null },
   ) => Promise<boolean>;
+  /** Satisfy-drag (decision 8ee2469e): create an OBJECT→REQUIREMENT satisfy edge
+   *  from a dragged object-linked todo. Pass the todo's `objectRef` as objectId;
+   *  a null/absent objectId is rejected (no todo→req edge). Reloads coverage so
+   *  the new edge's effect on the SpecCoverage card is reflected. Returns false
+   *  on a missing object or a failed request. */
+  addSatisfyEdge: (
+    serverId: string,
+    project: string,
+    objectId: string | null | undefined,
+    reqId: string,
+  ) => Promise<boolean>;
 }
 
 export const useSupervisorStore = create<SupervisorState>((set, get) => ({
@@ -341,6 +359,7 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
         stale: !!b.stale,
         ageMs: typeof b.ageMs === 'number' ? b.ageMs : null,
         overrideAccepts: typeof b.overrideAccepts === 'number' ? b.overrideAccepts : 0,
+        switchedOn: b.switchedOn !== false, // default ON when the field is absent
       },
     });
   },
@@ -574,6 +593,18 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     });
     if (!res?.ok) return false; // leave state unchanged on failure
     await get().loadRequirements(serverId, project);
+    return true;
+  },
+
+  // Satisfy-drag: an object-linked todo dropped on a requirement → OBJECT→req
+  // satisfy edge. Reject locally when the todo has no objectRef (no server round
+  // trip, no todo→req edge); otherwise POST and re-fetch coverage so the chip's
+  // covered/uncovered tint updates.
+  addSatisfyEdge: async (serverId, project, objectId, reqId) => {
+    if (!objectId) return false; // todo has no objectRef → graceful no-op (link an object first)
+    const res = await invoke(serverId, '/api/supervisor/edges/satisfy', 'POST', { project, objectId, reqId });
+    if (!res?.ok) return false; // leave state unchanged on failure
+    await get().loadCoverage(serverId, project);
     return true;
   },
 

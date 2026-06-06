@@ -7,6 +7,7 @@ import {
   type RequirementSpec,
 } from './decision-record-store';
 import { listObjects } from './system-object-store';
+import { staleObjectIds } from './system-object-edges';
 import { listTodos, type Todo } from './todo-store';
 import type { SystemObject } from './domain-plugin';
 
@@ -36,6 +37,11 @@ export interface ObjectCoverage {
   todoCount: number;
   /** …of which are done. */
   doneCount: number;
+  /** STALE (todo 9fd5fce8): the object's content-hash revision bumped after its
+   *  traceability proof, so a satisfy/verify edge went stale and was not
+   *  re-authored. The Spec Sheet shows a stale glyph + the coverage card goes
+   *  amber. Independent of `state` (an object can be covered-by-todo yet stale). */
+  stale: boolean;
 }
 
 export interface CoverageRollup {
@@ -43,11 +49,15 @@ export interface CoverageRollup {
   covered: number;
   partial: number;
   uncovered: number;
+  /** Count of objects whose proof is stale (drift signal). */
+  stale: number;
   byObject: ObjectCoverage[];
 }
 
-/** Pure coverage derivation over the Todo.objectRef → SystemObject join. */
-export function computeCoverage(objects: SystemObject[], todos: Todo[]): CoverageRollup {
+/** Pure coverage derivation over the Todo.objectRef → SystemObject join.
+ *  `staleIds` (system-object-edges.staleObjectIds) flags drifted objects. */
+export function computeCoverage(objects: SystemObject[], todos: Todo[], staleIds: Iterable<string> = []): CoverageRollup {
+  const staleSet = new Set(staleIds);
   // Bucket todos by the object they build (single pass over the join key).
   const byRef = new Map<string, { total: number; done: number }>();
   for (const t of todos) {
@@ -62,7 +72,7 @@ export function computeCoverage(objects: SystemObject[], todos: Todo[]): Coverag
     const acc = byRef.get(o.id) ?? { total: 0, done: 0 };
     const state: CoverageState =
       acc.done > 0 ? 'covered' : acc.total > 0 ? 'partial' : 'uncovered';
-    return { objectId: o.id, name: o.name, typeId: o.typeId, state, todoCount: acc.total, doneCount: acc.done };
+    return { objectId: o.id, name: o.name, typeId: o.typeId, state, todoCount: acc.total, doneCount: acc.done, stale: staleSet.has(o.id) };
   });
 
   const rollup: CoverageRollup = {
@@ -70,14 +80,20 @@ export function computeCoverage(objects: SystemObject[], todos: Todo[]): Coverag
     covered: byObject.filter((c) => c.state === 'covered').length,
     partial: byObject.filter((c) => c.state === 'partial').length,
     uncovered: byObject.filter((c) => c.state === 'uncovered').length,
+    stale: byObject.filter((c) => c.stale).length,
     byObject,
   };
   return rollup;
 }
 
-/** Per-project coverage rollup. Reads the durable objects + all todos (incl. done). */
+/** Per-project coverage rollup. Reads the durable objects + all todos (incl. done),
+ *  and the stale-object set (content-hash drift) from the edges layer. */
 export function specCoverage(project: string): CoverageRollup {
-  return computeCoverage(listObjects(project), listTodos(project, { includeCompleted: true }));
+  return computeCoverage(
+    listObjects(project),
+    listTodos(project, { includeCompleted: true }),
+    staleObjectIds(project),
+  );
 }
 
 export type RequirementDecision = 'approve' | 'reject' | 'edit';

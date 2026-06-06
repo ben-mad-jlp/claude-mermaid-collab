@@ -62,7 +62,7 @@ import { listObjects, listTypes } from '../services/system-object-store.js';
 import { bom } from '../services/system-object-bom.js';
 import { specCoverage, decideRequirement, type RequirementDecision } from '../services/spec-coverage.js';
 import { lastAssistantTurn } from '../services/transcript-reader.js';
-import { listTodos, getTodo, resetTodo, overrideAcceptTodo } from '../services/todo-store.js';
+import { listTodos, getTodo, resetTodo, overrideAcceptTodo, createGate, completeGatesForDecision } from '../services/todo-store.js';
 import { validateStewardProof, isOverrideRateLimited, type StewardProof, type StewardVerb } from '../services/steward-proof.js';
 import { getConfig } from '../services/config-service.js';
 import { handleWorkerComplete } from '../services/coordinator-daemon.js';
@@ -2119,6 +2119,7 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'complete_todo', description: 'Worker completion report: mark a project todo accepted or rejected (marks done + unblocks dependents).', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, acceptance: { type: 'string', enum: ['accepted','rejected'] } }, required: ['project','todoId','acceptance'] } },
       { name: 'reset_todo', description: "STEWARD: unstick a parked/over-retried todo and re-promote it. Use when the CAUSE of repeated rejections was fixed EXTERNALLY (a now-merged dependency, a foreign whole-tree gate error since repaired, a corrected gate command) — a todo at/over the retry budget would otherwise re-park to 'blocked' the instant it's reclaimed. Resets retryCount=0, clears acceptanceStatus + any stale claim + completion stamps, sets status (default 'ready'), and OPTIONALLY reroutes targetProject (fix a cross-project todo created without it). The supported replacement for hand-editing todos.db.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, status: { type: 'string', enum: ['backlog','planned','todo','ready','in_progress','blocked','done','dropped'], description: "Status to set after reset (default 'ready')." }, targetProject: { type: ['string','null'], description: 'Optional: set the implementation repo (worker cwd + gate location). Pass null to clear; omit to leave unchanged.' }, proof: { type: 'object', description: "STEWARD proof the server RE-VALIDATES at act time (never trusted as asserted). One of: {kind:'merged'} (HEAD..master==0), {kind:'tsc-clean'}, {kind:'grep',symbol,present}, {kind:'dep-done'} (all deps done/accepted in store). Required for an autonomous steward act when MERMAID_STEWARD_AUTO is on; a no-proof steward act is rejected + re-routed to human." }, escalationId: { type: 'string', description: 'Open escalation this act resolves — links the audit + is flipped routedTo=human on a failed/absent proof.' }, stewardEpoch: { type: 'number', description: 'Marks this as a steward auto-act (engages the proof gate).' } }, required: ['project','todoId'] } },
       { name: 'override_accept_todo', description: 'STEWARD override-accept: force a todo whose work is verified-done DONE+accepted, BYPASSING the mechanical gate. Use ONLY when the gate FALSE-rejected verified-green work (e.g. a whole-tree tsc tripping on a sibling lane error, or a gate command wrong for the change-set) — confirm the deliverable exists first. Unblocks dependents and rolls up parent epics exactly as a normal acceptance; records the steward as completer for provenance.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, completedBy: { type: 'string', description: "Completer handle for provenance (default 'steward')." }, proof: { type: 'object', description: "STEWARD DUAL proof, server-re-validated: {kind:'override', artifactPath?|artifactSymbol? (the deliverable provably IN-TREE), foreignErrorFiles:[] (the gate failure provably OUTSIDE this todo's change-set)}. DEFAULT DEFER — without both halves the override is rejected + re-routed to human." }, escalationId: { type: 'string', description: 'Open escalation this act resolves — flipped routedTo=human on a failed/absent proof.' }, stewardEpoch: { type: 'number', description: 'Marks this as a steward auto-act (engages the proof gate + rate limit).' }, changeSetFiles: { type: 'array', items: { type: 'string' }, description: "This todo's change-set files — used to prove the gate error is foreign." } }, required: ['project','todoId'] } },
+      { name: 'create_gate', description: "READINESS GATE: attach a HUMAN gate to a work-todo so it can't be claimed until a human clears the gate. Creates a '[GATE]' human todo (assigneeKind:'human', ready) and appends it to the work-todo's dependsOn, parking the work-todo 'blocked'. The coordinator never claims the gate (human) nor the blocked work-todo; completing the gate auto-promotes the work-todo to 'ready' on the same tick — no reset_todo, no new status. Use to hold a design-gated/needs-review todo until a human signs off.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, workTodoId: { type: 'string', description: 'The agent work-todo to gate.' }, title: { type: 'string', description: "Gate title (auto-prefixed '[GATE]' if absent)." }, description: { type: 'string', description: 'What the human must confirm/decide.' }, gateKind: { type: 'string', description: "Optional label folded into the title, e.g. 'spec-review' → '[GATE:spec-review]'." }, parentId: { type: 'string', description: 'Optional human-gate epic to parent the gate under (e.g. the [EPIC] human-gates id).' }, decisionRef: { type: 'string', description: 'Optional decision-record id: approving that record (approve_decision_record) auto-completes this gate — for design/decision gates that clear when the design lands.' } }, required: ['project', 'workTodoId', 'title'] } },
       { name: 'start_coordinator', description: 'Start the per-project Coordinator daemon (claims ready todos and spawns workers on a tick). Explicit-start.', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'] } },
       { name: 'stop_coordinator', description: 'Stop the per-project Coordinator daemon.', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'] } },
       { name: 'checkpoint_ready', description: 'Context-watchdog: a session reports that its checkpoint is persisted. The server VERIFIES the named artifact was JUST written (recency gate) before recording checkpoint_ready — so a /clear can safely follow. Provide checkpointTodoId (vibe-checkpoint writes into the in_progress todo) OR checkpointDocId (a doc, e.g. vibe.vibeinstructions). Call this at the END of your checkpoint.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, checkpointTodoId: { type: 'string', description: 'Todo id the checkpoint updated (preferred — vibe-checkpoint writes the checkpoint into the in_progress todo description).' }, checkpointDocId: { type: 'string', description: 'Document id the checkpoint wrote (alternative to checkpointTodoId).' }, maxWriteAgeMs: { type: 'number', description: 'How recent the write must be to count as a fresh checkpoint (default 120000).' } }, required: ['project', 'session'] } },
@@ -2139,7 +2140,8 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'supervisor_pause_status', description: 'List active supervisor pauses.', inputSchema: { type: 'object', properties: {} } },
       { name: 'steward_pause', description: "Pause the STEWARD's auto-routing+acting (design §4 human-reclaim). While paused the router forwards nothing (every new escalation → human) and the steward parks — the human standin's \"I've got it from here.\" Resume with steward_resume.", inputSchema: { type: 'object', properties: {} } },
       { name: 'steward_resume', description: 'Lift the steward pause — auto-routing+acting resume (subject to the steward being live).', inputSchema: { type: 'object', properties: {} } },
-      { name: 'steward_pause_status', description: 'Steward liveness + pause snapshot: { paused, live, enabled }. Drives the StewardPanel crashed/paused state.', inputSchema: { type: 'object', properties: {} } },
+      { name: 'steward_pause_status', description: 'Steward liveness + pause snapshot: { paused, live, autoEnabled (env arm), switchedOn (live human on/off) }. Drives the StewardPanel crashed/paused/off state.', inputSchema: { type: 'object', properties: {} } },
+      { name: 'steward_set_enabled', description: "Runtime ON/OFF for the steward — the live human off-switch (distinct from the MERMAID_STEWARD_AUTO env arm and the transient steward_pause). PERSISTENT. While OFF the router sends every escalation to the human and the running steward skill idles. The skill checks this each loop.", inputSchema: { type: 'object', properties: { enabled: { type: 'boolean' } }, required: ['enabled'] } },
       { name: 'check_graph_drift', description: 'Graph↔code drift check: scans the session\'s blueprint task files and flags MISSING dependencies — where one task\'s code imports another task\'s files but the plan graph has no dependsOn. Deterministic (import-edge analysis, no LLM). The supervisor can run this periodically.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' } }, required: ['project', 'session'] } },
       { name: 'supervisor_audit_list', description: 'List the supervisor\'s durable decision/action audit trail (nudge/escalate/checkpoint/clear/…), most-recent-first. Survives restart; feeds observability + the System Map. Optional project/kind filters.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, kind: { type: 'string' }, limit: { type: 'number', description: 'Max entries (default 100, max 1000).' } } } },
       { name: 'set_watchdog_threshold', description: 'Set (or clear, with null) a project\'s context-watchdog trigger threshold (%). Overrides the 80% default for supervisor_watchdog_scan on that project. Pass null to revert to the default.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, thresholdPercent: { type: ['number', 'null'], description: 'Percent (1-100) or null to clear.' } }, required: ['project', 'thresholdPercent'] } },
@@ -3808,6 +3810,24 @@ IMPORTANT - Common pitfalls to avoid:
             if (isNew) {
               getWebSocketHandler()?.broadcast({ type: 'escalation_created', project, session, kind, id: esc.id, routedTo: esc.routedTo });
               recordSupervisorDecision('escalate', project, session, JSON.stringify({ kind, escalationId: esc.id }));
+              // P3 (readiness ergonomics): a needs-design / operator-gated escalation
+              // linked to a work-todo gets a durable, self-clearing human [GATE] (P1
+              // createGate) instead of the steward's manual re-park to 'planned'. It
+              // surfaces in the human inbox ("waiting on you: provision env / land
+              // design") and auto-promotes the work-todo when the human clears it.
+              // Best-effort: never let a gate failure break escalation creation; skip
+              // when the work-todo is itself human, missing, or already gated (idempotent).
+              if (todoId && supervisorStore.shouldAutoGate(kind, Boolean(operatorGated))) {
+                try {
+                  const work = getTodo(project, todoId);
+                  const alreadyGated = work?.dependsOn?.some((d) => getTodo(project, d)?.title?.startsWith('[GATE'));
+                  if (work && work.assigneeKind !== 'human' && !alreadyGated) {
+                    await createGate(project, { workTodoId: todoId, title: questionText, gateKind: kind });
+                  }
+                } catch (e) {
+                  console.warn('[escalation_create] auto-gate failed:', e instanceof Error ? e.message : String(e));
+                }
+              }
             }
             return JSON.stringify(esc, null, 2);
           }
@@ -4569,6 +4589,13 @@ IMPORTANT - Common pitfalls to avoid:
             getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
             return JSON.stringify(result, null, 2);
           }
+          case 'create_gate': {
+            const { project, workTodoId, title, description, gateKind, parentId, decisionRef } = args as { project: string; workTodoId: string; title: string; description?: string | null; gateKind?: string; parentId?: string | null; decisionRef?: string | null };
+            if (!project || !workTodoId || !title) throw new Error('Missing required: project, workTodoId, title');
+            const result = await createGate(project, { workTodoId, title, description, gateKind, parentId, decisionRef });
+            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
+            return JSON.stringify(result, null, 2);
+          }
           case 'override_accept_todo': {
             const { project, todoId, completedBy, proof, escalationId, stewardEpoch, changeSetFiles } = args as { project: string; todoId: string; completedBy?: string; proof?: StewardProof; escalationId?: string; stewardEpoch?: number; changeSetFiles?: string[] };
             if (!project || !todoId) throw new Error('Missing required: project, todoId');
@@ -4696,7 +4723,12 @@ IMPORTANT - Common pitfalls to avoid:
             if (!project || !id || !approvedBy) throw new Error('Missing required: project, id, approvedBy');
             const rec = approveDecisionRecord(project, id, approvedBy);
             if (!rec) throw new Error(`decision record not found: ${id}`);
-            return JSON.stringify(rec, null, 2);
+            // Readiness-gates P2: approving the record auto-completes any [GATE]
+            // todo linked to it (decisionRef===id), unblocking gated work on the
+            // same tick. Landing the design = approving the record = gate cleared.
+            const clearedGates = await completeGatesForDecision(project, id);
+            if (clearedGates.length > 0) getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
+            return JSON.stringify({ ...rec, clearedGates: clearedGates.map((r) => ({ gate: r.completed.id, promoted: r.promoted })) }, null, 2);
           }
           case 'supersede_decision_record': {
             const { project, id, bySupersedingId } = args as { project: string; id: string; bySupersedingId: string };
@@ -4766,8 +4798,18 @@ IMPORTANT - Common pitfalls to avoid:
             return JSON.stringify({
               paused: supervisorStore.isStewardPaused(),
               live: supervisorStore.isStewardLive(),
+              autoEnabled: supervisorStore.stewardAutoEnabled(),
+              switchedOn: supervisorStore.isStewardEnabled(),
+              // back-compat: `enabled` historically meant the env arm.
               enabled: supervisorStore.stewardAutoEnabled(),
             }, null, 2);
+          }
+          case 'steward_set_enabled': {
+            const { enabled } = args as { enabled: boolean };
+            if (typeof enabled !== 'boolean') throw new Error('Missing required: enabled (boolean)');
+            supervisorStore.setStewardEnabled(enabled);
+            recordSupervisorDecision('override', '', 'steward', JSON.stringify({ action: 'steward_set_enabled', enabled }));
+            return JSON.stringify({ switchedOn: enabled }, null, 2);
           }
           case 'check_graph_drift': {
             const { project, session } = args as { project: string; session: string };

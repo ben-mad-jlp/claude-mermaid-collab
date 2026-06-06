@@ -44,3 +44,21 @@ describe('StewardPanel — three states', () => {
     expect(screen.getByTestId('steward-takeover')).toBeTruthy();
   });
 });
+
+describe('StewardPanel — ON/OFF switch', () => {
+  beforeEach(() => seed(null));
+
+  it('shows ON when switchedOn is true and OFF when false', () => {
+    seed({ identity: { project: '/p', session: 'steward', updatedAt: Date.now() }, running: true, stale: false, ageMs: 100, overrideAccepts: 0, switchedOn: true });
+    const { rerender } = render(<StewardPanel currentProject="/p" />);
+    const onToggle = screen.getByTestId('steward-enabled-toggle');
+    expect(onToggle.getAttribute('data-enabled')).toBe('true');
+    expect(onToggle.textContent).toContain('ON');
+
+    seed({ identity: { project: '/p', session: 'steward', updatedAt: Date.now() }, running: true, stale: false, ageMs: 100, overrideAccepts: 0, switchedOn: false });
+    rerender(<StewardPanel currentProject="/p" />);
+    const offToggle = screen.getByTestId('steward-enabled-toggle');
+    expect(offToggle.getAttribute('data-enabled')).toBe('false');
+    expect(offToggle.textContent).toContain('OFF');
+  });
+});

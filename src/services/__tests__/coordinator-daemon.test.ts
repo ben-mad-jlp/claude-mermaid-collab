@@ -95,6 +95,24 @@ describe('runTick', () => {
     expect(deps._launchCalls).toHaveLength(2);
   });
 
+  test('P4 claimGuard filters the ready set: a probe-failing todo is NOT claimed (no status write); claimable next tick when it passes', async () => {
+    const probeUp = makeTodo('up', { claimProbe: 'tcp://h:1' });
+    const probeDown = makeTodo('down', { claimProbe: 'tcp://h:2' });
+    let serviceUp = false;
+    const deps = makeDeps({
+      listReadyTodos: () => [probeUp, probeDown],
+      // Pure filter: drop the down-probe todo; never mutate status.
+      claimGuard: async (_p, todos) => todos.filter((t) => t.id === 'up' ? true : serviceUp),
+    });
+    const first = await runTick(deps, 'proj');
+    expect(first.claimed).toEqual(['up']);        // probeDown filtered out
+    expect(deps._claimCalls.map((c) => c[1])).toEqual(['up']); // claimTodo never called for 'down'
+    // Service comes up → next tick the same todo is claimable, no reset/status write.
+    serviceUp = true;
+    const second = await runTick(deps, 'proj');
+    expect(second.claimed).toContain('down');
+  });
+
   test('claimTodo returns null for one (race) → not in claimed/spawned', async () => {
     const todos = [makeTodo('a'), makeTodo('b')];
     const deps = makeDeps({

@@ -20,6 +20,9 @@ vi.mock('@/components/layout/SessionCard', () => ({
   SessionCard: ({ serverIcon }: { serverIcon?: string }) => (
     <div data-testid="session-card" data-server-icon={serverIcon ?? ''} />
   ),
+  ClaudePixAvatar: ({ status }: { status: string }) => (
+    <div data-testid="claudepix" data-status={status} />
+  ),
   activateSessionCard: vi.fn(),
 }));
 

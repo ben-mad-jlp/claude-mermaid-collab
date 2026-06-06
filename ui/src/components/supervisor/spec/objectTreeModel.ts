@@ -54,6 +54,20 @@ export function coverageStateOf(objectId: string, coverage: CoverageRollup | und
   return coverage?.byObject.find((o) => o.objectId === objectId)?.state ?? null;
 }
 
+/** STALE (todo 9fd5fce8): true when this object's proof has drifted (content-hash
+ *  bump without re-author). Drives the Spec Sheet node's stale glyph. */
+export function isStaleObject(objectId: string, coverage: CoverageRollup | undefined): boolean {
+  return coverage?.byObject.find((o) => o.objectId === objectId)?.stale ?? false;
+}
+
+/** The stale glyph + amber tint shown on a drifted Spec Sheet node / coverage card.
+ *  Amber (warning) — one-red discipline, drift is never red (red = escalations). */
+export const STALE_GLYPH = {
+  mark: '⚠',
+  label: 'stale',
+  className: 'text-warning-600 dark:text-warning-400',
+} as const;
+
 export interface CoverageTint {
   dot: string;
   bg: string;

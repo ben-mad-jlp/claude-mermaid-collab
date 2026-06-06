@@ -84,6 +84,12 @@ export interface UIState {
   activeProject: string | null;
   setActiveProject: (project: string | null) => void;
 
+  // SupervisorPanel per-project group collapse state. Keyed by project path;
+  // true = collapsed. Persisted (plain object, JSON-safe) so the expanded/
+  // collapsed shape of the supervised list survives reloads.
+  supervisorCollapsedProjects: Record<string, boolean>;
+  toggleSupervisorProject: (project: string) => void;
+
   // Diff view preference: side-by-side (true) or unified (false)
   diffSideBySide: boolean;
   setDiffSideBySide: (on: boolean) => void;
@@ -222,6 +228,15 @@ export const useUIStore = create<UIState>()(
 
       activeProject: null,
       setActiveProject: (project: string | null) => set({ activeProject: project }),
+
+      supervisorCollapsedProjects: {},
+      toggleSupervisorProject: (project: string) =>
+        set((s) => ({
+          supervisorCollapsedProjects: {
+            ...s.supervisorCollapsedProjects,
+            [project]: !s.supervisorCollapsedProjects[project],
+          },
+        })),
 
       diffSideBySide: true,
       setDiffSideBySide: (on: boolean) => set({ diffSideBySide: on }),

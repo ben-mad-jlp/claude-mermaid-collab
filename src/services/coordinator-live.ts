@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import type { Todo } from './todo-store';
 import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, releaseClaim } from './todo-store';
+import { filterClaimable } from './claim-guard';
 import { WorktreeManager, INTEGRATION_BRANCH } from '../agent/worktree-manager';
 import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, addSupervised, addWatchedProject } from './supervisor-store';
 import { tmuxBaseName } from './tmux-naming';
@@ -13,6 +14,7 @@ import { runRegistryGate } from './gate-runner';
 import './cad-gate-plugin';
 import { deriveBsyncSessionId, isCadTodo, bsyncSessionContextNote } from './bsync-session';
 import { resolveProfile, type AgentProfile } from '../config/agent-profiles';
+import { resolveManifestPacks } from '../config/tech-packs';
 import {
   resolveType,
   typeForFiles,
@@ -279,8 +281,44 @@ const STALL_MS = (Number(process.env.MERMAID_STALL_MIN) || 3) * 60 * 1000;
  *  the global profile (SEAM·collab) — e.g. a `cad` profile shipped with build123d
  *  injects its CAD/viewer allowedTools + contextPrompt. */
 export function resolveWorkerProfile(todo: Todo, project?: string): AgentProfile & { invokeSkill: string } {
+  // L1 (capability) × project-context (manifest profile): resolveProfile already
+  // merges the global capability profile with the project's manifest profile
+  // (allowedTools / contextPrompt / model / capability).
   const profile = resolveProfile(todo.type, project);
-  return { ...profile, invokeSkill: `/mermaid-collab:worker ${todo.id}` };
+  const invokeSkill = `/mermaid-collab:worker ${todo.id}`;
+
+  // L3 COMPOSITION (Profile L3): fold the project's DECLARED tech-packs (L2) onto
+  // the L1+project-context profile — primary pack first. Each pack contributes
+  // extra allowedTools (added to the surface) + a contextPrompt fragment (appended)
+  // + an optional preferred model. Routing by primary pack → pool stays elsewhere;
+  // here we only compose the EFFECTIVE launch config so a cad-primary todo launches
+  // warm (capability × cad pack context/tools × build123d project-context).
+  const { packs, primary } = project ? resolveManifestPacks(project) : { packs: [], primary: undefined };
+  const ordered = primary ? [primary, ...packs.filter((p) => p.id !== primary.id)] : packs;
+  if (ordered.length === 0) return { ...profile, invokeSkill };
+
+  const allowedTools = mergeToolTokens(profile.allowedTools, ...ordered.map((p) => p.allowedTools));
+  const contextPrompt =
+    [profile.contextPrompt, ...ordered.map((p) => p.contextPrompt)].filter(Boolean).join('\n\n') || undefined;
+  // Project/profile model wins (repo-specific); a pack's preferred model is the
+  // fallback when the profile declares none.
+  const model = profile.model ?? ordered.find((p) => p.model)?.model;
+  return { ...profile, allowedTools, contextPrompt, model, invokeSkill };
+}
+
+/** Merge space-separated allowedTools token lists, de-duplicating while preserving
+ *  first-seen order — so composing the base surface with pack fragments never
+ *  repeats a tool token. */
+function mergeToolTokens(...parts: Array<string | undefined>): string {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of parts) {
+    if (!part) continue;
+    for (const tok of part.split(/\s+/)) {
+      if (tok && !seen.has(tok)) { seen.add(tok); out.push(tok); }
+    }
+  }
+  return out.join(' ');
 }
 
 // --- DOGFOOD #5: worker write-isolation (integration-branch recombination) ------
@@ -320,6 +358,11 @@ export function getWorktreeManager(projectRoot: string): WorktreeManager {
 export function makeCoordinatorDeps(): CoordinatorDeps {
   return {
     listReadyTodos,
+    // Readiness-gates P4: claim-time liveness probe filter. A todo carrying a
+    // `claimProbe` (e.g. 'tcp://127.0.0.1:8082') is held out of the claimable set
+    // while its env service is down, and auto-claimed once the probe passes — no
+    // status write, no human completing a [GATE].
+    claimGuard: (_project, todos) => filterClaimable(todos),
     // Wrapped to record coordinator lifecycle events into the supervisor audit
     // log → it doubles as the unified orchestration trace (open-problem #10/obs).
     claimTodo: async (project, id, claimedBy, leaseMs) => {

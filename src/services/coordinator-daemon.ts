@@ -14,6 +14,12 @@ export const DEFAULT_LEASE_MS =
 
 export interface CoordinatorDeps {
   listReadyTodos: (project: string) => Todo[];
+  /** Claim-time-only liveness FILTER (readiness-gates P4): narrow the ready set to
+   *  todos claimable right now — e.g. drop a probe-gated todo whose operator-env
+   *  service is down. MUST NOT mutate status (pure filter, no stored cleared-bit);
+   *  a failing probe simply isn't claimed this tick and is re-probed next tick.
+   *  Optional — omitted ⇒ no probe filtering. */
+  claimGuard?: (project: string, todos: Todo[]) => Promise<Todo[]>;
   claimTodo: (project: string, id: string, claimedBy: string, leaseMs: number) => Promise<Todo | null>;
   releaseExpiredClaims: (project: string, now?: string) => Promise<{ released: string[]; exhausted: string[] }>;
   completeTodo: (project: string, id: string, acceptance?: 'pending' | 'accepted' | 'rejected') => Promise<{ completed: Todo; promoted: string[] }>;
@@ -93,7 +99,12 @@ export async function runTick(
   if (deps.drainDecisions) {
     try { await deps.drainDecisions(project); } catch { /* decision drain must not abort the tick */ }
   }
-  const ready = deps.listReadyTodos(project);
+  let ready = deps.listReadyTodos(project);
+  // Claim-time liveness filter (P4): drop probe-gated todos whose env is down. Pure
+  // filter — a failing probe is just not claimed this tick (no status write).
+  if (deps.claimGuard) {
+    try { ready = await deps.claimGuard(project, ready); } catch { /* probe filter must not abort the tick */ }
+  }
   const claimed: string[] = [];
   const spawned: string[] = [];
   for (const t of ready) {

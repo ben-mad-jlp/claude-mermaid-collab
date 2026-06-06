@@ -14,6 +14,7 @@ const rollup: CoverageRollup = {
   covered: 1,
   partial: 1,
   uncovered: 1,
+  stale: 0,
   byObject: [],
 };
 
@@ -26,6 +27,16 @@ describe('SpecCoverageCard', () => {
     const uncovered = screen.getByTestId('spec-coverage-uncovered');
     expect(uncovered.className).toContain('warning');
     expect(uncovered.className).not.toContain('danger');
+  });
+
+  it('shows an amber stale indicator when objects have drifted, and hides it when none', () => {
+    const { container: none } = render(<SpecCoverageCard coverage={rollup} />);
+    expect(none.querySelector('[data-testid="spec-coverage-stale"]')).toBeNull();
+    render(<SpecCoverageCard coverage={{ ...rollup, stale: 2 }} />);
+    const stale = screen.getByTestId('spec-coverage-stale');
+    expect(stale.textContent).toContain('2');
+    expect(stale.className).toContain('warning'); // amber, one-red discipline
+    expect(stale.className).not.toContain('danger');
   });
 
   it('self-hides when there are no spec objects', () => {

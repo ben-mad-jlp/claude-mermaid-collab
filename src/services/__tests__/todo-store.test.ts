@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import {
   createTodo, listTodos, getTodo, updateTodo, assignTodo, removeTodo, clearCompleted, reorder, _closeProject,
   claimTodo, releaseExpiredClaims, reclaimClaim, releaseClaim, listReadyTodos, computeWaves, completeTodo, MAX_CLAIM_RETRIES,
-  resetTodo, overrideAcceptTodo,
+  resetTodo, overrideAcceptTodo, createGate, listGatesBlocking, listGatedBy, completeGatesForDecision,
 } from '../todo-store';
 
 let project: string;
@@ -587,6 +587,70 @@ describe('todo-store assigneeKind + completedBy (B1 attribution)', () => {
     // human marks their todo done → dep satisfied → agent todo now claimable
     await completeTodo(project, humanDep.id, 'accepted');
     expect(listReadyTodos(project).map((t) => t.id)).toContain(agentDependent.id);
+  });
+});
+
+describe('readiness gates (createGate — design-readiness-gates P1)', () => {
+  test('a gate-dep holds the work-todo blocked; completing the gate auto-promotes it to ready on the SAME tick (no reset_todo)', async () => {
+    const work = await createTodo(project, { ownerSession: 's1', title: 'build the thing', status: 'ready', assigneeKind: 'agent' });
+    const { gate, workTodo } = await createGate(project, { workTodoId: work.id, title: 'review the spec', gateKind: 'spec-review' });
+    // Work-todo is parked blocked behind the gate, and the gate is in its dependsOn.
+    expect(workTodo.status).toBe('blocked');
+    expect(workTodo.dependsOn).toContain(gate.id);
+    expect(gate.assigneeKind).toBe('human');
+    expect(gate.title).toBe('[GATE:spec-review] review the spec');
+    // Coordinator can't claim it while the gate is open.
+    expect(listReadyTodos(project).map((t) => t.id)).not.toContain(work.id);
+    // Human clears the gate → the SAME completeTodo tick promotes the work-todo.
+    const res = await completeTodo(project, gate.id, 'accepted');
+    expect(res.promoted).toContain(work.id);
+    expect(getTodo(project, work.id)!.status).toBe('ready');
+    expect(listReadyTodos(project).map((t) => t.id)).toContain(work.id);
+  });
+
+  test('the [GATE] human todo is never coordinator-claimable (excluded from listReadyTodos)', async () => {
+    const work = await createTodo(project, { ownerSession: 's1', title: 'w', status: 'ready', assigneeKind: 'agent' });
+    const { gate } = await createGate(project, { workTodoId: work.id, title: 'sign off' });
+    expect(gate.status).toBe('ready'); // a human CAN act on it immediately
+    expect(listReadyTodos(project).map((t) => t.id)).not.toContain(gate.id); // but the coordinator never claims it
+  });
+
+  test('reverse-edge views: listGatesBlocking + listGatedBy', async () => {
+    const work = await createTodo(project, { ownerSession: 's1', title: 'w', status: 'ready', assigneeKind: 'agent' });
+    const { gate } = await createGate(project, { workTodoId: work.id, title: 'g' });
+    expect(listGatesBlocking(project, work.id).map((t) => t.id)).toEqual([gate.id]);
+    expect(listGatedBy(project, gate.id).map((t) => t.id)).toEqual([work.id]);
+    // Once cleared, it no longer shows as blocking.
+    await completeTodo(project, gate.id, 'accepted');
+    expect(listGatesBlocking(project, work.id)).toEqual([]);
+  });
+
+  test('P2: a gate carries its decisionRef; completeGatesForDecision auto-completes it + promotes the dependent (same tick)', async () => {
+    const work = await createTodo(project, { ownerSession: 's1', title: 'build on the design', status: 'ready', assigneeKind: 'agent' });
+    const { gate, workTodo } = await createGate(project, { workTodoId: work.id, title: 'land the design', gateKind: 'design', decisionRef: 'dr-123' });
+    expect(gate.decisionRef).toBe('dr-123');
+    expect(workTodo.status).toBe('blocked');
+    // approveDecisionRecord('dr-123') fires → this is the auto-complete it triggers.
+    const results = await completeGatesForDecision(project, 'dr-123');
+    expect(results.length).toBe(1);
+    expect(getTodo(project, gate.id)!.status).toBe('done');
+    expect(getTodo(project, gate.id)!.completedBy).toBe('decision:dr-123');
+    expect(results[0].promoted).toContain(work.id);
+    expect(getTodo(project, work.id)!.status).toBe('ready');
+  });
+
+  test('P2: completeGatesForDecision is a no-op when no gate references the decision', async () => {
+    await createGate(project, { workTodoId: (await createTodo(project, { ownerSession: 's1', title: 'w', status: 'ready' })).id, title: 'g', decisionRef: 'dr-A' });
+    expect(await completeGatesForDecision(project, 'dr-OTHER')).toEqual([]);
+  });
+
+  test('regression: a plain agent-dep still gates + promotes exactly as before (gates do not change agent-dep flow)', async () => {
+    const depA = await createTodo(project, { ownerSession: 's1', title: 'depA', status: 'ready', assigneeKind: 'agent' });
+    const dependent = await createTodo(project, { ownerSession: 's1', title: 'dependent', status: 'blocked', assigneeKind: 'agent', dependsOn: [depA.id] });
+    expect(listReadyTodos(project).map((t) => t.id)).not.toContain(dependent.id);
+    const res = await completeTodo(project, depA.id, 'accepted');
+    expect(res.promoted).toContain(dependent.id);
+    expect(getTodo(project, dependent.id)!.status).toBe('ready');
   });
 });
 

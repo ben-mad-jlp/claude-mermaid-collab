@@ -44,6 +44,14 @@ register_supervisor { project: <cwd>, session: <this session>, serverId: <own se
 This is Phase 0: ZERO schema. The steward is a SKILL that registers, loops on
 `escalation_list`, and acts via already-shipped verbs — nothing new in the DB.
 
+**Honor the live ON/OFF switch EACH LOOP.** Before acting on a tick, call
+`steward_pause_status` and read `switchedOn` (the human's runtime off-switch, set
+via `steward_set_enabled` / the StewardPanel toggle — distinct from the
+`MERMAID_STEWARD_AUTO` env arm and the transient `steward_pause`). When
+`switchedOn` is **false**, do NOT auto-act: idle this loop (the server is already
+routing every new escalation to the human). Re-check next loop; resume acting only
+when it flips back ON. Treat a `paused` or non-`live` snapshot the same way.
+
 ## Step 1 — Pull state AND ground-truth it
 
 Escalations are written at a point in time; their stated blocker is often ALREADY FIXED by a
@@ -70,7 +78,7 @@ A repaired root cause turns a whole CLUSTER of escalations stale at once.
 | **VERIFIED-DONE, false-rejected** | Worker says "done + green", deliverable is committed/in-tree, gate failed on a FOREIGN/whole-tree error | **Verify the deliverable exists in-tree first**, then `override_accept_todo`, then resolve |
 | **NOW-BUILDABLE** | Work isn't done but the blocker is gone (dep merged); todo is bounded/mechanical | `reset_todo` → `ready` so the Coordinator rebuilds it; resolve |
 | **GENUINE DECISION** | A real A/B the worker can't make (rebase strategy, gate-scope, route) | Decide on the **recommended** default (autonomous-autoaccept, `feedback_autonomous_skill_autoaccept`); record it (`create_decision_record`); set the todo accordingly; resolve |
-| **NEEDS-DESIGN / EPIC** | Too large for one worker pass, or a from-scratch build mis-framed as a "re-port" | `update_session_todo` → `planned` with a note to run `vibe-blueprint`; stop the Coordinator one-shotting it; resolve |
+| **NEEDS-DESIGN / EPIC** | Too large for one worker pass, or a from-scratch build mis-framed as a "re-port" | **Server auto-gates this (P3):** a `needs-design` (or operator-gated) escalation linked to a work-todo auto-attaches a self-clearing human `[GATE]` ("land design / run `vibe-blueprint`") via `create_gate` — the work-todo parks `blocked` behind it and auto-promotes when the human clears the gate. No manual `update_session_todo → planned` re-park; just resolve. (Call `create_gate` by hand only if the escalation carries no `todoId`.) |
 
 ## Step 3 — Steward verbs (the supported tools — do NOT hand-edit todos.db)
 
@@ -89,7 +97,7 @@ your `supervisorEpoch` as `stewardEpoch`.
 | STALE blocker | `reset_todo` | `{kind:'merged'}` (HEAD..master==0) · `{kind:'tsc-clean'}` · `{kind:'grep',symbol,present}` |
 | NOW-BUILDABLE | `reset_todo` → `ready` | `{kind:'dep-done'}` — server confirms every dep is `done`/accepted IN THE STORE (+ leaf) |
 | VERIFIED-DONE false-reject | `override_accept_todo` | **DEFAULT DEFER.** `{kind:'override', artifactPath\|artifactSymbol, foreignErrorFiles:[…]}` — auto ONLY with DUAL proof: deliverable provably in-tree AND the gate error provably FOREIGN (outside this todo's change-set). Also rate-limited (cap/hr). |
-| NEEDS-DESIGN | `update_session_todo` → `planned` | never design; re-park with a "run vibe-blueprint" note |
+| NEEDS-DESIGN | server auto-`create_gate` (P3) → human `[GATE]`, work parks `blocked`, auto-promotes on clear | never design; if no `todoId`, `create_gate` by hand with a "run vibe-blueprint" note |
 | keep-flowing | `start`/`stop_coordinator` | coordinator stale/stopped |
 
 **HUMAN-RESERVED FLOORS (server routes these to human by KIND — you can NEVER auto-decide them):**

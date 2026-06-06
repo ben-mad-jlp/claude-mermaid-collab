@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { upsertType, createObject, newRevision, _closeProject } from '../system-object-store';
 import {
   derive, allocate, satisfy, verify, listEdges, coverage,
-  markStaleForObject, markStaleForRequirement,
+  markStaleForObject, markStaleForRequirement, staleObjectIds,
 } from '../system-object-edges';
 import type { SystemObjectType } from '../domain-plugin';
 
@@ -101,5 +101,34 @@ describe('STALE-on-bump', () => {
     await createObject(project, { typeId: 'demo:Thing', name: 'c', parentObjectId: objId });
     await newRevision(project, objId);                 // new hash → created → stale
     expect(coverage(project, ['req:A']).uncovered).toEqual(['req:A']);
+  });
+});
+
+describe('staleObjectIds (Spec Sheet drift signal — todo 9fd5fce8)', () => {
+  test('no stale edges → empty', () => {
+    satisfy(project, objId, 'req:A');
+    expect(staleObjectIds(project)).toEqual([]);
+  });
+
+  test('a content bump makes the object stale', () => {
+    satisfy(project, objId, 'req:A');
+    markStaleForObject(project, objId); // simulate the newRevision bump
+    expect(staleObjectIds(project)).toEqual([objId]);
+  });
+
+  test('RE-AUTHORING (a fresh active satisfy to the same req) CLEARS the signal', () => {
+    satisfy(project, objId, 'req:A');
+    markStaleForObject(project, objId);
+    expect(staleObjectIds(project)).toEqual([objId]); // stale, no active edge
+    satisfy(project, objId, 'req:A');                 // re-author → new active edge
+    expect(staleObjectIds(project)).toEqual([]);      // cleared
+  });
+
+  test('still stale if only SOME of the object\'s requirements are re-authored', () => {
+    satisfy(project, objId, 'req:A');
+    satisfy(project, objId, 'req:B');
+    markStaleForObject(project, objId);               // both stale
+    satisfy(project, objId, 'req:A');                 // re-author only req:A
+    expect(staleObjectIds(project)).toEqual([objId]); // req:B still drifted
   });
 });

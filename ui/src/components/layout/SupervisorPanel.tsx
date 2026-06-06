@@ -24,8 +24,35 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useTerminalStore } from '@/stores/terminalStore';
 import { useServers } from '@/contexts/ServerContext';
 import { ServerIcon } from '@/components/ServerIcon';
-import { SessionCard, type SessionCardData } from '@/components/layout/SessionCard';
+import { SessionCard, ClaudePixAvatar, type SessionCardData } from '@/components/layout/SessionCard';
 import { SupervisorOnboarding } from '@/components/supervisor/SupervisorOnboarding';
+import { useUIStore } from '@/stores/uiStore';
+
+/**
+ * Reduce a project's session-card statuses to ONE combined health status — the
+ * at-a-glance per-project read (mirrors the SessionCard status palette). Severity
+ * order: permission (RED) ▸ active (AMBER) ▸ waiting (GREEN) ▸ unknown (GREY).
+ */
+export function combineCardStatus(statuses: Array<SessionCardData['status']>): SessionCardData['status'] {
+  if (statuses.some((s) => s === 'permission')) return 'permission';
+  if (statuses.some((s) => s === 'active')) return 'active';
+  if (statuses.some((s) => s === 'waiting')) return 'waiting';
+  return 'unknown';
+}
+
+/** Per-project header background, mirroring SessionCard's statusBg palette. */
+export function projectHeaderBg(status: SessionCardData['status']): string {
+  switch (status) {
+    case 'permission':
+      return 'bg-danger-300 dark:bg-danger-900/40 border border-danger-500';
+    case 'active':
+      return 'card-pulse-amber border border-warning-400';
+    case 'waiting':
+      return 'bg-success-300 dark:bg-success-900/40 border border-success-500';
+    default:
+      return 'bg-gray-200 dark:bg-gray-700 border border-gray-300 dark:border-gray-600';
+  }
+}
 
 export interface SupervisorPanelProps {
   currentProject?: string;
@@ -90,6 +117,8 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   const setCurrentSession = useSessionStore((s) => s.setCurrentSession);
   const storeCurrentSession = useSessionStore((s) => s.currentSession);
   const { servers } = useServers();
+  const collapsedProjects = useUIStore((s) => s.supervisorCollapsedProjects);
+  const toggleSupervisorProject = useUIStore((s) => s.toggleSupervisorProject);
   const [collapsed, setCollapsed] = useState(false);
   const [startingSup, setStartingSup] = useState(false);
 
@@ -434,33 +463,72 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
               No supervised sessions
             </div>
           ) : (
-            byProject.map(({ project, sessions: projSessions }, i) => (
-              <div
-                key={project}
-                className={`space-y-1 ${i > 0 ? 'mt-2 pt-2 border-t border-gray-200 dark:border-gray-700' : ''}`}
-              >
-                {/* Supervised sessions — same card as Watching */}
-                {projSessions.map((s) => {
-                  const card = cardDataFor(s);
-                  const isSelected =
-                    !!storeCurrentSession &&
-                    storeCurrentSession.project === s.project &&
-                    storeCurrentSession.name === s.session;
-                  return (
-                    <SessionCard
-                      key={s.session}
-                      sub={card}
-                      serverLabel={serverLabelById.get(card.serverId) ?? undefined}
-                      serverIcon={serverIconById.get(card.serverId) ?? activeServerIcon}
-                      onNavigate={handleNavigate}
-                      isSelected={isSelected}
-                      supervised
-                      onToggleSupervise={handleToggleSupervise}
-                    />
-                  );
-                })}
-              </div>
-            ))
+            byProject.map(({ project, sessions: projSessions }, i) => {
+              const cards = projSessions.map((s) => cardDataFor(s));
+              // Combined per-project health: reduce every card's status to one.
+              const combined = combineCardStatus(cards.map((c) => c.status));
+              const isProjCollapsed = !!collapsedProjects[project];
+              const projName = project.split('/').filter(Boolean).pop() ?? project;
+              return (
+                <div key={project} className={i > 0 ? 'mt-2' : ''}>
+                  {/* Per-project collapsible header: dancing-Claude avatar (dances
+                      when any worker is active), the combined-state color, and a
+                      collapse toggle whose state is persisted in uiStore. */}
+                  <button
+                    type="button"
+                    data-testid="supervisor-project-header"
+                    data-project={project}
+                    data-combined-status={combined}
+                    aria-expanded={!isProjCollapsed}
+                    onClick={() => toggleSupervisorProject(project)}
+                    className={`w-full flex items-center gap-2 rounded-md px-2 py-1 text-xs font-medium text-gray-800 dark:text-gray-100 ${projectHeaderBg(combined)}`}
+                  >
+                    <span className="flex-shrink-0">
+                      <ClaudePixAvatar status={combined} />
+                    </span>
+                    <span className="truncate" title={project}>{projName}</span>
+                    <span className="text-gray-500 dark:text-gray-400 font-normal">{projSessions.length}</span>
+                    <svg
+                      className={`w-3 h-3 ml-auto transition-transform ${isProjCollapsed ? '-rotate-90' : ''}`}
+                      viewBox="0 0 20 20"
+                      fill="currentColor"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                  </button>
+
+                  {/* Supervised sessions — same card as Watching. Hidden when the
+                      project group is collapsed. */}
+                  {!isProjCollapsed && (
+                    <div className="space-y-1 mt-1">
+                      {projSessions.map((s, idx) => {
+                        const card = cards[idx];
+                        const isSelected =
+                          !!storeCurrentSession &&
+                          storeCurrentSession.project === s.project &&
+                          storeCurrentSession.name === s.session;
+                        return (
+                          <SessionCard
+                            key={s.session}
+                            sub={card}
+                            serverLabel={serverLabelById.get(card.serverId) ?? undefined}
+                            serverIcon={serverIconById.get(card.serverId) ?? activeServerIcon}
+                            onNavigate={handleNavigate}
+                            isSelected={isSelected}
+                            supervised
+                            onToggleSupervise={handleToggleSupervise}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })
           )}
 
           {/* Escalations inbox REMOVED — scoped escalations now live ONLY in the

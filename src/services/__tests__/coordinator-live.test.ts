@@ -37,6 +37,10 @@ import { makeCoordinatorDeps, startCoordinator, stopCoordinator, isCoordinatorRu
 import { isSupervised, removeSupervised, listSupervised } from '../supervisor-store';
 import { resetPool, listPool, markBusy, markIdle } from '../worker-pool';
 import type { Todo } from '../todo-store';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { _clearManifestCache } from '../../config/project-manifest';
 
 describe('makeCoordinatorDeps', () => {
   it('returns an object with all required function properties', () => {
@@ -55,6 +59,56 @@ describe('resolveWorkerProfile', () => {
     const profile = resolveWorkerProfile(todo);
     expect(profile.invokeSkill).toBe(`/mermaid-collab:worker ${todo.id}`);
     expect(profile.allowedTools).toContain('mcp__plugin_mermaid-collab_mermaid');
+  });
+
+  it('no project / no manifest → composes nothing extra (pure L1)', () => {
+    const todo = { id: 't1', type: 'backend' } as Todo;
+    const profile = resolveWorkerProfile(todo);
+    // capability/base tools present; no pack tools folded in.
+    expect(profile.allowedTools).toContain('Bash');
+    expect(profile.allowedTools).not.toContain('mcp__build123d');
+  });
+
+  describe('L3 composition (capability × tech-packs × project-context)', () => {
+    let project: string;
+    function writeManifest(obj: unknown): void {
+      mkdirSync(join(project, '.collab'), { recursive: true });
+      writeFileSync(join(project, '.collab', 'project.json'), JSON.stringify(obj), 'utf8');
+      _clearManifestCache(project);
+    }
+    afterEach(() => {
+      if (project) { _clearManifestCache(project); rmSync(project, { recursive: true, force: true }); }
+    });
+
+    it('a cad-primary project folds the cad pack tools + context onto the profile, deduped', () => {
+      project = mkdtempSync(join(tmpdir(), 'rwp-cad-'));
+      writeManifest({
+        packs: ['cad'],
+        primaryPack: 'cad',
+        profiles: { backend: { contextPrompt: 'build123d repo: run pytest under py3.10.' } },
+      });
+      const todo = { id: 't-cad', type: 'backend' } as Todo;
+      const p = resolveWorkerProfile(todo, project);
+      // cad pack tools ADDED to the base surface…
+      expect(p.allowedTools).toContain('mcp__build123d-ocp-mcp');
+      expect(p.allowedTools).toContain('Bash'); // base capability tools still present
+      // …with no duplicate tokens.
+      const toks = p.allowedTools.split(/\s+/);
+      expect(new Set(toks).size).toBe(toks.length);
+      // project-context + the cad pack's domain context BOTH composed in.
+      expect(p.contextPrompt).toContain('build123d repo: run pytest'); // project-context
+      expect(p.contextPrompt).toContain('a script that runs is not a part that exists'); // cad pack
+    });
+
+    it('primary pack comes first in the composed context', () => {
+      project = mkdtempSync(join(tmpdir(), 'rwp-order-'));
+      writeManifest({ packs: ['web-react', 'cad'], primaryPack: 'cad' });
+      const p = resolveWorkerProfile({ id: 't', type: 'backend' } as Todo, project);
+      const cadAt = p.contextPrompt?.indexOf('build123d') ?? -1;
+      const reactAt = p.contextPrompt?.indexOf('React + TypeScript') ?? -1;
+      expect(cadAt).toBeGreaterThanOrEqual(0);
+      expect(reactAt).toBeGreaterThan(cadAt); // primary (cad) precedes the rest
+    });
   });
 });
 

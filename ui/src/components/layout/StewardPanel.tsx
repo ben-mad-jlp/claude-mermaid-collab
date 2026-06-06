@@ -72,6 +72,34 @@ export const StewardPanel: React.FC<StewardPanelProps> = ({ currentProject }) =>
   }, [open]);
 
   const overrideAccepts = stewardLiveness?.overrideAccepts ?? 0;
+  // Live ON/OFF switch (persistent; default ON when unknown). Distinct from the
+  // build-time env arm and the transient pause.
+  const switchedOn = stewardLiveness?.switchedOn !== false;
+
+  // Flip the steward's runtime on/off switch, then refresh so the rendered state
+  // reflects the server (survives the 10s poll). Optimistic + best-effort.
+  const setStewardEnabled = useCallback(
+    async (enabled: boolean) => {
+      try {
+        const body = { enabled };
+        const mc = (window as any).mc;
+        if (mc?.invokeOnServer) {
+          await mc.invokeOnServer(serverScope, { path: '/api/supervisor/steward/enabled', method: 'POST', body });
+        } else {
+          await fetch('/api/supervisor/steward/enabled', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+        }
+      } catch {
+        /* best-effort */
+      } finally {
+        void loadStewardIdentity(serverScope, project || undefined);
+      }
+    },
+    [serverScope, project, loadStewardIdentity],
+  );
 
   const handleLaunch = useCallback(async () => {
     if (!project || !stewardSession) return;
@@ -195,6 +223,21 @@ export const StewardPanel: React.FC<StewardPanelProps> = ({ currentProject }) =>
             {stewardLiveness?.identity?.session && (
               <span className="font-mono text-gray-600 dark:text-gray-300 truncate">{stewardLiveness.identity.session}</span>
             )}
+            {/* Live ON/OFF switch — the human's runtime off-switch. */}
+            <button
+              data-testid="steward-enabled-toggle"
+              data-enabled={switchedOn}
+              onClick={() => void setStewardEnabled(!switchedOn)}
+              title={switchedOn ? 'Steward is ON — auto-acting. Click to turn OFF (all escalations route to you).' : 'Steward is OFF — all escalations route to you. Click to turn ON.'}
+              className={`ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-3xs font-semibold border transition-colors ${
+                switchedOn
+                  ? 'border-success-400 text-success-700 dark:text-success-300 bg-success-50 dark:bg-success-900/30'
+                  : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400'
+              }`}
+            >
+              <span className={`inline-block w-1.5 h-1.5 rounded-full ${switchedOn ? 'bg-success-500' : 'bg-gray-400'}`} aria-hidden="true" />
+              {switchedOn ? 'ON' : 'OFF'}
+            </button>
           </div>
 
           {/* SCARY metric — override-accepts this session, surfaced LOUD. */}

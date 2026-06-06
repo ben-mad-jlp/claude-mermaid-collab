@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { buildSystemObjectTree, flattenTree, coverageStateOf, COVERAGE_TINTS } from './objectTreeModel';
+import { buildSystemObjectTree, flattenTree, coverageStateOf, COVERAGE_TINTS, isStaleObject, STALE_GLYPH } from './objectTreeModel';
 import type { SystemObjectNode, CoverageRollup } from '@/stores/supervisorStore';
 
 function obj(p: Partial<SystemObjectNode>): SystemObjectNode {
@@ -52,11 +52,15 @@ describe('buildSystemObjectTree', () => {
 
 describe('coverageStateOf / COVERAGE_TINTS', () => {
   const coverage: CoverageRollup = {
-    total: 1,
-    covered: 0,
+    total: 2,
+    covered: 1,
     partial: 0,
     uncovered: 1,
-    byObject: [{ objectId: 'o1', name: 'Pump', typeId: 'pump', state: 'uncovered', todoCount: 0, doneCount: 0 }],
+    stale: 1,
+    byObject: [
+      { objectId: 'o1', name: 'Pump', typeId: 'pump', state: 'uncovered', todoCount: 0, doneCount: 0, stale: false },
+      { objectId: 'o2', name: 'Valve', typeId: 'valve', state: 'covered', todoCount: 1, doneCount: 1, stale: true },
+    ],
   };
 
   it('reads a row state and returns null for unknown objects', () => {
@@ -70,5 +74,18 @@ describe('coverageStateOf / COVERAGE_TINTS', () => {
     expect(COVERAGE_TINTS.uncovered.bg).not.toContain('danger');
     expect(COVERAGE_TINTS.covered.bg).toContain('success');
     expect(COVERAGE_TINTS.partial.bg).toContain('info');
+  });
+
+  it('isStaleObject reads the per-object drift flag (covered-yet-stale is possible)', () => {
+    expect(isStaleObject('o2', coverage)).toBe(true);  // covered by a todo, but drifted
+    expect(isStaleObject('o1', coverage)).toBe(false);
+    expect(isStaleObject('nope', coverage)).toBe(false);
+    expect(isStaleObject('o2', undefined)).toBe(false);
+  });
+
+  it('the stale glyph is amber (warning), never red', () => {
+    expect(STALE_GLYPH.className).toContain('warning');
+    expect(STALE_GLYPH.className).not.toContain('danger');
+    expect(STALE_GLYPH.mark.length).toBeGreaterThan(0);
   });
 });

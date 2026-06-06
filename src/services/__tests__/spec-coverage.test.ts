@@ -39,7 +39,24 @@ describe('computeCoverage (Todo.objectRef join)', () => {
   });
 
   it('empty inputs → all-zero rollup', () => {
-    expect(computeCoverage([], [])).toEqual({ total: 0, covered: 0, partial: 0, uncovered: 0, byObject: [] });
+    expect(computeCoverage([], [])).toEqual({ total: 0, covered: 0, partial: 0, uncovered: 0, stale: 0, byObject: [] });
+  });
+
+  it('threads the stale (drift) signal: flagged objects get stale=true + a rollup count', () => {
+    const objects = [obj('o1'), obj('o2'), obj('o3')];
+    const todos = [todo('t1', 'o1', 'done')]; // o1 covered-by-todo
+    const c = computeCoverage(objects, todos, ['o1', 'o3']);
+    expect(c.stale).toBe(2);
+    // o1 is covered-by-todo AND stale (drift is independent of todo coverage).
+    expect(c.byObject.find((x) => x.objectId === 'o1')!).toMatchObject({ state: 'covered', stale: true });
+    expect(c.byObject.find((x) => x.objectId === 'o2')!.stale).toBe(false);
+    expect(c.byObject.find((x) => x.objectId === 'o3')!.stale).toBe(true);
+  });
+
+  it('defaults stale=false when no staleIds are passed', () => {
+    const c = computeCoverage([obj('o1')], []);
+    expect(c.stale).toBe(0);
+    expect(c.byObject[0].stale).toBe(false);
   });
 });
 
