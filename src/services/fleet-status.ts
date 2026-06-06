@@ -130,7 +130,14 @@ export function getFleetStatus(project: string, now: number = Date.now()): Fleet
   for (const t of listTodos(project, { status: 'in_progress' })) {
     // Epics/containers have no worker — skip rows that were never claimed.
     if (!t.claimedAt && !t.sessionName && !t.claimedBy) continue;
-    const worker = t.sessionName ?? `worker-${t.id.slice(0, 8)}`;
+    // The worker's identity is its persisted pool lane (e.g. `backend-3`). Without
+    // it there is no attachable tmux: a fabricated `worker-<id8>` name derives a
+    // session that doesn't exist, and the UI card's create-terminal would spawn an
+    // empty shell under the wrong name instead of attaching. Skip such rows — the
+    // Coordinator persists sessionName when it commits the lane, so a real worker
+    // always carries one.
+    const worker = t.sessionName;
+    if (!worker) continue;
     const tmux = tmuxBaseName(project, worker);
     const claimedAtMs = t.claimedAt ? Date.parse(t.claimedAt) : null;
     const elapsedMs = claimedAtMs != null && !Number.isNaN(claimedAtMs) ? now - claimedAtMs : null;

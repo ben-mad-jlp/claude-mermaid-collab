@@ -439,6 +439,21 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         poolName = poolSessionName(slot.type, slot.slot);
       }
 
+      // Persist the pool lane onto the todo NOW — as soon as the lane is committed,
+      // before the (possibly slow / failure-prone) spawn. Every downstream identity
+      // derivation (fleet-status, stall detector, reaper, escalations, the UI card →
+      // create-terminal) reads todo.sessionName to compute the worker's tmux name.
+      // If this is left until after a successful spawn (and swallowed best-effort),
+      // any race/failure leaves sessionName null → those sites fall back to a
+      // fabricated `worker-<id8>` name that can NEVER match the real `<type>-<slot>`
+      // tmux → the worker shows no_tmux and can't be attached/viewed. Setting it here
+      // pins the identity even if the spawn later fails (a released todo leaves
+      // in_progress, so it won't linger as a phantom worker in the fleet view).
+      if (todo.sessionName !== poolName) {
+        try { await updateTodo(project, todo.id, { sessionName: poolName }); }
+        catch (e) { recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, sessionNamePersist: 'failed', reason: e instanceof Error ? e.message : String(e) }) }); }
+      }
+
       // CROSS-PROJECT (SEAM·collab): the todo lives in `project` (the tracking
       // store where it was claimed) but may be IMPLEMENTED in a different repo.
       // Spawn the worker with cwd = the target repo so its edits land there and
@@ -564,11 +579,14 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // session/tmux is actually gone (hard-dead worker), then free its pool slot so
       // the slot isn't wedged busy on a vanished session.
       for (const t of listTodos(project, { status: 'in_progress' })) {
-        const session = t.sessionName ?? `worker-${t.id.slice(0, 8)}`;
-        if (await isTmuxAlive(tmuxBaseName(project, session))) continue; // worker still running (incl. warm idle pool sessions)
+        // Identity is the persisted pool lane. No sessionName → the todo was never
+        // spawned under a lane (or its persist raced); treat as dead and reclaim,
+        // rather than fabricating a `worker-<id8>` name that points at no real tmux.
+        const session = t.sessionName;
+        if (session && await isTmuxAlive(tmuxBaseName(project, session))) continue; // worker still running (incl. warm idle pool sessions)
         const next = await reclaimClaim(project, t.id);
         // The session is gone — release the pool slot it held (no-op if it wasn't a pool session).
-        markIdle(session);
+        if (session) markIdle(session);
         if (next === 'ready') reclaimed.push(t.id);
         else if (next === 'blocked') exhausted.push(t.id);
       }
@@ -593,7 +611,11 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // (63a59bd6) costs a single `ps` regardless of how many workers are live.
       const snap = await procSnapshot();
       for (const t of listTodos(project, { status: 'in_progress' })) {
-        const session = t.sessionName ?? `worker-${t.id.slice(0, 8)}`;
+        // No persisted lane → not a real spawned worker (reapDeadClaims reclaims it).
+        // Never fabricate a `worker-<id8>` name: it derives a tmux that matches no
+        // live session, so the worker would be invisible to stall detection.
+        const session = t.sessionName;
+        if (!session) continue;
         const tmux = tmuxBaseName(project, session);
         seen.add(tmux);
         if (!(await isTmuxAlive(tmux))) continue; // dead → reapDeadClaims handles it
@@ -706,7 +728,9 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       const todo = getTodo(project, todoId);
       createEscalation({
         project,
-        session: todo?.sessionName ?? `worker-${todoId.slice(0, 8)}`,
+        // Label with the real pool lane; never a fabricated `worker-<id8>` (the
+        // card resolves by todoId, so a neutral label is safe when unspawned).
+        session: todo?.sessionName ?? 'unassigned',
         kind: 'blocker',
         questionText: `Todo "${todo?.title ?? todoId}" exhausted its retry budget (worker repeatedly failed to complete it). Parked as blocked — needs a human decision.`,
         todoId,
@@ -716,7 +740,9 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       const todo = getTodo(project, todoId);
       createEscalation({
         project,
-        session: todo?.sessionName ?? `worker-${todoId.slice(0, 8)}`,
+        // Label with the real pool lane; never a fabricated `worker-<id8>` (the
+        // card resolves by todoId, so a neutral label is safe when unspawned).
+        session: todo?.sessionName ?? 'unassigned',
         kind: 'blocker',
         questionText: `Worker REJECTED todo "${todo?.title ?? todoId}" — its mechanical acceptance gate (tsc + tests) failed and it couldn't fix it in scope. Not auto-retried. Re-open with guidance, split, or drop it.`,
         todoId,
