@@ -45,6 +45,7 @@ import { api, generateSessionName, type CachedUIState } from '@/lib/api';
 import { patchSessionItemsCache, getSessionItemsCache, isCacheStale } from '@/lib/sessionItemsCache';
 import { useProjectStore } from '@/stores/projectStore';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
+import { useSupervisorStore } from '@/stores/supervisorStore';
 import { useDesignEditorStore } from '@/stores/designEditorStore';
 import type { Item, Session, ToolbarAction } from '@/types';
 
@@ -549,6 +550,16 @@ const App: React.FC = () => {
           message: `${projectLabel} / ${escSession}${escKind ? ` — ${escKind}` : ''}`,
           duration: 8000,
         });
+        return;
+      }
+
+      // BUGFIX (af49309a): live coordinator daemon state → flip the FleetVitals
+      // pill immediately instead of only on the toggling client / a re-fetch.
+      if ((message as any).type === 'coordinator_status') {
+        const { project: coordProject, running } = message as any;
+        if (typeof coordProject === 'string') {
+          useSupervisorStore.getState().applyCoordinatorStatus(coordProject, !!running);
+        }
         return;
       }
 

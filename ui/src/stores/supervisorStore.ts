@@ -171,6 +171,9 @@ interface SupervisorState {
   coordinatorByProject: Record<string, boolean>;
   loadCoordinator: (serverId: string, project: string) => Promise<void>;
   setCoordinator: (serverId: string, project: string, action: 'start' | 'stop') => Promise<void>;
+  /** Apply a live coordinator_status WS broadcast (af49309a) so the pill flips
+   *  without waiting for a re-fetch. */
+  applyCoordinatorStatus: (project: string, running: boolean) => void;
   loadEscalations: (serverId: string, status?: string) => Promise<void>;
   resolveEscalation: (serverId: string, id: string, status: string) => Promise<void>;
   decideEscalation: (serverId: string, id: string, optionId: string) => Promise<boolean>;
@@ -324,6 +327,12 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     if (!res?.ok) return;
     set((state) => ({
       coordinatorByProject: { ...state.coordinatorByProject, [project]: !!res.body?.running },
+    }));
+  },
+
+  applyCoordinatorStatus: (project, running) => {
+    set((state) => ({
+      coordinatorByProject: { ...state.coordinatorByProject, [project]: running },
     }));
   },
 

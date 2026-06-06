@@ -145,7 +145,13 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       const { project, action } = (await req.json()) as { project?: string; action?: 'start' | 'stop' };
       if (!project || !action) return jsonError('project and action are required', 400);
       const changed = action === 'start' ? startCoordinator(project) : stopCoordinator(project);
-      return Response.json({ running: isCoordinatorRunning(project), changed });
+      const running = isCoordinatorRunning(project);
+      // BUGFIX (af49309a): broadcast coordinator state so every client's
+      // FleetVitals pill flips live (start/stop), instead of only updating for
+      // the client that issued the toggle. (The stale-after-restart case is
+      // additionally covered by the Bridge's resync-on-reconnect, 5b8dc726.)
+      getWebSocketHandler()?.broadcast({ type: 'coordinator_status', project, running });
+      return Response.json({ running, changed });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }
