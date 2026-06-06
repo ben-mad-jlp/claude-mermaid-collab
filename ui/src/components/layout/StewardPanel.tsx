@@ -34,8 +34,11 @@ export const StewardPanel: React.FC<StewardPanelProps> = ({ currentProject }) =>
 
   const project = currentProject ?? '';
   const [collapsed, setCollapsed] = useState(false);
-  const [stewardSession, setStewardSession] = useState('');
   const [starting, setStarting] = useState(false);
+  // Fixed session name — the steward always launches as 'steward', mirroring how
+  // the supervisor launches from a fixed config name. No prompting (user: "I
+  // don't care what we name it — just be named steward like the supervisor one.").
+  const stewardSession = 'steward';
 
   // Poll the steward's independent liveness + override count, and the escalation
   // set the dashboard reads, on the same 10s cadence as the Supervisor panel.
@@ -102,7 +105,7 @@ export const StewardPanel: React.FC<StewardPanelProps> = ({ currentProject }) =>
   );
 
   const handleLaunch = useCallback(async () => {
-    if (!project || !stewardSession) return;
+    if (!project) return;
     setStarting(true);
     try {
       const launchBody = {
@@ -127,7 +130,7 @@ export const StewardPanel: React.FC<StewardPanelProps> = ({ currentProject }) =>
     } finally {
       setStarting(false);
     }
-  }, [project, stewardSession, serverScope]);
+  }, [project, serverScope]);
 
   // [Pause] / [Take over] — best-effort control calls. The steward control
   // endpoints land in a later phase; until then these degrade to no-ops (the
@@ -188,20 +191,13 @@ export const StewardPanel: React.FC<StewardPanelProps> = ({ currentProject }) =>
                 routes the rest to you. A second steward supersedes the first (the free kill-switch).
               </p>
             </div>
-            <input
-              type="text"
-              value={stewardSession}
-              onChange={(e) => setStewardSession(e.target.value)}
-              placeholder="e.g. steward"
-              className="w-full text-xs rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-info-400"
-            />
             <div className="text-2xs text-gray-400 dark:text-gray-500 font-mono truncate" title={project}>
               {project || 'no project scope'}
             </div>
             <button
               data-testid="steward-launch"
               onClick={() => void handleLaunch()}
-              disabled={starting || !project || !stewardSession}
+              disabled={starting || !project}
               className="w-full py-1.5 px-3 text-xs font-semibold rounded bg-info-600 hover:bg-info-700 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {starting
