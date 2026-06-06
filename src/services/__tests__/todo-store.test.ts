@@ -504,3 +504,47 @@ describe('todo-store targetProject (cross-project todos)', () => {
     expect((await updateTodo(project, t.id, { title: 'renamed' })).targetProject).toBe('/repos/keep');
   });
 });
+
+describe('todo-store assigneeKind + completedBy (B1 attribution)', () => {
+  test('assigneeKind defaults to agent and round-trips; completedBy null for agent completion', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'agent task' });
+    expect(t.assigneeKind).toBe('agent');
+    expect(t.completedBy).toBeNull();
+    const done = await completeTodo(project, t.id);
+    expect(done.completed.status).toBe('done');
+    expect(done.completed.completedBy).toBeNull(); // agent → no actor stamped
+  });
+
+  test('explicit human assigneeKind persists through create + reload', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'review', assigneeKind: 'human' });
+    expect(t.assigneeKind).toBe('human');
+    expect(getTodo(project, t.id)!.assigneeKind).toBe('human');
+  });
+
+  test('completing a HUMAN todo auto-stamps a default actor handle as completedBy', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'human review', assigneeKind: 'human' });
+    const done = await completeTodo(project, t.id);
+    expect(done.completed.completedBy).toMatch(/^local:/);
+  });
+
+  test('completeTodo honours an explicit completedBy actor', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'attributed', assigneeKind: 'human' });
+    const done = await completeTodo(project, t.id, 'accepted', 'local:alice');
+    expect(done.completed.completedBy).toBe('local:alice');
+  });
+
+  test('updateTodo completing a human todo stamps completedBy; un-completing clears it', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'via update', assigneeKind: 'human' });
+    const done = await updateTodo(project, t.id, { completed: true });
+    expect(done.completedBy).toMatch(/^local:/);
+    const reopened = await updateTodo(project, t.id, { completed: false });
+    expect(reopened.completedBy).toBeNull(); // not done → cleared
+  });
+
+  test('a rejected completion is not done and carries no completedBy', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'rej', assigneeKind: 'human' });
+    const res = await completeTodo(project, t.id, 'rejected');
+    expect(res.completed.status).toBe('blocked');
+    expect(res.completed.completedBy).toBeNull();
+  });
+});

@@ -132,6 +132,36 @@ export const Header: React.FC<HeaderProps> = ({
             <span>VSCode {isVscodeConnected ? 'Connected' : 'Disconnected'}</span>
           </div>
 
+          {/* Live (WebSocket) connection badge — surfaces socket drops so the
+              user has a signal when the Bridge briefly goes stale on reconnect
+              (BUG: post-reconnect resync gap). */}
+          <div
+            data-testid="ws-badge"
+            title={
+              isConnected
+                ? 'Live updates connected'
+                : isConnecting
+                ? 'Reconnecting to live updates…'
+                : 'Live updates disconnected'
+            }
+            className={`
+              flex items-center gap-1.5
+              px-2 py-1
+              text-xs font-medium
+              rounded-full
+              ${isConnected
+                ? 'bg-success-300 text-black'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}
+            `}
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                isConnected ? 'bg-success-500' : isConnecting ? 'bg-warning-500 animate-pulse' : 'bg-gray-400'
+              }`}
+            />
+            <span>{isConnected ? 'Live' : isConnecting ? 'Reconnecting…' : 'Offline'}</span>
+          </div>
+
         </div>
 
         {/* Right-side controls */}

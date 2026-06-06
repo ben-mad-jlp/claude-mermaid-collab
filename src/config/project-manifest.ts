@@ -32,6 +32,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { RuntimeMode } from '../agent/contracts';
+import type { Capability } from './agent-profiles';
 
 /** One profile declared (or overridden) by a project manifest. Every field is
  *  optional; whatever is omitted falls back to the global profile of the same
@@ -46,6 +47,13 @@ export interface ManifestProfile {
   model?: string;
   /** Runtime permission mode. */
   runtimeMode?: RuntimeMode;
+  /** Requested capability (edit/reviewer/headless), resolved independently of the
+   *  routing `type`. Omitted → `edit`. `headless` only takes effect when `trusted`
+   *  is also true (constraint 64f813bd — no headless bypass by default). */
+  capability?: Capability;
+  /** Opt-in trust flag that allows a `headless` capability request to resolve;
+   *  without it a `headless` request is downgraded to `edit`. */
+  trusted?: boolean;
   /** Project-scoped path→type inference rules. `test` is a RegExp source string
    *  (the manifest stays plain JSON); first match wins. Lets a project route its
    *  own file shapes (.step/.parts) to a profile collab has never heard of. */
@@ -56,6 +64,14 @@ export interface ProjectManifest {
   version?: number;
   /** type → profile overrides/additions. */
   profiles?: Record<string, ManifestProfile>;
+  /** Shared tech-pack ids this project uses (Profile L2). Each id references a
+   *  framework/domain pack in the cross-project registry (src/config/tech-packs.ts)
+   *  — the project declares WHICH packs apply; the pack bodies live in collab, not
+   *  here. Unknown ids resolve to nothing (degrade gracefully). */
+  packs?: string[];
+  /** Which declared pack is the project's primary domain pack (usually one of
+   *  `packs`). A primary not listed in `packs` is still honoured if it resolves. */
+  primaryPack?: string;
   /** The project's mechanical acceptance gate command (e.g. a pytest invocation
    *  for a Python repo where `npx tsc` does not apply). Advisory metadata the
    *  Coordinator-side gate can consult. */

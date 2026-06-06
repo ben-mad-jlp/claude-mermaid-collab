@@ -32,7 +32,8 @@ import {
   type TodoLink as SessionTodoLink,
 } from '../services/todo-store';
 import { recordStatus, getStatuses, getStatus, recordContextPercent, type ClaudeStatus } from '../services/session-status-store';
-import { isSupervised, getSupervisorIdentity } from '../services/supervisor-store.ts';
+import { listSessionRuntimes } from '../services/session-runtime';
+import { isSupervised, getSupervisorIdentity, getSupervisedLaunchProject } from '../services/supervisor-store.ts';
 import { sendTmuxKeys } from '../services/tmux-send.ts';
 import { lastAssistantTurn } from '../services/transcript-reader.ts';
 import {
@@ -2485,6 +2486,18 @@ export async function handleAPI(
     return Response.json({ statuses: getStatuses(project) });
   }
 
+  // GET /api/session-runtime?project=
+  // Unified read model feed for the FleetGraph: status + claim + identity joined
+  // server-side with a single deriveLiveness, so the UI consumes one shape
+  // instead of re-stitching session-status + todos client-side.
+  if (path === '/api/session-runtime' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) {
+      return Response.json({ error: 'project required' }, { status: 400 });
+    }
+    return Response.json({ runtimes: listSessionRuntimes(project) });
+  }
+
   // GET /api/transcript/last-turn?claudeSessionId=  (peer-callable)
   if (path === '/api/transcript/last-turn' && req.method === 'GET') {
     const claudeSessionId = url.searchParams.get('claudeSessionId');
@@ -3153,15 +3166,23 @@ export async function handleAPI(
       // with the VSCode extension; that's deprecated — VSCode now only opens
       // diffs — and sharing one tmux window between differently-sized clients
       // garbled full-screen TUIs.)
-      const base = tmuxBaseName(project, session);
+      // Cross-project workers (coordinator spawn with targetProject != tracking
+      // project) had their tmux created under the LAUNCH project; the supervised
+      // row is keyed by the tracking project, so deriving from `project` here
+      // would name a different tmux than the one that exists. Resolve the launch
+      // project (null → same as `project`) so we attach to the SAME session the
+      // worker runs in. Same-project case is unchanged.
+      const launchProject = getSupervisedLaunchProject(project, session) ?? project;
+      const base = tmuxBaseName(launchProject, session);
 
       // Self-heal: if a pre-fix session is parked in the wrong dir, kill it so
       // the attach below recreates it in the project dir.
       const { healStaleTmuxSession } = await import('../services/tmux-session.js');
-      await healStaleTmuxSession(base, project);
+      await healStaleTmuxSession(base, launchProject);
 
-      // Create PTY session via ptyManager with project as cwd
-      await ptyManager.create(id, { cwd: project, tmux: { base } });
+      // Create PTY session via ptyManager with the launch project as cwd (matches
+      // where the worker's tmux actually lives for cross-project spawns).
+      await ptyManager.create(id, { cwd: launchProject, tmux: { base } });
 
       // Create session record for persistence
       const newSession = {

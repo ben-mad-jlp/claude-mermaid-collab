@@ -1,0 +1,11 @@
+{
+  "todoId": "2e07d1c5-9af1-4d61-8bf3-a0d531c61917",
+  "session": "worker-2e07d1c5",
+  "outcome": "accepted",
+  "retryReason": "none",
+  "layer": "none",
+  "verbsTried": ["get_todo", "grep tmuxBaseName/addSupervised", "Read coordinator-live/supervisor-store/ide-routes/api", "Edit (5 files)", "Write test", "bun test", "tsc --noEmit"],
+  "failingVerb": null,
+  "failingReturn": null,
+  "summary": "Fixed cross-project wrong/empty-terminal bug via option (b): added nullable launchProject column to supervised_session (DDL + idempotent migration), addSupervised stores targetProject (null when ==tracking), new getSupervisedLaunchProject getter; coordinator-live.ts:347 now records targetProject; both create-terminal sites (ide-routes.ts + api.ts /api/terminal/sessions) resolve launchProject and derive tmuxBaseName + heal + cwd from it so they hit the SAME tmux the worker launched under. Same-project case unchanged (launchProject null). Added supervisor-store.launch-project.test.ts asserting create-terminal-derived name == spawn-side name for targetProject!=project. Gate: 31/31 bun tests pass, tsc clean for change-set."
+}

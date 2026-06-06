@@ -11,7 +11,7 @@ import type { SupervisorIdentity } from '../supervisor-store';
 const STALE_AFTER = 60_000;
 
 function identity(updatedAt: number): SupervisorIdentity {
-  return { project: '/sup', session: 'supervisor', updatedAt, serverId: '' };
+  return { project: '/sup', session: 'supervisor', updatedAt, serverId: '', epoch: 1 };
 }
 
 /** Build deps over a mutable fake clock + identity, recording spawn calls. */

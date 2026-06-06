@@ -37,6 +37,8 @@ There is exactly **ONE** foreground supervisor session. It is the human's planni
 Immediately, before any other work:
 
 1. **Register as the supervisor:** call `register_supervisor { project: <cwd>, session: <this session>, serverId: <own serverId if known, else ''> }` (pass the supervisor's own serverId if known, else `''` for local). This tells the server to push real-time reconcile notifications into THIS tmux when a supervised worker changes state — so you don't only rely on your wake loop. The desktop then pushes the peer registry + cross-machine notifications, so reconcile sees supervised sessions on other machines.
+   - **Capture the `epoch` from the response.** This is your ownership token — the server bumps it on every register, so it identifies YOU as the current supervisor. Hold it for the rest of the session and **pass `supervisorEpoch: <epoch>` on every mutating supervisor call** (`supervisor_nudge`, `supervisor_clear_session`, `supervisor_reconcile`, `escalation_create`, `escalation_resolve`). This is the single-writer fence: if a replacement supervisor was spawned while you were hung, its register bumped the epoch and yours is now stale.
+   - **On a `superseded` response** (any call returns `{ superseded: true, ... }`): a newer supervisor owns the role. The server has already rejected your action and performed NO write. **Stop immediately** — do not retry, nudge, escalate, clear, or re-register. Cancel any pending `ScheduleWakeup`, tell the human "superseded by a newer supervisor (epoch N) — exiting" and END the watchdog loop. The server-side reject is authoritative; this self-exit is the politeness layer that stops you from churning.
 2. Run **one full reconcile pass** (Step 5 → Step 9), then the **context-watchdog pass** (Step 10b).
 3. **Drain escalations** (Step 10).
 
@@ -148,6 +150,34 @@ Each turn and each wake:
 
 - `escalation_list` → surface all open escalations to the user (verbatim, with project/session).
 - `escalation_resolve { id, status }` once an escalation has been handled.
+
+## 10c. Decision queue — judge ambiguous worker stops (COORD handoff)
+
+The mechanical watchdog now runs as a deterministic **daemon** (coordinator): it
+detects an alive-but-idle worker, and for an **ambiguous** stop it does NOT decide
+what to do — it enqueues a bounded **decision request** for you to judge. Your one
+job here is the judgment the daemon can't make; the daemon then ACTS on your verdict
+and surfaces/nudges accordingly. You never run the mechanical loop for these — you
+only judge.
+
+Each turn/wake, drain the decision queue:
+
+1. `supervisor_next_decision { project }` (omit `project` for all watched projects) →
+   the oldest **pending** request, or `null` when the queue is empty. It carries
+   `{ id, workerSession, signal, snapshot }` — the captured pane context to judge from.
+2. **Judge the snapshot** — is the worker waiting on a real human decision, just idle,
+   or a transient stop? Pick a verdict:
+   - `escalate` — it needs a human (surfaces it in the escalation inbox). **When in doubt → escalate.**
+   - `nudge` / `resume` — it just stalled; push it to continue.
+   - `wait` — not yet actionable; leave it.
+3. `supervisor_resolve_decision { id, verdict, reason, supervisorEpoch: <your epoch> }`.
+   This is **epoch-gated** — pass your ownership epoch from `register_supervisor`; a
+   superseded supervisor's resolve is rejected (`{ superseded: true }`) and performs no
+   write (then self-exit per Step 2). Loop until `supervisor_next_decision` returns `null`.
+
+The daemon applies your verdict on its next tick (escalate → escalation inbox; nudge/
+resume → tmux nudge) and marks the request consumed. **Fail-safe:** a request you never
+resolve defaults to **escalate** after the timeout — nothing is silently dropped.
 
 ## 10b. Context-watchdog pass (never auto-compact)
 

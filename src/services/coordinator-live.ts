@@ -562,8 +562,14 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         // card opened an empty shell instead of attaching. For the common same-project
         // case targetProject === project, so this is a no-op there.
         try {
-          addSupervised(targetProject, poolName, 'spawn');
-          addWatchedProject(targetProject);
+          // Record the launch project (targetProject) so create-terminal derives
+          // the SAME tmux name this worker was launched under. tmux was created
+          // via ensureSession({ project: targetProject }) → tmuxBaseName(
+          // targetProject, poolName); without this the supervised row carried the
+          // tracking project and create-terminal attached to the wrong/empty tmux
+          // (cross-project only). addSupervised stores null when targetProject==project.
+          addSupervised(project, poolName, 'spawn', '', targetProject);
+          addWatchedProject(project);
         } catch { /* watching registration is best-effort; spawn already succeeded */ }
       }
       recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, type: poolType, started: ok, reason }) });

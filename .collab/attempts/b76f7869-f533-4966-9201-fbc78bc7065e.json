@@ -1,0 +1,11 @@
+{
+  "todoId": "b76f7869-f533-4966-9201-fbc78bc7065e",
+  "session": "worker-b76f7869",
+  "outcome": "accepted",
+  "retryReason": "re-derived-contract",
+  "layer": "collab",
+  "verbsTried": ["get_todo", "git merge collab/integration", "tsc --noEmit", "bun test"],
+  "failingVerb": null,
+  "failingReturn": null,
+  "summary": "Built COORD watchdog->supervisor decision handoff. Dependency 2dd13c65 (epoch fence) was absent from my worktree (branched too early); merged collab/integration to obtain it (also resolved a duplicate Profile-L1 conflict in favor of integration's canonical version). Added supervisor_decision table + CRUD (enqueue/dedupe-by-sigHash, resolve epoch-gated, consume) to supervisor-store; daemon enqueues ambiguous stops + drainSupervisorDecisions acts on verdicts (escalate/nudge/resume/wait) + timeout->escalate fail-safe in coordinator-live, wired into the tick via coordinator-daemon drainDecisions dep; two MCP tools supervisor_next_decision + supervisor_resolve_decision (epoch-gated) in setup.ts; on-demand supervisor spawn gate in supervisor-liveness (opt-in MERMAID_SUPERVISOR_ONDEMAND, pre-5.83.0); supervisor skill section 10c. Gate GREEN: 10 new + 95 related existing bun tests pass; tsc adds 0 new errors (5 pre-existing setup.ts import/local conflicts are foreign shared-tree WIP)."
+}

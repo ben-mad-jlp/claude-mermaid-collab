@@ -1,0 +1,11 @@
+{
+  "todoId": "378a47d2-34b4-49fb-bbbb-6e0942108310",
+  "session": "worker-378a47d2",
+  "outcome": "escalated",
+  "retryReason": "wrong-cmd",
+  "layer": "collab",
+  "verbsTried": ["get_todo"],
+  "failingVerb": "get_todo",
+  "failingReturn": "{\"error\":\"todo not found: 378a47d2-...\"}",
+  "summary": "Same root cause as d0d59599: server resolves worker project=worktree (worktrees/backend-2) to an empty worktree-local todos.db; the real todo lives in main repo .collab/todos.db (direct sqlite3 read returns it). get_todo returns 'todo not found' from the worktree, so complete_todo cannot record on the tracking project. Ironically this todo's own goal is to verify bookkeeping stays on the tracking project — that mechanism is currently broken."
+}

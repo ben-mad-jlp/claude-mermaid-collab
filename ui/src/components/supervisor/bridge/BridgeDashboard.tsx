@@ -9,8 +9,7 @@
  * owns the data scoping; the panel pieces are pure presentational cards.
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { getWebSocketClient } from '@/lib/websocket';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSupervisorStore } from '@/stores/supervisorStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { TodoDetailView } from '@/components/editors/TodoDetailView';
@@ -34,6 +33,7 @@ import { funnelCounts } from './funnel';
 import { selectOpenEscalations } from './escalationSelectors';
 import { useDeckStore } from '@/stores/deckStore';
 import { useFeatureFlags } from '@/config/featureFlags';
+import { getWebSocketClient } from '@/lib/websocket';
 
 export interface BridgeDashboardProps {
   /**
@@ -85,34 +85,34 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
     return Array.from(set);
   }, [currentSession?.project, supervised, subscriptions, todosByProject, project]);
 
-  // The Bridge's store data is fetched here and then kept live by WS events.
-  // Keep a ref to the latest scoped reload so the reconnect handler below never
-  // closes over a stale serverScope/project.
-  const resyncRef = useRef<() => void>(() => {});
-  resyncRef.current = () => {
+  // Single place that re-fetches every Bridge store for the current scope. Run
+  // on scope/project change AND on every WebSocket (re)connect — see below.
+  const resyncBridge = useCallback(() => {
     void loadEscalations(serverScope, 'open');
     if (project) {
       void loadProjectTodos(serverScope, project);
       void loadCoordinator(serverScope, project);
       void loadAudit(serverScope, project);
     }
-  };
+  }, [serverScope, project, loadEscalations, loadProjectTodos, loadCoordinator, loadAudit]);
 
   useEffect(() => {
-    resyncRef.current();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverScope, project]);
+    resyncBridge();
+  }, [resyncBridge]);
 
-  // BUGFIX (5b8dc726): re-fetch on WS reconnect. The socket auto-reconnects
-  // after a backend restart, but without this the load effect above only runs
-  // on a serverScope/project change — so the Bridge would freeze with stale
-  // funnel/graph/roster/coordinator data until a project switch or page reload.
-  // Re-run the scoped loaders whenever the shared client (re)connects.
+  // BUG FIX (5b8dc726): the WS client auto-reconnects after a drop (very common —
+  // the API server restarts often), but the load effect above keys only on
+  // [serverScope, project], so on reconnect nothing re-fetched and the
+  // funnel/graph/roster/stream stayed stale until a project-switch or reload.
+  // Register a client.onConnect handler (modeled on useAgentSession's resync)
+  // so each (re)connect re-runs the loaders for the CURRENT scope.
   useEffect(() => {
     const client = getWebSocketClient();
-    const sub = client.onConnect(() => resyncRef.current());
+    const sub = client.onConnect(() => {
+      resyncBridge();
+    });
     return () => sub.unsubscribe();
-  }, []);
+  }, [resyncBridge]);
 
   const projectAudit = auditByProject[project];
   useEffect(() => {
