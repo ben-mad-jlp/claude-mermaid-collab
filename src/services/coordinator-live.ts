@@ -523,7 +523,13 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         // addWatchedProject no-ops when watched) — safe to re-run when a warm pool
         // session takes a second todo.
         try {
-          addSupervised(project, poolName, 'spawn');
+          // Record the launch project (targetProject) so create-terminal derives
+          // the SAME tmux name this worker was launched under. tmux was created
+          // via ensureSession({ project: targetProject }) → tmuxBaseName(
+          // targetProject, poolName); without this the supervised row carried the
+          // tracking project and create-terminal attached to the wrong/empty tmux
+          // (cross-project only). addSupervised stores null when targetProject==project.
+          addSupervised(project, poolName, 'spawn', '', targetProject);
           addWatchedProject(project);
         } catch { /* watching registration is best-effort; spawn already succeeded */ }
       }

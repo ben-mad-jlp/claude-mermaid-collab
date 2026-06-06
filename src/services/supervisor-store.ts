@@ -26,6 +26,14 @@ export interface SupervisedSession {
   source: 'roadmap' | 'manual' | 'spawn';
   addedAt: number;
   serverId: string;
+  /** The project the worker's tmux session was actually launched under, when it
+   *  differs from the tracking `project` (a cross-project coordinator spawn:
+   *  targetProject != tracking project). Null for the common same-project case.
+   *  The supervised list stays grouped/scoped by the tracking `project`; this
+   *  field only carries the launch project so create-terminal can derive the
+   *  SAME tmux name the worker was launched under (tmuxBaseName(launchProject,
+   *  session)) instead of the wrong tmuxBaseName(project, session). */
+  launchProject: string | null;
 }
 
 
@@ -89,6 +97,7 @@ CREATE TABLE IF NOT EXISTS supervised_session (
   source TEXT NOT NULL,
   addedAt INTEGER NOT NULL,
   serverId TEXT NOT NULL DEFAULT '',
+  launchProject TEXT,
   PRIMARY KEY (project, session)
 );
 CREATE TABLE IF NOT EXISTS escalation (
@@ -183,6 +192,7 @@ function openDb(): Database {
   db.exec(DDL);
   // Idempotent migrations for existing DBs.
   addColumnIfMissing(db, 'supervised_session', 'serverId', "serverId TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, 'supervised_session', 'launchProject', 'launchProject TEXT');
   addColumnIfMissing(db, 'escalation', 'serverId', "serverId TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, 'supervisor_identity', 'serverId', "serverId TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, 'supervisor_identity', 'epoch', 'epoch INTEGER NOT NULL DEFAULT 0');
@@ -246,12 +256,30 @@ export function addSupervised(
   project: string,
   session: string,
   source: 'roadmap' | 'manual' | 'spawn',
-  serverId = ''
+  serverId = '',
+  launchProject: string | null = null
 ): void {
   const d = openDb();
+  // Only persist launchProject when it actually differs from the tracking
+  // project — null keeps the common same-project case semantically clean and
+  // lets create-terminal fall back to `project`.
+  const launch = launchProject && launchProject !== project ? launchProject : null;
   d.prepare(
-    'INSERT OR IGNORE INTO supervised_session (project, session, source, addedAt, serverId) VALUES (?,?,?,?,?)'
-  ).run(project, session, source, Date.now(), serverId);
+    'INSERT OR IGNORE INTO supervised_session (project, session, source, addedAt, serverId, launchProject) VALUES (?,?,?,?,?,?)'
+  ).run(project, session, source, Date.now(), serverId, launch);
+}
+
+/** The project a supervised worker's tmux was launched under, when it differs
+ *  from the tracking `project` (cross-project coordinator spawn). Returns null
+ *  for same-project workers or unknown rows — callers fall back to `project`.
+ *  This is what lets create-terminal derive the SAME tmux name the worker was
+ *  launched under (the cross-project wrong-terminal bug fix). */
+export function getSupervisedLaunchProject(project: string, session: string): string | null {
+  const d = openDb();
+  const row = d
+    .query('SELECT launchProject FROM supervised_session WHERE project = ? AND session = ?')
+    .get(project, session) as { launchProject: string | null } | undefined;
+  return row?.launchProject ?? null;
 }
 
 export function removeSupervised(project: string, session: string): void {

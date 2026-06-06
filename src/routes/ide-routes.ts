@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import type { WebSocketHandler } from '../websocket/handler.ts';
 import { ideState } from '../services/ide-state.ts';
 import { tmuxBaseName } from '../services/tmux-naming.js';
+import { getSupervisedLaunchProject } from '../services/supervisor-store.ts';
 import { sendTmuxKeys } from '../services/tmux-send.ts';
 import { launchAndBind } from '../services/claude-launch.ts';
 
@@ -64,22 +65,30 @@ export async function handleIdeRoutes(req: Request, url: URL, wsHandler: WebSock
       if (!project || typeof project !== 'string') {
         return jsonError('project is required', 400);
       }
-      const tmuxSession = tmuxBaseName(project, session);
+      // Cross-project workers (coordinator spawn with targetProject != tracking
+      // project) had their tmux created under the LAUNCH project, but the
+      // supervised row is keyed by the tracking project — so deriving the tmux
+      // name from `project` here attached to the wrong/empty session. Resolve the
+      // launch project the worker was actually launched under (null → same as
+      // `project`) and derive the tmux name + cwd from it, so we hit the SAME
+      // session. Same-project case is unchanged (launchProject is null).
+      const launchProject = getSupervisedLaunchProject(project, session) ?? project;
+      const tmuxSession = tmuxBaseName(launchProject, session);
       const { isTmuxAvailable } = await import('../services/tmux-availability.js');
       const tmuxAvailable = await isTmuxAvailable();
       if (tmuxAvailable) {
         // Self-heal a pre-fix session parked in the wrong dir before (re)creating.
         const { healStaleTmuxSession } = await import('../services/tmux-session.js');
-        await healStaleTmuxSession(tmuxSession, project);
+        await healStaleTmuxSession(tmuxSession, launchProject);
         try {
-          // `-c project` so the session's panes start in the project directory.
-          // This handler usually wins the race against POST /api/terminal/sessions
-          // (which also sets cwd), so without `-c` the session would be created in
-          // the *server* process's cwd (e.g. the app Resources dir) and `claude`/
-          // `git` would run against the wrong folder. `-c` is ignored by tmux if
-          // the session already exists, which is the desired no-op.
+          // `-c launchProject` so the session's panes start in the worker's actual
+          // project directory. This handler usually wins the race against POST
+          // /api/terminal/sessions (which also sets cwd), so without `-c` the
+          // session would be created in the *server* process's cwd (e.g. the app
+          // Resources dir) and `claude`/`git` would run against the wrong folder.
+          // `-c` is ignored by tmux if the session already exists (desired no-op).
           const proc = Bun.spawn(
-            ['tmux', 'new-session', '-d', '-s', tmuxSession, '-c', project],
+            ['tmux', 'new-session', '-d', '-s', tmuxSession, '-c', launchProject],
             { stdout: 'ignore', stderr: 'ignore' }
           );
           await proc.exited; // ok if it fails (session already exists)
