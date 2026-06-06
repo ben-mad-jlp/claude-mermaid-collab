@@ -133,6 +133,34 @@ if (MERMAID_AUTO_START_COORDINATOR && existsSync(MERMAID_PROJECT)) {
     const { autoStartCoordinator } = await import('./services/coordinator-live.js');
     autoStartCoordinator(MERMAID_PROJECT);
     console.log(`🤖 Coordinator daemon auto-started (always-on) for ${MERMAID_PROJECT}`);
+
+    // 51db1fe2: MERMAID_PROJECT is the desktop app's Resources dir — NOT a real
+    // dev repo with todos. The actual projects live in the registry, and they
+    // were NOT auto-managed: every app/sidecar restart silently left their
+    // coordinators stopped, so over-lease claims piled up un-reaped and ready
+    // work never got claimed (had to be hand-started each time). Auto-manage every
+    // REGISTERED project that has active work (ready OR in-progress todos) so a
+    // coordinator survives restarts — to claim ready work AND reap stuck claims.
+    // Idle projects (no active todos) are skipped so we don't spawn surprise
+    // workers across unrelated repos; the global cold-start cap still bounds total
+    // concurrent spawns across all projects.
+    try {
+      const { projectRegistry } = await import('./services/project-registry.js');
+      const { listReadyTodos, listTodos } = await import('./services/todo-store.js');
+      for (const p of await projectRegistry.list()) {
+        if (p.path === MERMAID_PROJECT || !existsSync(p.path)) continue;
+        let active = false;
+        try {
+          active = listReadyTodos(p.path).length > 0 || listTodos(p.path, { status: 'in_progress' }).length > 0;
+        } catch { active = false; } // no todos DB / unreadable → nothing to manage
+        if (active) {
+          autoStartCoordinator(p.path);
+          console.log(`🤖 Coordinator auto-started for registered project with active work: ${p.path}`);
+        }
+      }
+    } catch (err) {
+      console.warn(`mermaid-collab: registered-project coordinator auto-start skipped — ${err instanceof Error ? err.message : String(err)}`);
+    }
   } catch (err) {
     console.error(`mermaid-collab: coordinator auto-start failed — ${err instanceof Error ? err.message : String(err)}`);
   }
