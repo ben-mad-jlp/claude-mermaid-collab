@@ -35,6 +35,17 @@ export function TerminalPane({ sessionId, serverId }: { sessionId: string; serve
     term.open(container);
     try { fit.fit(); } catch { /* container may be 0-size briefly */ }
 
+    // BUGFIX (99a2023f): writing server output into xterm before its renderer
+    // has valid (non-zero) dimensions throws an ASYNC, UNCAUGHT
+    // 'Cannot read properties of undefined (reading dimensions)' from
+    // Viewport.syncScrollArea (our try/catch around write() can't catch the
+    // later render frame). So we (a) buffer output until the terminal has been
+    // measured + fitted (sentInitial), and (b) hard-stop all terminal ops once
+    // disposed, so a late WS frame or ResizeObserver tick can't operate on a
+    // torn-down terminal. A failed/closed WS therefore degrades quietly instead
+    // of crashing the pane.
+    let disposed = false;
+
     const ws = new WebSocket(getTerminalWebSocketURL(serverId, sessionId));
     const send = (msg: unknown) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
@@ -52,12 +63,28 @@ export function TerminalPane({ sessionId, serverId }: { sessionId: string; serve
       const el = containerRef.current;
       return !!el && el.clientWidth > 0 && el.clientHeight > 0;
     };
+
+    // Output buffered until the terminal has a real fitted size (sentInitial).
+    const pending: string[] = [];
+    const writeTerm = (data: string) => {
+      if (disposed) return;
+      if (!sentInitial) { pending.push(data); return; }
+      try { term.write(data); } catch { /* terminal torn down mid-write */ }
+    };
+    const flushPending = () => {
+      if (disposed || pending.length === 0) return;
+      const buf = pending.splice(0, pending.length).join('');
+      try { term.write(buf); } catch { /* ignore */ }
+    };
+
     const trySendInitial = () => {
-      if (sentInitial || !wsOpen || !hasSize()) return;
+      if (disposed || sentInitial || !wsOpen || !hasSize()) return;
       try { fit.fit(); } catch { return; }
       if (term.cols > 0 && term.rows > 0) {
         send({ type: 'resize', cols: term.cols, rows: term.rows, isInitial: true });
         sentInitial = true;
+        // Now that the renderer has valid dimensions, it's safe to flush.
+        flushPending();
       }
     };
 
@@ -71,13 +98,15 @@ export function TerminalPane({ sessionId, serverId }: { sessionId: string; serve
     ws.onclose = (e) => {
       // Keep only the close-with-error log; clean close is too noisy.
       if (!e.wasClean) console.warn('[TerminalPane] WS unclean close', sessionId, { code: e.code, reason: e.reason });
+      // Surface a 'disconnected' line instead of leaving a silently dead pane.
+      writeTerm(`\r\n\x1b[90m[disconnected]\x1b[0m\r\n`);
     };
     ws.onmessage = (e) => {
       try {
         const msg = JSON.parse(typeof e.data === 'string' ? e.data : '');
-        if (msg.type === 'output') term.write(msg.data);
-        else if (msg.type === 'exit') term.write(`\r\n\x1b[90m[process exited: ${msg.code}]\x1b[0m\r\n`);
-        else if (msg.type === 'error') term.write(`\r\n\x1b[31m[error: ${msg.message}]\x1b[0m\r\n`);
+        if (msg.type === 'output') writeTerm(msg.data);
+        else if (msg.type === 'exit') writeTerm(`\r\n\x1b[90m[process exited: ${msg.code}]\x1b[0m\r\n`);
+        else if (msg.type === 'error') writeTerm(`\r\n\x1b[31m[error: ${msg.message}]\x1b[0m\r\n`);
       } catch { /* ignore non-JSON frames */ }
     };
 
@@ -86,8 +115,9 @@ export function TerminalPane({ sessionId, serverId }: { sessionId: string; serve
     const doFit = () => {
       // Skip while hidden/zero-sized (e.g. a tab being torn down) — fitting at
       // 0x0 clamps the terminal to a tiny size and would resize the backing
-      // tmux pane, corrupting the TUI.
-      if (!hasSize()) return;
+      // tmux pane, corrupting the TUI. Also skip once disposed (a ResizeObserver
+      // tick can fire during teardown → operate on a disposed terminal → crash).
+      if (disposed || !hasSize()) return;
       if (!sentInitial) { trySendInitial(); return; }
       try {
         fit.fit();
@@ -98,10 +128,11 @@ export function TerminalPane({ sessionId, serverId }: { sessionId: string; serve
     observer.observe(container);
 
     return () => {
+      disposed = true;
       observer.disconnect();
       onData.dispose();
       try { ws.close(); } catch { /* ignore */ }
-      term.dispose();
+      try { term.dispose(); } catch { /* ignore double-dispose */ }
     };
   }, [sessionId, serverId]);
 

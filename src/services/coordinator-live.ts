@@ -7,6 +7,11 @@ import { tmuxBaseName } from './tmux-naming';
 import { ensureSession, runTodoInSession } from './claude-launch';
 import { runTick, type CoordinatorDeps, type GateVerdict } from './coordinator-daemon';
 import { loadProjectManifest } from '../config/project-manifest';
+import { runRegistryGate } from './gate-runner';
+// Import for side-effect: registers the CAD gate plugin (domain tier) into the
+// gate registry so a CAD step artifact is gated deterministically (Phase 1 #1).
+import './cad-gate-plugin';
+import { deriveBsyncSessionId, isCadTodo, bsyncSessionContextNote } from './bsync-session';
 import { resolveProfile, type AgentProfile } from '../config/agent-profiles';
 import {
   todoTypeToPoolType,
@@ -456,6 +461,17 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         contextPrompt = (contextPrompt ?? '') + note;
       }
 
+      // BSYNC SESSION ISOLATION (SEAM·both): a CAD worker must not use bsync's
+      // default in-memory session — concurrent CAD lanes would stomp each other's
+      // live assembly. Derive a stable, unique session_id from (project, lane,
+      // todo) and tell the worker to pass it on every bsync call. Keyed on the
+      // tracking `project` + lane `poolName` + todo id so it is reproducible on
+      // resume and distinct per concurrent worker.
+      if (isCadTodo(todo)) {
+        const bsyncSessionId = deriveBsyncSessionId(project, poolName, todo.id);
+        contextPrompt = (contextPrompt ?? '') + bsyncSessionContextNote(bsyncSessionId);
+      }
+
       // 2b. DOGFOOD #5 isolation: when enabled, run this worker in a fresh git
       //     worktree branched off the project's integration branch (so it sees all
       //     prior accepted work) instead of the shared working tree. cwd becomes
@@ -522,9 +538,17 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         // list so a card appears. Idempotent (addSupervised INSERT OR IGNORE on PK,
         // addWatchedProject no-ops when watched) — safe to re-run when a warm pool
         // session takes a second todo.
+        // BUGFIX (2e07d1c5): record the supervised row under the project the tmux
+        // session actually lives in (targetProject), NOT the tracking project.
+        // The tmux is created as tmuxBaseName(targetProject, poolName) (ensureSession
+        // above + markBusy), and /api/ide/create-terminal derives the tmux name from
+        // the supervised row's project — so for cross-project workers (targetProject
+        // != project) the tracking project produced a different name and clicking the
+        // card opened an empty shell instead of attaching. For the common same-project
+        // case targetProject === project, so this is a no-op there.
         try {
-          addSupervised(project, poolName, 'spawn');
-          addWatchedProject(project);
+          addSupervised(targetProject, poolName, 'spawn');
+          addWatchedProject(targetProject);
         } catch { /* watching registration is best-effort; spawn already succeeded */ }
       }
       recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, type: poolType, started: ok, reason }) });
@@ -699,64 +723,29 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       });
     },
     runGate: async (project: string, todoId: string): Promise<GateVerdict | null> => {
-      // AUTHORITATIVE gate: run the manifest-declared gate command in the repo
-      // dir and derive a verdict the worker cannot fake. No gateCommand → null
-      // (honor the worker's self-report, preserving prior behavior).
+      // AUTHORITATIVE gate: resolve the applicable gate plugin and run it. No
+      // applicable plugin → null (honor the worker's self-report, preserving prior
+      // behavior). The generic manifest-gateCommand runner is the project-tier
+      // fallback; a CAD step artifact resolves the deterministic CAD gate ahead of
+      // it (gate-runner registry: core → domain → project).
       //
       // CROSS-PROJECT (SEAM·collab): a todo may be implemented in a repo other
       // than the tracking project. Gate the TARGET repo — its manifest + its
       // change-set — not the tracking project's, which would be BLIND to the
       // actual edits (the observed f719e7e0 bug: gate ran in the tracking repo
       // and saw none of the target's changes).
-      const gateProject = getTodo(project, todoId)?.targetProject ?? project;
-      const cmd = loadProjectManifest(gateProject)?.gateCommand?.trim();
-      if (!cmd) return null;
-      try {
-        // ASYNC (944408c2): the gate runs tsc + tests — seconds to minutes. Running
-        // it with spawnSync froze the ENTIRE single-threaded sidecar (HTTP API,
-        // terminal, health) for the whole gate. Await it instead so the event loop
-        // keeps serving while the gate child runs.
-        const proc = await execAsync(['sh', '-c', cmd], { cwd: gateProject, capture: true });
-        const out = proc.stdout + '\n' + proc.stderr;
-        // Prefer a structured verdict if the gate emits a trailing JSON line
-        // (e.g. a CAD fitness gate: {"passed":false,"reasons":[...],"metrics":{...}}).
-        const structured = parseTrailingVerdict(out);
-        if (structured) return structured;
-        const passed = proc.code === 0;
-        return { passed, reasons: passed ? [] : [`gate command exited ${proc.code}: ${lastLines(out, 20)}`] };
-      } catch (e) {
-        // Fail CLOSED — an un-runnable gate blocks acceptance, never passes it.
-        return { passed: false, reasons: [`gate could not run (${cmd}): ${e instanceof Error ? e.message : String(e)}`] };
-      }
+      const todo = getTodo(project, todoId);
+      const gateProject = todo?.targetProject ?? project;
+      return runRegistryGate({
+        project,
+        gateProject,
+        todoId,
+        todo: todo ?? null,
+        manifest: loadProjectManifest(gateProject),
+        exec: execAsync,
+      });
     },
   };
-}
-
-/** Scan the tail of gate output for a JSON object carrying a boolean `passed`.
- *  Lets a domain gate emit a structured {passed, reasons, metrics} verdict on its
- *  last line; anything else falls back to the exit code. */
-function parseTrailingVerdict(out: string): GateVerdict | null {
-  const lines = out.split('\n').map((l) => l.trim()).filter(Boolean);
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i];
-    if (!line.startsWith('{') || !line.endsWith('}')) continue;
-    try {
-      const obj = JSON.parse(line);
-      if (obj && typeof obj.passed === 'boolean') {
-        return {
-          passed: obj.passed,
-          reasons: Array.isArray(obj.reasons) ? obj.reasons.map(String) : [],
-          metrics: obj.metrics && typeof obj.metrics === 'object' ? obj.metrics : undefined,
-        };
-      }
-    } catch { /* not JSON — keep scanning upward */ }
-  }
-  return null;
-}
-
-/** Last `n` non-empty lines of a string, joined — for compact failure reasons. */
-function lastLines(s: string, n: number): string {
-  return s.split('\n').map((l) => l.trimEnd()).filter(Boolean).slice(-n).join('\n');
 }
 
 const timers = new Map<string, ReturnType<typeof setInterval>>();

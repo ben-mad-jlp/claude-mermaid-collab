@@ -9,9 +9,12 @@
  * owns the data scoping; the panel pieces are pure presentational cards.
  */
 
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { getWebSocketClient } from '@/lib/websocket';
 import { useSupervisorStore } from '@/stores/supervisorStore';
 import { useSessionStore } from '@/stores/sessionStore';
+import { TodoDetailView } from '@/components/editors/TodoDetailView';
+import type { SessionTodo } from '@/types/sessionTodo';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { useUIStore } from '@/stores/uiStore';
 import { useEventStreamStore } from '@/stores/eventStreamStore';
@@ -21,6 +24,7 @@ import { SplitPane } from '@/components/layout/SplitPane';
 import { SplitDeck } from './SplitDeck';
 import { CommandBar } from './CommandBar';
 import { NeedsYouZone } from './NeedsYouZone';
+import { HumanInbox } from '@/components/todos/HumanInbox';
 import { FleetVitals } from './FleetVitals';
 import { WorkerRoster } from './WorkerRoster';
 import { StreamTicker } from './StreamTicker';
@@ -43,6 +47,7 @@ export interface BridgeDashboardProps {
 
 export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer }) => {
   const currentSession = useSessionStore((s) => s.currentSession);
+  const upsertSessionTodo = useSessionStore((s) => s.upsertSessionTodo);
   const serverScope = currentSession?.serverId ?? 'local';
   const diveIn = useDiveIn();
   const selectInPlace = useSelectSessionInPlace();
@@ -55,6 +60,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
   const supervised = useSupervisorStore((s) => s.supervised);
   const todosByProject = useSupervisorStore((s) => s.todosByProject);
   const loadProjectTodos = useSupervisorStore((s) => s.loadProjectTodos);
+  const promoteTodo = useSupervisorStore((s) => s.promoteTodo);
   const loadEscalations = useSupervisorStore((s) => s.loadEscalations);
   const coordinatorByProject = useSupervisorStore((s) => s.coordinatorByProject);
   const loadCoordinator = useSupervisorStore((s) => s.loadCoordinator);
@@ -79,15 +85,34 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
     return Array.from(set);
   }, [currentSession?.project, supervised, subscriptions, todosByProject, project]);
 
-  useEffect(() => {
+  // The Bridge's store data is fetched here and then kept live by WS events.
+  // Keep a ref to the latest scoped reload so the reconnect handler below never
+  // closes over a stale serverScope/project.
+  const resyncRef = useRef<() => void>(() => {});
+  resyncRef.current = () => {
     void loadEscalations(serverScope, 'open');
     if (project) {
       void loadProjectTodos(serverScope, project);
       void loadCoordinator(serverScope, project);
       void loadAudit(serverScope, project);
     }
+  };
+
+  useEffect(() => {
+    resyncRef.current();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverScope, project]);
+
+  // BUGFIX (5b8dc726): re-fetch on WS reconnect. The socket auto-reconnects
+  // after a backend restart, but without this the load effect above only runs
+  // on a serverScope/project change — so the Bridge would freeze with stale
+  // funnel/graph/roster/coordinator data until a project switch or page reload.
+  // Re-run the scoped loaders whenever the shared client (re)connects.
+  useEffect(() => {
+    const client = getWebSocketClient();
+    const sub = client.onConnect(() => resyncRef.current());
+    return () => sub.unsubscribe();
+  }, []);
 
   const projectAudit = auditByProject[project];
   useEffect(() => {
@@ -129,6 +154,15 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
     diveIn({ project: proj, session });
   };
 
+  // G8: a todo node clicked in the FleetGraph surfaces its detail BELOW the
+  // Stream card in the left panel. Seed sessionStore first — TodoDetailView reads
+  // the todo from sessionStore.sessionTodos by id (same as PlanWorkspace.selectTodo).
+  const [selectedTodoId, setSelectedTodoId] = useState<string | null>(null);
+  const handleSelectTodo = (todo: SessionTodo) => {
+    upsertSessionTodo(todo);
+    setSelectedTodoId(todo.id);
+  };
+
   // BR-4: focal DecisionCard overlay (behind a flag; inline inbox card untouched).
   const flags = useFeatureFlags();
   const focalEscalationId = useDeckStore((s) => s.focalEscalationId);
@@ -161,6 +195,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
       subs={projectSubs}
       openEscalations={openEscalations}
       onWorkerSelect={selectInPlace}
+      onSelectTodo={handleSelectTodo}
     />
   );
   const stage = artifactViewer ? (
@@ -200,6 +235,16 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
               serverScope={serverScope}
               onJump={handleJump}
             />
+            {/* "Your todos": the human-assigned, human-actionable slice of the
+                work-graph. Derived from the same project todos store (no new WS
+                events); Claim/Complete drive the work-graph transitions a person
+                owns, and the link chip deep-links into the program's native UI. */}
+            <HumanInbox
+              todos={todos}
+              onClaim={(t) => void promoteTodo(serverScope, project, t.id, 'in_progress')}
+              onComplete={(t) => void promoteTodo(serverScope, project, t.id, 'done')}
+              onOpen={handleSelectTodo}
+            />
             <FleetVitals
               running={running}
               readyCount={readyCount}
@@ -208,9 +253,38 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
             />
             <WorkerRoster subscriptions={projectSubs} todos={todos} onJump={handleJump} />
             <StreamTicker events={projectStreamEvents} />
+            {/* G8: todo detail surfaces BELOW the Stream card when a node is clicked. */}
+            {selectedTodoId && (
+              <div
+                data-testid="bridge-todo-detail"
+                className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 min-w-0"
+              >
+                <div className="flex items-center justify-between pb-1">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    Todo
+                  </div>
+                  <button
+                    type="button"
+                    aria-label="Close todo detail"
+                    onClick={() => setSelectedTodoId(null)}
+                    className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-sm leading-none px-1"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <TodoDetailView todoId={selectedTodoId} />
+              </div>
+            )}
           </>
         }
-        right={<FleetGraph todos={todos} subs={projectSubs} openEscalations={openEscalations} />}
+        right={
+          <FleetGraph
+            todos={todos}
+            subs={projectSubs}
+            openEscalations={openEscalations}
+            onSelectTodo={handleSelectTodo}
+          />
+        }
       />
 
       {flags.jsonRenderDecisionCard && focalEscalation && (
