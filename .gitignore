@@ -34,6 +34,12 @@ Thumbs.db
 /.collab/*.db-wal
 /.collab/todos.json
 /.collab/agent-sessions/
+# Coordinator attempt records (runtime provenance; not source)
+/.collab/attempts/
+# Desktop app local runtime collab data
+/desktop/.collab/
+# Scheduled-tasks runtime lock
+/.claude/scheduled_tasks.lock
 /scratch/
 /extensions/vscode/*.vsix
 .worktrees/
