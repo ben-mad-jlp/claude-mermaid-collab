@@ -717,4 +717,23 @@ describe('steward verbs', () => {
     expect(res.promoted).toContain(child.id);
     expect(listReadyTodos(project).map((x) => x.id)).toContain(child.id);
   });
+
+  test('openDb maps a worker-worktree path → the tracking repo db (same rows)', async () => {
+    // Regression for the recurring isolation-worker 'todo not found' / 'disk I/O error'
+    // phantom-claim escalations (decision 20106f26): a worker whose project is its
+    // worktree (<repo>/.collab/agent-sessions/worktrees/<lane>) must resolve to the
+    // SAME todos.db as the repo root — never a worktree-local empty/absent db.
+    const created = await createTodo(project, { ownerSession: 's1', title: 'owned-by-repo' });
+    const worktreePath = join(project, '.collab', 'agent-sessions', 'worktrees', 'backend-2');
+
+    // Read through the worktree path: must see the repo's row, not an empty db.
+    const viaWorktree = getTodo(worktreePath, created.id);
+    expect(viaWorktree).not.toBeNull();
+    expect(viaWorktree!.title).toBe('owned-by-repo');
+    expect(listTodos(worktreePath).map((t) => t.id)).toContain(created.id);
+
+    // Write through the worktree path: must land in the repo's db.
+    const fromWorktree = await createTodo(worktreePath, { ownerSession: 's2', title: 'created-in-worktree' });
+    expect(getTodo(project, fromWorktree.id)!.title).toBe('created-in-worktree');
+  });
 });

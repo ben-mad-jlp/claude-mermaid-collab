@@ -1,6 +1,7 @@
 import Database from 'bun:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { trackingProjectRoot } from './project-registry';
 
 /**
  * Decision-record store (PCS open-problem #9). Project-scoped first-class
@@ -86,6 +87,8 @@ function addColumnIfMissing(d: Database, table: string, col: string, ddl: string
 }
 
 function openDb(project: string): Database {
+  // Map a worker-worktree path back to its tracking repo (see todo-store.openDb).
+  project = trackingProjectRoot(project);
   const cached = dbCache.get(project);
   if (cached) return cached;
   const path = join(project, '.collab', 'decision-records.db');

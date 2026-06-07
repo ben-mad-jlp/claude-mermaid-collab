@@ -1,6 +1,7 @@
 import Database from 'bun:sqlite';
 import { mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { trackingProjectRoot } from './project-registry';
 import { createHash, randomUUID } from 'node:crypto';
 import type {
   SystemObject,
@@ -65,6 +66,8 @@ function addColumnIfMissing(db: Database, table: string, col: string, ddl: strin
 const dbCache = new Map<string, Database>();
 
 function openDb(project: string): Database {
+  // Map a worker-worktree path back to its tracking repo (see todo-store.openDb).
+  project = trackingProjectRoot(project);
   const cached = dbCache.get(project);
   if (cached) return cached;
   const path = join(project, '.collab', 'system-objects.db');

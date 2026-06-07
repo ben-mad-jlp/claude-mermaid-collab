@@ -2,6 +2,7 @@ import Database from 'bun:sqlite';
 import { mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { hostname } from 'node:os';
+import { trackingProjectRoot } from './project-registry';
 
 /**
  * Per-PROJECT todo store (Phase 0 of the todos upgrade — see design-todos-upgrade).
@@ -215,6 +216,11 @@ function addColumnIfMissing(db: Database, table: string, col: string, ddl: strin
 const dbCache = new Map<string, Database>();
 
 function openDb(project: string): Database {
+  // A worker whose cwd is its isolation worktree (<repo>/.collab/agent-sessions/...)
+  // must resolve to the TRACKING repo's todos.db, never a worktree-local one — else
+  // it opens an empty/absent db (silent 'no such table', or SQLITE_IOERR creating it
+  // on a full disk) and the Coordinator's rows are invisible. See decision 20106f26.
+  project = trackingProjectRoot(project);
   const cached = dbCache.get(project);
   if (cached) return cached;
   const path = join(project, '.collab', 'todos.db');
@@ -256,6 +262,7 @@ function openDb(project: string): Database {
 
 /** For tests: drop the cached handle so a fresh dir opens a fresh DB. */
 export function _closeProject(project: string): void {
+  project = trackingProjectRoot(project);
   const db = dbCache.get(project);
   if (db) {
     try { db.close(); } catch { /* ignore */ }
