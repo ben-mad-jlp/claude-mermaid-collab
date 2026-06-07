@@ -485,12 +485,15 @@ export function isStewardPaused(): boolean {
   return !!d.query('SELECT 1 FROM supervisor_pause WHERE scope = ? LIMIT 1').get(STEWARD_PAUSE_SCOPE);
 }
 
-/** Runtime ON/OFF switch for the steward (the live human off-switch — distinct
- *  from MERMAID_STEWARD_AUTO, the build-time env arm, and from the transient
- *  steward_pause "I've got it"). PERSISTENT: survives a poll/restart, stored as a
- *  sentinel scope in the shared supervisor_pause table. Default ON (absent =
- *  enabled) so an env-armed steward runs unless a human flips it off; the running
- *  steward skill checks this each loop and idles + routes all→human while OFF. */
+/** Runtime ON/OFF switch for the steward's ESCALATION AUTO-ANSWER (the live human
+ *  off-switch — distinct from MERMAID_STEWARD_AUTO, the build-time env arm, and from
+ *  the transient steward_pause "I've got it"). PERSISTENT: survives a poll/restart,
+ *  stored as a sentinel scope in the shared supervisor_pause table. Default ON
+ *  (absent = enabled) so an env-armed steward auto-answers unless a human flips it
+ *  off. The gate is NARROW (feedback_steward_dogfood_always_on): while OFF, the
+ *  server routes every escalation to the human and the steward skill skips
+ *  auto-answering them — but the steward's dogfood/friction-detection loop keeps
+ *  running unconditionally. This switch never gates dogfooding. */
 export const STEWARD_DISABLED_SCOPE = '__steward_disabled__';
 export function setStewardEnabled(enabled: boolean): void {
   setSupervisorPause(STEWARD_DISABLED_SCOPE, !enabled);
