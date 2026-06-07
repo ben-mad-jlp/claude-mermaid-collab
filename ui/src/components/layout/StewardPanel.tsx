@@ -142,21 +142,34 @@ export const StewardPanel: React.FC<StewardPanelProps> = ({ currentProject }) =>
         allowedTools: 'Bash Edit Write Read mcp__plugin_mermaid-collab_mermaid',
       };
       const mc = (window as any).mc;
+      let result: { started?: boolean; reason?: string } = {};
       if (mc?.invokeOnServer) {
-        await mc.invokeOnServer(serverScope, { path: '/api/ide/launch-session', method: 'POST', body: launchBody });
+        const res = await mc.invokeOnServer(serverScope, { path: '/api/ide/launch-session', method: 'POST', body: launchBody });
+        result = res?.body ?? {};
       } else {
-        await fetch('/api/ide/launch-session', {
+        const res = await fetch('/api/ide/launch-session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(launchBody),
         });
+        result = await res.json().catch(() => ({}));
       }
-    } catch {
-      /* best-effort */
+      // The launch spawns a tmux claude session that registers as steward only
+      // after it boots + runs /steward (~30–60s) — so the panel won't flip to
+      // the dashboard immediately. Surface an outright launch failure so a silent
+      // no-op (e.g. no-tmux / no-project-dir) doesn't look like nothing happened.
+      if (result.started === false) {
+        alert(`Steward failed to start: ${result.reason ?? 'unknown'}`);
+      }
+    } catch (err) {
+      alert(`Steward failed to start: ${err instanceof Error ? err.message : 'unknown error'}`);
     } finally {
       setStarting(false);
+      // Kick an immediate identity refresh so the dashboard appears as soon as
+      // the session registers, rather than waiting for the next 10s poll.
+      void loadStewardIdentity(serverScope, project || undefined);
     }
-  }, [project, stewardSession, serverScope]);
+  }, [project, stewardSession, serverScope, loadStewardIdentity]);
 
   // [Pause] / [Take over] — best-effort control calls. The steward control
   // endpoints land in a later phase; until then these degrade to no-ops (the
@@ -204,44 +217,24 @@ export const StewardPanel: React.FC<StewardPanelProps> = ({ currentProject }) =>
       </button>
 
       {collapsed ? null : stewardState !== 'running' ? (
-        // Front door: 'none' → Become the Steward, 'crashed' → Restart. Inline
-        // (self-contained clone) so the panel owns the steward launch flow.
+        // Front door: a single Start/Restart button. Project + session come from
+        // the server steward-config (the dedicated global steward workspace), so
+        // no name/location inputs or description are needed.
         <div className="px-3 pb-3">
-          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 space-y-3">
-            <div className="text-center space-y-1">
-              <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                {stewardState === 'none' ? 'Become the Steward' : 'Steward — not running'}
-              </h2>
-              <p className="text-2xs text-gray-500 dark:text-gray-400 leading-relaxed">
-                The human&apos;s autonomous stand-in for escalation triage — answers what it safely can,
-                routes the rest to you. A second steward supersedes the first (the free kill-switch).
-              </p>
-            </div>
-            <input
-              type="text"
-              value={stewardSession}
-              onChange={(e) => setStewardSession(e.target.value)}
-              placeholder="e.g. steward"
-              className="w-full text-xs rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-info-400"
-            />
-            <div className="text-2xs text-gray-400 dark:text-gray-500 font-mono truncate" title={project}>
-              {project || 'no project scope'}
-            </div>
-            <button
-              data-testid="steward-launch"
-              onClick={() => void handleLaunch()}
-              disabled={starting || !project || !stewardSession}
-              className="w-full py-1.5 px-3 text-xs font-semibold rounded bg-info-600 hover:bg-info-700 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {starting
-                ? stewardState === 'none'
-                  ? 'Starting…'
-                  : 'Restarting…'
-                : stewardState === 'none'
-                  ? 'Start steward'
-                  : 'Restart steward'}
-            </button>
-          </div>
+          <button
+            data-testid="steward-launch"
+            onClick={() => void handleLaunch()}
+            disabled={starting || !project || !stewardSession}
+            className="w-full py-1.5 px-3 text-xs font-semibold rounded bg-info-600 hover:bg-info-700 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {starting
+              ? stewardState === 'none'
+                ? 'Starting…'
+                : 'Restarting…'
+              : stewardState === 'none'
+                ? 'Start steward'
+                : 'Restart steward'}
+          </button>
         </div>
       ) : (
         // Running dashboard — leads with liveness, then the loud scary metric.

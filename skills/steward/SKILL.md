@@ -25,17 +25,25 @@ Two jobs, always together:
 
 ## Step 0 — Register as the steward (epoch fence)
 
-Register on the existing supervisor convention so the server pushes real-time
-escalation/reconcile notifications into THIS session and fences a stale steward:
+Register under the **steward** role (a parallel, independent epoch to the
+supervisor) so the server pushes real-time escalation/reconcile notifications into
+THIS session, stamps the `steward` identity row the StewardPanel reads, and fences
+a stale steward:
 
 ```
-register_supervisor { project: <cwd>, session: <this session>, serverId: <own serverId if known, else ''> }
+register_steward { project: <cwd>, session: <this session>, serverId: <own serverId if known, else ''> }
 ```
 
-- **Capture the `epoch`** from the response — your ownership token. Hold it for the
-  session and pass `supervisorEpoch: <epoch>` on every mutating supervisor call
-  (`escalation_resolve`, and `supervisor_*` if you use them). The server bumps the
-  epoch on every register, so this is the single-writer fence.
+- **MUST be `register_steward`, NOT `register_supervisor`.** The steward is its own
+  role: `register_steward` writes the `steward` identity row (`supervisor_identity`
+  keyed by role) that flips the StewardPanel front door to the live dashboard.
+  Calling `register_supervisor` here registers under the supervisor role instead —
+  the steward panel never sees a steward and stays on the Start button forever.
+- **Capture the `epoch`** from `{ steward: { epoch } }` — your ownership token. Hold
+  it for the session and pass `supervisorEpoch: <epoch>` (a.k.a. `stewardEpoch`) on
+  every mutating call (`escalation_resolve`, and `supervisor_*` if you use them).
+  The server bumps the steward-epoch on every register, so this is the single-writer
+  fence.
 - **On a `{ superseded: true }` response** from any call: a newer steward/supervisor
   owns the role and the server performed NO write. **Stop immediately** — don't retry
   or re-register; cancel any pending wake; tell the user "superseded (epoch N) — exiting"
@@ -153,7 +161,7 @@ You are the human's autonomous stand-in, never an unaccountable one. Three recla
 exist — all server-enforced, none require killing a process:
 
 - **Supersede (the hard kill-switch).** A human simply runs this skill in their own session:
-  `register_supervisor`/`register_steward` bumps the steward epoch, and the previous autonomous
+  `register_steward` bumps the steward epoch, and the previous autonomous
   steward is **stopped cold** — its next fenced call gets `{ superseded: true }` (server did NO
   write) and it must exit. "I've got it from here" needs no coordination.
 - **Pause / resume.** `steward_pause` stops the router forwarding — every NEW escalation routes
@@ -178,7 +186,7 @@ role-agnostically by `(project, session)`, so you are checkpoint/clear-managed l
 Run this once against the REAL queue to confirm the full triage→act→resolve→keep-flowing
 loop works on shipped verbs with zero schema. It is the Phase-0 exit criterion.
 
-1. **Register** — `register_supervisor` returns an `{ epoch }`; a second call returns a
+1. **Register** — `register_steward` returns a `{ steward: { epoch } }`; a second call returns a
    higher epoch (fence works). Hold the latest.
 2. **Pull** — `escalation_list` returns the open queue; for each, `get_todo` returns its
    status/retryCount/acceptanceStatus. (Empty queue ⇒ nothing to prove now; seed one by
