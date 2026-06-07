@@ -61,4 +61,12 @@ describe('StewardPanel — ON/OFF switch', () => {
     expect(offToggle.getAttribute('data-enabled')).toBe('false');
     expect(offToggle.textContent).toContain('OFF');
   });
+
+  it('labels the toggle as the escalation auto-answer switch (not a whole-steward switch)', () => {
+    seed({ identity: { project: '/p', session: 'steward', updatedAt: Date.now() }, running: true, stale: false, ageMs: 100, overrideAccepts: 0, switchedOn: true });
+    render(<StewardPanel currentProject="/p" />);
+    // The visible label makes clear the toggle gates only escalation auto-answer —
+    // dogfooding runs regardless (feedback_steward_dogfood_always_on).
+    expect(screen.getByText('Auto-answer escalations')).toBeTruthy();
+  });
 });

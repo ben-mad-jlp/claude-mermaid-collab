@@ -1,0 +1,11 @@
+{
+  "todoId": "1403a771-3a8c-4dbc-b0aa-c75ff853ba51",
+  "session": "backend-1",
+  "outcome": "accepted",
+  "retryReason": "wrong-cmd",
+  "layer": "collab",
+  "verbsTried": ["get_todo", "complete_todo"],
+  "failingVerb": "get_todo",
+  "failingReturn": "todo not found when project=worktree path; succeeds with project=tracking repo root (/Users/benmaderazo/Code/claude-mermaid-collab) — worktree cwd not resolved to tracking todos.db for this id",
+  "summary": "Split the steward gate: narrowed the ON/OFF toggle + MERMAID_STEWARD_AUTO to escalation-auto-answer only (SKILL.md Step 0/5 + description state dogfooding is unconditional; supervisor-store isStewardEnabled doc; StewardPanel relabel 'Auto-answer escalations' + clarified titles). tsc clean, panel(5)+routing(22) tests green."
+}

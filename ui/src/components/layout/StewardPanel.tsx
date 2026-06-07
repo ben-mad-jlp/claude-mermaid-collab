@@ -223,13 +223,19 @@ export const StewardPanel: React.FC<StewardPanelProps> = ({ currentProject }) =>
             {stewardLiveness?.identity?.session && (
               <span className="font-mono text-gray-600 dark:text-gray-300 truncate">{stewardLiveness.identity.session}</span>
             )}
-            {/* Live ON/OFF switch — the human's runtime off-switch. */}
+            {/* Live ON/OFF switch — the human's runtime off-switch. It gates ONLY
+                the escalation AUTO-ANSWER path (reset/override on steward-routed
+                escalations); the steward's dogfood/friction-detection loop runs
+                unconditionally whenever a steward is registered. */}
+            <span className="ml-auto text-3xs text-gray-500 dark:text-gray-400" title="This switch controls only auto-answering escalations — dogfooding/friction-detection always runs while a steward is registered.">
+              Auto-answer escalations
+            </span>
             <button
               data-testid="steward-enabled-toggle"
               data-enabled={switchedOn}
               onClick={() => void setStewardEnabled(!switchedOn)}
-              title={switchedOn ? 'Steward is ON — auto-acting. Click to turn OFF (all escalations route to you).' : 'Steward is OFF — all escalations route to you. Click to turn ON.'}
-              className={`ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-3xs font-semibold border transition-colors ${
+              title={switchedOn ? 'Auto-answer escalations is ON — the steward auto-acts (proof-gated) on steward-routed escalations. Click to turn OFF (all escalations route to you; dogfooding still runs).' : 'Auto-answer escalations is OFF — all escalations route to you (dogfooding still runs). Click to turn ON.'}
+              className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-3xs font-semibold border transition-colors ${
                 switchedOn
                   ? 'border-success-400 text-success-700 dark:text-success-300 bg-success-50 dark:bg-success-900/30'
                   : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400'

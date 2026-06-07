@@ -1,6 +1,6 @@
 ---
 name: steward
-description: Build-time Steward — the meta-role above PCS that dogfoods the collab system while building it. Drives the escalation queue to empty by triaging each open escalation (stale / verified-done / now-buildable / genuine-decision / needs-design), acting with the steward verbs (reset_todo, override_accept_todo, update_session_todo), and keeping the Coordinator flowing. Invoke when the user says "handle the escalations", "steward these", or "keep them going".
+description: Build-time Steward — the meta-role above PCS that dogfoods the collab system while building it. Dogfooding (friction-detection: filing todos, record_friction, proposing fixes) runs UNCONDITIONALLY whenever a steward is registered; the ON/OFF toggle (and MERMAID_STEWARD_AUTO) gate ONLY the human-escalation auto-answer path. Drives the escalation queue to empty by triaging each open escalation (stale / verified-done / now-buildable / genuine-decision / needs-design), acting with the steward verbs (reset_todo, override_accept_todo, update_session_todo), and keeping the Coordinator flowing. Invoke when the user says "handle the escalations", "steward these", or "keep them going".
 user-invocable: true
 allowed-tools:
   - Read
@@ -44,13 +44,24 @@ register_supervisor { project: <cwd>, session: <this session>, serverId: <own se
 This is Phase 0: ZERO schema. The steward is a SKILL that registers, loops on
 `escalation_list`, and acts via already-shipped verbs — nothing new in the DB.
 
-**Honor the live ON/OFF switch EACH LOOP.** Before acting on a tick, call
-`steward_pause_status` and read `switchedOn` (the human's runtime off-switch, set
-via `steward_set_enabled` / the StewardPanel toggle — distinct from the
-`MERMAID_STEWARD_AUTO` env arm and the transient `steward_pause`). When
-`switchedOn` is **false**, do NOT auto-act: idle this loop (the server is already
-routing every new escalation to the human). Re-check next loop; resume acting only
-when it flips back ON. Treat a `paused` or non-`live` snapshot the same way.
+**The ON/OFF switch gates ONLY escalation auto-answer — NOT dogfooding.** This is
+the gate split (memory `feedback_steward_dogfood_always_on`). There are two halves
+of your loop and the toggle governs only one of them:
+
+- **Dogfood / friction-detection (Step 5) is UNCONDITIONAL.** Whenever a steward is
+  registered, you ALWAYS detect friction and act on it — file todos, call
+  `record_friction`, propose fixes/verbs — regardless of `switchedOn`,
+  `MERMAID_STEWARD_AUTO`, pause, or liveness. The toggle never silences this; it is
+  the always-valuable half.
+- **Escalation auto-answer (Steps 2–3 acting on steward-routed escalations) IS gated.**
+  Before auto-acting on an escalation each tick, call `steward_pause_status` and read
+  `switchedOn` (the human's runtime off-switch, set via `steward_set_enabled` / the
+  StewardPanel "Auto-answer escalations" toggle — distinct from the
+  `MERMAID_STEWARD_AUTO` env arm and the transient `steward_pause`). When `switchedOn`
+  is **false** (or the snapshot is `paused` / non-`live`), do NOT auto-answer
+  escalations — the server is already routing every new escalation to the human, so
+  just skip the act-on-escalation step this loop and re-check next loop. **Keep
+  dogfooding the whole time.**
 
 ## Step 1 — Pull state AND ground-truth it
 
@@ -134,7 +145,12 @@ If you reach for raw SQL on `todos.db`, STOP: that's missing-verb friction. Add 
 - After the sweep, `escalation_list` should be `[]`. Re-read the affected todos to confirm they
   landed (done/accepted) or are in-flight.
 
-## Step 5 — Dogfood the gaps you hit
+## Step 5 — Dogfood the gaps you hit (ALWAYS — never gated by the toggle)
+
+This loop runs **unconditionally** whenever a steward is registered. The ON/OFF
+switch and `MERMAID_STEWARD_AUTO` gate ONLY escalation auto-answer (Steps 2–3); they
+NEVER silence dogfooding. Even with the toggle OFF — when every escalation is routing
+to the human — you still detect friction and act on it here.
 
 Every manual work-around is a signal. As steward you CLOSE the loop:
 - **Missing verb** → add it (this skill's `reset_todo`/`override_accept_todo` came from exactly
