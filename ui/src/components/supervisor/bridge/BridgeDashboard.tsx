@@ -24,6 +24,10 @@ import { SplitDeck } from './SplitDeck';
 import { CommandBar } from './CommandBar';
 import { RolesStrip } from './RolesStrip';
 import { NeedsYouZone } from './NeedsYouZone';
+import { BridgeEscalationInbox } from './BridgeEscalationInbox';
+import { FleetStatusGrid, type FleetGridRow } from './FleetStatusGrid';
+import { FLEET_SENTINEL } from './fleetSentinel';
+import { disambiguateProjectLabels } from '@/components/layout/SupervisorPanel';
 import { RequirementsInbox } from './RequirementsInbox';
 import { HumanInbox } from '@/components/todos/HumanInbox';
 import { FleetVitals } from './FleetVitals';
@@ -32,7 +36,7 @@ import { StreamTicker } from './StreamTicker';
 import { FleetGraph } from './fleet/FleetGraph';
 import { DecisionCard } from './focal/DecisionCard';
 import { funnelCounts } from './funnel';
-import { selectOpenEscalations } from './escalationSelectors';
+import { selectOpenEscalations, selectFleetOpenCount, selectOpenEscalationsByProject } from './escalationSelectors';
 import { useDeckStore } from '@/stores/deckStore';
 import { useFeatureFlags } from '@/config/featureFlags';
 import { getWebSocketClient } from '@/lib/websocket';
@@ -56,6 +60,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
   const isDesktop = useIsDesktop();
 
   const activeProjectPref = useUIStore((s) => s.activeProject);
+  const setActiveProject = useUIStore((s) => s.setActiveProject);
 
   const escalations = useSupervisorStore((s) => s.escalations);
   const supervised = useSupervisorStore((s) => s.supervised);
@@ -81,6 +86,35 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
   const backfillFromAudit = useEventStreamStore((s) => s.backfillFromAudit);
 
   const project = activeProjectPref ?? currentSession?.project ?? supervised[0]?.project ?? '';
+  // FLEET landing (design-tabbed-bridge §2a): cross-project triage + status grid,
+  // shown when the "Fleet" row is selected instead of a single project's cockpit.
+  const isFleet = activeProjectPref === FLEET_SENTINEL;
+  const isRoleWorkspace = (p: string) => /\/\.mermaid-collab\/(supervisor|steward)\/?$/.test(p);
+
+  // All open escalations across the fleet, urgency-sorted (newest first) — the
+  // cross-project triage list. One global list; project tag rides each card.
+  const allOpenEscalations = useMemo(
+    () => (Array.isArray(escalations) ? escalations.filter((e) => e.status === 'open') : []).slice().sort((a, b) => b.createdAt - a.createdAt),
+    [escalations],
+  );
+
+  // Per-project status rows for the FLEET grid.
+  const fleetRows = useMemo<FleetGridRow[]>(() => {
+    const counts = selectOpenEscalationsByProject(escalations);
+    const paths = new Set<string>();
+    (Array.isArray(watchedProjects) ? watchedProjects : []).forEach((w) => w.project && !isRoleWorkspace(w.project) && paths.add(w.project));
+    const labels = disambiguateProjectLabels(Array.from(paths));
+    return Array.from(paths)
+      .map((p) => ({
+        project: p,
+        name: labels[p] ?? (p.split('/').filter(Boolean).pop() ?? p),
+        escalationCount: counts[p] ?? 0,
+        coordinatorRunning: !!coordinatorByProject[p],
+        readyCount: (todosByProject[p] ?? []).filter((t) => t.status === 'ready' && !t.claimedBy).length,
+        workerCount: Object.values(subscriptions).filter((s) => s.project === p && s.status === 'active').length,
+      }))
+      .sort((a, b) => (b.escalationCount - a.escalationCount) || a.name.localeCompare(b.name));
+  }, [escalations, watchedProjects, coordinatorByProject, todosByProject, subscriptions]);
 
   // Load the watched-project list for the active server (the unified Bridge tree
   // in the left column reads watchedProjects; this keeps it fresh from here too).
@@ -102,12 +136,12 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
   const resyncBridge = useCallback(() => {
     void loadEscalations(serverScope, 'open');
     const railProjects = new Set<string>(watchedProjects.map((w) => w.project).filter(Boolean));
-    if (project) railProjects.add(project);
+    if (project && project !== FLEET_SENTINEL) railProjects.add(project);
     for (const p of railProjects) {
       void loadProjectTodos(serverScope, p);
       void loadCoordinator(serverScope, p);
     }
-    if (project) {
+    if (project && project !== FLEET_SENTINEL) {
       void loadAudit(serverScope, project);
       void loadRequirements(serverScope, project);
       void loadCoverage(serverScope, project);
@@ -271,6 +305,27 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
           />
         }
         left={
+          isFleet ? (
+            // FLEET landing — cross-project triage: every open escalation, project
+            // tag on each card, urgency-sorted. Resolve/decide in place.
+            <div data-testid="fleet-triage" className="space-y-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                Triage · {selectFleetOpenCount(escalations)} open across {fleetRows.filter((r) => r.escalationCount > 0).length} project{fleetRows.filter((r) => r.escalationCount > 0).length === 1 ? '' : 's'}
+              </div>
+              {allOpenEscalations.length === 0 ? (
+                <div className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
+                  <span className="text-success-500" aria-hidden="true">✓</span>
+                  <span>All clear — nothing needs you across the fleet</span>
+                </div>
+              ) : (
+                <BridgeEscalationInbox
+                  escalations={allOpenEscalations}
+                  serverScope={serverScope}
+                  onJump={(proj) => setActiveProject(proj)}
+                />
+              )}
+            </div>
+          ) : (
           <>
             {/* Per-project Coordinator switch. The fleet-global Steward/Supervisor
                 switches live up in the CommandBar (GlobalRoleSwitches). */}
@@ -332,14 +387,23 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
               </div>
             )}
           </>
+          )
         }
         right={
-          <FleetGraph
-            todos={graphTodos}
-            subs={projectSubs}
-            openEscalations={openEscalations}
-            onSelectTodo={handleSelectTodo}
-          />
+          isFleet ? (
+            <FleetStatusGrid
+              rows={fleetRows}
+              onSelectProject={(p) => setActiveProject(p)}
+              onStartCoordinator={(p) => void setCoordinator(serverScope, p, 'start')}
+            />
+          ) : (
+            <FleetGraph
+              todos={graphTodos}
+              subs={projectSubs}
+              openEscalations={openEscalations}
+              onSelectTodo={handleSelectTodo}
+            />
+          )
         }
       />
 

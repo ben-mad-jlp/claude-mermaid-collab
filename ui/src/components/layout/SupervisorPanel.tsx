@@ -27,7 +27,8 @@ import { ServerIcon } from '@/components/ServerIcon';
 import { SessionCard, ClaudePixAvatar, type SessionCardData } from '@/components/layout/SessionCard';
 import { SupervisorOnboarding } from '@/components/supervisor/SupervisorOnboarding';
 import { useUIStore } from '@/stores/uiStore';
-import { selectOpenEscalationsByProject } from '@/components/supervisor/bridge/escalationSelectors';
+import { selectOpenEscalationsByProject, selectFleetOpenCount } from '@/components/supervisor/bridge/escalationSelectors';
+import { FLEET_SENTINEL } from '@/components/supervisor/bridge/fleetSentinel';
 import { AddProjectDialog } from '@/components/dialogs';
 
 /**
@@ -585,6 +586,28 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
         </div>
       ) : (
         <div className="px-2 pb-2">
+          {/* FLEET row — the cross-project landing (triage + status grid). Clicking
+              it selects the fleet sentinel and jumps to the Bridge. Carries the
+              fleet-wide open-escalation total. */}
+          <button
+            type="button"
+            data-testid="fleet-row"
+            data-active={activeProject === FLEET_SENTINEL}
+            onClick={() => handleSelectProject(FLEET_SENTINEL)}
+            className={`w-full flex items-center gap-2 rounded-md px-2 py-1 mb-1 text-xs font-semibold ${
+              activeProject === FLEET_SENTINEL
+                ? 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200 ring-2 ring-accent-500'
+                : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800'
+            }`}
+          >
+            <span aria-hidden="true">◉</span>
+            <span className="flex-1 text-left">Fleet</span>
+            {selectFleetOpenCount(escalations) > 0 && (
+              <span className="shrink-0 text-3xs font-bold text-danger-600 dark:text-danger-400">
+                ▲{selectFleetOpenCount(escalations)}
+              </span>
+            )}
+          </button>
           {byProject.length === 0 ? (
             <div className="px-2 py-4 text-xs text-gray-500 dark:text-gray-400 text-center">
               No projects yet — add one below
