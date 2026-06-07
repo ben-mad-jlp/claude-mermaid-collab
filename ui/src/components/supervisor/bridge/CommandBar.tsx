@@ -17,8 +17,8 @@ export interface CommandBarProps {
   project: string;
   projectOptions: string[];
   onSelectProject: (project: string) => void;
-  /** Add a project (path) to the Bridge. Omit to hide the add control. */
-  onAddProject?: (path: string) => void;
+  /** Open the add-project dialog. Omit to hide the add control. */
+  onAddProject?: () => void;
   /** Remove a project (path) from the Bridge. Omit to hide remove controls. */
   onRemoveProject?: (path: string) => void;
   liveCount: number;
@@ -122,9 +122,8 @@ export const CommandBar: React.FC<CommandBarProps> = ({
                   type="button"
                   data-testid="bridge-project-add"
                   onClick={() => {
-                    const path = window.prompt('Add project — absolute path:')?.trim();
                     setMenuOpen(false);
-                    if (path) onAddProject(path);
+                    onAddProject();
                   }}
                   className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-accent-600 dark:text-accent-400 hover:bg-gray-100 dark:hover:bg-gray-700"
                 >

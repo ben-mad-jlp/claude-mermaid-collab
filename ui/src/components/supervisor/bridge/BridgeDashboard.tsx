@@ -22,6 +22,8 @@ import { useIsDesktop } from '@/hooks/useIsDesktop';
 import { SplitPane } from '@/components/layout/SplitPane';
 import { SplitDeck } from './SplitDeck';
 import { CommandBar } from './CommandBar';
+import { AddProjectDialog } from '@/components/dialogs';
+import { useServers } from '@/contexts/ServerContext';
 import { NeedsYouZone } from './NeedsYouZone';
 import { RequirementsInbox } from './RequirementsInbox';
 import { HumanInbox } from '@/components/todos/HumanInbox';
@@ -78,9 +80,19 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
   const loadCoverage = useSupervisorStore((s) => s.loadCoverage);
 
   const subscriptions = useSubscriptionStore((s) => s.subscriptions);
+  const { servers } = useServers();
 
   const streamEvents = useEventStreamStore((s) => s.events);
   const backfillFromAudit = useEventStreamStore((s) => s.backfillFromAudit);
+
+  // Projects removed this session — kept hidden immediately even when their row
+  // still arrives from a derived source (supervised/subscriptions/todos), since
+  // removeProject only unwatches and those feeds would otherwise re-add them.
+  const [hiddenProjects, setHiddenProjects] = useState<Set<string>>(() => new Set());
+
+  // The global role workspaces (~/.mermaid-collab/supervisor, .../steward) are
+  // not user projects — never list them in the Bridge project picker.
+  const isRoleWorkspace = (p: string) => /\/\.mermaid-collab\/(supervisor|steward)\/?$/.test(p);
 
   const project = activeProjectPref ?? currentSession?.project ?? supervised[0]?.project ?? '';
 
@@ -94,8 +106,8 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
     // supervised session or any todos.
     watchedProjects.forEach((w) => w.project && set.add(w.project));
     if (project) set.add(project);
-    return Array.from(set);
-  }, [currentSession?.project, supervised, subscriptions, todosByProject, watchedProjects, project]);
+    return Array.from(set).filter((p) => !isRoleWorkspace(p) && !hiddenProjects.has(p));
+  }, [currentSession?.project, supervised, subscriptions, todosByProject, watchedProjects, project, hiddenProjects]);
 
   // Load the watched-project list once for the active server so the dropdown is
   // populated (and reflects add/remove) independent of supervised sessions.
@@ -103,23 +115,28 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
     void loadProjects(serverScope);
   }, [serverScope, loadProjects]);
 
-  // Add/remove a project from the Bridge dropdown. Adding selects it so the
-  // Bridge immediately scopes to the new project.
-  const handleAddProject = useCallback(
-    (path: string) => {
-      void addProject(serverScope, path).then(() => setActiveProject(path));
+  // Add/remove a project from the Bridge dropdown. "Add" opens the same
+  // AddProjectDialog the Header uses (server picker + validated path input);
+  // on submit we register/watch the project and scope the Bridge to it.
+  const [addOpen, setAddOpen] = useState(false);
+  const handleAddSubmit = useCallback(
+    async (sid: string, path: string) => {
+      await addProject(sid, path);
+      setActiveProject(path);
     },
-    [serverScope, addProject, setActiveProject],
+    [addProject, setActiveProject],
   );
   const handleRemoveProject = useCallback(
     (path: string) => {
-      void removeProject(serverScope, path).then(() => {
-        // If the removed project was active, fall back to another option.
-        if (project === path) {
-          const next = projectOptions.find((p) => p !== path) ?? '';
-          setActiveProject(next || null);
-        }
-      });
+      // Hide it immediately (derived feeds would otherwise re-add it), then
+      // unwatch on the server.
+      setHiddenProjects((prev) => new Set(prev).add(path));
+      void removeProject(serverScope, path);
+      // If the removed project was active, fall back to another visible option.
+      if (project === path) {
+        const next = projectOptions.find((p) => p !== path) ?? '';
+        setActiveProject(next || null);
+      }
     },
     [serverScope, removeProject, project, projectOptions, setActiveProject],
   );
@@ -166,6 +183,35 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
     () => Object.values(subscriptions).filter((s) => s.project === project),
     [subscriptions, project],
   );
+
+  // Graph-only view of the todos: the FleetGraph should not show finished noise —
+  // (a) completed/dropped ORPHAN todos (no parent, not an epic), and (b) EPICS
+  // whose every child is finished (hide the epic and its finished children).
+  // Active epics keep showing all their children (incl. done ones) for context.
+  // The inboxes/funnel/roster still use the full `todos`.
+  const graphTodos = useMemo(() => {
+    const finished = (t: SessionTodo) => t.status === 'done' || t.status === 'dropped';
+    const ids = new Set(todos.map((t) => t.id));
+    const childrenByParent = new Map<string, SessionTodo[]>();
+    for (const t of todos) {
+      if (t.parentId && ids.has(t.parentId)) {
+        const arr = childrenByParent.get(t.parentId) ?? [];
+        arr.push(t);
+        childrenByParent.set(t.parentId, arr);
+      }
+    }
+    const isEpic = (id: string) => childrenByParent.has(id);
+    const doneEpics = new Set<string>();
+    for (const [pid, kids] of childrenByParent) {
+      if (kids.every(finished)) doneEpics.add(pid);
+    }
+    return todos.filter((t) => {
+      if (t.parentId && doneEpics.has(t.parentId)) return false; // child of a fully-done epic
+      if (isEpic(t.id) && doneEpics.has(t.id)) return false;     // the fully-done epic itself
+      if (!t.parentId && !isEpic(t.id) && finished(t)) return false; // completed orphan
+      return true;
+    });
+  }, [todos]);
 
   const running = !!coordinatorByProject[project];
   const readyCount = useMemo(
@@ -261,7 +307,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
             project={project}
             projectOptions={projectOptions}
             onSelectProject={setActiveProject}
-            onAddProject={handleAddProject}
+            onAddProject={() => setAddOpen(true)}
             onRemoveProject={handleRemoveProject}
             liveCount={liveCount}
             inflightCount={inflightCount}
@@ -330,7 +376,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
         }
         right={
           <FleetGraph
-            todos={todos}
+            todos={graphTodos}
             subs={projectSubs}
             openEscalations={openEscalations}
             onSelectTodo={handleSelectTodo}
@@ -344,6 +390,15 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
           serverScope={serverScope}
           onClose={closeFocal}
           onJump={handleJump}
+        />
+      )}
+
+      {addOpen && (
+        <AddProjectDialog
+          servers={servers}
+          defaultServerId={servers.find((s) => s.id === serverScope)?.id ?? servers.find((s) => s.source === 'local')?.id ?? servers[0]?.id ?? serverScope}
+          onSubmit={handleAddSubmit}
+          onClose={() => setAddOpen(false)}
         />
       )}
     </div>
