@@ -27,6 +27,8 @@ import { ServerIcon } from '@/components/ServerIcon';
 import { SessionCard, ClaudePixAvatar, type SessionCardData } from '@/components/layout/SessionCard';
 import { SupervisorOnboarding } from '@/components/supervisor/SupervisorOnboarding';
 import { useUIStore } from '@/stores/uiStore';
+import { selectOpenEscalationsByProject } from '@/components/supervisor/bridge/escalationSelectors';
+import { AddProjectDialog } from '@/components/dialogs';
 
 /**
  * Reduce a project's session-card statuses to ONE combined health status — the
@@ -112,6 +114,20 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
     loadLiveness,
   } = useSupervisorStore();
 
+  // Unified Bridge tree (design-tabbed-bridge PIVOT): the watched-project set is
+  // the project index; escalation counts + coordinator state badge each row;
+  // clicking a row drives the Bridge. watch === supervise (add/remove couples).
+  const watchedProjects = useSupervisorStore((s) => s.watchedProjects);
+  const coordinatorByProject = useSupervisorStore((s) => s.coordinatorByProject);
+  const escalations = useSupervisorStore((s) => s.escalations);
+  const loadProjects = useSupervisorStore((s) => s.loadProjects);
+  const loadCoordinator = useSupervisorStore((s) => s.loadCoordinator);
+  const addProject = useSupervisorStore((s) => s.addProject);
+  const removeProject = useSupervisorStore((s) => s.removeProject);
+  const activeProject = useUIStore((s) => s.activeProject);
+  const setActiveProject = useUIStore((s) => s.setActiveProject);
+  const setMode = useUIStore((s) => s.setMode);
+
   const subscriptions = useSubscriptionStore((s) => s.subscriptions);
   const sessions = useSessionStore((s) => s.sessions);
   const setCurrentSession = useSessionStore((s) => s.setCurrentSession);
@@ -121,6 +137,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   const toggleSupervisorProject = useUIStore((s) => s.toggleSupervisorProject);
   const [collapsed, setCollapsed] = useState(false);
   const [startingSup, setStartingSup] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
 
   const handleStartSupervisor = async () => {
     const serverId = serverScope;
@@ -192,11 +209,19 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
       // Restart front door within the staleness window when the supervisor dies.
       void loadConfig(serverScope);
       void loadLiveness(serverScope);
+      // Unified tree: the watched-project set + per-project coordinator dots.
+      void loadProjects(serverScope);
     };
     refresh();
     const id = setInterval(refresh, 10_000);
     return () => clearInterval(id);
-  }, [serverScope, loadSupervised, loadEscalations, loadConfig, loadLiveness]);
+  }, [serverScope, loadSupervised, loadEscalations, loadConfig, loadLiveness, loadProjects]);
+
+  // Coordinator state for every watched project (drives the per-row ●/○ dot).
+  const watchedList = Array.isArray(watchedProjects) ? watchedProjects : [];
+  useEffect(() => {
+    watchedList.forEach((w) => w.project && void loadCoordinator(serverScope, w.project));
+  }, [serverScope, watchedList, loadCoordinator]);
 
   // Front-door state: no config saved → 'none' (Become the Supervisor); config
   // present but the heartbeat has gone stale (or never registered) → 'crashed'
@@ -219,7 +244,16 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   const serverLabelById = useMemo(() => buildServerLabelMap(servers), [servers]);
   const activeServerIcon = (activeId ? serverIconById.get(activeId) : undefined) ?? serverIconById.get('local');
 
-  // Supervised sessions grouped by project (the session-centric view).
+  // The global role workspaces (~/.mermaid-collab/supervisor, .../steward) are not
+  // user projects — never list them in the Bridge tree.
+  const isRoleWorkspace = (p: string) => /\/\.mermaid-collab\/(supervisor|steward)\/?$/.test(p);
+
+  // Unified Bridge tree rows: the union of WATCHED projects (the index) and any
+  // project that has supervised sessions, each carrying its sessions + the
+  // per-row metadata (open-escalation count from the single roll-up path, the
+  // coordinator dot). Sorted urgency-first: red (most escalations) → quiet
+  // (alphabetical), so "which project needs you" floats to the top.
+  const escalationCounts = useMemo(() => selectOpenEscalationsByProject(escalations), [escalations]);
   const byProject = useMemo(() => {
     const m = new Map<string, SupervisedSession[]>();
     for (const s of supervised) {
@@ -227,13 +261,80 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
       arr.push(s);
       m.set(s.project, arr);
     }
-    return Array.from(m.entries())
-      .map(([project, sessions]) => ({
+    const paths = new Set<string>();
+    watchedList.forEach((w) => w.project && !isRoleWorkspace(w.project) && paths.add(w.project));
+    for (const p of m.keys()) if (!isRoleWorkspace(p)) paths.add(p);
+    return Array.from(paths)
+      .map((project) => ({
         project,
-        sessions: sessions.sort((a, b) => a.session.localeCompare(b.session)),
+        sessions: (m.get(project) ?? []).slice().sort((a, b) => a.session.localeCompare(b.session)),
+        escalationCount: escalationCounts[project] ?? 0,
+        coordinatorRunning: !!coordinatorByProject[project],
       }))
-      .sort((a, b) => a.project.localeCompare(b.project));
-  }, [supervised]);
+      .sort((a, b) => {
+        if ((b.escalationCount > 0 ? 1 : 0) !== (a.escalationCount > 0 ? 1 : 0)) {
+          return (b.escalationCount > 0 ? 1 : 0) - (a.escalationCount > 0 ? 1 : 0);
+        }
+        if (a.escalationCount !== b.escalationCount) return b.escalationCount - a.escalationCount;
+        return a.project.localeCompare(b.project);
+      });
+  }, [supervised, watchedList, escalationCounts, coordinatorByProject]);
+
+  // Live-but-unwatched projects (supervised/subscriptions − watched − role) — the
+  // dim "watch+" affordance at the bottom of the tree.
+  const detectedProjects = useMemo(() => {
+    const known = new Set(byProject.map((r) => r.project));
+    const set = new Set<string>();
+    supervised.forEach((s) => s.project && set.add(s.project));
+    Object.values(subscriptions).forEach((s) => s.project && set.add(s.project));
+    return Array.from(set).filter((p) => !known.has(p) && !isRoleWorkspace(p));
+  }, [supervised, subscriptions, byProject]);
+
+  // Click a project row → make it the active Bridge project and jump to Bridge
+  // mode (decision C: the left column is the single master).
+  const handleSelectProject = useCallback(
+    (project: string) => {
+      setActiveProject(project);
+      setMode('bridge');
+    },
+    [setActiveProject, setMode],
+  );
+
+  // watch === supervise (decision B). Adding a project watches it AND supervises
+  // every session of it currently known (from subscriptions); removing unwatches
+  // and stops supervising those sessions. Per-session shield still opts out.
+  const superviseSession = useCallback(
+    async (project: string, session: string, on: boolean) => {
+      const mc = (window as any).mc;
+      const path = '/api/supervisor/supervised';
+      const body = on ? { project, session, source: 'manual' } : { project, session };
+      const method = on ? 'POST' : 'DELETE';
+      if (mc?.invokeOnServer) await mc.invokeOnServer(serverScope, { path, method, body });
+      else await fetch(path, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => {});
+    },
+    [serverScope],
+  );
+  const handleAddProject = useCallback(
+    async (path: string) => {
+      await addProject(serverScope, path);
+      // Couple: supervise the project's currently-known sessions.
+      const sess = Object.values(subscriptions).filter((s) => s.project === path).map((s) => s.session);
+      await Promise.all(sess.map((s) => superviseSession(path, s, true)));
+      void loadSupervised(serverScope);
+      handleSelectProject(path);
+    },
+    [serverScope, addProject, subscriptions, superviseSession, loadSupervised, handleSelectProject],
+  );
+  const handleRemoveProjectRow = useCallback(
+    async (path: string) => {
+      const sess = (byProject.find((r) => r.project === path)?.sessions ?? []).map((s) => s.session);
+      await Promise.all(sess.map((s) => superviseSession(path, s, false)));
+      void removeProject(serverScope, path);
+      if (activeProject === path) setActiveProject(null);
+      void loadSupervised(serverScope);
+    },
+    [serverScope, byProject, superviseSession, removeProject, activeProject, setActiveProject, loadSupervised],
+  );
 
   // Distinct (activeId, project) pairs from supervised sessions — the unit of
   // the per-project session-status API.
@@ -396,9 +497,9 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
           onClick={() => setCollapsed((c) => !c)}
           className="flex-1 flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
         >
-          <span>Supervisor</span>
+          <span>Bridge</span>
           <span className="ml-1 text-gray-400 dark:text-gray-500 font-normal">
-            {supervised.length}
+            {byProject.length}
           </span>
           <svg
             className={`w-3 h-3 ml-auto text-gray-400 transition-transform ${collapsed ? '-rotate-90' : ''}`}
@@ -444,11 +545,11 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
       </div>
 
       {/* Body */}
-      {!collapsed && supervisorState !== 'running' ? (
-        // No running supervisor: render the front door instead of the dashboard.
-        // 'none' → Become the Supervisor onboarding; 'crashed' → Restart card
-        // (config present but the heartbeat went stale). SupervisorOnboarding
-        // loads/saves config itself via the store, so it stays in sync.
+      {collapsed ? null : supervisorState === 'none' ? (
+        // Unconfigured supervisor (first run): the onboarding sets project+session
+        // and starts the role. Once configured the unified project tree shows even
+        // if the supervisor process is stopped — it's the project INDEX, not the
+        // supervisor dashboard. (Restart lives on the header ▶ button.)
         <div className="pb-2">
           <SupervisorOnboarding
             serverId={serverScope}
@@ -456,54 +557,87 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
             lastSession={config?.supervisorSession}
           />
         </div>
-      ) : !collapsed ? (
+      ) : (
         <div className="px-2 pb-2">
-          {supervised.length === 0 ? (
+          {byProject.length === 0 ? (
             <div className="px-2 py-4 text-xs text-gray-500 dark:text-gray-400 text-center">
-              No supervised sessions
+              No projects yet — add one below
             </div>
           ) : (
-            byProject.map(({ project, sessions: projSessions }, i) => {
+            byProject.map(({ project, sessions: projSessions, escalationCount, coordinatorRunning }, i) => {
               const cards = projSessions.map((s) => cardDataFor(s));
               // Combined per-project health: reduce every card's status to one.
               const combined = combineCardStatus(cards.map((c) => c.status));
               const isProjCollapsed = !!collapsedProjects[project];
               const projName = project.split('/').filter(Boolean).pop() ?? project;
+              const isActive = activeProject === project;
               return (
                 <div key={project} className={i > 0 ? 'mt-2' : ''}>
-                  {/* Per-project collapsible header: dancing-Claude avatar (dances
-                      when any worker is active), the combined-state color, and a
-                      collapse toggle whose state is persisted in uiStore. */}
-                  <button
-                    type="button"
+                  {/* Per-project row: click the name → activate the Bridge for this
+                      project; the chevron collapses its sessions. Escalation badge
+                      (red) + coordinator dot ride the row; active row gets a ring. */}
+                  <div
                     data-testid="supervisor-project-header"
                     data-project={project}
                     data-combined-status={combined}
+                    data-active={isActive}
                     aria-expanded={!isProjCollapsed}
-                    onClick={() => toggleSupervisorProject(project)}
-                    className={`w-full flex items-center gap-2 rounded-md px-2 py-1 text-xs font-medium text-gray-800 dark:text-gray-100 ${projectHeaderBg(combined)}`}
+                    className={`group w-full flex items-center gap-2 rounded-md px-2 py-1 text-xs font-medium text-gray-800 dark:text-gray-100 ${projectHeaderBg(combined)} ${isActive ? 'ring-2 ring-accent-500' : ''}`}
                   >
-                    <span className="flex-shrink-0">
-                      <ClaudePixAvatar status={combined} />
-                    </span>
-                    <span className="truncate" title={project}>{projName}</span>
-                    <span className="text-gray-500 dark:text-gray-400 font-normal">{projSessions.length}</span>
-                    <svg
-                      className={`w-3 h-3 ml-auto transition-transform ${isProjCollapsed ? '-rotate-90' : ''}`}
-                      viewBox="0 0 20 20"
-                      fill="currentColor"
+                    <button
+                      type="button"
+                      onClick={() => handleSelectProject(project)}
+                      title={`Open ${projName} in the Bridge`}
+                      className="flex-1 min-w-0 flex items-center gap-2 text-left"
                     >
-                      <path
-                        fillRule="evenodd"
-                        d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
-                        clipRule="evenodd"
+                      <span className="flex-shrink-0">
+                        <ClaudePixAvatar status={combined} />
+                      </span>
+                      <span
+                        className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${coordinatorRunning ? 'bg-success-500' : 'border border-gray-400 dark:border-gray-500'}`}
+                        title={coordinatorRunning ? 'Coordinator running' : 'Coordinator off'}
+                        aria-hidden="true"
                       />
-                    </svg>
-                  </button>
+                      <span className="truncate" title={project}>{projName}</span>
+                      {escalationCount > 0 && (
+                        <span data-testid="supervisor-project-badge" className="shrink-0 text-3xs font-bold text-danger-600 dark:text-danger-400">
+                          ▲{escalationCount > 99 ? '99+' : escalationCount}
+                        </span>
+                      )}
+                      <span className="text-gray-500 dark:text-gray-400 font-normal">{projSessions.length}</span>
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="supervisor-project-remove"
+                      title={`Remove ${projName} from the Bridge`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (window.confirm(`Remove "${projName}" from the Bridge?\n\nStops watching + supervising its sessions; files on disk are untouched.`)) {
+                          void handleRemoveProjectRow(project);
+                        }
+                      }}
+                      className="opacity-0 group-hover:opacity-100 shrink-0 p-0.5 rounded text-gray-500 hover:text-danger-600"
+                    >
+                      <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Toggle sessions"
+                      aria-expanded={!isProjCollapsed}
+                      onClick={() => toggleSupervisorProject(project)}
+                      className="shrink-0 text-gray-500"
+                    >
+                      <svg className={`w-3 h-3 transition-transform ${isProjCollapsed ? '-rotate-90' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                  </div>
 
                   {/* Supervised sessions — same card as Watching. Hidden when the
                       project group is collapsed. */}
-                  {!isProjCollapsed && (
+                  {!isProjCollapsed && projSessions.length > 0 && (
                     <div className="space-y-1 mt-1">
                       {projSessions.map((s, idx) => {
                         const card = cards[idx];
@@ -531,11 +665,49 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
             })
           )}
 
-          {/* Escalations inbox REMOVED — scoped escalations now live ONLY in the
-              Bridge's NeedsYouZone (Z1). The main left column no longer surfaces
-              them, to keep a single source of "needs you". */}
+          {/* Detected (live-but-unwatched) projects — one click to watch+supervise. */}
+          {detectedProjects.length > 0 && (
+            <div className="mt-2 pt-1 border-t border-gray-200 dark:border-gray-700">
+              <div className="px-2 text-3xs uppercase tracking-wide text-gray-400 dark:text-gray-500">detected</div>
+              {detectedProjects.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  data-testid="supervisor-detected"
+                  onClick={() => void handleAddProject(p)}
+                  title={`Watch + supervise ${p}`}
+                  className="w-full flex items-center gap-1.5 px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
+                >
+                  <span className="inline-block w-1.5 h-1.5 rounded-full border border-dashed border-gray-400 shrink-0" aria-hidden="true" />
+                  <span className="flex-1 min-w-0 truncate text-left">{p.split('/').filter(Boolean).pop() ?? p}</span>
+                  <span className="shrink-0 text-3xs text-accent-600 dark:text-accent-400">watch+</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          <button
+            type="button"
+            data-testid="supervisor-add-project"
+            onClick={() => setAddOpen(true)}
+            className="mt-2 w-full flex items-center justify-center gap-1 px-2 py-1 text-xs text-accent-600 dark:text-accent-400 border border-dashed border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-800"
+          >
+            <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+              <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+            </svg>
+            Add project
+          </button>
         </div>
-      ) : null}
+      )}
+
+      {addOpen && (
+        <AddProjectDialog
+          servers={servers}
+          defaultServerId={servers.find((s) => s.id === serverScope)?.id ?? localServerOf(servers)?.id ?? servers[0]?.id ?? serverScope}
+          onSubmit={async (_sid, path) => { await handleAddProject(path); }}
+          onClose={() => setAddOpen(false)}
+        />
+      )}
     </div>
   );
 };

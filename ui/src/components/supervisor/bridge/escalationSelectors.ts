@@ -28,6 +28,7 @@ export function selectOpenEscalations(escalations: Escalation[], project: string
  * enforced by a parity unit test.
  */
 export function selectOpenEscalationsByProject(escalations: Escalation[]): Record<string, number> {
+  if (!Array.isArray(escalations)) return {};
   return escalations.reduce((m, e) => {
     if (e.status === 'open') m[e.project] = (m[e.project] ?? 0) + 1;
     return m;
@@ -36,6 +37,7 @@ export function selectOpenEscalationsByProject(escalations: Escalation[]): Recor
 
 /** Fleet-wide open-escalation total — `sum(selectOpenEscalationsByProject)`. */
 export function selectFleetOpenCount(escalations: Escalation[]): number {
+  if (!Array.isArray(escalations)) return 0;
   let n = 0;
   for (const e of escalations) if (e.status === 'open') n++;
   return n;

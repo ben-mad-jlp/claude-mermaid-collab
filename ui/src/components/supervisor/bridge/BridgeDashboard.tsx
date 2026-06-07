@@ -22,11 +22,7 @@ import { useIsDesktop } from '@/hooks/useIsDesktop';
 import { SplitPane } from '@/components/layout/SplitPane';
 import { SplitDeck } from './SplitDeck';
 import { CommandBar } from './CommandBar';
-import { AddProjectDialog } from '@/components/dialogs';
-import { useServers } from '@/contexts/ServerContext';
 import { RolesStrip } from './RolesStrip';
-import { ProjectRail } from './ProjectRail';
-import type { ProjectRailRowData } from './ProjectRailRow';
 import { NeedsYouZone } from './NeedsYouZone';
 import { RequirementsInbox } from './RequirementsInbox';
 import { HumanInbox } from '@/components/todos/HumanInbox';
@@ -36,7 +32,7 @@ import { StreamTicker } from './StreamTicker';
 import { FleetGraph } from './fleet/FleetGraph';
 import { DecisionCard } from './focal/DecisionCard';
 import { funnelCounts } from './funnel';
-import { selectOpenEscalations, selectOpenEscalationsByProject } from './escalationSelectors';
+import { selectOpenEscalations } from './escalationSelectors';
 import { useDeckStore } from '@/stores/deckStore';
 import { useFeatureFlags } from '@/config/featureFlags';
 import { getWebSocketClient } from '@/lib/websocket';
@@ -60,14 +56,11 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
   const isDesktop = useIsDesktop();
 
   const activeProjectPref = useUIStore((s) => s.activeProject);
-  const setActiveProject = useUIStore((s) => s.setActiveProject);
 
   const escalations = useSupervisorStore((s) => s.escalations);
   const supervised = useSupervisorStore((s) => s.supervised);
   const watchedProjects = useSupervisorStore((s) => s.watchedProjects);
   const loadProjects = useSupervisorStore((s) => s.loadProjects);
-  const addProject = useSupervisorStore((s) => s.addProject);
-  const removeProject = useSupervisorStore((s) => s.removeProject);
   const todosByProject = useSupervisorStore((s) => s.todosByProject);
   const loadProjectTodos = useSupervisorStore((s) => s.loadProjectTodos);
   const promoteTodo = useSupervisorStore((s) => s.promoteTodo);
@@ -83,90 +76,17 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
   const loadCoverage = useSupervisorStore((s) => s.loadCoverage);
 
   const subscriptions = useSubscriptionStore((s) => s.subscriptions);
-  const { servers } = useServers();
 
   const streamEvents = useEventStreamStore((s) => s.events);
   const backfillFromAudit = useEventStreamStore((s) => s.backfillFromAudit);
 
-  // The global role workspaces (~/.mermaid-collab/supervisor, .../steward) are
-  // not user projects — never list them in the Project Rail.
-  const isRoleWorkspace = (p: string) => /\/\.mermaid-collab\/(supervisor|steward)\/?$/.test(p);
-
   const project = activeProjectPref ?? currentSession?.project ?? supervised[0]?.project ?? '';
 
-  // Multi-project (design-tabbed-bridge §3b): registered === watched. The rail set
-  // IS watchedProjects — the 5-source projectOptions union + hiddenProjects hack
-  // are gone. A project that's watched but role-workspace is excluded; the active
-  // project is always included so the rail never loses the current selection.
-  const railPaths = useMemo(() => {
-    const set = new Set<string>();
-    watchedProjects.forEach((w) => w.project && !isRoleWorkspace(w.project) && set.add(w.project));
-    if (project && !isRoleWorkspace(project)) set.add(project);
-    return Array.from(set);
-  }, [watchedProjects, project]);
-
-  // Per-project rail rows. escalationCount from the SINGLE roll-up path; idle-with-
-  // work = coordinator OFF AND ≥1 ready unclaimed todo (the silent-stall warning).
-  const railProjectsData = useMemo<ProjectRailRowData[]>(() => {
-    const counts = selectOpenEscalationsByProject(escalations);
-    return railPaths.map((p) => {
-      const readyN = (todosByProject[p] ?? []).filter((t) => t.status === 'ready' && !t.claimedBy).length;
-      return {
-        project: p,
-        name: p.split('/').filter(Boolean).pop() ?? p,
-        escalationCount: counts[p] ?? 0,
-        idleWithWork: !coordinatorByProject[p] && readyN > 0,
-      };
-    });
-  }, [railPaths, escalations, todosByProject, coordinatorByProject]);
-
-  // Live-but-unwatched projects (supervised/subscriptions − watched − role) — the
-  // dim "detected · watch+" affordance so nothing produces signal off-rail.
-  const detectedProjects = useMemo(() => {
-    const watched = new Set(railPaths);
-    const set = new Set<string>();
-    supervised.forEach((s) => s.project && set.add(s.project));
-    Object.values(subscriptions).forEach((s) => s.project && set.add(s.project));
-    return Array.from(set).filter((p) => !watched.has(p) && !isRoleWorkspace(p));
-  }, [supervised, subscriptions, railPaths]);
-
-  // Load the watched-project list once for the active server so the dropdown is
-  // populated (and reflects add/remove) independent of supervised sessions.
+  // Load the watched-project list for the active server (the unified Bridge tree
+  // in the left column reads watchedProjects; this keeps it fresh from here too).
   useEffect(() => {
     void loadProjects(serverScope);
   }, [serverScope, loadProjects]);
-
-  // Add/remove a project from the Bridge dropdown. "Add" opens the same
-  // AddProjectDialog the Header uses (server picker + validated path input);
-  // on submit we register/watch the project and scope the Bridge to it.
-  const [addOpen, setAddOpen] = useState(false);
-  const handleAddSubmit = useCallback(
-    async (sid: string, path: string) => {
-      await addProject(sid, path);
-      setActiveProject(path);
-    },
-    [addProject, setActiveProject],
-  );
-  const handleRemoveProject = useCallback(
-    (path: string) => {
-      // Registered === watched, so unwatch removes the row outright (no derived
-      // feed re-adds it — the union is gone). If it was active, fall back.
-      void removeProject(serverScope, path);
-      if (project === path) {
-        const next = railPaths.find((p) => p !== path) ?? '';
-        setActiveProject(next || null);
-      }
-    },
-    [serverScope, removeProject, project, railPaths, setActiveProject],
-  );
-  // Promote a detected (live-but-unwatched) project onto the rail.
-  const handleWatchProject = useCallback(
-    (path: string) => {
-      void addProject(serverScope, path);
-      setActiveProject(path);
-    },
-    [serverScope, addProject, setActiveProject],
-  );
 
   // Single place that re-fetches every Bridge store for the current scope. Run
   // on scope/project change AND on every WebSocket (re)connect — see below.
@@ -340,19 +260,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
   );
 
   return (
-    <div className="relative h-full flex">
-      {/* Project Rail (master) — the vertical project index; switches the detail
-          pane via setActiveProject. Replaces the CommandBar project dropdown. */}
-      <ProjectRail
-        projects={railProjectsData}
-        activeProject={project}
-        onSelect={(p) => setActiveProject(p)}
-        onAdd={() => setAddOpen(true)}
-        onRemove={handleRemoveProject}
-        detected={detectedProjects}
-        onWatch={handleWatchProject}
-      />
-      <div className="flex-1 min-w-0 h-full">
+    <div className="relative h-full">
       <SplitDeck
         commandBar={
           <CommandBar
@@ -435,7 +343,6 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
           />
         }
       />
-      </div>
 
       {flags.jsonRenderDecisionCard && focalEscalation && (
         <DecisionCard
@@ -443,15 +350,6 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
           serverScope={serverScope}
           onClose={closeFocal}
           onJump={handleJump}
-        />
-      )}
-
-      {addOpen && (
-        <AddProjectDialog
-          servers={servers}
-          defaultServerId={servers.find((s) => s.id === serverScope)?.id ?? servers.find((s) => s.source === 'local')?.id ?? servers[0]?.id ?? serverScope}
-          onSubmit={handleAddSubmit}
-          onClose={() => setAddOpen(false)}
         />
       )}
     </div>

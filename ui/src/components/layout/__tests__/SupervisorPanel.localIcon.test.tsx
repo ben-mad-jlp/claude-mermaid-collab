@@ -31,19 +31,26 @@ vi.mock('@/components/supervisor/SupervisorOnboarding', () => ({
   SupervisorOnboarding: () => <div data-testid="onboarding" />,
 }));
 
-vi.mock('@/stores/supervisorStore', () => ({
-  useSupervisorStore: () => ({
+vi.mock('@/stores/supervisorStore', () => {
+  const state = {
     supervised: [{ project: '/proj', session: 'sess-a', serverId: 'local' }],
     escalations: [],
+    watchedProjects: [{ project: '/proj' }],
+    coordinatorByProject: {},
     config: { supervisorProject: '/proj', supervisorSession: 'sup' },
     liveness: { running: true },
     loadSupervised: vi.fn(),
     loadEscalations: vi.fn(),
     loadConfig: vi.fn(),
     loadLiveness: vi.fn(),
+    loadProjects: vi.fn(),
+    loadCoordinator: vi.fn(),
+    addProject: vi.fn(),
+    removeProject: vi.fn(),
     resolveEscalation: vi.fn(),
-  }),
-}));
+  };
+  return { useSupervisorStore: (sel?: (s: any) => any) => (sel ? sel(state) : state) };
+});
 
 vi.mock('@/stores/subscriptionStore', () => ({
   useSubscriptionStore: (sel: (s: any) => any) => sel({ subscriptions: {} }),

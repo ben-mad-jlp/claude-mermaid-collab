@@ -58,12 +58,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return () => clearInterval(id);
   }, [serverScope, loadStewardIdentity, loadLiveness, loadConfig]);
 
-  // Steward: show only while running. Supervisor: show while running, OR while it
-  // has no saved config yet — its panel hosts the one-time setup the RolesStrip
-  // switch depends on (the switch is disabled until configured).
+  // Steward: show only while running (start/stop lives on the Bridge RolesStrip).
+  // The Supervisor panel is now the UNIFIED Bridge project tree (the project
+  // index) — always shown; it manages the supervisor role from its own header.
   const showSteward = !!stewardLiveness?.running;
-  const supConfigured = !!supConfig?.supervisorProject && !!supConfig?.supervisorSession;
-  const showSupervisor = !!supLiveness?.running || !supConfigured;
+  void supLiveness;
+  void supConfig;
 
   return (
     <aside
@@ -122,9 +122,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {showSteward && (
           <StewardPanel currentProject={currentSession?.project} currentSession={currentSession?.name} />
         )}
-        {showSupervisor && (
-          <SupervisorPanel currentProject={currentSession?.project} currentSession={currentSession?.name} />
-        )}
+        {/* Unified Bridge project tree (was SupervisorPanel) — always the index. */}
+        <SupervisorPanel currentProject={currentSession?.project} currentSession={currentSession?.name} />
         <SubscriptionsPanel currentProject={currentSession?.project} />
         <ArtifactTree />
         {/* SERVERS / peers — global, pinned at the bottom per the wireframe */}
