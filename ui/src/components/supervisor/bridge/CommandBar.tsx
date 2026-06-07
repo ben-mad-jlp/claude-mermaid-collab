@@ -9,17 +9,21 @@
  */
 
 import React from 'react';
+import { GlobalRoleSwitches } from './GlobalRoleSwitches';
 
 export interface CommandBarProps {
   liveCount: number;
   inflightCount: number;
   needsYouCount: number;
+  /** Routing scope for the global role switches (Steward/Supervisor). */
+  serverScope: string;
 }
 
 export const CommandBar: React.FC<CommandBarProps> = ({
   liveCount,
   inflightCount,
   needsYouCount,
+  serverScope,
 }) => {
   return (
     <div
@@ -28,6 +32,9 @@ export const CommandBar: React.FC<CommandBarProps> = ({
     >
       <span className="text-base" role="img" aria-label="bridge">⤢</span>
       <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">Bridge</span>
+
+      {/* Fleet-GLOBAL role switches (Steward, Supervisor) — Altitude 0 chrome. */}
+      <GlobalRoleSwitches serverScope={serverScope} />
 
       {/* Glanceable FLEET pulse — absorbed AlertRibbon. */}
       <div data-testid="bridge-glance" className="ml-auto flex items-center gap-3 text-xs">

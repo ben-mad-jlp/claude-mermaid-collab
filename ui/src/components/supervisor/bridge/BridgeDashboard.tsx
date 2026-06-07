@@ -267,14 +267,13 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
             liveCount={liveCount}
             inflightCount={inflightCount}
             needsYouCount={openEscalationCount}
+            serverScope={serverScope}
           />
         }
         left={
           <>
-            {/* Role control surface: one switch each for Steward (global),
-                Supervisor (global) and Coordinator (this project), with live
-                status. Turning a role ON spawns it; the left-column role panels
-                appear only while running. */}
+            {/* Per-project Coordinator switch. The fleet-global Steward/Supervisor
+                switches live up in the CommandBar (GlobalRoleSwitches). */}
             <RolesStrip project={project} serverScope={serverScope} />
             {/* Z1: top-pinned escalation zone — first in DOM, never scrolled away.
                 (P4: NeedsYouRail removed; Z1 + the CommandBarBadge carry salience.) */}

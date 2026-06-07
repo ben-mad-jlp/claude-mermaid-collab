@@ -42,6 +42,26 @@ export function combineCardStatus(statuses: Array<SessionCardData['status']>): S
   return 'unknown';
 }
 
+/**
+ * Disambiguating display labels for a set of project PATHS. A project shows its
+ * basename alone (e.g. "build123d-ocp-mcp"); but when two watched projects share
+ * a basename (e.g. /Users/me/Code/build123d-ocp-mcp vs /repos/build123d-ocp-mcp)
+ * the colliding ones get a parent-qualified label ("Code/build123d-ocp-mcp" vs
+ * "repos/build123d-ocp-mcp") so the tree never shows two identical rows. Pure.
+ */
+export function disambiguateProjectLabels(paths: string[]): Record<string, string> {
+  const base = (p: string) => p.split('/').filter(Boolean).pop() ?? p;
+  const counts: Record<string, number> = {};
+  for (const p of paths) counts[base(p)] = (counts[base(p)] ?? 0) + 1;
+  const out: Record<string, string> = {};
+  for (const p of paths) {
+    const segs = p.split('/').filter(Boolean);
+    const b = segs[segs.length - 1] ?? p;
+    out[p] = counts[b] > 1 && segs.length >= 2 ? `${segs[segs.length - 2]}/${b}` : b;
+  }
+  return out;
+}
+
 /** Per-project header background, mirroring SessionCard's statusBg palette. */
 export function projectHeaderBg(status: SessionCardData['status']): string {
   switch (status) {
@@ -279,6 +299,12 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
         return a.project.localeCompare(b.project);
       });
   }, [supervised, watchedList, escalationCounts, coordinatorByProject]);
+
+  // Display labels, parent-qualified only where basenames collide.
+  const projectLabels = useMemo(
+    () => disambiguateProjectLabels(byProject.map((r) => r.project)),
+    [byProject],
+  );
 
   // Live-but-unwatched projects (supervised/subscriptions − watched − role) — the
   // dim "watch+" affordance at the bottom of the tree.
@@ -569,7 +595,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
               // Combined per-project health: reduce every card's status to one.
               const combined = combineCardStatus(cards.map((c) => c.status));
               const isProjCollapsed = !!collapsedProjects[project];
-              const projName = project.split('/').filter(Boolean).pop() ?? project;
+              const projName = projectLabels[project] ?? (project.split('/').filter(Boolean).pop() ?? project);
               const isActive = activeProject === project;
               return (
                 <div key={project} className={i > 0 ? 'mt-2' : ''}>
