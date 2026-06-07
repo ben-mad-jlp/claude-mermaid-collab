@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useSupervisorStore } from '@/stores/supervisorStore';
 import { useTabsStore, useSessionTabs } from '@/stores/tabsStore';
 import { SubscriptionsPanel } from '@/components/layout/SubscriptionsPanel';
 import { SupervisorPanel } from '@/components/layout/SupervisorPanel';
@@ -33,6 +34,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const isDisabled = !currentSession;
   const vibeInstructionsDoc = documents.find((d) => d.name.endsWith('vibeinstructions')) || null;
+
+  // Role-panel gating: the left column carries a role's panel only while that
+  // role is RUNNING — start/stop now lives on the Bridge RolesStrip. The panels
+  // poll liveness internally, but a gated-out panel can't poll, so the Sidebar
+  // drives the same liveness loads itself and decides what to render.
+  const serverScope = currentSession?.serverId ?? 'local';
+  const stewardLiveness = useSupervisorStore((s) => s.stewardLiveness);
+  const supLiveness = useSupervisorStore((s) => s.liveness);
+  const supConfig = useSupervisorStore((s) => s.config);
+  const loadStewardIdentity = useSupervisorStore((s) => s.loadStewardIdentity);
+  const loadLiveness = useSupervisorStore((s) => s.loadLiveness);
+  const loadConfig = useSupervisorStore((s) => s.loadConfig);
+
+  useEffect(() => {
+    const refresh = () => {
+      void loadStewardIdentity(serverScope);
+      void loadLiveness(serverScope);
+      void loadConfig(serverScope);
+    };
+    refresh();
+    const id = setInterval(refresh, 10_000);
+    return () => clearInterval(id);
+  }, [serverScope, loadStewardIdentity, loadLiveness, loadConfig]);
+
+  // Steward: show only while running. Supervisor: show while running, OR while it
+  // has no saved config yet — its panel hosts the one-time setup the RolesStrip
+  // switch depends on (the switch is disabled until configured).
+  const showSteward = !!stewardLiveness?.running;
+  const supConfigured = !!supConfig?.supervisorProject && !!supConfig?.supervisorSession;
+  const showSupervisor = !!supLiveness?.running || !supConfigured;
 
   return (
     <aside
@@ -88,8 +119,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
             Start/Stop, plan tree and scoped escalations now live in the Bridge. */}
         {/* Role ladder (Steward P3): Steward ▸ Supervisor ▸ Coordinator/Planner
             ▸ workers — the Steward sits at the top of the column, above Supervisor. */}
-        <StewardPanel currentProject={currentSession?.project} currentSession={currentSession?.name} />
-        <SupervisorPanel currentProject={currentSession?.project} currentSession={currentSession?.name} />
+        {showSteward && (
+          <StewardPanel currentProject={currentSession?.project} currentSession={currentSession?.name} />
+        )}
+        {showSupervisor && (
+          <SupervisorPanel currentProject={currentSession?.project} currentSession={currentSession?.name} />
+        )}
         <SubscriptionsPanel currentProject={currentSession?.project} />
         <ArtifactTree />
         {/* SERVERS / peers — global, pinned at the bottom per the wireframe */}

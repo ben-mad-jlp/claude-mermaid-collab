@@ -1,11 +1,11 @@
 /**
  * ModePill — the top-level mode switch (Control-UI vision §2, §7).
  *
- * One control, top-left: [ ◫ Studio │ ⤢ Bridge │ ◑ Plan ] with a live
+ * One control, top-left: [ ⤢ Bridge │ ◑ Plan │ ◫ Studio ] with a live
  * escalation count badge ⚠N that rides the pill in ALL three modes — the
  * single thread back to the fleet from inside a focused session.
  *
- * ⌘1 / ⌘2 / ⌘3 quick-switch between the three modes.
+ * ⌘1 / ⌘2 / ⌘3 quick-switch between the three modes (Bridge / Plan / Studio).
  *
  * This is the seam shipped first (CUI-1): it drives the App.tsx main-canvas
  * gate via `uiStore.mode`, replacing the old `supervisorViewOpen` boolean.
@@ -23,9 +23,9 @@ interface ModeDef {
 }
 
 const MODES: ModeDef[] = [
-  { key: 'studio', glyph: '◫', label: 'Studio' },
   { key: 'bridge', glyph: '⤢', label: 'Bridge' },
   { key: 'plan', glyph: '◑', label: 'Plan' },
+  { key: 'studio', glyph: '◫', label: 'Studio' },
 ];
 
 export const ModePill: React.FC = () => {

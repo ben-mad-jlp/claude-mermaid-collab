@@ -49,12 +49,11 @@ const StewardCard: React.FC<{ card: SessionCardData }> = ({ card }) => {
         title="Open the steward's tmux console"
         className={`relative flex-1 flex items-center gap-2 pl-3 pr-2 py-1 rounded text-sm cursor-pointer transition-colors min-w-0 overflow-hidden ${statusBg}`}
       >
-        <div className="flex-1 min-w-0">
-          <div className="text-xs text-black truncate">{card.session}</div>
-          <div className="flex items-center gap-1">
-            <span className="text-3xs text-black/70 truncate">{card.project.split('/').pop()}</span>
-            {elapsed && <span className="text-3xs text-black tabular-nums ml-auto">{elapsed}</span>}
-          </div>
+        <div className="flex-1 min-w-0 flex items-center gap-1">
+          {/* The steward's project basename and session are both "steward", and
+              the section header already says "Steward" — so show the name once. */}
+          <span className="text-xs text-black truncate">{card.session}</span>
+          {elapsed && <span className="text-3xs text-black tabular-nums ml-auto">{elapsed}</span>}
         </div>
       </div>
       <ClaudePixAvatar status={card.status} />
@@ -237,24 +236,6 @@ export const StewardPanel: React.FC<StewardPanelProps> = ({ currentProject }) =>
     }
   }, [project, stewardSession, serverScope, loadStewardIdentity]);
 
-  // [Pause] / [Take over] — best-effort control calls. The steward control
-  // endpoints land in a later phase; until then these degrade to no-ops (the
-  // free human-reclaim is also available by registering a new steward session).
-  const stewardControl = useCallback(
-    async (action: 'pause' | 'takeover') => {
-      try {
-        await fetch(`/api/supervisor/steward/${action}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ project }),
-        });
-      } catch {
-        /* best-effort */
-      }
-    },
-    [project],
-  );
-
   return (
     <div data-testid="steward-panel" data-state={stewardState} className="border-b border-gray-200 dark:border-gray-700">
       {/* Header */}
@@ -303,20 +284,25 @@ export const StewardPanel: React.FC<StewardPanelProps> = ({ currentProject }) =>
           </button>
         </div>
       ) : (
-        // Running dashboard — leads with the steward's own status card (colors +
-        // dancing Claude + click→tmux, like a watched session), then ON/OFF, a
-        // tight metric grid (override is the scary cell), then controls.
+        // Running dashboard — the steward's own status card (colors + dancing
+        // Claude + click→tmux), the ON/OFF auto-act switch, and one compact
+        // status line (override is the loud part; queue/deferred/oldest inline).
         <div className="px-2.5 pb-2 space-y-1.5">
           <StewardCard card={stewardCard} />
 
-          {/* Live ON/OFF switch — the human's runtime off-switch. */}
+          {/* Auto-act ON/OFF switch — the human's off-ramp. ON = the steward
+              triages escalations for you; OFF = they all wait for you. */}
           <div className="flex items-center gap-1.5 text-2xs text-gray-500 dark:text-gray-400">
             <span>{stewardLiveness?.running ? 'Live' : 'Heartbeat stale'}</span>
             <button
               data-testid="steward-enabled-toggle"
               data-enabled={switchedOn}
               onClick={() => void setStewardEnabled(!switchedOn)}
-              title={switchedOn ? 'Steward is ON — auto-acting. Click to turn OFF (all escalations route to you).' : 'Steward is OFF — all escalations route to you. Click to turn ON.'}
+              title={
+                switchedOn
+                  ? 'ON — the steward auto-triages escalations for you (acting on its own, may override the gate). Click to turn OFF.'
+                  : 'OFF — the steward stops acting; every escalation waits in your queue for you to handle. Click to turn ON.'
+              }
               className={`ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-3xs font-semibold border transition-colors ${
                 switchedOn
                   ? 'border-success-400 text-success-700 dark:text-success-300 bg-success-50 dark:bg-success-900/30'
@@ -324,56 +310,32 @@ export const StewardPanel: React.FC<StewardPanelProps> = ({ currentProject }) =>
               }`}
             >
               <span className={`inline-block w-1.5 h-1.5 rounded-full ${switchedOn ? 'bg-success-500' : 'bg-gray-400'}`} aria-hidden="true" />
-              {switchedOn ? 'ON' : 'OFF'}
+              {switchedOn ? 'Auto: ON' : 'Auto: OFF'}
             </button>
           </div>
 
-          {/* Compact metric grid — override (scary, danger-tinted when >0), then
-              queue depth / steward-deferred / oldest age. */}
-          <div className="grid grid-cols-4 gap-1 text-center">
-            <div
+          {/* Plain-language explainer of the current mode. */}
+          <p className="text-3xs leading-snug text-gray-500 dark:text-gray-400">
+            {switchedOn
+              ? 'Auto-triaging escalations on your behalf.'
+              : 'Paused — escalations wait in your queue until you act.'}
+          </p>
+
+          {/* One compact status line. Override is the loud signal (red when >0,
+              also mirrored as N⚡ in the header); the rest sit inline. */}
+          <div className="flex items-center gap-2 text-3xs text-gray-500 dark:text-gray-400">
+            <span
               data-testid="steward-override-count"
-              className={`rounded border px-1 py-1 ${
-                overrideAccepts > 0
-                  ? 'border-danger-300 dark:border-danger-700 bg-danger-50 dark:bg-danger-900/20'
-                  : 'border-gray-200 dark:border-gray-700'
-              }`}
-              title="Override-accepts this session"
+              className={`font-bold ${overrideAccepts > 0 ? 'text-danger-600 dark:text-danger-400' : 'text-gray-600 dark:text-gray-300'}`}
+              title="Override-accepts this session — todos the steward forced past the gate"
             >
-              <div className={`text-sm font-bold ${overrideAccepts > 0 ? 'text-danger-700 dark:text-danger-300' : 'text-gray-700 dark:text-gray-300'}`}>{overrideAccepts}</div>
-              <div className={`text-3xs ${overrideAccepts > 0 ? 'text-danger-500 dark:text-danger-400' : 'text-gray-500 dark:text-gray-400'}`}>override</div>
-            </div>
-            <div className="rounded border border-gray-200 dark:border-gray-700 px-1 py-1">
-              <div className="text-sm font-semibold text-gray-800 dark:text-gray-200">{open.length}</div>
-              <div className="text-3xs text-gray-500 dark:text-gray-400">queue</div>
-            </div>
-            <div className="rounded border border-gray-200 dark:border-gray-700 px-1 py-1">
-              <div className="text-sm font-semibold text-gray-800 dark:text-gray-200">{deferred.length}</div>
-              <div className="text-3xs text-gray-500 dark:text-gray-400">deferred</div>
-            </div>
-            <div className="rounded border border-gray-200 dark:border-gray-700 px-1 py-1">
-              <div className="text-sm font-semibold text-gray-800 dark:text-gray-200">
-                {queueAgeMs == null ? '—' : `${Math.floor(queueAgeMs / 60000)}m`}
-              </div>
-              <div className="text-3xs text-gray-500 dark:text-gray-400">oldest</div>
-            </div>
-          </div>
-
-          <div className="flex gap-1.5">
-            <button
-              data-testid="steward-pause"
-              onClick={() => void stewardControl('pause')}
-              className="flex-1 py-1 px-2 text-2xs font-medium rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
-            >
-              Pause
-            </button>
-            <button
-              data-testid="steward-takeover"
-              onClick={() => void stewardControl('takeover')}
-              className="flex-1 py-1 px-2 text-2xs font-medium rounded border border-amber-400 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-900/30"
-            >
-              Take over
-            </button>
+              {overrideAccepts}⚡ override
+            </span>
+            <span title="Open escalations">· {open.length} queue</span>
+            <span title="Deferred to you">· {deferred.length} deferred</span>
+            <span title="Oldest open escalation">
+              · {queueAgeMs == null ? 'none' : `${Math.floor(queueAgeMs / 60000)}m`} oldest
+            </span>
           </div>
         </div>
       )}

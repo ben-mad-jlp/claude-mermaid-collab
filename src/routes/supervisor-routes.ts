@@ -11,6 +11,7 @@ import {
   getEscalation,
   recordEscalationDecision,
   getSupervisorIdentity,
+  clearSupervisorIdentity,
   isStewardEnabled,
   setStewardEnabled,
   SUPERVISOR_HEARTBEAT_INTERVAL_MS,
@@ -30,6 +31,8 @@ import { specCoverage, decideRequirement, type RequirementDecision } from '../se
 import { startCoordinator, stopCoordinator, isCoordinatorRunning } from '../services/coordinator-live.ts';
 import { SUPERVISOR_PROJECT, SUPERVISOR_SESSION, STEWARD_PROJECT, STEWARD_SESSION } from '../config.ts';
 import { sendTmuxKeys } from '../services/tmux-send.ts';
+import { tmuxBaseName } from '../services/tmux-naming.ts';
+import { terminalManager } from '../services/terminal-manager.ts';
 import { getWebSocketHandler } from '../services/ws-handler-manager.ts';
 
 function jsonError(message: string, status: number): Response {
@@ -406,6 +409,29 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     if (typeof enabled !== 'boolean') return jsonError('enabled (boolean) required', 400);
     setStewardEnabled(enabled);
     return Response.json({ switchedOn: enabled });
+  }
+
+  // POST /api/supervisor/role/stop { role: 'steward' | 'supervisor' } — the OFF
+  // half of the Bridge role switch. Symmetric to /api/ide/launch-session (start):
+  // kill the role's tmux session (read project+session from its identity row) and
+  // clear the identity so liveness flips to not-running immediately. Coordinator
+  // has its own start/stop (/api/supervisor/coordinator); this covers the two
+  // global LLM roles, which previously had a start path but no stop.
+  if (url.pathname === '/api/supervisor/role/stop' && req.method === 'POST') {
+    const { role } = (await req.json()) as { role?: string };
+    if (role !== 'steward' && role !== 'supervisor') {
+      return jsonError("role must be 'steward' or 'supervisor'", 400);
+    }
+    const identity = getSupervisorIdentity(role);
+    if (identity) {
+      try {
+        await terminalManager.killTmuxSession(tmuxBaseName(identity.project, identity.session));
+      } catch {
+        /* best-effort: the tmux may already be gone; still clear identity below */
+      }
+    }
+    clearSupervisorIdentity(role);
+    return Response.json({ stopped: true, role });
   }
 
   // ── SPEC API SURFACE (design-system-object-ui §8) ──────────────────────────

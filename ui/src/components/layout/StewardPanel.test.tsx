@@ -22,14 +22,14 @@ describe('StewardPanel — three states', () => {
     seed({ identity: null, running: false, stale: true, ageMs: null, overrideAccepts: 0 });
     render(<StewardPanel currentProject="/p" />);
     expect(screen.getByTestId('steward-panel').getAttribute('data-state')).toBe('none');
-    expect(screen.getByText('Become the Steward')).toBeTruthy();
+    expect(screen.getByText('Start steward')).toBeTruthy();
   });
 
   it("renders the 'crashed' front door when the steward heartbeat is stale", () => {
     seed({ identity: { project: '/p', session: 'steward', updatedAt: 1 }, running: false, stale: true, ageMs: 999999, overrideAccepts: 0 });
     render(<StewardPanel currentProject="/p" />);
     expect(screen.getByTestId('steward-panel').getAttribute('data-state')).toBe('crashed');
-    expect(screen.getByText('Steward — not running')).toBeTruthy();
+    expect(screen.getByText('Restart steward')).toBeTruthy();
   });
 
   it("renders the running dashboard with the override-accept count visible (the scary metric)", () => {
@@ -38,10 +38,8 @@ describe('StewardPanel — three states', () => {
     expect(screen.getByTestId('steward-panel').getAttribute('data-state')).toBe('running');
     const card = screen.getByTestId('steward-override-count');
     expect(card.textContent).toContain('3');
-    expect(card.textContent).toMatch(/override-accepts this session/i);
-    // [Pause] / [Take over] controls are surfaced.
-    expect(screen.getByTestId('steward-pause')).toBeTruthy();
-    expect(screen.getByTestId('steward-takeover')).toBeTruthy();
+    expect(card.textContent).toMatch(/override/i);
+    expect(card.getAttribute('title')).toMatch(/override-accepts this session/i);
   });
 });
 

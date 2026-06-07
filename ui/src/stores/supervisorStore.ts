@@ -265,6 +265,16 @@ interface SupervisorState {
   /** Apply a live coordinator_status WS broadcast (af49309a) so the pill flips
    *  without waiting for a re-fetch. */
   applyCoordinatorStatus: (project: string, running: boolean) => void;
+  /** Start a global LLM role (steward/supervisor) via /api/ide/launch-session —
+   *  the ON half of the Bridge role switch. */
+  startRole: (
+    serverId: string,
+    role: 'steward' | 'supervisor',
+    project: string,
+    session: string,
+  ) => Promise<{ started: boolean; reason?: string }>;
+  /** Stop a global LLM role: kill its tmux + clear identity (Bridge switch OFF). */
+  stopRole: (serverId: string, role: 'steward' | 'supervisor') => Promise<void>;
   loadEscalations: (serverId: string, status?: string) => Promise<void>;
   resolveEscalation: (serverId: string, id: string, status: string) => Promise<void>;
   decideEscalation: (serverId: string, id: string, optionId: string) => Promise<boolean>;
@@ -487,6 +497,37 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     set((state) => ({
       coordinatorByProject: { ...state.coordinatorByProject, [project]: running },
     }));
+  },
+
+  startRole: async (serverId, role, project, session) => {
+    const invokeSkill = role === 'steward' ? '/steward' : '/supervisor';
+    const body = {
+      project,
+      session,
+      role,
+      invokeSkill,
+      allowedTools: 'Bash Edit Write Read mcp__plugin_mermaid-collab_mermaid',
+    };
+    const res = await invoke(serverId, '/api/ide/launch-session', 'POST', body);
+    if (!res?.ok) return { started: false, reason: res?.body?.error ?? 'request failed' };
+    return { started: res.body?.started !== false, reason: res.body?.reason };
+  },
+
+  stopRole: async (serverId, role) => {
+    const res = await invoke(serverId, '/api/supervisor/role/stop', 'POST', { role });
+    if (!res?.ok) return;
+    // Reflect not-running immediately; the next liveness poll confirms.
+    if (role === 'steward') {
+      set((state) => ({
+        stewardLiveness: state.stewardLiveness
+          ? { ...state.stewardLiveness, identity: null, running: false }
+          : state.stewardLiveness,
+      }));
+    } else {
+      set((state) => ({
+        liveness: state.liveness ? { ...state.liveness, running: false } : state.liveness,
+      }));
+    }
   },
 
   loadEscalations: async (serverId, status?) => {

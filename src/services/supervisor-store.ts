@@ -919,6 +919,17 @@ export const SUPERVISOR_HEARTBEAT_INTERVAL_MS = 30_000;
 /** A supervisor is considered stale once updatedAt is older than this (2x heartbeat). */
 export const SUPERVISOR_STALE_AFTER_MS = SUPERVISOR_HEARTBEAT_INTERVAL_MS * 2;
 
+/**
+ * Stop-and-forget a role: delete its supervisor_identity row so liveness reports
+ * the role as not-running immediately (the Bridge role switch reads this to flip
+ * to OFF without waiting out the stale grace). The caller is responsible for
+ * killing the role's tmux session; this only clears the durable identity.
+ */
+export function clearSupervisorIdentity(role = 'supervisor'): void {
+  const d = openDb();
+  d.prepare('DELETE FROM supervisor_identity WHERE role = ?').run(role);
+}
+
 export function getSupervisorIdentity(role = 'supervisor'): SupervisorIdentity | null {
   const d = openDb();
   const row = d.query('SELECT project, session, updatedAt, serverId, epoch FROM supervisor_identity WHERE role = ?').get(role) as

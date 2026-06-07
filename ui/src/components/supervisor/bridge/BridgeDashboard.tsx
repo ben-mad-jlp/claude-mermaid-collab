@@ -24,6 +24,7 @@ import { SplitDeck } from './SplitDeck';
 import { CommandBar } from './CommandBar';
 import { AddProjectDialog } from '@/components/dialogs';
 import { useServers } from '@/contexts/ServerContext';
+import { RolesStrip } from './RolesStrip';
 import { NeedsYouZone } from './NeedsYouZone';
 import { RequirementsInbox } from './RequirementsInbox';
 import { HumanInbox } from '@/components/todos/HumanInbox';
@@ -316,6 +317,11 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
         }
         left={
           <>
+            {/* Role control surface: one switch each for Steward (global),
+                Supervisor (global) and Coordinator (this project), with live
+                status. Turning a role ON spawns it; the left-column role panels
+                appear only while running. */}
+            <RolesStrip project={project} serverScope={serverScope} />
             {/* Z1: top-pinned escalation zone — first in DOM, never scrolled away.
                 (P4: NeedsYouRail removed; Z1 + the CommandBarBadge carry salience.) */}
             <NeedsYouZone
