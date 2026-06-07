@@ -59,6 +59,10 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
 
   const escalations = useSupervisorStore((s) => s.escalations);
   const supervised = useSupervisorStore((s) => s.supervised);
+  const watchedProjects = useSupervisorStore((s) => s.watchedProjects);
+  const loadProjects = useSupervisorStore((s) => s.loadProjects);
+  const addProject = useSupervisorStore((s) => s.addProject);
+  const removeProject = useSupervisorStore((s) => s.removeProject);
   const todosByProject = useSupervisorStore((s) => s.todosByProject);
   const loadProjectTodos = useSupervisorStore((s) => s.loadProjectTodos);
   const promoteTodo = useSupervisorStore((s) => s.promoteTodo);
@@ -86,9 +90,39 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
     supervised.forEach((s) => s.project && set.add(s.project));
     Object.values(subscriptions).forEach((s) => s.project && set.add(s.project));
     Object.keys(todosByProject).forEach((p) => p && set.add(p));
+    // Watched projects added via the dropdown appear even before they have a
+    // supervised session or any todos.
+    watchedProjects.forEach((w) => w.project && set.add(w.project));
     if (project) set.add(project);
     return Array.from(set);
-  }, [currentSession?.project, supervised, subscriptions, todosByProject, project]);
+  }, [currentSession?.project, supervised, subscriptions, todosByProject, watchedProjects, project]);
+
+  // Load the watched-project list once for the active server so the dropdown is
+  // populated (and reflects add/remove) independent of supervised sessions.
+  useEffect(() => {
+    void loadProjects(serverScope);
+  }, [serverScope, loadProjects]);
+
+  // Add/remove a project from the Bridge dropdown. Adding selects it so the
+  // Bridge immediately scopes to the new project.
+  const handleAddProject = useCallback(
+    (path: string) => {
+      void addProject(serverScope, path).then(() => setActiveProject(path));
+    },
+    [serverScope, addProject, setActiveProject],
+  );
+  const handleRemoveProject = useCallback(
+    (path: string) => {
+      void removeProject(serverScope, path).then(() => {
+        // If the removed project was active, fall back to another option.
+        if (project === path) {
+          const next = projectOptions.find((p) => p !== path) ?? '';
+          setActiveProject(next || null);
+        }
+      });
+    },
+    [serverScope, removeProject, project, projectOptions, setActiveProject],
+  );
 
   // Single place that re-fetches every Bridge store for the current scope. Run
   // on scope/project change AND on every WebSocket (re)connect — see below.
@@ -227,6 +261,8 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
             project={project}
             projectOptions={projectOptions}
             onSelectProject={setActiveProject}
+            onAddProject={handleAddProject}
+            onRemoveProject={handleRemoveProject}
             liveCount={liveCount}
             inflightCount={inflightCount}
             needsYouCount={openEscalationCount}

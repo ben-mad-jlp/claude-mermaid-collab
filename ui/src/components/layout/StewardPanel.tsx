@@ -16,12 +16,51 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSupervisorStore } from '@/stores/supervisorStore';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useSubscriptionStore } from '@/stores/subscriptionStore';
+import { ClaudePixAvatar, activateSessionCard, useElapsed, type SessionCardData } from '@/components/layout/SessionCard';
 import { selectOpenEscalations, selectStewardDeferred } from '@/components/supervisor/bridge/escalationSelectors';
 
 export interface StewardPanelProps {
   currentProject?: string;
   currentSession?: string;
 }
+
+/**
+ * StewardCard — the steward's own status card, mirroring the watched-session
+ * SessionCard: status-colored body, project/session, a live elapsed badge, the
+ * dancing-Claude avatar, and click→open-its-tmux. No supervise/shield toggle
+ * (the steward is a global role, not a supervisable worker).
+ */
+const StewardCard: React.FC<{ card: SessionCardData }> = ({ card }) => {
+  const elapsed = useElapsed(card.lastUpdate, card.status);
+  const statusBg =
+    card.status === 'permission'
+      ? 'bg-danger-300 hover:bg-danger-400 border border-danger-500'
+      : card.status === 'active'
+        ? 'card-pulse-amber border border-warning-400'
+        : card.status === 'waiting'
+          ? 'bg-success-300 hover:bg-success-400 border border-success-500'
+          : 'bg-gray-200 hover:bg-gray-300 border border-gray-300';
+  return (
+    <div className="flex items-center gap-1">
+      <div
+        data-testid="steward-card"
+        onClick={() => void activateSessionCard(card)}
+        title="Open the steward's tmux console"
+        className={`relative flex-1 flex items-center gap-2 pl-3 pr-2 py-1 rounded text-sm cursor-pointer transition-colors min-w-0 overflow-hidden ${statusBg}`}
+      >
+        <div className="flex-1 min-w-0">
+          <div className="text-xs text-black truncate">{card.session}</div>
+          <div className="flex items-center gap-1">
+            <span className="text-3xs text-black/70 truncate">{card.project.split('/').pop()}</span>
+            {elapsed && <span className="text-3xs text-black tabular-nums ml-auto">{elapsed}</span>}
+          </div>
+        </div>
+      </div>
+      <ClaudePixAvatar status={card.status} />
+    </div>
+  );
+};
 
 export const StewardPanel: React.FC<StewardPanelProps> = ({ currentProject }) => {
   const activeId = useSessionStore((s) => s.currentSession)?.serverId ?? null;
@@ -104,6 +143,33 @@ export const StewardPanel: React.FC<StewardPanelProps> = ({ currentProject }) =>
   // Live ON/OFF switch (persistent; default ON when unknown). Distinct from the
   // build-time env arm and the transient pause.
   const switchedOn = stewardLiveness?.switchedOn !== false;
+
+  // The steward's own status card — same colors + dancing-Claude + click→tmux as
+  // a watched session. Its live status comes from the steward tmux session's
+  // subscription (the same WS feed driving every other card); fall back to the
+  // liveness heartbeat (running → idle/green, stale → unknown/gray).
+  const subscriptions = useSubscriptionStore((s) => s.subscriptions);
+  const stewardSessionName = stewardLiveness?.identity?.session ?? stewardSession;
+  const stewardSub = useMemo(
+    () => Object.values(subscriptions).find((s) => s.project === project && s.session === stewardSessionName),
+    [subscriptions, project, stewardSessionName],
+  );
+  const stewardCard: SessionCardData = useMemo(
+    () => ({
+      serverId: stewardSub?.serverId || activeId || 'local',
+      project,
+      session: stewardSessionName,
+      status:
+        stewardSub?.status && stewardSub.status !== 'unknown'
+          ? stewardSub.status
+          : stewardLiveness?.running
+            ? 'waiting'
+            : 'unknown',
+      lastUpdate: stewardSub?.lastUpdate ?? stewardLiveness?.identity?.updatedAt ?? Date.now(),
+      contextPercent: stewardSub?.contextPercent,
+    }),
+    [stewardSub, activeId, project, stewardSessionName, stewardLiveness],
+  );
 
   // Flip the steward's runtime on/off switch, then refresh so the rendered state
   // reflects the server (survives the 10s poll). Optimistic + best-effort.
@@ -194,7 +260,7 @@ export const StewardPanel: React.FC<StewardPanelProps> = ({ currentProject }) =>
       {/* Header */}
       <button
         onClick={() => setCollapsed((c) => !c)}
-        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs font-semibold text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
       >
         <span role="img" aria-label="steward">🛡</span>
         <span>Steward</span>
@@ -220,12 +286,12 @@ export const StewardPanel: React.FC<StewardPanelProps> = ({ currentProject }) =>
         // Front door: a single Start/Restart button. Project + session come from
         // the server steward-config (the dedicated global steward workspace), so
         // no name/location inputs or description are needed.
-        <div className="px-3 pb-3">
+        <div className="px-2.5 pb-2">
           <button
             data-testid="steward-launch"
             onClick={() => void handleLaunch()}
             disabled={starting || !project || !stewardSession}
-            className="w-full py-1.5 px-3 text-xs font-semibold rounded bg-info-600 hover:bg-info-700 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full py-1 px-3 text-2xs font-semibold rounded bg-info-600 hover:bg-info-700 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {starting
               ? stewardState === 'none'
@@ -237,15 +303,15 @@ export const StewardPanel: React.FC<StewardPanelProps> = ({ currentProject }) =>
           </button>
         </div>
       ) : (
-        // Running dashboard — leads with liveness, then the loud scary metric.
-        <div className="px-3 pb-3 space-y-2">
+        // Running dashboard — leads with the steward's own status card (colors +
+        // dancing Claude + click→tmux, like a watched session), then ON/OFF, a
+        // tight metric grid (override is the scary cell), then controls.
+        <div className="px-2.5 pb-2 space-y-1.5">
+          <StewardCard card={stewardCard} />
+
+          {/* Live ON/OFF switch — the human's runtime off-switch. */}
           <div className="flex items-center gap-1.5 text-2xs text-gray-500 dark:text-gray-400">
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-success-500" aria-hidden="true" />
-            <span>Live</span>
-            {stewardLiveness?.identity?.session && (
-              <span className="font-mono text-gray-600 dark:text-gray-300 truncate">{stewardLiveness.identity.session}</span>
-            )}
-            {/* Live ON/OFF switch — the human's runtime off-switch. */}
+            <span>{stewardLiveness?.running ? 'Live' : 'Heartbeat stale'}</span>
             <button
               data-testid="steward-enabled-toggle"
               data-enabled={switchedOn}
@@ -262,32 +328,30 @@ export const StewardPanel: React.FC<StewardPanelProps> = ({ currentProject }) =>
             </button>
           </div>
 
-          {/* SCARY metric — override-accepts this session, surfaced LOUD. */}
-          <div
-            data-testid="steward-override-count"
-            className={`rounded-lg border px-3 py-2 ${
-              overrideAccepts > 0
-                ? 'border-danger-300 dark:border-danger-700 bg-danger-50 dark:bg-danger-900/20'
-                : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900'
-            }`}
-          >
-            <div className="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Override-accepts this session</div>
-            <div className={`text-lg font-bold ${overrideAccepts > 0 ? 'text-danger-700 dark:text-danger-300' : 'text-gray-700 dark:text-gray-300'}`}>
-              {overrideAccepts}
+          {/* Compact metric grid — override (scary, danger-tinted when >0), then
+              queue depth / steward-deferred / oldest age. */}
+          <div className="grid grid-cols-4 gap-1 text-center">
+            <div
+              data-testid="steward-override-count"
+              className={`rounded border px-1 py-1 ${
+                overrideAccepts > 0
+                  ? 'border-danger-300 dark:border-danger-700 bg-danger-50 dark:bg-danger-900/20'
+                  : 'border-gray-200 dark:border-gray-700'
+              }`}
+              title="Override-accepts this session"
+            >
+              <div className={`text-sm font-bold ${overrideAccepts > 0 ? 'text-danger-700 dark:text-danger-300' : 'text-gray-700 dark:text-gray-300'}`}>{overrideAccepts}</div>
+              <div className={`text-3xs ${overrideAccepts > 0 ? 'text-danger-500 dark:text-danger-400' : 'text-gray-500 dark:text-gray-400'}`}>override</div>
             </div>
-          </div>
-
-          {/* Queue observability — depth, age, and the steward-deferred count. */}
-          <div className="grid grid-cols-3 gap-1.5 text-center">
-            <div className="rounded border border-gray-200 dark:border-gray-700 px-1 py-1.5">
+            <div className="rounded border border-gray-200 dark:border-gray-700 px-1 py-1">
               <div className="text-sm font-semibold text-gray-800 dark:text-gray-200">{open.length}</div>
               <div className="text-3xs text-gray-500 dark:text-gray-400">queue</div>
             </div>
-            <div className="rounded border border-gray-200 dark:border-gray-700 px-1 py-1.5">
+            <div className="rounded border border-gray-200 dark:border-gray-700 px-1 py-1">
               <div className="text-sm font-semibold text-gray-800 dark:text-gray-200">{deferred.length}</div>
               <div className="text-3xs text-gray-500 dark:text-gray-400">deferred</div>
             </div>
-            <div className="rounded border border-gray-200 dark:border-gray-700 px-1 py-1.5">
+            <div className="rounded border border-gray-200 dark:border-gray-700 px-1 py-1">
               <div className="text-sm font-semibold text-gray-800 dark:text-gray-200">
                 {queueAgeMs == null ? '—' : `${Math.floor(queueAgeMs / 60000)}m`}
               </div>
@@ -295,18 +359,18 @@ export const StewardPanel: React.FC<StewardPanelProps> = ({ currentProject }) =>
             </div>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex gap-1.5">
             <button
               data-testid="steward-pause"
               onClick={() => void stewardControl('pause')}
-              className="flex-1 py-1.5 px-3 text-xs font-medium rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
+              className="flex-1 py-1 px-2 text-2xs font-medium rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
             >
               Pause
             </button>
             <button
               data-testid="steward-takeover"
               onClick={() => void stewardControl('takeover')}
-              className="flex-1 py-1.5 px-3 text-xs font-medium rounded border border-amber-400 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-900/30"
+              className="flex-1 py-1 px-2 text-2xs font-medium rounded border border-amber-400 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-900/30"
             >
               Take over
             </button>
