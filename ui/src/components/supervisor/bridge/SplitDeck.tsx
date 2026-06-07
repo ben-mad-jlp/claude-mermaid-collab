@@ -1,22 +1,20 @@
 /**
  * SplitDeck — the Bridge's root shell (BR-2 → Bridge P3, design §2/§8).
  *
- * A CommandBar across the top, then a single draggable <SplitPane> that REFLOWS
- * by viewport: on lg+ the instrument column and the graph sit side-by-side
- * (horizontal split, graph laid out LR); below 1024px they stack — instrument
- * column over graph (vertical split, graph TB). The divider is draggable in both
- * orientations and its ratio persists PER ORIENTATION (separate storageIds).
+ * A CommandBar across the top, then a single draggable <SplitPane> that ALWAYS
+ * stacks vertically: the instrument zones on top, the FleetGraph as a full-width
+ * strip at the bottom (graph laid out TB). The full width suits the dependency
+ * graph and removes the wasted space the old side-by-side split left below the
+ * short instrument column. The horizontal bar divider is draggable; its ratio
+ * persists.
  *
  * Both panes are ALWAYS mounted (one SplitPane, no CSS show/hide and no
  * Panel|Graph tab toggle) — the old toggle could hide an open escalation in the
- * inactive tab, the documented worst case. The orientation flip is a JS state
- * change on the same tree, so the subscription-bearing FleetGraph is never
- * double-mounted and never remounted on flip.
+ * inactive tab, the documented worst case.
  */
 
 import React from 'react';
 import { SplitPane } from '@/components/layout/SplitPane';
-import { useIsDesktop } from '@/hooks/useIsDesktop';
 
 export interface SplitDeckProps {
   commandBar: React.ReactNode;
@@ -25,11 +23,8 @@ export interface SplitDeckProps {
 }
 
 export const SplitDeck: React.FC<SplitDeckProps> = ({ commandBar, left, right }) => {
-  const isDesktop = useIsDesktop();
-  const direction = isDesktop ? 'horizontal' : 'vertical';
-  // Per-orientation persisted ratio so resizing wide doesn't clobber the narrow
-  // split and vice-versa. SplitPane reads autoSaveId, so the id carries the axis.
-  const storageId = isDesktop ? 'bridge-deck-split-h' : 'bridge-deck-split-v';
+  const direction = 'vertical' as const;
+  const storageId = 'bridge-deck-split-v';
 
   const leftPane = (
     <div data-testid="split-left" className="h-full min-h-0 overflow-y-auto w-full">
@@ -54,9 +49,9 @@ export const SplitDeck: React.FC<SplitDeckProps> = ({ commandBar, left, right })
           direction={direction}
           primaryContent={leftPane}
           secondaryContent={rightPane}
-          defaultPrimarySize={38}
-          minPrimarySize={25}
-          maxPrimarySize={60}
+          defaultPrimarySize={45}
+          minPrimarySize={20}
+          maxPrimarySize={75}
           storageId={storageId}
         />
       </div>
