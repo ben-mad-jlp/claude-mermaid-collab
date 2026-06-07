@@ -64,6 +64,11 @@ export async function ensureSession(opts: {
    *  worker-isolation model (DOGFOOD #5) this is the worker's git worktree, so its
    *  edits land on an isolated branch instead of the shared working tree. */
   cwd?: string;
+  /** Launch with Claude Code's Remote Control (`--remote-control`) so this session
+   *  is drivable from the Claude app. Requires the session to be logged into
+   *  claude.ai (our launched sessions already are) — does NOT work with a bare
+   *  ANTHROPIC_API_KEY. Used for the steward + per-project planners. */
+  remoteControl?: boolean;
 }): Promise<{ ready: boolean; tmux?: string; reason?: string }> {
   try {
     if (!existsSync(opts.project)) return { ready: false, reason: 'no-project-dir' };
@@ -101,6 +106,7 @@ export async function ensureSession(opts: {
 
     // Launch Claude.
     const cmd = 'claude'
+      + (opts.remoteControl ? ' --remote-control' : '')
       + (opts.allowedTools ? ' --allowedTools "' + opts.allowedTools + '"' : '')
       + (opts.model ? ' --model ' + opts.model : '')
       + (opts.contextPrompt ? ' --append-system-prompt ' + shellSingleQuote(opts.contextPrompt) : '')
@@ -181,6 +187,7 @@ export async function launchAndBind(opts: {
   invokeSkill?: string;
   model?: string;
   runtimeMode?: 'read-only' | 'edit' | 'bypass';
+  remoteControl?: boolean;
 }): Promise<{ started: boolean; tmux?: string; bind?: 'pending'; reason?: string }> {
   const ensured = await ensureSession({
     project: opts.project,
@@ -188,6 +195,7 @@ export async function launchAndBind(opts: {
     allowedTools: opts.allowedTools,
     model: opts.model,
     runtimeMode: opts.runtimeMode,
+    remoteControl: opts.remoteControl,
   });
   if (!ensured.ready) return { started: false, reason: ensured.reason };
 

@@ -82,7 +82,7 @@ async function killTmuxSession(tmux: string): Promise<void> {
 /** One `ps` snapshot → pid → { ppid-children, comm }. Built once per detect pass
  *  so the subtree walk costs a single subprocess regardless of worker count.
  *  Returns null if ps is unavailable (→ callers treat liveness as unknown). */
-async function procSnapshot(): Promise<Map<number, { children: number[]; comm: string }> | null> {
+export async function procSnapshot(): Promise<Map<number, { children: number[]; comm: string }> | null> {
   try {
     const out = (await execAsync(['ps', '-axo', 'pid=,ppid=,comm='], { capture: true })).stdout;
     if (!out.trim()) return null;
@@ -111,7 +111,7 @@ async function procSnapshot(): Promise<Map<number, { children: number[]; comm: s
 }
 
 /** The shell PID running in a tmux session's (first) pane, or null. */
-async function tmuxPanePid(tmux: string): Promise<number | null> {
+export async function tmuxPanePid(tmux: string): Promise<number | null> {
   try {
     const out = (await execAsync(['tmux', 'list-panes', '-t', tmux, '-F', '#{pane_pid}'], { capture: true })).stdout;
     const first = out.split('\n').map((l) => l.trim()).filter(Boolean)[0];

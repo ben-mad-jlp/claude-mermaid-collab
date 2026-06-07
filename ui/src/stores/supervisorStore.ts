@@ -266,12 +266,14 @@ interface SupervisorState {
    *  without waiting for a re-fetch. */
   applyCoordinatorStatus: (project: string, running: boolean) => void;
   /** Start a global LLM role (steward/supervisor) via /api/ide/launch-session —
-   *  the ON half of the Bridge role switch. */
+   *  the ON half of the Bridge role switch. `remoteControl` launches with Claude
+   *  Code Remote Control so the session is drivable from the Claude app. */
   startRole: (
     serverId: string,
     role: 'steward' | 'supervisor',
     project: string,
     session: string,
+    remoteControl?: boolean,
   ) => Promise<{ started: boolean; reason?: string }>;
   /** Stop a global LLM role: kill its tmux + clear identity (Bridge switch OFF). */
   stopRole: (serverId: string, role: 'steward' | 'supervisor') => Promise<void>;
@@ -499,7 +501,7 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     }));
   },
 
-  startRole: async (serverId, role, project, session) => {
+  startRole: async (serverId, role, project, session, remoteControl) => {
     const invokeSkill = role === 'steward' ? '/steward' : '/supervisor';
     const body = {
       project,
@@ -507,6 +509,7 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
       role,
       invokeSkill,
       allowedTools: 'Bash Edit Write Read mcp__plugin_mermaid-collab_mermaid',
+      remoteControl: !!remoteControl,
     };
     const res = await invoke(serverId, '/api/ide/launch-session', 'POST', body);
     if (!res?.ok) return { started: false, reason: res?.body?.error ?? 'request failed' };

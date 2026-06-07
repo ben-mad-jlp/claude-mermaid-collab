@@ -2103,6 +2103,7 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'roadmap_add', description: 'Create a roadmap item.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, title: { type: 'string' }, description: { type: 'string' }, parentId: { type: 'string' }, dependsOn: { type: 'array', items: { type: 'string' } } }, required: ['project', 'title'] } },
       { name: 'roadmap_update', description: 'Update a roadmap item (title, description, status, ord, parentId, dependsOn).', inputSchema: { type: 'object', properties: { project: { type: 'string' }, id: { type: 'string' }, title: { type: 'string' }, description: { type: 'string' }, status: { type: 'string', enum: ['planned','ready','in_progress','blocked','done','dropped'] }, ord: { type: 'number' }, parentId: { type: 'string' }, dependsOn: { type: 'array', items: { type: 'string' } } }, required: ['project', 'id'] } },
       { name: 'roadmap_spawn_session', description: 'Spawn a collab session for a roadmap item: materializes the session via assigned todos, links them to the item, and registers the session as supervised.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, itemId: { type: 'string' }, session: { type: 'string' }, todos: { type: 'array', items: { type: 'string' }, description: 'Todo titles to create, assigned to the session' } }, required: ['project', 'itemId', 'session'] } },
+      { name: 'spawn_planner', description: "Steward verb: spawn a per-project Planner session — registers + watches + supervises the project and launches a Claude running the /planner skill. By default the session is launched with Claude Code Remote Control so it's drivable from the Claude app (requires the launched session be logged into claude.ai). Use this to stand up a planner the human can drive remotely for a project.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Absolute project path (registered if not already)' }, session: { type: 'string', description: 'Session name (default "planner")' }, remoteControl: { type: 'boolean', description: 'Launch with --remote-control so it appears in the Claude app (default true)' } }, required: ['project'] } },
       { name: 'supervisor_list_supervised', description: 'List all supervised sessions across all projects.', inputSchema: { type: 'object', properties: {} } },
       { name: 'register_supervisor', description: "Register this collab session as THE supervisor, so the server pushes real-time reconcile notifications into its tmux when supervised workers change state.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, serverId: { type: 'string' } }, required: ['project', 'session'] } },
       { name: 'register_steward', description: "Register this collab session as THE steward (the human's autonomous stand-in for escalation triage). Independent, parallel epoch to the supervisor — a second steward registering supersedes the first. Returns { steward: { epoch } } to carry on fenced steward calls.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, serverId: { type: 'string' } }, required: ['project', 'session'] } },
@@ -3700,6 +3701,24 @@ IMPORTANT - Common pitfalls to avoid:
               allowedTools: 'Bash Edit Write Read mcp__plugin_mermaid-collab_mermaid',
             });
             return JSON.stringify({ session, createdTodoIds, launch }, null, 2);
+          }
+          case 'spawn_planner': {
+            const { project, session = 'planner', remoteControl = true } = args as { project: string; session?: string; remoteControl?: boolean };
+            if (!project) throw new Error('Missing required: project');
+            // Register + watch + supervise so the planner is visible to the
+            // supervisor reconcile and shows in the Bridge tree.
+            try { await handleRegisterProject({ path: project }); } catch { /* may already be registered */ }
+            supervisorStore.addWatchedProject(project);
+            supervisorStore.addSupervised(project, session, 'spawn');
+            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
+            const launch = await launchAndBind({
+              project,
+              session,
+              invokeSkill: '/planner',
+              allowedTools: 'Bash Edit Write Read mcp__plugin_mermaid-collab_mermaid',
+              remoteControl,
+            });
+            return JSON.stringify({ session, remoteControl, launch }, null, 2);
           }
           case 'supervisor_list_supervised': {
             return JSON.stringify(supervisorStore.listSupervised(), null, 2);

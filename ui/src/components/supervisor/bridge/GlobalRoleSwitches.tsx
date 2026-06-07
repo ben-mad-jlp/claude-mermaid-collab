@@ -84,7 +84,9 @@ export const GlobalRoleSwitches: React.FC<GlobalRoleSwitchesProps> = ({ serverSc
       if (stewardStatus !== 'off') {
         await stopRole(serverScope, 'steward');
       } else if (stewardWs) {
-        const r = await startRole(serverScope, 'steward', stewardWs.project, stewardWs.session);
+        // The steward is the human's remote command center — launch it with Claude
+        // Code Remote Control so it's reachable from the Claude app.
+        const r = await startRole(serverScope, 'steward', stewardWs.project, stewardWs.session, true);
         if (!r.started) alert(`Steward failed to start: ${r.reason ?? 'unknown'}`);
       }
       void loadStewardIdentity(serverScope);

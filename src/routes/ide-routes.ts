@@ -176,10 +176,10 @@ export async function handleIdeRoutes(req: Request, url: URL, wsHandler: WebSock
 
   if (url.pathname === '/api/ide/launch-session' && req.method === 'POST') {
     try {
-      const { project, session, allowedTools, invokeSkill } = await req.json() as { project?: string; session?: string; role?: string; allowedTools?: string; invokeSkill?: string };
+      const { project, session, allowedTools, invokeSkill, remoteControl } = await req.json() as { project?: string; session?: string; role?: string; allowedTools?: string; invokeSkill?: string; remoteControl?: boolean };
       if (!project || typeof project !== 'string') return jsonError('project is required', 400);
       if (!session || typeof session !== 'string') return jsonError('session is required', 400);
-      const result = await launchAndBind({ project, session, allowedTools, invokeSkill });
+      const result = await launchAndBind({ project, session, allowedTools, invokeSkill, remoteControl });
       return Response.json(result);
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);

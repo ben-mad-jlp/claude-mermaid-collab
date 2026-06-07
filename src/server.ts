@@ -166,6 +166,16 @@ if (MERMAID_AUTO_START_COORDINATOR && existsSync(MERMAID_PROJECT)) {
   }
 }
 
+// Periodic reaper for orphaned/very old `mc-*` tmux sessions (deterministic
+// daemon). Kills only old sessions with no live claude + no TUI, so live work
+// (steward, planners, workers, consoles) is never touched. Best-effort.
+try {
+  const { startTmuxReaper } = await import('./services/tmux-reaper.js');
+  startTmuxReaper();
+} catch (err) {
+  console.warn(`mermaid-collab: tmux reaper start skipped — ${err instanceof Error ? err.message : String(err)}`);
+}
+
 // Server-owned supervisor liveness: ensure a supervisor WATCHDOG is always alive
 // (no fresh heartbeat → auto-spawn; stale → respawn). Opt-in so only one always-on
 // host races to spawn the single global supervisor. Planning stays human-initiated.

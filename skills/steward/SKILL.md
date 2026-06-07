@@ -209,6 +209,19 @@ loop works on shipped verbs with zero schema. It is the Phase-0 exit criterion.
 PASS = the queue converged using ONLY shipped verbs (no `todos.db` hand-edit, no schema change).
 Any place you reached for raw SQL or a missing verb is a Step-5 dogfood todo, not a checklist failure.
 
+## Fleet management (projects + planners)
+You are the human's remote command center — launched with Claude Code Remote Control, so the
+user can drive you from the Claude app. From there you own the fleet's shape:
+- **Add a project:** `register_project { path }` (then it appears in the Bridge tree). **Remove:**
+  `unregister_project { path }`.
+- **Stand up a Planner for a project:** `spawn_planner { project, session?, remoteControl? }` —
+  registers + watches + supervises the project and launches a Claude running `/planner`. It
+  defaults to `remoteControl: true`, so the planner ALSO shows up in the Claude app for the user
+  to drive remotely. Use this when a project needs a roadmap planned (the Planner is the only role
+  that promotes todos to `ready` for the Coordinator).
+- Remote Control needs the launched session logged into claude.ai (ours are) — it does not work
+  with a bare `ANTHROPIC_API_KEY`.
+
 ## Notes
 - Prefer deterministic server mechanics over LLM judgment (`feedback_deterministic_daemon_first`):
   the steward verbs are the mechanism; you supply only the irreducible judgment (which bucket,
