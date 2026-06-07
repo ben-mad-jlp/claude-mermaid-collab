@@ -10,7 +10,7 @@
  * Integrates with useTheme and useSession hooks for state management.
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useState, useRef, useEffect } from 'react';
 import { useTheme } from '@/hooks/useTheme';
 import { useSession } from '@/hooks/useSession';
 import { NavMenu } from './NavMenu';
@@ -93,6 +93,36 @@ export const Header: React.FC<HeaderProps> = ({
   const getProjectDisplayName = (project: string) => {
     return project.split('/').pop() || project;
   };
+
+  // Project-management dropdown: list registered projects, add a new one, or
+  // remove an existing one. Anchored to the project label.
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const projectMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!projectMenuOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (projectMenuRef.current && !projectMenuRef.current.contains(e.target as Node)) {
+        setProjectMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [projectMenuOpen]);
+
+  // Select a project: switch to its most-recent session if one exists, else
+  // offer to create one. Keeps the dropdown a true project switcher.
+  const handleSelectProject = useCallback(
+    (project: string) => {
+      setProjectMenuOpen(false);
+      const projSessions = sessions.filter((s) => s.project === project);
+      if (projSessions.length > 0) {
+        onSessionSelect?.(projSessions[0]);
+      } else {
+        onCreateSession?.(project);
+      }
+    },
+    [sessions, onSessionSelect, onCreateSession],
+  );
 
   return (
     <header
@@ -214,17 +244,99 @@ export const Header: React.FC<HeaderProps> = ({
             </svg>
           </button>
 
-          {/* Project + Session Labels */}
+          {/* Project + Session Labels (project is a management dropdown) */}
           <div
             className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium bg-gray-100 dark:bg-gray-700 rounded-lg min-w-[200px]"
           >
-            <span
-              data-testid="header-project-label"
-              title={currentSession?.project ?? ''}
-              className="text-sm text-gray-700 dark:text-gray-300 truncate max-w-[200px]"
-            >
-              {currentSession?.project ? getProjectDisplayName(currentSession.project) : '—'}
-            </span>
+            <div className="relative" ref={projectMenuRef}>
+              <button
+                type="button"
+                data-testid="header-project-label"
+                title={currentSession?.project ?? 'Manage projects'}
+                onClick={() => setProjectMenuOpen((o) => !o)}
+                className="flex items-center gap-1 text-sm text-gray-700 dark:text-gray-300 truncate max-w-[200px] hover:text-gray-900 dark:hover:text-white"
+              >
+                <span className="truncate">
+                  {currentSession?.project ? getProjectDisplayName(currentSession.project) : '—'}
+                </span>
+                <svg className={`w-3 h-3 shrink-0 transition-transform ${projectMenuOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                  <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </button>
+
+              {projectMenuOpen && (
+                <div
+                  data-testid="project-menu"
+                  className="absolute left-0 top-full mt-1 z-50 w-72 max-h-80 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg py-1"
+                >
+                  <div className="px-3 py-1.5 text-2xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                    Projects
+                  </div>
+                  {registeredProjects.length === 0 ? (
+                    <div className="px-3 py-2 text-xs text-gray-400 dark:text-gray-500">No projects yet</div>
+                  ) : (
+                    registeredProjects.map((project) => {
+                      const isCurrent = currentSession?.project === project;
+                      return (
+                        <div
+                          key={project}
+                          className={`group flex items-center gap-1 px-2 py-1.5 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 ${
+                            isCurrent ? 'bg-gray-50 dark:bg-gray-700/50' : ''
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => handleSelectProject(project)}
+                            title={project}
+                            className="flex-1 min-w-0 text-left truncate text-gray-800 dark:text-gray-200"
+                          >
+                            {isCurrent && <span className="text-accent-500 mr-1">•</span>}
+                            {getProjectDisplayName(project)}
+                          </button>
+                          {onRemoveProject && (
+                            <button
+                              type="button"
+                              data-testid="project-remove"
+                              title={`Remove ${getProjectDisplayName(project)}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (window.confirm(`Remove project "${getProjectDisplayName(project)}"?\n\nThis unregisters it from the UI; files on disk are untouched.`)) {
+                                  onRemoveProject(project);
+                                }
+                              }}
+                              className="opacity-0 group-hover:opacity-100 shrink-0 p-1 rounded text-gray-400 hover:text-danger-600 hover:bg-danger-50 dark:hover:bg-danger-900/30 transition-opacity"
+                            >
+                              <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                              </svg>
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                  {onAddProject && (
+                    <>
+                      <div className="my-1 border-t border-gray-200 dark:border-gray-700" />
+                      <button
+                        type="button"
+                        data-testid="project-add"
+                        onClick={() => {
+                          setProjectMenuOpen(false);
+                          onAddProject();
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-accent-600 dark:text-accent-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                      >
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                          <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                        </svg>
+                        Add project…
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
             <span className="text-gray-400">/</span>
             <span
               data-testid="header-session-label"

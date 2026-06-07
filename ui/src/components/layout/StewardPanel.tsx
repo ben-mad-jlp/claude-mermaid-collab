@@ -32,10 +32,39 @@ export const StewardPanel: React.FC<StewardPanelProps> = ({ currentProject }) =>
   const escalations = useSupervisorStore((s) => s.escalations);
   const loadEscalations = useSupervisorStore((s) => s.loadEscalations);
 
-  const project = currentProject ?? '';
   const [collapsed, setCollapsed] = useState(false);
+  // Steward default path mirrors the supervisor: a fixed global workspace
+  // (~/.mermaid-collab/steward) resolved from /api/supervisor/steward-config —
+  // NOT the current active project. The steward is a fleet-wide role.
+  const [stewardProject, setStewardProject] = useState('');
   const [stewardSession, setStewardSession] = useState('');
   const [starting, setStarting] = useState(false);
+
+  // Resolve the steward's default project + session from the server config once.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const mc = (window as any).mc;
+        const res = mc?.invokeOnServer
+          ? await mc.invokeOnServer(serverScope, { path: '/api/supervisor/steward-config', method: 'GET' })
+          : { body: await (await fetch('/api/supervisor/steward-config')).json() };
+        const cfg = res?.body ?? {};
+        if (cancelled) return;
+        if (cfg.stewardProject) setStewardProject(cfg.stewardProject);
+        if (cfg.stewardSession) setStewardSession((prev) => prev || cfg.stewardSession);
+      } catch {
+        /* best-effort; falls back to currentProject below */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [serverScope]);
+
+  // The project the steward operates as. Prefer the config-resolved global path;
+  // fall back to the current project only until the config resolves.
+  const project = stewardProject || currentProject || '';
 
   // Poll the steward's independent liveness + override count, and the escalation
   // set the dashboard reads, on the same 10s cadence as the Supervisor panel.

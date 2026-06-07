@@ -1478,13 +1478,26 @@ const App: React.FC = () => {
   // Handle removing a project
   const handleRemoveProject = useCallback(async (projectPath: string) => {
     try {
-      const response = await fetch(`/api/projects?path=${encodeURIComponent(projectPath)}`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) {
-        console.error('Failed to remove project');
-        return;
+      const serverId = currentSession?.serverId ?? activeServerId ?? 'local';
+      const mc = (window as any).mc;
+      if (mc?.invokeOnServer) {
+        const res = await mc.invokeOnServer(serverId, {
+          path: `/api/projects?path=${encodeURIComponent(projectPath)}`,
+          method: 'DELETE',
+        });
+        if (res && res.ok === false) {
+          alert(res.error || 'Failed to remove project');
+          return;
+        }
+      } else {
+        const response = await fetch(`/api/projects?path=${encodeURIComponent(projectPath)}`, {
+          method: 'DELETE',
+        });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          alert(data.error || 'Failed to remove project');
+          return;
+        }
       }
 
       // Clear current session if it belongs to the removed project
@@ -1497,8 +1510,9 @@ const App: React.FC = () => {
       await loadSessions();
     } catch (error) {
       console.error('Failed to remove project:', error);
+      alert('Failed to remove project');
     }
-  }, [currentSession, setCurrentSession, loadProjects, loadSessions]);
+  }, [currentSession, activeServerId, setCurrentSession, loadProjects, loadSessions]);
 
   // Handle refreshing everything - projects, sessions list, and current session items
   const handleRefreshAll = useCallback(async () => {

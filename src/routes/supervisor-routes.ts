@@ -28,7 +28,7 @@ import { bom } from '../services/system-object-bom.ts';
 import { satisfy } from '../services/system-object-edges.ts';
 import { specCoverage, decideRequirement, type RequirementDecision } from '../services/spec-coverage.ts';
 import { startCoordinator, stopCoordinator, isCoordinatorRunning } from '../services/coordinator-live.ts';
-import { SUPERVISOR_PROJECT, SUPERVISOR_SESSION } from '../config.ts';
+import { SUPERVISOR_PROJECT, SUPERVISOR_SESSION, STEWARD_PROJECT, STEWARD_SESSION } from '../config.ts';
 import { sendTmuxKeys } from '../services/tmux-send.ts';
 import { getWebSocketHandler } from '../services/ws-handler-manager.ts';
 
@@ -285,6 +285,12 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }
+  }
+
+  if (url.pathname === '/api/supervisor/steward-config' && req.method === 'GET') {
+    // Steward defaults mirror the supervisor: a fixed global workspace, not the
+    // current active project (the steward is a fleet-wide role like the supervisor).
+    return Response.json({ stewardProject: STEWARD_PROJECT, stewardSession: STEWARD_SESSION });
   }
 
   if (url.pathname === '/api/supervisor/nudge' && req.method === 'POST') {
