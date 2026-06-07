@@ -2,41 +2,40 @@
  * CommandBarBadge — the always-on escalation safety net (Bridge P1, ship FIRST).
  *
  * A single pill welded into the top mode chrome, visible in ALL modes
- * (studio/bridge/plan): a red `! N need you` when the active project has open
- * escalations, a calm green tick when it's all clear. It reads from the ONE
- * project-scoped selector (`selectOpenEscalations`) that also feeds the Z-rail,
- * the FleetGraph danger ring and the focal DecisionCard — so the badge count and
- * the graph's danger nodes can never disagree.
+ * (studio/bridge/plan): a red `! N need you` with the FLEET-WIDE open-escalation
+ * total, a calm green tick when the whole fleet is clear. It counts via the ONE
+ * roll-up path (`selectFleetOpenCount` ≡ `sum(selectOpenEscalationsByProject)`),
+ * the same path that feeds the Project Rail badges — so the badge can never
+ * disagree with the rail, and each project's count (`selectOpenEscalations`) is
+ * equal to its rail badge by construction (FleetGraph danger-ring parity holds).
  *
- * Click → focus the highest open escalation: switch to the Bridge, open its
- * focal card and frame + pulse its graph node (graph-answers-the-card).
+ * Click → focus the fleet's highest-priority open escalation: switch to its
+ * project + the Bridge, open its focal card and frame its graph node.
  */
 
 import React from 'react';
 import { useSupervisorStore } from '@/stores/supervisorStore';
-import { useSessionStore } from '@/stores/sessionStore';
 import { useUIStore } from '@/stores/uiStore';
 import { useDeckStore } from '@/stores/deckStore';
-import { selectOpenEscalations, highestPriorityEscalation, nodeIdForEscalation } from './escalationSelectors';
+import { selectFleetOpenCount, highestPriorityEscalation, nodeIdForEscalation } from './escalationSelectors';
 
 export const CommandBarBadge: React.FC = () => {
   const escalations = useSupervisorStore((s) => s.escalations);
   const todosByProject = useSupervisorStore((s) => s.todosByProject);
-  const activeProjectPref = useUIStore((s) => s.activeProject);
-  const currentProject = useSessionStore((s) => s.currentSession?.project) ?? null;
+  const setActiveProject = useUIStore((s) => s.setActiveProject);
   const setMode = useUIStore((s) => s.setMode);
   const setFocalEscalationId = useDeckStore((s) => s.setFocalEscalationId);
   const setFocusNodeId = useDeckStore((s) => s.setFocusNodeId);
 
-  const project = activeProjectPref ?? currentProject ?? '';
-  const open = selectOpenEscalations(escalations, project);
-  const count = open.length;
+  const count = selectFleetOpenCount(escalations);
 
   const onClick = () => {
-    const esc = highestPriorityEscalation(open);
+    const allOpen = escalations.filter((e) => e.status === 'open');
+    const esc = highestPriorityEscalation(allOpen);
     if (!esc) return;
-    const nodeId = nodeIdForEscalation(esc, todosByProject[project] ?? []);
-    // Frame the node in the Bridge graph (graph-answers-the-card).
+    const nodeId = nodeIdForEscalation(esc, todosByProject[esc.project] ?? []);
+    // Switch to the escalation's project + Bridge and frame its node.
+    setActiveProject(esc.project);
     setMode('bridge');
     setFocalEscalationId(esc.id);
     setFocusNodeId(nodeId);

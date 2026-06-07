@@ -18,6 +18,29 @@ export function selectOpenEscalations(escalations: Escalation[], project: string
   return escalations.filter((e) => e.project === project && e.status === 'open');
 }
 
+/**
+ * Open-escalation counts per project — the SOLE roll-up path for the multi-project
+ * Bridge (design-tabbed-bridge §3d). One reduce over the global flat `escalations`
+ * list feeds every count: each Project Rail row badge (`counts[p] ?? 0`), the FLEET
+ * row badge and the global CommandBarBadge (`sum(counts)`). By construction
+ * `selectOpenEscalations(escalations, p).length === counts[p]`, so the rail badge,
+ * the per-project NeedsYouZone and the FleetGraph danger ring can never diverge —
+ * enforced by a parity unit test.
+ */
+export function selectOpenEscalationsByProject(escalations: Escalation[]): Record<string, number> {
+  return escalations.reduce((m, e) => {
+    if (e.status === 'open') m[e.project] = (m[e.project] ?? 0) + 1;
+    return m;
+  }, {} as Record<string, number>);
+}
+
+/** Fleet-wide open-escalation total — `sum(selectOpenEscalationsByProject)`. */
+export function selectFleetOpenCount(escalations: Escalation[]): number {
+  let n = 0;
+  for (const e of escalations) if (e.status === 'open') n++;
+  return n;
+}
+
 /** The escalation a "focus" affordance should jump to first (most recent open). */
 export function highestPriorityEscalation(open: Escalation[]): Escalation | null {
   if (open.length === 0) return null;

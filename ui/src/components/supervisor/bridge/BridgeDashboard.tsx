@@ -144,16 +144,29 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
 
   // Single place that re-fetches every Bridge store for the current scope. Run
   // on scope/project change AND on every WebSocket (re)connect — see below.
+  //
+  // Multi-project (design-tabbed-bridge §6 phase 2): the Project Rail + FLEET
+  // status grid need per-project data for EVERY watched project, not just the
+  // active one. `loadEscalations` is one global fetch (drives all rail badges via
+  // selectOpenEscalationsByProject). The rail/grid essentials — coordinator state
+  // (dots) + todos (ready counts / idle-with-work) — are looped over every watched
+  // project so the rail is live without visiting each. The heavier detail-only
+  // loaders (audit/requirements/coverage) stay scoped to the ACTIVE project to
+  // keep resync cheap at 15+ projects (doc risk #2).
   const resyncBridge = useCallback(() => {
     void loadEscalations(serverScope, 'open');
+    const railProjects = new Set<string>(watchedProjects.map((w) => w.project).filter(Boolean));
+    if (project) railProjects.add(project);
+    for (const p of railProjects) {
+      void loadProjectTodos(serverScope, p);
+      void loadCoordinator(serverScope, p);
+    }
     if (project) {
-      void loadProjectTodos(serverScope, project);
-      void loadCoordinator(serverScope, project);
       void loadAudit(serverScope, project);
       void loadRequirements(serverScope, project);
       void loadCoverage(serverScope, project);
     }
-  }, [serverScope, project, loadEscalations, loadProjectTodos, loadCoordinator, loadAudit, loadRequirements, loadCoverage]);
+  }, [serverScope, project, watchedProjects, loadEscalations, loadProjectTodos, loadCoordinator, loadAudit, loadRequirements, loadCoverage]);
 
   useEffect(() => {
     resyncBridge();
