@@ -110,7 +110,7 @@ export const PlanWorkspace: React.FC = () => {
             minPrimarySize={40}
             maxPrimarySize={80}
             primaryContent={
-              <div className="h-full min-w-0 overflow-hidden p-3">
+              <div className="h-full min-w-0 overflow-hidden">
                 <PlanPanel serverId={serverScope} project={project} onSelectTodo={selectTodo} />
               </div>
             }
@@ -133,7 +133,7 @@ export const PlanWorkspace: React.FC = () => {
             }
           />
         ) : (
-          <div className="h-full min-w-0 overflow-hidden p-3">
+          <div className="h-full min-w-0 overflow-hidden">
             <PlanPanel serverId={serverScope} project={project} onSelectTodo={selectTodo} />
           </div>
         )}

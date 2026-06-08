@@ -168,7 +168,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
   );
 
   return (
-    <div className="flex flex-col h-full border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden bg-white dark:bg-gray-900">
+    <div className="flex flex-col h-full overflow-hidden bg-white dark:bg-gray-900">
       {/* Header */}
       <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-700 shrink-0">
         <div className="flex items-center gap-1.5 min-w-0">
