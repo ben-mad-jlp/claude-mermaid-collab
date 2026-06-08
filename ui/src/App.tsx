@@ -51,6 +51,7 @@ import type { Item, Session, ToolbarAction } from '@/types';
 // Import layout components
 import Header from '@/components/layout/Header';
 import Sidebar from '@/components/layout/Sidebar';
+import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { GlobalSearch } from '@/components/layout/GlobalSearch';
 import { TerminalDrawer } from '@/components/terminal/TerminalDrawer';
 import { BrowserPanel } from '@/components/browser/BrowserPanel';
@@ -178,9 +179,11 @@ const App: React.FC = () => {
 
   const setDocumentConflict = useUIStore((s) => s.setDocumentConflict);
   const viewerVisible = useUIStore((s) => s.viewerVisible);
-  // Control-UI vision §2: the main canvas is now gated on `mode`, not the
-  // legacy `supervisorViewOpen` boolean (kept around but no longer read here).
-  const mode = useUIStore((s) => s.mode);
+  // Workspace panes (the new model): Bridge / Plan / Studio dock side-by-side and
+  // each toggles independently. Studio = the artifact viewer (viewerVisible).
+  const bridgeOpen = useUIStore((s) => s.bridgeOpen);
+  const planOpen = useUIStore((s) => s.planOpen);
+  const paneOrder = useUIStore((s) => s.paneOrder);
 
   // Design canvas zoom (from design editor store, separate from diagram zoom)
   const designZoom = useDesignEditorStore((s) => s.zoom);
@@ -1840,39 +1843,40 @@ const App: React.FC = () => {
             share a layoutId and morph into each other on dive / step-back. */}
         <div className="flex flex-1 min-h-0 overflow-hidden">
           <DiveLayoutGroup>
-            {/* Fixed-width left rail — always the fleet Sidebar (the project tree),
-                in every mode. (Studio used to swap in a stripped StudioShell; that
-                special left column is gone — one consistent left column.) */}
+            {/* Fixed-width left rail — always the fleet Sidebar (the project tree). */}
             <Sidebar className="h-full" />
 
-            {/* Bridge mode: the fleet command center. P5: the artifact viewer is
-                no longer ignored in Bridge — when it's open for the current
-                session it docks into the Bridge's Z3 stage (beside the live
-                graph), never the exclusive `main`, so the graph stays mounted. */}
-            {mode === 'bridge' && (
-              <main className="flex-1 h-full min-h-0 overflow-hidden bg-white dark:bg-gray-800">
-                <BridgeDashboard
-                  artifactViewer={viewerVisible && currentSession ? renderMainContent() : null}
-                />
-              </main>
-            )}
-
-            {/* Plan mode: roadmap graph + Approve-plan (CUI-4). */}
-            {mode === 'plan' && <PlanWorkspace />}
-
-            {mode === 'studio' && viewerVisible && (
-              <main
-                className={`
-                  flex-1
-                  h-full
-                  min-h-0
-                  overflow-hidden
-                  bg-white dark:bg-gray-800
-                `}
-              >
-                {renderMainContent()}
-              </main>
-            )}
+            {/* Workspace panes — Bridge / Plan / Studio dock SIDE-BY-SIDE; any
+                combination can be open (toggled from the header icons). Studio =
+                the artifact viewer. Resizable via the drag handles between panes. */}
+            {(() => {
+              const open = paneOrder.filter((p) =>
+                p === 'bridge' ? bridgeOpen : p === 'plan' ? planOpen : viewerVisible && !!currentSession,
+              );
+              if (open.length === 0) {
+                return (
+                  <main className="flex-1 h-full flex items-center justify-center text-sm text-gray-400 dark:text-gray-500 bg-white dark:bg-gray-800">
+                    No pane open — toggle Bridge, Plan, or Studio in the header.
+                  </main>
+                );
+              }
+              return (
+                <PanelGroup direction="horizontal" autoSaveId="workspace-panes" className="flex-1 min-h-0">
+                  {open.map((p, i) => (
+                    <React.Fragment key={p}>
+                      {i > 0 && (
+                        <PanelResizeHandle className="w-1 bg-gray-200 dark:bg-gray-700 hover:bg-accent-400 transition-colors" />
+                      )}
+                      <Panel id={p} order={i} minSize={15} className="min-w-0 h-full bg-white dark:bg-gray-800">
+                        {p === 'bridge' && <BridgeDashboard />}
+                        {p === 'plan' && <div className="h-full min-h-0 overflow-hidden"><PlanWorkspace /></div>}
+                        {p === 'studio' && <div className="h-full min-h-0 overflow-hidden">{renderMainContent()}</div>}
+                      </Panel>
+                    </React.Fragment>
+                  ))}
+                </PanelGroup>
+              );
+            })()}
           </DiveLayoutGroup>
 
           {/* Resizable right columns beside the artifact preview (toggled from

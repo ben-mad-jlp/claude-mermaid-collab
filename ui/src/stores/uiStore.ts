@@ -63,10 +63,23 @@ export interface UIState {
   proposedEditObserveMode: boolean;
   setProposedEditObserveMode: (on: boolean) => void;
 
-  // Control-UI vision §2: the top-level mode discriminant. Drives the main
-  // canvas gate (Studio | Bridge | Plan). Persisted, defaults to 'studio'.
+  // Control-UI vision §2: the top-level mode discriminant. Retained for back-compat
+  // (some code reads/sets it); setMode now also OPENS the matching workspace pane.
   mode: UIMode;
   setMode: (mode: UIMode) => void;
+
+  // Workspace panes (the new model): Bridge / Plan / Studio are independent
+  // TOGGLES that dock side-by-side — any combination can be open at once (Studio
+  // is the artifact viewer, i.e. `viewerVisible`). `paneOrder` is their left→right
+  // order (for future drag-reorder).
+  bridgeOpen: boolean;
+  planOpen: boolean;
+  setBridgeOpen: (open: boolean) => void;
+  setPlanOpen: (open: boolean) => void;
+  toggleBridge: () => void;
+  togglePlan: () => void;
+  paneOrder: ('bridge' | 'plan' | 'studio')[];
+  setPaneOrder: (order: ('bridge' | 'plan' | 'studio')[]) => void;
 
   // CUI-6: per-mode sticky editor split. Each mode remembers its own split so
   // diving Studio ↔ Bridge ↔ Plan doesn't reset the user's layout.
@@ -215,7 +228,26 @@ export const useUIStore = create<UIState>()(
       setProposedEditObserveMode: (on: boolean) => set({ proposedEditObserveMode: on }),
 
       mode: 'studio',
-      setMode: (mode: UIMode) => set({ mode }),
+      // setMode now also opens the matching pane (so legacy "go to bridge" calls,
+      // e.g. the CommandBarBadge, surface the Bridge pane).
+      setMode: (mode: UIMode) =>
+        set(
+          mode === 'bridge'
+            ? { mode, bridgeOpen: true }
+            : mode === 'plan'
+              ? { mode, planOpen: true }
+              : { mode, viewerVisible: true },
+        ),
+
+      // Workspace panes — Bridge open by default; Studio = viewerVisible.
+      bridgeOpen: true,
+      planOpen: false,
+      setBridgeOpen: (open: boolean) => set({ bridgeOpen: open }),
+      setPlanOpen: (open: boolean) => set({ planOpen: open }),
+      toggleBridge: () => set((s) => ({ bridgeOpen: !s.bridgeOpen })),
+      togglePlan: () => set((s) => ({ planOpen: !s.planOpen })),
+      paneOrder: ['bridge', 'plan', 'studio'],
+      setPaneOrder: (order) => set({ paneOrder: order }),
 
       modeSplit: { studio: DEFAULT_EDITOR_SPLIT_POSITION, bridge: DEFAULT_EDITOR_SPLIT_POSITION, plan: DEFAULT_EDITOR_SPLIT_POSITION },
       setModeSplit: (mode: UIMode, position: number) => {

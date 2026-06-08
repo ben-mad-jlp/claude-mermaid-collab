@@ -14,7 +14,8 @@ import React, { useCallback, useState, useRef, useEffect } from 'react';
 import { useTheme } from '@/hooks/useTheme';
 import { useSession } from '@/hooks/useSession';
 import { NavMenu } from './NavMenu';
-import { ModePill } from './ModePill';
+import { CommandBarBadge } from '@/components/supervisor/bridge/CommandBarBadge';
+import { ProposedBadge } from '@/components/supervisor/bridge/ProposedBadge';
 import { useTerminalStore } from '@/stores/terminalStore';
 import { useBrowserStore } from '@/stores/browserStore';
 import { useUIStore } from '@/stores/uiStore';
@@ -74,6 +75,8 @@ export const Header: React.FC<HeaderProps> = ({
   const terminalOpen = useTerminalStore((s) => s.open);
   const browserVisible = useBrowserStore((s) => s.visible);
   const viewerVisible = useUIStore((s) => s.viewerVisible);
+  const bridgeOpen = useUIStore((s) => s.bridgeOpen);
+  const planOpen = useUIStore((s) => s.planOpen);
 
   // Shared style for a pane-toggle button; highlighted (accent) when its pane
   // is showing, neutral otherwise.
@@ -142,8 +145,11 @@ export const Header: React.FC<HeaderProps> = ({
             Collab
           </h1>
 
-          {/* Top-level mode switch (Studio | Bridge | Plan) + escalation badge */}
-          <ModePill />
+          {/* Escalation safety net (was inside the ModePill) — stays visible in
+              every mode. The Bridge/Plan/Studio pane toggles moved to the right
+              icon cluster. */}
+          <ProposedBadge />
+          <CommandBarBadge />
 
           {/* VS Code Connection Badge */}
           <div
@@ -200,12 +206,44 @@ export const Header: React.FC<HeaderProps> = ({
               behind the Bridge mode in the ModePill, which carries its own
               escalation badge. */}
 
-          {/* Artifact viewer toggle */}
+          {/* Bridge pane toggle */}
+          <button
+            data-testid="toggle-bridge"
+            onClick={() => useUIStore.getState().toggleBridge()}
+            aria-label="Toggle Bridge pane"
+            title="Bridge"
+            className={paneToggleClass(bridgeOpen)}
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="7" height="9" rx="1" />
+              <rect x="14" y="3" width="7" height="5" rx="1" />
+              <rect x="14" y="12" width="7" height="9" rx="1" />
+              <rect x="3" y="16" width="7" height="5" rx="1" />
+            </svg>
+          </button>
+
+          {/* Plan pane toggle */}
+          <button
+            data-testid="toggle-plan"
+            onClick={() => useUIStore.getState().togglePlan()}
+            aria-label="Toggle Plan pane"
+            title="Plan"
+            className={paneToggleClass(planOpen)}
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="6" cy="6" r="2.5" />
+              <circle cx="6" cy="18" r="2.5" />
+              <circle cx="18" cy="12" r="2.5" />
+              <path d="M8.5 6H13a2 2 0 0 1 2 2v2M8.5 18H13a2 2 0 0 0 2-2v-2" />
+            </svg>
+          </button>
+
+          {/* Studio (artifact viewer) toggle */}
           <button
             data-testid="toggle-viewer"
             onClick={() => useUIStore.getState().toggleViewer()}
-            aria-label="Toggle artifact viewer"
-            title="Toggle artifact viewer"
+            aria-label="Toggle Studio (artifact viewer)"
+            title="Studio"
             className={paneToggleClass(viewerVisible)}
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
