@@ -41,9 +41,6 @@ export const NeedsYouZone: React.FC<NeedsYouZoneProps> = ({
     <div
       data-testid="needs-you-zone"
       data-needs-you={open.length}
-      // Bleed to the column edges and pin to the very top of the scroll area; the
-      // backdrop keeps scrolled content from showing through the pinned cards.
-      className="sticky top-0 z-10 -mx-3 -mt-3 px-3 pt-3 pb-2 bg-white/95 dark:bg-gray-900/95 backdrop-blur supports-[backdrop-filter]:bg-white/80 dark:supports-[backdrop-filter]:bg-gray-900/80"
     >
       {open.length === 0 ? (
         <div className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-xs text-gray-500 dark:text-gray-400">

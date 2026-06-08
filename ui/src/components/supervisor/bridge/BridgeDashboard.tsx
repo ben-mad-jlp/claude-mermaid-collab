@@ -22,7 +22,6 @@ import { useIsDesktop } from '@/hooks/useIsDesktop';
 import { SplitPane } from '@/components/layout/SplitPane';
 import { SplitDeck } from './SplitDeck';
 import { CommandBar } from './CommandBar';
-import { RolesStrip } from './RolesStrip';
 import { NeedsYouZone } from './NeedsYouZone';
 import { BridgeEscalationInbox } from './BridgeEscalationInbox';
 import { FleetStatusGrid, type FleetGridRow } from './FleetStatusGrid';
@@ -327,34 +326,10 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
             </div>
           ) : (
           <>
-            {/* Per-project Coordinator switch. The fleet-global Steward/Supervisor
-                switches live up in the CommandBar (GlobalRoleSwitches). */}
-            <RolesStrip project={project} serverScope={serverScope} />
-            {/* Z1: top-pinned escalation zone — first in DOM, never scrolled away.
-                (P4: NeedsYouRail removed; Z1 + the CommandBarBadge carry salience.) */}
-            <NeedsYouZone
-              escalations={escalations}
-              project={project}
-              serverScope={serverScope}
-              onJump={handleJump}
-            />
-            {/* The confirm-loop heartbeat — sibling below NeedsYouZone, amber
-                (one-red discipline). Silent until a promise needs signing. */}
-            <RequirementsInbox
-              requirements={requirementsByProject[project] ?? []}
-              project={project}
-              serverScope={serverScope}
-            />
-            {/* "Your todos": the human-assigned, human-actionable slice of the
-                work-graph. Derived from the same project todos store (no new WS
-                events); Claim/Complete drive the work-graph transitions a person
-                owns, and the link chip deep-links into the program's native UI. */}
-            <HumanInbox
-              todos={todos}
-              onClaim={(t) => void promoteTodo(serverScope, project, t.id, 'in_progress')}
-              onComplete={(t) => void promoteTodo(serverScope, project, t.id, 'done')}
-              onOpen={handleSelectTodo}
-            />
+            {/* Coordinator row: the on/off + Start/Stop AND the progress funnel
+                (Backlog▸Ready▸In-flight▸Blocked▸Done) live together here. (The old
+                separate RolesStrip coordinator switch was redundant with this.) The
+                fleet-global Steward/Supervisor switches live in the CommandBar. */}
             <FleetVitals
               running={running}
               readyCount={readyCount}
@@ -362,7 +337,39 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
               onToggle={() => void setCoordinator(serverScope, project, running ? 'stop' : 'start')}
               coverage={coverageByProject[project]}
             />
-            <WorkerRoster subscriptions={projectSubs} todos={todos} onJump={handleJump} />
+            {/* Three columns above the graph: Escalations · Todos · Workers. */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 items-start">
+              <div className="min-w-0 space-y-3">
+                <div className="text-2xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">Escalations</div>
+                <NeedsYouZone
+                  escalations={escalations}
+                  project={project}
+                  serverScope={serverScope}
+                  onJump={handleJump}
+                />
+                {/* The confirm-loop heartbeat — sibling under escalations. */}
+                <RequirementsInbox
+                  requirements={requirementsByProject[project] ?? []}
+                  project={project}
+                  serverScope={serverScope}
+                />
+              </div>
+              <div className="min-w-0 space-y-3">
+                <div className="text-2xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">Todos</div>
+                {/* "Your todos": the human-assigned, human-actionable slice of the
+                    work-graph; Claim/Complete drive the transitions a person owns. */}
+                <HumanInbox
+                  todos={todos}
+                  onClaim={(t) => void promoteTodo(serverScope, project, t.id, 'in_progress')}
+                  onComplete={(t) => void promoteTodo(serverScope, project, t.id, 'done')}
+                  onOpen={handleSelectTodo}
+                />
+              </div>
+              <div className="min-w-0 space-y-3">
+                <div className="text-2xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">Workers</div>
+                <WorkerRoster subscriptions={projectSubs} todos={todos} onJump={handleJump} />
+              </div>
+            </div>
             <StreamTicker events={projectStreamEvents} />
             {/* G8: todo detail surfaces BELOW the Stream card when a node is clicked. */}
             {selectedTodoId && (
