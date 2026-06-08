@@ -177,14 +177,33 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
     () => Object.values(subscriptions).filter((s) => s.project === project),
     [subscriptions, project],
   );
-  // Workers = executing agent sessions only. Orchestrator/role sessions
-  // (supervisor/steward/planner) drive the work-graph — they're not workers, even
-  // when they hold an epic in_progress — so exclude them from the Workers roster
-  // and the graph's worker nodes.
-  const workerSubs = useMemo(
-    () => projectSubs.filter((s) => !isOrchestratorSession(s.session)),
-    [projectSubs],
-  );
+  // Workers roster source: the project's SUPERVISED sessions (same source as the
+  // left tree) — NOT the live `subscriptions` Watching feed, which doesn't include
+  // coordinator-spawned worker sessions (so they never showed). Merge in
+  // subscription liveness (status/context) when a matching subscription exists.
+  // Orchestrator/role sessions (supervisor/steward/planner) drive the work-graph —
+  // not workers — so they're excluded.
+  const workerSubs = useMemo(() => {
+    const subBySession = new Map(projectSubs.map((s) => [s.session, s]));
+    const fromSupervised = supervised
+      .filter((s) => s.project === project && !isOrchestratorSession(s.session))
+      .map((s) => {
+        const live = subBySession.get(s.session);
+        return {
+          serverId: live?.serverId ?? s.serverId ?? serverScope,
+          project,
+          session: s.session,
+          status: (live?.status ?? 'unknown') as 'active' | 'waiting' | 'permission' | 'unknown',
+          lastUpdate: live?.lastUpdate ?? Date.now(),
+          contextPercent: live?.contextPercent,
+        };
+      });
+    // Include any live subscription for this project not in the supervised set
+    // (a manually-watched worker), still excluding orchestrators.
+    const known = new Set(fromSupervised.map((s) => s.session));
+    const extra = projectSubs.filter((s) => !isOrchestratorSession(s.session) && !known.has(s.session));
+    return [...fromSupervised, ...extra];
+  }, [supervised, projectSubs, project, serverScope]);
 
   // Graph-only view of the todos: the FleetGraph should not show finished noise —
   // (a) completed/dropped ORPHAN todos (no parent, not an epic), and (b) EPICS
