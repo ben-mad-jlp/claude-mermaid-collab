@@ -3710,6 +3710,19 @@ IMPORTANT - Common pitfalls to avoid:
             try { await handleRegisterProject({ path: project }); } catch { /* may already be registered */ }
             supervisorStore.addWatchedProject(project);
             supervisorStore.addSupervised(project, session, 'spawn');
+            // PRE-CREATE the session so the launched `/collab <session>` RESUMES an
+            // existing session instead of hitting the "create it?" prompt that would
+            // strand the launch (the /planner skill gets sent before the prompt is
+            // answered). Belt-and-suspenders vs the collab-skill auto-create fix,
+            // which only reaches launched sessions after a plugin version bump.
+            // Idempotent: a no-op if the doc already exists.
+            try {
+              const existing = await listDocuments(project, session);
+              if (!/vibeinstructions/i.test(existing)) {
+                await createDocument(project, session, 'vibe.vibeinstructions',
+                  `# Vibe: ${session}\n\n## Goal\n[Planner — define the roadmap for this project]\n\n## Context\n[No context recorded]\n\n## Pair Mode\nDisabled\n\n## Agent Mode\nEnabled`);
+              }
+            } catch { /* best-effort: launch still proceeds */ }
             getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
             const launch = await launchAndBind({
               project,

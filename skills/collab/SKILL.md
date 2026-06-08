@@ -41,10 +41,17 @@ Then restart Claude Code and run /collab again.
 
 **If the skill was invoked with a session name argument** (e.g. `/collab my-session-name`):
 - List all sessions and check if a session with that name exists for the current project.
-- **If it exists:** Go directly to Step 4 using that session name.
-- **If it does NOT exist:** Warn the user: `Session "<name>" doesn't exist. Create it?` and wait for confirmation.
-  - If confirmed: Go to Step 3, using the provided name (skip the generate-name step).
-  - If declined: Fall through to the session list below.
+- **If it exists:** Go directly to Step 4 (resume) using that session name.
+- **If it does NOT exist:** the explicit name IS the intent to use it — **CREATE it directly**, do NOT
+  block on a confirmation. Go to Step 3 with the provided name (skip BOTH the generate-name step AND
+  any confirmation). Just say one line: `Session "<name>" doesn't exist yet — creating it.`
+  - **Why no prompt:** this skill is frequently invoked PROGRAMMATICALLY — the server launches
+    `claude` and sends `/collab <session>`, then sends a follow-on skill (e.g. `/planner`,
+    `/worker`, `/steward`) shortly after. A blocking "Create it?" prompt strands that launch: the
+    follow-on skill arrives before the session is created, so the session never registers and the
+    role skill runs unbound. Auto-creating on an explicit name makes the launch deterministic.
+    The only downside is an interactive typo creating an empty session — cheap to archive, and a far
+    better default than a stranded launch. (create-or-use-existing: exists→use, absent→create.)
 
 Otherwise:
 
@@ -60,6 +67,12 @@ Otherwise:
 4. **If no sessions for current project:** Go to Step 3
 
 ## Step 3: Create New Session
+
+**If a session name was already provided** (the explicit-name path in Step 2): use that name and
+**skip steps 1–2** below (no generate, no confirmation) — go straight to creating the document. This
+keeps a programmatic `/collab <session>` launch non-blocking.
+
+Otherwise (no name provided — the interactive list path):
 
 1. Generate name: `mcp__plugin_mermaid-collab_mermaid__generate_session_name()`
 2. Ask user to confirm or pick own name
