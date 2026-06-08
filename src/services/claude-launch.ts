@@ -31,6 +31,12 @@ function capturePane(tmux: string): string {
   } catch { return ''; }
 }
 
+/** Kill a tmux session (best-effort). Used to tear down a bare-shell session that
+ *  failed to bring up Claude, so a retry re-creates it cleanly. */
+function killTmux(tmux: string): void {
+  try { Bun.spawnSync(['tmux', 'kill-session', '-t', tmux], { stdout: 'ignore', stderr: 'ignore' }); } catch { /* best-effort */ }
+}
+
 // The status bar (e.g. "🧠 0% ctx |" / "← for agents") only renders once the
 // TUI is interactive — a reliable "ready for input" marker. (The ❯ prompt and
 // welcome box appear earlier, during load, so they're not used.)
@@ -119,9 +125,26 @@ export async function ensureSession(opts: {
     // status bar renders (Claude is interactive), then send /collab and VERIFY
     // it registered — retrying a couple times — since cold-start/MCP timing
     // varies.
-    for (let i = 0; i < 60; i++) { // up to ~60s
-      await sleep(1000);
-      if (isTuiReady(capturePane(tmux))) break;
+    const waitForTui = async (secs: number): Promise<boolean> => {
+      for (let i = 0; i < secs; i++) {
+        await sleep(1000);
+        if (isTuiReady(capturePane(tmux))) return true;
+      }
+      return false;
+    };
+
+    // VERIFY CLAUDE ACTUALLY STARTED (not a bare shell). If the TUI never paints —
+    // bad `claude` cmd, crash, a trust/login prompt — relaunch once, then re-poll.
+    // If it's still not interactive, this tmux is a bare shell: tear it down and
+    // report failure so the coordinator never marks it busy / assigns it a todo.
+    let tuiReady = await waitForTui(60);
+    if (!tuiReady) {
+      await sendTmuxKeysRaw(tmux, cmd); // one relaunch attempt
+      tuiReady = await waitForTui(45);
+    }
+    if (!tuiReady) {
+      killTmux(tmux);
+      return { ready: false, reason: 'claude-not-interactive' };
     }
     await sleep(1500); // settle
 
@@ -168,6 +191,10 @@ export async function runTodoInSession(opts: {
     if ((await check.exited) !== 0) return { sent: false, reason: 'no-tmux' };
 
     await sleep(12000);
+    // VERIFY CLAUDE IS INTERACTIVE before assigning the todo. A warm pool session
+    // whose Claude died leaves a bare shell; sending the worker skill into it is
+    // silently lost. Don't assign — report failure so the coordinator relaunches.
+    if (!isTuiReady(capturePane(tmux))) return { sent: false, reason: 'claude-not-interactive' };
     await sendTmuxKeysRaw(tmux, opts.invokeSkill);
     return { sent: true };
   } catch (e) {
