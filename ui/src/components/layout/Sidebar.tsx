@@ -5,7 +5,6 @@ import { useSupervisorStore } from '@/stores/supervisorStore';
 import { useTabsStore, useSessionTabs } from '@/stores/tabsStore';
 import { SubscriptionsPanel } from '@/components/layout/SubscriptionsPanel';
 import { SupervisorPanel } from '@/components/layout/SupervisorPanel';
-import { StewardPanel } from '@/components/layout/StewardPanel';
 import { ServersTreeSection } from '@/components/layout/sidebar-tree/ServersTreeSection';
 import { ArtifactTree } from '@/components/layout/sidebar-tree/ArtifactTree';
 import { WorktreeBadge } from '@/components/layout/WorktreeBadge';
@@ -58,10 +57,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return () => clearInterval(id);
   }, [serverScope, loadStewardIdentity, loadLiveness, loadConfig]);
 
-  // Steward: show only while running (start/stop lives on the Bridge RolesStrip).
   // The Supervisor panel is now the UNIFIED Bridge project tree (the project
   // index) — always shown; it manages the supervisor role from its own header.
-  const showSteward = !!stewardLiveness?.running;
+  void stewardLiveness;
   void supLiveness;
   void supConfig;
 
@@ -117,11 +115,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
         {/* ProjectScopeSection dissolved (CUI-6): its PROJECT select, daemon
             Start/Stop, plan tree and scoped escalations now live in the Bridge. */}
-        {/* Role ladder (Steward P3): Steward ▸ Supervisor ▸ Coordinator/Planner
-            ▸ workers — the Steward sits at the top of the column, above Supervisor. */}
-        {showSteward && (
-          <StewardPanel currentProject={currentSession?.project} currentSession={currentSession?.name} />
-        )}
+        {/* Steward moved into the Bridge (its card sits above the Supervisor
+            card in SupervisorPanel); no left-column Steward panel. */}
         {/* Unified Bridge project tree (was SupervisorPanel) — always the index. */}
         <SupervisorPanel currentProject={currentSession?.project} currentSession={currentSession?.name} />
         <SubscriptionsPanel currentProject={currentSession?.project} />

@@ -17,7 +17,6 @@ import { NavMenu } from './NavMenu';
 import { useTerminalStore } from '@/stores/terminalStore';
 import { useBrowserStore } from '@/stores/browserStore';
 import { useUIStore, type PaneKey } from '@/stores/uiStore';
-import { HeaderRoleSwitches } from './HeaderRoleSwitches';
 import { Session } from '@/types';
 
 export interface HeaderProps {
@@ -362,8 +361,6 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right-side controls */}
         <div className="flex items-center gap-3">
-          {/* Fleet-global role switches — Steward (mode) + Supervisor (on/off). */}
-          <HeaderRoleSwitches />
           {/* Project + Session Labels (project is a management dropdown) */}
           <div
             className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium bg-gray-100 dark:bg-gray-700 rounded-lg min-w-[200px]"

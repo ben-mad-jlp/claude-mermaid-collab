@@ -116,12 +116,12 @@ export function buildServerLabelMap(servers: IconServer[]): Map<string, string> 
 }
 
 /**
- * SupervisorRoleCard — the supervisor's own status card, mirroring StewardCard:
+ * RoleConsoleCard — an orchestration role's own status card (steward / supervisor):
  * status-colored body, the session name, a live elapsed badge, the dancing-Claude
- * avatar, and click→open-its-tmux console. The supervisor isn't a supervised
- * worker, so this card is the in-app way to view its session.
+ * avatar, and click→open-its-tmux console. These roles aren't supervised workers,
+ * so this card is the in-app way to view their session.
  */
-const SupervisorRoleCard: React.FC<{ card: SessionCardData; serverLabel?: string }> = ({ card, serverLabel }) => {
+const RoleConsoleCard: React.FC<{ card: SessionCardData; serverLabel?: string; title?: string; testid?: string; trailing?: React.ReactNode }> = ({ card, serverLabel, title, testid, trailing }) => {
   const elapsed = useElapsed(card.lastUpdate, card.status);
   const statusBg =
     card.status === 'permission'
@@ -134,9 +134,9 @@ const SupervisorRoleCard: React.FC<{ card: SessionCardData; serverLabel?: string
   return (
     <div className="flex items-center gap-1">
       <div
-        data-testid="supervisor-card"
+        data-testid={testid ?? 'supervisor-card'}
         onClick={() => void activateSessionCard(card, serverLabel)}
-        title="Open the supervisor's tmux console"
+        title={title ?? "Open the supervisor's tmux console"}
         className={`relative flex-1 flex items-center gap-2 pl-3 pr-2 py-1 rounded text-sm cursor-pointer transition-colors min-w-0 overflow-hidden ${statusBg}`}
       >
         <div className="flex-1 min-w-0 flex items-center gap-1">
@@ -144,10 +144,43 @@ const SupervisorRoleCard: React.FC<{ card: SessionCardData; serverLabel?: string
           {elapsed && <span className="text-3xs text-black tabular-nums ml-auto">{elapsed}</span>}
         </div>
       </div>
+      {trailing}
       <ClaudePixAvatar status={card.status} />
     </div>
   );
 };
+
+/** Small on/off toggle switch (the steward's "auto" gate, inline in its row). */
+const AutoToggle: React.FC<{ on: boolean; onChange: (on: boolean) => void; title?: string }> = ({ on, onChange, title }) => (
+  <button
+    type="button"
+    data-testid="steward-auto-toggle"
+    data-on={on}
+    role="switch"
+    aria-checked={on}
+    title={title}
+    onClick={() => onChange(!on)}
+    className="inline-flex items-center gap-1 shrink-0"
+  >
+    <span className="text-3xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">auto</span>
+    <span className={`relative inline-block w-7 h-4 rounded-full transition-colors ${on ? 'bg-success-500' : 'bg-gray-300 dark:bg-gray-600'}`}>
+      <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${on ? 'translate-x-3' : ''}`} />
+    </span>
+  </button>
+);
+
+/** Start button shown in place of a role card when the role isn't running. */
+const RoleStartButton: React.FC<{ label: string; onStart: () => void; disabled?: boolean; busy?: boolean }> = ({ label, onStart, disabled, busy }) => (
+  <button
+    type="button"
+    data-testid={`start-${label.toLowerCase()}`}
+    onClick={onStart}
+    disabled={disabled || busy}
+    className="w-full py-1 px-3 text-2xs font-semibold rounded bg-info-600 hover:bg-info-700 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+  >
+    {busy ? `Starting ${label}…` : `Start ${label}`}
+  </button>
+);
 
 export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject, currentSession, onNavigate, onOpenSupervisorView }) => {
   const activeId = useSessionStore((s) => s.currentSession)?.serverId ?? null;
@@ -171,6 +204,10 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   // Unified Bridge tree (design-tabbed-bridge PIVOT): the watched-project set is
   // the project index; escalation counts + coordinator state badge each row;
   // clicking a row drives the Bridge. watch === supervise (add/remove couples).
+  const stewardLiveness = useSupervisorStore((s) => s.stewardLiveness);
+  const loadStewardIdentity = useSupervisorStore((s) => s.loadStewardIdentity);
+  const setStewardMode = useSupervisorStore((s) => s.setStewardMode);
+  const startRole = useSupervisorStore((s) => s.startRole);
   const watchedProjects = useSupervisorStore((s) => s.watchedProjects);
   const coordinatorByProject = useSupervisorStore((s) => s.coordinatorByProject);
   const escalations = useSupervisorStore((s) => s.escalations);
@@ -209,13 +246,14 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
       // Restart front door within the staleness window when the supervisor dies.
       void loadConfig(serverScope);
       void loadLiveness(serverScope);
+      void loadStewardIdentity(serverScope);
       // Unified tree: the watched-project set + per-project coordinator dots.
       void loadProjects(serverScope);
     };
     refresh();
     const id = setInterval(refresh, 10_000);
     return () => clearInterval(id);
-  }, [serverScope, loadSupervised, loadEscalations, loadConfig, loadLiveness, loadProjects]);
+  }, [serverScope, loadSupervised, loadEscalations, loadConfig, loadLiveness, loadStewardIdentity, loadProjects]);
 
   // Coordinator state for every watched project (drives the per-row ●/○ dot).
   const watchedList = Array.isArray(watchedProjects) ? watchedProjects : [];
@@ -279,6 +317,78 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
     }),
     [supervisorSub, consoleServerId, supervisorProjectName, supervisorSessionName, liveness],
   );
+
+  // Steward card data (mirrors the supervisor card): live status off the steward
+  // session's subscription, falling back to its liveness heartbeat. The steward
+  // runs in a fixed global workspace resolved from the server steward-config.
+  const [stewardWs, setStewardWs] = useState<{ project: string; session: string } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const mc = (window as any).mc;
+        const res = mc?.invokeOnServer
+          ? await mc.invokeOnServer(serverScope, { path: '/api/supervisor/steward-config', method: 'GET' })
+          : { body: await (await fetch('/api/supervisor/steward-config')).json() };
+        const cfg = res?.body ?? {};
+        if (!cancelled && cfg.stewardProject && cfg.stewardSession) {
+          setStewardWs({ project: cfg.stewardProject, session: cfg.stewardSession });
+        }
+      } catch { /* best-effort */ }
+    })();
+    return () => { cancelled = true; };
+  }, [serverScope]);
+
+  const stewardRunning = !!stewardLiveness?.running;
+  const stewardSessionName = stewardLiveness?.identity?.session ?? stewardWs?.session ?? '';
+  const stewardProjectName = stewardLiveness?.identity?.project ?? stewardWs?.project ?? '';
+  const stewardAutoOn = (stewardLiveness?.mode ?? (stewardLiveness?.switchedOn !== false ? 'auto' : 'off')) !== 'off';
+  const stewardSub = useMemo(
+    () => Object.values(subscriptions).find((s) => s.project === stewardProjectName && s.session === stewardSessionName),
+    [subscriptions, stewardProjectName, stewardSessionName],
+  );
+  const stewardCard: SessionCardData = useMemo(
+    () => ({
+      serverId: stewardSub?.serverId || stewardLiveness?.identity?.serverId || consoleServerId,
+      project: stewardProjectName,
+      session: stewardSessionName,
+      status:
+        stewardSub?.status && stewardSub.status !== 'unknown'
+          ? stewardSub.status
+          : stewardLiveness?.running
+            ? 'waiting'
+            : 'unknown',
+      lastUpdate: stewardSub?.lastUpdate ?? stewardLiveness?.identity?.updatedAt ?? Date.now(),
+      contextPercent: stewardSub?.contextPercent,
+    }),
+    [stewardSub, consoleServerId, stewardProjectName, stewardSessionName, stewardLiveness],
+  );
+
+  // Start handlers (roles are normally always-running; the Start button shows
+  // only when a role isn't live). Steward launches with Remote Control so it's
+  // reachable from the Claude app, mirroring the old GlobalRoleSwitches path.
+  const [startingRole, setStartingRole] = useState<'steward' | 'supervisor' | null>(null);
+  const startSteward = async () => {
+    if (!stewardWs) return;
+    setStartingRole('steward');
+    try {
+      const r = await startRole(serverScope, 'steward', stewardWs.project, stewardWs.session, true);
+      if (!r.started) alert(`Steward failed to start: ${r.reason ?? 'unknown'}`);
+    } finally {
+      setStartingRole(null);
+      void loadStewardIdentity(serverScope);
+    }
+  };
+  const startSupervisor = async () => {
+    if (!hasConfig) return;
+    setStartingRole('supervisor');
+    try {
+      await startRole(serverScope, 'supervisor', config!.supervisorProject, config!.supervisorSession);
+    } finally {
+      setStartingRole(null);
+      void loadLiveness(serverScope);
+    }
+  };
 
   // The global role workspaces (~/.mermaid-collab/supervisor, .../steward) are not
   // user projects — never list them in the Bridge tree.
@@ -573,13 +683,36 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
         </div>
       ) : (
         <div className="px-2 pb-2">
-          {/* Supervisor's own card — click → tmux console (mirrors the steward
-              card). On/off is controlled from the main header role switches. */}
-          {supervisorState === 'running' && supervisorSessionName && (
-            <div className="mb-2">
-              <SupervisorRoleCard card={supervisorCard} serverLabel={serverLabelById.get(supervisorCard.serverId)} />
-            </div>
-          )}
+          {/* Role cards — Steward above Supervisor. Each is click→tmux-console;
+              the steward row carries an inline "auto" switch (between the card
+              and the dancing Claude). A role that isn't running shows a Start
+              button in place of its card. */}
+          <div className="mb-2 space-y-1.5">
+            {/* Steward */}
+            {stewardRunning && stewardSessionName ? (
+              <RoleConsoleCard
+                testid="steward-card"
+                title="Open the steward's tmux console"
+                card={stewardCard}
+                serverLabel={serverLabelById.get(stewardCard.serverId)}
+                trailing={
+                  <AutoToggle
+                    on={stewardAutoOn}
+                    onChange={(on) => void setStewardMode(serverScope, on ? 'auto' : 'off')}
+                    title={stewardAutoOn ? 'Auto ON — steward auto-answers escalations. Click to turn off.' : 'Auto OFF — escalations wait for you. Click to turn on.'}
+                  />
+                }
+              />
+            ) : (
+              <RoleStartButton label="Steward" onStart={() => void startSteward()} disabled={!stewardWs} busy={startingRole === 'steward'} />
+            )}
+            {/* Supervisor */}
+            {supervisorState === 'running' && supervisorSessionName ? (
+              <RoleConsoleCard card={supervisorCard} serverLabel={serverLabelById.get(supervisorCard.serverId)} />
+            ) : (
+              <RoleStartButton label="Supervisor" onStart={() => void startSupervisor()} disabled={!hasConfig} busy={startingRole === 'supervisor'} />
+            )}
+          </div>
           {byProject.length === 0 ? (
             <div className="px-2 py-4 text-xs text-gray-500 dark:text-gray-400 text-center">
               No projects yet — add one below
