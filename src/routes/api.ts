@@ -16,6 +16,7 @@ import { uiManager } from '../services/ui-manager';
 import { statusManager } from '../services/status-manager';
 import { projectRegistry } from '../services/project-registry';
 import { UpdateLogManager } from '../services/update-log-manager';
+import { launchRemoteServer } from '../services/remote-launch';
 import { join, isAbsolute } from 'path';
 import { homedir } from 'os';
 import { existsSync, readdirSync } from 'fs';
@@ -404,6 +405,34 @@ export async function handleAPI(
   // GET /api/health - Server health check
   if (path === '/api/health' && req.method === 'GET') {
     return handleHealthCheck(wsHandler);
+  }
+
+  // POST /api/server/launch - SSH into a remote machine and start a collab
+  // server there. Body: { host, port, user?, password?, command }. The password
+  // is used once for the SSH session and never persisted. Runs on the LOCAL
+  // sidecar (which has the system `ssh`); the UI calls it same-origin.
+  if (path === '/api/server/launch' && req.method === 'POST') {
+    try {
+      const body = (await req.json()) as {
+        host?: string; port?: number; user?: string; password?: string; command?: string;
+      };
+      if (!body.host || !body.command) {
+        return Response.json({ ok: false, error: 'host and command are required' }, { status: 400 });
+      }
+      const result = await launchRemoteServer({
+        host: body.host,
+        port: Number(body.port) || 9002,
+        user: body.user?.trim() || undefined,
+        password: body.password || undefined,
+        command: body.command,
+      });
+      return Response.json(result, { status: result.ok ? 200 : 502 });
+    } catch (err) {
+      return Response.json(
+        { ok: false, error: err instanceof Error ? err.message : 'launch failed' },
+        { status: 500 },
+      );
+    }
   }
 
   // GET /api/session-state?project=...&session=... - Get collab session state

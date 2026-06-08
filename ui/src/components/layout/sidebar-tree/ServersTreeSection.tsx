@@ -38,6 +38,68 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
     const [form, setForm] = useState({ label: '', host: '', port: '9002', token: '' });
     const [error, setError] = useState<string | null>(null);
 
+    // Remote-launch dialog state. We start a collab server on a remote box over
+    // SSH via the LOCAL sidecar (POST /api/server/launch). The SSH user + start
+    // command are remembered per host (non-secret, localStorage); the password
+    // is asked each time and never stored.
+    const [launchFor, setLaunchFor] = useState<string | null>(null);
+    const [launchForm, setLaunchForm] = useState({ user: '', password: '', command: '' });
+    const [launching, setLaunching] = useState(false);
+    const [launchMsg, setLaunchMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+
+    const prefillKey = (host: string, port: number) => `mc-launch-prefill:${host}:${port}`;
+    const openLaunch = (host: string, port: number, id: string) => {
+      setLaunchMsg(null);
+      let user = '';
+      let command = `mermaid-collab start --port ${port}`;
+      try {
+        const saved = JSON.parse(localStorage.getItem(prefillKey(host, port)) || '{}');
+        if (saved.user) user = saved.user;
+        if (saved.command) command = saved.command;
+      } catch { /* ignore */ }
+      setLaunchForm({ user, password: '', command });
+      setLaunchFor(id);
+    };
+
+    const submitLaunch = async (e: React.FormEvent, host: string, port: number) => {
+      e.preventDefault();
+      setLaunchMsg(null);
+      if (!launchForm.command.trim()) {
+        setLaunchMsg({ kind: 'err', text: 'A start command is required' });
+        return;
+      }
+      setLaunching(true);
+      try {
+        const res = await fetch('/api/server/launch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            host,
+            port,
+            user: launchForm.user.trim() || undefined,
+            password: launchForm.password || undefined,
+            command: launchForm.command,
+          }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (res.ok && body.ok) {
+          // Remember the non-secret bits for next time.
+          try {
+            localStorage.setItem(prefillKey(host, port), JSON.stringify({ user: launchForm.user.trim(), command: launchForm.command }));
+          } catch { /* ignore */ }
+          setLaunchMsg({ kind: 'ok', text: body.reachable ? 'Server is up.' : 'Launched — waiting for it to come online…' });
+          void recheckServer(launchFor!);
+          setTimeout(() => { setLaunchFor(null); setLaunchMsg(null); }, 1500);
+        } else {
+          setLaunchMsg({ kind: 'err', text: body.error || `Launch failed (${res.status})` });
+        }
+      } catch (err: any) {
+        setLaunchMsg({ kind: 'err', text: err?.message ?? 'Launch failed' });
+      } finally {
+        setLaunching(false);
+      }
+    };
+
     useImperativeHandle(ref, () => ({
       revealAddForm: () => setAdding(true),
     }), []);
@@ -142,6 +204,19 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
                     <span className="text-gray-400 dark:text-gray-500 truncate">
                       {s.host}:{s.port}
                     </span>
+                    {s.status !== 'online' && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); openLaunch(s.host, s.port, s.id); }}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-400 hover:text-success-500 dark:hover:text-success-400"
+                        title="Launch the collab server on this machine (SSH)"
+                        aria-label={`Launch server ${s.label}`}
+                      >
+                        <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                          <path d="M6.3 2.84A1 1 0 004.8 3.7v12.6a1 1 0 001.5.86l10.5-6.3a1 1 0 000-1.72L6.3 2.84z" />
+                        </svg>
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); void recheckServer(s.id); }}
@@ -167,6 +242,54 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
                       </button>
                     ) : null}
                   </div>
+                  {launchFor === s.id && (
+                    <form onSubmit={(e) => submitLaunch(e, s.host, s.port)} className="px-2 py-1.5 mt-1 grid gap-1.5 rounded bg-gray-50 dark:bg-gray-800/60">
+                      <div className="text-2xs text-gray-500 dark:text-gray-400">
+                        Launch on <span className="font-medium">{s.host}:{s.port}</span> over SSH
+                      </div>
+                      <input
+                        placeholder="SSH user (blank = your default)"
+                        value={launchForm.user}
+                        onChange={(e) => setLaunchForm({ ...launchForm, user: e.target.value })}
+                        className="w-full bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-info-400"
+                      />
+                      <input
+                        placeholder="SSH password (blank = use keys/agent)"
+                        type="password"
+                        autoComplete="off"
+                        value={launchForm.password}
+                        onChange={(e) => setLaunchForm({ ...launchForm, password: e.target.value })}
+                        className="w-full bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-info-400"
+                      />
+                      <input
+                        placeholder="Start command"
+                        value={launchForm.command}
+                        onChange={(e) => setLaunchForm({ ...launchForm, command: e.target.value })}
+                        className="w-full bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs font-mono text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-info-400"
+                      />
+                      {launchMsg && (
+                        <span className={`text-2xs ${launchMsg.kind === 'ok' ? 'text-success-600 dark:text-success-400' : 'text-danger-500 dark:text-danger-400'}`}>
+                          {launchMsg.text}
+                        </span>
+                      )}
+                      <div className="flex gap-1.5 justify-end">
+                        <button
+                          type="button"
+                          onClick={() => { setLaunchFor(null); setLaunchMsg(null); }}
+                          className="px-2 py-0.5 text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={launching}
+                          className="px-2 py-0.5 text-xs bg-success-600 text-white rounded hover:bg-success-700 disabled:opacity-50"
+                        >
+                          {launching ? 'Launching…' : 'Launch'}
+                        </button>
+                      </div>
+                    </form>
+                  )}
                 </div>
               );
             })}
