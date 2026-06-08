@@ -17,7 +17,7 @@ import { useSupervisorStore } from '@/stores/supervisorStore';
 import { useServers } from '@/contexts/ServerContext';
 import { getWebSocketClient } from '@/lib/websocket';
 import { ServerIcon } from '@/components/ServerIcon';
-import { SessionCard, capsCache, fetchCapabilities, type SessionCardData } from '@/components/layout/SessionCard';
+import { SessionCard, capsCache, type SessionCardData } from '@/components/layout/SessionCard';
 
 type SubscribedSession = SessionCardData;
 
@@ -419,37 +419,6 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
             />
           </svg>
         </button>
-        {/* Open all watched sessions in IDE */}
-        {projectSubscriptions.length > 0 && (
-          <button
-            onClick={async () => {
-              const mc = (window as any).mc;
-              for (const [, sub] of projectSubscriptions) {
-                const caps = await fetchCapabilities(sub.serverId);
-                if (!caps.tmux) continue;
-                if (mc?.invokeOnServer && sub.serverId) {
-                  void mc.invokeOnServer(sub.serverId, {
-                    path: '/api/ide/create-terminal',
-                    method: 'POST',
-                    body: { session: sub.session, project: sub.project },
-                  });
-                } else {
-                  fetch('/api/ide/create-terminal', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ session: sub.session, project: sub.project }),
-                  }).catch(() => {});
-                }
-              }
-            }}
-            className="px-2 py-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-            title="Open all watched sessions in IDE"
-          >
-            <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 6a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2zm0 6a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2z" />
-            </svg>
-          </button>
-        )}
         {/* Subscribe button */}
         <button
           onClick={() => setShowDropdown(true)}
