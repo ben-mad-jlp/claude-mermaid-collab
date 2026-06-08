@@ -509,9 +509,11 @@ describe('single-writer invariant (project-is-local)', () => {
 });
 
 describe('todo-store targetProject (cross-project todos)', () => {
-  test('defaults to null and round-trips through create + update', async () => {
+  test('defaults to the tracking project (total field) and round-trips through create + update', async () => {
+    // targetProject is now TOTAL: an omitted target defaults to this todo's own
+    // tracking project, never NULL — so the Bridge can partition by it cleanly.
     const def = await createTodo(project, { ownerSession: 's1', title: 'same-project' });
-    expect(def.targetProject).toBeNull();
+    expect(def.targetProject).toBe(project);
 
     const t = await createTodo(project, { ownerSession: 's1', title: 'cross', targetProject: '/repos/build123d' });
     expect(t.targetProject).toBe('/repos/build123d');
@@ -520,8 +522,6 @@ describe('todo-store targetProject (cross-project todos)', () => {
 
     const updated = await updateTodo(project, t.id, { targetProject: '/repos/other' });
     expect(updated.targetProject).toBe('/repos/other');
-    // clearing back to null
-    expect((await updateTodo(project, t.id, { targetProject: null })).targetProject).toBeNull();
     // an unrelated update leaves targetProject untouched
     await updateTodo(project, t.id, { targetProject: '/repos/keep' });
     expect((await updateTodo(project, t.id, { title: 'renamed' })).targetProject).toBe('/repos/keep');

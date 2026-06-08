@@ -35,4 +35,11 @@ export interface SessionTodo {
   retryCount?: number;
   /** Opaque actor handle recorded when a HUMAN todo is completed (B1). */
   completedBy?: string | null;
+  /**
+   * Absolute path of the project this todo BELONGS to. Now a total field (the
+   * backend defaults it to the tracking project + backfills legacy NULLs), so the
+   * Bridge can partition by it instead of falling back to "whichever DB it lives
+   * in" — which combined cross-project todos into one diagram.
+   */
+  targetProject?: string | null;
 }

@@ -141,7 +141,16 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectAudit]);
 
-  const todos = todosByProject[project] ?? [];
+  // Bridge shows ONLY the active project's own work. A todo's project identity is
+  // its `targetProject` (now a total field). Cross-project coordination todos
+  // (epics here whose children target build123d/yolox/etc.) are filtered out so
+  // the diagram stops combining multiple projects into one graph. (null is treated
+  // as "this project" for any row not yet backfilled.) The planner views
+  // (PlanWorkspace/PlanPanel) read todosByProject directly and keep the full set.
+  const todos = useMemo(
+    () => (todosByProject[project] ?? []).filter((t) => !t.targetProject || t.targetProject === project),
+    [todosByProject, project],
+  );
   const projectSubs = useMemo(
     () => Object.values(subscriptions).filter((s) => s.project === project),
     [subscriptions, project],

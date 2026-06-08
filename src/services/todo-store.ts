@@ -256,6 +256,12 @@ function openDb(project: string): Database {
     `UPDATE todos SET claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL
      WHERE status != 'in_progress' AND (claimedBy IS NOT NULL OR claimToken IS NOT NULL OR claimedAt IS NOT NULL OR claimLeaseMs IS NOT NULL)`
   );
+  // One-shot backfill: targetProject is now a TOTAL field — every todo belongs to
+  // exactly one project. Legacy rows left it NULL (the old "same as tracking
+  // project" override convention), which made the Bridge fall back to "whichever
+  // DB it lives in" and combine cross-project todos into one diagram. Stamp every
+  // NULL with this db's tracking project so the UI can partition by targetProject.
+  db.prepare(`UPDATE todos SET targetProject = ? WHERE targetProject IS NULL`).run(project);
   dbCache.set(project, db);
   return db;
 }
@@ -375,7 +381,9 @@ export function createTodo(project: string, input: CreateTodoInput): Promise<Tod
       status, input.priority ?? null, input.dueDate ?? null, input.parentId ?? null,
       JSON.stringify(input.dependsOn ?? []), ord, input.link ? JSON.stringify(input.link) : null,
       ts, ts, status === 'done' ? ts : null, null,
-      input.sessionName ?? null, input.blueprintId ?? null, input.type ?? null, input.targetProject ?? null, null, null, null, null, null, 0, null, input.objectRef ?? null, input.decisionRef ?? null, input.claimProbe ?? null
+      // targetProject is total: default to this todo's tracking project (normalized
+      // off any worktree path) so it's never written NULL. null === "same project".
+      input.sessionName ?? null, input.blueprintId ?? null, input.type ?? null, input.targetProject ?? trackingProjectRoot(project), null, null, null, null, null, 0, null, input.objectRef ?? null, input.decisionRef ?? null, input.claimProbe ?? null
     );
     return getTodo(project, id)!;
   });
