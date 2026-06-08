@@ -16,7 +16,7 @@ const DOT: Record<RoleStatus, string> = {
 
 export const RoleSwitch: React.FC<{
   label: string;
-  scope: string;
+  scope?: string;
   status: RoleStatus;
   disabled?: boolean;
   disabledTitle?: string;
@@ -46,7 +46,7 @@ export const RoleSwitch: React.FC<{
     >
       <span className={`inline-block w-1.5 h-1.5 rounded-full ${DOT[status]}`} aria-hidden="true" />
       <span>{label}</span>
-      <span className="text-3xs text-gray-400 dark:text-gray-500">{scope}</span>
+      {scope && <span className="text-3xs text-gray-400 dark:text-gray-500">{scope}</span>}
       <span className="ml-0.5 text-3xs font-semibold uppercase tracking-wide">
         {busy ? '…' : on ? 'on' : 'off'}
       </span>

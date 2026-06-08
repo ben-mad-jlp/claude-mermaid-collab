@@ -139,9 +139,9 @@ export const StewardPanel: React.FC<StewardPanelProps> = ({ currentProject }) =>
   }, [open]);
 
   const overrideAccepts = stewardLiveness?.overrideAccepts ?? 0;
-  // Live ON/OFF switch (persistent; default ON when unknown). Distinct from the
-  // build-time env arm and the transient pause.
-  const switchedOn = stewardLiveness?.switchedOn !== false;
+  // Live 3-way mode (persistent; default derived from the legacy switch when the
+  // field is absent). Distinct from the build-time env arm and the transient pause.
+  const stewardMode = stewardLiveness?.mode ?? (stewardLiveness?.switchedOn !== false ? 'auto' : 'off');
 
   // The steward's own status card — same colors + dancing-Claude + click→tmux as
   // a watched session. Its live status comes from the steward tmux session's
@@ -168,31 +168,6 @@ export const StewardPanel: React.FC<StewardPanelProps> = ({ currentProject }) =>
       contextPercent: stewardSub?.contextPercent,
     }),
     [stewardSub, activeId, project, stewardSessionName, stewardLiveness],
-  );
-
-  // Flip the steward's runtime on/off switch, then refresh so the rendered state
-  // reflects the server (survives the 10s poll). Optimistic + best-effort.
-  const setStewardEnabled = useCallback(
-    async (enabled: boolean) => {
-      try {
-        const body = { enabled };
-        const mc = (window as any).mc;
-        if (mc?.invokeOnServer) {
-          await mc.invokeOnServer(serverScope, { path: '/api/supervisor/steward/enabled', method: 'POST', body });
-        } else {
-          await fetch('/api/supervisor/steward/enabled', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-          });
-        }
-      } catch {
-        /* best-effort */
-      } finally {
-        void loadStewardIdentity(serverScope, project || undefined);
-      }
-    },
-    [serverScope, project, loadStewardIdentity],
   );
 
   const handleLaunch = useCallback(async () => {
@@ -290,36 +265,12 @@ export const StewardPanel: React.FC<StewardPanelProps> = ({ currentProject }) =>
         <div className="px-2.5 pb-2 space-y-1.5">
           <StewardCard card={stewardCard} />
 
-          {/* Auto-act ON/OFF switch — the human's off-ramp. ON = the steward
-              triages escalations for you; OFF = they all wait for you. */}
+          {/* Mode (off / auto / dogfood) is controlled from the main header
+              role switches; here we just show the live mode + heartbeat. */}
           <div className="flex items-center gap-1.5 text-2xs text-gray-500 dark:text-gray-400">
             <span>{stewardLiveness?.running ? 'Live' : 'Heartbeat stale'}</span>
-            <button
-              data-testid="steward-enabled-toggle"
-              data-enabled={switchedOn}
-              onClick={() => void setStewardEnabled(!switchedOn)}
-              title={
-                switchedOn
-                  ? 'ON — the steward auto-triages escalations for you (acting on its own, may override the gate). Click to turn OFF.'
-                  : 'OFF — the steward stops acting; every escalation waits in your queue for you to handle. Click to turn ON.'
-              }
-              className={`ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-3xs font-semibold border transition-colors ${
-                switchedOn
-                  ? 'border-success-400 text-success-700 dark:text-success-300 bg-success-50 dark:bg-success-900/30'
-                  : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400'
-              }`}
-            >
-              <span className={`inline-block w-1.5 h-1.5 rounded-full ${switchedOn ? 'bg-success-500' : 'bg-gray-400'}`} aria-hidden="true" />
-              {switchedOn ? 'Auto: ON' : 'Auto: OFF'}
-            </button>
+            <span className="ml-auto font-semibold uppercase tracking-wide capitalize">{stewardMode}</span>
           </div>
-
-          {/* Plain-language explainer of the current mode. */}
-          <p className="text-3xs leading-snug text-gray-500 dark:text-gray-400">
-            {switchedOn
-              ? 'Auto-triaging escalations on your behalf.'
-              : 'Paused — escalations wait in your queue until you act.'}
-          </p>
 
           {/* One compact status line. Override is the loud signal (red when >0,
               also mirrored as N⚡ in the header); the rest sit inline. */}

@@ -77,7 +77,6 @@ export const GlobalRoleSwitches: React.FC<GlobalRoleSwitchesProps> = ({ serverSc
     [supLiveness, supConfigured],
   );
   const coordStatus: RoleStatus = project && coordinatorByProject[project] ? 'running' : 'off';
-  const projectName = project ? project.split('/').filter(Boolean).pop() ?? project : '—';
 
   const withBusy = async (key: string, fn: () => Promise<unknown>) => {
     setBusy((b) => ({ ...b, [key]: true }));
@@ -140,7 +139,6 @@ export const GlobalRoleSwitches: React.FC<GlobalRoleSwitchesProps> = ({ serverSc
       />
       <RoleSwitch
         label="Coordinator"
-        scope={projectName}
         status={coordStatus}
         busy={busy.coordinator}
         disabled={!project}

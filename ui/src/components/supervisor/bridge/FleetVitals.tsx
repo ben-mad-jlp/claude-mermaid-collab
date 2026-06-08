@@ -13,13 +13,11 @@ import { SpecCoverageCard } from './SpecCoverageCard';
 
 export interface FleetVitalsProps {
   todos: SessionTodo[];
-  /** Selected project — shown next to the Progress label. */
-  projectName?: string;
   /** Spec coverage rollup (design §5). Absent/empty → the card self-hides. */
   coverage?: CoverageRollup;
 }
 
-export const FleetVitals: React.FC<FleetVitalsProps> = ({ todos, projectName, coverage }) => {
+export const FleetVitals: React.FC<FleetVitalsProps> = ({ todos, coverage }) => {
   const counts = useMemo(() => funnelCounts(todos), [todos]);
   const total = todos.length;
 
@@ -29,7 +27,6 @@ export const FleetVitals: React.FC<FleetVitalsProps> = ({ todos, projectName, co
       <div className="space-y-1.5">
         <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
           <span className="font-semibold uppercase tracking-wide">Progress</span>
-          {projectName && <span className="font-medium text-gray-700 dark:text-gray-300">{projectName}</span>}
           <span>{total} total</span>
         </div>
         <div data-testid="fleet-funnel" className="flex items-stretch gap-0.5 h-7 rounded overflow-hidden">

@@ -196,7 +196,12 @@ export interface StewardLiveness {
   overrideAccepts: number;
   /** Live human ON/OFF switch state (persistent; default ON when absent). */
   switchedOn?: boolean;
+  /** 3-way mode (persistent): off = all→human; auto = answer-only; dogfood =
+   *  answer + proactively drive/build. Defaults to auto/off derived from switchedOn. */
+  mode?: StewardMode;
 }
+
+export type StewardMode = 'off' | 'auto' | 'dogfood';
 
 interface InvokeResult {
   ok: boolean;
@@ -249,6 +254,7 @@ interface SupervisorState {
   // Steward P3: independent steward role liveness + the override-accept count.
   stewardLiveness: StewardLiveness | null;
   loadStewardIdentity: (serverId: string, project?: string) => Promise<void>;
+  setStewardMode: (serverId: string, mode: StewardMode) => Promise<void>;
   auditByProject: Record<string, AuditEntry[]>;
   loadAudit: (serverId: string, project: string, kind?: string) => Promise<void>;
   loadSupervised: (serverId: string) => Promise<void>;
@@ -372,8 +378,16 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
         ageMs: typeof b.ageMs === 'number' ? b.ageMs : null,
         overrideAccepts: typeof b.overrideAccepts === 'number' ? b.overrideAccepts : 0,
         switchedOn: b.switchedOn !== false, // default ON when the field is absent
+        mode: (b.mode as StewardMode) ?? (b.switchedOn !== false ? 'auto' : 'off'),
       },
     });
+  },
+
+  setStewardMode: async (serverId, mode) => {
+    // Optimistic: reflect the new mode immediately, then persist.
+    const prev = get().stewardLiveness;
+    if (prev) set({ stewardLiveness: { ...prev, mode, switchedOn: mode !== 'off' } });
+    await invoke(serverId, '/api/supervisor/steward/mode', 'POST', { mode });
   },
 
   loadAudit: async (serverId, project, kind?) => {

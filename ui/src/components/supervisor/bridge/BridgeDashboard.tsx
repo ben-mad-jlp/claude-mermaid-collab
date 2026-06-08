@@ -313,7 +313,6 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
                 next to Steward/Supervisor, so this is standalone (no card). */}
             <FleetVitals
               todos={todos}
-              projectName={project.split('/').filter(Boolean).pop() ?? project}
               coverage={coverageByProject[project]}
             />
             {/* The confirm-loop heartbeat — full width above the columns, self-hides

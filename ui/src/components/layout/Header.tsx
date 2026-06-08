@@ -17,6 +17,7 @@ import { NavMenu } from './NavMenu';
 import { useTerminalStore } from '@/stores/terminalStore';
 import { useBrowserStore } from '@/stores/browserStore';
 import { useUIStore, type PaneKey } from '@/stores/uiStore';
+import { HeaderRoleSwitches } from './HeaderRoleSwitches';
 import { Session } from '@/types';
 
 export interface HeaderProps {
@@ -77,6 +78,10 @@ export const Header: React.FC<HeaderProps> = ({
   const planOpen = useUIStore((s) => s.planOpen);
   const specOpen = useUIStore((s) => s.specOpen);
   const paneOrder = useUIStore((s) => s.paneOrder);
+  // The selected/active project — shown next to the Bridge toggle so the Bridge
+  // pane's scope is visible at a glance. activeProject (the Bridge/Plan project
+  // selector) wins, falling back to the current session's project.
+  const activeProject = useUIStore((s) => s.activeProject);
   const setPaneOrder = useUIStore((s) => s.setPaneOrder);
 
   // Drag-to-reorder the Bridge/Plan/Studio toggles: dropping one onto another
@@ -290,6 +295,20 @@ export const Header: React.FC<HeaderProps> = ({
                 </button>
               );
             })}
+            {/* Selected project, shown next to the Bridge toggle. */}
+            {(() => {
+              const proj = activeProject ?? currentSession?.project ?? null;
+              if (!proj) return null;
+              return (
+                <span
+                  data-testid="header-bridge-project"
+                  title={proj}
+                  className="ml-0.5 max-w-[160px] truncate text-xs font-medium text-gray-600 dark:text-gray-300"
+                >
+                  {getProjectDisplayName(proj)}
+                </span>
+              );
+            })()}
           </div>
 
           {/* VS Code Connection Badge */}
@@ -343,6 +362,8 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right-side controls */}
         <div className="flex items-center gap-3">
+          {/* Fleet-global role switches — Steward (mode) + Supervisor (on/off). */}
+          <HeaderRoleSwitches />
           {/* Project + Session Labels (project is a management dropdown) */}
           <div
             className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium bg-gray-100 dark:bg-gray-700 rounded-lg min-w-[200px]"

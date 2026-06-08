@@ -190,27 +190,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   const collapsedProjects = useUIStore((s) => s.supervisorCollapsedProjects);
   const toggleSupervisorProject = useUIStore((s) => s.toggleSupervisorProject);
   const [collapsed, setCollapsed] = useState(false);
-  const [startingSup, setStartingSup] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
-
-  const handleStartSupervisor = async () => {
-    const serverId = serverScope;
-    setStartingSup(true);
-    try {
-      const mc = (window as any).mc;
-      const cfgRes = mc?.invokeOnServer
-        ? await mc.invokeOnServer(serverId, { path: '/api/supervisor/config', method: 'GET' })
-        : { ok: true, body: await (await fetch('/api/supervisor/config')).json() };
-      const cfg = cfgRes?.body ?? {};
-      const supervisorProject = cfg.supervisorProject;
-      const supervisorSession = cfg.supervisorSession;
-      if (!supervisorProject || !supervisorSession) return;
-      const launchBody = { project: supervisorProject, session: supervisorSession, role: 'supervisor', invokeSkill: '/supervisor', allowedTools: 'Bash Edit Write Read mcp__plugin_mermaid-collab_mermaid' };
-      if (mc?.invokeOnServer) await mc.invokeOnServer(serverId, { path: '/api/ide/launch-session', method: 'POST', body: launchBody });
-      else await fetch('/api/ide/launch-session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(launchBody) });
-    } catch { /* best-effort */ }
-    finally { setStartingSup(false); }
-  };
 
   // The supervisor's console is now opened by clicking its status card (the
   // SupervisorRoleCard → activateSessionCard), mirroring the steward card.
@@ -593,8 +573,8 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
         </div>
       ) : (
         <div className="px-2 pb-2">
-          {/* Supervisor's own card — click to open its tmux console (mirrors the
-              steward card). Only when running and a session is resolved. */}
+          {/* Supervisor's own card — click → tmux console (mirrors the steward
+              card). On/off is controlled from the main header role switches. */}
           {supervisorState === 'running' && supervisorSessionName && (
             <div className="mb-2">
               <SupervisorRoleCard card={supervisorCard} serverLabel={serverLabelById.get(supervisorCard.serverId)} />

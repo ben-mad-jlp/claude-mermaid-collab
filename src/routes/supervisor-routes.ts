@@ -14,6 +14,9 @@ import {
   clearSupervisorIdentity,
   isStewardEnabled,
   setStewardEnabled,
+  getStewardMode,
+  setStewardMode,
+  type StewardMode,
   SUPERVISOR_HEARTBEAT_INTERVAL_MS,
   SUPERVISOR_STALE_AFTER_MS,
   getPeer,
@@ -371,6 +374,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       : 0;
     const identity = getSupervisorIdentity('steward');
     const switchedOn = isStewardEnabled();
+    const mode = getStewardMode();
     if (!identity) {
       // No steward registered: report not-running so the panel renders the
       // definitive "Become the Steward" front door rather than flashing crashed.
@@ -381,6 +385,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
         ageMs: null,
         overrideAccepts,
         switchedOn,
+        mode,
         heartbeatIntervalMs: SUPERVISOR_HEARTBEAT_INTERVAL_MS,
         staleAfterMs: SUPERVISOR_STALE_AFTER_MS,
       });
@@ -395,9 +400,23 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       ageMs,
       overrideAccepts,
       switchedOn,
+      mode,
       heartbeatIntervalMs: SUPERVISOR_HEARTBEAT_INTERVAL_MS,
       staleAfterMs: SUPERVISOR_STALE_AFTER_MS,
     });
+  }
+
+  // POST /api/supervisor/steward/mode { mode: 'off'|'auto'|'dogfood' } — the
+  // human's 3-way steward control. off = all→human (disabled); auto = auto-answer
+  // only; dogfood = auto-answer + proactive drive. Persistent; supersedes the
+  // older boolean /steward/enabled (which remains for back-compat).
+  if (url.pathname === '/api/supervisor/steward/mode' && req.method === 'POST') {
+    const { mode } = (await req.json()) as { mode?: StewardMode };
+    if (mode !== 'off' && mode !== 'auto' && mode !== 'dogfood') {
+      return jsonError("mode ('off' | 'auto' | 'dogfood') required", 400);
+    }
+    setStewardMode(mode);
+    return Response.json({ mode, switchedOn: mode !== 'off' });
   }
 
   // POST /api/supervisor/steward/enabled { enabled } — the live human ON/OFF

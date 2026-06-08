@@ -500,6 +500,30 @@ export function isStewardEnabled(): boolean {
   return !d.query('SELECT 1 FROM supervisor_pause WHERE scope = ? LIMIT 1').get(STEWARD_DISABLED_SCOPE);
 }
 
+/** Steward operating mode (the human's 3-way control, persistent):
+ *  - 'off'     → disabled: every escalation fails open to the human, steward idles.
+ *  - 'auto'    → enabled, answer-only: auto-triages escalations, no proactive drive.
+ *  - 'dogfood' → enabled + PROACTIVE: also drives the queue / builds (the steward
+ *                skill reads the dogfood sentinel each loop to decide whether to
+ *                proactively pick up buildable work vs only answer what's routed).
+ *  Built on the existing boolean infra: 'off' is the disabled sentinel; the
+ *  dogfood sentinel adds the proactive flag on top of enabled. */
+export type StewardMode = 'off' | 'auto' | 'dogfood';
+export const STEWARD_DOGFOOD_SCOPE = '__steward_dogfood__';
+export function isStewardDogfood(): boolean {
+  const d = openDb();
+  return !!d.query('SELECT 1 FROM supervisor_pause WHERE scope = ? LIMIT 1').get(STEWARD_DOGFOOD_SCOPE);
+}
+export function getStewardMode(): StewardMode {
+  if (!isStewardEnabled()) return 'off';
+  return isStewardDogfood() ? 'dogfood' : 'auto';
+}
+export function setStewardMode(mode: StewardMode): void {
+  // 'off' disables; 'auto'/'dogfood' both enable, with dogfood adding proactive.
+  setSupervisorPause(STEWARD_DISABLED_SCOPE, mode === 'off');
+  setSupervisorPause(STEWARD_DOGFOOD_SCOPE, mode === 'dogfood');
+}
+
 /** True iff a steward is registered AND its heartbeat is fresh (not stale/dead).
  *  Drives fail-open-to-human: a dead steward must not silently swallow escalations. */
 export function isStewardLive(now: number = Date.now()): boolean {
