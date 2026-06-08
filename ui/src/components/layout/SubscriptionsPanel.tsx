@@ -14,6 +14,7 @@ import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useSupervisorStore } from '@/stores/supervisorStore';
+import { useUIStore } from '@/stores/uiStore';
 import { useServers } from '@/contexts/ServerContext';
 import { getWebSocketClient } from '@/lib/websocket';
 import { ServerIcon } from '@/components/ServerIcon';
@@ -342,6 +343,7 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
   // local state for SAME-server rows. For cross-server rows we do nothing:
   // the active server stays put, the URL stays put, and the row's per-server
   // actions still fire.
+  const setActiveProject = useUIStore((s) => s.setActiveProject);
   const handleNavigate = useCallback(
     (sub: SubscribedSession) => {
       if (sub.serverId && activeId && sub.serverId !== activeId) {
@@ -349,9 +351,12 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
       }
       const target = sessions.find((s) => s.project === sub.project && s.name === sub.session);
       if (target) setCurrentSession(target);
+      // The Bridge is per-project — clicking a watched session drives the Bridge
+      // to that session's project.
+      setActiveProject(sub.project);
       onNavigate?.(sub.serverId ?? activeId ?? '', sub.project, sub.session);
     },
-    [sessions, setCurrentSession, onNavigate, activeId],
+    [sessions, setCurrentSession, setActiveProject, onNavigate, activeId],
   );
 
   const handleToggleSupervise = useCallback(
