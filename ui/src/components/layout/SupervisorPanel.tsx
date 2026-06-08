@@ -27,8 +27,7 @@ import { ServerIcon } from '@/components/ServerIcon';
 import { SessionCard, ClaudePixAvatar, type SessionCardData } from '@/components/layout/SessionCard';
 import { SupervisorOnboarding } from '@/components/supervisor/SupervisorOnboarding';
 import { useUIStore } from '@/stores/uiStore';
-import { selectOpenEscalationsByProject, selectFleetOpenCount } from '@/components/supervisor/bridge/escalationSelectors';
-import { FLEET_SENTINEL } from '@/components/supervisor/bridge/fleetSentinel';
+import { selectOpenEscalationsByProject } from '@/components/supervisor/bridge/escalationSelectors';
 import { AddProjectDialog } from '@/components/dialogs';
 
 /**
@@ -518,33 +517,15 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
 
   return (
     <div className="border-b border-gray-200 dark:border-gray-700">
-      {/* Header — the "Bridge" label opens the FLEET view (cross-project triage);
-          the chevron collapses the tree. (No dedicated Fleet row — the header IS
-          the fleet entry.) */}
+      {/* Header — collapse toggle for the project tree. */}
       <div className="flex items-center">
         <button
-          data-testid="bridge-fleet-header"
-          data-active={activeProject === FLEET_SENTINEL}
-          onClick={() => handleSelectProject(FLEET_SENTINEL)}
-          title="Open the fleet view — cross-project triage across all projects"
-          className={`flex-1 flex items-center gap-2 px-3 py-2 text-xs font-semibold transition-colors ${
-            activeProject === FLEET_SENTINEL
-              ? 'text-accent-700 dark:text-accent-300 bg-accent-50 dark:bg-accent-900/30'
-              : 'text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800'
-          }`}
+          onClick={() => setCollapsed((c) => !c)}
+          className="flex-1 flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
         >
           <span>Bridge</span>
           <span className="ml-1 text-gray-400 dark:text-gray-500 font-normal">{byProject.length}</span>
-          {selectFleetOpenCount(escalations) > 0 && (
-            <span className="text-3xs font-bold text-danger-600 dark:text-danger-400">▲{selectFleetOpenCount(escalations)}</span>
-          )}
-        </button>
-        <button
-          onClick={() => setCollapsed((c) => !c)}
-          title={collapsed ? 'Expand' : 'Collapse'}
-          className="px-2 py-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-        >
-          <svg className={`w-3 h-3 transition-transform ${collapsed ? '-rotate-90' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+          <svg className={`w-3 h-3 ml-auto text-gray-400 transition-transform ${collapsed ? '-rotate-90' : ''}`} viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
           </svg>
         </button>

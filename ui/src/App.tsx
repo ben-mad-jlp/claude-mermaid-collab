@@ -51,7 +51,6 @@ import type { Item, Session, ToolbarAction } from '@/types';
 // Import layout components
 import Header from '@/components/layout/Header';
 import Sidebar from '@/components/layout/Sidebar';
-import StudioShell from '@/components/layout/StudioShell';
 import { GlobalSearch } from '@/components/layout/GlobalSearch';
 import { TerminalDrawer } from '@/components/terminal/TerminalDrawer';
 import { BrowserPanel } from '@/components/browser/BrowserPanel';
@@ -1841,13 +1840,10 @@ const App: React.FC = () => {
             share a layoutId and morph into each other on dive / step-back. */}
         <div className="flex flex-1 min-h-0 overflow-hidden">
           <DiveLayoutGroup>
-            {/* Fixed-width left rail. Studio gets the stripped single-session
-                cockpit (StudioShell); Bridge/Plan keep the full fleet Sidebar. */}
-            {mode === 'studio' ? (
-              <StudioShell className="h-full" />
-            ) : (
-              <Sidebar className="h-full" />
-            )}
+            {/* Fixed-width left rail — always the fleet Sidebar (the project tree),
+                in every mode. (Studio used to swap in a stripped StudioShell; that
+                special left column is gone — one consistent left column.) */}
+            <Sidebar className="h-full" />
 
             {/* Bridge mode: the fleet command center. P5: the artifact viewer is
                 no longer ignored in Bridge — when it's open for the current
