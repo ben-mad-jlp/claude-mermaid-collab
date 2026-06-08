@@ -90,6 +90,11 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
     Array<{ serverId: string; serverLabel: string; project: string; name: string; displayName?: string }>
   >([]);
   const [pendingProjects, setPendingProjects] = useState<Record<string, string[]>>({});
+  // Per-server registered project list (the unified project registry, kept in
+  // lockstep with the supervisor's watched set). Folded into the subscribe modal
+  // so a project with NO sessions yet — e.g. one only added from the Bridge rail —
+  // still shows here, instead of the list being purely session-derived.
+  const [serverProjects, setServerProjects] = useState<Record<string, string[]>>({});
   const [addProjectOpenFor, setAddProjectOpenFor] = useState<string | null>(null);
   const [addProjectInput, setAddProjectInput] = useState('');
   const [addProjectError, setAddProjectError] = useState<string | null>(null);
@@ -250,6 +255,26 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
     })();
     return () => { cancelled = true; };
   }, [showDropdown, servers, sessions, activeId, serverLabelById, refreshTick]);
+
+  // Fan-out the unified project list per server when the modal opens, so projects
+  // without sessions (e.g. added from the Bridge rail) still appear in the picker.
+  useEffect(() => {
+    if (!showDropdown) return;
+    let cancelled = false;
+    const mc = (window as any).mc;
+    if (!mc?.invokeOnServer || servers.length === 0) return;
+    const activeIds = new Set(servers.map((s) => s.id));
+    setServerProjects((prev) => Object.fromEntries(Object.entries(prev).filter(([id]) => activeIds.has(id))));
+    servers.forEach(async (s) => {
+      const res = await mc.invokeOnServer(s.id, { path: '/api/projects', method: 'GET' }).catch(() => null);
+      if (cancelled || !res?.ok) return;
+      const paths = ((res.body as any)?.projects ?? [])
+        .map((p: any) => (typeof p === 'string' ? p : p?.path))
+        .filter((p: any): p is string => typeof p === 'string');
+      setServerProjects((prev) => ({ ...prev, [s.id]: paths }));
+    });
+    return () => { cancelled = true; };
+  }, [showDropdown, servers, refreshTick]);
 
   const handleAddProject = useCallback(async (serverId: string) => {
     const path = addProjectInput.trim();
@@ -558,7 +583,17 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
                             pendingOnly.push(p);
                           }
                         }
-                        const allProjects = [...pendingOnly, ...realProjects];
+                        // Registered projects with no sessions yet (e.g. added from
+                        // the Bridge rail) — fold them in so the list corresponds
+                        // with the Bridge instead of being purely session-derived.
+                        const registeredOnly: string[] = [];
+                        for (const p of serverProjects[serverId] ?? []) {
+                          if (!seen.has(p)) {
+                            seen.add(p);
+                            registeredOnly.push(p);
+                          }
+                        }
+                        const allProjects = [...pendingOnly, ...registeredOnly, ...realProjects];
                         return allProjects.map((project) => {
                           const isPending = pending.includes(project) && !realProjects.includes(project);
                           const projectItems = group.items.filter((s) => s.project === project);
