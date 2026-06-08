@@ -93,27 +93,6 @@ export const PlanWorkspace: React.FC = () => {
       data-testid="plan-workspace"
       className="flex-1 h-full min-h-0 overflow-hidden bg-white dark:bg-gray-900 flex flex-col"
     >
-      {/* Promotion strip — plan-level approval (the only Planner affordance). */}
-      <div className="shrink-0 flex items-center gap-3 px-4 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40">
-        <span className="text-base" role="img" aria-label="plan">🧭</span>
-        <span className="text-xs text-gray-600 dark:text-gray-300">
-          <span className="font-medium text-gray-700 dark:text-gray-200">{projectBasename(project)}</span>
-          {' · '}
-          {awaiting.length === 0
-            ? `${readyCount} ready — nothing awaiting approval`
-            : `${awaiting.length} item${awaiting.length === 1 ? '' : 's'} awaiting promotion to ready`}
-        </span>
-        <button
-          type="button"
-          data-testid="plan-approve"
-          onClick={approvePlan}
-          disabled={promoting || awaiting.length === 0}
-          className="ml-auto px-3 py-1 text-xs rounded-md bg-accent-600 text-white font-medium hover:bg-accent-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-        >
-          {promoting ? 'Promoting…' : 'Approve plan → ready'}
-        </button>
-      </div>
-
       {/* Constraint-peer chips — the project's confirmed requirements rendered as
           read-only promise chips beside the planner orientation (graft §5). */}
       <ConstraintPeerChips serverId={serverScope} project={project} />

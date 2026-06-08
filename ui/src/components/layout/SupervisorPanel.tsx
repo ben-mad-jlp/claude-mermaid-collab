@@ -540,24 +540,6 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
             </svg>
           </button>
         )}
-        <button
-          onClick={handleOpenConsole}
-          className="px-2 py-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-          title="Open supervisor console in a terminal tab"
-        >
-          <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={2}>
-            <rect x="2.5" y="3.5" width="15" height="13" rx="1.5" />
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5.5 8l2.5 2-2.5 2M10 13h4.5" />
-          </svg>
-        </button>
-        <button
-          onClick={handleStartSupervisor}
-          disabled={startingSup}
-          className="px-2 py-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors disabled:opacity-50"
-          title="Start supervising — launches the supervisor session with /collab + /supervisor"
-        >
-          <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path d="M6 4l10 6-10 6V4z" /></svg>
-        </button>
       </div>
 
       {/* Body */}

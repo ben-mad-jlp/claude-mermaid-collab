@@ -14,8 +14,6 @@ import React, { useCallback, useState, useRef, useEffect } from 'react';
 import { useTheme } from '@/hooks/useTheme';
 import { useSession } from '@/hooks/useSession';
 import { NavMenu } from './NavMenu';
-import { CommandBarBadge } from '@/components/supervisor/bridge/CommandBarBadge';
-import { ProposedBadge } from '@/components/supervisor/bridge/ProposedBadge';
 import { useTerminalStore } from '@/stores/terminalStore';
 import { useBrowserStore } from '@/stores/browserStore';
 import { useUIStore } from '@/stores/uiStore';
@@ -144,12 +142,76 @@ export const Header: React.FC<HeaderProps> = ({
           <h1 className="text-sm font-semibold text-gray-900 dark:text-white">
             Collab
           </h1>
-
-          {/* Escalation safety net (was inside the ModePill) — stays visible in
-              every mode. The Bridge/Plan/Studio pane toggles moved to the right
-              icon cluster. */}
-          <ProposedBadge />
-          <CommandBarBadge />
+          {/* Pane toggles — left, just right of the Collab label. Bridge / Plan /
+              Studio dock side-by-side; Browser / Terminal dock on the right. */}
+          <div className="flex items-center gap-1.5">
+            <button
+              data-testid="toggle-bridge"
+              onClick={() => useUIStore.getState().toggleBridge()}
+              aria-label="Toggle Bridge pane"
+              title="Bridge"
+              className={paneToggleClass(bridgeOpen)}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="7" height="9" rx="1" />
+                <rect x="14" y="3" width="7" height="5" rx="1" />
+                <rect x="14" y="12" width="7" height="9" rx="1" />
+                <rect x="3" y="16" width="7" height="5" rx="1" />
+              </svg>
+            </button>
+            <button
+              data-testid="toggle-plan"
+              onClick={() => useUIStore.getState().togglePlan()}
+              aria-label="Toggle Plan pane"
+              title="Plan"
+              className={paneToggleClass(planOpen)}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="6" cy="6" r="2.5" />
+                <circle cx="6" cy="18" r="2.5" />
+                <circle cx="18" cy="12" r="2.5" />
+                <path d="M8.5 6H13a2 2 0 0 1 2 2v2M8.5 18H13a2 2 0 0 0 2-2v-2" />
+              </svg>
+            </button>
+            <button
+              data-testid="toggle-viewer"
+              onClick={() => useUIStore.getState().toggleViewer()}
+              aria-label="Toggle Studio (artifact viewer)"
+              title="Studio"
+              className={paneToggleClass(viewerVisible)}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="18" height="16" rx="2" />
+                <line x1="3" y1="9" x2="21" y2="9" />
+                <line x1="9" y1="9" x2="9" y2="20" />
+              </svg>
+            </button>
+            <button
+              data-testid="toggle-browser"
+              onClick={() => useBrowserStore.getState().toggle()}
+              aria-label="Toggle browser"
+              title="Browser"
+              className={paneToggleClass(browserVisible)}
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <circle cx="12" cy="12" r="9"/>
+                <line x1="3" y1="12" x2="21" y2="12"/>
+                <path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/>
+              </svg>
+            </button>
+            <button
+              data-testid="toggle-terminal"
+              onClick={() => useTerminalStore.getState().toggle()}
+              aria-label="Toggle terminal"
+              title="Toggle terminal"
+              className={paneToggleClass(terminalOpen)}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="4 17 10 11 4 5" />
+                <line x1="12" y1="19" x2="20" y2="19" />
+              </svg>
+            </button>
+          </div>
 
           {/* VS Code Connection Badge */}
           <div
@@ -202,86 +264,6 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right-side controls */}
         <div className="flex items-center gap-3">
-          {/* The supervisor full-page toggle is gone (CUI-6): the fleet now lives
-              behind the Bridge mode in the ModePill, which carries its own
-              escalation badge. */}
-
-          {/* Bridge pane toggle */}
-          <button
-            data-testid="toggle-bridge"
-            onClick={() => useUIStore.getState().toggleBridge()}
-            aria-label="Toggle Bridge pane"
-            title="Bridge"
-            className={paneToggleClass(bridgeOpen)}
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="3" width="7" height="9" rx="1" />
-              <rect x="14" y="3" width="7" height="5" rx="1" />
-              <rect x="14" y="12" width="7" height="9" rx="1" />
-              <rect x="3" y="16" width="7" height="5" rx="1" />
-            </svg>
-          </button>
-
-          {/* Plan pane toggle */}
-          <button
-            data-testid="toggle-plan"
-            onClick={() => useUIStore.getState().togglePlan()}
-            aria-label="Toggle Plan pane"
-            title="Plan"
-            className={paneToggleClass(planOpen)}
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="6" cy="6" r="2.5" />
-              <circle cx="6" cy="18" r="2.5" />
-              <circle cx="18" cy="12" r="2.5" />
-              <path d="M8.5 6H13a2 2 0 0 1 2 2v2M8.5 18H13a2 2 0 0 0 2-2v-2" />
-            </svg>
-          </button>
-
-          {/* Studio (artifact viewer) toggle */}
-          <button
-            data-testid="toggle-viewer"
-            onClick={() => useUIStore.getState().toggleViewer()}
-            aria-label="Toggle Studio (artifact viewer)"
-            title="Studio"
-            className={paneToggleClass(viewerVisible)}
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="4" width="18" height="16" rx="2" />
-              <line x1="3" y1="9" x2="21" y2="9" />
-              <line x1="9" y1="9" x2="9" y2="20" />
-            </svg>
-          </button>
-
-          {/* Browser toggle */}
-          <button
-            data-testid="toggle-browser"
-            onClick={() => useBrowserStore.getState().toggle()}
-            aria-label="Toggle browser"
-            title="Browser"
-            className={paneToggleClass(browserVisible)}
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <circle cx="12" cy="12" r="9"/>
-              <line x1="3" y1="12" x2="21" y2="12"/>
-              <path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/>
-            </svg>
-          </button>
-
-          {/* Terminal toggle */}
-          <button
-            data-testid="toggle-terminal"
-            onClick={() => useTerminalStore.getState().toggle()}
-            aria-label="Toggle terminal"
-            title="Toggle terminal"
-            className={paneToggleClass(terminalOpen)}
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="4 17 10 11 4 5" />
-              <line x1="12" y1="19" x2="20" y2="19" />
-            </svg>
-          </button>
-
           {/* Project + Session Labels (project is a management dropdown) */}
           <div
             className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium bg-gray-100 dark:bg-gray-700 rounded-lg min-w-[200px]"
