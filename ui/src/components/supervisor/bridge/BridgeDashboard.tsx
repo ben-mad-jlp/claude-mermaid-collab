@@ -305,7 +305,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
   const graphPane = (
     <FleetGraph
       todos={todos}
-      subs={workerSubs}
+      subs={[]}
       openEscalations={openEscalations}
       onWorkerSelect={selectInPlace}
       onSelectTodo={handleSelectTodo}
@@ -368,25 +368,22 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
               projectName={project.split('/').filter(Boolean).pop() ?? project}
               coverage={coverageByProject[project]}
             />
-            {/* Four columns above the graph: Escalations · Todos · Workers · Stream.
-                Each card carries its own header — no extra column labels. */}
+            {/* The confirm-loop heartbeat — full width above the columns, self-hides
+                when there's no requirement to sign off. */}
+            <RequirementsInbox
+              requirements={requirementsByProject[project] ?? []}
+              project={project}
+              serverScope={serverScope}
+            />
+            {/* Four uniform contained columns above the graph: Escalations · Todos ·
+                Workers · Stream — each a bordered card, header inside, scroll below. */}
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 items-start">
-              <div className="min-w-0 space-y-3">
-                <NeedsYouZone
-                  escalations={escalations}
-                  project={project}
-                  serverScope={serverScope}
-                  onJump={handleJump}
-                />
-                {/* The confirm-loop heartbeat — sibling under escalations. */}
-                <RequirementsInbox
-                  requirements={requirementsByProject[project] ?? []}
-                  project={project}
-                  serverScope={serverScope}
-                />
-              </div>
-              {/* "Your todos": the human-assigned, human-actionable slice of the
-                  work-graph; Claim/Complete drive the transitions a person owns. */}
+              <NeedsYouZone
+                escalations={escalations}
+                project={project}
+                serverScope={serverScope}
+                onJump={handleJump}
+              />
               <HumanInbox
                 todos={todos}
                 onClaim={(t) => void promoteTodo(serverScope, project, t.id, 'in_progress')}
@@ -431,7 +428,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
           ) : (
             <FleetGraph
               todos={graphTodos}
-              subs={workerSubs}
+              subs={[]}
               openEscalations={openEscalations}
               onSelectTodo={handleSelectTodo}
             />

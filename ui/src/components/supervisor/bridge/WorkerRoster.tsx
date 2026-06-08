@@ -84,13 +84,14 @@ export const WorkerRoster: React.FC<WorkerRosterProps> = ({ subscriptions, todos
   return (
     <div
       data-testid="worker-roster"
-      className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
+      className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col min-h-[8rem] max-h-56"
     >
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-700 text-xs">
+      <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-700 text-xs">
         <span className="font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Workers</span>
         <span className="text-gray-400 dark:text-gray-500">{rows.length}</span>
       </div>
 
+      <div className="flex-1 min-h-0 overflow-y-auto">
       {rows.length === 0 ? (
         <p className="px-3 py-2 text-xs text-gray-400 dark:text-gray-500 italic">No active sessions in this project.</p>
       ) : (
@@ -130,6 +131,7 @@ export const WorkerRoster: React.FC<WorkerRosterProps> = ({ subscriptions, todos
           ))}
         </ul>
       )}
+      </div>
     </div>
   );
 };

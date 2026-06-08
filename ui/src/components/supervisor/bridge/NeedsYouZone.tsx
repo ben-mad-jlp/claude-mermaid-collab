@@ -41,20 +41,22 @@ export const NeedsYouZone: React.FC<NeedsYouZoneProps> = ({
     <div
       data-testid="needs-you-zone"
       data-needs-you={open.length}
-      className="space-y-1.5"
+      className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col min-h-[8rem] max-h-56"
     >
-      <div className="flex items-center gap-2 text-xs">
+      <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-700 text-xs">
         <span className="font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Escalations</span>
         {open.length > 0 && <span className="text-danger-600 dark:text-danger-400 font-bold">{open.length}</span>}
       </div>
-      {open.length === 0 ? (
-        <div className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
-          <span className="text-success-500" aria-hidden="true">✓</span>
-          <span>All clear — nothing needs you</span>
-        </div>
-      ) : (
-        <BridgeEscalationInbox escalations={open} serverScope={serverScope} onJump={onJump} />
-      )}
+      <div className="flex-1 min-h-0 overflow-y-auto p-2">
+        {open.length === 0 ? (
+          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+            <span className="text-success-500" aria-hidden="true">✓</span>
+            <span>All clear — nothing needs you</span>
+          </div>
+        ) : (
+          <BridgeEscalationInbox escalations={open} serverScope={serverScope} onJump={onJump} />
+        )}
+      </div>
     </div>
   );
 };
