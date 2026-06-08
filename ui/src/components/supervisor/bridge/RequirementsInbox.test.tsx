@@ -82,6 +82,56 @@ describe('RequirementsInbox', () => {
     });
   });
 
+  it('renders cartographer proposals ghost-styled with a source badge + provenance', () => {
+    render(
+      <RequirementsInbox
+        requirements={[req({ id: 'a', authorSession: 'cartographer', rationale: 'inferred from T-1, T-2' })]}
+        project="P"
+        serverScope="local"
+      />,
+    );
+    const card = screen.getByTestId('requirement-card');
+    expect(card.getAttribute('data-ghost')).toBe('true');
+    expect(screen.getByTestId('cartographer-source-badge')).toBeInTheDocument();
+    expect(screen.getByTestId('requirement-provenance')).toHaveTextContent('inferred from T-1, T-2');
+  });
+
+  it('derives the provenance line from linkedTodos when no rationale is set', () => {
+    render(
+      <RequirementsInbox
+        requirements={[req({ id: 'a', authorSession: 'cartographer', rationale: null, linkedTodos: ['T-1', 'T-2'] })]}
+        project="P"
+        serverScope="local"
+      />,
+    );
+    expect(screen.getByTestId('requirement-provenance')).toHaveTextContent('inferred from T-1, T-2');
+  });
+
+  it('renders a non-cartographer requirement unchanged (no ghost badge)', () => {
+    render(<RequirementsInbox requirements={[req({ id: 'a' })]} project="P" serverScope="local" />);
+    expect(screen.getByTestId('requirement-card').getAttribute('data-ghost')).toBeNull();
+    expect(screen.queryByTestId('cartographer-source-badge')).toBeNull();
+    expect(screen.queryByTestId('dismiss-all-cartographer')).toBeNull();
+  });
+
+  it('batch-dismisses every cartographer proposal in one click', () => {
+    render(
+      <RequirementsInbox
+        requirements={[
+          req({ id: 'a', authorSession: 'cartographer' }),
+          req({ id: 'b', authorSession: 'cartographer' }),
+          req({ id: 'c' }),
+        ]}
+        project="P"
+        serverScope="local"
+      />,
+    );
+    fireEvent.click(screen.getByTestId('dismiss-all-cartographer'));
+    expect(decideRequirement).toHaveBeenCalledWith('local', 'P', 'a', 'reject');
+    expect(decideRequirement).toHaveBeenCalledWith('local', 'P', 'b', 'reject');
+    expect(decideRequirement).not.toHaveBeenCalledWith('local', 'P', 'c', 'reject');
+  });
+
   it('shows the was→now DIFF for a changed card', () => {
     const old = req({ id: 'old', status: 'approved', supersededBy: 'new', spec: { metric: 'latency', op: '<=', target: 200 } });
     const fresh = req({ id: 'new', status: 'changed', spec: { metric: 'latency', op: '<=', target: 150 } });

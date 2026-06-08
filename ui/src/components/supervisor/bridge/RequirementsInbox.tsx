@@ -63,6 +63,17 @@ export const RequirementsInbox: React.FC<RequirementsInboxProps> = ({
     setActiveIdx(0);
   };
 
+  // Batch-dismiss-by-source: reject every Cartographer-authored (ghost) proposal
+  // in one action so an inferred batch can be cleared without per-card drudgery
+  // (design-cartographer §5). Reuses the existing reject path — no new surface.
+  const cartographerInbox = inbox.filter((r) => r.authorSession === 'cartographer');
+  const dismissAllCartographer = () => {
+    for (const r of cartographerInbox) {
+      void decideRequirement(serverScope, project, r.id, 'reject');
+    }
+    setActiveIdx(0);
+  };
+
   // Keep latest values in a ref so the window listener stays stable.
   const stateRef = useRef({ inbox, clampedActive, editingId });
   stateRef.current = { inbox, clampedActive, editingId };
@@ -104,6 +115,17 @@ export const RequirementsInbox: React.FC<RequirementsInboxProps> = ({
       <div className="flex items-center gap-1.5">
         <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">▲ Requirements Inbox</span>
         <span className="text-2xs font-bold px-1.5 rounded-full bg-warning-500 text-white">{inbox.length}</span>
+        {cartographerInbox.length > 0 && (
+          <button
+            type="button"
+            data-testid="dismiss-all-cartographer"
+            onClick={dismissAllCartographer}
+            className="ml-auto text-3xs font-medium px-1.5 py-0.5 rounded border border-dashed border-gray-400 dark:border-gray-500 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            title="Reject all Cartographer-inferred proposals at once"
+          >
+            ✕ dismiss all {cartographerInbox.length} from ⌖ Cartographer
+          </button>
+        )}
       </div>
 
       <div className="space-y-1.5 max-h-72 overflow-y-auto">

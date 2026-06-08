@@ -41,17 +41,32 @@ export const RequirementCard: React.FC<RequirementCardProps> = ({
   onHover,
 }) => {
   const changed = r.status === 'changed';
+  // A Cartographer-authored proposal is auto-inferred — render it ghost-styled
+  // (dashed/muted) with a source badge + a mandatory provenance line so the human
+  // can triage rather than dismiss-flood (design-cartographer §5). The discriminator
+  // is the existing authorSession field — zero schema change.
+  const isCartographer = r.authorSession === 'cartographer';
+  const provenance = isCartographer
+    ? (r.rationale?.trim() ||
+        (r.linkedTodos && r.linkedTodos.length > 0 ? `inferred from ${r.linkedTodos.join(', ')}` : null))
+    : null;
 
   return (
     <div
       data-testid="requirement-card"
       data-requirement-id={r.id}
+      data-author={r.authorSession || undefined}
+      data-ghost={isCartographer || undefined}
       data-active={active || undefined}
       onMouseEnter={onHover}
-      className={`px-2 py-1.5 rounded border bg-white dark:bg-gray-800/60 space-y-1 ${
+      className={`px-2 py-1.5 rounded border space-y-1 ${
+        isCartographer ? 'border-dashed bg-gray-50/70 dark:bg-gray-800/40' : 'bg-white dark:bg-gray-800/60'
+      } ${
         active
           ? 'border-warning-400 dark:border-warning-600 ring-1 ring-warning-300 dark:ring-warning-700'
-          : 'border-gray-200 dark:border-gray-700'
+          : isCartographer
+            ? 'border-gray-300 dark:border-gray-600'
+            : 'border-gray-200 dark:border-gray-700'
       }`}
     >
       <div className="flex items-center gap-1.5">
@@ -60,11 +75,30 @@ export const RequirementCard: React.FC<RequirementCardProps> = ({
             ⟳ CHANGED · re-sign
           </span>
         )}
-        <span className="text-3xs font-medium text-gray-700 dark:text-gray-200 truncate" title={r.title}>
+        {isCartographer && (
+          <span
+            data-testid="cartographer-source-badge"
+            className="text-3xs font-semibold px-1 rounded border border-dashed border-gray-400 dark:border-gray-500 text-gray-500 dark:text-gray-400"
+            title="Auto-inferred by the Cartographer — review before signing"
+          >
+            ⌖ Cartographer
+          </span>
+        )}
+        <span className={`text-3xs font-medium truncate ${isCartographer ? 'text-gray-500 dark:text-gray-400' : 'text-gray-700 dark:text-gray-200'}`} title={r.title}>
           {r.title}
         </span>
         <span className="ml-auto text-3xs text-gray-400 dark:text-gray-500">{r.kind}</span>
       </div>
+
+      {isCartographer && provenance && (
+        <div
+          data-testid="requirement-provenance"
+          className="text-3xs text-gray-500 dark:text-gray-400 leading-tight italic break-words"
+          title="Provenance — what this proposal was inferred from"
+        >
+          {provenance}
+        </div>
+      )}
 
       {changed && priorSpec ? (
         <div className="text-2xs leading-snug text-gray-700 dark:text-gray-200">
@@ -80,7 +114,7 @@ export const RequirementCard: React.FC<RequirementCardProps> = ({
         </div>
       )}
 
-      {r.rationale && (
+      {r.rationale && !isCartographer && (
         <div className="text-3xs text-gray-500 dark:text-gray-400 leading-tight whitespace-pre-wrap break-words">
           {r.rationale}
         </div>

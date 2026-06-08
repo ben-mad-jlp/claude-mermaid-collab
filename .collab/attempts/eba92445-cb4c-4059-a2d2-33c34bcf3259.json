@@ -1,0 +1,11 @@
+{
+  "todoId": "eba92445-cb4c-4059-a2d2-33c34bcf3259",
+  "session": "ui-1",
+  "outcome": "accepted",
+  "retryReason": "none",
+  "layer": "none",
+  "verbsTried": ["get_todo", "complete_todo"],
+  "failingVerb": null,
+  "failingReturn": null,
+  "summary": "Added authorSession:'cartographer' ghost styling + source badge + mandatory provenance line (rationale/linkedTodos) to RequirementCard and a batch-dismiss-by-source control to RequirementsInbox; tsc clean, 11/11 inbox tests pass."
+}
