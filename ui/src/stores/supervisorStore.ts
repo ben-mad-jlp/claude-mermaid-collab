@@ -103,6 +103,11 @@ export interface Requirement {
   spec: RequirementSpec | null;
   supersededBy?: string | null;
   linkedTodos?: string[];
+  /** Authoring session of the proposal. `'cartographer'` discriminates an
+   *  auto-inferred (ghost) proposal from a human/planner one — already on the
+   *  decision-record wire, declared here for the Inbox ghost styling (zero schema
+   *  change; see design-cartographer §5). */
+  authorSession?: string | null;
   approvedBy?: string | null;
   createdAt: number;
   updatedAt: number;
