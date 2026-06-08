@@ -439,7 +439,7 @@ export function stewardAutoEnabled(): boolean {
  * kinds fail SAFE to the human.
  */
 export function routeOf(kind: string, operatorGated: boolean): EscalationRoute {
-  if (!stewardAutoEnabled()) return 'human';
+  if (!isStewardArmed()) return 'human';
   if (operatorGated) return 'human';
   switch (kind) {
     case 'blocker':
@@ -492,35 +492,54 @@ export function isStewardPaused(): boolean {
  *  enabled) so an env-armed steward runs unless a human flips it off; the running
  *  steward skill checks this each loop and idles + routes all→human while OFF. */
 export const STEWARD_DISABLED_SCOPE = '__steward_disabled__';
-export function setStewardEnabled(enabled: boolean): void {
-  setSupervisorPause(STEWARD_DISABLED_SCOPE, !enabled);
-}
-export function isStewardEnabled(): boolean {
+export const STEWARD_ARMED_SCOPE = '__steward_armed__';
+export const STEWARD_DOGFOOD_SCOPE = '__steward_dogfood__';
+
+function hasSentinel(scope: string): boolean {
   const d = openDb();
-  return !d.query('SELECT 1 FROM supervisor_pause WHERE scope = ? LIMIT 1').get(STEWARD_DISABLED_SCOPE);
+  return !!d.query('SELECT 1 FROM supervisor_pause WHERE scope = ? LIMIT 1').get(scope);
 }
 
-/** Steward operating mode (the human's 3-way control, persistent):
- *  - 'off'     → disabled: every escalation fails open to the human, steward idles.
- *  - 'auto'    → enabled, answer-only: auto-triages escalations, no proactive drive.
- *  - 'dogfood' → enabled + PROACTIVE: also drives the queue / builds (the steward
- *                skill reads the dogfood sentinel each loop to decide whether to
- *                proactively pick up buildable work vs only answer what's routed).
- *  Built on the existing boolean infra: 'off' is the disabled sentinel; the
- *  dogfood sentinel adds the proactive flag on top of enabled. */
+/**
+ * The single ARM gate for steward routing — folded into the one UI switch.
+ *  - explicit OFF (disabled sentinel) → disarmed;
+ *  - explicit ON (armed sentinel) → armed;
+ *  - no explicit choice yet → fall back to the MERMAID_STEWARD_AUTO env default.
+ * When disarmed, every escalation fails open to the human. The env var is now
+ * only the initial default; the switch (setStewardMode) persists the real state.
+ */
+export function isStewardArmed(): boolean {
+  if (hasSentinel(STEWARD_DISABLED_SCOPE)) return false;
+  if (hasSentinel(STEWARD_ARMED_SCOPE)) return true;
+  return stewardAutoEnabled();
+}
+
+/** Back-compat alias: "enabled" == armed (drives the identity `switchedOn`). */
+export function isStewardEnabled(): boolean {
+  return isStewardArmed();
+}
+/** Legacy boolean on/off (the old /steward/enabled route). Arms or disarms. */
+export function setStewardEnabled(enabled: boolean): void {
+  setStewardMode(enabled ? 'auto' : 'off');
+}
+
+/** Steward operating mode (the human's control, persistent — folds the arm in):
+ *  - 'off'     → disarmed: every escalation fails open to the human, steward idles.
+ *  - 'auto'    → armed, answer-only: auto-triages routed escalations.
+ *  - 'dogfood' → armed + PROACTIVE: also drives the queue / builds. */
 export type StewardMode = 'off' | 'auto' | 'dogfood';
-export const STEWARD_DOGFOOD_SCOPE = '__steward_dogfood__';
 export function isStewardDogfood(): boolean {
-  const d = openDb();
-  return !!d.query('SELECT 1 FROM supervisor_pause WHERE scope = ? LIMIT 1').get(STEWARD_DOGFOOD_SCOPE);
+  return hasSentinel(STEWARD_DOGFOOD_SCOPE);
 }
 export function getStewardMode(): StewardMode {
-  if (!isStewardEnabled()) return 'off';
+  if (!isStewardArmed()) return 'off';
   return isStewardDogfood() ? 'dogfood' : 'auto';
 }
 export function setStewardMode(mode: StewardMode): void {
-  // 'off' disables; 'auto'/'dogfood' both enable, with dogfood adding proactive.
+  // Persist the explicit arm choice so it survives restart and overrides the env
+  // default. 'off' disarms; 'auto'/'dogfood' arm (dogfood adds the proactive flag).
   setSupervisorPause(STEWARD_DISABLED_SCOPE, mode === 'off');
+  setSupervisorPause(STEWARD_ARMED_SCOPE, mode !== 'off');
   setSupervisorPause(STEWARD_DOGFOOD_SCOPE, mode === 'dogfood');
 }
 
@@ -538,8 +557,7 @@ export function isStewardLive(now: number = Date.now()): boolean {
  * fails open to the human. This is the single place create-time routing is decided.
  */
 export function routeEscalation(kind: string, operatorGated: boolean, now: number = Date.now()): EscalationRoute {
-  if (!stewardAutoEnabled()) return 'human';
-  if (!isStewardEnabled()) return 'human'; // live human off-switch (this is the runtime toggle)
+  if (!isStewardArmed()) return 'human'; // the single arm/off switch (folds the env arm)
   if (isStewardPaused()) return 'human';
   if (!isStewardLive(now)) return 'human';
   return routeOf(kind, operatorGated);
@@ -557,7 +575,7 @@ export const STEWARD_FAILOPEN_SESSION = '__steward_failopen__';
  * disabled, unregistered, or live.
  */
 export function stewardFailOpenScan(now: number = Date.now()): { stale: boolean; queued: number; escalationId: string | null } {
-  if (!stewardAutoEnabled()) return { stale: false, queued: 0, escalationId: null };
+  if (!isStewardArmed()) return { stale: false, queued: 0, escalationId: null };
   const id = getSupervisorIdentity('steward');
   if (!id || isStewardLive(now)) return { stale: false, queued: 0, escalationId: null };
   const d = openDb();
