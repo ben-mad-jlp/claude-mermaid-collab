@@ -307,6 +307,36 @@ export async function listSessionTodos(
   return todos;
 }
 
+/** The per-project default epic that orphan work todos are parented under so
+ *  nothing floats at the top level (constraint 373a2d52 / every-todo-needs-an-epic).
+ *  Matched/created by this exact title. Epics are roots (no parent themselves). */
+export const INBOX_EPIC_TITLE = '[EPIC] Inbox';
+
+/** True for a todo that IS an epic (a root) — by the `[EPIC]` title convention.
+ *  Epics are exempt from auto-parenting (they ARE the parents). */
+function isEpicTitle(title: string): boolean {
+  return /^\s*\[EPIC\]/i.test(title);
+}
+
+/** Find (or create once) the project's default Inbox epic and return its id. The
+ *  epic is created as a root (no parent), so it never recurses through the
+ *  auto-parent path. */
+async function ensureInboxEpic(project: string, session: string): Promise<string> {
+  const existing = listTodos(project, { includeCompleted: true }).find(
+    (t) => t.title?.trim() === INBOX_EPIC_TITLE,
+  );
+  if (existing) return existing.id;
+  const epic = await createTodo(project, {
+    ownerSession: session,
+    title: INBOX_EPIC_TITLE,
+    description:
+      'Default container for work todos created without an explicit epic (every work todo needs an epic — constraint 373a2d52). Re-parent these under a real epic during planning.',
+    link: null,
+    type: null,
+  });
+  return epic.id;
+}
+
 export async function addSessionTodo(
   project: string,
   session: string,
@@ -337,9 +367,18 @@ export async function addSessionTodo(
   const resolvedType = type ?? (files && files.length
     ? (inferTypeFromManifest(project, files) ?? inferProfileType(files))
     : null);
+  // Every work todo belongs to an epic (constraint 373a2d52). If no parent was
+  // given and this isn't itself an epic, auto-parent it under the project's
+  // default Inbox epic so nothing floats at the top level. Re-parent under a real
+  // epic during planning. (Auto-parent on creation — no rejected calls.)
+  let parentId = extrasRest.parentId ?? null;
+  if (!parentId && !isEpicTitle(trimmed)) {
+    parentId = await ensureInboxEpic(project, session);
+  }
   return createTodo(project, {
     ownerSession: session,
     ...extrasRest,
+    parentId,
     title: trimmed, // after the spread so the trimmed value always wins
     link: link ?? null,
     type: resolvedType,
