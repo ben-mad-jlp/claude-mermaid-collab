@@ -23,6 +23,7 @@ import { SplitPane } from '@/components/layout/SplitPane';
 import { SplitDeck } from './SplitDeck';
 import { CommandBar } from './CommandBar';
 import { isOrchestratorSession } from '@/lib/liveness';
+import { useSessionStatuses } from '@/hooks/useSessionStatuses';
 import { NeedsYouZone } from './NeedsYouZone';
 import { BridgeEscalationInbox } from './BridgeEscalationInbox';
 import { FleetStatusGrid, type FleetGridRow } from './FleetStatusGrid';
@@ -183,18 +184,22 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
   // subscription liveness (status/context) when a matching subscription exists.
   // Orchestrator/role sessions (supervisor/steward/planner) drive the work-graph —
   // not workers — so they're excluded.
+  const sessionStatuses = useSessionStatuses(serverScope, isFleet ? undefined : project);
   const workerSubs = useMemo(() => {
     const subBySession = new Map(projectSubs.map((s) => [s.session, s]));
     const fromSupervised = supervised
       .filter((s) => s.project === project && !isOrchestratorSession(s.session))
       .map((s) => {
+        // Prefer the live Watching subscription; fall back to the polled
+        // session-status (gives coordinator-spawned workers real liveness).
         const live = subBySession.get(s.session);
+        const polled = sessionStatuses[`${project}:${s.session}`];
         return {
           serverId: live?.serverId ?? s.serverId ?? serverScope,
           project,
           session: s.session,
-          status: (live?.status ?? 'unknown') as 'active' | 'waiting' | 'permission' | 'unknown',
-          lastUpdate: live?.lastUpdate ?? Date.now(),
+          status: (live?.status ?? polled?.status ?? 'unknown') as 'active' | 'waiting' | 'permission' | 'unknown',
+          lastUpdate: live?.lastUpdate ?? polled?.updatedAt ?? Date.now(),
           contextPercent: live?.contextPercent,
         };
       });
@@ -203,7 +208,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
     const known = new Set(fromSupervised.map((s) => s.session));
     const extra = projectSubs.filter((s) => !isOrchestratorSession(s.session) && !known.has(s.session));
     return [...fromSupervised, ...extra];
-  }, [supervised, projectSubs, project, serverScope]);
+  }, [supervised, projectSubs, project, serverScope, sessionStatuses]);
 
   // Graph-only view of the todos: the FleetGraph should not show finished noise —
   // (a) completed/dropped ORPHAN todos (no parent, not an epic), and (b) EPICS

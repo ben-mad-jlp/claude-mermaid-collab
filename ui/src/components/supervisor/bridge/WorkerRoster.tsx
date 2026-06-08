@@ -33,14 +33,34 @@ export interface WorkerRosterProps {
   onJump?: (project: string, session: string) => void;
 }
 
-function livenessDot(liveness: Liveness): string {
-  switch (liveness) {
-    case 'crashed':
+/** Dot color by real session status (matches the left-tree SessionCard palette):
+ *  permission = red (needs you), active = amber (working), waiting = green
+ *  (ready/idle-waiting), unknown = grey. A confirmed-crashed worker is red. */
+function statusDot(status: SubLike['status'], crashed: boolean): string {
+  if (crashed) return 'bg-danger-500';
+  switch (status) {
+    case 'permission':
       return 'bg-danger-500';
     case 'active':
+      return 'bg-warning-500';
+    case 'waiting':
       return 'bg-success-500';
     default:
       return 'bg-gray-300 dark:bg-gray-600';
+  }
+}
+
+/** Fallback row text when the worker holds no current todo. */
+function statusLabel(status: SubLike['status']): string {
+  switch (status) {
+    case 'permission':
+      return 'needs permission';
+    case 'active':
+      return 'working';
+    case 'waiting':
+      return 'waiting';
+    default:
+      return 'idle';
   }
 }
 
@@ -84,13 +104,13 @@ export const WorkerRoster: React.FC<WorkerRosterProps> = ({ subscriptions, todos
                 title="Dive into this session's Studio"
                 className="w-full flex items-start gap-2 px-3 py-2 text-left text-xs hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors"
               >
-                <span className={`shrink-0 mt-1 w-2 h-2 rounded-full ${livenessDot(liveness)}`} aria-hidden="true" />
+                <span className={`shrink-0 mt-1 w-2 h-2 rounded-full ${statusDot(sub.status, liveness === 'crashed')}`} aria-hidden="true" />
                 <span className="shrink-0" aria-hidden="true">{roleGlyph(sub.session)}</span>
                 <span className="shrink-0 font-medium text-gray-800 dark:text-gray-100 truncate max-w-[7rem]">
                   {sub.session}
                 </span>
                 <span className="flex-1 min-w-0 text-gray-500 dark:text-gray-400 line-clamp-2 leading-snug">
-                  {currentTodo ? currentTodo.title : liveness === 'crashed' ? 'unresponsive' : 'idle'}
+                  {currentTodo ? currentTodo.title : liveness === 'crashed' ? 'unresponsive' : statusLabel(sub.status)}
                 </span>
                 {typeof sub.contextPercent === 'number' && (
                   <span className="shrink-0 flex items-center gap-1">
