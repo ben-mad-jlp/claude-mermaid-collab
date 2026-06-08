@@ -12,6 +12,8 @@
     "setup": "./setup.sh",
     "setup:start": "./setup.sh --start",
     "build": "cd ui && bun run build",
+    "deploy": "bash scripts/deploy-desktop.sh",
+    "deploy:no-build": "bash scripts/deploy-desktop.sh --no-build",
     "server": "bun run bin/mermaid-collab.ts",
     "server:start": "bun run bin/mermaid-collab.ts start",
     "server:stop": "bun run bin/mermaid-collab.ts stop",
