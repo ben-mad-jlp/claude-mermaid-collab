@@ -61,6 +61,7 @@ import { createDecisionRecord, listDecisionRecords, approveDecisionRecord, super
 import { listObjects, listTypes } from '../services/system-object-store.js';
 import { bom } from '../services/system-object-bom.js';
 import { specCoverage, decideRequirement, type RequirementDecision } from '../services/spec-coverage.js';
+import { specHealth, syncShortlist } from '../services/cartographer.js';
 import { lastAssistantTurn } from '../services/transcript-reader.js';
 import { listTodos, getTodo, resetTodo, overrideAcceptTodo, createGate, completeGatesForDecision } from '../services/todo-store.js';
 import { validateStewardProof, isOverrideRateLimited, type StewardProof, type StewardVerb } from '../services/steward-proof.js';
@@ -2133,6 +2134,8 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'get_active_constraints', description: 'Active constraints in scope for an epic (epic-level + project-level) — the decision-record half of /focus. Omit epicId for all active constraints.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, epicId: { type: 'string' } }, required: ['project'] } },
       { name: 'get_active_requirements', description: 'Active requirements in scope for an epic (epic-level + project-level) — the spec→Planner bridge, peer of get_active_constraints. Omit epicId for all active requirements.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, epicId: { type: 'string' } }, required: ['project'] } },
       { name: 'spec_coverage', description: 'Spec coverage rollup (design-system-object-ui §5): for each durable system object, is it covered/partial/uncovered, derived inline from the Todo.objectRef join (no full-tree walk). Returns { total, covered, partial, uncovered, byObject[] }.', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'] } },
+      { name: 'cartographer_health', description: 'Cartographer spec-health summary (design-cartographer §8, Phase 1): read-only counts { uncoveredRequirements, orphanObjects, staleEdges }. Proposes nothing; never writes.', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'] } },
+      { name: 'cartographer_sync', description: 'Cartographer drift sync (design-cartographer §3/§6, Phase 1): runs the deterministic detectors then ranks (drift > inverse-coverage), dedupes by object, and caps to the top 5 — the pre-write batch sheet the human approves per-line in the Inbox later. ZERO DB writes. Quiet-by-default: nothing drifted → { inSync: true, message: "spec in sync" }.', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'] } },
       { name: 'list_system_objects', description: 'List the durable system-object tree (instances) + the type registry for a project — the data the Spec Sheet renders.', inputSchema: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'] } },
       { name: 'system_object_bom', description: 'Rolled-up bill-of-materials beneath a root object (derived recursive-CTE; never stored): total qty per child type.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, rootId: { type: 'string' } }, required: ['project', 'rootId'] } },
       { name: 'decide_requirement', description: 'Sign/reject/re-sign a requirement promise (reuses the decision-record approve/supersede path). decision: "approve" → active; "reject" → superseded (no replacement); "edit" → creates a fresh proposed requirement carrying the new spec and supersedes the old (the re-sign DIFF). edit requires spec.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, id: { type: 'string' }, decision: { type: 'string', enum: ['approve', 'reject', 'edit'] }, approvedBy: { type: 'string' }, spec: { type: 'object', description: 'New requirement spec {metric, op, target} — required for decision="edit".', properties: { metric: { type: 'string' }, op: { type: 'string' }, target: {} } }, title: { type: 'string' } }, required: ['project', 'id', 'decision'] } },
@@ -4783,6 +4786,16 @@ IMPORTANT - Common pitfalls to avoid:
             const { project } = args as { project: string };
             if (!project) throw new Error('Missing required: project');
             return JSON.stringify({ coverage: specCoverage(project) }, null, 2);
+          }
+          case 'cartographer_health': {
+            const { project } = args as { project: string };
+            if (!project) throw new Error('Missing required: project');
+            return JSON.stringify({ health: specHealth(project) }, null, 2);
+          }
+          case 'cartographer_sync': {
+            const { project } = args as { project: string };
+            if (!project) throw new Error('Missing required: project');
+            return JSON.stringify(syncShortlist(project), null, 2);
           }
           case 'list_system_objects': {
             const { project } = args as { project: string };

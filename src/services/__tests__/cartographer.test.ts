@@ -11,7 +11,7 @@ import {
   createDecisionRecord, approveDecisionRecord, listDecisionRecords,
 } from '../decision-record-store';
 import { createTodo } from '../todo-store';
-import { specHealth, driftCandidates, inverseCoverage, allCandidates } from '../cartographer';
+import { specHealth, driftCandidates, inverseCoverage, allCandidates, syncShortlist, SYNC_CAP } from '../cartographer';
 import type { SystemObjectType } from '../domain-plugin';
 
 let project: string;
@@ -155,6 +155,57 @@ describe('specHealth summary', () => {
     expect(h.staleEdges).toBe(1);
     expect(h.uncoveredRequirements).toBe(1); // proof gone stale → uncovered again
     expect(h.orphanObjects).toBe(1);
+  });
+});
+
+describe('syncShortlist — rank / dedupe / cap (cartographer_sync payload)', () => {
+  test('quiet-by-default: nothing drifted → inSync with empty shortlist', () => {
+    const r = syncShortlist(project);
+    expect(r.inSync).toBe(true);
+    expect(r.message).toBe('spec in sync');
+    expect(r.shortlist).toEqual([]);
+    expect(r.total).toBe(0);
+  });
+
+  test('drift outranks inverse-coverage, and same-object candidates dedupe', async () => {
+    // Inverse-coverage gap on objId (done todo, one epic requirement, no satisfy).
+    const epic = await createTodo(project, { ownerSession: 's', title: '[EPIC]' });
+    activeRequirement(epic.id, 'req-A');
+    await doneObjectTodo(objId, epic.id);
+    // Drift on the SAME object (a stale proof to a different requirement).
+    satisfy(project, objId, 'req:stale');
+    markStaleForObject(project, objId);
+
+    const r = syncShortlist(project);
+    expect(r.inSync).toBe(false);
+    // Both detectors fire for objId; dedupe collapses to one, drift wins (ranked first).
+    expect(r.total).toBe(1);
+    expect(r.shortlist).toHaveLength(1);
+    expect(r.shortlist[0].kind).toBe('stale-proof');
+    expect(r.shortlist[0].objectRef).toBe(objId);
+    // Serializable payload carries no `write` thunk.
+    expect('write' in r.shortlist[0]).toBe(false);
+  });
+
+  test('caps at SYNC_CAP and reports "N more, lower confidence"', async () => {
+    // Build SYNC_CAP + 2 independent drift candidates (distinct objects).
+    const extra = SYNC_CAP + 2;
+    for (let i = 0; i < extra; i++) {
+      const o = await createObject(project, { typeId: 'demo:Thing', name: `o${i}`, attributes: { i } });
+      satisfy(project, o.id, `req:${i}`);
+      markStaleForObject(project, o.id);
+    }
+    const r = syncShortlist(project);
+    expect(r.total).toBe(extra);
+    expect(r.shortlist).toHaveLength(SYNC_CAP);
+    expect(r.more).toBe(extra - SYNC_CAP);
+    expect(r.message).toContain(`${extra - SYNC_CAP} more`);
+  });
+
+  test('cartographer_health payload mirrors specHealth (read-only counts)', () => {
+    // The verb returns { health: specHealth(project) } — assert the shape directly.
+    const health = specHealth(project);
+    expect(health).toEqual({ uncoveredRequirements: 0, orphanObjects: 1, staleEdges: 0 });
   });
 });
 

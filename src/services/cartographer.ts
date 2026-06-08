@@ -30,6 +30,10 @@ export interface ProposalCandidate {
   /** 0..1 — how confident the detector is that the `write` is the right fix.
    *  A downgraded "question" (couldn't pick a single target) carries low confidence. */
   confidence: number;
+  /** The durable object this candidate concerns — the dedupe key (null when none). */
+  objectRef?: string | null;
+  /** The epic scope this candidate concerns (inverse-coverage only). */
+  epicId?: string | null;
   /** Human-readable framing — set when the candidate is a QUESTION the detector
    *  refused to guess (zero/many active requirements), not an auto-applyable write. */
   question?: string;
@@ -105,6 +109,7 @@ export function driftCandidates(project: string): ProposalCandidate[] {
         kind: 'stale-proof',
         provenance: `drift:object=${objectId},requirement=${reqId}`,
         confidence: 0.8,
+        objectRef: objectId,
         // Eventual mutation: retire the drifted proof's requirement record. NOT
         // executed here — captured for a Phase-2 reviewer to apply.
         write: () => supersedeDecisionRecord(project, reqId, `stale-proof:${objectId}`),
@@ -154,6 +159,8 @@ export function inverseCoverage(project: string): ProposalCandidate[] {
         kind: 'missing-satisfy-edge',
         provenance: `inverse-coverage:todo=${todo.id},object=${todo.objectRef},epic=${epicId},requirement=${reqId}`,
         confidence: 0.9,
+        objectRef: todo.objectRef,
+        epicId,
         // Eventual mutation: author the missing satisfy edge. NOT executed here.
         write: () => satisfy(project, todo.objectRef!, reqId),
       });
@@ -164,6 +171,8 @@ export function inverseCoverage(project: string): ProposalCandidate[] {
         kind: 'uncovered-requirement',
         provenance: `inverse-coverage:todo=${todo.id},object=${todo.objectRef},epic=${epicId},activeRequirements=${reqs.length}`,
         confidence: 0.3,
+        objectRef: todo.objectRef,
+        epicId,
         question: reqs.length === 0
           ? `Object ${todo.objectRef} (built by done todo ${todo.id}) has no requirement to satisfy — which requirement does it cover?`
           : `Object ${todo.objectRef} (built by done todo ${todo.id}) could satisfy ${reqs.length} active requirements — which one?`,
@@ -178,4 +187,82 @@ export function inverseCoverage(project: string): ProposalCandidate[] {
  *  summary. Pure read; the returned `write` thunks are NEVER executed here. */
 export function allCandidates(project: string): ProposalCandidate[] {
   return [...driftCandidates(project), ...inverseCoverage(project)];
+}
+
+/** §6 batch-sheet cap: at most this many proposals surface per sync; the rest are
+ *  summarised as "N more, lower confidence". */
+export const SYNC_CAP = 5;
+
+/** One shortlist line — the serializable projection of a ProposalCandidate (the
+ *  `write` thunk is intentionally dropped; the pre-write sheet carries no mutation). */
+export interface ShortlistLine {
+  kind: ProposalKind;
+  provenance: string;
+  confidence: number;
+  objectRef: string | null;
+  epicId: string | null;
+  question?: string;
+}
+
+export interface SyncResult {
+  /** Quiet-by-default: true when nothing clears the bar (no proposals). */
+  inSync: boolean;
+  message: string;
+  /** Ranked, deduped, capped shortlist (≤ SYNC_CAP). */
+  shortlist: ShortlistLine[];
+  /** Candidates beyond the cap (lower confidence), summarised not listed. */
+  more: number;
+  /** Total deduped candidates before the cap. */
+  total: number;
+}
+
+function toLine(c: ProposalCandidate): ShortlistLine {
+  const line: ShortlistLine = {
+    kind: c.kind,
+    provenance: c.provenance,
+    confidence: c.confidence,
+    objectRef: c.objectRef ?? null,
+    epicId: c.epicId ?? null,
+  };
+  if (c.question) line.question = c.question;
+  return line;
+}
+
+/**
+ * §3/§6/§8 sync shortlist: run both detectors, then RANK > DEDUPE > CAP into the
+ * pre-write batch sheet the human approves per-line later. STILL ZERO WRITES.
+ *  - Rank: driftCheck (stale-proof) outranks inverseCoverage; within a detector,
+ *    higher confidence first.
+ *  - Dedupe near-duplicates: collapse candidates that concern the SAME object
+ *    (objectRef) — the highest-ranked occurrence wins (so a drift proof beats an
+ *    inverse-coverage gap for the same object).
+ *  - Cap to SYNC_CAP; the remainder is reported as "N more, lower confidence".
+ * Quiet-by-default: nothing clears the bar → { inSync: true, shortlist: [] }.
+ */
+export function syncShortlist(project: string): SyncResult {
+  const ranked: ProposalCandidate[] = [
+    ...driftCandidates(project).sort((a, b) => b.confidence - a.confidence),
+    ...inverseCoverage(project).sort((a, b) => b.confidence - a.confidence),
+  ];
+
+  const seenObjects = new Set<string>();
+  const deduped: ProposalCandidate[] = [];
+  for (const c of ranked) {
+    if (c.objectRef) {
+      if (seenObjects.has(c.objectRef)) continue; // near-duplicate on the same object
+      seenObjects.add(c.objectRef);
+    }
+    deduped.push(c);
+  }
+
+  if (deduped.length === 0) {
+    return { inSync: true, message: 'spec in sync', shortlist: [], more: 0, total: 0 };
+  }
+
+  const shortlist = deduped.slice(0, SYNC_CAP).map(toLine);
+  const more = deduped.length - shortlist.length;
+  const message = more > 0
+    ? `${shortlist.length} proposals (top ${SYNC_CAP}); ${more} more, lower confidence`
+    : `${shortlist.length} proposal${shortlist.length === 1 ? '' : 's'}`;
+  return { inSync: false, message, shortlist, more, total: deduped.length };
 }

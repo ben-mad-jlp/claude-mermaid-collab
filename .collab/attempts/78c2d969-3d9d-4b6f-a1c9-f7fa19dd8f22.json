@@ -1,0 +1,11 @@
+{
+  "todoId": "78c2d969-3d9d-4b6f-a1c9-f7fa19dd8f22",
+  "session": "backend-1",
+  "outcome": "accepted",
+  "retryReason": "none",
+  "layer": "none",
+  "verbsTried": [],
+  "failingVerb": null,
+  "failingReturn": null,
+  "summary": "Registered cartographer_health (specHealth counts) + cartographer_sync (rank drift>inverse, dedupe-by-object, cap K=5, quiet 'spec in sync') in setup.ts; added pure syncShortlist/ShortlistLine to cartographer.ts (zero writes, write thunk dropped from payload) + 4 dispatch-payload tests. tsc clean on change-set; bun test 14/14 pass."
+}
