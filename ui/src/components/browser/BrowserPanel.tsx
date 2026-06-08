@@ -10,7 +10,7 @@ const bridge = () => (window as any).mc?.browser;
  * a placeholder div whose bounding rect is forwarded to the main process so it
  * can position a native Electron WebContentsView over the exact rectangle.
  */
-export function BrowserPanel() {
+export function BrowserPanel({ embedded = false }: { embedded?: boolean } = {}) {
   const visible = useBrowserStore((s) => s.visible);
   const tabs = useBrowserStore((s) => s.tabs);
   const activeId = useBrowserStore((s) => s.activeId);
@@ -224,8 +224,15 @@ export function BrowserPanel() {
       </div>
   );
 
-  // Viewer hidden → browser fills the freed space. Viewer shown → fixed-width
-  // resizable column beside the artifact editor.
+  // Embedded in the workspace PanelGroup: fill the host Panel; the PanelGroup
+  // owns sizing, so no ResizableColumn. The native overlay still tracks the
+  // viewport rect via the rAF loop above.
+  if (embedded) {
+    return <div className="h-full flex flex-col min-h-0">{body}</div>;
+  }
+
+  // Legacy standalone dock (kept for back-compat): viewer hidden → browser fills
+  // the freed space; viewer shown → fixed-width resizable column.
   if (!viewerVisible) {
     return <div className="flex flex-1 min-h-0">{body}</div>;
   }

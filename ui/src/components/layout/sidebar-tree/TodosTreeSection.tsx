@@ -172,9 +172,23 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
     );
 
 
+    // A session's artifact todo list shows only todos ASSIGNED to that session
+    // — not every todo the session happens to own (an orchestrator session owns
+    // todos farmed out to many workers). Unassigned (null) todos still show so
+    // locally-added/legacy items don't vanish; only todos explicitly assigned to
+    // a DIFFERENT session are filtered out.
+    const sessionName = currentSession?.name ?? null;
+    const assignedTodos = useMemo(
+      () =>
+        sessionTodos.filter(
+          (t) => t.assigneeSession == null || t.assigneeSession === sessionName,
+        ),
+      [sessionTodos, sessionName],
+    );
+
     const orderedTodos = useMemo(
-      () => [...sessionTodos].sort((a, b) => a.order - b.order),
-      [sessionTodos],
+      () => [...assignedTodos].sort((a, b) => a.order - b.order),
+      [assignedTodos],
     );
     // Sidebar shows active todos only; completed ones drop out of the list
     // (they're still in the store — set via the detail pane's status dropdown,
@@ -185,8 +199,8 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
     );
 
     const completedCount = useMemo(
-      () => sessionTodos.filter((t) => t.completed || t.status === 'done').length,
-      [sessionTodos],
+      () => assignedTodos.filter((t) => t.completed || t.status === 'done').length,
+      [assignedTodos],
     );
 
     const handleAddTodo = useCallback(async () => {
@@ -214,7 +228,7 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
         <SectionBranchRow
           id="todos"
           title="Todos"
-          count={sessionTodos.length - completedCount}
+          count={assignedTodos.length - completedCount}
           collapsed={isCollapsed}
           onToggle={handleToggle}
           level={0}

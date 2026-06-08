@@ -11,6 +11,14 @@ export type SupervisorRole = 'supervisor' | 'planner' | 'coordinator';
 // SupervisorView for now), Plan = roadmap/work-graph surface (stub for now).
 export type UIMode = 'studio' | 'bridge' | 'plan';
 
+// Workspace panes that dock side-by-side in one reorderable row. Bridge/Plan/
+// Studio/Spec are PanelGroup panes; Browser/Terminal fold into the same row so
+// every header toggle can be dragged to reorder. `studio` = the artifact viewer
+// (viewerVisible), `spec` = the project Spec Sheet, `browser`/`terminal` carry
+// their own visibility flags (browserStore.visible / terminalStore.open).
+export type PaneKey = 'bridge' | 'plan' | 'studio' | 'spec' | 'browser' | 'terminal';
+export const ALL_PANE_KEYS: PaneKey[] = ['bridge', 'plan', 'studio', 'spec', 'browser', 'terminal'];
+
 export interface UIState {
   // Theme state
   theme: Theme;
@@ -74,12 +82,15 @@ export interface UIState {
   // order (for future drag-reorder).
   bridgeOpen: boolean;
   planOpen: boolean;
+  specOpen: boolean;
   setBridgeOpen: (open: boolean) => void;
   setPlanOpen: (open: boolean) => void;
+  setSpecOpen: (open: boolean) => void;
   toggleBridge: () => void;
   togglePlan: () => void;
-  paneOrder: ('bridge' | 'plan' | 'studio')[];
-  setPaneOrder: (order: ('bridge' | 'plan' | 'studio')[]) => void;
+  toggleSpec: () => void;
+  paneOrder: PaneKey[];
+  setPaneOrder: (order: PaneKey[]) => void;
 
   // CUI-6: per-mode sticky editor split. Each mode remembers its own split so
   // diving Studio ↔ Bridge ↔ Plan doesn't reset the user's layout.
@@ -242,11 +253,14 @@ export const useUIStore = create<UIState>()(
       // Workspace panes — Bridge open by default; Studio = viewerVisible.
       bridgeOpen: true,
       planOpen: false,
+      specOpen: false,
       setBridgeOpen: (open: boolean) => set({ bridgeOpen: open }),
       setPlanOpen: (open: boolean) => set({ planOpen: open }),
+      setSpecOpen: (open: boolean) => set({ specOpen: open }),
       toggleBridge: () => set((s) => ({ bridgeOpen: !s.bridgeOpen })),
       togglePlan: () => set((s) => ({ planOpen: !s.planOpen })),
-      paneOrder: ['bridge', 'plan', 'studio'],
+      toggleSpec: () => set((s) => ({ specOpen: !s.specOpen })),
+      paneOrder: [...ALL_PANE_KEYS],
       setPaneOrder: (order) => set({ paneOrder: order }),
 
       modeSplit: { studio: DEFAULT_EDITOR_SPLIT_POSITION, bridge: DEFAULT_EDITOR_SPLIT_POSITION, plan: DEFAULT_EDITOR_SPLIT_POSITION },
@@ -342,7 +356,7 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'ui-preferences', // localStorage key
-      version: 10,
+      version: 11,
       migrate: (persistedState: unknown, version: number) => {
         // v5: terminal/shell removed entirely. Drop legacy panel flags and
         // default agentChatVisible to true so chat is visible by default.
@@ -392,6 +406,21 @@ export const useUIStore = create<UIState>()(
           return {
             ...rest,
             modeSplit: { studio: DEFAULT_EDITOR_SPLIT_POSITION, bridge: DEFAULT_EDITOR_SPLIT_POSITION, plan: DEFAULT_EDITOR_SPLIT_POSITION },
+          } as UIState;
+        }
+        if (version < 11) {
+          // Spec/Browser/Terminal join the side-by-side reorderable pane row.
+          // Preserve the user's existing left→right order, then APPEND any pane
+          // keys they don't have yet (older orders only held bridge/plan/studio)
+          // so the new panes get a position and can render when toggled.
+          const old = persistedState as Record<string, unknown>;
+          const prev = Array.isArray(old.paneOrder) ? (old.paneOrder as PaneKey[]) : [];
+          const merged = [...prev.filter((p) => ALL_PANE_KEYS.includes(p))];
+          for (const k of ALL_PANE_KEYS) if (!merged.includes(k)) merged.push(k);
+          return {
+            ...old,
+            paneOrder: merged,
+            specOpen: typeof old.specOpen === 'boolean' ? old.specOpen : false,
           } as UIState;
         }
         return persistedState as UIState;

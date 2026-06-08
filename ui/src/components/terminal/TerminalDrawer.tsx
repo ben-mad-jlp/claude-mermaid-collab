@@ -10,7 +10,7 @@ import { ServerIcon } from '@/components/ServerIcon';
  * Right-side resizable column hosting tabbed in-app terminals. Each tab connects
  * to a distinct PTY session (UUID). The tab strip sits above the active pane.
  */
-export function TerminalDrawer() {
+export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}) {
   const open = useTerminalStore((s) => s.open);
   const tabs = useTerminalStore((s) => s.tabs);
   const activeTabId = useTerminalStore((s) => s.activeTabId);
@@ -91,9 +91,8 @@ export function TerminalDrawer() {
 
   if (!open) return null;
 
-  return (
-    <ResizableColumn width={width} onResize={setWidth} min={320}>
-      <div style={{ background: '#0d1117', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+  const inner = (
+      <div style={{ background: '#0d1117', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, height: embedded ? '100%' : undefined }}>
       {/* Tab strip */}
       <div
         style={{
@@ -253,6 +252,14 @@ export function TerminalDrawer() {
         ))}
       </div>
       </div>
+  );
+
+  // Embedded in the workspace PanelGroup → fill the host Panel; the PanelGroup
+  // owns sizing. Standalone → legacy right-docked resizable column.
+  if (embedded) return inner;
+  return (
+    <ResizableColumn width={width} onResize={setWidth} min={320}>
+      {inner}
     </ResizableColumn>
   );
 }

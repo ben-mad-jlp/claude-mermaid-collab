@@ -55,6 +55,9 @@ import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { GlobalSearch } from '@/components/layout/GlobalSearch';
 import { TerminalDrawer } from '@/components/terminal/TerminalDrawer';
 import { BrowserPanel } from '@/components/browser/BrowserPanel';
+import { useBrowserStore } from '@/stores/browserStore';
+import { useTerminalStore } from '@/stores/terminalStore';
+import { SpecWorkspace } from '@/components/supervisor/SpecWorkspace';
 import EditorToolbar from '@/components/layout/EditorToolbar';
 import { MobileLayout } from '@/components/layout/MobileLayout';
 import QuestionPanel from '@/components/question-panel/QuestionPanel';
@@ -179,10 +182,15 @@ const App: React.FC = () => {
 
   const setDocumentConflict = useUIStore((s) => s.setDocumentConflict);
   const viewerVisible = useUIStore((s) => s.viewerVisible);
-  // Workspace panes (the new model): Bridge / Plan / Studio dock side-by-side and
-  // each toggles independently. Studio = the artifact viewer (viewerVisible).
+  // Workspace panes (the new model): Bridge / Plan / Studio / Spec / Browser /
+  // Terminal dock side-by-side in one reorderable row and each toggles
+  // independently. Studio = the artifact viewer (viewerVisible); Browser/Terminal
+  // carry their own visibility flags (browserStore.visible / terminalStore.open).
   const bridgeOpen = useUIStore((s) => s.bridgeOpen);
   const planOpen = useUIStore((s) => s.planOpen);
+  const specOpen = useUIStore((s) => s.specOpen);
+  const browserVisible = useBrowserStore((s) => s.visible);
+  const terminalOpen = useTerminalStore((s) => s.open);
   const paneOrder = useUIStore((s) => s.paneOrder);
 
   // Design canvas zoom (from design editor store, separate from diagram zoom)
@@ -1846,17 +1854,29 @@ const App: React.FC = () => {
             {/* Fixed-width left rail — always the fleet Sidebar (the project tree). */}
             <Sidebar className="h-full" />
 
-            {/* Workspace panes — Bridge / Plan / Studio dock SIDE-BY-SIDE; any
-                combination can be open (toggled from the header icons). Studio =
-                the artifact viewer. Resizable via the drag handles between panes. */}
+            {/* Workspace panes — Bridge / Plan / Studio / Spec / Browser /
+                Terminal dock SIDE-BY-SIDE in ONE reorderable row; any
+                combination can be open (toggled from the header icons, dragged
+                to reorder). Studio = the artifact viewer; Spec = the project
+                Spec Sheet. Resizable via the drag handles between panes. */}
             {(() => {
               const open = paneOrder.filter((p) =>
-                p === 'bridge' ? bridgeOpen : p === 'plan' ? planOpen : viewerVisible && !!currentSession,
+                p === 'bridge'
+                  ? bridgeOpen
+                  : p === 'plan'
+                    ? planOpen
+                    : p === 'spec'
+                      ? specOpen
+                      : p === 'browser'
+                        ? browserVisible
+                        : p === 'terminal'
+                          ? terminalOpen
+                          : viewerVisible && !!currentSession,
               );
               if (open.length === 0) {
                 return (
                   <main className="flex-1 h-full flex items-center justify-center text-sm text-gray-400 dark:text-gray-500 bg-white dark:bg-gray-800">
-                    No pane open — toggle Bridge, Plan, or Studio in the header.
+                    No pane open — toggle a pane in the header.
                   </main>
                 );
               }
@@ -1871,6 +1891,9 @@ const App: React.FC = () => {
                         {p === 'bridge' && <BridgeDashboard />}
                         {p === 'plan' && <div className="h-full min-h-0 overflow-hidden"><PlanWorkspace /></div>}
                         {p === 'studio' && <div className="h-full min-h-0 overflow-hidden">{renderMainContent()}</div>}
+                        {p === 'spec' && <SpecWorkspace />}
+                        {p === 'browser' && <BrowserPanel embedded />}
+                        {p === 'terminal' && <TerminalDrawer embedded />}
                       </Panel>
                     </React.Fragment>
                   ))}
@@ -1878,12 +1901,6 @@ const App: React.FC = () => {
               );
             })()}
           </DiveLayoutGroup>
-
-          {/* Resizable right columns beside the artifact preview (toggled from
-              the Header). Each renders nothing when closed. Browser first, then
-              terminal — order: sidebar | preview | browser | terminal. */}
-          <BrowserPanel />
-          <TerminalDrawer />
         </div>
 
         {/* Question Panel Overlay */}

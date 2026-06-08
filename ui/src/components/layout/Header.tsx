@@ -16,7 +16,7 @@ import { useSession } from '@/hooks/useSession';
 import { NavMenu } from './NavMenu';
 import { useTerminalStore } from '@/stores/terminalStore';
 import { useBrowserStore } from '@/stores/browserStore';
-import { useUIStore } from '@/stores/uiStore';
+import { useUIStore, type PaneKey } from '@/stores/uiStore';
 import { Session } from '@/types';
 
 export interface HeaderProps {
@@ -75,6 +75,7 @@ export const Header: React.FC<HeaderProps> = ({
   const viewerVisible = useUIStore((s) => s.viewerVisible);
   const bridgeOpen = useUIStore((s) => s.bridgeOpen);
   const planOpen = useUIStore((s) => s.planOpen);
+  const specOpen = useUIStore((s) => s.specOpen);
   const paneOrder = useUIStore((s) => s.paneOrder);
   const setPaneOrder = useUIStore((s) => s.setPaneOrder);
 
@@ -83,9 +84,9 @@ export const Header: React.FC<HeaderProps> = ({
   // the header is the single control for both visibility AND left→right order.
   // paneOrder lives in the persisted ui-preferences store, so order survives
   // restarts. `dragKey` tracks the toggle currently being dragged.
-  const [dragKey, setDragKey] = useState<'bridge' | 'plan' | 'studio' | null>(null);
+  const [dragKey, setDragKey] = useState<PaneKey | null>(null);
   const reorderPane = useCallback(
-    (target: 'bridge' | 'plan' | 'studio') => {
+    (target: PaneKey) => {
       const src = dragKey;
       setDragKey(null);
       if (!src || src === target) return;
@@ -99,7 +100,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   // Per-pane toggle metadata, keyed so we can render them in `paneOrder` order.
   const paneToggles: Record<
-    'bridge' | 'plan' | 'studio',
+    PaneKey,
     { testid: string; title: string; aria: string; active: boolean; onClick: () => void; icon: React.ReactNode }
   > = {
     bridge: {
@@ -142,6 +143,47 @@ export const Header: React.FC<HeaderProps> = ({
         <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <rect x="7" y="3" width="13" height="15" rx="1.5" />
           <path d="M4 6.5v12A1.5 1.5 0 0 0 5.5 20h11" />
+        </svg>
+      ),
+    },
+    spec: {
+      testid: 'toggle-spec',
+      title: 'Spec',
+      aria: 'Toggle Spec pane (project specification)',
+      active: specOpen,
+      onClick: () => useUIStore.getState().toggleSpec(),
+      icon: (
+        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
+          <path d="M14 3v6h6" />
+          <path d="M9 13h6M9 17h4" />
+        </svg>
+      ),
+    },
+    browser: {
+      testid: 'toggle-browser',
+      title: 'Browser',
+      aria: 'Toggle browser',
+      active: browserVisible,
+      onClick: () => useBrowserStore.getState().toggle(),
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <circle cx="12" cy="12" r="9" />
+          <line x1="3" y1="12" x2="21" y2="12" />
+          <path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z" />
+        </svg>
+      ),
+    },
+    terminal: {
+      testid: 'toggle-terminal',
+      title: 'Terminal',
+      aria: 'Toggle terminal',
+      active: terminalOpen,
+      onClick: () => useTerminalStore.getState().toggle(),
+      icon: (
+        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="4 17 10 11 4 5" />
+          <line x1="12" y1="19" x2="20" y2="19" />
         </svg>
       ),
     },
@@ -213,11 +255,11 @@ export const Header: React.FC<HeaderProps> = ({
           <h1 className="text-sm font-semibold text-gray-900 dark:text-white">
             Collab
           </h1>
-          {/* Pane toggles — left, just right of the Collab label. Bridge / Plan /
-              Studio dock side-by-side; Browser / Terminal dock on the right. */}
+          {/* Pane toggles — left, just right of the Collab label. All panes
+              (Bridge / Plan / Studio / Spec / Browser / Terminal) dock
+              side-by-side in one reorderable row; drag a toggle onto another to
+              reorder the panes below. */}
           <div className="flex items-center gap-1.5">
-            {/* Bridge / Plan / Studio — rendered in paneOrder; drag a toggle
-                onto another to reorder the side-by-side panes below. */}
             {paneOrder.map((key) => {
               const t = paneToggles[key];
               return (
@@ -248,31 +290,6 @@ export const Header: React.FC<HeaderProps> = ({
                 </button>
               );
             })}
-            <button
-              data-testid="toggle-browser"
-              onClick={() => useBrowserStore.getState().toggle()}
-              aria-label="Toggle browser"
-              title="Browser"
-              className={paneToggleClass(browserVisible)}
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <circle cx="12" cy="12" r="9"/>
-                <line x1="3" y1="12" x2="21" y2="12"/>
-                <path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/>
-              </svg>
-            </button>
-            <button
-              data-testid="toggle-terminal"
-              onClick={() => useTerminalStore.getState().toggle()}
-              aria-label="Toggle terminal"
-              title="Toggle terminal"
-              className={paneToggleClass(terminalOpen)}
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="4 17 10 11 4 5" />
-                <line x1="12" y1="19" x2="20" y2="19" />
-              </svg>
-            </button>
           </div>
 
           {/* VS Code Connection Badge */}
