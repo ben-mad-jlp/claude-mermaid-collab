@@ -1,0 +1,11 @@
+{
+  "todoId": "d38070d6-4e80-414c-bbde-2e696f557871",
+  "session": "backend-2",
+  "outcome": "accepted",
+  "retryReason": "none",
+  "layer": "none",
+  "verbsTried": ["get_todo", "tsc --noEmit", "vitest run src/services/__tests__/session-registry.test.ts", "complete_todo"],
+  "failingVerb": null,
+  "failingReturn": null,
+  "summary": "Added getWorkspacesDir() chokepoint (returns 'sessions', zero behavior change) in src/services/session-registry.ts and routed all 5 hardcoded join(project,'.collab','sessions',...) literals (lines 271/353/514/558/591) through it; left 'todos'/old-path/literal-reader paths untouched. tsc clean; 50/50 session-registry unit tests pass."
+}
