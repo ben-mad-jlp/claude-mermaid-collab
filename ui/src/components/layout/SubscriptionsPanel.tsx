@@ -90,10 +90,11 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
     Array<{ serverId: string; serverLabel: string; project: string; name: string; displayName?: string }>
   >([]);
   const [pendingProjects, setPendingProjects] = useState<Record<string, string[]>>({});
-  // Per-server registered project list (the unified project registry, kept in
-  // lockstep with the supervisor's watched set). Folded into the subscribe modal
-  // so a project with NO sessions yet — e.g. one only added from the Bridge rail —
-  // still shows here, instead of the list being purely session-derived.
+  // Per-server WATCHED project list (the curated Bridge set). Folded into the
+  // subscribe modal so a watched project with NO sessions yet — e.g. one only
+  // added from the Bridge rail (stud_feeder) — still shows here, making the two
+  // add surfaces correspond. NOT the full project registry: that is disk-derived
+  // (every repo with a .collab/ dir) and would flood this list.
   const [serverProjects, setServerProjects] = useState<Record<string, string[]>>({});
   const [addProjectOpenFor, setAddProjectOpenFor] = useState<string | null>(null);
   const [addProjectInput, setAddProjectInput] = useState('');
@@ -256,8 +257,9 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
     return () => { cancelled = true; };
   }, [showDropdown, servers, sessions, activeId, serverLabelById, refreshTick]);
 
-  // Fan-out the unified project list per server when the modal opens, so projects
-  // without sessions (e.g. added from the Bridge rail) still appear in the picker.
+  // Fan-out the WATCHED project list per server when the modal opens, so watched
+  // projects without sessions (e.g. added from the Bridge rail) still appear in
+  // the picker — making the Watching and Bridge lists correspond.
   useEffect(() => {
     if (!showDropdown) return;
     let cancelled = false;
@@ -266,10 +268,10 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
     const activeIds = new Set(servers.map((s) => s.id));
     setServerProjects((prev) => Object.fromEntries(Object.entries(prev).filter(([id]) => activeIds.has(id))));
     servers.forEach(async (s) => {
-      const res = await mc.invokeOnServer(s.id, { path: '/api/projects', method: 'GET' }).catch(() => null);
+      const res = await mc.invokeOnServer(s.id, { path: '/api/supervisor/projects', method: 'GET' }).catch(() => null);
       if (cancelled || !res?.ok) return;
       const paths = ((res.body as any)?.projects ?? [])
-        .map((p: any) => (typeof p === 'string' ? p : p?.path))
+        .map((p: any) => (typeof p === 'string' ? p : p?.project))
         .filter((p: any): p is string => typeof p === 'string');
       setServerProjects((prev) => ({ ...prev, [s.id]: paths }));
     });
