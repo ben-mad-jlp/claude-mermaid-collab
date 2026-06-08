@@ -10,7 +10,6 @@
 
 import React from 'react';
 import { GlobalRoleSwitches } from './GlobalRoleSwitches';
-import { useSessionStore } from '@/stores/sessionStore';
 
 export interface CommandBarProps {
   liveCount: number;
@@ -29,7 +28,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({
   serverScope,
   project,
 }) => {
-  const sessionName = useSessionStore((s) => s.currentSession)?.name ?? null;
+  const projectName = project ? project.split('/').filter(Boolean).pop() ?? project : null;
   return (
     <div
       data-testid="bridge-command-bar"
@@ -37,14 +36,14 @@ export const CommandBar: React.FC<CommandBarProps> = ({
     >
       <span className="text-base" role="img" aria-label="bridge">⤢</span>
       <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">Bridge</span>
-      {/* Selected (current) session name. */}
-      {sessionName && (
+      {/* Active project — the Bridge is per-project. */}
+      {projectName && (
         <span
-          data-testid="bridge-session-name"
-          title={`Session: ${sessionName}`}
+          data-testid="bridge-project-name"
+          title={project}
           className="text-xs font-medium text-gray-500 dark:text-gray-400 truncate max-w-[160px]"
         >
-          {sessionName}
+          {projectName}
         </span>
       )}
 
