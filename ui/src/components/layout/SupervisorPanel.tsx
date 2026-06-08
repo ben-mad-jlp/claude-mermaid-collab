@@ -687,7 +687,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
               the steward row carries an inline "auto" switch (between the card
               and the dancing Claude). A role that isn't running shows a Start
               button in place of its card. */}
-          <div className="mb-2 space-y-1.5">
+          <div className="mb-2 space-y-0.5">
             {/* Steward */}
             {stewardRunning && stewardSessionName ? (
               <RoleConsoleCard
