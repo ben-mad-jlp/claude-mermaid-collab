@@ -31,7 +31,7 @@ import { selectHumanInbox } from '@/components/todos/humanInboxSelectors';
 import { FleetVitals } from './FleetVitals';
 import { WorkerRoster } from './WorkerRoster';
 import { StreamTicker } from './StreamTicker';
-import { FleetGraph } from './fleet/FleetGraph';
+import { PlanPanel } from '../PlanPanel';
 import { DecisionCard } from './focal/DecisionCard';
 import { funnelCounts } from './funnel';
 import { selectOpenEscalations } from './escalationSelectors';
@@ -276,33 +276,6 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
     );
   }
 
-  // Z3 stage (the SplitDeck's right half): the live FleetGraph, optionally docked
-  // beside the artifact viewer in a nested SplitPane. The graph is ALWAYS the
-  // primary pane so it never unmounts when the viewer opens/closes; on narrow it
-  // becomes a bottom sheet (vertical split) with the graph dimmed but mounted.
-  const graphPane = (
-    <FleetGraph
-      todos={todos}
-      subs={[]}
-      openEscalations={openEscalations}
-      onWorkerSelect={selectInPlace}
-      onSelectTodo={handleSelectTodo}
-    />
-  );
-  const stage = artifactViewer ? (
-    <SplitPane
-      direction={isDesktop ? 'horizontal' : 'vertical'}
-      storageId={isDesktop ? 'bridge-stage-split-h' : 'bridge-stage-split-v'}
-      primaryContent={<div className={`h-full w-full ${isDesktop ? '' : 'opacity-90'}`}>{graphPane}</div>}
-      secondaryContent={artifactViewer}
-      defaultPrimarySize={60}
-      minPrimarySize={30}
-      maxPrimarySize={80}
-    />
-  ) : (
-    graphPane
-  );
-
   return (
     <div className="relative h-full">
       <SplitDeck
@@ -403,7 +376,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
                   {selectedTodoId ? (
                     <TodoDetailView todoId={selectedTodoId} />
                   ) : (
-                    <p className="text-xs text-gray-400 dark:text-gray-500 italic">Click a todo in the graph below to see its description.</p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 italic">Click a todo in the Plan below to see its description.</p>
                   )}
                 </div>
               </div>
@@ -411,10 +384,9 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
           </>
         }
         right={
-          <FleetGraph
-            todos={graphTodos}
-            subs={[]}
-            openEscalations={openEscalations}
+          <PlanPanel
+            serverId={serverScope}
+            project={project}
             onSelectTodo={handleSelectTodo}
           />
         }

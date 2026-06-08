@@ -4,6 +4,7 @@ import type { SessionTodo } from '@/types/sessionTodo';
 import type { PlanItem } from '@/types/planItem';
 import { computeWaveMap } from './roadmapToMermaid';
 import { PlanKanban } from './PlanKanban';
+import { FleetGraph } from './bridge/fleet/FleetGraph';
 
 /**
  * PCS Phase 5 / Bridge P6 — the project Plan, backed by the UNIFIED work-graph
@@ -21,7 +22,7 @@ export interface PlanPanelProps {
   onSelectTodo?: (todo: SessionTodo) => void;
 }
 
-type Mode = 'kanban' | 'list';
+type Mode = 'kanban' | 'list' | 'graph';
 
 const STATUS_GLYPH: Record<string, string> = {
   done: '●',
@@ -152,6 +153,38 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
     return rows;
   }, [todos, waveMap]);
 
+  // Graph mode: one graph PER EPIC (top-level item + its full descendant subtree),
+  // stacked in rows — instead of a single combined fleet graph. Only top-level
+  // items that actually have descendants are graphed (a lone leaf has nothing to show).
+  const epicGraphs = useMemo(() => {
+    const byId = new Map(todos.map((t) => [t.id, t]));
+    const childrenByParent = new Map<string, SessionTodo[]>();
+    const topLevel: SessionTodo[] = [];
+    for (const t of todos) {
+      if (t.parentId && byId.has(t.parentId)) {
+        const arr = childrenByParent.get(t.parentId) ?? [];
+        arr.push(t);
+        childrenByParent.set(t.parentId, arr);
+      } else {
+        topLevel.push(t);
+      }
+    }
+    const descendants = (rootId: string): SessionTodo[] => {
+      const out: SessionTodo[] = [];
+      const stack = [rootId];
+      while (stack.length) {
+        const id = stack.pop()!;
+        for (const k of childrenByParent.get(id) ?? []) { out.push(k); stack.push(k.id); }
+      }
+      return out;
+    };
+    const sort = planSort(waveMap);
+    return [...topLevel]
+      .sort(sort)
+      .map((epic) => ({ epic, todos: [epic, ...descendants(epic.id)] }))
+      .filter((g) => g.todos.length > 1);
+  }, [todos, waveMap]);
+
   const modeButton = (m: Mode, label: string) => (
     <button
       key={m}
@@ -182,6 +215,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
         <div className="flex items-center gap-0.5 shrink-0">
           {modeButton('kanban', 'Kanban')}
           {modeButton('list', 'List')}
+          {modeButton('graph', 'Graph')}
         </div>
       </div>
 
@@ -193,6 +227,25 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
               No plan items for this project.
             </p>
           </div>
+        ) : mode === 'graph' ? (
+          epicGraphs.length === 0 ? (
+            <div className="flex items-center justify-center h-full">
+              <p className="text-xs text-gray-400 dark:text-gray-500">No epics with sub-tasks to graph.</p>
+            </div>
+          ) : (
+            <div className="h-full overflow-auto p-2 space-y-3">
+              {epicGraphs.map((g) => (
+                <div key={g.epic.id} className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                  <div className="px-3 py-1.5 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 text-xs font-semibold text-gray-700 dark:text-gray-300 truncate" title={g.epic.title ?? g.epic.text}>
+                    {g.epic.title ?? g.epic.text}
+                  </div>
+                  <div className="h-72">
+                    <FleetGraph todos={g.todos} subs={[]} onSelectTodo={onSelectTodo} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
         ) : mode === 'list' ? (
           <div className="h-full overflow-auto p-2 space-y-0.5">
             {tree.map(({ todo, depth }) => (
