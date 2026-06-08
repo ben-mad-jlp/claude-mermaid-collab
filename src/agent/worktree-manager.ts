@@ -206,6 +206,7 @@ export class WorktreeManager {
   // ---------------------------------------------------------------------------
   private async linkNodeModules(worktreePath: string): Promise<void> {
     const pkgDirs = await this.findPackageJsonDirs(worktreePath);
+    const linkedRels: string[] = [];
     for (const rel of pkgDirs) {
       const srcNM = path.join(this.opts.projectRoot, rel, 'node_modules');
       const dstNM = path.join(worktreePath, rel, 'node_modules');
@@ -215,10 +216,55 @@ export class WorktreeManager {
       if (await this.lpathExists(dstNM)) continue;
       try {
         await fs.symlink(srcNM, dstNM, 'dir');
+        linkedRels.push(rel);
       } catch {
         // best-effort per dir — one missing/failed link shouldn't abort the rest
       }
     }
+    // Belt-and-suspenders: regardless of what the repo .gitignore matches, write
+    // every symlinked node_modules path into THIS worktree's git exclude so a
+    // worker can never `git add` it. A node_modules SYMLINK staged + merged to
+    // master once corrupted the main repo (ELOOP self-referential symlink); see
+    // the [COORD] worktree-isolation hardening. This is independent of the
+    // `node_modules/` vs `node_modules` (trailing-slash) ignore semantics.
+    await this.excludeNodeModules(worktreePath, linkedRels).catch(() => {});
+  }
+
+  /** Append `/<rel>/node_modules` anchored patterns to the worktree's git
+   *  exclude file (`.git/info/exclude`, resolved via `rev-parse --git-path` so
+   *  it works for a linked worktree). Anchored + no trailing slash → matches the
+   *  node_modules SYMLINK as well as a real directory. Idempotent: existing
+   *  entries are not duplicated. */
+  private async excludeNodeModules(worktreePath: string, rels: string[]): Promise<void> {
+    if (rels.length === 0) return;
+    const res = await this.runGit(
+      worktreePath,
+      ['rev-parse', '--git-path', 'info/exclude'],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (res.code !== 0 || !res.stdout.trim()) return;
+    const rawPath = res.stdout.trim();
+    const excludePath = path.isAbsolute(rawPath) ? rawPath : path.join(worktreePath, rawPath);
+
+    const patterns = rels.map((rel) => {
+      const p = rel ? `${rel.split(path.sep).join('/')}/node_modules` : 'node_modules';
+      return `/${p}`;
+    });
+
+    let existing = '';
+    try {
+      existing = await fs.readFile(excludePath, 'utf8');
+    } catch {
+      // file may not exist yet — we'll create it
+    }
+    const present = new Set(existing.split('\n').map((l) => l.trim()));
+    const toAdd = patterns.filter((p) => !present.has(p));
+    if (toAdd.length === 0) return;
+
+    const prefix = existing.length > 0 && !existing.endsWith('\n') ? '\n' : '';
+    const block = `${prefix}# node_modules symlinks (worktree isolation — never stage)\n${toAdd.join('\n')}\n`;
+    await fs.mkdir(path.dirname(excludePath), { recursive: true });
+    await fs.appendFile(excludePath, block, 'utf8');
   }
 
   // ---------------------------------------------------------------------------

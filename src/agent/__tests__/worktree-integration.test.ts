@@ -140,6 +140,41 @@ describe('WorktreeManager — integration-branch recombination (DOGFOOD #5)', ()
     expect(await fs.readFile(path.join(uiNM, 'react', 'index.js'), 'utf8')).toBe('module.exports=2\n');
   });
 
+  it('node_modules symlink is git-excluded in the worktree even when repo .gitignore does NOT cover it', async () => {
+    // Reproduce the master-corrupting incident's precondition: the repo .gitignore
+    // uses the trailing-slash form `node_modules/` (matches DIRS only), so git does
+    // NOT treat the node_modules SYMLINK as ignored. The worktree-local git exclude
+    // must still hide it so a worker can never `git add` the self-referential
+    // symlink that once merged to master (ELOOP).
+    await fs.writeFile(path.join(repo, '.gitignore'), 'node_modules/\n');
+    await fs.writeFile(path.join(repo, 'package.json'), '{"name":"root"}\n');
+    await fs.mkdir(path.join(repo, 'node_modules', 'left-pad'), { recursive: true });
+    await fs.writeFile(path.join(repo, 'node_modules', 'left-pad', 'index.js'), 'module.exports=1\n');
+    await fs.mkdir(path.join(repo, 'ui'), { recursive: true });
+    await fs.writeFile(path.join(repo, 'ui', 'package.json'), '{"name":"ui"}\n');
+    await fs.mkdir(path.join(repo, 'ui', 'node_modules', 'react'), { recursive: true });
+    await fs.writeFile(path.join(repo, 'ui', 'node_modules', 'react', 'index.js'), 'module.exports=2\n');
+    await runGit(repo, ['add', '-A']);
+    await runGit(repo, ['commit', '-q', '-m', 'add packages without node_modules ignore']);
+
+    const integ = await mgr.ensureIntegration();
+    const wt = await mgr.ensure('excl-lane', { baseBranch: integ!.branch });
+
+    // The symlinks exist...
+    expect((await fs.lstat(path.join(wt.path, 'node_modules'))).isSymbolicLink()).toBe(true);
+    expect((await fs.lstat(path.join(wt.path, 'ui', 'node_modules'))).isSymbolicLink()).toBe(true);
+
+    // ...but git status in the worktree ignores them (covered by .git/info/exclude,
+    // independent of the repo .gitignore semantics).
+    const status = await runGit(wt.path, ['status', '--porcelain']);
+    expect(status.stdout).not.toContain('node_modules');
+
+    // And even an explicit `git add -A` cannot stage a node_modules symlink.
+    await runGit(wt.path, ['add', '-A']);
+    const staged = await runGit(wt.path, ['diff', '--cached', '--name-only']);
+    expect(staged.stdout).not.toContain('node_modules');
+  });
+
   it('reports a conflict and leaves integration untouched (never corrupts it)', async () => {
     const integ = await mgr.ensureIntegration();
 

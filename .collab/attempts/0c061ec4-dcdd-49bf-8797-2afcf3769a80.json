@@ -1,0 +1,11 @@
+{
+  "todoId": "0c061ec4-dcdd-49bf-8797-2afcf3769a80",
+  "session": "backend-1",
+  "outcome": "accepted",
+  "retryReason": "none",
+  "layer": "none",
+  "verbsTried": [],
+  "failingVerb": null,
+  "failingReturn": null,
+  "summary": "Added src/services/cartographer.ts (pure specHealth/driftCandidates/inverseCoverage detectors, zero writes, satisfy edge keyed on aboutObjectId) + cartographer.test.ts (10 tests, incl. mis-keyed-edge guard). tsc clean on change-set; bun test 10/10 pass."
+}
