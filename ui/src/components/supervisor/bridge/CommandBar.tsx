@@ -10,12 +10,13 @@
 
 import React from 'react';
 import { GlobalRoleSwitches } from './GlobalRoleSwitches';
+import { useSessionStore } from '@/stores/sessionStore';
 
 export interface CommandBarProps {
   liveCount: number;
   inflightCount: number;
   needsYouCount: number;
-  /** Routing scope for the global role switches (Steward/Supervisor). */
+  /** Routing scope for the Coordinator switch. */
   serverScope: string;
   /** Active project — drives the per-project Coordinator switch on the same line. */
   project?: string;
@@ -28,6 +29,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({
   serverScope,
   project,
 }) => {
+  const sessionName = useSessionStore((s) => s.currentSession)?.name ?? null;
   return (
     <div
       data-testid="bridge-command-bar"
@@ -35,9 +37,18 @@ export const CommandBar: React.FC<CommandBarProps> = ({
     >
       <span className="text-base" role="img" aria-label="bridge">⤢</span>
       <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">Bridge</span>
+      {/* Selected (current) session name. */}
+      {sessionName && (
+        <span
+          data-testid="bridge-session-name"
+          title={`Session: ${sessionName}`}
+          className="text-xs font-medium text-gray-500 dark:text-gray-400 truncate max-w-[160px]"
+        >
+          {sessionName}
+        </span>
+      )}
 
-      {/* Role switches on one line: Steward + Supervisor (fleet) + Coordinator
-          (this project). */}
+      {/* Per-project Coordinator on/off. */}
       <GlobalRoleSwitches serverScope={serverScope} project={project} />
 
       {/* Glanceable FLEET pulse — absorbed AlertRibbon. */}
