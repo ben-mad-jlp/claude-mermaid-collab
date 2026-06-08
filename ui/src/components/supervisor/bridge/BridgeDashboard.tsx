@@ -22,6 +22,7 @@ import { useIsDesktop } from '@/hooks/useIsDesktop';
 import { SplitPane } from '@/components/layout/SplitPane';
 import { SplitDeck } from './SplitDeck';
 import { CommandBar } from './CommandBar';
+import { isOrchestratorSession } from '@/lib/liveness';
 import { NeedsYouZone } from './NeedsYouZone';
 import { BridgeEscalationInbox } from './BridgeEscalationInbox';
 import { FleetStatusGrid, type FleetGridRow } from './FleetStatusGrid';
@@ -110,7 +111,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
         escalationCount: counts[p] ?? 0,
         coordinatorRunning: !!coordinatorByProject[p],
         readyCount: (todosByProject[p] ?? []).filter((t) => t.status === 'ready' && !t.claimedBy).length,
-        workerCount: Object.values(subscriptions).filter((s) => s.project === p && s.status === 'active').length,
+        workerCount: Object.values(subscriptions).filter((s) => s.project === p && s.status === 'active' && !isOrchestratorSession(s.session)).length,
       }))
       .sort((a, b) => (b.escalationCount - a.escalationCount) || a.name.localeCompare(b.name));
   }, [escalations, watchedProjects, coordinatorByProject, todosByProject, subscriptions]);
@@ -175,6 +176,14 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
   const projectSubs = useMemo(
     () => Object.values(subscriptions).filter((s) => s.project === project),
     [subscriptions, project],
+  );
+  // Workers = executing agent sessions only. Orchestrator/role sessions
+  // (supervisor/steward/planner) drive the work-graph — they're not workers, even
+  // when they hold an epic in_progress — so exclude them from the Workers roster
+  // and the graph's worker nodes.
+  const workerSubs = useMemo(
+    () => projectSubs.filter((s) => !isOrchestratorSession(s.session)),
+    [projectSubs],
   );
 
   // Graph-only view of the todos: the FleetGraph should not show finished noise —
@@ -272,7 +281,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
   const graphPane = (
     <FleetGraph
       todos={todos}
-      subs={projectSubs}
+      subs={workerSubs}
       openEscalations={openEscalations}
       onWorkerSelect={selectInPlace}
       onSelectTodo={handleSelectTodo}
@@ -362,7 +371,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
                 onComplete={(t) => void promoteTodo(serverScope, project, t.id, 'done')}
                 onOpen={handleSelectTodo}
               />
-              <WorkerRoster subscriptions={projectSubs} todos={todos} onJump={handleJump} />
+              <WorkerRoster subscriptions={workerSubs} todos={todos} onJump={handleJump} />
               <StreamTicker events={projectStreamEvents} />
             </div>
             {/* G8: todo detail surfaces BELOW the columns when a node is clicked. */}
@@ -400,7 +409,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
           ) : (
             <FleetGraph
               todos={graphTodos}
-              subs={projectSubs}
+              subs={workerSubs}
               openEscalations={openEscalations}
               onSelectTodo={handleSelectTodo}
             />

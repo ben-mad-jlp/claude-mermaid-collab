@@ -93,6 +93,15 @@ export function isContextHot(contextPercent: number | undefined): boolean {
   return typeof contextPercent === 'number' && contextPercent >= CTX_WARN;
 }
 
+/** Orchestrator/role sessions (supervisor, steward, planner) are NOT workers —
+ *  they drive the work-graph, they don't execute claimed work todos. Excluded
+ *  from the Workers roster and the graph's worker nodes (a supervisor holding an
+ *  epic in_progress must not read as a worker building it). By name prefix. */
+export function isOrchestratorSession(session: string): boolean {
+  const role = session.split(/[-_]/)[0]?.toLowerCase() ?? '';
+  return role === 'supervisor' || role === 'steward' || role === 'planner';
+}
+
 /** Single-glyph role badge derived from the session-name prefix. */
 export function roleGlyph(session: string): string {
   const role = session.split(/[-_]/)[0]?.toLowerCase() ?? '';
