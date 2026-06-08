@@ -63,6 +63,34 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
       setLaunchFor(id);
     };
 
+    const [detecting, setDetecting] = useState(false);
+    const detectCommand = async (host: string, port: number) => {
+      setLaunchMsg(null);
+      setDetecting(true);
+      try {
+        const res = await fetch('/api/server/detect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ host, port, user: launchForm.user.trim() || undefined, password: launchForm.password || undefined }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (res.ok && body.ok) {
+          if (body.suggestedCommand) {
+            setLaunchForm((f) => ({ ...f, command: body.suggestedCommand }));
+            setLaunchMsg(body.note ? { kind: 'err', text: body.note } : { kind: 'ok', text: 'Detected a start command.' });
+          } else {
+            setLaunchMsg({ kind: 'err', text: body.note || 'Could not detect a start command — set it manually.' });
+          }
+        } else {
+          setLaunchMsg({ kind: 'err', text: body.error || `Detect failed (${res.status})` });
+        }
+      } catch (err: any) {
+        setLaunchMsg({ kind: 'err', text: err?.message ?? 'Detect failed' });
+      } finally {
+        setDetecting(false);
+      }
+    };
+
     const submitLaunch = async (e: React.FormEvent, host: string, port: number) => {
       e.preventDefault();
       setLaunchMsg(null);
@@ -263,12 +291,23 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
                         onChange={(e) => setLaunchForm({ ...launchForm, password: e.target.value })}
                         className="w-full bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-info-400"
                       />
-                      <input
-                        placeholder="Start command"
-                        value={launchForm.command}
-                        onChange={(e) => setLaunchForm({ ...launchForm, command: e.target.value })}
-                        className="w-full bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs font-mono text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-info-400"
-                      />
+                      <div className="flex items-center gap-1">
+                        <input
+                          placeholder="Start command"
+                          value={launchForm.command}
+                          onChange={(e) => setLaunchForm({ ...launchForm, command: e.target.value })}
+                          className="flex-1 min-w-0 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs font-mono text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-info-400"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void detectCommand(s.host, s.port)}
+                          disabled={detecting}
+                          title="SSH in and suggest a start command"
+                          className="shrink-0 px-2 py-1 text-2xs text-info-600 dark:text-info-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded disabled:opacity-50"
+                        >
+                          {detecting ? '…' : 'Detect'}
+                        </button>
+                      </div>
                       {launchMsg && (
                         <span className={`text-2xs ${launchMsg.kind === 'ok' ? 'text-success-600 dark:text-success-400' : 'text-danger-500 dark:text-danger-400'}`}>
                           {launchMsg.text}
