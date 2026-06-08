@@ -50,15 +50,22 @@ export async function launchRemoteServer(opts: RemoteLaunchOpts): Promise<Remote
   }
 
   const target = user ? `${user}@${host}` : host;
-  // Detach the server so ssh can return: background under nohup with stdio
-  // redirected and stdin closed, then exit the login shell.
+  // Detach the server fully so it survives the SSH session closing. We start a
+  // new session (setsid, if present — Linux) so a PTY teardown can't SIGHUP it,
+  // and fall back to plain nohup. stdio is redirected and stdin closed.
+  const q = shSingleQuote(command);
   const remoteScript =
-    `nohup sh -lc ${shSingleQuote(command)} > "$HOME/.mermaid-collab-launch.log" 2>&1 < /dev/null & ` +
+    `if command -v setsid >/dev/null 2>&1; then ` +
+    `setsid sh -lc ${q} > "$HOME/.mermaid-collab-launch.log" 2>&1 < /dev/null & ` +
+    `else nohup sh -lc ${q} > "$HOME/.mermaid-collab-launch.log" 2>&1 < /dev/null & fi; ` +
     `sleep 1; exit 0`;
 
+  // A PTY (`-tt`) is only needed to answer an interactive password prompt; with
+  // key/agent auth it forces a controlling terminal whose teardown SIGHUPs the
+  // launched server, so omit it unless a password was supplied.
   const sshArgs = [
     'ssh',
-    '-tt', // force a PTY so password / host-key prompts are answerable
+    ...(password ? ['-tt'] : ['-T']),
     '-o', 'StrictHostKeyChecking=accept-new',
     '-o', 'ConnectTimeout=12',
     ...(password
@@ -98,9 +105,10 @@ export async function launchRemoteServer(opts: RemoteLaunchOpts): Promise<Remote
   const exitCode = await proc.exited;
   clearTimeout(killTimer);
 
-  // Poll the remote health endpoint for up to ~15s for it to come up.
+  // Poll the remote health endpoint for up to ~30s (first-run TS startup can be
+  // slow) for the server to come up.
   let reachable = false;
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 20; i++) {
     if (await probeHealth(host, port)) { reachable = true; break; }
     await new Promise((r) => setTimeout(r, 1500));
   }

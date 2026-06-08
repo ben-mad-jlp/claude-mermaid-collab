@@ -51,7 +51,9 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
     const openLaunch = (host: string, port: number, id: string) => {
       setLaunchMsg(null);
       let user = '';
-      let command = `mermaid-collab start --port ${port}`;
+      // Default binds all interfaces so the remote is reachable off-box (the
+      // server defaults to localhost otherwise). Editable + remembered per host.
+      let command = `MERMAID_BIND_HOST=0.0.0.0 mermaid-collab start --port ${port}`;
       try {
         const saved = JSON.parse(localStorage.getItem(prefillKey(host, port)) || '{}');
         if (saved.user) user = saved.user;
