@@ -99,20 +99,20 @@ try {
   console.error(`mermaid-collab: roadmap migration failed — ${err instanceof Error ? err.message : String(err)}`);
 }
 
-// Unified project list reconcile (idempotent): the project registry and the
-// supervisor's watched set are kept in lockstep going forward (see api.ts /
-// supervisor-routes.ts cross-writes); this one-shot pass converges any legacy
-// divergence so the Watching surface and the Bridge rail show the same projects.
+// Unified project list reconcile (idempotent): the supervisor's watched set is
+// the PERSISTENT source of truth for the Bridge — it survives restarts and only
+// changes on an explicit user add/remove (the api.ts / supervisor-routes.ts
+// cross-writes keep registry ⊇ watched in lockstep on those edits). Here we only
+// ensure every still-watched project stays registered (watched ⊆ registered); we
+// deliberately do NOT auto-watch every registered project, otherwise each restart
+// would re-flood the Bridge with every project the registry ever accumulated.
 try {
   const { projectRegistry } = await import('./services/project-registry.js');
-  const { listWatchedProjects, addWatchedProject } = await import('./services/supervisor-store.js');
-  const registered = await projectRegistry.list();
-  const watched = new Set(listWatchedProjects().map((w) => w.project));
-  // Every registered project becomes watched.
-  for (const p of registered) if (!watched.has(p.path)) addWatchedProject(p.path);
-  // Every watched project becomes registered (best-effort — skip missing paths).
-  const registeredPaths = new Set(registered.map((p) => p.path));
-  for (const w of watched) if (!registeredPaths.has(w)) await projectRegistry.register(w).catch(() => {});
+  const { listWatchedProjects } = await import('./services/supervisor-store.js');
+  const registeredPaths = new Set((await projectRegistry.list()).map((p) => p.path));
+  for (const w of listWatchedProjects()) {
+    if (!registeredPaths.has(w.project)) await projectRegistry.register(w.project).catch(() => {});
+  }
 } catch (err) {
   console.error(`mermaid-collab: project-list reconcile failed — ${err instanceof Error ? err.message : String(err)}`);
 }
