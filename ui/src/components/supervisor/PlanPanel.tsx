@@ -117,6 +117,9 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
   const todos: SessionTodo[] = todosByProject[project] ?? [];
   const [mode, setMode] = useState<Mode>('kanban');
   const [graphEpicId, setGraphEpicId] = useState<string | null>(null);
+  // Shared across Kanban / List / Graph — when off, completed (done/dropped)
+  // todos and fully-completed epics are hidden everywhere, including graph tabs.
+  const [showCompleted, setShowCompleted] = useState(false);
 
   useEffect(() => {
     if (serverId && project) {
@@ -145,14 +148,18 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
         topLevel.push(t);
       }
     }
+    const TERMINAL = new Set(['done', 'dropped']);
+    const keep = (t: SessionTodo) => showCompleted || !TERMINAL.has(t.status);
     const rows: { todo: SessionTodo; depth: number }[] = [];
     for (const top of [...topLevel].sort(sort)) {
+      const kids = (childrenByParent.get(top.id) ?? []).filter(keep);
+      // Drop a fully-completed epic (itself terminal AND no surviving children).
+      if (!keep(top) && kids.length === 0) continue;
       rows.push({ todo: top, depth: 0 });
-      const kids = childrenByParent.get(top.id);
-      if (kids) for (const k of [...kids].sort(sort)) rows.push({ todo: k, depth: 1 });
+      for (const k of [...kids].sort(sort)) rows.push({ todo: k, depth: 1 });
     }
     return rows;
-  }, [todos, waveMap]);
+  }, [todos, waveMap, showCompleted]);
 
   // Graph mode: one graph PER EPIC (top-level item + its full descendant subtree),
   // stacked in rows — instead of a single combined fleet graph. Only top-level
@@ -180,11 +187,18 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
       return out;
     };
     const sort = planSort(waveMap);
+    const TERMINAL = new Set(['done', 'dropped']);
     return [...topLevel]
       .sort(sort)
-      .map((epic) => ({ epic, todos: [epic, ...descendants(epic.id)] }))
+      .map((epic) => {
+        const full = [epic, ...descendants(epic.id)];
+        // Honor "Show completed": when off, drop terminal todos; a fully-completed
+        // epic then collapses to <2 nodes and is filtered out below (no tab).
+        const visible = showCompleted ? full : full.filter((t) => !TERMINAL.has(t.status));
+        return { epic, todos: visible };
+      })
       .filter((g) => g.todos.length > 1);
-  }, [todos, waveMap]);
+  }, [todos, waveMap, showCompleted]);
 
   const modeButton = (m: Mode, label: string) => (
     <button
@@ -213,10 +227,25 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
             · {projectBasename(project)}
           </span>
         </div>
-        <div className="flex items-center gap-0.5 shrink-0">
-          {modeButton('kanban', 'Kanban')}
-          {modeButton('list', 'List')}
-          {modeButton('graph', 'Graph')}
+        <div className="flex items-center gap-2 shrink-0">
+          <label
+            className="flex items-center gap-1 text-3xs text-gray-500 dark:text-gray-400 cursor-pointer select-none"
+            title="Show completed todos and fully-completed epics (Kanban, List, and Graph)"
+          >
+            <input
+              type="checkbox"
+              data-testid="plan-show-completed"
+              checked={showCompleted}
+              onChange={(e) => setShowCompleted(e.target.checked)}
+              className="h-3 w-3"
+            />
+            Show completed
+          </label>
+          <div className="flex items-center gap-0.5">
+            {modeButton('kanban', 'Kanban')}
+            {modeButton('list', 'List')}
+            {modeButton('graph', 'Graph')}
+          </div>
         </div>
       </div>
 
@@ -269,7 +298,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
           </div>
         ) : (
           <div className="h-full p-2">
-            <PlanKanban todos={todos} onSelectTodo={onSelectTodo} />
+            <PlanKanban todos={todos} onSelectTodo={onSelectTodo} showCompleted={showCompleted} />
           </div>
         )}
       </div>

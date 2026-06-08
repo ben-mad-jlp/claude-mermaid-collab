@@ -24,6 +24,8 @@ import { bucketTodo, funnelCounts, FUNNEL_SEGMENTS, type FunnelKey } from './bri
 export interface PlanKanbanProps {
   todos: SessionTodo[];
   onSelectTodo?: (todo: SessionTodo) => void;
+  /** Controlled by the parent (PlanPanel) so Kanban/List/Graph share one toggle. */
+  showCompleted: boolean;
 }
 
 /** Card fill/border/text per funnel bucket — one palette with the FleetGraph. */
@@ -129,8 +131,7 @@ interface Lane {
   rank: number; // min child wave, for lane ordering
 }
 
-export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo }) => {
-  const [showCompleted, setShowCompleted] = useState(false);
+export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, showCompleted }) => {
 
   const waveMap = useMemo(() => computeWaveMap(todos as PlanItem[]), [todos]);
   const unblocks = useMemo(() => unblocksCount(todos), [todos]);
@@ -227,7 +228,7 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo }) =
 
   return (
     <div data-testid="plan-kanban" className="flex flex-col h-full min-h-0">
-      {/* Segmented progress header + completed toggle. */}
+      {/* Segmented progress header (the Show-completed toggle lives in PlanPanel). */}
       <div className="shrink-0 px-1 pb-2 space-y-1">
         <div className="flex items-center gap-2">
           <div className="flex h-2 flex-1 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
@@ -243,19 +244,6 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo }) =
               ) : null,
             )}
           </div>
-          <label
-            className="shrink-0 flex items-center gap-1 text-3xs text-gray-500 dark:text-gray-400 cursor-pointer select-none"
-            title="Show completed epics and finished cards"
-          >
-            <input
-              type="checkbox"
-              data-testid="plan-show-completed"
-              checked={showCompleted}
-              onChange={(e) => setShowCompleted(e.target.checked)}
-              className="h-3 w-3"
-            />
-            Show completed{completedLaneCount > 0 ? ` (${completedLaneCount})` : ''}
-          </label>
         </div>
         <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-3xs">
           {FUNNEL_SEGMENTS.map((seg) => (
