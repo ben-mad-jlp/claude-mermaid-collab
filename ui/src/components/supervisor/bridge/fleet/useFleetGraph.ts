@@ -89,7 +89,40 @@ function useDebounced<T>(value: T, ms: number): T {
 }
 
 export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; edges: FleetEdge[] } {
-  const { todos, subs: rawSubs, openEscalations, expandedEpics, now, direction = 'LR', spawnedSessions } = input;
+  const { todos: rawTodos, subs: rawSubs, openEscalations, expandedEpics, now, direction = 'LR', spawnedSessions } = input;
+
+  // Hide finished work so the graph shows only what's live/pending: drop
+  // completed orphan/leaf todos (no active epic parent) and any epic that is
+  // completely done (status done/dropped, OR every child done/dropped) along with
+  // its children. Completed children of an ACTIVE epic still show (progress).
+  // Everything downstream derives from this filtered set.
+  const todos = useMemo(() => {
+    const isDone = (t: SessionTodo) => t.status === 'done' || t.status === 'dropped';
+    const byId = new Map<string, SessionTodo>();
+    for (const t of rawTodos) byId.set(t.id, t);
+    const childrenByEpic = new Map<string, SessionTodo[]>();
+    for (const t of rawTodos) {
+      if (t.parentId != null && byId.has(t.parentId)) {
+        const arr = childrenByEpic.get(t.parentId) ?? [];
+        arr.push(t);
+        childrenByEpic.set(t.parentId, arr);
+      }
+    }
+    const epicIds = new Set(childrenByEpic.keys());
+    const hidden = new Set<string>();
+    for (const t of rawTodos) {
+      if (epicIds.has(t.id)) {
+        const kids = childrenByEpic.get(t.id) ?? [];
+        if (isDone(t) || (kids.length > 0 && kids.every(isDone))) {
+          hidden.add(t.id);
+          for (const k of kids) hidden.add(k.id);
+        }
+      } else if ((t.parentId == null || !epicIds.has(t.parentId)) && isDone(t)) {
+        hidden.add(t.id); // completed orphan / top-level leaf
+      }
+    }
+    return hidden.size ? rawTodos.filter((t) => !hidden.has(t.id)) : rawTodos;
+  }, [rawTodos]);
 
   // G3: restrict the worker nodes to the WORKING fleet. A session qualifies if
   // it was coordinator-spawned (spawnedSessions) OR it currently holds a claimed

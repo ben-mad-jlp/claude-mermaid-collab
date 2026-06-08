@@ -115,9 +115,9 @@ const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs = [], openEsca
     return () => clearInterval(id);
   }, []);
 
-  // G1: the fleet graph always flows top→bottom (TB) so it reads as a grouped
-  // vertical tree of epic containers — no LR/TB viewport switch.
-  const direction = 'TB';
+  // The fleet graph flows left→right (LR): dependency waves read as columns
+  // advancing rightward, which suits the full-width bottom graph strip.
+  const direction = 'LR';
   // G3: only the coordinator-spawned sessions count as "working fleet" workers
   // (plus any session currently holding a claimed in_progress todo, derived in
   // the hook). Foreground operators registered in the subscription store are
