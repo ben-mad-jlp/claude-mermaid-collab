@@ -16,8 +16,9 @@ export type UIMode = 'studio' | 'bridge' | 'plan';
 // every header toggle can be dragged to reorder. `studio` = the artifact viewer
 // (viewerVisible), `spec` = the project Spec Sheet, `browser`/`terminal` carry
 // their own visibility flags (browserStore.visible / terminalStore.open).
-export type PaneKey = 'bridge' | 'plan' | 'studio' | 'spec' | 'browser' | 'terminal';
-export const ALL_PANE_KEYS: PaneKey[] = ['bridge', 'plan', 'studio', 'spec', 'browser', 'terminal'];
+// 'plan' is no longer a standalone pane — the Plan lives inside the Bridge.
+export type PaneKey = 'bridge' | 'studio' | 'spec' | 'browser' | 'terminal';
+export const ALL_PANE_KEYS: PaneKey[] = ['bridge', 'studio', 'spec', 'browser', 'terminal'];
 
 export interface UIState {
   // Theme state
@@ -356,7 +357,7 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'ui-preferences', // localStorage key
-      version: 11,
+      version: 12,
       migrate: (persistedState: unknown, version: number) => {
         // v5: terminal/shell removed entirely. Drop legacy panel flags and
         // default agentChatVisible to true so chat is visible by default.
@@ -422,6 +423,13 @@ export const useUIStore = create<UIState>()(
             paneOrder: merged,
             specOpen: typeof old.specOpen === 'boolean' ? old.specOpen : false,
           } as UIState;
+        }
+        if (version < 12) {
+          // Plan is no longer a standalone pane — it lives in the Bridge. Strip
+          // 'plan' from the persisted pane order so the header has no Plan toggle.
+          const old = persistedState as Record<string, unknown>;
+          const prev = Array.isArray(old.paneOrder) ? (old.paneOrder as string[]) : [];
+          return { ...old, paneOrder: prev.filter((p) => p !== 'plan') } as UIState;
         }
         return persistedState as UIState;
       },

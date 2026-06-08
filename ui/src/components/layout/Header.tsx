@@ -74,7 +74,6 @@ export const Header: React.FC<HeaderProps> = ({
   const browserVisible = useBrowserStore((s) => s.visible);
   const viewerVisible = useUIStore((s) => s.viewerVisible);
   const bridgeOpen = useUIStore((s) => s.bridgeOpen);
-  const planOpen = useUIStore((s) => s.planOpen);
   const specOpen = useUIStore((s) => s.specOpen);
   const paneOrder = useUIStore((s) => s.paneOrder);
   // The selected/active project — shown next to the Bridge toggle so the Bridge
@@ -119,21 +118,6 @@ export const Header: React.FC<HeaderProps> = ({
           <rect x="14" y="3" width="7" height="5" rx="1" />
           <rect x="14" y="12" width="7" height="9" rx="1" />
           <rect x="3" y="16" width="7" height="5" rx="1" />
-        </svg>
-      ),
-    },
-    plan: {
-      testid: 'toggle-plan',
-      title: 'Plan',
-      aria: 'Toggle Plan pane',
-      active: planOpen,
-      onClick: () => useUIStore.getState().togglePlan(),
-      icon: (
-        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="6" cy="6" r="2.5" />
-          <circle cx="6" cy="18" r="2.5" />
-          <circle cx="18" cy="12" r="2.5" />
-          <path d="M8.5 6H13a2 2 0 0 1 2 2v2M8.5 18H13a2 2 0 0 0 2-2v-2" />
         </svg>
       ),
     },

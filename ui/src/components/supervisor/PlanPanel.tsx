@@ -116,6 +116,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
 
   const todos: SessionTodo[] = todosByProject[project] ?? [];
   const [mode, setMode] = useState<Mode>('kanban');
+  const [graphEpicId, setGraphEpicId] = useState<string | null>(null);
 
   useEffect(() => {
     if (serverId && project) {
@@ -232,20 +233,34 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
             <div className="flex items-center justify-center h-full">
               <p className="text-xs text-gray-400 dark:text-gray-500">No epics with sub-tasks to graph.</p>
             </div>
-          ) : (
-            <div className="h-full overflow-auto p-2 space-y-3">
-              {epicGraphs.map((g) => (
-                <div key={g.epic.id} className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-                  <div className="px-3 py-1.5 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 text-xs font-semibold text-gray-700 dark:text-gray-300 truncate" title={g.epic.title ?? g.epic.text}>
-                    {g.epic.title ?? g.epic.text}
-                  </div>
-                  <div className="h-72">
-                    <FleetGraph todos={g.todos} subs={[]} onSelectTodo={onSelectTodo} />
-                  </div>
+          ) : (() => {
+            const active = epicGraphs.find((g) => g.epic.id === graphEpicId) ?? epicGraphs[0];
+            return (
+              <div className="flex flex-col h-full min-h-0">
+                {/* One tab per epic. */}
+                <div className="shrink-0 flex items-stretch gap-0.5 overflow-x-auto border-b border-gray-200 dark:border-gray-700 px-1">
+                  {epicGraphs.map((g) => (
+                    <button
+                      key={g.epic.id}
+                      type="button"
+                      onClick={() => setGraphEpicId(g.epic.id)}
+                      title={g.epic.title ?? g.epic.text}
+                      className={`shrink-0 max-w-[14rem] truncate px-2.5 py-1.5 text-2xs font-semibold border-b-2 -mb-px transition-colors ${
+                        active.epic.id === g.epic.id
+                          ? 'border-accent-500 text-accent-700 dark:text-accent-300'
+                          : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                      }`}
+                    >
+                      {(g.epic.title ?? g.epic.text ?? '').replace(/^\[EPIC\]\s*/i, '')}
+                    </button>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )
+                <div className="flex-1 min-h-0">
+                  <FleetGraph todos={active.todos} subs={[]} onSelectTodo={onSelectTodo} />
+                </div>
+              </div>
+            );
+          })()
         ) : mode === 'list' ? (
           <div className="h-full overflow-auto p-2 space-y-0.5">
             {tree.map(({ todo, depth }) => (

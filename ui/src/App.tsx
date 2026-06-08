@@ -85,7 +85,6 @@ import { SessionCleanupDialog, type CleanupAction, CreateSessionDialog, AddProje
 // Import supervisor view
 import { BridgeDashboard } from '@/components/supervisor/bridge/BridgeDashboard';
 import { DiveLayoutGroup } from '@/components/stream/DiveTransition';
-import PlanWorkspace from '@/components/supervisor/PlanWorkspace';
 
 /**
  * Error Boundary Component
@@ -187,7 +186,6 @@ const App: React.FC = () => {
   // independently. Studio = the artifact viewer (viewerVisible); Browser/Terminal
   // carry their own visibility flags (browserStore.visible / terminalStore.open).
   const bridgeOpen = useUIStore((s) => s.bridgeOpen);
-  const planOpen = useUIStore((s) => s.planOpen);
   const specOpen = useUIStore((s) => s.specOpen);
   const browserVisible = useBrowserStore((s) => s.visible);
   const terminalOpen = useTerminalStore((s) => s.open);
@@ -1863,15 +1861,13 @@ const App: React.FC = () => {
               const open = paneOrder.filter((p) =>
                 p === 'bridge'
                   ? bridgeOpen
-                  : p === 'plan'
-                    ? planOpen
-                    : p === 'spec'
-                      ? specOpen
-                      : p === 'browser'
-                        ? browserVisible
-                        : p === 'terminal'
-                          ? terminalOpen
-                          : viewerVisible && !!currentSession,
+                  : p === 'spec'
+                    ? specOpen
+                    : p === 'browser'
+                      ? browserVisible
+                      : p === 'terminal'
+                        ? terminalOpen
+                        : viewerVisible && !!currentSession,
               );
               if (open.length === 0) {
                 return (
@@ -1889,7 +1885,6 @@ const App: React.FC = () => {
                       )}
                       <Panel id={p} order={i} minSize={15} className="min-w-0 h-full bg-white dark:bg-gray-800">
                         {p === 'bridge' && <BridgeDashboard />}
-                        {p === 'plan' && <div className="h-full min-h-0 overflow-hidden"><PlanWorkspace /></div>}
                         {p === 'studio' && <div className="h-full min-h-0 overflow-hidden">{renderMainContent()}</div>}
                         {p === 'spec' && <SpecWorkspace />}
                         {p === 'browser' && <BrowserPanel embedded />}
