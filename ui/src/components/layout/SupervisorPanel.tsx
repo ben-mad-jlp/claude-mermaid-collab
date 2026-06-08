@@ -24,7 +24,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useTerminalStore } from '@/stores/terminalStore';
 import { useServers } from '@/contexts/ServerContext';
 import { ServerIcon } from '@/components/ServerIcon';
-import { SessionCard, ClaudePixAvatar, type SessionCardData } from '@/components/layout/SessionCard';
+import { SessionCard, ClaudePixAvatar, activateSessionCard, useElapsed, type SessionCardData } from '@/components/layout/SessionCard';
 import { SupervisorOnboarding } from '@/components/supervisor/SupervisorOnboarding';
 import { useUIStore } from '@/stores/uiStore';
 import { selectOpenEscalationsByProject } from '@/components/supervisor/bridge/escalationSelectors';
@@ -115,6 +115,40 @@ export function buildServerLabelMap(servers: IconServer[]): Map<string, string> 
   return m;
 }
 
+/**
+ * SupervisorRoleCard — the supervisor's own status card, mirroring StewardCard:
+ * status-colored body, the session name, a live elapsed badge, the dancing-Claude
+ * avatar, and click→open-its-tmux console. The supervisor isn't a supervised
+ * worker, so this card is the in-app way to view its session.
+ */
+const SupervisorRoleCard: React.FC<{ card: SessionCardData; serverLabel?: string }> = ({ card, serverLabel }) => {
+  const elapsed = useElapsed(card.lastUpdate, card.status);
+  const statusBg =
+    card.status === 'permission'
+      ? 'bg-danger-300 hover:bg-danger-400 border border-danger-500'
+      : card.status === 'active'
+        ? 'card-pulse-amber border border-warning-400'
+        : card.status === 'waiting'
+          ? 'bg-success-300 hover:bg-success-400 border border-success-500'
+          : 'bg-gray-200 hover:bg-gray-300 border border-gray-300';
+  return (
+    <div className="flex items-center gap-1">
+      <div
+        data-testid="supervisor-card"
+        onClick={() => void activateSessionCard(card, serverLabel)}
+        title="Open the supervisor's tmux console"
+        className={`relative flex-1 flex items-center gap-2 pl-3 pr-2 py-1 rounded text-sm cursor-pointer transition-colors min-w-0 overflow-hidden ${statusBg}`}
+      >
+        <div className="flex-1 min-w-0 flex items-center gap-1">
+          <span className="text-xs text-black truncate">{card.session}</span>
+          {elapsed && <span className="text-3xs text-black tabular-nums ml-auto">{elapsed}</span>}
+        </div>
+      </div>
+      <ClaudePixAvatar status={card.status} />
+    </div>
+  );
+};
+
 export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject, currentSession, onNavigate, onOpenSupervisorView }) => {
   const activeId = useSessionStore((s) => s.currentSession)?.serverId ?? null;
   // Routing scope for supervisor API calls. The supervisor store is GLOBAL
@@ -178,42 +212,8 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
     finally { setStartingSup(false); }
   };
 
-  // Open the supervisor's own session console in a terminal tab. The supervisor
-  // isn't a supervised/watched card, so this is the only way to view it in-app.
-  // Resolve its project/session from /api/supervisor/config, then reuse the
-  // exact card-click side-effects (create terminal + focus + openFor).
-  const handleOpenConsole = async () => {
-    // Resolve a REAL server id for routing: the terminal WS goes through
-    // /_per-server/<serverId>/… which the proxy resolves against the registered
-    // server list, so 'local' (the routing fallback) won't connect and the tab
-    // opens blank. Prefer the active server if it's a known server, else the
-    // local sidecar, else the first server.
-    const localServer =
-      servers.find((s) => s.source === 'local') ??
-      servers.find((s) => s.host === '127.0.0.1' || s.host === 'localhost');
-    const serverId =
-      (activeId && servers.some((s) => s.id === activeId)) ? activeId
-      : localServer?.id ?? servers[0]?.id ?? serverScope;
-    try {
-      const mc = (window as any).mc;
-      const cfgRes = mc?.invokeOnServer
-        ? await mc.invokeOnServer(serverId, { path: '/api/supervisor/config', method: 'GET' })
-        : { ok: true, body: await (await fetch('/api/supervisor/config')).json() };
-      const cfg = cfgRes?.body ?? {};
-      const project = cfg.supervisorProject;
-      const session = cfg.supervisorSession;
-      if (!project || !session) return;
-      // Open the supervisor's console as a distinct tab: a custom title
-      // ("collab-supervisor") disambiguates it from any supervised worker also
-      // named "supervisor", and the server icon is hidden on this tab.
-      await useTerminalStore.getState().openFor(project, session, {
-        serverId,
-        serverLabel: serverLabelById.get(serverId),
-        title: 'collab-supervisor',
-        hideServerIcon: true,
-      });
-    } catch { /* best-effort */ }
-  };
+  // The supervisor's console is now opened by clicking its status card (the
+  // SupervisorRoleCard → activateSessionCard), mirroring the steward card.
   // Persisted status source: map keyed `${serverId}:${project}:${session}` -> status.
   // Polled from GET /api/session-status?project= per distinct (serverId, project).
   const [fetchedStatuses, setFetchedStatuses] = useState<Record<string, string>>({});
@@ -263,6 +263,42 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   const serverIconById = useMemo(() => buildServerIconMap(servers), [servers]);
   const serverLabelById = useMemo(() => buildServerLabelMap(servers), [servers]);
   const activeServerIcon = (activeId ? serverIconById.get(activeId) : undefined) ?? serverIconById.get('local');
+
+  // The supervisor's own status card (mirrors the steward card): live status off
+  // its tmux session's subscription, falling back to the liveness heartbeat.
+  // Click → open its console. Resolve a REAL server id for routing (the terminal
+  // WS won't connect through the 'local' sentinel — same reasoning as
+  // handleOpenConsole).
+  const supervisorProjectName = liveness?.identity?.project ?? config?.supervisorProject ?? '';
+  const supervisorSessionName = liveness?.identity?.session ?? config?.supervisorSession ?? '';
+  const consoleServerId = useMemo(() => {
+    const localServer =
+      servers.find((s) => s.source === 'local') ??
+      servers.find((s) => s.host === '127.0.0.1' || s.host === 'localhost');
+    return (activeId && servers.some((s) => s.id === activeId))
+      ? activeId
+      : localServer?.id ?? servers[0]?.id ?? serverScope;
+  }, [servers, activeId, serverScope]);
+  const supervisorSub = useMemo(
+    () => Object.values(subscriptions).find((s) => s.project === supervisorProjectName && s.session === supervisorSessionName),
+    [subscriptions, supervisorProjectName, supervisorSessionName],
+  );
+  const supervisorCard: SessionCardData = useMemo(
+    () => ({
+      serverId: supervisorSub?.serverId || consoleServerId,
+      project: supervisorProjectName,
+      session: supervisorSessionName,
+      status:
+        supervisorSub?.status && supervisorSub.status !== 'unknown'
+          ? supervisorSub.status
+          : liveness?.running
+            ? 'waiting'
+            : 'unknown',
+      lastUpdate: supervisorSub?.lastUpdate ?? liveness?.identity?.updatedAt ?? Date.now(),
+      contextPercent: supervisorSub?.contextPercent,
+    }),
+    [supervisorSub, consoleServerId, supervisorProjectName, supervisorSessionName, liveness],
+  );
 
   // The global role workspaces (~/.mermaid-collab/supervisor, .../steward) are not
   // user projects — never list them in the Bridge tree.
@@ -557,6 +593,13 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
         </div>
       ) : (
         <div className="px-2 pb-2">
+          {/* Supervisor's own card — click to open its tmux console (mirrors the
+              steward card). Only when running and a session is resolved. */}
+          {supervisorState === 'running' && supervisorSessionName && (
+            <div className="mb-2">
+              <SupervisorRoleCard card={supervisorCard} serverLabel={serverLabelById.get(supervisorCard.serverId)} />
+            </div>
+          )}
           {byProject.length === 0 ? (
             <div className="px-2 py-4 text-xs text-gray-500 dark:text-gray-400 text-center">
               No projects yet — add one below
