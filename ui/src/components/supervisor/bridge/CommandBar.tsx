@@ -17,6 +17,8 @@ export interface CommandBarProps {
   needsYouCount: number;
   /** Routing scope for the global role switches (Steward/Supervisor). */
   serverScope: string;
+  /** Active project — drives the per-project Coordinator switch on the same line. */
+  project?: string;
 }
 
 export const CommandBar: React.FC<CommandBarProps> = ({
@@ -24,6 +26,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({
   inflightCount,
   needsYouCount,
   serverScope,
+  project,
 }) => {
   return (
     <div
@@ -33,8 +36,9 @@ export const CommandBar: React.FC<CommandBarProps> = ({
       <span className="text-base" role="img" aria-label="bridge">⤢</span>
       <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">Bridge</span>
 
-      {/* Fleet-GLOBAL role switches (Steward, Supervisor) — Altitude 0 chrome. */}
-      <GlobalRoleSwitches serverScope={serverScope} />
+      {/* Role switches on one line: Steward + Supervisor (fleet) + Coordinator
+          (this project). */}
+      <GlobalRoleSwitches serverScope={serverScope} project={project} />
 
       {/* Glanceable FLEET pulse — absorbed AlertRibbon. */}
       <div data-testid="bridge-glance" className="ml-auto flex items-center gap-3 text-xs">

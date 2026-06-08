@@ -310,6 +310,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
             inflightCount={inflightCount}
             needsYouCount={openEscalationCount}
             serverScope={serverScope}
+            project={isFleet ? undefined : project}
           />
         }
         left={
@@ -335,15 +336,12 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
             </div>
           ) : (
           <>
-            {/* Coordinator row: the on/off + Start/Stop AND the progress funnel
-                (Backlog▸Ready▸In-flight▸Blocked▸Done) live together here. (The old
-                separate RolesStrip coordinator switch was redundant with this.) The
-                fleet-global Steward/Supervisor switches live in the CommandBar. */}
+            {/* Progress funnel (Backlog▸Ready▸In-flight▸Blocked▸Done). The
+                coordinator on/off now lives in the CommandBar role-switch line
+                next to Steward/Supervisor, so this is standalone (no card). */}
             <FleetVitals
-              running={running}
-              readyCount={readyCount}
               todos={todos}
-              onToggle={() => void setCoordinator(serverScope, project, running ? 'stop' : 'start')}
+              projectName={project.split('/').filter(Boolean).pop() ?? project}
               coverage={coverageByProject[project]}
             />
             {/* Four columns above the graph: Escalations · Todos · Workers · Stream.

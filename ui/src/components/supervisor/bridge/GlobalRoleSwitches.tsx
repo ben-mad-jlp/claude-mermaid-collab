@@ -12,17 +12,23 @@ import { RoleSwitch, type RoleStatus } from './RoleSwitch';
 
 export interface GlobalRoleSwitchesProps {
   serverScope: string;
+  /** Active project — drives the per-project Coordinator switch shown alongside
+   *  the two global role switches. */
+  project?: string;
 }
 
-export const GlobalRoleSwitches: React.FC<GlobalRoleSwitchesProps> = ({ serverScope }) => {
+export const GlobalRoleSwitches: React.FC<GlobalRoleSwitchesProps> = ({ serverScope, project }) => {
   const stewardLiveness = useSupervisorStore((s) => s.stewardLiveness);
   const supLiveness = useSupervisorStore((s) => s.liveness);
   const config = useSupervisorStore((s) => s.config);
+  const coordinatorByProject = useSupervisorStore((s) => s.coordinatorByProject);
   const loadStewardIdentity = useSupervisorStore((s) => s.loadStewardIdentity);
   const loadLiveness = useSupervisorStore((s) => s.loadLiveness);
   const loadConfig = useSupervisorStore((s) => s.loadConfig);
+  const loadCoordinator = useSupervisorStore((s) => s.loadCoordinator);
   const startRole = useSupervisorStore((s) => s.startRole);
   const stopRole = useSupervisorStore((s) => s.stopRole);
+  const setCoordinator = useSupervisorStore((s) => s.setCoordinator);
 
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   // The steward runs in a fixed global workspace resolved from the server config.
@@ -54,11 +60,12 @@ export const GlobalRoleSwitches: React.FC<GlobalRoleSwitchesProps> = ({ serverSc
       void loadStewardIdentity(serverScope);
       void loadLiveness(serverScope);
       void loadConfig(serverScope);
+      if (project) void loadCoordinator(serverScope, project);
     };
     refresh();
     const id = setInterval(refresh, 10_000);
     return () => clearInterval(id);
-  }, [serverScope, loadStewardIdentity, loadLiveness, loadConfig]);
+  }, [serverScope, project, loadStewardIdentity, loadLiveness, loadConfig, loadCoordinator]);
 
   const stewardStatus: RoleStatus = useMemo(
     () => (stewardLiveness?.running ? 'running' : stewardLiveness?.identity ? 'stale' : 'off'),
@@ -69,6 +76,8 @@ export const GlobalRoleSwitches: React.FC<GlobalRoleSwitchesProps> = ({ serverSc
     () => (supLiveness?.running ? 'running' : supConfigured && supLiveness?.identity ? 'stale' : 'off'),
     [supLiveness, supConfigured],
   );
+  const coordStatus: RoleStatus = project && coordinatorByProject[project] ? 'running' : 'off';
+  const projectName = project ? project.split('/').filter(Boolean).pop() ?? project : '—';
 
   const withBusy = async (key: string, fn: () => Promise<unknown>) => {
     setBusy((b) => ({ ...b, [key]: true }));
@@ -103,6 +112,12 @@ export const GlobalRoleSwitches: React.FC<GlobalRoleSwitchesProps> = ({ serverSc
       void loadLiveness(serverScope);
     });
 
+  const toggleCoordinator = () =>
+    void withBusy('coordinator', async () => {
+      if (!project) return;
+      await setCoordinator(serverScope, project, coordStatus === 'running' ? 'stop' : 'start');
+    });
+
   return (
     <div data-testid="global-role-switches" className="flex items-center gap-1.5">
       <RoleSwitch
@@ -122,6 +137,15 @@ export const GlobalRoleSwitches: React.FC<GlobalRoleSwitchesProps> = ({ serverSc
         disabled={supStatus === 'off' && !supConfigured}
         disabledTitle="Set up the Supervisor in its panel first"
         onToggle={toggleSupervisor}
+      />
+      <RoleSwitch
+        label="Coordinator"
+        scope={projectName}
+        status={coordStatus}
+        busy={busy.coordinator}
+        disabled={!project}
+        disabledTitle="Select a project first"
+        onToggle={toggleCoordinator}
       />
     </div>
   );
