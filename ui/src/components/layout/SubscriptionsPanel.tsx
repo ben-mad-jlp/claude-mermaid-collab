@@ -593,7 +593,15 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
                             registeredOnly.push(p);
                           }
                         }
-                        const allProjects = [...pendingOnly, ...registeredOnly, ...realProjects];
+                        // Pending (just-created, empty) projects stay pinned on
+                        // top; the rest are sorted alphabetically by display name.
+                        const baseName = (p: string) => p.split('/').filter(Boolean).pop() ?? p;
+                        const byName = (a: string, b: string) =>
+                          baseName(a).localeCompare(baseName(b), undefined, { sensitivity: 'base' });
+                        const allProjects = [
+                          ...pendingOnly,
+                          ...[...registeredOnly, ...realProjects].sort(byName),
+                        ];
                         return allProjects.map((project) => {
                           const isPending = pending.includes(project) && !realProjects.includes(project);
                           const projectItems = group.items.filter((s) => s.project === project);
