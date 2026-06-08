@@ -75,6 +75,77 @@ export const Header: React.FC<HeaderProps> = ({
   const viewerVisible = useUIStore((s) => s.viewerVisible);
   const bridgeOpen = useUIStore((s) => s.bridgeOpen);
   const planOpen = useUIStore((s) => s.planOpen);
+  const paneOrder = useUIStore((s) => s.paneOrder);
+  const setPaneOrder = useUIStore((s) => s.setPaneOrder);
+
+  // Drag-to-reorder the Bridge/Plan/Studio toggles: dropping one onto another
+  // rewrites `paneOrder`, which the workspace PanelGroup renders in order — so
+  // the header is the single control for both visibility AND left→right order.
+  // paneOrder lives in the persisted ui-preferences store, so order survives
+  // restarts. `dragKey` tracks the toggle currently being dragged.
+  const [dragKey, setDragKey] = useState<'bridge' | 'plan' | 'studio' | null>(null);
+  const reorderPane = useCallback(
+    (target: 'bridge' | 'plan' | 'studio') => {
+      const src = dragKey;
+      setDragKey(null);
+      if (!src || src === target) return;
+      const next = paneOrder.filter((p) => p !== src);
+      const at = next.indexOf(target);
+      next.splice(at < 0 ? next.length : at, 0, src);
+      setPaneOrder(next);
+    },
+    [dragKey, paneOrder, setPaneOrder],
+  );
+
+  // Per-pane toggle metadata, keyed so we can render them in `paneOrder` order.
+  const paneToggles: Record<
+    'bridge' | 'plan' | 'studio',
+    { testid: string; title: string; aria: string; active: boolean; onClick: () => void; icon: React.ReactNode }
+  > = {
+    bridge: {
+      testid: 'toggle-bridge',
+      title: 'Bridge',
+      aria: 'Toggle Bridge pane',
+      active: bridgeOpen,
+      onClick: () => useUIStore.getState().toggleBridge(),
+      icon: (
+        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="3" width="7" height="9" rx="1" />
+          <rect x="14" y="3" width="7" height="5" rx="1" />
+          <rect x="14" y="12" width="7" height="9" rx="1" />
+          <rect x="3" y="16" width="7" height="5" rx="1" />
+        </svg>
+      ),
+    },
+    plan: {
+      testid: 'toggle-plan',
+      title: 'Plan',
+      aria: 'Toggle Plan pane',
+      active: planOpen,
+      onClick: () => useUIStore.getState().togglePlan(),
+      icon: (
+        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="6" cy="6" r="2.5" />
+          <circle cx="6" cy="18" r="2.5" />
+          <circle cx="18" cy="12" r="2.5" />
+          <path d="M8.5 6H13a2 2 0 0 1 2 2v2M8.5 18H13a2 2 0 0 0 2-2v-2" />
+        </svg>
+      ),
+    },
+    studio: {
+      testid: 'toggle-viewer',
+      title: 'Studio',
+      aria: 'Toggle Studio (artifact viewer)',
+      active: viewerVisible,
+      onClick: () => useUIStore.getState().toggleViewer(),
+      icon: (
+        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="7" y="3" width="13" height="15" rx="1.5" />
+          <path d="M4 6.5v12A1.5 1.5 0 0 0 5.5 20h11" />
+        </svg>
+      ),
+    },
+  };
 
   // Shared style for a pane-toggle button; highlighted (accent) when its pane
   // is showing, neutral otherwise.
@@ -145,46 +216,38 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Pane toggles — left, just right of the Collab label. Bridge / Plan /
               Studio dock side-by-side; Browser / Terminal dock on the right. */}
           <div className="flex items-center gap-1.5">
-            <button
-              data-testid="toggle-bridge"
-              onClick={() => useUIStore.getState().toggleBridge()}
-              aria-label="Toggle Bridge pane"
-              title="Bridge"
-              className={paneToggleClass(bridgeOpen)}
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="7" height="9" rx="1" />
-                <rect x="14" y="3" width="7" height="5" rx="1" />
-                <rect x="14" y="12" width="7" height="9" rx="1" />
-                <rect x="3" y="16" width="7" height="5" rx="1" />
-              </svg>
-            </button>
-            <button
-              data-testid="toggle-plan"
-              onClick={() => useUIStore.getState().togglePlan()}
-              aria-label="Toggle Plan pane"
-              title="Plan"
-              className={paneToggleClass(planOpen)}
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="6" cy="6" r="2.5" />
-                <circle cx="6" cy="18" r="2.5" />
-                <circle cx="18" cy="12" r="2.5" />
-                <path d="M8.5 6H13a2 2 0 0 1 2 2v2M8.5 18H13a2 2 0 0 0 2-2v-2" />
-              </svg>
-            </button>
-            <button
-              data-testid="toggle-viewer"
-              onClick={() => useUIStore.getState().toggleViewer()}
-              aria-label="Toggle Studio (artifact viewer)"
-              title="Studio"
-              className={paneToggleClass(viewerVisible)}
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="7" y="3" width="13" height="15" rx="1.5" />
-                <path d="M4 6.5v12A1.5 1.5 0 0 0 5.5 20h11" />
-              </svg>
-            </button>
+            {/* Bridge / Plan / Studio — rendered in paneOrder; drag a toggle
+                onto another to reorder the side-by-side panes below. */}
+            {paneOrder.map((key) => {
+              const t = paneToggles[key];
+              return (
+                <button
+                  key={key}
+                  data-testid={t.testid}
+                  draggable
+                  onDragStart={(e) => {
+                    setDragKey(key);
+                    e.dataTransfer.effectAllowed = 'move';
+                  }}
+                  onDragOver={(e) => {
+                    if (dragKey && dragKey !== key) e.preventDefault();
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    reorderPane(key);
+                  }}
+                  onDragEnd={() => setDragKey(null)}
+                  onClick={t.onClick}
+                  aria-label={t.aria}
+                  title={`${t.title} — drag to reorder`}
+                  className={`${paneToggleClass(t.active)} cursor-grab active:cursor-grabbing ${
+                    dragKey === key ? 'opacity-40' : ''
+                  }`}
+                >
+                  {t.icon}
+                </button>
+              );
+            })}
             <button
               data-testid="toggle-browser"
               onClick={() => useBrowserStore.getState().toggle()}
