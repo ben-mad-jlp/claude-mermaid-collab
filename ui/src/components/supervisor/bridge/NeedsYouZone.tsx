@@ -41,7 +41,12 @@ export const NeedsYouZone: React.FC<NeedsYouZoneProps> = ({
     <div
       data-testid="needs-you-zone"
       data-needs-you={open.length}
+      className="space-y-1.5"
     >
+      <div className="flex items-center gap-2 text-xs">
+        <span className="font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Escalations</span>
+        {open.length > 0 && <span className="text-danger-600 dark:text-danger-400 font-bold">{open.length}</span>}
+      </div>
       {open.length === 0 ? (
         <div className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
           <span className="text-success-500" aria-hidden="true">✓</span>

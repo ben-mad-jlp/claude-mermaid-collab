@@ -337,10 +337,10 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
               onToggle={() => void setCoordinator(serverScope, project, running ? 'stop' : 'start')}
               coverage={coverageByProject[project]}
             />
-            {/* Three columns above the graph: Escalations · Todos · Workers. */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 items-start">
+            {/* Four columns above the graph: Escalations · Todos · Workers · Stream.
+                Each card carries its own header — no extra column labels. */}
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 items-start">
               <div className="min-w-0 space-y-3">
-                <div className="text-2xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">Escalations</div>
                 <NeedsYouZone
                   escalations={escalations}
                   project={project}
@@ -354,24 +354,18 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
                   serverScope={serverScope}
                 />
               </div>
-              <div className="min-w-0 space-y-3">
-                <div className="text-2xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">Todos</div>
-                {/* "Your todos": the human-assigned, human-actionable slice of the
-                    work-graph; Claim/Complete drive the transitions a person owns. */}
-                <HumanInbox
-                  todos={todos}
-                  onClaim={(t) => void promoteTodo(serverScope, project, t.id, 'in_progress')}
-                  onComplete={(t) => void promoteTodo(serverScope, project, t.id, 'done')}
-                  onOpen={handleSelectTodo}
-                />
-              </div>
-              <div className="min-w-0 space-y-3">
-                <div className="text-2xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">Workers</div>
-                <WorkerRoster subscriptions={projectSubs} todos={todos} onJump={handleJump} />
-              </div>
+              {/* "Your todos": the human-assigned, human-actionable slice of the
+                  work-graph; Claim/Complete drive the transitions a person owns. */}
+              <HumanInbox
+                todos={todos}
+                onClaim={(t) => void promoteTodo(serverScope, project, t.id, 'in_progress')}
+                onComplete={(t) => void promoteTodo(serverScope, project, t.id, 'done')}
+                onOpen={handleSelectTodo}
+              />
+              <WorkerRoster subscriptions={projectSubs} todos={todos} onJump={handleJump} />
+              <StreamTicker events={projectStreamEvents} />
             </div>
-            <StreamTicker events={projectStreamEvents} />
-            {/* G8: todo detail surfaces BELOW the Stream card when a node is clicked. */}
+            {/* G8: todo detail surfaces BELOW the columns when a node is clicked. */}
             {selectedTodoId && (
               <div
                 data-testid="bridge-todo-detail"
