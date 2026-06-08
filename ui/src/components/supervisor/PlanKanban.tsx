@@ -137,20 +137,6 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo }) =
   const counts = useMemo(() => funnelCounts(todos), [todos]);
   const total = todos.length;
 
-  // Startable: deps all done (or none) AND unclaimed AND not terminal. A
-  // CAPABILITY bucket ("can start now"), distinct from the status-Ready funnel
-  // bucket — so it is NOT labelled "Ready" (G4: status-vocab collision removed).
-  const startable = useMemo(() => {
-    const byId = new Map(todos.map((t) => [t.id, t]));
-    return todos.filter((t) => {
-      if (TERMINAL.has(t.status) || t.claimedBy) return false;
-      return (t.dependsOn ?? []).every((d) => {
-        const dep = byId.get(d);
-        return !dep || dep.status === 'done';
-      });
-    });
-  }, [todos]);
-
   // Build epic swimlanes: an epic is any todo that is some other todo's parent.
   // Children go in their epic's lane; everything else (no epic parent, not an
   // epic itself) falls into a synthetic "No epic" lane. Within a lane, todos
@@ -280,29 +266,8 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo }) =
         </div>
       </div>
 
-      {/* Vertical stack of swimlanes (epics as rows). Pinned Startable on top. */}
+      {/* Vertical stack of swimlanes (epics as rows). */}
       <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1">
-        {/* PINNED Startable strip — cross-cutting highlight (deps satisfied + unclaimed). */}
-        <section
-          data-testid="startable-lane"
-          className="rounded-lg border border-accent-300 dark:border-accent-700 bg-accent-50/60 dark:bg-accent-900/20"
-        >
-          <header className="px-2 py-1.5 text-xs font-semibold text-accent-700 dark:text-accent-300 border-b border-accent-200 dark:border-accent-800">
-            ⚡ Startable <span className="font-normal opacity-70">{startable.length}</span>
-          </header>
-          <div className="overflow-x-auto p-1.5">
-            {startable.length === 0 ? (
-              <p className="text-3xs text-gray-500 dark:text-gray-400 px-1 py-1">✓ Nothing startable right now.</p>
-            ) : (
-              <div className="flex gap-2 items-start">
-                {startable.map((t) => (
-                  <PlanCard key={`startable:${t.id}`} todo={t} unblocks={unblocks.get(t.id) ?? 0} onSelect={onSelectTodo} />
-                ))}
-              </div>
-            )}
-          </div>
-        </section>
-
         {/* Epic swimlanes. */}
         {visibleLanes.map((lane) => (
           <section
