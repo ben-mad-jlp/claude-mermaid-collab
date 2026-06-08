@@ -34,7 +34,7 @@ import {
 } from '../services/todo-store';
 import { recordStatus, getStatuses, getStatus, recordContextPercent, type ClaudeStatus } from '../services/session-status-store';
 import { listSessionRuntimes } from '../services/session-runtime';
-import { isSupervised, getSupervisorIdentity, getSupervisedLaunchProject } from '../services/supervisor-store.ts';
+import { isSupervised, getSupervisorIdentity, getSupervisedLaunchProject, addWatchedProject, removeWatchedProject } from '../services/supervisor-store.ts';
 import { sendTmuxKeys } from '../services/tmux-send.ts';
 import { lastAssistantTurn } from '../services/transcript-reader.ts';
 import {
@@ -344,6 +344,11 @@ export async function handleAPI(
       // Register the project
       await projectRegistry.register(projectPath);
 
+      // Unified project list (decision: one list everywhere): the project
+      // registry and the supervisor's watched set are kept in lockstep, so a
+      // project added from the Watching surface also shows up in the Bridge rail.
+      addWatchedProject(projectPath);
+
       // Migrate any legacy roadmap.db → unified todo work-graph for THIS project.
       // Idempotent (sentinel todo), so safe to run lazily on every register — the
       // boot-time pass only covers MERMAID_PROJECT, leaving other projects unmigrated.
@@ -395,6 +400,9 @@ export async function handleAPI(
       if (!removed) {
         return Response.json({ success: false, error: 'Project not found' }, { status: 404 });
       }
+
+      // Keep the unified list in lockstep — drop it from the watched set too.
+      removeWatchedProject(projectPath);
 
       return Response.json({ success: true });
     } catch (error: any) {

@@ -99,6 +99,24 @@ try {
   console.error(`mermaid-collab: roadmap migration failed — ${err instanceof Error ? err.message : String(err)}`);
 }
 
+// Unified project list reconcile (idempotent): the project registry and the
+// supervisor's watched set are kept in lockstep going forward (see api.ts /
+// supervisor-routes.ts cross-writes); this one-shot pass converges any legacy
+// divergence so the Watching surface and the Bridge rail show the same projects.
+try {
+  const { projectRegistry } = await import('./services/project-registry.js');
+  const { listWatchedProjects, addWatchedProject } = await import('./services/supervisor-store.js');
+  const registered = await projectRegistry.list();
+  const watched = new Set(listWatchedProjects().map((w) => w.project));
+  // Every registered project becomes watched.
+  for (const p of registered) if (!watched.has(p.path)) addWatchedProject(p.path);
+  // Every watched project becomes registered (best-effort — skip missing paths).
+  const registeredPaths = new Set(registered.map((p) => p.path));
+  for (const w of watched) if (!registeredPaths.has(w)) await projectRegistry.register(w).catch(() => {});
+} catch (err) {
+  console.error(`mermaid-collab: project-list reconcile failed — ${err instanceof Error ? err.message : String(err)}`);
+}
+
 // Register scratch session on startup.
 // This MUST be idempotent and non-fatal on corrupt registry — otherwise
 // the very first thing every boot does is a destructive read-modify-write

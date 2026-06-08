@@ -25,6 +25,7 @@ import {
   listSupervisorAudit,
 } from '../services/supervisor-store.ts';
 import { createItem, listItems, updateItem, deleteItem } from '../services/roadmap-store.ts';
+import { projectRegistry } from '../services/project-registry.ts';
 import { listTodos, updateTodo, getTodo } from '../services/todo-store.ts';
 import { listDecisionRecords, createDecisionRecord, type DecisionStatus, type RequirementSpec } from '../services/decision-record-store.ts';
 import { listObjects, listTypes } from '../services/system-object-store.ts';
@@ -53,6 +54,10 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       const { project } = (await req.json()) as { project?: string };
       if (!project) return jsonError('project is required', 400);
       addWatchedProject(project);
+      // Unified project list: watching a project also registers it in the global
+      // project registry so it shows up on the Watching surface too. Best-effort —
+      // a watched path that doesn't exist on disk still watches (register throws).
+      await projectRegistry.register(project).catch(() => {});
       return Response.json({ projects: listWatchedProjects() });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
@@ -64,6 +69,8 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       const { project } = (await req.json()) as { project?: string };
       if (!project) return jsonError('project is required', 400);
       removeWatchedProject(project);
+      // Unified project list: unwatching removes it from the global registry too.
+      await projectRegistry.unregister(project).catch(() => {});
       return Response.json({ projects: listWatchedProjects() });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
