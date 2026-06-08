@@ -27,7 +27,6 @@ import { SnippetsSection } from './sections/SnippetsSection';
 import { SpreadsheetSection } from './sections/SpreadsheetSection';
 import { ImagesSection } from './sections/ImagesSection';
 import { EmbedsSection } from './sections/EmbedsSection';
-import { SpecsSection } from './sections/SpecsSection';
 import { PinsSection } from './sections/PinsSection';
 import { RecentSection } from './sections/RecentSection';
 import { ArchivedSection } from './sections/ArchivedSection';
@@ -369,7 +368,6 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
         id: 'implementing',
         leaves: [...blueprintNodes, ...taskNodes, ...implementingRawNodes].map((n) => ({ id: n.id, name: n.name })),
       },
-      { id: 'specs', leaves: specNodes.map((n) => ({ id: n.id, name: n.name })) },
       { id: 'embeds', leaves: embedNodes.map((n) => ({ id: n.id, name: n.name })) },
       { id: 'images', leaves: imageNodes.map((n) => ({ id: n.id, name: n.name })) },
       { id: 'diagrams', leaves: diagramNodes.map((n) => ({ id: n.id, name: n.name })) },
@@ -429,7 +427,6 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
       { id: 'pins', nodes: pinnedNodes },
       { id: 'recent', nodes: recentlyUpdatedNodes },
       { id: 'implementing', nodes: [...blueprintNodes, ...taskNodes, ...implementingRawNodes] },
-      { id: 'specs', nodes: specNodes },
       { id: 'embeds', nodes: embedNodes },
       { id: 'images', nodes: imageNodes },
       { id: 'diagrams', nodes: diagramNodes },
@@ -721,7 +718,6 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
       ...blueprintNodes,
       ...taskNodes,
       ...implementingRawNodes,
-      ...specNodes,
       ...embedNodes,
       ...imageNodes,
       ...diagramNodes,
@@ -1154,24 +1150,8 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
           collapsed={collapsedSections.has('todos')}
           onToggle={() => toggleSection('todos')}
         />
-        <SpecsSection
-          nodes={specNodes}
-          collapsed={collapsedSections.has('specs')}
-          forceExpanded={forceExpandedSections.has('specs')}
-          onToggle={() => toggleSection('specs')}
-          showDeprecated={showDeprecated}
-          searchQuery={searchQuery}
-          visibleNodes={visibleNodes}
-          multiSelection={multiSelection}
-          isSelected={isSelected}
-          handleNodeClick={handleNodeClick}
-          openNode={openNode}
-          openPermanent={openPermanent}
-          openPreview={openPreview}
-          handleNodeContextMenu={handleNodeContextMenu}
-          setSelection={setSelection}
-          toTabDescriptor={toTabDescriptor}
-        />
+        {/* Spec Sheets are no longer listed as artifact items — the project
+            Spec Sheet is a first-class workspace pane (toggle in the header). */}
         <EmbedsSection
           nodes={embedNodes}
           collapsed={collapsedSections.has('embeds')}
