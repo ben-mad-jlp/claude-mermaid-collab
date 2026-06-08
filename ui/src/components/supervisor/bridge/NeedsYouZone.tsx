@@ -27,6 +27,8 @@ export interface NeedsYouZoneProps {
   project: string;
   serverScope: string;
   onJump?: (project: string, session: string) => void;
+  /** Render body-only (no card chrome / header) for use inside a tab panel. */
+  embedded?: boolean;
 }
 
 export const NeedsYouZone: React.FC<NeedsYouZoneProps> = ({
@@ -34,8 +36,21 @@ export const NeedsYouZone: React.FC<NeedsYouZoneProps> = ({
   project,
   serverScope,
   onJump,
+  embedded,
 }) => {
   const open = selectOpenEscalations(escalations, project);
+
+  const body =
+    open.length === 0 ? (
+      <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+        <span className="text-success-500" aria-hidden="true">✓</span>
+        <span>All clear — nothing needs you</span>
+      </div>
+    ) : (
+      <BridgeEscalationInbox escalations={open} serverScope={serverScope} onJump={onJump} />
+    );
+
+  if (embedded) return <div data-testid="needs-you-zone" data-needs-you={open.length}>{body}</div>;
 
   return (
     <div
@@ -47,16 +62,7 @@ export const NeedsYouZone: React.FC<NeedsYouZoneProps> = ({
         <span className="font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Escalations</span>
         {open.length > 0 && <span className="text-danger-600 dark:text-danger-400 font-bold">{open.length}</span>}
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto p-2">
-        {open.length === 0 ? (
-          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-            <span className="text-success-500" aria-hidden="true">✓</span>
-            <span>All clear — nothing needs you</span>
-          </div>
-        ) : (
-          <BridgeEscalationInbox escalations={open} serverScope={serverScope} onJump={onJump} />
-        )}
-      </div>
+      <div className="flex-1 min-h-0 overflow-y-auto p-2">{body}</div>
     </div>
   );
 };

@@ -31,6 +31,7 @@ import { FLEET_SENTINEL } from './fleetSentinel';
 import { disambiguateProjectLabels } from '@/components/layout/SupervisorPanel';
 import { RequirementsInbox } from './RequirementsInbox';
 import { HumanInbox } from '@/components/todos/HumanInbox';
+import { selectHumanInbox } from '@/components/todos/humanInboxSelectors';
 import { FleetVitals } from './FleetVitals';
 import { WorkerRoster } from './WorkerRoster';
 import { StreamTicker } from './StreamTicker';
@@ -271,6 +272,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
   // Stream card in the left panel. Seed sessionStore first — TodoDetailView reads
   // the todo from sessionStore.sessionTodos by id (same as PlanWorkspace.selectTodo).
   const [selectedTodoId, setSelectedTodoId] = useState<string | null>(null);
+  const [bridgeTab, setBridgeTab] = useState<'escalations' | 'todos' | 'workers' | 'stream'>('escalations');
   const handleSelectTodo = (todo: SessionTodo) => {
     upsertSessionTodo(todo);
     setSelectedTodoId(todo.id);
@@ -375,46 +377,83 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
               project={project}
               serverScope={serverScope}
             />
-            {/* Four uniform contained columns above the graph: Escalations · Todos ·
-                Workers · Stream — each a bordered card, header inside, scroll below. */}
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 items-start">
-              <NeedsYouZone
-                escalations={escalations}
-                project={project}
-                serverScope={serverScope}
-                onJump={handleJump}
-              />
-              <HumanInbox
-                todos={todos}
-                onClaim={(t) => void promoteTodo(serverScope, project, t.id, 'in_progress')}
-                onComplete={(t) => void promoteTodo(serverScope, project, t.id, 'done')}
-                onOpen={handleSelectTodo}
-              />
-              <WorkerRoster subscriptions={workerSubs} todos={todos} onJump={handleJump} />
-              <StreamTicker events={projectStreamEvents} />
-            </div>
-            {/* G8: todo detail surfaces BELOW the columns when a node is clicked. */}
-            {selectedTodoId && (
+            {/* Two columns above the graph: a TABBED instrument panel
+                (Escalations · Todos · Workers · Stream) + a Todo-description panel
+                that fills when a todo node is clicked in the graph. */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
+              {/* Column 1 — tabbed instrument panel. */}
+              <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col min-h-[18rem] max-h-[28rem] min-w-0">
+                <div className="shrink-0 flex items-stretch border-b border-gray-200 dark:border-gray-700">
+                  {([
+                    { key: 'escalations', label: 'Escalations', count: openEscalationCount, loud: true },
+                    { key: 'todos', label: 'Todos', count: selectHumanInbox(todos).length },
+                    { key: 'workers', label: 'Workers', count: workerSubs.length },
+                    { key: 'stream', label: 'Stream' },
+                  ] as const).map((t) => (
+                    <button
+                      key={t.key}
+                      type="button"
+                      data-testid={`bridge-tab-${t.key}`}
+                      data-active={bridgeTab === t.key}
+                      onClick={() => setBridgeTab(t.key)}
+                      className={`flex items-center gap-1 px-3 py-2 text-2xs font-semibold uppercase tracking-wide border-b-2 -mb-px transition-colors ${
+                        bridgeTab === t.key
+                          ? 'border-accent-500 text-accent-700 dark:text-accent-300'
+                          : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                      }`}
+                    >
+                      {t.label}
+                      {'count' in t && t.count != null && t.count > 0 && (
+                        <span className={'loud' in t && t.loud ? 'text-danger-600 dark:text-danger-400 font-bold' : 'text-gray-400 dark:text-gray-500'}>{t.count}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex-1 min-h-0 overflow-y-auto p-2">
+                  {bridgeTab === 'escalations' && (
+                    <NeedsYouZone embedded escalations={escalations} project={project} serverScope={serverScope} onJump={handleJump} />
+                  )}
+                  {bridgeTab === 'todos' && (
+                    <HumanInbox
+                      embedded
+                      todos={todos}
+                      onClaim={(t) => void promoteTodo(serverScope, project, t.id, 'in_progress')}
+                      onComplete={(t) => void promoteTodo(serverScope, project, t.id, 'done')}
+                      onOpen={handleSelectTodo}
+                    />
+                  )}
+                  {bridgeTab === 'workers' && <WorkerRoster embedded subscriptions={workerSubs} todos={todos} onJump={handleJump} />}
+                  {bridgeTab === 'stream' && <StreamTicker embedded events={projectStreamEvents} />}
+                </div>
+              </div>
+
+              {/* Column 2 — Todo description (fills on graph-todo click). */}
               <div
                 data-testid="bridge-todo-detail"
-                className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 min-w-0"
+                className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col min-h-[18rem] max-h-[28rem] min-w-0"
               >
-                <div className="flex items-center justify-between pb-1">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                    Todo
-                  </div>
-                  <button
-                    type="button"
-                    aria-label="Close todo detail"
-                    onClick={() => setSelectedTodoId(null)}
-                    className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-sm leading-none px-1"
-                  >
-                    ✕
-                  </button>
+                <div className="shrink-0 flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+                  <span className="text-2xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Todo</span>
+                  {selectedTodoId && (
+                    <button
+                      type="button"
+                      aria-label="Close todo detail"
+                      onClick={() => setSelectedTodoId(null)}
+                      className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-sm leading-none px-1"
+                    >
+                      ✕
+                    </button>
+                  )}
                 </div>
-                <TodoDetailView todoId={selectedTodoId} />
+                <div className="flex-1 min-h-0 overflow-y-auto p-3">
+                  {selectedTodoId ? (
+                    <TodoDetailView todoId={selectedTodoId} />
+                  ) : (
+                    <p className="text-xs text-gray-400 dark:text-gray-500 italic">Click a todo in the graph below to see its description.</p>
+                  )}
+                </div>
               </div>
-            )}
+            </div>
           </>
           )
         }

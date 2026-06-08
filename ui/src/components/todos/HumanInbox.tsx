@@ -28,27 +28,31 @@ export interface HumanInboxProps {
   onComplete?: (todo: SessionTodo) => void;
   /** Open the item in the program's native UI (deep-link via todo.link). */
   onOpen?: (todo: SessionTodo) => void;
+  /** Render body-only (no card chrome / header) for use inside a tab panel. */
+  embedded?: boolean;
 }
 
 function shortSlug(s: string): string {
   return s.length > 28 ? `${s.slice(0, 27)}…` : s;
 }
 
-export const HumanInbox: React.FC<HumanInboxProps> = ({ todos, onClaim, onComplete, onOpen }) => {
+export const HumanInbox: React.FC<HumanInboxProps> = ({ todos, onClaim, onComplete, onOpen, embedded }) => {
   const items = selectHumanInbox(todos);
 
   return (
     <div
       data-testid="human-inbox"
       data-count={items.length}
-      className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col min-h-[8rem] max-h-56"
+      className={embedded ? '' : 'rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col min-h-[8rem] max-h-56'}
     >
-      <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-700 text-xs">
-        <span className="font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Todos</span>
-        <span className="text-gray-400 dark:text-gray-500">{items.length}</span>
-      </div>
+      {!embedded && (
+        <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-700 text-xs">
+          <span className="font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Todos</span>
+          <span className="text-gray-400 dark:text-gray-500">{items.length}</span>
+        </div>
+      )}
 
-      <div className="flex-1 min-h-0 overflow-y-auto p-2">
+      <div className={embedded ? '' : 'flex-1 min-h-0 overflow-y-auto p-2'}>
       {items.length === 0 ? (
         <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
           <span className="text-success-500" aria-hidden="true">✓</span>

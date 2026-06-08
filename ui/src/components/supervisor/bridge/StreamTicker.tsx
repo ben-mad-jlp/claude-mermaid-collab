@@ -12,18 +12,23 @@ import type { StreamEvent } from '@/lib/eventTaxonomy';
 
 export interface StreamTickerProps {
   events: StreamEvent[];
+  /** Render body-only (no card chrome / header) for use inside a tab panel. */
+  embedded?: boolean;
 }
 
-export const StreamTicker: React.FC<StreamTickerProps> = ({ events }) => (
-  <div
-    data-testid="bridge-stream-ticker"
-    className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-2 flex flex-col min-h-[8rem] max-h-56"
-  >
-    <div className="shrink-0 px-1 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-      Stream
+export const StreamTicker: React.FC<StreamTickerProps> = ({ events, embedded }) => {
+  if (embedded) return <EventStream events={events} className="min-h-0" />;
+  return (
+    <div
+      data-testid="bridge-stream-ticker"
+      className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-2 flex flex-col min-h-[8rem] max-h-56"
+    >
+      <div className="shrink-0 px-1 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+        Stream
+      </div>
+      <EventStream events={events} className="flex-1 min-h-0" />
     </div>
-    <EventStream events={events} className="flex-1 min-h-0" />
-  </div>
-);
+  );
+};
 
 export default StreamTicker;
