@@ -19,20 +19,36 @@ import { procSnapshot, tmuxPanePid, claudeAliveInSubtree, isClaudeTuiPresent } f
 /** Only collab-owned sessions (tmuxBaseName prefixes every name with `mc-`). */
 const MC_PREFIX = 'mc-';
 
-/** Default idle age before an orphaned session is eligible for reaping. */
-const MAX_IDLE_MS = (Number(process.env.MERMAID_TMUX_MAX_IDLE_H) || 6) * 60 * 60 * 1000;
+/** Default idle age before an orphaned session is eligible for reaping (1 week).
+ *  Old tmux sessions are cheap (a detached shell) — this is hygiene, not safety —
+ *  so the threshold is deliberately conservative. */
+const MAX_IDLE_MS = (Number(process.env.MERMAID_TMUX_MAX_IDLE_H) || 24 * 7) * 60 * 60 * 1000;
 /** Sweep cadence. */
 const SWEEP_INTERVAL_MS = (Number(process.env.MERMAID_TMUX_REAP_INTERVAL_MIN) || 30) * 60 * 1000;
 
+/** Role/planning sessions that are NEVER reaped, regardless of age or liveness —
+ *  a planner mid-design or the steward/supervisor must never be killed by hygiene.
+ *  tmuxBaseName is `mc-{projectSlug}-{sessionSlug}` (no hyphens inside a slug), so
+ *  the last '-' segment is the session slug. */
+const PROTECTED_SESSION_SLUGS = new Set(['planner', 'steward', 'supervisor']);
+
+/** True if a tmux session name belongs to a protected role/planning session. */
+export function isProtectedSession(tmuxName: string): boolean {
+  const slug = tmuxName.split('-').pop() ?? '';
+  return PROTECTED_SESSION_SLUGS.has(slug);
+}
+
 /**
- * Pure reap decision — unit-testable without tmux/ps. Reap iff the session is
- * old AND has no live claude process AND no TUI chrome. `hasLiveClaude===null`
- * (snapshot unavailable) is treated as ALIVE (fail-safe: never reap on unknown).
+ * Pure reap decision — unit-testable without tmux/ps. Reap iff the session is NOT
+ * protected AND old AND has no live claude process AND no TUI chrome.
+ * `hasLiveClaude===null` (snapshot unavailable) is treated as ALIVE (fail-safe:
+ * never reap on unknown).
  */
 export function shouldReapTmux(
-  s: { ageMs: number; hasLiveClaude: boolean | null; hasTui: boolean },
+  s: { ageMs: number; hasLiveClaude: boolean | null; hasTui: boolean; protected?: boolean },
   maxIdleMs: number = MAX_IDLE_MS,
 ): boolean {
+  if (s.protected) return false; // never reap a planner/steward/supervisor
   if (s.ageMs < maxIdleMs) return false;
   if (s.hasLiveClaude !== false) return false; // alive or unknown → keep
   if (s.hasTui) return false;
@@ -94,6 +110,7 @@ export async function reapStaleTmux(maxIdleMs: number = MAX_IDLE_MS, now: number
   const snap = await procSnapshot();
   const reaped: string[] = [];
   for (const s of sessions) {
+    if (isProtectedSession(s.name)) continue; // never reap planner/steward/supervisor
     const ageMs = now - s.createdMs;
     if (ageMs < maxIdleMs) continue; // cheap age gate before any ps/tmux work
     const panePid = await tmuxPanePid(s.name);
@@ -121,7 +138,7 @@ export function startTmuxReaper(): void {
   timer = setInterval(() => void reapStaleTmux().catch(() => {}), SWEEP_INTERVAL_MS);
   console.log(
     `[tmux-reaper] started — sweep every ${Math.round(SWEEP_INTERVAL_MS / 60000)}m, ` +
-      `reap mc-* sessions idle > ${Math.round(MAX_IDLE_MS / 3600000)}h with no live claude`,
+      `reap non-planning mc-* sessions idle > ${(MAX_IDLE_MS / 86400000).toFixed(1)}d with no live claude`,
   );
 }
 
