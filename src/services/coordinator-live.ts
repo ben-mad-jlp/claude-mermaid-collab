@@ -354,6 +354,39 @@ export function getWorktreeManager(projectRoot: string): WorktreeManager {
   return m;
 }
 
+// --- FBPE P2: real per-epic resolution ------------------------------------------
+// Each [EPIC] gets its OWN accumulation branch off master (collab/epic/<id8>);
+// children of that epic accumulate on it. resolveEpicId walks a todo's parentId
+// chain (via getTodo, in the TRACKING project where the work-graph lives) to the
+// nearest [EPIC] ancestor and returns its id — the token epicBranchName hashes to
+// the per-epic branch. A todo with no [EPIC] ancestor falls back to the synthetic
+// single Inbox epic (INBOX_EPIC_ID) so every todo still maps to exactly one branch.
+// Cycle- and depth-guarded against a malformed parent chain.
+
+/** True when a todo's title marks it an [EPIC] root. */
+function isEpicTodo(t: Todo): boolean {
+  return /^\s*\[EPIC\]/i.test(t.title ?? '');
+}
+
+/** Resolve the [EPIC] root id for `todo` by walking parentId via getTodo in
+ *  `project` (the tracking store). Returns INBOX_EPIC_ID when no [EPIC] ancestor
+ *  exists. Exported for unit testing. */
+export function resolveEpicId(todo: Todo, project: string): string {
+  let cur: Todo | null | undefined = todo;
+  const seen = new Set<string>();
+  let depth = 0;
+  while (cur && depth < 50) {
+    if (isEpicTodo(cur)) return cur.id;
+    if (seen.has(cur.id)) break;
+    seen.add(cur.id);
+    const parentId = cur.parentId;
+    if (!parentId) break;
+    cur = getTodo(project, parentId);
+    depth++;
+  }
+  return INBOX_EPIC_ID;
+}
+
 /** Wire the Coordinator daemon to the real todo-store + a live worker launcher. */
 export function makeCoordinatorDeps(): CoordinatorDeps {
   return {
@@ -388,15 +421,19 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // the worker/pool session names this todo ran under.
       const accepted = (acceptance ?? r.completed.acceptanceStatus) === 'accepted';
       // DOGFOOD #5 isolation: on acceptance, commit the worker's worktree and
-      // merge its branch back into the integration branch. A conflict leaves
-      // integration untouched and is escalated for a human to resolve.
+      // merge its branch back into its EPIC's accumulation branch (FBPE P2 — each
+      // [EPIC] has its own collab/epic/<id8> off master). A conflict leaves the
+      // epic branch untouched and is escalated for a human to resolve. The merge
+      // commit carries Collab-Epic/Collab-Todo trailers (commitAndMergeToEpic).
       if (accepted && workerIsolationEnabled() && session) {
         const targetProject = r.completed.targetProject ?? project;
         try {
           const wm = getWorktreeManager(targetProject);
+          // Walk the parent chain in the TRACKING project (where the work-graph lives).
+          const epicId = resolveEpicId(r.completed, project);
           const message = `collab(${id.slice(0, 8)}): ${r.completed.title}`.slice(0, 200);
-          const merge = await wm.commitAndMergeToIntegration(session, { message });
-          recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, isolation: 'merge-back', merged: merge.merged, conflict: merge.conflict, committed: merge.committed, branch: merge.workerBranch }) });
+          const merge = await wm.commitAndMergeToEpic(session, epicId, { message, todoId: id });
+          recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, isolation: 'merge-back', merged: merge.merged, conflict: merge.conflict, committed: merge.committed, branch: merge.workerBranch }) });
           if (merge.conflict) {
             createEscalation({
               project,
@@ -533,18 +570,20 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       }
 
       // 2b. DOGFOOD #5 isolation: when enabled, run this worker in a fresh git
-      //     worktree branched off the project's integration branch (so it sees all
-      //     prior accepted work) instead of the shared working tree. cwd becomes
-      //     the worktree path. Best-effort: if worktree setup fails (e.g. non-git
-      //     repo), fall back to the shared-tree behavior rather than dropping the
-      //     todo.
+      //     worktree branched off ITS EPIC's accumulation branch (FBPE P2 — so it
+      //     sees all prior accepted work for that epic) instead of the shared
+      //     working tree. cwd becomes the worktree path. Best-effort: if worktree
+      //     setup fails (e.g. non-git repo), fall back to the shared-tree behavior
+      //     rather than dropping the todo.
       let launchCwd: string | undefined;
       if (workerIsolationEnabled()) {
         try {
           const wm = getWorktreeManager(targetProject);
-          const integ = await wm.ensureIntegration();
-          if (integ) {
-            const wt = await wm.ensure(poolName, { baseBranch: integ.branch });
+          // Resolve the epic by walking parentId in the TRACKING project (work-graph).
+          const epicId = resolveEpicId(todo, project);
+          const epic = await wm.ensureEpic(epicId, targetProject);
+          if (epic) {
+            const wt = await wm.ensure(poolName, { baseBranch: epic.branch });
             launchCwd = wt.path;
           }
         } catch (e) {
@@ -838,10 +877,11 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         try {
           const gateWm = getWorktreeManager(gateProject);
           const p = await gateWm.existingPath(todo.sessionName);
-          // Lanes branch off the Inbox-epic accumulation branch (collab/epic/<inbox>)
-          // under FBPE P1, so the gate diff base must be that branch — not the demoted
-          // legacy collab/integration ref — to correctly scope the lane's change-set.
-          if (p) { laneCwd = p; integrationBase = gateWm.epicBranchName(INBOX_EPIC_ID); }
+          // FBPE P2: each lane branches off ITS epic's accumulation branch
+          // (collab/epic/<id8>), so the gate diff base must be THAT epic's branch —
+          // resolved by walking the todo's parent chain — to correctly scope the
+          // lane's change-set against its own epic, not a global trunk.
+          if (p) { laneCwd = p; integrationBase = gateWm.epicBranchName(resolveEpicId(todo, project)); }
         } catch { /* fall back to whole-tree scoping */ }
       }
       return runRegistryGate({
