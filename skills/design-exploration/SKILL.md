@@ -13,7 +13,7 @@ This is the pattern that produced the "Studio & Bridge" control-UI design and th
 
 ## When to use
 - **Use it** for: a fresh UI/UX surface, an architecture with real tradeoffs, "reimagine X", "what's the best way to structure Y", choosing between approaches when the solution space is wide.
-- **Use it for MECHANICAL / CAD design too** — see [Mechanical / CAD mode](#mechanical--cad-mode-produce-the-e0-build-contract) below. The Planner runs it as a **planning-stage** activity to *produce the E0 build contract* (the pinned spatial arrangement) BEFORE the parts→assembly build pipeline runs. Use it whenever you'd otherwise hand the Coordinator a CAD build with only interfaces specified — exploring joint-axis layout / link proportions / reach envelope / gripper mechanism up front is what stops a plausible-but-wrong mechanism (e.g. the coaxial-arm failure) from reaching the build.
+- **Use it for MECHANICAL / CAD design too** — see [Mechanical / CAD mode](#mechanical--cad-mode-produce-the-e0-build-contract) below. The Planner runs it as a **planning-stage** activity to *produce the E0 build contract* (the pinned spatial arrangement) BEFORE the parts→assembly build pipeline runs. Use it whenever you'd otherwise hand the Orchestrator's Build pass a CAD build with only interfaces specified — exploring joint-axis layout / link proportions / reach envelope / gripper mechanism up front is what stops a plausible-but-wrong mechanism (e.g. the coaxial-arm failure) from reaching the build.
 - **Don't use it** for: a decision with an obvious default, a small change, or something you can just verify in the codebase. Pick the obvious option and move on.
 
 ## The shape (always the same four phases)
@@ -106,7 +106,7 @@ return { winner: verdict?.winner, ranking: verdict?.ranking, doc: 'design-<topic
 
 ## Mechanical / CAD mode (produce the E0 build contract)
 
-The same **diverge→judge→synthesize** shape applies to a *mechanism* (a robot arm, a gripper, a fixture). The difference is **what the synthesis produces**: not a UI design doc but an **E0 build contract** — the machine-checkable spatial arrangement the existing parts→assembly build pipeline consumes. This is a **Planner-stage** activity: a good design is fed into the (already-proven) build pipeline, instead of the Coordinator improvising the geometry.
+The same **diverge→judge→synthesize** shape applies to a *mechanism* (a robot arm, a gripper, a fixture). The difference is **what the synthesis produces**: not a UI design doc but an **E0 build contract** — the machine-checkable spatial arrangement the existing parts→assembly build pipeline consumes. This is a **Planner-stage** activity: a good design is fed into the (already-proven) build pipeline, instead of the Orchestrator's Build pass improvising the geometry.
 
 **Why this exists.** A CAD build pipeline that pins only *interfaces* (mating datums, bolt circles) but not the *spatial arrangement* (joint AXES, link lengths, reach envelope) lets a kinematically-wrong mechanism through — e.g. the **coaxial-arm failure**, where every interface matched but all joints shared an axis so the arm couldn't reach. The synthesis here MUST pin the spatial config, not just interfaces.
 
@@ -115,7 +115,7 @@ The same **diverge→judge→synthesize** shape applies to a *mechanism* (a robo
 2. **BUILD** — a forward-kinematics *posed* assembly in build123d (no live solver needed for a fitness check).
 3. **FITNESS REVIEW** (the [#7b fitness gate](#)) — offline iso+side render + printed joint heights / min-Z; LOOK and iterate. RUN 2 took 3 iterations: a folded pose, then an inverted-pitch table collision (elbow below the tabletop) — **both invisible to the mechanical gate**, caught only by the fitness review.
 
-This mode productizes steps 1 + (the design half of) 3: **diverge** = N design agents each emitting a candidate E0 contract; **judge** = the fitness rubric scoring each candidate; **synthesize** = the winner's spatial config written as E0; then hand E0 to the existing parts→assembly build pipeline (RUN 3 = run it for-real through the collab Planner/Coordinator so the arm is both well-designed AND motor-driven).
+This mode productizes steps 1 + (the design half of) 3: **diverge** = N design agents each emitting a candidate E0 contract; **judge** = the fitness rubric scoring each candidate; **synthesize** = the winner's spatial config written as E0; then hand E0 to the existing parts→assembly build pipeline (RUN 3 = run it for-real through the collab Planner + Orchestrator daemon so the arm is both well-designed AND motor-driven).
 
 ### What changes vs the UI flow
 - **Ground** — a *kinematics/reach analyst* (the task envelope: required reach, payload, dexterity, the poses the mechanism must hit) **and** a *bsync/build123d capability cartographer* (which verbs exist; the **solver limits** that constrain the design — e.g. coupled/closed-loop motion is the known-hard case, so a parallel-jaw gripper must be quarantined as one named sub-assembly). Ground every concept in real envelope numbers + real kernel capabilities so nothing is unbuildable.

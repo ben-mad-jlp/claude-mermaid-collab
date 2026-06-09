@@ -48,7 +48,7 @@ Quickly make the todo list match reality so resume is trustworthy:
 ### Step 4 — Signal the context-watchdog (persisted-checkpoint gate)
 
 After the checkpoint is written and the list is reconciled, tell the server the
-checkpoint is durably persisted so a supervisor's context-watchdog may safely
+checkpoint is durably persisted so an autonomous context-watchdog may safely
 `/clear` this session. The server re-verifies the todo was just written before
 recording readiness (the HARD GATE — it never trusts a self-report):
 

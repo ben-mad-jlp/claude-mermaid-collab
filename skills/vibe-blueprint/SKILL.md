@@ -66,7 +66,7 @@ Wait for the user's response.
 
 ### Autonomous / supervised runs (no interactive user)
 
-When this skill is invoked **without a present human to answer** — e.g. driven by the supervisor, a nudge, or any headless/agent context — do **not** stall waiting for a response. Instead **auto-accept the recommended default and proceed**:
+When this skill is invoked **without a present human to answer** — e.g. driven by the Orchestrator daemon (a nudge/build pass) or any headless/agent context — do **not** stall waiting for a response. Instead **auto-accept the recommended default and proceed**:
 
 - **Recommended artifact set** = all artifacts from Step 1 **except** `vibeinstructions`, blueprints, and pure decision/discussion docs (names starting `decision-` or clearly not a build spec). Wireframes, specs, and design docs are included.
 - Announce the choice in one line (`"Auto-selected N recommended artifacts: …"`) and continue to Step 3.

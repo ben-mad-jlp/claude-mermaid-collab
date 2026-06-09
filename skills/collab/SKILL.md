@@ -47,7 +47,7 @@ Then restart Claude Code and run /collab again.
   any confirmation). Just say one line: `Session "<name>" doesn't exist yet — creating it.`
   - **Why no prompt:** this skill is frequently invoked PROGRAMMATICALLY — the server launches
     `claude` and sends `/collab <session>`, then sends a follow-on skill (e.g. `/planner`,
-    `/worker`, `/steward`) shortly after. A blocking "Create it?" prompt strands that launch: the
+    `/worker`) shortly after. A blocking "Create it?" prompt strands that launch: the
     follow-on skill arrives before the session is created, so the session never registers and the
     role skill runs unbound. Auto-creating on an explicit name makes the launch deterministic.
     The only downside is an interactive typo creating an empty session — cheap to archive, and a far

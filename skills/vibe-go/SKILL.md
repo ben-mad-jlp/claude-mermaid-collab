@@ -395,7 +395,7 @@ Use `status: 'todo'` for follow-ups that should be done soon (e.g. missing tests
 
 Code review after a Go run is default behavior, not an optional suggestion.
 
-- **If this Go run is being driven by a supervisor / autonomous context** (no interactive human to prompt): add a `/vibe-review` follow-up as a session todo and, where the supervisor assigns work, assign it — do NOT just print a suggestion the supervisor can't act on:
+- **If this Go run is being driven by the Orchestrator daemon / an autonomous context** (no interactive human to prompt): add a `/vibe-review` follow-up as a session todo and, where work is assigned to a session, assign it — do NOT just print a suggestion an autonomous driver can't act on:
   ```
   Tool: mcp__plugin_mermaid-collab_mermaid__add_session_todo
   Args: { "project": "<cwd>", "session": "<session>", "text": "Run /vibe-review on the executed blueprint", "status": "todo", "priority": 0, "description": "Default post-/vibe-go step: bug + completeness review of all waves." }

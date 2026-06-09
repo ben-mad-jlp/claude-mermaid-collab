@@ -1,13 +1,13 @@
 ---
 name: worker
-description: Ephemeral per-todo worker — executes one claimed work-graph todo, runs the mechanical acceptance gate, and reports completion. Spawned by the Coordinator daemon; not normally invoked by hand.
+description: Ephemeral per-todo worker — executes one claimed work-graph todo, runs the mechanical acceptance gate, and reports completion. Spawned by the Orchestrator daemon's Build pass; not normally invoked by hand.
 user-invocable: true
 allowed-tools: Bash, Edit, Write, Read, mcp__plugin_mermaid-collab_mermaid__get_todo, mcp__plugin_mermaid-collab_mermaid__complete_todo, mcp__plugin_mermaid-collab_mermaid__escalation_create
 ---
 
 # Worker
 
-You are an **ephemeral, single-todo worker** spawned by the Coordinator daemon. You execute exactly ONE claimed todo, verify it mechanically, and report the result. Your session is already bound to a collab session (via `/collab`); this skill drives the actual work.
+You are an **ephemeral, single-todo worker** spawned by the Orchestrator daemon's Build pass. You execute exactly ONE claimed todo, verify it mechanically, and report the result. Your session is already bound to a collab session (via `/collab`); this skill drives the actual work.
 
 `ARGUMENTS` is the **todo id** of the todo claimed for this session. The **project** is the current working directory (`pwd`).
 
@@ -28,7 +28,7 @@ Implement exactly what the todo's spec asks — no more. Follow the repo's conve
 
 Before reporting done, the change MUST pass the mechanical gate (per PCS design #1 — mechanical gate only, no verifier agent).
 
-**CRITICAL — the pool runs many workers in the SAME git working tree.** The tree therefore contains sibling lanes' in-flight, uncommitted edits. Your gate judges **only the change-set YOU produced for this todo** — never reject because another lane's file fails. (This prevents the cross-lane contamination that falsely rejects correct work; see supervisor DOGFOOD #5.)
+**CRITICAL — the pool runs many workers in the SAME git working tree.** The tree therefore contains sibling lanes' in-flight, uncommitted edits. Your gate judges **only the change-set YOU produced for this todo** — never reject because another lane's file fails. (This prevents the cross-lane contamination that falsely rejects correct work; see the worker-isolation DOGFOOD #5.)
 
 1. **Identify your change-set.** `git status --porcelain` then `git diff --name-only` — the files *this todo* touched. Every other modified/untracked file belongs to a sibling worker; treat those as foreign and out of scope.
 2. **Type check:** `npx tsc --noEmit`. Only type errors located in **your change-set files** count. Errors in files you did not touch are a sibling lane's in-flight state → foreign, ignore them.
@@ -102,9 +102,9 @@ Args: { "project": "<pwd>", "todoId": "<ARGUMENTS>", "acceptance": "rejected" }
 
 ### 4c. Blocked / spec invalid (material change discovered)
 
-**Stopping is NOT escalating.** If you cannot complete this todo, your turn does not end until you have called `escalation_create` (below). Printing your reasoning/options to the chat and then stopping is a **NO-OP**: the supervisor cannot see it, the todo strands `in_progress` until lease-expiry, and the coordinator will auto-flag you as a silent stall (DOGFOOD #6) — the structured `escalation_create` call is the ONLY thing that surfaces a blocker. Do NOT complete; raise the escalation so the supervisor/planner can re-validate:
+**Stopping is NOT escalating.** If you cannot complete this todo, your turn does not end until you have called `escalation_create` (below). Printing your reasoning/options to the chat and then stopping is a **NO-OP**: the Orchestrator daemon cannot see it, the todo strands `in_progress` until lease-expiry, and the daemon will auto-flag you as a silent stall (DOGFOOD #6) — the structured `escalation_create` call is the ONLY thing that surfaces a blocker. Do NOT complete; raise the escalation so the human/planner can re-validate:
 
-> **"This todo is too big / needs to be split" is ALSO a blocker — escalate it, never park it.** If you judge the todo should be decomposed into sub-todos before it can be done, that is a *planning decision for the supervisor/planner*, not something you do silently. File an `escalation_create` (`kind: "decision"`, with `options[]` proposing the split) and `await_human_decision` — do NOT end your turn with "a human/planner decides how to slice it" printed to the chat. That exact phrasing stranded a todo `in_progress` and wedged its whole lane (the parked-worker failure, 41d24bee). Escalating frees the lane; parking blocks it.
+> **"This todo is too big / needs to be split" is ALSO a blocker — escalate it, never park it.** If you judge the todo should be decomposed into sub-todos before it can be done, that is a *planning decision for the human/planner*, not something you do silently. File an `escalation_create` (`kind: "decision"`, with `options[]` proposing the split) and `await_human_decision` — do NOT end your turn with "a human/planner decides how to slice it" printed to the chat. That exact phrasing stranded a todo `in_progress` and wedged its whole lane (the parked-worker failure, 41d24bee). Escalating frees the lane; parking blocks it.
 
 Your session name is `worker-<first 8 chars of the todo id>`.
 
@@ -142,7 +142,7 @@ Tool: mcp__plugin_mermaid-collab_mermaid__await_human_decision
 Args: { "escalationId": "<id-from-escalation_create>" }
 ```
 - If it returns `{ decided: true, optionId, note }` → resume the work using the chosen option (this is a real answer, not background context).
-- If it returns `{ timedOut: true }` → no human answered in time; STOP and leave the escalation open for the supervisor/planner.
+- If it returns `{ timedOut: true }` → no human answered in time; STOP and leave the escalation open for the human/planner.
 
 > **Common mistake (do NOT do this):** emitting `options[]` and then writing a "stopping — a human will decide, a worker can resume once answered" summary and ending the turn. That path is ONLY for plain blockers with no options. If you passed `options[]`, you MUST call `await_human_decision` in the same turn — never end the turn on a "human will decide" note.
 
