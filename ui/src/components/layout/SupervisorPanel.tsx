@@ -538,6 +538,12 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
               const cards = projSessions.map((s) => cardDataFor(s));
               // Combined per-project health: reduce every card's status to one.
               const combined = combineCardStatus(cards.map((c) => c.status));
+              // Visible sessions = those NOT hidden by the gray-declutter filter
+              // below (gray worker lanes are dropped; orchestrator/role sessions
+              // always show). The row count must match what's actually listed.
+              const isVisibleSession = (s: SupervisedSession, idx: number) =>
+                isOrchestratorSession(s.session) || cards[idx].status !== 'unknown';
+              const visibleCount = projSessions.filter(isVisibleSession).length;
               const isProjCollapsed = !!collapsedProjects[project];
               const projName = projectLabels[project] ?? (project.split('/').filter(Boolean).pop() ?? project);
               const isActive = activeProject === project;
@@ -583,7 +589,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                           ▲{escalationCount > 99 ? '99+' : escalationCount}
                         </span>
                       )}
-                      <span className="text-gray-500 dark:text-gray-400 font-normal">{projSessions.length}</span>
+                      <span className="text-gray-500 dark:text-gray-400 font-normal">{visibleCount}</span>
                     </button>
                     <button
                       type="button"
@@ -605,7 +611,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
 
                   {/* Supervised sessions — same card as Watching. Hidden when the
                       project group is collapsed. */}
-                  {!isProjCollapsed && projSessions.length > 0 && (
+                  {!isProjCollapsed && visibleCount > 0 && (
                     <div className="space-y-1 mt-1">
                       {projSessions.map((s, idx) => {
                         const card = cards[idx];
@@ -617,7 +623,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                         // workers, so it never fired. Hide any gray session EXCEPT
                         // orchestrator/role sessions (planner/steward/supervisor),
                         // which always show.
-                        if (!isOrchestratorSession(s.session) && card.status === 'unknown') return null;
+                        if (!isVisibleSession(s, idx)) return null;
                         const isSelected =
                           !!storeCurrentSession &&
                           storeCurrentSession.project === s.project &&
