@@ -26,7 +26,8 @@ export interface WorkerSub {
   project: string;
   session: string;
   status: 'active' | 'waiting' | 'permission' | 'unknown';
-  lastUpdate: number;
+  /** REAL last-activity (ms epoch) or null when none is known. */
+  lastUpdate: number | null;
   contextPercent?: number;
 }
 
