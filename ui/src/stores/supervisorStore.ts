@@ -82,6 +82,21 @@ export interface Escalation {
   routedTo?: string;
   /** How many times the steward auto-attempted this escalation (thrash guard). */
   stewardAttempts?: number;
+  /** Orch P2: an inline Grok-suggested action at level `propose` (or null). The
+   *  human confirms/dismisses it on the card; confirm re-validates server-side. */
+  suggestedAction?: SuggestedAction | null;
+}
+
+/** Orch P2: a Grok-suggested action attached inline to an escalation (mirrors the
+ *  server SuggestedAction). verb=null → classify-only (routes attention, no act). */
+export interface SuggestedAction {
+  bucket: 'stale' | 'verified-done' | 'now-buildable' | 'genuine-decision' | 'needs-design';
+  verb: 'reset_todo' | 'override_accept_todo' | null;
+  args?: { proof?: unknown; status?: string } | null;
+  confidence: number;
+  rationale: string;
+  bundleInputs?: Record<string, unknown>;
+  generatedAt?: number;
 }
 
 /** Machine-checkable requirement target (mirrors server RequirementSpec). */
@@ -286,6 +301,11 @@ interface SupervisorState {
   loadEscalations: (serverId: string, status?: string) => Promise<void>;
   resolveEscalation: (serverId: string, id: string, status: string) => Promise<void>;
   decideEscalation: (serverId: string, id: string, optionId: string) => Promise<boolean>;
+  /** Orch P2: confirm an inline Grok suggestion → server re-validates the proof
+   *  gate then applies the verb. Returns the server result message. */
+  confirmSuggestion: (serverId: string, project: string, id: string) => Promise<{ ok: boolean; reason: string }>;
+  /** Orch P2: dismiss an inline Grok suggestion → clears it; escalation stays open. */
+  dismissSuggestion: (serverId: string, project: string, id: string) => Promise<void>;
   nudge: (serverId: string, project: string, session: string, text: string) => Promise<boolean>;
   loadConfig: (serverId: string) => Promise<void>;
   saveConfig: (serverId: string, supervisorProject: string, supervisorSession: string) => Promise<void>;
@@ -590,6 +610,34 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     set((state) => {
       const escalations = state.escalations.map((e) =>
         e.id === id ? { ...e, status, resolvedAt: Date.now() } : e,
+      );
+      localStorage.setItem(ESCALATIONS_KEY, JSON.stringify(escalations));
+      return { escalations };
+    });
+  },
+
+  confirmSuggestion: async (serverId, project, id) => {
+    const res = await invoke(serverId, `/api/orchestrator/escalation/${encodeURIComponent(id)}/confirm-suggestion`, 'POST', { project });
+    const result = (res?.body as { ok?: boolean; reason?: string }) ?? {};
+    const ok = !!result.ok;
+    // On a successful apply the escalation is resolved server-side; either way the
+    // suggestion is cleared. Optimistically reflect that locally.
+    set((state) => {
+      const escalations = state.escalations.map((e) =>
+        e.id === id ? { ...e, suggestedAction: null, ...(ok ? { status: 'resolved', resolvedAt: Date.now() } : { routedTo: 'human' }) } : e,
+      );
+      localStorage.setItem(ESCALATIONS_KEY, JSON.stringify(escalations));
+      return { escalations };
+    });
+    return { ok, reason: result.reason ?? (res?.ok ? 'ok' : 'request-failed') };
+  },
+
+  dismissSuggestion: async (serverId, project, id) => {
+    const res = await invoke(serverId, `/api/orchestrator/escalation/${encodeURIComponent(id)}/dismiss-suggestion`, 'POST', { project });
+    if (!res?.ok) return;
+    set((state) => {
+      const escalations = state.escalations.map((e) =>
+        e.id === id ? { ...e, suggestedAction: null } : e,
       );
       localStorage.setItem(ESCALATIONS_KEY, JSON.stringify(escalations));
       return { escalations };

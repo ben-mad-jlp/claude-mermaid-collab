@@ -17,6 +17,7 @@
 import { getOrchestratorLevel, levelRank, listOrchestratorProjects } from './orchestrator-config.js';
 import { runBuildPass } from './coordinator-live.js';
 import { runReconcilePass } from './reconcile-pass.js';
+import { runTriagePass } from './triage-pass.js';
 import { projectRegistry } from './project-registry.js';
 
 // ---------------------------------------------------------------------------
@@ -36,11 +37,14 @@ let configuredTickMs = 30_000;
 export function passesForLevel(level: ReturnType<typeof getOrchestratorLevel>): {
   build: boolean;
   reconcile: boolean;
+  triage: boolean;
 } {
   const rank = levelRank(level);
   return {
     build: rank >= levelRank('build'),
     reconcile: rank >= levelRank('nudge'),
+    // Orch P2: the Grok 'propose' triage pass runs at level propose and above.
+    triage: rank >= levelRank('propose'),
   };
 }
 
@@ -56,6 +60,7 @@ export interface TickDeps {
   getLevel?: (project: string) => ReturnType<typeof getOrchestratorLevel>;
   build?: (project: string) => Promise<void>;
   reconcile?: (project: string) => Promise<void>;
+  triage?: (project: string) => Promise<void>;
 }
 
 /** One tick: enumerate registered projects and dispatch passes per level. */
@@ -64,6 +69,7 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
   const getLevel = deps.getLevel ?? getOrchestratorLevel;
   const build = deps.build ?? runBuildPass;
   const reconcile = deps.reconcile ?? runReconcilePass;
+  const triage = deps.triage ?? runTriagePass;
 
   let projects: Array<{ path: string }>;
   try {
@@ -99,6 +105,16 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
         await reconcile(project);
       } catch (err) {
         console.warn(`[orchestrator] runReconcilePass failed for ${project}:`, err);
+      }
+    }
+
+    // Triage runs LAST (after reconcile auto-closes the deterministic stale/done
+    // buckets), so Grok only sees escalations the cheap passes couldn't resolve.
+    if (passes.triage) {
+      try {
+        await triage(project);
+      } catch (err) {
+        console.warn(`[orchestrator] runTriagePass failed for ${project}:`, err);
       }
     }
   }

@@ -24,6 +24,7 @@ import {
 
 const buildCalls: string[] = [];
 const reconcileCalls: string[] = [];
+const triageCalls: string[] = [];
 let buildShouldThrow: string | null = null; // project path whose build should throw
 const registeredProjects: Array<{ path: string; name: string; lastAccess: string }> = [];
 const levelOverrides = new Map<string, string>();
@@ -37,6 +38,7 @@ function makeDeps(): TickDeps {
       buildCalls.push(project);
     },
     reconcile: async (project: string) => { reconcileCalls.push(project); },
+    triage: async (project: string) => { triageCalls.push(project); },
   };
 }
 
@@ -47,6 +49,7 @@ function makeDeps(): TickDeps {
 function reset() {
   buildCalls.length = 0;
   reconcileCalls.length = 0;
+  triageCalls.length = 0;
   buildShouldThrow = null;
   registeredProjects.length = 0;
   levelOverrides.clear();
@@ -59,23 +62,23 @@ function reset() {
 
 describe('passesForLevel', () => {
   it('off → no passes', () => {
-    expect(passesForLevel('off')).toEqual({ build: false, reconcile: false });
+    expect(passesForLevel('off')).toEqual({ build: false, reconcile: false, triage: false });
   });
 
   it('build → build only', () => {
-    expect(passesForLevel('build')).toEqual({ build: true, reconcile: false });
+    expect(passesForLevel('build')).toEqual({ build: true, reconcile: false, triage: false });
   });
 
   it('nudge → build + reconcile', () => {
-    expect(passesForLevel('nudge')).toEqual({ build: true, reconcile: true });
+    expect(passesForLevel('nudge')).toEqual({ build: true, reconcile: true, triage: false });
   });
 
-  it('propose → build + reconcile', () => {
-    expect(passesForLevel('propose')).toEqual({ build: true, reconcile: true });
+  it('propose → build + reconcile + triage', () => {
+    expect(passesForLevel('propose')).toEqual({ build: true, reconcile: true, triage: true });
   });
 
-  it('consult → build + reconcile', () => {
-    expect(passesForLevel('consult')).toEqual({ build: true, reconcile: true });
+  it('consult → build + reconcile + triage', () => {
+    expect(passesForLevel('consult')).toEqual({ build: true, reconcile: true, triage: true });
   });
 });
 
@@ -106,7 +109,7 @@ describe('runOrchestratorTick', () => {
     expect(reconcileCalls).toEqual([]);
   });
 
-  it('nudge level: runs build + reconcile', async () => {
+  it('nudge level: runs build + reconcile, NOT triage', async () => {
     registeredProjects.push({ path: '/proj/c', name: 'c', lastAccess: '' });
     levelOverrides.set('/proj/c', 'nudge');
 
@@ -114,6 +117,18 @@ describe('runOrchestratorTick', () => {
 
     expect(buildCalls).toEqual(['/proj/c']);
     expect(reconcileCalls).toEqual(['/proj/c']);
+    expect(triageCalls).toEqual([]);
+  });
+
+  it('propose level: runs build + reconcile + triage', async () => {
+    registeredProjects.push({ path: '/proj/p', name: 'p', lastAccess: '' });
+    levelOverrides.set('/proj/p', 'propose');
+
+    await runOrchestratorTick(makeDeps());
+
+    expect(buildCalls).toEqual(['/proj/p']);
+    expect(reconcileCalls).toEqual(['/proj/p']);
+    expect(triageCalls).toEqual(['/proj/p']);
   });
 
   it('fail-open: a throwing build pass does NOT block other projects', async () => {

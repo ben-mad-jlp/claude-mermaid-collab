@@ -9,6 +9,7 @@
  */
 
 import React from 'react';
+import { OrchestratorLadder } from './OrchestratorLadder';
 
 export interface CommandBarProps {
   liveCount: number;
@@ -45,8 +46,16 @@ export const CommandBar: React.FC<CommandBarProps> = ({
         </span>
       )}
 
+      {/* Per-project Orchestrator level ladder — moved here from the sidebar
+          rows (it crowded the supervisor cards). Scoped to the active project. */}
+      {project && (
+        <div className="ml-auto">
+          <OrchestratorLadder project={project} />
+        </div>
+      )}
+
       {/* Glanceable FLEET pulse — absorbed AlertRibbon. */}
-      <div data-testid="bridge-glance" className="ml-auto flex items-center gap-3 text-xs">
+      <div data-testid="bridge-glance" className={`flex items-center gap-3 text-xs ${project ? '' : 'ml-auto'}`}>
         <span className="flex items-center gap-1 text-gray-600 dark:text-gray-300">
           <span className="text-success-500" aria-hidden="true">●</span>
           {liveCount} live

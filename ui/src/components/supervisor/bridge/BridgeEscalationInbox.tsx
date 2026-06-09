@@ -31,6 +31,8 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
 }) => {
   const decideEscalation = useSupervisorStore((s) => s.decideEscalation);
   const resolveEscalation = useSupervisorStore((s) => s.resolveEscalation);
+  const confirmSuggestion = useSupervisorStore((s) => s.confirmSuggestion);
+  const dismissSuggestion = useSupervisorStore((s) => s.dismissSuggestion);
 
   const open = escalations.filter((e) => e.status === 'open');
 
@@ -152,6 +154,53 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
                 <div className="text-2xs leading-snug text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words">
                   {e.questionText}
                 </div>
+                {/* Orch P2: inline Grok-suggested action (level `propose`). Amber
+                    (one-red discipline: red stays the escalation). verb→Confirm
+                    runs the server proof gate; classify-only just routes attention. */}
+                {e.suggestedAction && (
+                  <div
+                    data-testid="escalation-suggestion"
+                    data-bucket={e.suggestedAction.bucket}
+                    className="mt-1 rounded border border-warning-300 dark:border-warning-700 bg-warning-50/70 dark:bg-warning-900/20 px-1.5 py-1 space-y-1"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-3xs">🤖</span>
+                      <span className="text-3xs font-semibold uppercase tracking-wide text-warning-700 dark:text-warning-300">
+                        {e.suggestedAction.bucket}
+                      </span>
+                      <span className="text-3xs text-gray-400 dark:text-gray-500" title="Grok confidence">
+                        {Math.round((e.suggestedAction.confidence ?? 0) * 100)}%
+                      </span>
+                    </div>
+                    <div className="text-3xs leading-snug text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words">
+                      {e.suggestedAction.rationale}
+                    </div>
+                    <div className="flex items-center gap-1.5 pt-0.5">
+                      {e.suggestedAction.verb ? (
+                        <button
+                          type="button"
+                          data-testid="suggestion-confirm"
+                          onClick={() => void confirmSuggestion(serverScope, e.project, e.id)}
+                          title={`Confirm — server re-validates the proof, then runs ${e.suggestedAction.verb}`}
+                          className="px-1.5 py-0.5 text-3xs font-medium rounded bg-warning-500 text-white hover:bg-warning-600 transition-colors"
+                        >
+                          Confirm {e.suggestedAction.verb}
+                        </button>
+                      ) : (
+                        <span className="text-3xs italic text-gray-500 dark:text-gray-400">classify-only — decide below</span>
+                      )}
+                      <button
+                        type="button"
+                        data-testid="suggestion-dismiss"
+                        onClick={() => void dismissSuggestion(serverScope, e.project, e.id)}
+                        className="px-1.5 py-0.5 text-3xs font-medium rounded bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 transition-colors"
+                        title="Dismiss the suggestion (the escalation stays open)"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {hasOptions ? (
                   <div className="space-y-1 pt-0.5">
                     {e.options!.map((opt, optIdx) => {

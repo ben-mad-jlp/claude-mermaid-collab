@@ -44,6 +44,42 @@ export interface EscalationOption {
   detail?: string;
 }
 
+/** The five triage buckets the Orchestrator 'propose' level classifies into
+ *  (design-unified-orchestrator-daemon §5). */
+export type TriageBucket =
+  | 'stale'
+  | 'verified-done'
+  | 'now-buildable'
+  | 'genuine-decision'
+  | 'needs-design';
+
+/**
+ * Orch P2 (design-orch-p2-propose): a Grok-suggested action attached INLINE to an
+ * open escalation at level `propose`. NOT a separate queue — it lives and dies with
+ * its escalation (no independent lifecycle to GC). The human confirms/dismisses it
+ * on the escalation card; a confirm re-validates `verb`/`args.proof` through the
+ * server proof gate before any mutation (Grok's classification is never trusted as
+ * the act authority). `bundleInputs` records the ground-truth snapshot Grok saw, so
+ * a stale suggestion (todo moved on) is detectable at confirm-time.
+ */
+export interface SuggestedAction {
+  bucket: TriageBucket;
+  /** The steward verb to apply on confirm, or null for a classify-only suggestion
+   *  (genuine-decision / needs-design → no verb; just routes the human's attention). */
+  verb: 'reset_todo' | 'override_accept_todo' | null;
+  /** Args the verb needs — notably the machine-checkable `proof` the gate re-derives. */
+  args: { proof?: unknown; status?: string } | null;
+  /** Grok's self-rated confidence 0..1. */
+  confidence: number;
+  /** One-paragraph rationale shown on the card. */
+  rationale: string;
+  /** The ground-truth inputs Grok was given (git rev, dep snapshot, gate result,
+   *  the todo revision) — provenance so a stale suggestion is detectable. */
+  bundleInputs: Record<string, unknown>;
+  /** When this suggestion was generated (ms) — drives freshness/expiry. */
+  generatedAt: number;
+}
+
 export interface Escalation {
   id: string;
   project: string;
@@ -81,6 +117,9 @@ export interface Escalation {
   /** How many times the steward has auto-attempted this escalation — the thrash
    *  guard (rail 5). Defaults 0. */
   stewardAttempts: number;
+  /** Orch P2: a Grok-suggested inline action (level `propose`), or null. Lives and
+   *  dies with the escalation; the human confirms/dismisses it on the card. */
+  suggestedAction: SuggestedAction | null;
 }
 
 export const ESCALATION_KINDS = [
@@ -143,7 +182,8 @@ CREATE TABLE IF NOT EXISTS escalation (
   routedTo TEXT DEFAULT 'human',
   operatorGated INTEGER DEFAULT 0,
   proof TEXT,
-  stewardAttempts INTEGER DEFAULT 0
+  stewardAttempts INTEGER DEFAULT 0,
+  suggestedActionJson TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_esc_open ON escalation(project, session, questionText, status);
 CREATE TABLE IF NOT EXISTS escalation_decision (
@@ -238,6 +278,9 @@ function openDb(): Database {
   addColumnIfMissing(db, 'escalation', 'operatorGated', 'operatorGated INTEGER DEFAULT 0');
   addColumnIfMissing(db, 'escalation', 'proof', 'proof TEXT');
   addColumnIfMissing(db, 'escalation', 'stewardAttempts', 'stewardAttempts INTEGER DEFAULT 0');
+  // Orch P2: inline Grok-suggested action (level `propose`). Additive, DEFAULT null
+  // so existing open escalations carry no suggestion (no behavioural change).
+  addColumnIfMissing(db, 'escalation', 'suggestedActionJson', 'suggestedActionJson TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS idx_esc_todo ON escalation(project, todoId, status)');
   // Steward role model (design §2): relax the supervisor_identity singleton
   // (id=1 CHECK) to PRIMARY KEY(role). Additive rebuild that backfills the
@@ -375,7 +418,7 @@ export function isSupervised(project: string, session: string): boolean {
 
 /** Raw DB row shape: structured options live in a JSON column (`optionsJson`),
  *  parsed into `options` by mapEscalationRow before crossing the store boundary. */
-type EscalationRow = Omit<Escalation, 'options' | 'ui'> & { optionsJson: string | null; uiJson: string | null };
+type EscalationRow = Omit<Escalation, 'options' | 'ui' | 'suggestedAction'> & { optionsJson: string | null; uiJson: string | null; suggestedActionJson: string | null };
 
 /** Parse a stored ui blob, re-validating against the closed catalog (defensive). */
 function parseUi(json: string | null): JsonRenderSpec | null {
@@ -401,10 +444,41 @@ function parseOptions(json: string | null): EscalationOption[] | null {
   }
 }
 
+/** Parse a stored suggestedAction blob, tolerating null/garbage. Validates the
+ *  minimal shape (bucket + verb domain) so a corrupt row degrades to null rather
+ *  than surfacing a malformed card. */
+function parseSuggestedAction(json: string | null): SuggestedAction | null {
+  if (!json) return null;
+  try {
+    const p = JSON.parse(json);
+    if (!p || typeof p !== 'object') return null;
+    const buckets = ['stale', 'verified-done', 'now-buildable', 'genuine-decision', 'needs-design'];
+    if (!buckets.includes(p.bucket)) return null;
+    const verb = p.verb === 'reset_todo' || p.verb === 'override_accept_todo' ? p.verb : null;
+    return {
+      bucket: p.bucket,
+      verb,
+      args: p.args && typeof p.args === 'object' ? p.args : null,
+      confidence: typeof p.confidence === 'number' ? p.confidence : 0,
+      rationale: typeof p.rationale === 'string' ? p.rationale : '',
+      bundleInputs: p.bundleInputs && typeof p.bundleInputs === 'object' ? p.bundleInputs : {},
+      generatedAt: typeof p.generatedAt === 'number' ? p.generatedAt : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Map a raw DB row to the public Escalation shape (optionsJson → options[]). */
 function mapEscalationRow(row: EscalationRow): Escalation {
-  const { optionsJson, uiJson, ...rest } = row;
-  return { ...rest, options: parseOptions(optionsJson), recommended: row.recommended ?? null, ui: parseUi(uiJson) };
+  const { optionsJson, uiJson, suggestedActionJson, ...rest } = row;
+  return {
+    ...rest,
+    options: parseOptions(optionsJson),
+    recommended: row.recommended ?? null,
+    ui: parseUi(uiJson),
+    suggestedAction: parseSuggestedAction(suggestedActionJson),
+  };
 }
 
 /**
@@ -634,8 +708,8 @@ export function createEscalation(input: {
   const operatorGated = input.operatorGated ? 1 : 0;
   const routedTo = routeEscalation(input.kind, operatorGated === 1);
   d.prepare(
-    'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, resolvedAt, serverId, todoId, optionsJson, recommended, uiJson, routedTo, operatorGated, proof, stewardAttempts) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
-  ).run(id, input.project, input.session, input.kind, input.questionText, 'open', createdAt, null, serverId, todoId, optionsJson, recommended, uiJson, routedTo, operatorGated, null, 0);
+    'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, resolvedAt, serverId, todoId, optionsJson, recommended, uiJson, routedTo, operatorGated, proof, stewardAttempts, suggestedActionJson) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+  ).run(id, input.project, input.session, input.kind, input.questionText, 'open', createdAt, null, serverId, todoId, optionsJson, recommended, uiJson, routedTo, operatorGated, null, 0, null);
   return {
     escalation: {
       id,
@@ -655,9 +729,23 @@ export function createEscalation(input: {
       operatorGated,
       proof: null,
       stewardAttempts: 0,
+      suggestedAction: null,
     },
     isNew: true,
   };
+}
+
+/**
+ * Orch P2: attach (or clear, with null) a Grok-suggested inline action on an open
+ * escalation. Idempotent overwrite — the triage pass writes the latest suggestion;
+ * confirm/dismiss clears it (null). Stored as JSON in suggestedActionJson.
+ */
+export function setEscalationSuggestion(id: string, suggestion: SuggestedAction | null): void {
+  const d = openDb();
+  d.prepare('UPDATE escalation SET suggestedActionJson = ? WHERE id = ?').run(
+    suggestion ? JSON.stringify(suggestion) : null,
+    id,
+  );
 }
 
 export function listEscalations(status?: string): Escalation[] {

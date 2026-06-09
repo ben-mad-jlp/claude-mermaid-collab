@@ -4,6 +4,7 @@ import {
   ORCH_LEVELS,
   type OrchestratorLevel,
 } from '../services/orchestrator-config.ts';
+import { confirmSuggestion, dismissSuggestion } from '../services/triage-execute.ts';
 
 function jsonError(message: string, status: number): Response {
   return Response.json({ error: message }, { status });
@@ -29,6 +30,37 @@ export async function handleOrchestratorRoutes(req: Request, url: URL): Promise<
       }
       setOrchestratorLevel(project, level as OrchestratorLevel);
       return Response.json({ project, level: level as OrchestratorLevel });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // POST /api/orchestrator/escalation/:id/confirm-suggestion { project }
+  // Confirm the inline Grok suggestion: re-validate its proof through the server
+  // proof gate, then apply the verb. NEVER mutates without a re-derived proof.
+  const confirmMatch = url.pathname.match(/^\/api\/orchestrator\/escalation\/([^/]+)\/confirm-suggestion$/);
+  if (confirmMatch && req.method === 'POST') {
+    try {
+      const id = decodeURIComponent(confirmMatch[1]);
+      const { project } = (await req.json()) as { project?: string };
+      if (!project) return jsonError('project is required', 400);
+      const result = await confirmSuggestion(project, id);
+      return Response.json(result, { status: result.ok ? 200 : 409 });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // POST /api/orchestrator/escalation/:id/dismiss-suggestion { project }
+  // Clear the inline suggestion; the escalation stays open for the human.
+  const dismissMatch = url.pathname.match(/^\/api\/orchestrator\/escalation\/([^/]+)\/dismiss-suggestion$/);
+  if (dismissMatch && req.method === 'POST') {
+    try {
+      const id = decodeURIComponent(dismissMatch[1]);
+      const { project } = (await req.json()) as { project?: string };
+      if (!project) return jsonError('project is required', 400);
+      const result = dismissSuggestion(project, id);
+      return Response.json(result, { status: result.ok ? 200 : 409 });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }
