@@ -158,17 +158,18 @@ export function packBundle(project: string, esc: Escalation, deps: TriageDeps = 
 const SYSTEM_PROMPT = `You are a triage classifier for a software work-orchestration daemon. An autonomous worker raised an ESCALATION (a blocker/question it could not resolve). Classify it into EXACTLY ONE bucket, reading ONLY the ground-truth bundle provided. Do not invent facts.
 
 Buckets:
-- "now-buildable": the escalation is unblocked NOW — every dependency the linked todo names is done/accepted in the store. The todo can simply be re-promoted. This is the only bucket that triggers an automatic action (the server re-verifies deps-all-done before acting).
-- "verified-done": the work appears already complete (merged / artifact present) but the todo/escalation is still open. Needs a human to confirm an override-accept.
+- "now-buildable": the escalation is unblocked NOW — every dependency the linked todo names is done/accepted in the store. The todo can simply be re-promoted. The server re-verifies deps-all-done before acting.
+- "verified-done": the work appears already complete (the deliverable is present in-tree) but the todo/escalation is still open — the gate likely false-rejected it. If you can name the deliverable (a file path it created OR a unique symbol/identifier it added), include it as "artifact" so the server can re-verify presence AND that the tree compiles before override-accepting.
 - "stale": the escalation no longer matters (superseded, abandoned, the worker is long gone).
 - "genuine-decision": a real product/design A·B choice only a human should make.
 - "needs-design": blocked on a missing design/spec; a human must land it.
 
 Rules:
-- Prefer the conservative bucket. When unsure between now-buildable and anything else, do NOT pick now-buildable.
-- Only "now-buildable" leads to an automatic act; everything else just routes a human's attention. So a wrong now-buildable is the costliest error — require the bundle's deps to ALL be done/accepted before choosing it.
+- Prefer the conservative bucket. When unsure between an actionable bucket (now-buildable / verified-done) and anything else, do NOT pick the actionable one.
+- "now-buildable" and "verified-done" lead to an automatic act (the server re-derives the proof first); the rest just route a human's attention. A wrong actionable classification is the costliest error — require the bundle to actually support it (deps all done; or the deliverable clearly already produced).
+- For "verified-done", include "artifact" only when the bundle gives you a concrete file path or unique symbol; otherwise omit it (the escalation will just route a human's attention).
 - Respond with ONLY a JSON object, no prose, no code fence:
-  {"bucket": "<one bucket>", "confidence": <0..1>, "rationale": "<one sentence>"}`;
+  {"bucket": "<one bucket>", "confidence": <0..1>, "rationale": "<one sentence>", "artifact": "<optional file path or symbol for verified-done>"}`;
 
 function buildUserPrompt(bundle: TriageBundle): string {
   return `Ground-truth bundle (JSON):\n${JSON.stringify(bundle, null, 2)}\n\nClassify the escalation. Respond with only the JSON object.`;
@@ -182,6 +183,8 @@ interface GrokVerdict {
   bucket: TriageBucket;
   confidence: number;
   rationale: string;
+  /** For verified-done: a file path or unique symbol naming the deliverable. */
+  artifact?: string;
 }
 
 /** Parse Grok's reply into a verdict, tolerating a code fence / surrounding prose.
@@ -196,21 +199,40 @@ export function parseVerdict(raw: string): GrokVerdict | null {
     if (!BUCKETS.includes(p.bucket)) return null;
     const confidence = typeof p.confidence === 'number' ? Math.max(0, Math.min(1, p.confidence)) : 0;
     const rationale = typeof p.rationale === 'string' ? p.rationale : '';
-    return { bucket: p.bucket, confidence, rationale };
+    const artifact = typeof p.artifact === 'string' && p.artifact.trim() ? p.artifact.trim() : undefined;
+    return { bucket: p.bucket, confidence, rationale, artifact };
   } catch {
     return null;
   }
 }
 
+/** Heuristic: an artifact string is a file PATH (has a dot-extension or a slash)
+ *  vs a code SYMBOL. Decides which override-clean field to populate (both are
+ *  re-derived server-side: fileExists vs git grep). */
+function isPathLike(artifact: string): boolean {
+  return artifact.includes('/') || /\.[a-zA-Z0-9]+$/.test(artifact);
+}
+
 /**
  * Deterministically derive the verb + proof from the bucket. Grok NEVER formats a
  * proof — the daemon owns this map so the act is auditable + the gate re-derives.
- * Only now-buildable yields an actionable verb; override automation is deferred.
+ *  - now-buildable → reset_todo + {dep-done} (gate re-derives deps from the store).
+ *  - verified-done + a named artifact → override_accept_todo + {override-clean}
+ *    (gate re-derives artifact presence AND tsc-clean; no change-set needed).
+ *  - everything else → classify-only (no verb).
  */
-export function deriveAct(bucket: TriageBucket): { verb: SuggestedAction['verb']; args: SuggestedAction['args'] } {
+export function deriveAct(
+  bucket: TriageBucket,
+  artifact?: string,
+): { verb: SuggestedAction['verb']; args: SuggestedAction['args'] } {
   if (bucket === 'now-buildable') {
-    // reset_todo to 'ready'; the proof gate re-derives dep-done from the store.
     return { verb: 'reset_todo', args: { proof: { kind: 'dep-done' }, status: 'ready' } };
+  }
+  if (bucket === 'verified-done' && artifact) {
+    const proof = isPathLike(artifact)
+      ? { kind: 'override-clean', artifactPath: artifact }
+      : { kind: 'override-clean', artifactSymbol: artifact };
+    return { verb: 'override_accept_todo', args: { proof } };
   }
   return { verb: null, args: null };
 }
@@ -222,6 +244,10 @@ export function deriveAct(bucket: TriageBucket): { verb: SuggestedAction['verb']
 /** Confidence below which a now-buildable suggestion is downgraded to classify-only
  *  (fail-open: we never propose an auto-act we're not confident about). */
 export const NOW_BUILDABLE_MIN_CONFIDENCE = 0.7;
+
+/** override_accept is the scary verb — hold its auto-proposal to a higher bar than
+ *  reset_todo. Below this, verified-done downgrades to classify-only (human decides). */
+export const OVERRIDE_MIN_CONFIDENCE = 0.85;
 
 /**
  * Classify one escalation into a SuggestedAction (or null when nothing useful to
@@ -248,10 +274,15 @@ export async function classifyEscalation(
   const verdict = parseVerdict(raw);
   if (!verdict) return null;
 
-  let { verb, args } = deriveAct(verdict.bucket);
-  // Confidence guard: a low-confidence now-buildable is downgraded to classify-only
-  // so we never propose an auto-act on a shaky classification.
+  let { verb, args } = deriveAct(verdict.bucket, verdict.artifact);
+  // Confidence guard: a low-confidence auto-act is downgraded to classify-only so we
+  // never propose an act on a shaky classification. override_accept (the scary verb)
+  // is held to a higher bar than reset_todo.
   if (verb === 'reset_todo' && verdict.confidence < NOW_BUILDABLE_MIN_CONFIDENCE) {
+    verb = null;
+    args = null;
+  }
+  if (verb === 'override_accept_todo' && verdict.confidence < OVERRIDE_MIN_CONFIDENCE) {
     verb = null;
     args = null;
   }

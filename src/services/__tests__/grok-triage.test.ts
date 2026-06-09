@@ -11,6 +11,7 @@ import {
   deriveAct,
   classifyEscalation,
   NOW_BUILDABLE_MIN_CONFIDENCE,
+  OVERRIDE_MIN_CONFIDENCE,
   type TriageDeps,
 } from '../grok-triage';
 import type { Escalation } from '../supervisor-store';
@@ -90,8 +91,24 @@ describe('deriveAct', () => {
     });
   });
 
-  it('every other bucket → classify-only (no verb)', () => {
-    for (const b of ['stale', 'verified-done', 'genuine-decision', 'needs-design'] as const) {
+  it('verified-done WITH an artifact → override_accept_todo + override-clean proof', () => {
+    expect(deriveAct('verified-done', 'src/foo.ts')).toEqual({
+      verb: 'override_accept_todo',
+      args: { proof: { kind: 'override-clean', artifactPath: 'src/foo.ts' } },
+    });
+    // A bare symbol (no slash/extension) → artifactSymbol.
+    expect(deriveAct('verified-done', 'MyExportedThing')).toEqual({
+      verb: 'override_accept_todo',
+      args: { proof: { kind: 'override-clean', artifactSymbol: 'MyExportedThing' } },
+    });
+  });
+
+  it('verified-done WITHOUT an artifact → classify-only', () => {
+    expect(deriveAct('verified-done')).toEqual({ verb: null, args: null });
+  });
+
+  it('every non-actionable bucket → classify-only (no verb)', () => {
+    for (const b of ['stale', 'genuine-decision', 'needs-design'] as const) {
       expect(deriveAct(b)).toEqual({ verb: null, args: null });
     }
   });
@@ -116,6 +133,24 @@ describe('classifyEscalation', () => {
     ));
     expect(s?.bucket).toBe('now-buildable');
     expect(s?.verb).toBeNull(); // downgraded
+  });
+
+  it('verified-done WITH artifact + high confidence → override_accept_todo suggestion', async () => {
+    const s = await classifyEscalation('/p', esc(), depsWith(
+      '{"bucket":"verified-done","confidence":0.95,"rationale":"deliverable in tree","artifact":"src/foo.ts"}',
+    ));
+    expect(s?.bucket).toBe('verified-done');
+    expect(s?.verb).toBe('override_accept_todo');
+    expect(s?.args).toEqual({ proof: { kind: 'override-clean', artifactPath: 'src/foo.ts' } });
+  });
+
+  it('verified-done below the OVERRIDE bar → downgraded to classify-only', async () => {
+    const low = OVERRIDE_MIN_CONFIDENCE - 0.05;
+    const s = await classifyEscalation('/p', esc(), depsWith(
+      `{"bucket":"verified-done","confidence":${low},"rationale":"maybe","artifact":"src/foo.ts"}`,
+    ));
+    expect(s?.bucket).toBe('verified-done');
+    expect(s?.verb).toBeNull(); // override is the scary verb — held to a higher bar
   });
 
   it('genuine-decision → classify-only, routes attention', async () => {

@@ -31,7 +31,12 @@ export type StewardProof =
   | { kind: 'tsc-clean' }
   | { kind: 'grep'; symbol: string; present: boolean }
   | { kind: 'dep-done' }
-  | { kind: 'override'; artifactPath?: string; artifactSymbol?: string; foreignErrorFiles: string[] };
+  | { kind: 'override'; artifactPath?: string; artifactSymbol?: string; foreignErrorFiles: string[] }
+  // override-clean (Orch P2): the SAFE auto-derivable override — the deliverable is
+  // provably in-tree AND the whole tree compiles (tsc clean). If the tree is green
+  // NOW, the gate's original rejection was spurious/stale, so accepting is safe.
+  // No change-set needed (unlike `override`), so the daemon can re-derive it fully.
+  | { kind: 'override-clean'; artifactPath?: string; artifactSymbol?: string };
 
 /** Minimal dependency view the gate reads from the store (never from the proof). */
 export interface DepView {
@@ -138,6 +143,17 @@ export function validateStewardProof(
       default:
         return { ok: false, reason: 'wrong-proof-for-verb' };
     }
+  }
+
+  // override-clean: the SAFE auto-derivable override (Orch P2). Passes iff the
+  // deliverable is provably in-tree AND `tsc` is clean — a green tree means the
+  // original gate rejection was spurious. No foreign-error / change-set needed.
+  if (proof.kind === 'override-clean') {
+    const present =
+      (proof.artifactPath ? r.fileExists(ctx.project, proof.artifactPath) : false) ||
+      (proof.artifactSymbol ? r.grepPresent(ctx.project, proof.artifactSymbol) : false);
+    if (!present) return { ok: false, reason: 'override-no-in-tree-artifact' };
+    return r.tscClean(ctx.project) ? { ok: true, reason: 'ok' } : { ok: false, reason: 'tsc-failed' };
   }
 
   // override_accept_todo — DEFAULT DEFER; auto only with DUAL proof.

@@ -77,6 +77,28 @@ describe('validateStewardProof — the keystone rail (server re-derives, never t
     const c = ctx({ runners: { fileExists: () => true }, changeSetFiles: ['mine.ts'] });
     expect(validateStewardProof('override_accept_todo', { kind: 'override', artifactPath: 'mine.ts', foreignErrorFiles: ['sibling.ts'] }, c).ok).toBe(true);
   });
+
+  // override-clean (Orch P2): the safe auto-derivable override — artifact present
+  // AND tsc clean, NO change-set/foreign-error needed.
+  it('override-clean passes when the deliverable is in-tree AND tsc is clean', () => {
+    const c = ctx({ runners: { fileExists: () => true, tscClean: () => true } });
+    expect(validateStewardProof('override_accept_todo', { kind: 'override-clean', artifactPath: 'a.ts' }, c).ok).toBe(true);
+  });
+
+  it('override-clean by symbol re-derives presence via grep', () => {
+    const c = ctx({ runners: { grepPresent: () => true, tscClean: () => true } });
+    expect(validateStewardProof('override_accept_todo', { kind: 'override-clean', artifactSymbol: 'MyThing' }, c).ok).toBe(true);
+  });
+
+  it('override-clean rejects when the deliverable is NOT in-tree', () => {
+    const c = ctx({ runners: { fileExists: () => false, grepPresent: () => false, tscClean: () => true } });
+    expect(validateStewardProof('override_accept_todo', { kind: 'override-clean', artifactPath: 'missing.ts' }, c)).toEqual({ ok: false, reason: 'override-no-in-tree-artifact' });
+  });
+
+  it('override-clean rejects when tsc is DIRTY (the tree is not actually green)', () => {
+    const c = ctx({ runners: { fileExists: () => true, tscClean: () => false } });
+    expect(validateStewardProof('override_accept_todo', { kind: 'override-clean', artifactPath: 'a.ts' }, c)).toEqual({ ok: false, reason: 'tsc-failed' });
+  });
 });
 
 describe('isOverrideRateLimited (the scary-verb cap)', () => {
