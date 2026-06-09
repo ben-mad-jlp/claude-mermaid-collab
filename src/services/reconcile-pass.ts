@@ -11,9 +11,10 @@
  *      (module-level Map, 5-minute cooldown).
  *   2. STALE ESCALATIONS: Auto-close open escalations whose age exceeds
  *      SUPERVISOR_STALE_AFTER_MS.
- *   3. VERIFIED-DONE: TODO (Phase 2) — auto-close escalations that are
- *      verified-done (todo terminal, escalation still open). Not implemented yet;
- *      requires a deterministic proof gate. Left as a placeholder.
+ *   3. VERIFIED-DONE: auto-close open escalations whose linked todo has
+ *      terminally settled out-of-band (done+accepted → verified-done, or
+ *      dropped → moot). Deterministic proof gate; a done-but-unaccepted todo is
+ *      left alone.
  *
  * Pure deterministic — NO LLM/Grok calls. Fail-open: per-session errors never
  * abort the full pass.
@@ -23,11 +24,12 @@ import {
   listSupervised,
   listOpenEscalations,
   resolveEscalation,
+  getEscalation,
   recordSupervisorAudit,
   SUPERVISOR_STALE_AFTER_MS,
   getSupervisedLaunchProject,
 } from './supervisor-store.ts';
-import { listTodos, sweepEpicRollups } from './todo-store.ts';
+import { listTodos, getTodo, sweepEpicRollups } from './todo-store.ts';
 import { sendTmuxKeys } from './tmux-send.ts';
 import { getStatus } from './session-status-store.ts';
 import { deriveLiveness } from './session-runtime.ts';
@@ -196,12 +198,56 @@ export async function runReconcilePass(project: string): Promise<void> {
   }
 
   // -------------------------------------------------------------------------
-  // 4. VERIFIED-DONE (Phase 2 — NOT YET IMPLEMENTED)
+  // 4. VERIFIED-DONE: auto-close open escalations whose linked todo has
+  //    terminally settled out-of-band.
   //
-  // TODO(Phase 2): For each open escalation whose linked todoId is in a
-  // terminal state (done / dropped / accepted), auto-close with status
-  // 'resolved' and record a 'reconcile' audit. This requires a deterministic
-  // proof gate (the escalation must carry a valid proof string referencing the
-  // completed todo) before auto-closure is safe. Deferred to Phase 2.
+  // An escalation carries a `todoId` link (escalations filed by the coordinator
+  // / worker reference the todo they blocked on). The event path
+  // (resolveEscalationsForTodo, fired from completeTodo) closes these the moment
+  // the todo completes through that path — but a todo that settled out-of-band
+  // (legacy completion, bulk edit, cross-session, or a drop) never fires that
+  // event, stranding its escalation open forever. This sweep is the periodic
+  // catch-up.
+  //
+  // The deterministic proof gate (no LLM): the linked todo must be in a terminal
+  // state that makes the escalation moot —
+  //   • done + acceptanceStatus==='accepted'  → gate-verified-done (work passed
+  //       the mechanical gate; any blocker on it is resolved).
+  //   • dropped                                → work abandoned; the blocker is moot.
+  // A todo that is done but NOT accepted (pending/rejected) is deliberately left
+  // alone: the work has not passed the gate, so its escalation may still be live.
   // -------------------------------------------------------------------------
+  for (const esc of openEscalations) {
+    try {
+      if (!esc.todoId) continue;
+      // The openEscalations snapshot predates the stale-close loop above; skip
+      // any escalation it already closed so we don't clobber its 'stale' status.
+      if (getEscalation(esc.id)?.status !== 'open') continue;
+      const todo = getTodo(project, esc.todoId);
+      if (!todo) continue;
+
+      const verifiedDone = todo.status === 'done' && todo.acceptanceStatus === 'accepted';
+      const dropped = todo.status === 'dropped';
+      if (!verifiedDone && !dropped) continue;
+
+      resolveEscalation(esc.id, 'resolved');
+
+      recordSupervisorAudit({
+        kind: 'reconcile',
+        project,
+        session: esc.session,
+        detail: JSON.stringify({
+          source: 'reconcile-pass',
+          escalationId: esc.id,
+          todoId: esc.todoId,
+          reason: verifiedDone ? 'verified-done' : 'todo-dropped',
+        }),
+      });
+    } catch (err) {
+      console.warn(
+        `[reconcile-pass] verified-done close failed for ${esc.id}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
 }
