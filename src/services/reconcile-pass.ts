@@ -27,7 +27,7 @@ import {
   SUPERVISOR_STALE_AFTER_MS,
   getSupervisedLaunchProject,
 } from './supervisor-store.ts';
-import { listTodos } from './todo-store.ts';
+import { listTodos, sweepEpicRollups } from './todo-store.ts';
 import { sendTmuxKeys } from './tmux-send.ts';
 import { getStatus } from './session-status-store.ts';
 import { deriveLiveness } from './session-runtime.ts';
@@ -160,7 +160,43 @@ export async function runReconcilePass(project: string): Promise<void> {
   }
 
   // -------------------------------------------------------------------------
-  // 3. VERIFIED-DONE (Phase 2 — NOT YET IMPLEMENTED)
+  // 3. EPIC-ROLLUP SWEEP: close epics whose children all settled out-of-band.
+  //
+  // The event-driven rollup in completeTodo only fires when a child completes
+  // through that path. An epic whose children settled outside it (legacy
+  // completions, bulk edits, cross-session) stays in_progress forever. This
+  // sweep is the periodic catch-up: roll up epics whose non-dropped children are
+  // ALL done+accepted; leave (and flag) epics with done-but-unaccepted children
+  // so ungated work is never silently closed. It raises NO escalations or land
+  // cards — the 'epic-ready-to-land' surface stays on the event path only.
+  // -------------------------------------------------------------------------
+  try {
+    const { rolledUp, flagged } = await sweepEpicRollups(project);
+    for (const epicId of rolledUp) {
+      recordSupervisorAudit({
+        kind: 'reconcile',
+        project,
+        session: 'coordinator',
+        detail: JSON.stringify({ source: 'reconcile-pass', epicId, rolledUp: true, reason: 'epic-children-all-done-accepted' }),
+      });
+    }
+    for (const f of flagged) {
+      recordSupervisorAudit({
+        kind: 'reconcile',
+        project,
+        session: 'coordinator',
+        detail: JSON.stringify({ source: 'reconcile-pass', epicId: f.epicId, flag: 'epic-all-done-but-unaccepted', children: f.children, unaccepted: f.unaccepted }),
+      });
+    }
+  } catch (err) {
+    console.warn(
+      `[reconcile-pass] epic-rollup sweep failed for ${project}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // 4. VERIFIED-DONE (Phase 2 — NOT YET IMPLEMENTED)
   //
   // TODO(Phase 2): For each open escalation whose linked todoId is in a
   // terminal state (done / dropped / accepted), auto-close with status
