@@ -50,20 +50,26 @@ export const CTX_WARN = 80;
 
 export interface LivenessInput {
   status: 'active' | 'waiting' | 'permission' | 'unknown';
-  lastUpdate: number;
+  /**
+   * REAL last-activity (ms epoch) or null when none is known. Null is NOT a
+   * staleness signal — without a real timestamp we cannot judge a worker stale,
+   * so a null-timestamp lane is never marked `crashed` from a fabricated clock.
+   */
+  lastUpdate: number | null;
 }
 
 /**
  * Derive a session's liveness. A stale session that still holds a todo reads as
  * `crashed` (the dangerous case); a fresh `active` subscription is `active`;
- * everything else is `idle`.
+ * everything else is `idle`. A lane with no real timestamp (lastUpdate null)
+ * can't be judged stale, so it never reads as crashed.
  */
 export function deriveLiveness(
   sub: LivenessInput,
   currentTodo: SessionTodo | null,
   now: number,
 ): Liveness {
-  const stale = now - sub.lastUpdate > CRASH_MS;
+  const stale = sub.lastUpdate != null && now - sub.lastUpdate > CRASH_MS;
   if (stale && currentTodo) return 'crashed';
   if (sub.status === 'active') return 'active';
   return 'idle';

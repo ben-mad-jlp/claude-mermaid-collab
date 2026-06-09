@@ -34,6 +34,7 @@ import {
 } from '../services/todo-store';
 import { recordStatus, getStatuses, getStatus, recordContextPercent, type ClaudeStatus } from '../services/session-status-store';
 import { listSessionRuntimes } from '../services/session-runtime';
+import { getFleetStatus } from '../services/fleet-status';
 import { isSupervised, getSupervisorIdentity, getSupervisedLaunchProject, addWatchedProject, removeWatchedProject } from '../services/supervisor-store.ts';
 import { sendTmuxKeys } from '../services/tmux-send.ts';
 import { lastAssistantTurn } from '../services/transcript-reader.ts';
@@ -2555,6 +2556,19 @@ export async function handleAPI(
       return Response.json({ error: 'project required' }, { status: 400 });
     }
     return Response.json({ runtimes: listSessionRuntimes(project) });
+  }
+
+  // GET /api/fleet?project=
+  // Live fleet read-model: per in-progress lane, its worker, derived WorkerState
+  // from REAL tmux liveness (not session-status age) + a stable lastActivity for
+  // the card timer. The Bridge worker roster consumes this so a live-but-idle
+  // worker reads as PRESENT and each timer reflects its own real activity.
+  if (path === '/api/fleet' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) {
+      return Response.json({ error: 'project required' }, { status: 400 });
+    }
+    return Response.json(getFleetStatus(project));
   }
 
   // GET /api/transcript/last-turn?claudeSessionId=  (peer-callable)

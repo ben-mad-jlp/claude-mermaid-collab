@@ -23,8 +23,21 @@ interface SubLike {
   project: string;
   session: string;
   status: 'active' | 'waiting' | 'permission' | 'unknown';
-  lastUpdate: number;
+  /** REAL last-activity (ms epoch) or null when none is known → timer shows '—'. */
+  lastUpdate: number | null;
   contextPercent?: number;
+}
+
+/** Compact "time since last real activity" — '—' when there is no real timestamp
+ *  (never a value derived from render time). */
+function formatLastActivity(lastUpdate: number | null, now: number): string {
+  if (lastUpdate == null || now === 0) return '—';
+  const secs = Math.max(0, Math.round((now - lastUpdate) / 1000));
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  return hrs < 24 ? `${hrs}h` : `${Math.floor(hrs / 24)}d`;
 }
 
 export interface WorkerRosterProps {
@@ -107,7 +120,9 @@ export const WorkerRoster: React.FC<WorkerRosterProps> = ({ subscriptions, todos
                 onClick={() => onJump?.(sub.project, sub.session)}
                 data-testid={`roster-row-${sub.session}`}
                 title="Dive into this session's Studio"
-                className="w-full flex items-start gap-2 px-3 py-2 text-left text-xs hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors"
+                className={`w-full flex items-start gap-2 px-3 py-2 text-left text-xs hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors ${
+                  liveness === 'active' ? '' : 'opacity-60'
+                }`}
               >
                 <span className={`shrink-0 mt-1 w-2 h-2 rounded-full ${statusDot(sub.status, liveness === 'crashed')}`} aria-hidden="true" />
                 <span className="shrink-0" aria-hidden="true">{roleGlyph(sub.session)}</span>
@@ -116,6 +131,13 @@ export const WorkerRoster: React.FC<WorkerRosterProps> = ({ subscriptions, todos
                 </span>
                 <span className="flex-1 min-w-0 text-gray-500 dark:text-gray-400 line-clamp-2 leading-snug">
                   {currentTodo ? currentTodo.title : liveness === 'crashed' ? 'unresponsive' : statusLabel(sub.status)}
+                </span>
+                <span
+                  data-testid={`roster-timer-${sub.session}`}
+                  title="Time since this worker's last real activity"
+                  className="shrink-0 tabular-nums text-gray-400 dark:text-gray-500"
+                >
+                  {formatLastActivity(sub.lastUpdate, now)}
                 </span>
                 {typeof sub.contextPercent === 'number' && (
                   <span className="shrink-0 flex items-center gap-1">

@@ -24,6 +24,7 @@ import { SplitDeck } from './SplitDeck';
 import { CommandBar } from './CommandBar';
 import { isOrchestratorSession } from '@/lib/liveness';
 import { useSessionStatuses } from '@/hooks/useSessionStatuses';
+import { useFleetStatus, type FleetWorkerState } from '@/hooks/useFleetStatus';
 import { NeedsYouZone } from './NeedsYouZone';
 import { RequirementsInbox } from './RequirementsInbox';
 import { HumanInbox } from '@/components/todos/HumanInbox';
@@ -153,38 +154,82 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
   );
   // Workers roster source: the project's SUPERVISED sessions (same source as the
   // left tree) — NOT the live `subscriptions` Watching feed, which doesn't include
-  // coordinator-spawned worker sessions (so they never showed). Merge in
-  // subscription liveness (status/context) when a matching subscription exists.
-  // Orchestrator/role sessions (supervisor/steward/planner) drive the work-graph —
-  // not workers — so they're excluded.
+  // coordinator-spawned worker sessions (so they never showed).
+  //
+  // LIVENESS + the card timer come from the fleet read-model (/api/fleet →
+  // WorkerState derived from REAL tmux, plus a stable per-lane lastActivity), NOT
+  // from session-status age. This is the root fix for two coupled bugs (todo
+  // caae8574): (1) coordinator-spawned workers that aren't in the Watching feed and
+  // have no session-status row read as 'no workers'; (2) every timestamp-less card
+  // was re-stamped to `now` on each 2s poll, so ALL timers reset in lockstep.
+  // We NEVER fabricate a render-time timestamp here — a lane with no real
+  // lastActivity carries `lastUpdate: null` (the roster shows '—').
+  //
+  // Per decision 5d54e01e (ANY-ALIVE-IS-PRESENT): working → bright, idle → dimmed
+  // but listed, dead_shell/no_tmux → hidden. Orchestrator/role sessions
+  // (supervisor/steward/planner) drive the work-graph, not workers — excluded.
   const sessionStatuses = useSessionStatuses(serverScope, project || undefined);
+  const fleet = useFleetStatus(serverScope, project || undefined);
   const workerSubs = useMemo(() => {
     const subBySession = new Map(projectSubs.map((s) => [s.session, s]));
+    // fleet WorkerState → the roster's coarse status. dead_shell/no_tmux map to a
+    // 'dead' sentinel that the filter below drops (hidden, per 5d54e01e).
+    const fleetToStatus = (st: FleetWorkerState): 'active' | 'waiting' | 'permission' | 'unknown' | 'dead' => {
+      switch (st) {
+        case 'working': return 'active';
+        case 'idle': return 'waiting';
+        case 'permission': return 'permission';
+        case 'dead_shell':
+        case 'no_tmux': return 'dead';
+        default: return 'unknown';
+      }
+    };
     const fromSupervised = supervised
       .filter((s) => s.project === project && !isOrchestratorSession(s.session))
       .map((s) => {
-        // Prefer the live Watching subscription; fall back to the polled
-        // session-status (gives coordinator-spawned workers real liveness).
         const live = subBySession.get(s.session);
-        const polled = sessionStatuses[`${project}:${s.session}`];
+        const entry = fleet[s.session];
+        // Prefer REAL tmux liveness (fleet); else the live Watching subscription;
+        // else the polled session-status. lastUpdate is the REAL lastActivity
+        // (fleet) or a real heartbeat — never a fabricated `Date.now()`.
+        const status = entry
+          ? fleetToStatus(entry.state)
+          : ((live?.status ?? sessionStatuses[`${project}:${s.session}`]?.status ?? 'unknown') as 'active' | 'waiting' | 'permission' | 'unknown' | 'dead');
+        const lastUpdate: number | null = entry
+          ? entry.lastActivity
+          : live?.lastUpdate ?? sessionStatuses[`${project}:${s.session}`]?.updatedAt ?? null;
         return {
           serverId: live?.serverId ?? s.serverId ?? serverScope,
           project,
           session: s.session,
-          status: (live?.status ?? polled?.status ?? 'unknown') as 'active' | 'waiting' | 'permission' | 'unknown',
-          lastUpdate: live?.lastUpdate ?? polled?.updatedAt ?? Date.now(),
+          status,
+          lastUpdate,
           contextPercent: live?.contextPercent,
         };
       });
     // Include any live subscription for this project not in the supervised set
     // (a manually-watched worker), still excluding orchestrators.
     const known = new Set(fromSupervised.map((s) => s.session));
-    const extra = projectSubs.filter((s) => !isOrchestratorSession(s.session) && !known.has(s.session));
-    // Hide workers that have gone GRAY (status 'unknown' — stale past the liveness
-    // window / never reported): a dead or long-idle lane shouldn't clutter the
-    // roster. A still-known status (active/waiting/permission, even if dimmed) stays.
-    return [...fromSupervised, ...extra].filter((s) => s.status !== 'unknown');
-  }, [supervised, projectSubs, project, serverScope, sessionStatuses]);
+    const extra = projectSubs
+      .filter((s) => !isOrchestratorSession(s.session) && !known.has(s.session))
+      .map((s) => {
+        const entry = fleet[s.session];
+        return {
+          serverId: s.serverId ?? serverScope,
+          project,
+          session: s.session,
+          status: (entry ? fleetToStatus(entry.state) : s.status) as 'active' | 'waiting' | 'permission' | 'unknown' | 'dead',
+          lastUpdate: (entry ? entry.lastActivity : s.lastUpdate ?? null) as number | null,
+          contextPercent: s.contextPercent,
+        };
+      });
+    // Hide DEAD lanes (dead_shell/no_tmux) and GRAY lanes (status 'unknown' — stale
+    // past the liveness window / never reported). A still-known status
+    // (active/waiting/permission, even if dimmed) stays.
+    return [...fromSupervised, ...extra]
+      .filter((s) => s.status !== 'unknown' && s.status !== 'dead')
+      .map((s) => ({ ...s, status: s.status as 'active' | 'waiting' | 'permission' | 'unknown' }));
+  }, [supervised, projectSubs, project, serverScope, sessionStatuses, fleet]);
 
   // Graph-only view of the todos: the FleetGraph should not show finished noise —
   // (a) completed/dropped ORPHAN todos (no parent, not an epic), and (b) EPICS

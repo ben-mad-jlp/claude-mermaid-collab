@@ -12,7 +12,14 @@ import { useEffect, useState } from 'react';
 
 export interface SessionStatusEntry {
   status: 'active' | 'waiting' | 'permission' | 'unknown';
-  updatedAt: number;
+  /**
+   * The row's REAL last-update (ms epoch), or null when the row carries none.
+   * NEVER fabricated to render-time `Date.now()`: a missing timestamp must read
+   * as "unknown activity" ('—' in the UI), not as a value that grows from when
+   * the poll happened to run (which restamped every timestamp-less card on each
+   * 2s poll → all timers reset in lockstep — todo caae8574).
+   */
+  updatedAt: number | null;
 }
 
 // A worker parked on a permission prompt (or waiting) does NOT heartbeat, so a
@@ -57,7 +64,7 @@ export function useSessionStatuses(
         const stale = typeof row.updatedAt === 'number' && now - row.updatedAt > STALE_MS;
         map[`${row.project}:${row.session}`] = {
           status: stale ? 'unknown' : (row.status as SessionStatusEntry['status']),
-          updatedAt: row.updatedAt ?? now,
+          updatedAt: row.updatedAt ?? null,
         };
       }
       setStatuses(map);

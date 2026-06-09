@@ -98,6 +98,11 @@ export type WSMessage =
   | { type: 'supervisor_nudge'; project: string; session: string; serverId: string; text: string; sent: boolean }
   | { type: 'escalation_created'; project: string; session: string; kind: string; id: string; routedTo?: string }
   | { type: 'escalation_decided'; project: string; session: string; id: string; optionId: string | null }
+  // Drive (level=drive) autonomous-decision narration — observational only, NOT
+  // load-bearing: the audit table stays the source of truth, these just let a human
+  // watch unattended operation live in the EventStream (Bridge).
+  | { type: 'drive.auto_resolved'; project: string; todoId: string; escalationId: string; verb: string; bucket?: string; confidence?: number; reason?: string }
+  | { type: 'drive.auto_landed'; project: string; escalationId: string; epicId?: string; epicBranch?: string; landed: boolean; conflict?: boolean; masterSha?: string; reason?: string }
   // Steward observability feed (Steward P3) — cheap, NOT load-bearing: the
   // escalation table stays the source of truth; the panel feed just narrates.
   | { type: 'steward_action'; project: string; id: string; action: string; proof?: string }

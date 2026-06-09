@@ -14,6 +14,7 @@
 import { listTodos } from './todo-store';
 import { tmuxBaseName } from './tmux-naming';
 import { claudeAliveInSubtree, isClaudeTuiPresent, detectPermissionPrompt } from './coordinator-live';
+import { getStatus } from './session-status-store';
 
 /** Coarse worker state, derived from tmux liveness + Claude PID + pane content. */
 export type WorkerState =
@@ -42,6 +43,15 @@ export interface FleetEntry {
   overLease: boolean;
   retryCount: number;
   state: WorkerState;
+  /**
+   * The lane's REAL last-activity timestamp (ms epoch), or null if none is known.
+   * This is what the UI card timer reads — it must be a persisted/derived value
+   * that is STABLE across repeated polls when the worker hasn't changed, never a
+   * render-time `Date.now()`. Derived from the session-status heartbeat (the
+   * worker's own status updates) when present, else the claim time (claim age).
+   * Null ⇒ the UI shows '—', never a value that grows from render time.
+   */
+  lastActivity: number | null;
   /** When state is 'permission', the tool the prompt is gating (best-effort). */
   blockedOnTool?: string | null;
 }
@@ -140,7 +150,15 @@ export function getFleetStatus(project: string, now: number = Date.now()): Fleet
     if (!worker) continue;
     const tmux = tmuxBaseName(project, worker);
     const claimedAtMs = t.claimedAt ? Date.parse(t.claimedAt) : null;
-    const elapsedMs = claimedAtMs != null && !Number.isNaN(claimedAtMs) ? now - claimedAtMs : null;
+    const claimedAtValid = claimedAtMs != null && !Number.isNaN(claimedAtMs) ? claimedAtMs : null;
+    const elapsedMs = claimedAtValid != null ? now - claimedAtValid : null;
+    // REAL last-activity for the card timer: the lane's own session-status
+    // heartbeat (updated as the worker reports status — a true per-lane activity
+    // signal), falling back to claim age. Both are persisted/stable across polls,
+    // so the timer reflects real activity and never resets in lockstep on the 2s
+    // poll. Null only when neither exists → UI renders '—', never render-time.
+    const heartbeatMs = getStatus(project, worker)?.updatedAt ?? null;
+    const lastActivity = heartbeatMs ?? claimedAtValid;
     const leaseRemainingMs =
       elapsedMs != null && t.claimLeaseMs != null ? t.claimLeaseMs - elapsedMs : null;
 
@@ -177,6 +195,7 @@ export function getFleetStatus(project: string, now: number = Date.now()): Fleet
       overLease: leaseRemainingMs != null && leaseRemainingMs < 0,
       retryCount: t.retryCount ?? 0,
       state,
+      lastActivity,
       ...(blockedOnTool !== undefined ? { blockedOnTool } : {}),
     });
   }
