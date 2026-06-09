@@ -2,17 +2,21 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { WorktreeManager, INTEGRATION_BRANCH } from '../worktree-manager.ts';
+import { WorktreeManager, INBOX_EPIC_ID } from '../worktree-manager.ts';
 
 /**
- * DOGFOOD #5 — worker write-isolation via the integration-branch recombination
- * model. These run against REAL git in a temp repo (no INTEGRATION gating: they
- * are hermetic and fast). They prove the two properties the design requires:
- *   1. accepted worker output lands on the shared `collab/integration` branch; and
- *   2. dependent-todo data-flow is preserved — a worker branched off integration
+ * DOGFOOD #5 — worker write-isolation via the epic-branch recombination model
+ * (FBPE P1: the synthetic single Inbox epic, accumulation branch collab/epic/inbox).
+ * These run against REAL git in a temp repo (no INTEGRATION gating: they are
+ * hermetic and fast). They prove the two properties the design requires:
+ *   1. accepted worker output lands on the shared Inbox-epic branch; and
+ *   2. dependent-todo data-flow is preserved — a worker branched off the epic
  *      AFTER a dep merged sees the dep's committed output (the regression a naive
  *      per-lane-worktree fix would introduce).
  */
+
+/** The Inbox-epic accumulation branch — what ensureIntegration resolves to now. */
+const EPIC_BRANCH = `collab/epic/${INBOX_EPIC_ID}`;
 
 async function runGit(cwd: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   const proc = (globalThis as any).Bun.spawn(['git', '-C', cwd, ...args], {
@@ -60,9 +64,9 @@ describe('WorktreeManager — integration-branch recombination (DOGFOOD #5)', ()
   it('ensureIntegration creates the integration branch + worktree', async () => {
     const integ = await mgr.ensureIntegration();
     expect(integ).not.toBeNull();
-    expect(integ!.branch).toBe(INTEGRATION_BRANCH);
+    expect(integ!.branch).toBe(EPIC_BRANCH);
     // Branch exists in the repo.
-    const verify = await runGit(repo, ['rev-parse', '--verify', `refs/heads/${INTEGRATION_BRANCH}`]);
+    const verify = await runGit(repo, ['rev-parse', '--verify', `refs/heads/${EPIC_BRANCH}`]);
     expect(verify.code).toBe(0);
     // Idempotent — second call returns the same path without error.
     const again = await mgr.ensureIntegration();
@@ -81,7 +85,7 @@ describe('WorktreeManager — integration-branch recombination (DOGFOOD #5)', ()
     expect(res.conflict).toBe(false);
 
     // The integration branch now contains a.txt.
-    const show = await runGit(repo, ['show', `${INTEGRATION_BRANCH}:a.txt`]);
+    const show = await runGit(repo, ['show', `${EPIC_BRANCH}:a.txt`]);
     expect(show.code).toBe(0);
     expect(show.stdout).toBe('from-a\n');
   });
@@ -108,8 +112,8 @@ describe('WorktreeManager — integration-branch recombination (DOGFOOD #5)', ()
     expect(rb.merged).toBe(true);
 
     // Integration holds BOTH.
-    expect((await runGit(repo, ['show', `${INTEGRATION_BRANCH}:a.txt`])).stdout).toBe('A-output\n');
-    expect((await runGit(repo, ['show', `${INTEGRATION_BRANCH}:b.txt`])).stdout).toBe('B-output\n');
+    expect((await runGit(repo, ['show', `${EPIC_BRANCH}:a.txt`])).stdout).toBe('A-output\n');
+    expect((await runGit(repo, ['show', `${EPIC_BRANCH}:b.txt`])).stdout).toBe('B-output\n');
   });
 
   it('symlinks main-repo node_modules into a fresh worktree for each package.json dir', async () => {
@@ -192,7 +196,7 @@ describe('WorktreeManager — integration-branch recombination (DOGFOOD #5)', ()
     expect(res.merged).toBe(false);
 
     // Integration still has lane 1's content — untouched by the failed merge.
-    expect((await runGit(repo, ['show', `${INTEGRATION_BRANCH}:shared.txt`])).stdout).toBe('one\n');
+    expect((await runGit(repo, ['show', `${EPIC_BRANCH}:shared.txt`])).stdout).toBe('one\n');
     // And the integration worktree is not left mid-merge.
     const status = await runGit(integ!.path, ['status', '--porcelain']);
     expect(status.stdout.trim()).toBe('');

@@ -29,31 +29,48 @@ export interface CommitPushPROpts {
   timeoutMs?: number;
 }
 
-/** The shared per-project integration branch that accumulates accepted worker
- *  output under the DOGFOOD #5 recombination model. Workers branch FROM it (so
- *  they see all prior accepted work — dependent-todo data-flow is preserved) and
- *  merge BACK into it on acceptance. */
+/** DEMOTED (FBPE P1): the legacy `collab/integration` branch name. No longer the
+ *  accumulation branch itself — it is now only the **base/fallback ref** for the
+ *  synthetic Inbox epic: a fresh Inbox-epic branch is created off this branch when
+ *  it exists (inheriting any prior accumulated work) and off the detected base
+ *  branch otherwise. The accumulation branch is now `collab/epic/<inbox>`. */
 export const INTEGRATION_BRANCH = 'collab/integration';
 
-export interface IntegrationWorktree {
+/** The synthetic single epic under FBPE P1 — the Inbox epic. Until per-epic
+ *  sharding lands (Phase 2) ALL accepted work accumulates on this ONE epic, so
+ *  `ensureIntegration`/`commitAndMergeToIntegration` are thin wrappers over the
+ *  epic-parametrized methods bound to this id, and runtime behavior equals the
+ *  old single-integration-branch model. Its branch is `collab/epic/inbox`. */
+export const INBOX_EPIC_ID = 'inbox';
+
+/** A per-epic accumulation worktree (FBPE P1 — replaces IntegrationWorktree).
+ *  Accepted worker branches merge BACK into `branch`; the branch is the
+ *  accumulated result of the epic's wave. */
+export interface EpicWorktree {
+  epicId: string;
   branch: string;
-  path: string; // absolute path to the integration worktree dir
+  path: string; // absolute path to the epic worktree dir
 }
 
 export interface MergeBackResult {
   /** A new commit was created in the worker's worktree (false → nothing to commit). */
   committed: boolean;
-  /** The worker branch merged cleanly into the integration branch. */
+  /** The worker branch merged cleanly into the epic branch. */
   merged: boolean;
-  /** Merge hit a conflict (integration left untouched — aborted). Caller escalates. */
+  /** Merge hit a conflict (epic branch left untouched — aborted). Caller escalates. */
   conflict: boolean;
   commitSha?: string;
-  integrationBranch: string;
+  /** The epic accumulation branch the worker merged into (collab/epic/<id8>). */
+  epicBranch: string;
   workerBranch?: string;
+  /** The --no-ff merge commit sha created on the epic branch (merged === true). */
+  mergeSha?: string;
 }
 
 export interface CommitMergeOpts {
   message: string;
+  /** Optional todo id → emitted as a `Collab-Todo` trailer on the epic merge commit. */
+  todoId?: string;
   onProgress?: (channel: 'stdout' | 'stderr', chunk: string) => void;
   timeoutMs?: number;
 }
@@ -533,19 +550,57 @@ export class WorktreeManager {
   }
 
   // ---------------------------------------------------------------------------
-  // ensureIntegration — create/resume the shared per-project integration branch
-  // + its dedicated worktree (DOGFOOD #5). The integration worktree is where
-  // accepted worker branches are merged back; the branch itself is the
-  // accumulated result of the wave. Returns null for the non-git fallback.
+  // epicBranchName — the accumulation branch for an epic: collab/epic/<id8>.
+  // Reuses the slug / first-8 id convention (Inbox-epic id 'inbox' → collab/epic/inbox).
   // ---------------------------------------------------------------------------
-  async ensureIntegration(): Promise<IntegrationWorktree | null> {
+  epicBranchName(epicId: string): string {
+    return `collab/epic/${this.epicId8(epicId)}`;
+  }
+
+  /** First-8 slug of an epic id — the branch/path token. Mirrors `slug()` then
+   *  truncates to 8 (a UUID → its 8-char prefix; the sentinel 'inbox' → 'inbox'). */
+  private epicId8(epicId: string): string {
+    const cleaned = epicId
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    return (cleaned.length > 0 ? cleaned : 'epic').slice(0, 8);
+  }
+
+  /** Resolve a base ref to branch a NEW epic off: the requested ref when it
+   *  exists, else the detected base branch. Lets the Inbox epic prefer
+   *  `collab/integration` (inheriting prior accumulated work) yet fall back to
+   *  master/main on a fresh repo. */
+  private async resolveBase(baseRef: string): Promise<string> {
+    const exists =
+      (
+        await this.runGit(
+          this.opts.projectRoot,
+          ['rev-parse', '--verify', '--quiet', `refs/heads/${baseRef}`],
+          QUICK_TIMEOUT_MS,
+        ).catch(() => ({ code: 1, stdout: '', stderr: '' }))
+      ).code === 0;
+    return exists ? baseRef : this.detectBaseBranch();
+  }
+
+  // ---------------------------------------------------------------------------
+  // ensureEpic — create/resume an epic's accumulation branch + its dedicated
+  // worktree (FBPE P1, generalises ensureIntegration). The epic worktree is where
+  // accepted worker branches are merged back; the branch is the accumulated result
+  // of the epic's wave. Returns null for the non-git fallback.
+  // ---------------------------------------------------------------------------
+  async ensureEpic(
+    epicId: string,
+    _project?: string,
+    baseRef: string = 'master',
+  ): Promise<EpicWorktree | null> {
     if (!(await this.isGitRepo())) return null;
-    const branch = INTEGRATION_BRANCH;
-    const wtPath = path.join(this.opts.baseDir, '__integration__');
+    const branch = this.epicBranchName(epicId);
+    const wtPath = path.join(this.opts.baseDir, `__epic-${this.epicId8(epicId)}__`);
 
     // Already materialised? A linked worktree has a `.git` file at its root.
     if (await this.pathExists(path.join(wtPath, '.git'))) {
-      return { branch, path: wtPath };
+      return { epicId, branch, path: wtPath };
     }
 
     await fs.mkdir(this.opts.baseDir, { recursive: true });
@@ -561,7 +616,7 @@ export class WorktreeManager {
 
     const addArgs = branchExists
       ? ['worktree', 'add', wtPath, branch]
-      : ['worktree', 'add', '-b', branch, wtPath, await this.detectBaseBranch()];
+      : ['worktree', 'add', '-b', branch, wtPath, await this.resolveBase(baseRef)];
 
     let result = await this.runGit(this.opts.projectRoot, addArgs, DEFAULT_STEP_TIMEOUT_MS);
 
@@ -578,23 +633,33 @@ export class WorktreeManager {
       result = await this.runGit(this.opts.projectRoot, addArgs, DEFAULT_STEP_TIMEOUT_MS);
       if (result.code !== 0) {
         throw new Error(
-          `git worktree add (integration) failed (code ${result.code}): ${result.stderr.trim() || result.stdout.trim()}`,
+          `git worktree add (epic ${this.epicId8(epicId)}) failed (code ${result.code}): ${result.stderr.trim() || result.stdout.trim()}`,
         );
       }
     }
 
-    return { branch, path: wtPath };
+    return { epicId, branch, path: wtPath };
   }
 
   // ---------------------------------------------------------------------------
-  // commitAndMergeToIntegration — on `accepted`, commit the worker's worktree
-  // and merge its branch into the integration branch. A merge conflict leaves
-  // the integration branch UNTOUCHED (aborted) and is reported so the caller can
-  // escalate — never corrupt integration. Distinct from commitPushPR (the
-  // agent-SDK push/PR path); this is the local recombination path.
+  // ensureIntegration — thin wrapper (FBPE P1): the synthetic single Inbox epic.
+  // Bases off the demoted collab/integration branch when present (inheriting prior
+  // accumulated work), else the detected base. Returns null for the non-git fallback.
   // ---------------------------------------------------------------------------
-  async commitAndMergeToIntegration(
+  async ensureIntegration(): Promise<EpicWorktree | null> {
+    return this.ensureEpic(INBOX_EPIC_ID, undefined, INTEGRATION_BRANCH);
+  }
+
+  // ---------------------------------------------------------------------------
+  // commitAndMergeToEpic — on `accepted`, commit the worker's worktree and merge
+  // its branch into the epic's accumulation branch (FBPE P1, generalises
+  // commitAndMergeToIntegration). A merge conflict leaves the epic branch UNTOUCHED
+  // (aborted) and is reported so the caller can escalate — never corrupt the epic.
+  // The --no-ff merge commit carries Collab-Epic (+ optional Collab-Todo) trailers.
+  // ---------------------------------------------------------------------------
+  async commitAndMergeToEpic(
     sessionId: string,
+    epicId: string,
     opts: CommitMergeOpts,
   ): Promise<MergeBackResult> {
     const rec = await this.readRecord(sessionId);
@@ -602,8 +667,8 @@ export class WorktreeManager {
     const timeoutMs = opts.timeoutMs ?? DEFAULT_STEP_TIMEOUT_MS;
     const onProgress = opts.onProgress;
 
-    const integ = await this.ensureIntegration();
-    if (!integ) throw new Error('cannot resolve integration worktree (non-git project)');
+    const epic = await this.ensureEpic(epicId);
+    if (!epic) throw new Error('cannot resolve epic worktree (non-git project)');
 
     // 1. Commit the worker's working tree (if dirty). Uncommitted work would
     //    otherwise not be visible to the merge.
@@ -634,17 +699,21 @@ export class WorktreeManager {
       if (shaRes.code === 0) commitSha = shaRes.stdout.trim() || undefined;
     }
 
-    // 2. Merge the worker branch into the integration branch (in the integration
-    //    worktree). --no-ff keeps each accepted todo a distinct merge commit.
+    // 2. Merge the worker branch into the epic branch (in the epic worktree).
+    //    --no-ff keeps each accepted todo a distinct merge commit; trailers tag
+    //    the merge with its epic (+ todo) for traceability.
+    const trailers = [`Collab-Epic: ${epicId}`];
+    if (opts.todoId) trailers.push(`Collab-Todo: ${opts.todoId}`);
+    const mergeMessage = `${opts.message}\n\n${trailers.join('\n')}`;
     const mergeRes = await this.runGit(
-      integ.path,
-      ['merge', '--no-ff', '-m', opts.message, rec.branch],
+      epic.path,
+      ['merge', '--no-ff', '-m', mergeMessage, rec.branch],
       timeoutMs,
       onProgress,
     );
     if (mergeRes.code !== 0) {
-      // Conflict (or other failure) — abort so integration stays clean.
-      await this.runGit(integ.path, ['merge', '--abort'], QUICK_TIMEOUT_MS).catch(() => ({
+      // Conflict (or other failure) — abort so the epic branch stays clean.
+      await this.runGit(epic.path, ['merge', '--abort'], QUICK_TIMEOUT_MS).catch(() => ({
         code: 0,
         stdout: '',
         stderr: '',
@@ -654,19 +723,35 @@ export class WorktreeManager {
         merged: false,
         conflict: true,
         commitSha,
-        integrationBranch: integ.branch,
+        epicBranch: epic.branch,
         workerBranch: rec.branch,
       };
     }
+
+    let mergeSha: string | undefined;
+    const mergeShaRes = await this.runGit(epic.path, ['rev-parse', 'HEAD'], QUICK_TIMEOUT_MS);
+    if (mergeShaRes.code === 0) mergeSha = mergeShaRes.stdout.trim() || undefined;
 
     return {
       committed,
       merged: true,
       conflict: false,
       commitSha,
-      integrationBranch: integ.branch,
+      epicBranch: epic.branch,
       workerBranch: rec.branch,
+      mergeSha,
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // commitAndMergeToIntegration — thin wrapper (FBPE P1): merge back into the
+  // synthetic single Inbox epic. Kept for callers on the pre-sharding path.
+  // ---------------------------------------------------------------------------
+  async commitAndMergeToIntegration(
+    sessionId: string,
+    opts: CommitMergeOpts,
+  ): Promise<MergeBackResult> {
+    return this.commitAndMergeToEpic(sessionId, INBOX_EPIC_ID, opts);
   }
 
   // ===========================================================================
