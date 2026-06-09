@@ -26,14 +26,14 @@ mock.module('../todo-store', () => ({
   listReadyTodos: () => [],
   claimTodo: async () => null,
   releaseExpiredClaims: async () => {},
-  completeTodo: async () => ({ completed: { sessionName: completeSessionName }, promoted: [] }),
+  completeTodo: async () => ({ completed: { sessionName: completeSessionName }, promoted: [], rolledUp: [] }),
   updateTodo: async () => {},
   getTodo: () => null,
   listTodos: () => [],
   reclaimClaim: async () => 'ready',
 }));
 
-import { makeCoordinatorDeps, startCoordinator, stopCoordinator, isCoordinatorRunning, autoStartCoordinator, isCoordinatorAutoManaged, resolveWorkerProfile, detectPermissionPrompt, extractRequestedTool, getCoordinatorLiveness, claudeAliveInSubtree, isClaudeTuiPresent } from '../coordinator-live';
+import { makeCoordinatorDeps, startCoordinator, stopCoordinator, isCoordinatorRunning, autoStartCoordinator, isCoordinatorAutoManaged, resolveWorkerProfile, detectPermissionPrompt, extractRequestedTool, getCoordinatorLiveness, claudeAliveInSubtree, isClaudeTuiPresent, partitionEpicChildrenByRepo } from '../coordinator-live';
 import { isSupervised, removeSupervised, listSupervised } from '../supervisor-store';
 import { resetPool, listPool, markBusy, markIdle } from '../worker-pool';
 import type { Todo } from '../todo-store';
@@ -478,5 +478,51 @@ describe('coordinator self-liveness (1cb49878)', () => {
     await new Promise((r) => setTimeout(r, 3));
     expect(getCoordinatorLiveness(P, 0).stale).toBe(true);
     expect(startCoordinator(P, 0)).toBe(true); // stale → force-restart, NOT a no-op
+  });
+});
+
+describe('partitionEpicChildrenByRepo (FBPE P5 — cross-repo epics)', () => {
+  const child = (id: string, targetProject: string | null): Todo =>
+    ({ id, targetProject } as unknown as Todo);
+  const TRACK = '/repo/track';
+  const OTHER = '/repo/other';
+
+  it('single-repo: repo-less children fall to the tracking project, no ambiguity', () => {
+    const { byRepo, ambiguous } = partitionEpicChildrenByRepo(
+      [child('a', null), child('b', null)],
+      TRACK,
+    );
+    expect(ambiguous).toEqual([]);
+    expect([...byRepo.keys()]).toEqual([TRACK]);
+    expect(byRepo.get(TRACK)).toEqual(['a', 'b']);
+  });
+
+  it('cross-repo: children partition by their explicit targetProject (one branch per repo)', () => {
+    const { byRepo, ambiguous } = partitionEpicChildrenByRepo(
+      [child('a', TRACK), child('b', OTHER), child('c', OTHER)],
+      TRACK,
+    );
+    expect(ambiguous).toEqual([]);
+    expect(byRepo.get(TRACK)).toEqual(['a']);
+    expect(byRepo.get(OTHER)).toEqual(['b', 'c']);
+  });
+
+  it('cross-repo with a repo-less child → that child is ambiguous (unplaceable, escalate)', () => {
+    const { byRepo, ambiguous } = partitionEpicChildrenByRepo(
+      [child('a', OTHER), child('orphan', null)],
+      TRACK,
+    );
+    expect(ambiguous).toEqual(['orphan']);
+    expect(byRepo.get(OTHER)).toEqual(['a']);
+    expect(byRepo.has(TRACK)).toBe(false);
+  });
+
+  it('children explicitly targeting the tracking project are NOT foreign (no ambiguity)', () => {
+    const { byRepo, ambiguous } = partitionEpicChildrenByRepo(
+      [child('a', TRACK), child('b', null)],
+      TRACK,
+    );
+    expect(ambiguous).toEqual([]);
+    expect(byRepo.get(TRACK)).toEqual(['a', 'b']);
   });
 });

@@ -388,6 +388,50 @@ export function resolveEpicId(todo: Todo, project: string): string {
   return INBOX_EPIC_ID;
 }
 
+// --- FBPE P5: cross-repo epics --------------------------------------------------
+// An epic whose children span repos gets ONE accumulation branch PER target repo
+// (git can't merge across repos), so the land surface raises one card per repo and
+// each repo lands independently. Partition the epic's children by their resolved
+// target repo. A child with NO targetProject is assigned to the tracking project,
+// UNLESS the epic is genuinely cross-repo (≥1 child targets a foreign repo) — then
+// that orphan can't be confidently placed and is reported `ambiguous` so the caller
+// escalates a decision rather than guessing which repo's branch it should land on.
+export interface EpicRepoPartition {
+  /** target repo root → ids of the epic's children that land in that repo. */
+  byRepo: Map<string, string[]>;
+  /** child ids with no targetProject in a cross-repo epic — unplaceable. */
+  ambiguous: string[];
+}
+
+/** Partition an epic's direct children by the repo their branch lands in. Exported
+ *  for unit testing. */
+export function partitionEpicChildrenByRepo(
+  children: Todo[],
+  trackingProject: string,
+): EpicRepoPartition {
+  const explicitRepos = new Set<string>();
+  for (const c of children) if (c.targetProject) explicitRepos.add(c.targetProject);
+  // Genuinely cross-repo iff some child targets a repo other than the tracking one.
+  const hasForeignRepo = [...explicitRepos].some((p) => p !== trackingProject);
+  const byRepo = new Map<string, string[]>();
+  const ambiguous: string[] = [];
+  const push = (repo: string, id: string) => {
+    const arr = byRepo.get(repo);
+    if (arr) arr.push(id);
+    else byRepo.set(repo, [id]);
+  };
+  for (const c of children) {
+    if (c.targetProject) {
+      push(c.targetProject, c.id);
+    } else if (hasForeignRepo) {
+      ambiguous.push(c.id); // can't place a repo-less child once repos diverge.
+    } else {
+      push(trackingProject, c.id);
+    }
+  }
+  return { byRepo, ambiguous };
+}
+
 // --- FBPE P4: the land click — human-gated epic→master land ---------------------
 // Per-project land mutex: concurrent LAND clicks for the same target repo must not
 // race two merges into master. Each land chains onto the previous one for that
@@ -438,9 +482,13 @@ export async function landEpic(project: string, escalationId: string): Promise<L
       // RE-DERIVE the land_epic proof from ground truth: every epic child done+accepted
       // in the store; tsc clean IN the epic's accumulation worktree; the epic branch
       // dry-merges cleanly into a master checkout. The click NEVER trusts the summary.
-      const epicChildIds = listTodos(project, { includeCompleted: true })
-        .filter((t) => t.parentId === epicId && t.status !== 'dropped')
-        .map((t) => t.id);
+      // FBPE P5: scope the store-truth check to THIS repo's children — a cross-repo
+      // epic lands per-repo, so one repo's land must not depend on a sibling repo's
+      // children (each repo's branch is gated + landed independently).
+      const epicChildren = listTodos(project, { includeCompleted: true })
+        .filter((t) => t.parentId === epicId && t.status !== 'dropped');
+      const { byRepo } = partitionEpicChildrenByRepo(epicChildren, project);
+      const epicChildIds = byRepo.get(targetProject) ?? epicChildren.map((t) => t.id);
       const epic = await wm.ensureEpic(epicId).catch(() => null);
       const verdict = validateStewardProof(
         'land_epic',
@@ -581,44 +629,78 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // annotates the same card with the blocking reason — it never acts. Piggybacks
       // on this completeTodo callback (no new tick phase); fully best-effort.
       if (accepted && r.rolledUp.length > 0) {
-        const targetProject = r.completed.targetProject ?? project;
         for (const epicId of r.rolledUp) {
           try {
-            const wm = getWorktreeManager(targetProject);
-            const epicBranch = wm.epicBranchName(epicId);
-            // Children of the epic (store-truth): the proof requires every one done+accepted.
-            const epicChildIds = listTodos(project, { includeCompleted: true })
-              .filter((t) => t.parentId === epicId && t.status !== 'dropped')
-              .map((t) => t.id);
-            // The worktree-cwd seam: tsc runs in the epic's accumulation worktree;
-            // the dry-merge runs in the master checkout (the tracking project root).
-            const epic = await wm.ensureEpic(epicId).catch(() => null);
-            const verdict = validateStewardProof(
-              'land_epic',
-              { kind: 'epic-landable', epicId, epicBranch },
-              {
+            // FBPE P5: partition the epic's children by their target repo. A
+            // cross-repo epic (children spanning repos) lands ONE branch PER repo,
+            // so we raise one card per repo, each independently gated + clicked. The
+            // epic is fully 'landed' only once every repo's card has been landed.
+            const children = listTodos(project, { includeCompleted: true })
+              .filter((t) => t.parentId === epicId && t.status !== 'dropped');
+            const { byRepo, ambiguous } = partitionEpicChildrenByRepo(children, project);
+
+            // Can't cleanly partition (cross-repo epic with repo-less children) →
+            // escalate a decision instead of guessing which repo's branch to land.
+            if (ambiguous.length > 0) {
+              const repos = [...byRepo.keys()];
+              createEscalation({
                 project,
-                dependsOn: [],
-                getDep: (cid) => {
-                  const d = getTodo(project, cid);
-                  return d ? { id: d.id, status: d.status, acceptanceStatus: d.acceptanceStatus } : null;
+                session: session || 'coordinator',
+                todoId: id,
+                kind: 'decision',
+                questionText: `Epic ${epicId.slice(0, 8)} spans repos ${repos.map((p) => path.basename(p)).join(', ')}, but ${ambiguous.length} child todo(s) have no targetProject so they can't be assigned to a repo to land. Assign a targetProject to each, then re-land.`,
+                options: [
+                  { id: 'tracking', label: `Treat as ${path.basename(project)}`, detail: `Land the orphan child(ren) with the tracking repo ${project}.` },
+                  { id: 'fix', label: 'Assign targetProject manually', detail: 'Set each orphan child\'s targetProject, then re-trigger the land surface.' },
+                ],
+                recommended: 'fix',
+              });
+              recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, landSurface: 'ambiguous-partition', ambiguous: ambiguous.length, repos }) });
+              continue;
+            }
+
+            const multiRepo = byRepo.size > 1;
+            for (const [repo, repoChildIds] of byRepo) {
+              const wm = getWorktreeManager(repo);
+              const epicBranch = wm.epicBranchName(epicId);
+              // The worktree-cwd seam: tsc runs in the epic's accumulation worktree;
+              // the dry-merge runs in this repo's master checkout. Store-truth proof
+              // is scoped to THIS repo's children only (per-repo gate).
+              const epic = await wm.ensureEpic(epicId).catch(() => null);
+              const verdict = validateStewardProof(
+                'land_epic',
+                { kind: 'epic-landable', epicId, epicBranch },
+                {
+                  project,
+                  dependsOn: [],
+                  getDep: (cid) => {
+                    const d = getTodo(project, cid);
+                    return d ? { id: d.id, status: d.status, acceptanceStatus: d.acceptanceStatus } : null;
+                  },
+                  epicChildIds: repoChildIds,
+                  epicWorktreeCwd: epic?.path ?? repo,
+                  masterCwd: repo,
                 },
-                epicChildIds,
-                epicWorktreeCwd: epic?.path ?? targetProject,
-                masterCwd: targetProject,
-              },
-            );
-            const proofSummary = verdict.ok
-              ? `✅ epic-landable: ${epicChildIds.length} children done+accepted, tsc clean, dry-merge into master clean`
-              : `❌ blocked (${verdict.reason}): epic ${epicBranch} is NOT ready to land`;
-            createEscalation({
-              project,
-              session: session || 'coordinator',
-              todoId: id,
-              kind: 'epic-ready-to-land',
-              questionText: `Epic ${epicBranch} (${epicId.slice(0, 8)}) rolled up. ${proofSummary}. Land onto master? (read-only surface — master untouched)`,
-            });
-            recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, epicBranch, landable: verdict.ok, reason: verdict.reason, children: epicChildIds.length }) });
+              );
+              // Staleness FLAG (never auto-rebase): how far behind master the epic base drifted.
+              const behind = await wm.epicBehindBase(epicId).catch(() => 0);
+              const staleFlag = behind > 0 ? ` ⚠️ ${behind} commit(s) behind master (flag only — no auto-rebase)` : '';
+              const repoTag = multiRepo ? ` [repo ${path.basename(repo)}]` : '';
+              const proofSummary = verdict.ok
+                ? `✅ epic-landable: ${repoChildIds.length} children done+accepted, tsc clean, dry-merge into master clean`
+                : `❌ blocked (${verdict.reason}): epic ${epicBranch} is NOT ready to land`;
+              // Link a child IN THIS REPO so the land click resolves the right repo
+              // (landEpic keys the WorktreeManager off the linked todo's targetProject).
+              const linkTodoId = repoChildIds.includes(id) ? id : (repoChildIds[0] ?? id);
+              createEscalation({
+                project,
+                session: session || 'coordinator',
+                todoId: linkTodoId,
+                kind: 'epic-ready-to-land',
+                questionText: `Epic ${epicBranch} (${epicId.slice(0, 8)})${repoTag} rolled up. ${proofSummary}${staleFlag}. Land onto master? (read-only surface — master untouched)`,
+              });
+              recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: linkTodoId, epicId, epicBranch, repo, landable: verdict.ok, reason: verdict.reason, children: repoChildIds.length, behindMaster: behind, multiRepo }) });
+            }
           } catch (e) {
             recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, landSurface: 'failed', reason: e instanceof Error ? e.message : String(e) }) });
           }

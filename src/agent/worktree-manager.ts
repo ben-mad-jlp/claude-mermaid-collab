@@ -29,18 +29,12 @@ export interface CommitPushPROpts {
   timeoutMs?: number;
 }
 
-/** DEMOTED (FBPE P1): the legacy `collab/integration` branch name. No longer the
- *  accumulation branch itself — it is now only the **base/fallback ref** for the
- *  synthetic Inbox epic: a fresh Inbox-epic branch is created off this branch when
- *  it exists (inheriting any prior accumulated work) and off the detected base
- *  branch otherwise. The accumulation branch is now `collab/epic/<inbox>`. */
-export const INTEGRATION_BRANCH = 'collab/integration';
-
-/** The synthetic single epic under FBPE P1 — the Inbox epic. Until per-epic
- *  sharding lands (Phase 2) ALL accepted work accumulates on this ONE epic, so
- *  `ensureIntegration`/`commitAndMergeToIntegration` are thin wrappers over the
- *  epic-parametrized methods bound to this id, and runtime behavior equals the
- *  old single-integration-branch model. Its branch is `collab/epic/inbox`. */
+/** The synthetic catch-all epic — the Inbox epic. Any accepted work whose todo has
+ *  no `[EPIC]` ancestor accumulates on this ONE epic's branch (`collab/epic/inbox`),
+ *  branched off master like any other epic. (FBPE P5 retired the legacy
+ *  `collab/integration` trunk and its `ensureIntegration`/`commitAndMergeToIntegration`
+ *  wrappers — the Inbox-epic branch is now the universal default, so callers use the
+ *  epic-parametrized methods directly with this id.) */
 export const INBOX_EPIC_ID = 'inbox';
 
 /** A per-epic accumulation worktree (FBPE P1 — replaces IntegrationWorktree).
@@ -586,10 +580,28 @@ export class WorktreeManager {
     return (cleaned.length > 0 ? cleaned : 'epic').slice(0, 8);
   }
 
+  // ---------------------------------------------------------------------------
+  // epicBehindBase — staleness flag (FBPE P5). How many commits `baseRef` (master)
+  // carries that the epic's accumulation branch does NOT, i.e. how far behind master
+  // the epic base has drifted: `git rev-list --count <epicBranch>..<baseRef>`.
+  // FLAG ONLY — we NEVER auto-rebase an epic branch (it carries --no-ff worker merge
+  // history a rebase would mangle). Returns 0 when the branch is missing or current.
+  // ---------------------------------------------------------------------------
+  async epicBehindBase(epicId: string, baseRef: string = 'master'): Promise<number> {
+    if (!(await this.isGitRepo())) return 0;
+    const epicBranch = this.epicBranchName(epicId);
+    const res = await this.runGit(
+      this.opts.projectRoot,
+      ['rev-list', '--count', `${epicBranch}..${baseRef}`],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (res.code !== 0) return 0;
+    return parseInt(res.stdout.trim() || '0', 10) || 0;
+  }
+
   /** Resolve a base ref to branch a NEW epic off: the requested ref when it
-   *  exists, else the detected base branch. Lets the Inbox epic prefer
-   *  `collab/integration` (inheriting prior accumulated work) yet fall back to
-   *  master/main on a fresh repo. */
+   *  exists, else the detected base branch. Lets a caller request a specific base
+   *  (e.g. master) yet fall back to the detected default branch on a fresh repo. */
   private async resolveBase(baseRef: string): Promise<string> {
     const exists =
       (
@@ -604,7 +616,7 @@ export class WorktreeManager {
 
   // ---------------------------------------------------------------------------
   // ensureEpic — create/resume an epic's accumulation branch + its dedicated
-  // worktree (FBPE P1, generalises ensureIntegration). The epic worktree is where
+  // worktree (FBPE P1). The epic worktree is where
   // accepted worker branches are merged back; the branch is the accumulated result
   // of the epic's wave. Returns null for the non-git fallback.
   // ---------------------------------------------------------------------------
@@ -661,18 +673,9 @@ export class WorktreeManager {
   }
 
   // ---------------------------------------------------------------------------
-  // ensureIntegration — thin wrapper (FBPE P1): the synthetic single Inbox epic.
-  // Bases off the demoted collab/integration branch when present (inheriting prior
-  // accumulated work), else the detected base. Returns null for the non-git fallback.
-  // ---------------------------------------------------------------------------
-  async ensureIntegration(): Promise<EpicWorktree | null> {
-    return this.ensureEpic(INBOX_EPIC_ID, undefined, INTEGRATION_BRANCH);
-  }
-
-  // ---------------------------------------------------------------------------
   // commitAndMergeToEpic — on `accepted`, commit the worker's worktree and merge
-  // its branch into the epic's accumulation branch (FBPE P1, generalises
-  // commitAndMergeToIntegration). A merge conflict leaves the epic branch UNTOUCHED
+  // its branch into the epic's accumulation branch (FBPE P1). A merge conflict
+  // leaves the epic branch UNTOUCHED
   // (aborted) and is reported so the caller can escalate — never corrupt the epic.
   // The --no-ff merge commit carries Collab-Epic (+ optional Collab-Todo) trailers.
   // ---------------------------------------------------------------------------
@@ -760,17 +763,6 @@ export class WorktreeManager {
       workerBranch: rec.branch,
       mergeSha,
     };
-  }
-
-  // ---------------------------------------------------------------------------
-  // commitAndMergeToIntegration — thin wrapper (FBPE P1): merge back into the
-  // synthetic single Inbox epic. Kept for callers on the pre-sharding path.
-  // ---------------------------------------------------------------------------
-  async commitAndMergeToIntegration(
-    sessionId: string,
-    opts: CommitMergeOpts,
-  ): Promise<MergeBackResult> {
-    return this.commitAndMergeToEpic(sessionId, INBOX_EPIC_ID, opts);
   }
 
   // ---------------------------------------------------------------------------

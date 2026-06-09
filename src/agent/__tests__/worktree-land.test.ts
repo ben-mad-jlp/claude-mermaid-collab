@@ -137,4 +137,29 @@ describe('WorktreeManager — landEpicToMaster + removeEpic (FBPE P4)', () => {
     expect(res.conflict).toBe(false);
     expect(res.reason).toContain('epic-branch-missing');
   });
+
+  it('epicBehindBase flags how many commits master is ahead of the epic base (no rebase)', async () => {
+    const epic = await epicWith('feature.txt', 'epic-output\n');
+
+    // Fresh epic branched off master tip → not behind.
+    expect(await mgr.epicBehindBase(EPIC)).toBe(0);
+
+    // Advance master twice AFTER the epic branched.
+    await fs.writeFile(path.join(repo, 'm1.txt'), '1\n');
+    await runGit(repo, ['add', '-A']);
+    await runGit(repo, ['commit', '-q', '-m', 'master move 1']);
+    await fs.writeFile(path.join(repo, 'm2.txt'), '2\n');
+    await runGit(repo, ['add', '-A']);
+    await runGit(repo, ['commit', '-q', '-m', 'master move 2']);
+
+    // Epic is now 2 commits behind master — FLAG only, the branch is untouched.
+    expect(await mgr.epicBehindBase(EPIC)).toBe(2);
+    const epicHeadBefore = (await runGit(epic.path, ['rev-parse', 'HEAD'])).stdout.trim();
+    await mgr.epicBehindBase(EPIC); // idempotent read — never mutates
+    expect((await runGit(epic.path, ['rev-parse', 'HEAD'])).stdout.trim()).toBe(epicHeadBefore);
+  });
+
+  it('epicBehindBase returns 0 for a missing epic branch', async () => {
+    expect(await mgr.epicBehindBase('epic-nonexistent')).toBe(0);
+  });
 });
