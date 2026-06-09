@@ -15,6 +15,8 @@
     "build:sidecar:linux": "bun run scripts/build-sidecar-linux.ts",
     "build:deb:server": "bun run scripts/build-deb-server.ts",
     "install:linux-headless": "bash scripts/install-linux-headless.sh",
+    "release:linux": "bun run scripts/release-linux.ts",
+    "publish:apt": "bash scripts/publish-apt-repo.sh",
     "deploy": "bash scripts/deploy-desktop.sh",
     "deploy:no-build": "bash scripts/deploy-desktop.sh --no-build",
     "server": "bun run bin/mermaid-collab.ts",

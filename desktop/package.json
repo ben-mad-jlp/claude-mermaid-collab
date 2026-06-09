@@ -81,7 +81,15 @@
         "deb"
       ],
       "category": "Development",
-      "icon": "build/icon.png"
+      "icon": "build/icon.png",
+      "publish": {
+        "provider": "generic",
+        "url": "${env.MC_UPDATE_FEED_URL}",
+        "channel": "latest"
+      }
+    },
+    "appImage": {
+      "artifactName": "mermaid-collab-${version}-${arch}.AppImage"
     },
     "deb": {
       "packageCategory": "devel",

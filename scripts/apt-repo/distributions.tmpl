@@ -1,0 +1,16 @@
+# reprepro distributions config for the mermaid-collab apt repo.
+#
+# Consumed by scripts/publish-apt-repo.sh, which copies this into
+# <REPO_ROOT>/conf/distributions (with __CODENAME__ / __SIGNKEY__ filled in)
+# before running `reprepro includedeb`.
+#
+# One stanza per release "suite". We ship a single rolling suite (default
+# codename `stable`) that always carries the newest server + desktop .deb.
+
+Origin: JLP Engineering
+Label: mermaid-collab
+Codename: __CODENAME__
+Architectures: amd64
+Components: main
+Description: Mermaid Collab apt repository (headless server + Electron desktop)
+SignWith: __SIGNKEY__
