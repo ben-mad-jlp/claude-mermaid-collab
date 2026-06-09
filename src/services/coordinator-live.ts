@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import type { Todo } from './todo-store';
-import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, releaseClaim } from './todo-store';
+import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim } from './todo-store';
+import { planOrphanReap, DEFAULT_ORPHAN_GRACE_MS } from './coordinator-core';
 import { filterClaimable } from './claim-guard';
 import { WorktreeManager, INBOX_EPIC_ID } from '../agent/worktree-manager';
 import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation } from './supervisor-store';
@@ -921,6 +922,43 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         if (session) markIdle(session);
         if (next === 'ready') reclaimed.push(t.id);
         else if (next === 'blocked') exhausted.push(t.id);
+      }
+      return { reclaimed, exhausted };
+    },
+    reapOrphanedLeaves: async (project: string): Promise<{ reclaimed: string[]; exhausted: string[] }> => {
+      // CLAIM-INDEPENDENT sweep (gap 2026-06-09, real instance 19b097a1): a LEAF left
+      // status=in_progress with claimedBy/claimedAt NULL is invisible to BOTH existing
+      // reapers — releaseExpiredClaims needs a live lease, reapDeadClaims needs a
+      // claimToken — so it never ages out (sat ~9h across 3 deploys). The in-memory
+      // deadTracker only holds workers THIS process spawned, wiped on every restart;
+      // this sweep instead ages off the PERSISTED updatedAt, so it survives restarts.
+      const reclaimed: string[] = [];
+      const exhausted: string[] = [];
+      const now = new Date().toISOString();
+      const candidates = planOrphanReap(
+        listTodos(project, { status: 'in_progress' }),
+        now,
+        DEFAULT_ORPHAN_GRACE_MS,
+      );
+      for (const c of candidates) {
+        // Case B (claim past lease): only reap once the worker's tmux is confirmed
+        // gone — a still-live worker on an over-long task must not be yanked. Case A
+        // (claimedBy NULL → needsTmuxProbe false) has no live claim by definition.
+        if (c.needsTmuxProbe && c.sessionName && await isTmuxAlive(tmuxBaseName(project, c.sessionName))) continue;
+        // reclaimOrphan (NOT reclaimClaim) reclaims regardless of claimToken — an
+        // orphan's whole problem is the missing token. Retry-budget-aware: → ready,
+        // or blocked once the retry cap is exceeded.
+        const next = await reclaimOrphan(project, c.id);
+        if (next == null) continue; // raced to a terminal state — nothing to reap
+        if (c.sessionName) markIdle(c.sessionName); // free any pool slot it held
+        if (next === 'ready') reclaimed.push(c.id);
+        else exhausted.push(c.id);
+        recordSupervisorAudit({
+          kind: 'reconcile',
+          project,
+          session: c.sessionName ?? 'orphan-reap',
+          detail: JSON.stringify({ source: 'orphan-reap', todoId: c.id, outcome: next, hadClaim: c.needsTmuxProbe }),
+        });
       }
       return { reclaimed, exhausted };
     },
