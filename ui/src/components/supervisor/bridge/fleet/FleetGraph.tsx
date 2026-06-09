@@ -25,6 +25,8 @@ import '@xyflow/react/dist/style.css';
 import { useDiveIn, type DiveTarget } from '@/hooks/useDiveIn';
 import { useDeckStore, type Lod } from '@/stores/deckStore';
 import { useSupervisorStore, type Escalation } from '@/stores/supervisorStore';
+import { useUIStore } from '@/stores/uiStore';
+import { useProjectStore } from '@/stores/projectStore';
 import type { SessionTodo } from '@/types/sessionTodo';
 import { EpicNode } from './nodes/EpicNode';
 import { TodoNode } from './nodes/TodoNode';
@@ -74,6 +76,8 @@ const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs = [], openEsca
   const setFocalEscalationId = useDeckStore((s) => s.setFocalEscalationId);
   const setFocusNodeId = useDeckStore((s) => s.setFocusNodeId);
   const focusNodeId = useDeckStore((s) => s.focusNodeId);
+  const setActiveProject = useUIStore((s) => s.setActiveProject);
+  const setSelectedProject = useProjectStore((s) => s.setSelectedProject);
   const { fitView } = useReactFlow();
 
   // Graph-answers-the-card: when a decision is focused, frame its todo node.
@@ -154,6 +158,13 @@ const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs = [], openEsca
         const sub = subs.find((s) => s.session === session);
         if (sub) {
           const target = { project: sub.project, session, serverId: sub.serverId };
+          // Multi-project fleet view follows the worker you clicked: switch the
+          // active/selected project context to the clicked worker's project so the
+          // rest of the UI re-scopes to it. A worker already in the selected
+          // project is a no-op for selection (the setters short-circuit on equal
+          // value). This is alongside — not instead of — the terminal-open below.
+          setActiveProject(target.project);
+          setSelectedProject(target.project);
           // P5: select-in-place (stay in Bridge, swap the artifact pane) when the
           // host wires it; otherwise the default dive-to-Studio.
           if (onWorkerSelect) onWorkerSelect(target);
@@ -175,7 +186,7 @@ const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs = [], openEsca
         }
       }
     },
-    [diveIn, onWorkerSelect, onSelectTodo, todos, subs, setSelectedNodeId, escalationForTodo, setFocalEscalationId, setFocusNodeId],
+    [diveIn, onWorkerSelect, onSelectTodo, todos, subs, setSelectedNodeId, escalationForTodo, setFocalEscalationId, setFocusNodeId, setActiveProject, setSelectedProject],
   );
 
   const lodButtons = useMemo<(Lod | 'auto')[]>(() => ['auto', 0, 1, 2], []);

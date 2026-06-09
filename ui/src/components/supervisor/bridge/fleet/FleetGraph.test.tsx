@@ -37,6 +37,9 @@ vi.mock('@xyflow/react', () => ({
 }));
 
 import { FleetGraph } from './FleetGraph';
+import { useUIStore } from '@/stores/uiStore';
+import { useProjectStore } from '@/stores/projectStore';
+import type { WorkerSub } from './useFleetGraph';
 import type { SessionTodo } from '@/types/sessionTodo';
 
 function todo(p: Partial<SessionTodo> & { id: string }): SessionTodo {
@@ -74,5 +77,41 @@ describe('FleetGraph G8 — todo node click', () => {
     const arg = onSelectTodo.mock.calls[0][0] as SessionTodo;
     expect(arg.id).toBe('L1');
     expect(arg.title).toBe('Ship the thing'); // the title the detail card renders
+  });
+});
+
+describe('FleetGraph — clicking a worker selects that worker\'s project', () => {
+  function sub(session: string, project: string): WorkerSub {
+    return { serverId: 'local', project, session, status: 'active', lastUpdate: 0 };
+  }
+
+  it('switches the active/selected project to the clicked worker\'s project', () => {
+    // Project A is currently selected; the clicked worker lives in project B.
+    useUIStore.setState({ activeProject: 'A' });
+    useProjectStore.setState({ selectedProject: 'A' });
+
+    // A worker node materializes for a session holding a claimed in_progress todo.
+    const todos = [todo({ id: 'T', status: 'in_progress', claimedBy: 'worker-x' })];
+    const subs = [sub('worker-x', 'B')];
+    render(<FleetGraph todos={todos} subs={subs} />);
+
+    fireEvent.click(screen.getByTestId('node-worker:worker-x'));
+
+    expect(useUIStore.getState().activeProject).toBe('B');
+    expect(useProjectStore.getState().selectedProject).toBe('B');
+  });
+
+  it('clicking a worker already in the selected project keeps the selection (no-op)', () => {
+    useUIStore.setState({ activeProject: 'B' });
+    useProjectStore.setState({ selectedProject: 'B' });
+
+    const todos = [todo({ id: 'T', status: 'in_progress', claimedBy: 'worker-x' })];
+    const subs = [sub('worker-x', 'B')];
+    render(<FleetGraph todos={todos} subs={subs} />);
+
+    fireEvent.click(screen.getByTestId('node-worker:worker-x'));
+
+    expect(useUIStore.getState().activeProject).toBe('B');
+    expect(useProjectStore.getState().selectedProject).toBe('B');
   });
 });
