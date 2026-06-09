@@ -1,0 +1,30 @@
+#!/bin/sh
+# postinst — enable the packaged systemd USER unit globally.
+set -e
+
+UNIT="mermaid-collab.service"
+
+case "$1" in
+  configure)
+    # Make the unit wanted by every user's default.target. `--global` writes the
+    # enablement symlinks under /etc/systemd/user/ — it does NOT need a running
+    # user manager and is the correct way to enable a packaged user unit from a
+    # root maintainer script.
+    if command -v systemctl >/dev/null 2>&1; then
+      systemctl --global enable "$UNIT" >/dev/null 2>&1 || true
+    fi
+
+    echo "mermaid-collab-server installed."
+    echo "  The headless sidecar is enabled for all users (systemd user unit)."
+    echo "  It starts on next login. To start it now for the current user:"
+    echo "      systemctl --user start $UNIT"
+    echo "  To survive logout/reboot on a headless box, enable linger:"
+    echo "      sudo loginctl enable-linger <user>"
+    echo "  Health:  curl -fsS http://127.0.0.1:9002/api/health"
+    echo "  Logs:    journalctl --user -u $UNIT -f"
+    ;;
+  abort-upgrade|abort-remove|abort-deconfigure)
+    ;;
+esac
+
+exit 0

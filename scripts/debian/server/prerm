@@ -1,0 +1,21 @@
+#!/bin/sh
+# prerm — disable + stop the user unit before files are removed.
+set -e
+
+UNIT="mermaid-collab.service"
+
+case "$1" in
+  remove|deconfigure)
+    if command -v systemctl >/dev/null 2>&1; then
+      # Best-effort stop for any logged-in user running it now, then drop the
+      # global enablement symlinks. `|| true` — a stopped/never-started unit or
+      # absent user manager must not fail the removal.
+      systemctl --global disable "$UNIT" >/dev/null 2>&1 || true
+    fi
+    ;;
+  upgrade|failed-upgrade)
+    # Leave it enabled across an upgrade; postinst re-enables.
+    ;;
+esac
+
+exit 0

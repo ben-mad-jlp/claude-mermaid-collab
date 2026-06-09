@@ -1,0 +1,18 @@
+Package: mermaid-collab-server
+Version: __VERSION__
+Architecture: amd64
+Maintainer: JLP Engineering <bmaderazo@jlpengineering.com>
+Installed-Size: __INSTALLED_SIZE__
+Depends: systemd, tmux, git, curl
+Recommends: bun
+Section: devel
+Priority: optional
+Homepage: https://github.com/ben-mad-jlp/claude-mermaid-collab
+Description: Mermaid Collab headless sidecar (Electron-free)
+ The compiled Bun mc-server sidecar plus a systemd user unit and the P0
+ take-over-or-refuse port handshake. This is the headless / server install:
+ it brings the collab API + orchestrator/worker session layer up on :9002
+ with no Electron and no bun-on-PATH dependency (the binary is self-contained).
+ .
+ The mermaid-collab-desktop package depends on this one and adds the Electron
+ GUI shell on top.
