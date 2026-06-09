@@ -54,14 +54,23 @@ export function buildTmuxAttachCommand(base: string, grouped?: string, cwd?: str
   // owning the window keeps it stable.
   const dirFlag = cwd ? ` -c '${cwd.replace(/'/g, `'\\''`)}'` : '';
   const ensureBase = `(tmux has-session -t '${base}' 2>/dev/null || tmux new-session -d -s '${base}'${dirFlag})`;
+  // Show the FULL session name in the bottom status bar. tmux's default
+  // status-left is `[#S] ` but status-left-length defaults to 10, so a long
+  // `mc-{project}-{lane}` name gets truncated to noise. Widen it + render the
+  // session name explicitly so you can always tell which lane a pane is. Scoped
+  // to this session (not global), idempotent, applied on every attach.
+  const styleStatus = (sess: string) =>
+    `tmux set-option -t '${sess}' status on \\; ` +
+    `set-option -t '${sess}' status-left-length 80 \\; ` +
+    `set-option -t '${sess}' status-left '#[bg=colour24,fg=white,bold] #S #[default] '`;
   if (!grouped || grouped === base) {
     // Attach directly to the base session — no shared/grouped view. (The old
     // grouped 'vscode-collab-*' layer existed to share live terminals with the
     // VSCode extension, which no longer hosts terminals.)
-    return `${ensureBase} && tmux attach-session -d -t '${base}'`;
+    return `${ensureBase} ; ${styleStatus(base)} ; tmux attach-session -d -t '${base}'`;
   }
   const ensureGrouped = `(tmux has-session -t '${grouped}' 2>/dev/null || tmux new-session -d -s '${grouped}' -t '${base}')`;
-  return `${ensureBase} ; ${ensureGrouped} && tmux attach-session -d -t '${grouped}'`;
+  return `${ensureBase} ; ${ensureGrouped} ; ${styleStatus(grouped)} ; tmux attach-session -d -t '${grouped}'`;
 }
 
 export interface AttachOptions {
