@@ -1,0 +1,47 @@
+# mermaid-collab — headless sidecar (systemd USER unit)
+#
+# Installed by scripts/install-linux-headless.sh to
+#   ~/.config/systemd/user/mermaid-collab.service
+# Runs the compiled Bun sidecar (no Electron, no bun-on-PATH dependency) on :9002.
+#
+# `%h` expands to the invoking user's home, so this template is installed verbatim
+# — no path substitution needed. The install script lays the compiled binary and
+# the handshake script under ~/.local/share/mermaid-collab/.
+#
+# Survives logout/reboot via `loginctl enable-linger` (the install script runs it).
+
+[Unit]
+Description=Mermaid Collab headless sidecar (mc-server) on :9002
+After=network-online.target
+Wants=network-online.target
+# Don't thrash if something keeps it from binding (these are [Unit] directives).
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+
+# Port + headless markers. PATH is set explicitly so the spawned orchestrator/
+# worker sessions can find tmux/git/claude/bun without an interactive login shell.
+Environment=PORT=9002
+Environment=MERMAID_HEADLESS=1
+Environment=PATH=%h/.local/bin:%h/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Take-over-or-refuse handshake (P0 protocol) BEFORE we try to bind :9002.
+# Exit 3 from the handshake = a healthy current owner already holds the port;
+# systemd treats the non-zero ExecStartPre as a failed start (we do not double-bind).
+ExecStartPre=%h/.local/share/mermaid-collab/mc-port-handshake.sh
+
+# The compiled sidecar runs the HTTP server in the foreground (Type=simple).
+ExecStart=%h/.local/share/mermaid-collab/mc-server
+
+# Re-spawn on crash, but not on a clean stop or an ExecStartPre refusal.
+Restart=on-failure
+RestartSec=3
+
+# Give the orchestrator a moment to reap tmux workers on shutdown.
+TimeoutStopSec=20
+KillMode=mixed
+
+[Install]
+WantedBy=default.target
