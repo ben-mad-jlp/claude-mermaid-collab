@@ -55,15 +55,15 @@ export const OrchestratorLevelBadge: React.FC<OrchestratorLevelBadgeProps> = ({ 
 
   if (!level) return null;
 
+  // Just a colored circle; the level name shows on hover (native tooltip).
   return (
     <span
       data-testid="orchestrator-level-badge"
       data-level={level}
       title={`Orchestrator level: ${level} (change it on the Bridge)`}
-      className="shrink-0 inline-flex items-center gap-1 text-3xs font-medium text-gray-500 dark:text-gray-400"
+      className="shrink-0 inline-flex items-center"
     >
-      <span className={`inline-block w-1.5 h-1.5 rounded-full ${LEVEL_DOT[level]}`} aria-hidden="true" />
-      {level}
+      <span className={`inline-block w-2 h-2 rounded-full ${LEVEL_DOT[level]}`} aria-hidden="true" />
     </span>
   );
 };
