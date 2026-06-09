@@ -249,6 +249,13 @@ export const NOW_BUILDABLE_MIN_CONFIDENCE = 0.7;
  *  reset_todo. Below this, verified-done downgrades to classify-only (human decides). */
 export const OVERRIDE_MIN_CONFIDENCE = 0.85;
 
+/** At level `consult` the daemon may AUTO-resolve (no human confirm) — held to an
+ *  even higher confidence bar than `propose` proposals. Below this, the suggestion
+ *  is still written for the human (propose behaviour), just not auto-applied. The
+ *  proof gate re-validates every auto-act regardless, so this only gates WHICH
+ *  suggestions the daemon attempts to apply unattended. */
+export const AUTO_RESOLVE_MIN_CONFIDENCE = 0.9;
+
 /**
  * Classify one escalation into a SuggestedAction (or null when nothing useful to
  * suggest). Single Grok call over a packed bundle. Fails OPEN on any error: a

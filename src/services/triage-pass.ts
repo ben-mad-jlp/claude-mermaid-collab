@@ -25,12 +25,17 @@ import {
   recordSupervisorAudit,
   type Escalation,
 } from './supervisor-store.ts';
-import { classifyEscalation, type TriageDeps } from './grok-triage.ts';
+import { classifyEscalation, AUTO_RESOLVE_MIN_CONFIDENCE, type TriageDeps } from './grok-triage.ts';
+import { confirmSuggestion } from './triage-execute.ts';
 import { getTodo } from './todo-store.ts';
 
 /** Max Grok classifications per project per tick. Keeps a backlog from fanning out
  *  cost; the remainder are picked up on subsequent ticks. */
 export const TRIAGE_CAP = 3;
+
+/** Phase 3 (consult): max UNATTENDED auto-resolutions per project per tick. A hard
+ *  ceiling on silent autonomy — the rest wait for a human or the next tick. */
+export const AUTO_RESOLVE_CAP = 2;
 
 /** Escalation kinds only a human decides — never sent to Grok (fail-open to human). */
 const HUMAN_FLOOR_KINDS = new Set(['approval', 'decision', 'assumption-invalidated', 'operator-gated']);
@@ -77,6 +82,13 @@ export interface TriagePassDeps extends TriageDeps {
   setSuggestion?: typeof setEscalationSuggestion;
   /** Todo revision lookup for freshness (defaults to todo-store). */
   getTodoRevision?: (project: string, id: string) => { updatedAt: string } | null;
+  /** Phase 3 (level `consult`): when true, the pass also AUTO-resolves the
+   *  high-confidence actionable suggestions it writes, unattended, behind the proof
+   *  gate + AUTO_RESOLVE_CAP. False (level `propose`) → write-only, human confirms. */
+  autoResolve?: boolean;
+  /** Confirm executor (defaults to the real proof-gated confirm). Injectable so the
+   *  auto-resolve path is unit-testable without shelling out to git/tsc. */
+  confirm?: (project: string, escalationId: string) => Promise<{ ok: boolean; reason: string }>;
 }
 
 /**
@@ -104,6 +116,9 @@ export async function runTriagePass(project: string, deps: TriagePassDeps = {}):
     );
   }
 
+  const confirm = deps.confirm ?? confirmSuggestion;
+  let autoResolved = 0; // per-tick auto-resolution budget (AUTO_RESOLVE_CAP)
+
   for (const esc of batch) {
     try {
       const suggestion = await classifyEscalation(project, esc, deps);
@@ -121,6 +136,34 @@ export async function runTriagePass(project: string, deps: TriagePassDeps = {}):
           confidence: suggestion.confidence,
         }),
       });
+
+      // Phase 3 (consult): auto-resolve a high-confidence actionable suggestion,
+      // unattended — but only behind the proof gate (confirm re-derives the proof,
+      // so a wrong classification still cannot mutate state) and within the per-tick
+      // cap. Anything not auto-resolved stays as an inline suggestion (propose).
+      if (
+        deps.autoResolve &&
+        suggestion.verb &&
+        suggestion.confidence >= AUTO_RESOLVE_MIN_CONFIDENCE &&
+        autoResolved < AUTO_RESOLVE_CAP
+      ) {
+        autoResolved++;
+        const result = await confirm(project, esc.id);
+        recordSupervisorAudit({
+          kind: result.ok ? (suggestion.verb === 'override_accept_todo' ? 'override' : 'reconcile') : 'classify',
+          project,
+          session: esc.session,
+          detail: JSON.stringify({
+            source: 'triage-auto', // the "what did I auto-resolve" review surface
+            escalationId: esc.id,
+            verb: suggestion.verb,
+            bucket: suggestion.bucket,
+            confidence: suggestion.confidence,
+            applied: result.ok,
+            reason: result.reason,
+          }),
+        });
+      }
     } catch (err) {
       // Per-escalation fail-open: log, continue with the rest.
       console.warn(

@@ -19,6 +19,7 @@ import {
   isTriageEligible,
   isSuggestionFresh,
   TRIAGE_CAP,
+  AUTO_RESOLVE_CAP,
 } from '../triage-pass';
 import { confirmSuggestion, dismissSuggestion } from '../triage-execute';
 import {
@@ -132,6 +133,71 @@ describe('runTriagePass', () => {
     const { escalation } = createEscalation({ project, session: 'w1', kind: 'blocker', questionText: 'stuck?' });
     await runTriagePass(project, { callGrok: async () => { throw new Error('boom'); }, commitsBehindMaster: () => 0 });
     expect(getEscalation(escalation.id)?.suggestedAction).toBeNull();
+  });
+});
+
+describe('runTriagePass — autoResolve (level consult, Phase 3)', () => {
+  const HI = '{"bucket":"now-buildable","confidence":0.97,"rationale":"go"}';
+
+  it('does NOT auto-resolve at propose (autoResolve omitted) — write-only', async () => {
+    const project = freshProject();
+    createEscalation({ project, session: 'w1', kind: 'blocker', questionText: 'q?' });
+    const confirmed: string[] = [];
+    await runTriagePass(project, {
+      callGrok: async () => HI, commitsBehindMaster: () => 0,
+      confirm: async (_p, id) => { confirmed.push(id); return { ok: true, reason: 'applied' }; },
+    });
+    expect(confirmed).toEqual([]); // propose never auto-confirms
+  });
+
+  it('auto-resolves a high-confidence actionable suggestion at consult', async () => {
+    const project = freshProject();
+    const { escalation } = createEscalation({ project, session: 'w1', kind: 'blocker', questionText: 'q?' });
+    const confirmed: string[] = [];
+    await runTriagePass(project, {
+      autoResolve: true, callGrok: async () => HI, commitsBehindMaster: () => 0,
+      confirm: async (_p, id) => { confirmed.push(id); return { ok: true, reason: 'applied' }; },
+    });
+    expect(confirmed).toEqual([escalation.id]);
+  });
+
+  it('does NOT auto-resolve a classify-only suggestion (no verb)', async () => {
+    const project = freshProject();
+    createEscalation({ project, session: 'w1', kind: 'blocker', questionText: 'q?' });
+    const confirmed: string[] = [];
+    await runTriagePass(project, {
+      autoResolve: true, commitsBehindMaster: () => 0,
+      callGrok: async () => '{"bucket":"genuine-decision","confidence":0.99,"rationale":"human"}',
+      confirm: async (_p, id) => { confirmed.push(id); return { ok: true, reason: 'applied' }; },
+    });
+    expect(confirmed).toEqual([]);
+  });
+
+  it('does NOT auto-resolve below the auto-resolve confidence bar', async () => {
+    const project = freshProject();
+    createEscalation({ project, session: 'w1', kind: 'blocker', questionText: 'q?' });
+    const confirmed: string[] = [];
+    await runTriagePass(project, {
+      autoResolve: true, commitsBehindMaster: () => 0,
+      // 0.75 ≥ now-buildable bar (0.7) so a suggestion IS written, but < auto bar (0.9).
+      callGrok: async () => '{"bucket":"now-buildable","confidence":0.75,"rationale":"meh"}',
+      confirm: async (_p, id) => { confirmed.push(id); return { ok: true, reason: 'applied' }; },
+    });
+    expect(confirmed).toEqual([]);
+  });
+
+  it('respects the per-tick auto-resolve cap', async () => {
+    const project = freshProject();
+    for (let i = 0; i < AUTO_RESOLVE_CAP + 2; i++) {
+      createEscalation({ project, session: `w${i}`, kind: 'blocker', questionText: `q${i}` });
+    }
+    let confirmed = 0;
+    await runTriagePass(project, {
+      autoResolve: true, callGrok: async () => HI, commitsBehindMaster: () => 0,
+      confirm: async () => { confirmed++; return { ok: true, reason: 'applied' }; },
+    });
+    // TRIAGE_CAP suggestions written, but auto-resolutions capped at AUTO_RESOLVE_CAP.
+    expect(confirmed).toBe(AUTO_RESOLVE_CAP);
   });
 });
 

@@ -25,6 +25,7 @@ import {
 const buildCalls: string[] = [];
 const reconcileCalls: string[] = [];
 const triageCalls: string[] = [];
+const triageAutoResolve: Array<{ project: string; autoResolve: boolean }> = [];
 let buildShouldThrow: string | null = null; // project path whose build should throw
 const registeredProjects: Array<{ path: string; name: string; lastAccess: string }> = [];
 const levelOverrides = new Map<string, string>();
@@ -38,7 +39,10 @@ function makeDeps(): TickDeps {
       buildCalls.push(project);
     },
     reconcile: async (project: string) => { reconcileCalls.push(project); },
-    triage: async (project: string) => { triageCalls.push(project); },
+    triage: async (project: string, opts: { autoResolve: boolean }) => {
+      triageCalls.push(project);
+      triageAutoResolve.push({ project, autoResolve: opts.autoResolve });
+    },
   };
 }
 
@@ -50,6 +54,7 @@ function reset() {
   buildCalls.length = 0;
   reconcileCalls.length = 0;
   triageCalls.length = 0;
+  triageAutoResolve.length = 0;
   buildShouldThrow = null;
   registeredProjects.length = 0;
   levelOverrides.clear();
@@ -120,7 +125,7 @@ describe('runOrchestratorTick', () => {
     expect(triageCalls).toEqual([]);
   });
 
-  it('propose level: runs build + reconcile + triage', async () => {
+  it('propose level: runs build + reconcile + triage, autoResolve=false', async () => {
     registeredProjects.push({ path: '/proj/p', name: 'p', lastAccess: '' });
     levelOverrides.set('/proj/p', 'propose');
 
@@ -129,6 +134,18 @@ describe('runOrchestratorTick', () => {
     expect(buildCalls).toEqual(['/proj/p']);
     expect(reconcileCalls).toEqual(['/proj/p']);
     expect(triageCalls).toEqual(['/proj/p']);
+    // propose writes suggestions but does NOT auto-resolve.
+    expect(triageAutoResolve).toEqual([{ project: '/proj/p', autoResolve: false }]);
+  });
+
+  it('consult level: triage runs with autoResolve=true', async () => {
+    registeredProjects.push({ path: '/proj/x', name: 'x', lastAccess: '' });
+    levelOverrides.set('/proj/x', 'consult');
+
+    await runOrchestratorTick(makeDeps());
+
+    expect(triageCalls).toEqual(['/proj/x']);
+    expect(triageAutoResolve).toEqual([{ project: '/proj/x', autoResolve: true }]);
   });
 
   it('fail-open: a throwing build pass does NOT block other projects', async () => {

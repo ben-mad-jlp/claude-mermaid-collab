@@ -60,7 +60,7 @@ export interface TickDeps {
   getLevel?: (project: string) => ReturnType<typeof getOrchestratorLevel>;
   build?: (project: string) => Promise<void>;
   reconcile?: (project: string) => Promise<void>;
-  triage?: (project: string) => Promise<void>;
+  triage?: (project: string, opts: { autoResolve: boolean }) => Promise<void>;
 }
 
 /** One tick: enumerate registered projects and dispatch passes per level. */
@@ -69,7 +69,7 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
   const getLevel = deps.getLevel ?? getOrchestratorLevel;
   const build = deps.build ?? runBuildPass;
   const reconcile = deps.reconcile ?? runReconcilePass;
-  const triage = deps.triage ?? runTriagePass;
+  const triage = deps.triage ?? ((project: string, opts: { autoResolve: boolean }) => runTriagePass(project, { autoResolve: opts.autoResolve }));
 
   let projects: Array<{ path: string }>;
   try {
@@ -110,9 +110,13 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
 
     // Triage runs LAST (after reconcile auto-closes the deterministic stale/done
     // buckets), so Grok only sees escalations the cheap passes couldn't resolve.
+    // At `consult` (rank >= consult) the triage pass also auto-resolves the
+    // high-confidence actionable suggestions it writes (behind the proof gate);
+    // at `propose` it only writes them for human confirm.
     if (passes.triage) {
+      const autoResolve = levelRank(lvl) >= levelRank('consult');
       try {
-        await triage(project);
+        await triage(project, { autoResolve });
       } catch (err) {
         console.warn(`[orchestrator] runTriagePass failed for ${project}:`, err);
       }
