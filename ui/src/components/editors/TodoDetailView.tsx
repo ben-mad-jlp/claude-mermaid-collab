@@ -332,13 +332,14 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
                   </span>
                 </span>
               )}
-              {/* Executor — the worker that ran the todo. claimedBy while in_progress;
-                  completedBy persists it after completion (stamped by the backend). */}
-              {(todo.claimedBy ?? todo.completedBy) && (
+              {/* Executor — the WORKER session the todo ran under (sessionName),
+                  which persists across in_progress + done. NOT claimedBy: that's
+                  the coordinator's reservation, not the worker. */}
+              {todo.sessionName && todo.sessionName !== todo.assigneeSession && (
                 <span className="inline-flex items-center gap-1.5">
                   <span className="text-gray-400 dark:text-gray-500">Executor</span>
                   <span className="font-medium text-gray-700 dark:text-gray-300 truncate max-w-[180px]">
-                    {todo.claimedBy ?? todo.completedBy}
+                    {todo.sessionName}
                   </span>
                 </span>
               )}

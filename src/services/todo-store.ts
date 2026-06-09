@@ -749,15 +749,13 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
     const ts = nowIso();
     const accept = acceptanceStatus !== undefined ? acceptanceStatus : existing.acceptanceStatus;
     // Attribution (B1): an explicit completer wins; otherwise a HUMAN todo
-    // auto-stamps a default actor handle. An AGENT todo records its EXECUTOR — the
-    // worker session that held the claim — so the executor survives completion
-    // (claimedBy itself is cleared below by the claim invariant). Surfaced in the
-    // todo detail metadata bar.
+    // auto-stamps a default actor handle. Agent todos stay null unless told.
+    // (The executor — the worker session — lives in `sessionName`, which persists
+    // across completion and is what the UI shows; claimedBy is the coordinator's
+    // reservation, NOT the worker, so it must NOT be used as the executor.)
     const actor: string | null = completedBy !== undefined
       ? completedBy
-      : (existing.assigneeKind === 'human'
-          ? (existing.completedBy ?? defaultActorHandle())
-          : (existing.completedBy ?? existing.claimedBy));
+      : (existing.assigneeKind === 'human' ? (existing.completedBy ?? defaultActorHandle()) : existing.completedBy);
     // SI-3: a rejected completion is NOT done. The mechanical gate failed, so the
     // todo returns to a non-terminal 'blocked' state (completedAt cleared) and is
     // surfaced — the caller escalates it (handleWorkerComplete) for a human to
