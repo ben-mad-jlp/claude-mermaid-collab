@@ -9,6 +9,7 @@ import { ensureSession, runTodoInSession } from './claude-launch';
 import { runTick, type CoordinatorDeps, type GateVerdict } from './coordinator-daemon';
 import { loadProjectManifest } from '../config/project-manifest';
 import { runRegistryGate } from './gate-runner';
+import { validateStewardProof } from './steward-proof';
 // Import for side-effect: registers the CAD gate plugin (domain tier) into the
 // gate registry so a CAD step artifact is gated deterministically (Phase 1 #1).
 import './cad-gate-plugin';
@@ -463,6 +464,58 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         const resolved = resolveEscalationsForTodo(project, id, sessions, 'resolved');
         if (resolved.length > 0) {
           recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, autoResolvedEscalations: resolved.map((e) => e.id), reason: 'todo-completed' }) });
+        }
+      }
+      // FBPE P3 — land proof + inbox surface (READ-ONLY; master is NEVER mutated).
+      // Completing the last child of an epic rolls the epic up (r.rolledUp). For each
+      // such epic, re-derive epic-landability from ground truth via the land_epic proof
+      // gate (children done+accepted in the store; tsc clean IN the epic worktree;
+      // epic branch dry-merges cleanly into a master checkout) and raise a single
+      // 'epic-ready-to-land' card carrying a green/red proof summary. A red proof
+      // annotates the same card with the blocking reason — it never acts. Piggybacks
+      // on this completeTodo callback (no new tick phase); fully best-effort.
+      if (accepted && r.rolledUp.length > 0) {
+        const targetProject = r.completed.targetProject ?? project;
+        for (const epicId of r.rolledUp) {
+          try {
+            const wm = getWorktreeManager(targetProject);
+            const epicBranch = wm.epicBranchName(epicId);
+            // Children of the epic (store-truth): the proof requires every one done+accepted.
+            const epicChildIds = listTodos(project, { includeCompleted: true })
+              .filter((t) => t.parentId === epicId && t.status !== 'dropped')
+              .map((t) => t.id);
+            // The worktree-cwd seam: tsc runs in the epic's accumulation worktree;
+            // the dry-merge runs in the master checkout (the tracking project root).
+            const epic = await wm.ensureEpic(epicId).catch(() => null);
+            const verdict = validateStewardProof(
+              'land_epic',
+              { kind: 'epic-landable', epicId, epicBranch },
+              {
+                project,
+                dependsOn: [],
+                getDep: (cid) => {
+                  const d = getTodo(project, cid);
+                  return d ? { id: d.id, status: d.status, acceptanceStatus: d.acceptanceStatus } : null;
+                },
+                epicChildIds,
+                epicWorktreeCwd: epic?.path ?? targetProject,
+                masterCwd: targetProject,
+              },
+            );
+            const proofSummary = verdict.ok
+              ? `✅ epic-landable: ${epicChildIds.length} children done+accepted, tsc clean, dry-merge into master clean`
+              : `❌ blocked (${verdict.reason}): epic ${epicBranch} is NOT ready to land`;
+            createEscalation({
+              project,
+              session: session || 'coordinator',
+              todoId: id,
+              kind: 'epic-ready-to-land',
+              questionText: `Epic ${epicBranch} (${epicId.slice(0, 8)}) rolled up. ${proofSummary}. Land onto master? (read-only surface — master untouched)`,
+            });
+            recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, epicBranch, landable: verdict.ok, reason: verdict.reason, children: epicChildIds.length }) });
+          } catch (e) {
+            recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, landSurface: 'failed', reason: e instanceof Error ? e.message : String(e) }) });
+          }
         }
       }
       return r;

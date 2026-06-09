@@ -101,6 +101,55 @@ describe('validateStewardProof — the keystone rail (server re-derives, never t
   });
 });
 
+describe('land_epic epic-landable (FBPE P3 — read-only land surface)', () => {
+  const landProof = { kind: 'epic-landable' as const, epicId: 'epic-123', epicBranch: 'collab/epic/epic-123' };
+  /** ctx for an epic with the given children, plus stubbed worktree-cwd seam runners. */
+  function epicCtx(children: Record<string, DepView>, runnerOver: Partial<ProofContext['runners']> = {}): ProofContext {
+    return {
+      project: '/p',
+      dependsOn: [],
+      getDep: (id) => children[id] ?? null,
+      epicChildIds: Object.keys(children),
+      epicWorktreeCwd: '/p/__epic__',
+      masterCwd: '/p',
+      runners: { tscClean: () => true, epicMergeClean: () => true, ...runnerOver },
+    };
+  }
+  const allDone = { c1: { id: 'c1', status: 'done', acceptanceStatus: 'accepted' } as DepView, c2: { id: 'c2', status: 'done', acceptanceStatus: null } as DepView };
+
+  it('passes when every child is done+accepted, tsc clean in the epic worktree, and the dry-merge into master is clean', () => {
+    expect(validateStewardProof('land_epic', landProof, epicCtx(allDone))).toEqual({ ok: true, reason: 'ok' });
+  });
+
+  it('wrong-proof-for-verb when the cited proof is not epic-landable', () => {
+    expect(validateStewardProof('land_epic', { kind: 'tsc-clean' } as any, epicCtx(allDone)))
+      .toEqual({ ok: false, reason: 'wrong-proof-for-verb' });
+  });
+
+  it('epic-children-incomplete when any child is not done or is rejected (store-truth, never asserted)', () => {
+    const openChild = { c1: { id: 'c1', status: 'in_progress', acceptanceStatus: null } as DepView };
+    expect(validateStewardProof('land_epic', landProof, epicCtx(openChild)))
+      .toEqual({ ok: false, reason: 'epic-children-incomplete' });
+    const rejectedChild = { c1: { id: 'c1', status: 'done', acceptanceStatus: 'rejected' } as DepView };
+    expect(validateStewardProof('land_epic', landProof, epicCtx(rejectedChild)))
+      .toEqual({ ok: false, reason: 'epic-children-incomplete' });
+  });
+
+  it('tsc-failed when tsc is dirty IN the epic worktree (the worktree-cwd seam is exercised)', () => {
+    let tscCwd: string | undefined;
+    const c = epicCtx(allDone, { tscClean: (cwd) => { tscCwd = cwd; return false; } });
+    expect(validateStewardProof('land_epic', landProof, c)).toEqual({ ok: false, reason: 'tsc-failed' });
+    expect(tscCwd).toBe('/p/__epic__'); // tsc ran in the epic worktree, not the project root
+  });
+
+  it('epic-merge-conflict when the epic branch does not dry-merge cleanly into the master checkout', () => {
+    let mergeArgs: [string, string] | undefined;
+    const c = epicCtx(allDone, { epicMergeClean: (masterCwd, branch) => { mergeArgs = [masterCwd, branch]; return false; } });
+    expect(validateStewardProof('land_epic', landProof, c)).toEqual({ ok: false, reason: 'epic-merge-conflict' });
+    expect(mergeArgs).toEqual(['/p', 'collab/epic/epic-123']); // dry-merge ran in the master checkout
+  });
+});
+
 describe('isOverrideRateLimited (the scary-verb cap)', () => {
   const now = 10_000_000;
   it('false under the cap, true at/over it', () => {
