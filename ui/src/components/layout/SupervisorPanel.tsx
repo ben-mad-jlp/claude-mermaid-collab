@@ -23,6 +23,7 @@ import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useServers } from '@/contexts/ServerContext';
 import { SessionCard, ClaudePixAvatar, type SessionCardData } from '@/components/layout/SessionCard';
+import { isWorkerSession } from '@/lib/liveness';
 import { SupervisorOnboarding } from '@/components/supervisor/SupervisorOnboarding';
 import { useUIStore } from '@/stores/uiStore';
 import { selectOpenEscalationsByProject } from '@/components/supervisor/bridge/escalationSelectors';
@@ -608,6 +609,12 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                     <div className="space-y-1 mt-1">
                       {projSessions.map((s, idx) => {
                         const card = cards[idx];
+                        // Declutter: hide gray (idle/stale) WORKER sessions — show
+                        // only colored ones (active/waiting/permission/crashed),
+                        // i.e. used or recently used. cardDataFor keeps a worker
+                        // colored for ~15min after activity, so "recently used"
+                        // stays visible; orchestrators always show.
+                        if (isWorkerSession(s.session) && card.status === 'unknown') return null;
                         const isSelected =
                           !!storeCurrentSession &&
                           storeCurrentSession.project === s.project &&
