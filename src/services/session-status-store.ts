@@ -1,6 +1,7 @@
 import Database from 'bun:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { trackingProjectRoot } from './project-registry.js';
 
 /**
  * Per-PROJECT session status store. Mirrors the bun:sqlite-per-project pattern
@@ -58,9 +59,17 @@ function addColumnIfMissing(db: Database, table: string, column: string, decl: s
 }
 
 function openDb(project: string): Database {
-  const cached = dbCache.get(project);
+  // The persist target must be the TRACKING repo's `.collab`, never a worker
+  // worktree's `.collab`. A worktree (…/.collab/agent-sessions/worktrees/<lane>)
+  // is torn down on merge-back, deleting its `.collab` — after which every
+  // write against a worktree-local DB throws SQLITE_IOERR ("disk I/O error") in
+  // a tight loop (the directory is gone, disk is not full). Resolving through
+  // trackingProjectRoot keeps the DB under the durable repo root, which always
+  // exists. Returns the path unchanged for non-worktree projects.
+  const root = trackingProjectRoot(project);
+  const cached = dbCache.get(root);
   if (cached) return cached;
-  const path = join(project, '.collab', 'session-status.db');
+  const path = join(root, '.collab', 'session-status.db');
   mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path);
   db.exec('PRAGMA journal_mode = WAL');
@@ -69,19 +78,42 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'session_status', 'contextPercent', 'contextPercent INTEGER');
   addColumnIfMissing(db, 'session_status', 'contextUpdatedAt', 'contextUpdatedAt INTEGER');
   addColumnIfMissing(db, 'session_status', 'checkpointReadyAt', 'checkpointReadyAt INTEGER');
-  dbCache.set(project, db);
+  dbCache.set(root, db);
   return db;
 }
 
+/** Drop a possibly-stale cached handle so the next openDb() reopens fresh.
+ *  Guards against a cached connection whose backing file/dir vanished (e.g. a
+ *  torn-down checkout): one failed write self-heals instead of looping forever. */
+function evictDb(project: string): void {
+  const root = trackingProjectRoot(project);
+  const cached = dbCache.get(root);
+  if (cached) {
+    try { cached.close(); } catch { /* already closed */ }
+    dbCache.delete(root);
+  }
+}
+
 export function recordStatus(project: string, session: string, status: ClaudeStatus): void {
-  const db = openDb(project);
-  db.query(
-    `INSERT INTO session_status (project, session, status, updatedAt)
-     VALUES (?, ?, ?, ?)
-     ON CONFLICT(project, session) DO UPDATE SET
-       status = excluded.status,
-       updatedAt = excluded.updatedAt`,
-  ).run(project, session, status, Date.now());
+  const write = () => {
+    const db = openDb(project);
+    db.query(
+      `INSERT INTO session_status (project, session, status, updatedAt)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(project, session) DO UPDATE SET
+         status = excluded.status,
+         updatedAt = excluded.updatedAt`,
+    ).run(project, session, status, Date.now());
+  };
+  try {
+    write();
+  } catch {
+    // A cached handle whose backing dir vanished throws SQLITE_IOERR; evict it
+    // and retry once against a freshly opened DB so we self-heal rather than
+    // loop on every notify. A second failure propagates to the caller's logger.
+    evictDb(project);
+    write();
+  }
 }
 
 /**
