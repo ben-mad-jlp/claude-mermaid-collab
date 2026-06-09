@@ -25,12 +25,22 @@ async function tmuxOut(args: string[]): Promise<{ code: number; out: string }> {
  * — which tmux fixes at creation and does NOT update when the user `cd`s. That
  * makes it safe: navigating inside a session never triggers a (destructive)
  * recreate; only a genuine creation-dir mismatch does.
+ *
+ * EXCEPTION — worker isolation: when `MERMAID_WORKER_ISOLATION` is on, a worker
+ * legitimately runs in a git worktree at `<cwd>/.collab/agent-sessions/worktrees/
+ * <lane>`, so its `pane_start_path` is SUPPOSED to differ from the project root.
+ * Treating that as stale was killing the live worker on every click-to-view and
+ * respawning a bare shell at the root (correct tmux name, empty console). We
+ * therefore spare any session whose start path is under the project's own
+ * worktree dir — the heal still reaps sessions parked somewhere genuinely wrong
+ * (e.g. the desktop app's Resources dir), which is its only real purpose.
  */
 export async function healStaleTmuxSession(base: string, cwd: string): Promise<boolean> {
   if (!(await isTmuxAvailable())) return false;
   if ((await tmuxOut(['has-session', '-t', base])).code !== 0) return false;
   const start = (await tmuxOut(['display-message', '-p', '-t', base, '#{pane_start_path}'])).out;
-  if (start && start !== cwd) {
+  const worktreeRoot = `${cwd}/.collab/agent-sessions/worktrees/`;
+  if (start && start !== cwd && !start.startsWith(worktreeRoot)) {
     await tmuxOut(['kill-session', '-t', base]);
     return true;
   }
