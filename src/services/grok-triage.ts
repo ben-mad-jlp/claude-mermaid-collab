@@ -249,7 +249,7 @@ export const NOW_BUILDABLE_MIN_CONFIDENCE = 0.7;
  *  reset_todo. Below this, verified-done downgrades to classify-only (human decides). */
 export const OVERRIDE_MIN_CONFIDENCE = 0.85;
 
-/** At level `consult` the daemon may AUTO-resolve (no human confirm) — held to an
+/** At level `drive` the daemon may AUTO-resolve (no human confirm) — held to an
  *  even higher confidence bar than `propose` proposals. Below this, the suggestion
  *  is still written for the human (propose behaviour), just not auto-applied. The
  *  proof gate re-validates every auto-act regardless, so this only gates WHICH

@@ -33,7 +33,7 @@ import { getTodo } from './todo-store.ts';
  *  cost; the remainder are picked up on subsequent ticks. */
 export const TRIAGE_CAP = 3;
 
-/** Phase 3 (consult): max UNATTENDED auto-resolutions per project per tick. A hard
+/** Phase 3 (drive): max UNATTENDED auto-resolutions per project per tick. A hard
  *  ceiling on silent autonomy — the rest wait for a human or the next tick. */
 export const AUTO_RESOLVE_CAP = 2;
 
@@ -82,7 +82,7 @@ export interface TriagePassDeps extends TriageDeps {
   setSuggestion?: typeof setEscalationSuggestion;
   /** Todo revision lookup for freshness (defaults to todo-store). */
   getTodoRevision?: (project: string, id: string) => { updatedAt: string } | null;
-  /** Phase 3 (level `consult`): when true, the pass also AUTO-resolves the
+  /** Phase 3 (level `drive`): when true, the pass also AUTO-resolves the
    *  high-confidence actionable suggestions it writes, unattended, behind the proof
    *  gate + AUTO_RESOLVE_CAP. False (level `propose`) → write-only, human confirms. */
   autoResolve?: boolean;
@@ -137,7 +137,7 @@ export async function runTriagePass(project: string, deps: TriagePassDeps = {}):
         }),
       });
 
-      // Phase 3 (consult): auto-resolve a high-confidence actionable suggestion,
+      // Phase 3 (drive): auto-resolve a high-confidence actionable suggestion,
       // unattended — but only behind the proof gate (confirm re-derives the proof,
       // so a wrong classification still cannot mutate state) and within the per-tick
       // cap. Anything not auto-resolved stays as an inline suggestion (propose).

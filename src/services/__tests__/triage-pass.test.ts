@@ -136,7 +136,7 @@ describe('runTriagePass', () => {
   });
 });
 
-describe('runTriagePass — autoResolve (level consult, Phase 3)', () => {
+describe('runTriagePass — autoResolve (level drive, Phase 3)', () => {
   const HI = '{"bucket":"now-buildable","confidence":0.97,"rationale":"go"}';
 
   it('does NOT auto-resolve at propose (autoResolve omitted) — write-only', async () => {
@@ -150,7 +150,7 @@ describe('runTriagePass — autoResolve (level consult, Phase 3)', () => {
     expect(confirmed).toEqual([]); // propose never auto-confirms
   });
 
-  it('auto-resolves a high-confidence actionable suggestion at consult', async () => {
+  it('auto-resolves a high-confidence actionable suggestion at drive', async () => {
     const project = freshProject();
     const { escalation } = createEscalation({ project, session: 'w1', kind: 'blocker', questionText: 'q?' });
     const confirmed: string[] = [];

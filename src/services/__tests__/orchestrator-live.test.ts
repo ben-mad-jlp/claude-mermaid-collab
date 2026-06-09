@@ -33,7 +33,7 @@ const levelOverrides = new Map<string, string>();
 function makeDeps(): TickDeps {
   return {
     listProjects: async () => [...registeredProjects],
-    getLevel: (project: string) => (levelOverrides.get(project) ?? 'build') as 'off' | 'build' | 'nudge' | 'propose' | 'consult',
+    getLevel: (project: string) => (levelOverrides.get(project) ?? 'build') as 'off' | 'build' | 'nudge' | 'propose' | 'drive',
     build: async (project: string) => {
       if (buildShouldThrow && project === buildShouldThrow) throw new Error(`simulated build failure for ${project}`);
       buildCalls.push(project);
@@ -82,8 +82,8 @@ describe('passesForLevel', () => {
     expect(passesForLevel('propose')).toEqual({ build: true, reconcile: true, triage: true });
   });
 
-  it('consult → build + reconcile + triage', () => {
-    expect(passesForLevel('consult')).toEqual({ build: true, reconcile: true, triage: true });
+  it('drive → build + reconcile + triage', () => {
+    expect(passesForLevel('drive')).toEqual({ build: true, reconcile: true, triage: true });
   });
 });
 
@@ -138,9 +138,9 @@ describe('runOrchestratorTick', () => {
     expect(triageAutoResolve).toEqual([{ project: '/proj/p', autoResolve: false }]);
   });
 
-  it('consult level: triage runs with autoResolve=true', async () => {
+  it('drive level: triage runs with autoResolve=true', async () => {
     registeredProjects.push({ path: '/proj/x', name: 'x', lastAccess: '' });
-    levelOverrides.set('/proj/x', 'consult');
+    levelOverrides.set('/proj/x', 'drive');
 
     await runOrchestratorTick(makeDeps());
 

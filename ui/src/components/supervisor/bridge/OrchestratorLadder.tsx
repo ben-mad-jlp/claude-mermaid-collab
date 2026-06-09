@@ -8,20 +8,28 @@
  */
 import React, { useEffect, useState, useCallback } from 'react';
 
-export type OrchestratorLevel = 'off' | 'build' | 'nudge' | 'propose' | 'consult';
+export type OrchestratorLevel = 'off' | 'build' | 'nudge' | 'propose' | 'drive';
 
-const LEVELS: OrchestratorLevel[] = ['off', 'build', 'nudge', 'propose', 'consult'];
+const LEVELS: OrchestratorLevel[] = ['off', 'build', 'nudge', 'propose', 'drive'];
 
 const LEVEL_TITLE: Record<OrchestratorLevel, string> = {
   off: 'Orchestrator off — no daemon activity',
   build: 'Build — daemon executes claimed todos autonomously',
-  nudge: 'Nudge — daemon nudges idle workers',
-  propose: 'Propose — daemon proposes next actions',
-  consult: 'Consult — daemon checks in before every action',
+  nudge: 'Nudge — daemon nudges idle workers + auto-closes stale escalations',
+  propose: 'Propose — Grok suggests an inline action per escalation (you confirm)',
+  drive: 'Drive — daemon auto-resolves confident suggestions (behind the proof gate)',
 };
 
-/** Index of a level (0 = off … 4 = consult). */
-const levelIndex = (l: OrchestratorLevel) => LEVELS.indexOf(l);
+/** Per-stop color ramp (gray ▸ green ▸ yellow ▸ orange ▸ red) — escalating autonomy
+ *  reads as escalating "heat". A stop AT/BELOW the active level fills with its color;
+ *  above stays dim. `off` is always the neutral gray base. */
+const STOP_ACTIVE: Record<OrchestratorLevel, string> = {
+  off: 'bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200',
+  build: 'bg-success-500 dark:bg-success-600 text-white',
+  nudge: 'bg-yellow-400 dark:bg-yellow-500 text-gray-900 dark:text-gray-900',
+  propose: 'bg-orange-500 dark:bg-orange-600 text-white',
+  drive: 'bg-danger-500 dark:bg-danger-600 text-white',
+};
 
 export interface OrchestratorLadderProps {
   project: string;
@@ -110,8 +118,6 @@ export const OrchestratorLadder: React.FC<OrchestratorLadderProps> = ({ project 
     [busy, project, level],
   );
 
-  const activeIdx = levelIndex(level);
-
   return (
     <div
       data-testid="orchestrator-ladder"
@@ -129,21 +135,11 @@ export const OrchestratorLadder: React.FC<OrchestratorLadderProps> = ({ project 
       />
       {LEVELS.map((stop, idx) => {
         const isActive = stop === level;
-        // Determine segment color:
-        //   off-segment selected  → grey active
-        //   off-segment not selected → grey dim
-        //   non-off segment at/below active level → accent fill
-        //   non-off segment above active level → dim
-        let segColor: string;
-        if (stop === 'off') {
-          segColor = isActive
-            ? 'bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200'
-            : 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700';
-        } else if (idx <= activeIdx) {
-          segColor = 'bg-accent-500 dark:bg-accent-600 text-white';
-        } else {
-          segColor = 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700';
-        }
+        // ONLY the selected stop is bright — it fills with its OWN heat color
+        // (gray ▸ green ▸ yellow ▸ orange ▸ red). Every other stop stays light/dim,
+        // so the single bright segment reads as "you are here".
+        const dim = 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700';
+        const segColor = isActive ? STOP_ACTIVE[stop] : dim;
 
         return (
           <button

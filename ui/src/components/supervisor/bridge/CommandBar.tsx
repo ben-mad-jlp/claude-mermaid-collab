@@ -31,31 +31,35 @@ export const CommandBar: React.FC<CommandBarProps> = ({
   return (
     <div
       data-testid="bridge-command-bar"
-      className="flex items-center gap-3 px-4 py-2 border-b border-gray-200 dark:border-gray-700"
+      className="px-4 py-2 border-b border-gray-200 dark:border-gray-700"
     >
-      <span className="text-base" role="img" aria-label="bridge">⤢</span>
-      <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">Bridge</span>
-      {/* Active project — the Bridge is per-project. */}
-      {projectName && (
-        <span
-          data-testid="bridge-project-name"
-          title={project}
-          className="text-xs font-medium text-gray-500 dark:text-gray-400 truncate max-w-[160px]"
-        >
-          {projectName}
-        </span>
-      )}
+      {/* Row 1 — identity + project + the Orchestrator level ladder. */}
+      <div className="flex items-center gap-3">
+        <span className="text-base" role="img" aria-label="bridge">⤢</span>
+        <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">Bridge</span>
+        {/* Active project — the Bridge is per-project. */}
+        {projectName && (
+          <span
+            data-testid="bridge-project-name"
+            title={project}
+            className="text-xs font-medium text-gray-500 dark:text-gray-400 truncate max-w-[160px]"
+          >
+            {projectName}
+          </span>
+        )}
 
-      {/* Per-project Orchestrator level ladder — moved here from the sidebar
-          rows (it crowded the supervisor cards). Scoped to the active project. */}
-      {project && (
-        <div className="ml-auto">
-          <OrchestratorLadder project={project} />
-        </div>
-      )}
+        {/* Per-project Orchestrator level ladder — moved here from the sidebar
+            rows (it crowded the supervisor cards). Scoped to the active project. */}
+        {project && (
+          <div className="ml-auto">
+            <OrchestratorLadder project={project} />
+          </div>
+        )}
+      </div>
 
-      {/* Glanceable FLEET pulse — absorbed AlertRibbon. */}
-      <div data-testid="bridge-glance" className={`flex items-center gap-3 text-xs ${project ? '' : 'ml-auto'}`}>
+      {/* Row 2 — glanceable FLEET pulse (absorbed AlertRibbon), moved below the
+          identity row so the numbers read as a dedicated status line. */}
+      <div data-testid="bridge-glance" className="mt-1.5 flex items-center gap-3 text-xs">
         <span className="flex items-center gap-1 text-gray-600 dark:text-gray-300">
           <span className="text-success-500" aria-hidden="true">●</span>
           {liveCount} live

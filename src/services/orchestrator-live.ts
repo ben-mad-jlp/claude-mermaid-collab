@@ -10,8 +10,10 @@
  *   off     — skipped entirely.
  *   build   — runBuildPass only.
  *   nudge+  — runBuildPass + runReconcilePass.
- *   propose/consult — same as nudge in Phase 1; higher-autonomy passes are
- *             deferred to later phases (escalations already route to human).
+ *   propose — build + reconcile + triage (Grok suggests an inline action per
+ *             escalation; the human confirms).
+ *   drive   — propose + auto-resolve confident actionable suggestions unattended
+ *             (behind the proof gate + rate limits).
  */
 
 import { getOrchestratorLevel, levelRank, listOrchestratorProjects } from './orchestrator-config.js';
@@ -110,11 +112,11 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
 
     // Triage runs LAST (after reconcile auto-closes the deterministic stale/done
     // buckets), so Grok only sees escalations the cheap passes couldn't resolve.
-    // At `consult` (rank >= consult) the triage pass also auto-resolves the
+    // At `drive` (rank >= drive) the triage pass also auto-resolves the
     // high-confidence actionable suggestions it writes (behind the proof gate);
     // at `propose` it only writes them for human confirm.
     if (passes.triage) {
-      const autoResolve = levelRank(lvl) >= levelRank('consult');
+      const autoResolve = levelRank(lvl) >= levelRank('drive');
       try {
         await triage(project, { autoResolve });
       } catch (err) {

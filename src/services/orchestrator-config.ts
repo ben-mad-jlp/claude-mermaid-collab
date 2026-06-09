@@ -18,22 +18,23 @@ import { homedir } from 'node:os';
  *  off     — daemon does nothing; coordinator not started.
  *  build   — start coordinator and drive todos (today's default behavior).
  *  nudge   — drive todos + surface idle/stalled workers proactively.
- *  propose — nudge + propose next steps / auto-promote ready todos.
- *  consult — full autonomy: propose + auto-answer steward-routed escalations.
+ *  propose — nudge + Grok suggests an inline action per escalation (human confirms).
+ *  drive   — full autonomy: propose + auto-resolve confident actionable suggestions
+ *            (behind the proof gate + rate limits).
  */
-export type OrchestratorLevel = 'off' | 'build' | 'nudge' | 'propose' | 'consult';
+export type OrchestratorLevel = 'off' | 'build' | 'nudge' | 'propose' | 'drive';
 
-export const ORCH_LEVELS: OrchestratorLevel[] = ['off', 'build', 'nudge', 'propose', 'consult'];
+export const ORCH_LEVELS: OrchestratorLevel[] = ['off', 'build', 'nudge', 'propose', 'drive'];
 
 const LEVEL_RANK: Record<OrchestratorLevel, number> = {
   off: 0,
   build: 1,
   nudge: 2,
   propose: 3,
-  consult: 4,
+  drive: 4,
 };
 
-/** Numeric rank for a level (off=0 … consult=4). Higher = more autonomous. */
+/** Numeric rank for a level (off=0 … drive=4). Higher = more autonomous. */
 export function levelRank(l: OrchestratorLevel): number {
   return LEVEL_RANK[l];
 }
