@@ -565,16 +565,6 @@ const App: React.FC = () => {
         return;
       }
 
-      // BUGFIX (af49309a): live coordinator daemon state → flip the FleetVitals
-      // pill immediately instead of only on the toggling client / a re-fetch.
-      if ((message as any).type === 'coordinator_status') {
-        const { project: coordProject, running } = message as any;
-        if (typeof coordProject === 'string') {
-          useSupervisorStore.getState().applyCoordinatorStatus(coordProject, !!running);
-        }
-        return;
-      }
-
       if (!currentSession) return;
 
       switch (message.type) {

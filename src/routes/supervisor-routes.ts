@@ -26,7 +26,7 @@ import { listObjects, listTypes } from '../services/system-object-store.ts';
 import { bom } from '../services/system-object-bom.ts';
 import { satisfy } from '../services/system-object-edges.ts';
 import { specCoverage, decideRequirement, type RequirementDecision } from '../services/spec-coverage.ts';
-import { startCoordinator, stopCoordinator, isCoordinatorRunning, landEpic } from '../services/coordinator-live.ts';
+import { landEpic } from '../services/coordinator-live.ts';
 import { SUPERVISOR_PROJECT, SUPERVISOR_SESSION, STEWARD_PROJECT, STEWARD_SESSION } from '../config.ts';
 import { sendTmuxKeys } from '../services/tmux-send.ts';
 import { getWebSocketHandler } from '../services/ws-handler-manager.ts';
@@ -141,29 +141,6 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       if (!project || !id) return jsonError('project and id are required', 400);
       const todo = await updateTodo(project, id, status ? { status } : {});
       return Response.json({ todo });
-    } catch (err) {
-      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
-    }
-  }
-
-  // COORDINATOR DAEMON STATUS / CONTROL (PCS Phase 5).
-  if (url.pathname === '/api/supervisor/coordinator' && req.method === 'GET') {
-    const project = url.searchParams.get('project');
-    if (!project) return jsonError('project is required', 400);
-    return Response.json({ running: isCoordinatorRunning(project) });
-  }
-  if (url.pathname === '/api/supervisor/coordinator' && req.method === 'POST') {
-    try {
-      const { project, action } = (await req.json()) as { project?: string; action?: 'start' | 'stop' };
-      if (!project || !action) return jsonError('project and action are required', 400);
-      const changed = action === 'start' ? startCoordinator(project) : stopCoordinator(project);
-      const running = isCoordinatorRunning(project);
-      // BUGFIX (af49309a): broadcast coordinator state so every client's
-      // FleetVitals pill flips live (start/stop), instead of only updating for
-      // the client that issued the toggle. (The stale-after-restart case is
-      // additionally covered by the Bridge's resync-on-reconnect, 5b8dc726.)
-      getWebSocketHandler()?.broadcast({ type: 'coordinator_status', project, running });
-      return Response.json({ running, changed });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }

@@ -285,12 +285,6 @@ interface SupervisorState {
   loadRoadmap: (serverId: string, project: string) => Promise<void>;
   loadProjectTodos: (serverId: string, project: string) => Promise<void>;
   promoteTodo: (serverId: string, project: string, id: string, status: string) => Promise<void>;
-  coordinatorByProject: Record<string, boolean>;
-  loadCoordinator: (serverId: string, project: string) => Promise<void>;
-  setCoordinator: (serverId: string, project: string, action: 'start' | 'stop') => Promise<void>;
-  /** Apply a live coordinator_status WS broadcast (af49309a) so the pill flips
-   *  without waiting for a re-fetch. */
-  applyCoordinatorStatus: (project: string, running: boolean) => void;
   /** Start a global LLM role (steward/supervisor) via /api/ide/launch-session —
    *  the ON half of the Bridge role switch. `remoteControl` launches with Claude
    *  Code Remote Control so the session is drivable from the Claude app. */
@@ -358,7 +352,6 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   watchedProjects: hydrate<WatchedProject[]>(PROJECTS_KEY, []),
   roadmapByProject: hydrate<Record<string, RoadmapItem[]>>(ROADMAP_KEY, {}),
   todosByProject: hydrate<Record<string, SessionTodo[]>>(TODOS_KEY, {}),
-  coordinatorByProject: {},
   escalations: hydrate<Escalation[]>(ESCALATIONS_KEY, []),
   supervised: hydrate<SupervisedSession[]>(SUPERVISED_KEY, []),
   config: hydrate<SupervisorConfig | null>(SUPERVISOR_CONFIG_KEY, null),
@@ -519,29 +512,6 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     if (!res?.ok) return;
     // Re-fetch the project plan so the change is reflected everywhere.
     await get().loadProjectTodos(serverId, project);
-  },
-
-  loadCoordinator: async (serverId, project) => {
-    const path = `/api/supervisor/coordinator?project=${encodeURIComponent(project)}`;
-    const res = await invoke(serverId, path, 'GET');
-    if (!res?.ok) return;
-    set((state) => ({
-      coordinatorByProject: { ...state.coordinatorByProject, [project]: !!res.body?.running },
-    }));
-  },
-
-  setCoordinator: async (serverId, project, action) => {
-    const res = await invoke(serverId, '/api/supervisor/coordinator', 'POST', { project, action });
-    if (!res?.ok) return;
-    set((state) => ({
-      coordinatorByProject: { ...state.coordinatorByProject, [project]: !!res.body?.running },
-    }));
-  },
-
-  applyCoordinatorStatus: (project, running) => {
-    set((state) => ({
-      coordinatorByProject: { ...state.coordinatorByProject, [project]: running },
-    }));
   },
 
   startRole: async (serverId, role, project, session, remoteControl) => {
