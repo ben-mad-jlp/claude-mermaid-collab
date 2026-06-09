@@ -2,7 +2,7 @@ import * as path from 'node:path';
 import type { Todo } from './todo-store';
 import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, releaseClaim } from './todo-store';
 import { filterClaimable } from './claim-guard';
-import { WorktreeManager, INTEGRATION_BRANCH } from '../agent/worktree-manager';
+import { WorktreeManager, INBOX_EPIC_ID } from '../agent/worktree-manager';
 import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, addSupervised, addWatchedProject } from './supervisor-store';
 import { tmuxBaseName } from './tmux-naming';
 import { ensureSession, runTodoInSession } from './claude-launch';
@@ -403,7 +403,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
               session,
               todoId: id,
               kind: 'assumption-invalidated',
-              questionText: `Worker-isolation merge conflict: branch ${merge.workerBranch} could not merge into ${merge.integrationBranch} for todo "${r.completed.title}". Resolve the conflict manually, then merge the branch into ${merge.integrationBranch}.`,
+              questionText: `Worker-isolation merge conflict: branch ${merge.workerBranch} could not merge into ${merge.epicBranch} for todo "${r.completed.title}". Resolve the conflict manually, then merge the branch into ${merge.epicBranch}.`,
             });
           } else {
             // Merge succeeded — the worktree branch is now in integration. Remove
@@ -836,8 +836,12 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       let integrationBase: string | undefined;
       if (workerIsolationEnabled() && todo?.sessionName) {
         try {
-          const p = await getWorktreeManager(gateProject).existingPath(todo.sessionName);
-          if (p) { laneCwd = p; integrationBase = INTEGRATION_BRANCH; }
+          const gateWm = getWorktreeManager(gateProject);
+          const p = await gateWm.existingPath(todo.sessionName);
+          // Lanes branch off the Inbox-epic accumulation branch (collab/epic/<inbox>)
+          // under FBPE P1, so the gate diff base must be that branch — not the demoted
+          // legacy collab/integration ref — to correctly scope the lane's change-set.
+          if (p) { laneCwd = p; integrationBase = gateWm.epicBranchName(INBOX_EPIC_ID); }
         } catch { /* fall back to whole-tree scoping */ }
       }
       return runRegistryGate({
