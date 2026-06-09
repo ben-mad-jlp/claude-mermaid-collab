@@ -35,7 +35,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const vibeInstructionsDoc = documents.find((d) => d.name.endsWith('vibeinstructions')) || null;
 
   // Role-panel gating: the left column carries a role's panel only while that
-  // role is RUNNING — start/stop now lives on the Bridge RolesStrip. The panels
+  // role is RUNNING — global role start/stop lives in the CommandBar. The panels
   // poll liveness internally, but a gated-out panel can't poll, so the Sidebar
   // drives the same liveness loads itself and decides what to render.
   const serverScope = currentSession?.serverId ?? 'local';

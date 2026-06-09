@@ -52,14 +52,12 @@ import { useUIStore } from '@/stores/uiStore';
 
 const loadEscalations = vi.fn(async () => {});
 const loadProjectTodos = vi.fn(async () => {});
-const loadCoordinator = vi.fn(async () => {});
 const loadAudit = vi.fn(async () => {});
 
 beforeEach(() => {
   connectHandlers.clear();
   loadEscalations.mockClear();
   loadProjectTodos.mockClear();
-  loadCoordinator.mockClear();
   loadAudit.mockClear();
 
   // Seed a project so the loaders actually run.
@@ -69,11 +67,9 @@ beforeEach(() => {
     escalations: [],
     supervised: [],
     todosByProject: {},
-    coordinatorByProject: {},
     auditByProject: {},
     loadEscalations,
     loadProjectTodos,
-    loadCoordinator,
     loadAudit,
   } as any);
 });
@@ -85,7 +81,6 @@ describe('BridgeDashboard post-reconnect resync', () => {
     // Initial mount loaded once.
     expect(loadEscalations).toHaveBeenCalledTimes(1);
     expect(loadProjectTodos).toHaveBeenCalledTimes(1);
-    expect(loadCoordinator).toHaveBeenCalledTimes(1);
     expect(loadAudit).toHaveBeenCalledTimes(1);
 
     // A handler was registered on the WS client.
@@ -97,7 +92,6 @@ describe('BridgeDashboard post-reconnect resync', () => {
     // Every loader re-ran for the current scope — the Bridge is no longer stale.
     expect(loadEscalations).toHaveBeenCalledTimes(2);
     expect(loadProjectTodos).toHaveBeenCalledTimes(2);
-    expect(loadCoordinator).toHaveBeenCalledTimes(2);
     expect(loadAudit).toHaveBeenCalledTimes(2);
   });
 });

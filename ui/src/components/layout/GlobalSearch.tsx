@@ -99,8 +99,6 @@ export const GlobalSearch: React.FC = () => {
   const setMode = useUIStore((s) => s.setMode);
   const activeProject = useUIStore((s) => s.activeProject);
   const escalations = useSupervisorStore((s) => s.escalations);
-  const coordinatorByProject = useSupervisorStore((s) => s.coordinatorByProject);
-  const setCoordinator = useSupervisorStore((s) => s.setCoordinator);
   const decideEscalation = useSupervisorStore((s) => s.decideEscalation);
   const todosByProject = useSupervisorStore((s) => s.todosByProject);
   const diveIn = useDiveIn();
@@ -186,15 +184,6 @@ export const GlobalSearch: React.FC = () => {
       }
     } else {
       // Bridge / Plan: the palette IS the role-action surface.
-      const running = !!coordinatorByProject[project];
-      if (project) {
-        out.push({
-          id: 'coordinator',
-          label: running ? '■ Stop coordinator' : '▸ Start coordinator',
-          hint: 'daemon',
-          run: run(() => void setCoordinator(serverScope, project, running ? 'stop' : 'start')),
-        });
-      }
       out.push({ id: 'approve-plan', label: '✓ Approve plan', hint: 'plan', run: run(() => setMode('plan')) });
       for (const e of escalations.filter((x) => x.status === 'open')) {
         const rec = e.options?.find((o) => o.id === e.recommended) ?? (e.options?.length === 1 ? e.options[0] : undefined);
@@ -215,7 +204,7 @@ export const GlobalSearch: React.FC = () => {
     return out;
   }, [
     mode, activeProject, currentSession, documents, diagrams, sessions, todosByProject,
-    escalations, coordinatorByProject, setCoordinator, decideEscalation, setMode, diveIn,
+    escalations, decideEscalation, setMode, diveIn,
     selectDocumentWithContent, selectDiagramWithContent, closeOverlay,
   ]);
 
