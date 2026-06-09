@@ -28,6 +28,7 @@ import {
 } from './supervisor-store.ts';
 import { getTodo, resetTodo, overrideAcceptTodo } from './todo-store.ts';
 import { validateStewardProof, type StewardProof, type StewardVerb } from './steward-proof.ts';
+import { getWebSocketHandler } from './ws-handler-manager.js';
 
 export interface ConfirmResult {
   ok: boolean;
@@ -118,6 +119,18 @@ export async function confirmSuggestion(project: string, escalationId: string): 
       confidence: s.confidence,
       bundleInputs: s.bundleInputs,
     }),
+  });
+  // Drive narration: broadcast the autonomous decision live so the EventStream shows
+  // WHAT drive resolved and WHY (observational only — audit above stays authoritative).
+  getWebSocketHandler()?.broadcast({
+    type: 'drive.auto_resolved',
+    project,
+    todoId: esc.todoId,
+    escalationId,
+    verb,
+    bucket: s.bucket,
+    confidence: s.confidence,
+    reason: s.rationale || undefined,
   });
   return { ok: true, reason: 'applied' };
 }

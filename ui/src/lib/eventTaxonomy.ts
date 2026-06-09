@@ -60,6 +60,9 @@ export type EventKey =
   | 'plan.promoted'
   | 'todo.completed'
   | 'escalation.decided'
+  | 'drive.auto_resolved'
+  | 'drive.auto_landed'
+  | 'nudge.sent'
   | 'artifact.updated';
 
 interface TaxonomyMeta {
@@ -141,6 +144,27 @@ export const EVENT_TAXONOMY: Record<EventKey, TaxonomyMeta> = {
     tokenClass: 'text-success-600 dark:text-success-400',
     category: 'activity',
     label: 'Escalation decided',
+  },
+  'drive.auto_resolved': {
+    severity: 'success',
+    icon: '⚙',
+    tokenClass: 'text-success-600 dark:text-success-400',
+    category: 'activity',
+    label: 'Drive auto-resolved',
+  },
+  'drive.auto_landed': {
+    severity: 'success',
+    icon: '⏚',
+    tokenClass: 'text-success-600 dark:text-success-400',
+    category: 'activity',
+    label: 'Drive landed epic',
+  },
+  'nudge.sent': {
+    severity: 'info',
+    icon: '➤',
+    tokenClass: 'text-info-600 dark:text-info-400',
+    category: 'activity',
+    label: 'Session nudged',
   },
   'artifact.updated': {
     severity: 'muted',
@@ -260,6 +284,56 @@ export function fromWsMessage(message: unknown): StreamEvent | null {
         project: m.project ?? project,
         session: m.session ?? session,
         title: `Worker ${status} · ${m.session ?? session}`,
+      });
+    }
+
+    case 'drive.auto_resolved': {
+      const verb = typeof m.verb === 'string' ? m.verb : 'resolved';
+      const bucket = typeof m.bucket === 'string' ? m.bucket : undefined;
+      const confidence = typeof m.confidence === 'number' ? m.confidence : undefined;
+      const reason = typeof m.reason === 'string' ? m.reason : undefined;
+      const action = verb === 'reset_todo' ? 'reset' : verb === 'override_accept_todo' ? 'accepted' : verb;
+      const conf = typeof confidence === 'number' ? ` (${confidence.toFixed(2)})` : '';
+      return build('drive.auto_resolved', ts, {
+        id: m.escalationId ? `drive-res-${m.escalationId}` : `ws-${wsSeq++}`,
+        project: m.project ?? project,
+        session,
+        title: `Drive ${action}${bucket ? ` — ${bucket}` : ''}${conf}`,
+        detail: reason,
+        todoId: typeof m.todoId === 'string' ? m.todoId : undefined,
+        escalationId: typeof m.escalationId === 'string' ? m.escalationId : undefined,
+      });
+    }
+
+    case 'drive.auto_landed': {
+      const landed = m.landed === true;
+      const conflict = m.conflict === true;
+      const branch = typeof m.epicBranch === 'string' ? m.epicBranch : typeof m.epicId === 'string' ? m.epicId : 'epic';
+      const sha = typeof m.masterSha === 'string' ? m.masterSha.slice(0, 8) : undefined;
+      const title = landed
+        ? `Drive landed ${branch}${sha ? ` → master ${sha}` : ''}`
+        : conflict
+          ? `Drive land conflict — ${branch} left for human rebase`
+          : `Drive land skipped — ${branch}`;
+      return build('drive.auto_landed', ts, {
+        id: m.escalationId ? `drive-land-${m.escalationId}` : `ws-${wsSeq++}`,
+        project: m.project ?? project,
+        session,
+        title,
+        detail: typeof m.reason === 'string' ? m.reason : undefined,
+        escalationId: typeof m.escalationId === 'string' ? m.escalationId : undefined,
+      });
+    }
+
+    case 'supervisor_nudge': {
+      const target = typeof m.session === 'string' ? m.session : session;
+      const text = typeof m.text === 'string' ? m.text : '';
+      return build('nudge.sent', ts, {
+        id: `nudge-${target}-${ts}`,
+        project: m.project ?? project,
+        session: target,
+        title: `Nudged ${target}`,
+        detail: text || undefined,
       });
     }
 
