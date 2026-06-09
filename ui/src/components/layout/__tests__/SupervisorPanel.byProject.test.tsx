@@ -48,7 +48,16 @@ vi.mock('@/stores/supervisorStore', () => {
 });
 
 vi.mock('@/stores/subscriptionStore', () => ({
-  useSubscriptionStore: (sel: (s: any) => any) => sel({ subscriptions: {} }),
+  // Live subscriptions so both sessions resolve to a colored (non-gray) status —
+  // the per-project list hides gray (unknown) worker lanes, so a statusless
+  // session would be filtered out and the render assertion below would see 0 cards.
+  useSubscriptionStore: (sel: (s: any) => any) =>
+    sel({
+      subscriptions: {
+        'local|/proj|sess-a': { serverId: 'local', project: '/proj', session: 'sess-a', status: 'waiting', lastUpdate: Date.now() },
+        'local|/proj|sess-b': { serverId: 'local', project: '/proj', session: 'sess-b', status: 'active', lastUpdate: Date.now() },
+      },
+    }),
 }));
 
 vi.mock('@/stores/sessionStore', () => ({
