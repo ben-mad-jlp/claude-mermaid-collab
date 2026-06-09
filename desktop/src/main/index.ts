@@ -394,7 +394,13 @@ async function bootstrap(): Promise<void> {
   // they're safe before those are assigned) — this also wires mc:retry-bootstrap.
   registerIpc();
 
-  paneManager = new BrowserPaneManager(mainWindow!, { x: 0, y: 0, width: 0, height: 0 });
+  paneManager = new BrowserPaneManager(
+    mainWindow!,
+    { x: 0, y: 0, width: 0, height: 0 },
+    // Tool-driven pane ensured → tell the renderer to open + focus the built-in
+    // browser panel on that session's pane.
+    (session) => mainWindow?.webContents.send('mc:browser:session-ensured', session),
+  );
   control = new DesktopControl(paneManager);
   const { url: controlUrl, token: controlToken } = await control.start();
   serviceOpts = { cdpPort, controlUrl, controlToken };

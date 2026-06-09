@@ -32,11 +32,26 @@ export class BrowserPaneManager {
   private activeId: string | null = null;
   private zeroRect: Rect = { x: 0, y: 0, width: 0, height: 0 };
 
-  constructor(private win: BrowserWindow, private activeBounds: Rect) {}
+  /**
+   * @param onSessionEnsured fired whenever a session pane is ensured (by the
+   *   browser_* tools via desktop-control /panes/ensure). The renderer uses it to
+   *   auto-open + focus the built-in browser panel on that session's pane, so a
+   *   tool-driven page actually shows in the UI instead of a hidden 0×0 view.
+   */
+  constructor(
+    private win: BrowserWindow,
+    private activeBounds: Rect,
+    private onSessionEnsured?: (session: string) => void,
+  ) {}
 
   async ensureSessionTab(session: string): Promise<{ id: string }> {
     const existing = this.sessionIndex.get(session);
-    if (existing) return { id: existing };
+    if (existing) {
+      // Already exists — still raise + surface it so a follow-up tool call (click,
+      // navigate, screenshot) re-focuses the built-in browser on this session.
+      this.focusSession(existing, session);
+      return { id: existing };
+    }
     const flying = this.inFlight.get(session);
     if (flying) return flying;
 
@@ -50,6 +65,7 @@ export class BrowserPaneManager {
         await view.webContents.loadURL(markerPage(marker));
         this.tabs.set(id, { id, kind: 'session', sessionKey: session, view, marker });
         this.sessionIndex.set(session, id);
+        this.focusSession(id, session);
         return { id };
       } finally {
         this.inFlight.delete(session);
@@ -58,6 +74,13 @@ export class BrowserPaneManager {
 
     this.inFlight.set(session, promise);
     return promise;
+  }
+
+  /** Raise the session's native view AND tell the renderer to open + focus the
+   *  built-in browser panel on it (so tool-driven browsing is visible). */
+  private focusSession(id: string, session: string): void {
+    this.activateTab(id);
+    this.onSessionEnsured?.(session);
   }
 
   openUserTab(opts: { url?: string }): { id: string } {

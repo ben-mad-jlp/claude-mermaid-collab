@@ -45,5 +45,12 @@ contextBridge.exposeInMainWorld('mc', {
     devtools: (id: string) => ipcRenderer.invoke('mc:browser:devtools', id),
     setBounds: (rect: { x: number; y: number; width: number; height: number }) =>
       ipcRenderer.invoke('mc:browser:setBounds', rect),
+    // Main fires this when the browser_* tools ensure a session pane — the
+    // renderer uses it to open + focus the built-in browser panel on that session.
+    onSessionEnsured: (cb: (session: string) => void) => {
+      const h = (_e: any, session: string) => cb(session);
+      ipcRenderer.on('mc:browser:session-ensured', h);
+      return () => ipcRenderer.removeListener('mc:browser:session-ensured', h);
+    },
   },
 });

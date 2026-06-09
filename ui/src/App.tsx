@@ -1344,6 +1344,18 @@ const App: React.FC = () => {
     });
   }, [zoomIn, zoomOut, setZoomLevel]);
 
+  // Browser tools (browser_open/click/navigate/…) ensure a session pane in the
+  // desktop app; main fires mc:browser:session-ensured so we open + focus the
+  // built-in browser panel on that session's pane (otherwise the tool drives a
+  // hidden 0×0 WebContentsView the UI never surfaces).
+  useEffect(() => {
+    const onSessionEnsured = (window.mc as any)?.browser?.onSessionEnsured;
+    if (typeof onSessionEnsured !== 'function') return;
+    return onSessionEnsured((session: string) => {
+      void useBrowserStore.getState().activateSession(session);
+    });
+  }, []);
+
   // Update page title with project and session name
   useEffect(() => {
     if (currentSession) {
