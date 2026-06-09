@@ -31,7 +31,10 @@ export interface SupervisorOpts {
   logFilePath?: string;
 }
 
-const HEALTH_TIMEOUT_MS = 25_000;
+// Give the sidecar a generous startup window before surfacing the health-timeout
+// error in the desktop UI — a cold compiled mc-server (first launch, large bundle,
+// DB migrations) can take well past 25s on a busy machine.
+const HEALTH_TIMEOUT_MS = 60_000;
 const HEALTH_POLL_MS = 300;
 
 /** Common user bin dirs that a GUI-launched PATH typically omits. */

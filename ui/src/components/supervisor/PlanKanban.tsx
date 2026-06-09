@@ -96,7 +96,7 @@ function PlanCard({
       data-testid="plan-card"
       data-todo-id={todo.id}
       onClick={onSelect ? () => onSelect(todo) : undefined}
-      className={`w-56 shrink-0 text-left rounded-md border px-2 py-1.5 space-y-1 transition-colors hover:brightness-95 ${BUCKET_CARD[bucket]} ${onSelect ? 'cursor-pointer' : 'cursor-default'}`}
+      className={`w-56 shrink-0 text-left rounded-md border px-3 py-2.5 space-y-1.5 transition-colors hover:brightness-95 ${BUCKET_CARD[bucket]} ${onSelect ? 'cursor-pointer' : 'cursor-default'}`}
     >
       <div className="text-xs leading-tight text-gray-800 dark:text-gray-100">{todo.title}</div>
       <div className="flex items-center gap-1.5 text-3xs text-gray-500 dark:text-gray-400">
